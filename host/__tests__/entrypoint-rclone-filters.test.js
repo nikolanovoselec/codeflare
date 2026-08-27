@@ -270,7 +270,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     }
   });
 
-  it('REQ-IDE-002 AC6: syncs only bounded Browser IDE manifests', () => {
+  it('REQ-IDE-002 AC6 / REQ-STOR-031 AC1: syncs bounded Browser IDE manifests and managed policy', () => {
     for (const sessionMode of ['advanced', 'default']) {
       const v = verdictUnder({ sessionMode, defaultDeny: false });
       assert.equal(v['.codeflare/ide-ui-state.json'], 'INCLUDED');
@@ -335,7 +335,7 @@ function extractManagedResourceFilterFunction() {
   return src.slice(start, end);
 }
 
-describe('REQ-STOR-029 managed-resource rclone filter', () => {
+describe('REQ-STOR-031 managed-resource rclone filter', () => {
   const functionSource = extractManagedResourceFilterFunction();
 
   it('validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths', () => {

@@ -30,7 +30,7 @@ import { readVerifiedManagedR2Policy } from '../../lib/managed-r2-policy';
 
 const user: AccessUser = { email: 'user@example.com', authenticated: true };
 
-describe('REQ-ENTERPRISE-028 Storage mutation guard', () => {
+describe('REQ-ENTERPRISE-030 Storage mutation guard', () => {
   let kv: ReturnType<typeof createMockKV>;
   let env: Env;
 

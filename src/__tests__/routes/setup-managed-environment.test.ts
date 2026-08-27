@@ -150,7 +150,7 @@ describe('REQ-SETUP-013 managed environment Setup boundary', () => {
     expect(mocks.configureManagedEnvironment).not.toHaveBeenCalled();
   });
 
-  it('REQ-SETUP-015 AC4/AC5: rejects invalid or unavailable protected policy before streaming', async () => {
+  it('REQ-SETUP-016 AC2: rejects unavailable protected policy before streaming', async () => {
     const base = {
       customDomain: 'code.example.com',
       allowedUsers: ['admin@example.com'],
@@ -177,7 +177,7 @@ describe('REQ-SETUP-013 managed environment Setup boundary', () => {
     expect(mocks.configureManagedEnvironment).not.toHaveBeenCalled();
   });
 
-  it('REQ-SETUP-015 AC6: policy changes fail closed on active, unreadable, or incompletely listed sessions', async () => {
+  it('REQ-SETUP-016 AC3/AC4: policy changes fail closed on active, unreadable, or incompletely listed sessions', async () => {
     const body = {
       customDomain: 'code.example.com', allowedUsers: ['admin@example.com'], adminUsers: ['admin@example.com'],
       dynamicRoutes: ['development'], strictGatewayEgress: true,

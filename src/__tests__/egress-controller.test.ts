@@ -90,7 +90,7 @@ describe('REQ-ENTERPRISE-016: EgressController fail-closed guards', () => {
   });
 });
 
-describe('REQ-ENTERPRISE-028: protected own-R2 enforcement', () => {
+describe('REQ-ENTERPRISE-029: protected own-R2 enforcement', () => {
   async function protectedFixture(digestCharacter = 'd') {
     const releaseDigest = digestCharacter.repeat(64);
     const value = {

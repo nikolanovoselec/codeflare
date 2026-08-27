@@ -610,7 +610,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-021: Managed content ownership
 
-**Intent:** Managed reconciliation removes only Codeflare-owned content and preserves user-owned state.
+**Intent:** Managed reconciliation preserves mutable user ownership while treating signed retirements as authoritative under an active protected policy.
 
 **Applies To:** User
 
@@ -618,12 +618,13 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. Managed writes carry active release provenance. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC1 + REQ-STOR-024 AC2: Default and Advanced stream identical mode payloads with active release provenance) -->
 2. Obsolete content is deleted only while its marker matches the prior release. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC2: prior release markers guard managed cleanup) -->
-3. Signed retirements delete earlier seeded content only while a Codeflare ownership marker remains. <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC3: signed retirements delete only Codeflare-owned paths) -->
+3. In mutable mode, signed retirements delete earlier seeded content only while a Codeflare ownership marker remains. <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC3: signed retirements delete only Codeflare-owned paths) -->
 4. Image-owned runtime files, user roots, transcripts, Vault content, and company package bytes remain outside managed documents. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/lib/r2-seed.ts::reseedContextModePlugin --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC4: image-owned and user-owned roots remain outside managed documents) -->
+5. In protected modes, signed retirements delete prior content without requiring an ownership marker. <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC5: protected signed retirement deletes markerless prior content) -->
 
 **Constraints:**
 
-- Changed or absent ownership markers preserve the object.
+- Changed or absent ownership markers preserve mutable content, except active protected signed retirements.
 - Company extension metadata may enter R2; package bytes may not.
 
 **Priority:** P1
@@ -794,55 +795,104 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-028: Canonical managed-resource persistence policy
 
-**Intent:** Enterprise managed-resource persistence rules are derived canonically from verified release inventory and loaded only under exact applied identity.
+**Intent:** Enterprise managed-resource persistence paths are derived canonically from verified release inventory.
 
 **Applies To:** Enterprise
 
 **Acceptance Criteria:**
 
 1. Protected modes derive deterministic UTF-8 JSON from every verified release document, retired path, and Codeflare-owned synthetic managed path, independent of session mode. <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (deterministically protects both modes, retirements, and synthetic policy paths) -->
-2. Canonical policy paths are sorted and deduplicated, and SHA-256 identifies the exact `.codeflare/managed-paths.json` bytes. <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (deterministically protects both modes, retirements, and synthetic policy paths) -->
-3. Exclusive mode derives segment-aware resource roots only from the governed category allowlist. <!-- @impl: src/lib/managed-r2-policy.ts::deriveManagedResourceRoots --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (exclusive roots derive segment-aware while sessions and root files remain outside) -->
-4. Exclusive roots protect root objects and descendants without covering similarly prefixed names, session state, or unrelated personal paths. <!-- @impl: src/lib/managed-r2-policy.ts::isManagedMutationProtected --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (exclusive roots derive segment-aware while sessions and root files remain outside) -->
-5. Exclusive generation fails before reconciliation when a managed or retired path uses an unknown nested category. <!-- @impl: src/lib/managed-r2-policy.ts::deriveManagedResourceRoots --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (exclusive generation rejects a novel or later nested managed category) -->
-6. Policy loading accepts only bounded canonical bytes matching Worker-owned SHA-256, release digest, and resource mode. <!-- @impl: src/lib/managed-r2-policy.ts::readVerifiedManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (loader verifies exact digest, release, mode, and canonical bytes) -->
-7. Every bounded two-entry memory-cache hit revalidates expected identity, and callers can bypass that cache. <!-- @impl: src/lib/managed-r2-policy.ts::readVerifiedManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (cache hits still revalidate expected release and mode) -->
+2. Canonical policy paths are sorted and deduplicated. <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (deterministically protects both modes, retirements, and synthetic policy paths) -->
+3. SHA-256 identifies the exact `.codeflare/managed-paths.json` bytes. <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (deterministically protects both modes, retirements, and synthetic policy paths) -->
+4. Exclusive mode derives segment-aware resource roots only from the governed category allowlist. <!-- @impl: src/lib/managed-r2-policy.ts::deriveManagedResourceRoots --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (exclusive roots derive segment-aware while sessions and root files remain outside) -->
+5. Exclusive roots protect root objects and descendants without covering similarly prefixed names, session state, or unrelated personal paths. <!-- @impl: src/lib/managed-r2-policy.ts::isManagedMutationProtected --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (exclusive roots derive segment-aware while sessions and root files remain outside) -->
+6. Exclusive generation fails before reconciliation when a managed or retired path uses an unknown nested category. <!-- @impl: src/lib/managed-r2-policy.ts::deriveManagedResourceRoots --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (exclusive generation rejects a novel or later nested managed category) -->
 
 **Constraints:** `.codeflare/managed-paths.json` is the only persisted runtime policy document. No policy KV store or cache object is introduced.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-SETUP-015](setup.md#req-setup-015-managed-resource-persistence-policy-setup)
+**Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-SETUP-015](setup.md#req-setup-015-managed-resource-persistence-controls)
 
-**Verification:** Automated policy derivation, root-boundary, canonical-byte, identity, and cache-bypass tests
+**Verification:** Automated policy derivation, ordering, digest, root-boundary, and category tests
 
 **Status:** Implemented
 
 ---
 
-### REQ-STOR-029: Managed-resource reconciliation and sync
+### REQ-STOR-029: Managed-resource reconciliation
 
-**Intent:** Existing managed reconciliation applies canonical policy and keeps protected resources out of ordinary container persistence without creating another authority.
+**Intent:** Existing managed reconciliation applies canonical policy and bounded exclusive cleanup before stamping applied identity.
 
 **Applies To:** Enterprise
 
 **Acceptance Criteria:**
 
-1. Managed-seed reconciliation writes and read-verifies protected policy after managed content. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (writes and read-verifies canonical protected policy after managed content) -->
-2. Protected signed retirements delete prior content without requiring provenance, while mutable mode retains ownership-transfer behavior. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (protected signed retirement deletes markerless prior content) -->
-3. Exclusive cleanup prevalidates at most 10,000 objects and 1 GiB of object size, then uses bounded delete batches without touching managed or similarly prefixed objects. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (exclusive cleanup preserves managed and similarly prefixed objects in one bounded delete batch) -->
-4. Malformed or over-bound exclusive listings fail before every cleanup mutation. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (exclusive cleanup rejects summed object size above 1 GiB with zero mutations) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (malformed exclusive listings cause zero mutations) -->
-5. Mutable transition removes stale R2 policy and local policy/filter state. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (mutable transition removes stale canonical policy) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (mutable reset removes stale policy and filter before baseline) -->
-6. Applied release, mode, and policy identity are stamped only after successful reconciliation. <!-- @impl: src/routes/storage/seed.ts --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (transports configured policy and stamps verified identity last) -->
-7. Every restore and bisync path uses the common pre-baseline filter generated from exact verified policy identity, excluding protected paths and exclusive roots. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @impl: entrypoint.sh::RCLONE_FILTERS --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (rejects an oversized policy before Node reads it) -->
+1. Managed-seed reconciliation writes and read-verifies protected policy after managed content. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC1: writes and read-verifies canonical protected policy after managed content) -->
+2. Exclusive cleanup prevalidates the 10,000-object and 1-GiB object-size bounds. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC2: exclusive cleanup bounds fail before every mutation) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC2: exclusive cleanup rejects summed object size above 1 GiB with zero mutations) -->
+3. Exclusive cleanup uses bounded delete batches without touching managed or similarly prefixed objects. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC3: exclusive cleanup preserves managed and similarly prefixed objects in one bounded delete batch) -->
+4. Malformed or over-bound exclusive listings fail before every cleanup mutation. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC2: exclusive cleanup rejects summed object size above 1 GiB with zero mutations) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC4: malformed exclusive listings cause zero mutations) -->
+5. Mutable transition removes stale R2 policy. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC5: mutable transition removes stale canonical policy) -->
+6. Applied release, mode, and policy identity are stamped only after successful reconciliation. <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-029 AC6: transports configured policy and stamps verified identity last) -->
 
-**Constraints:** Reconciliation reuses the managed-seed path. Container policy is non-authoritative; no queue, database, Durable Object policy persistence, or separate reconciler is introduced.
+**Constraints:** Reconciliation reuses the managed-seed path; no queue, database, or separate reconciler is introduced.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-STOR-028](#req-stor-028-canonical-managed-resource-persistence-policy)
+**Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-STOR-028](#req-stor-028-canonical-managed-resource-persistence-policy), [REQ-STOR-030](#req-stor-030-managed-resource-policy-loading)
 
-**Verification:** Automated reconciliation-order, retirement, cleanup-bound, stamping, and rclone-filter tests
+**Verification:** Automated reconciliation-order, cleanup-bound, mutable-transition, and stamping tests
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-030: Managed-resource policy loading
+
+**Intent:** Worker boundaries accept managed-resource policy only under exact applied identity.
+
+**Applies To:** Enterprise
+
+**Acceptance Criteria:**
+
+1. Policy loading accepts only bounded canonical bytes matching Worker-owned SHA-256, release digest, and resource mode. <!-- @impl: src/lib/managed-r2-policy.ts::readVerifiedManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (loader verifies exact digest, release, mode, and canonical bytes) -->
+2. Reused policy results revalidate the caller's expected identity. <!-- @impl: src/lib/managed-r2-policy.ts::readVerifiedManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (cache hits still revalidate expected release and mode) -->
+3. Callers can require fresh policy verification without reusing an earlier result. <!-- @impl: src/lib/managed-r2-policy.ts::readVerifiedManagedR2Policy --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (verifies protected bucket policy without cache and transports only its identity) -->
+
+**Constraints:** Policy loading does not create another persisted policy object.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-028](#req-stor-028-canonical-managed-resource-persistence-policy)
+
+**Verification:** Automated canonical-byte, identity-revalidation, and fresh-verification tests
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-031: Managed-resource container sync
+
+**Intent:** Containers restore policy before generating non-authoritative filters that keep protected mutations out of ordinary bisync.
+
+**Applies To:** Enterprise
+
+**Acceptance Criteria:**
+
+1. Initial restore includes `.codeflare/managed-paths.json` before policy validation. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-IDE-002 AC6 / REQ-STOR-031 AC1: syncs bounded Browser IDE manifests and managed policy) -->
+2. Protected modes verify exact policy identity before baseline creation. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) -->
+3. The generated filter excludes protected exact paths. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) -->
+4. Exclusive filtering also excludes governed resource roots. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) -->
+5. Mutable transition removes stale local policy and filter state before baseline. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (mutable reset removes stale policy and filter before baseline) -->
+6. Baseline, periodic, manual, recovery, and final bisync use the common generated filter. <!-- @impl: entrypoint.sh::RCLONE_FILTERS --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persistence) / REQ-STOR-004 (initial sync) / REQ-STOR-005 (graceful shutdown final sync) / REQ-SESSION-003 AC3 (entrypoint initial rclone sync) + AC4 (bisync daemon + SIGUSR1) / REQ-SESSION-011 (graceful shutdown with final sync) / REQ-VAULT-006 (shutdown bisync vault writes) / REQ-OPS-010 (graceful container shutdown) / REQ-MEM-004 (memory dirs in bisync filter)) -->
+
+**Constraints:** Container policy is non-authoritative; no Durable Object policy persistence is introduced.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-029](#req-stor-029-managed-resource-reconciliation), [REQ-STOR-030](#req-stor-030-managed-resource-policy-loading)
+
+**Verification:** Automated restore-scope, identity, exact-path, root, mutable-transition, and bisync-consumer tests
 
 **Status:** Implemented
 

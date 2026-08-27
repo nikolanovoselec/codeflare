@@ -173,7 +173,7 @@ describe('managed storage reconcile', () => {
     expect(finalPut[0]).toBe('user-prefs:user-bucket');
   });
 
-  it('REQ-STOR-029 AC1/AC6: transports configured policy and stamps verified identity last', async () => {
+  it('REQ-STOR-029 AC6: transports configured policy and stamps verified identity last', async () => {
     state.resourcePolicy = 'exclusive';
     reconcile.mockResolvedValueOnce({
       written: ['.claude/company.md'],

@@ -128,7 +128,7 @@ describe('managed-environment setup prefill', () => {
     expect(target.managedEnvironmentFreshness).toBe('fresh');
   });
 
-  it('REQ-SETUP-015 AC2: clearing immutable resources clears exclusive mode', () => {
+  it('REQ-SETUP-015 AC3: clearing immutable resources clears exclusive mode', () => {
     setupStore.setManagedEnvironmentEnabled(true);
     setupStore.setManagedEnvironmentImmutableResources(true);
     setupStore.setManagedEnvironmentDisableUserCreatedResources(true);

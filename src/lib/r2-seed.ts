@@ -881,6 +881,7 @@ async function writeAndVerifyManagedPolicy(
   });
 }
 
+/** @impl REQ-STOR-021 AC3, AC5 */
 /** @impl REQ-STOR-029 AC1, AC2, AC3, AC4, AC5 */
 export async function reconcileAgentConfigs(
   env: SeedEnv,

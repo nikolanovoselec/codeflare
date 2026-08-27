@@ -437,29 +437,53 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ---
 
-### REQ-SETUP-015: Managed-resource persistence policy setup
+### REQ-SETUP-015: Managed-resource persistence controls
 
-**Intent:** An Enterprise administrator can select managed-resource persistence behavior without weakening trust or changing policy while sessions are active.
+**Intent:** Enterprise Setup presents and normalizes managed-resource persistence controls without losing stored selection.
 
 **Applies To:** Enterprise
 
 **Acceptance Criteria:**
 
-1. Enterprise Setup exposes nested Immutable Resources and Disable User Created Resources controls and round-trips them as `mutable`, `immutable`, or `exclusive`. <!-- @impl: web-ui/src/components/setup/ManagedEnvironmentSection.tsx::ManagedEnvironmentSection --> <!-- @test: web-ui/src/__tests__/components/ManagedEnvironmentSection.test.tsx (REQ-SETUP-015 AC1: renders nested immutable resource controls) -->
-2. Clearing Immutable Resources also clears Disable User Created Resources. <!-- @impl: web-ui/src/stores/setup.ts::setManagedEnvironmentImmutableResources --> <!-- @test: web-ui/src/__tests__/stores/setup-managed-environment.test.ts (REQ-SETUP-015 AC2: clearing immutable resources clears exclusive mode) -->
-3. Omitted policy controls preserve stored policy and default to mutable only without prior configuration. <!-- @impl: src/lib/remote-curation.ts::resolveManagedResourcePolicy --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-015 AC3: resolves omitted managed resource policy from stored state) -->
-4. Exclusive policy is rejected unless immutable policy is also selected. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-015 AC4/AC5: rejects invalid or unavailable protected policy before streaming) -->
-5. Protected policy is rejected outside Enterprise Mode or without effective Strict Gateway Egress and the `EGRESS` binding. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-015 AC4/AC5: rejects invalid or unavailable protected policy before streaming) -->
-6. A policy change is rejected before Setup writes while a session is running or initializing; list, parse, metadata-read, and pagination uncertainty fail closed. <!-- @impl: src/routes/setup/index.ts::assertNoActiveManagedSessions --> <!-- @impl: src/lib/kv-keys.ts::listAllKvKeys --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-015 AC6: policy changes fail closed on active, unreadable, or incompletely listed sessions) --> <!-- @test: src/__tests__/lib/kv-keys.test.ts (fails closed at MAX_KV_LIST_ITERATIONS instead of returning a partial scan) -->
-7. Policy selection preserves repository, signing-key, release-cache, and sequence fingerprints. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-015 AC7: policy changes preserve managed trust fingerprints) -->
+1. Enterprise Setup exposes nested Immutable Resources and Disable User Created Resources controls. <!-- @impl: web-ui/src/components/setup/ManagedEnvironmentSection.tsx::ManagedEnvironmentSection --> <!-- @test: web-ui/src/__tests__/components/ManagedEnvironmentSection.test.tsx (REQ-SETUP-015 AC1: renders nested immutable resource controls) -->
+2. Explicit control values normalize to `mutable`, `immutable`, or `exclusive`. <!-- @impl: src/lib/remote-curation.ts::resolveManagedResourcePolicy --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-015 AC2: normalizes explicit managed resource controls) -->
+3. Clearing Immutable Resources also clears Disable User Created Resources. <!-- @impl: web-ui/src/stores/setup.ts::setManagedEnvironmentImmutableResources --> <!-- @test: web-ui/src/__tests__/stores/setup-managed-environment.test.ts (REQ-SETUP-015 AC3: clearing immutable resources clears exclusive mode) -->
+4. Omitted policy controls preserve the stored selection. <!-- @impl: src/lib/remote-curation.ts::resolveManagedResourcePolicy --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-015 AC4: omitted managed resource controls preserve stored policy) -->
+5. Omitted policy controls default to mutable when no prior configuration exists. <!-- @impl: src/lib/remote-curation.ts::resolveManagedResourcePolicy --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-015 AC5: omitted managed resource controls default to mutable) -->
 
 **Constraints:** Public payloads cannot select applied or interceptor state.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SETUP-013](#req-setup-013-managed-environment-configuration), [REQ-ENTERPRISE-016](enterprise-mode.md#req-enterprise-016-strict-gateway-egress)
+**Dependencies:** [REQ-SETUP-013](#req-setup-013-managed-environment-configuration)
 
-**Verification:** Automated Setup UI, normalization, availability, active-session, and trust-fingerprint tests
+**Verification:** Automated Setup UI, normalization, parent-child, and stored-state tests
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-016: Managed-resource policy safety
+
+**Intent:** Enterprise policy selection fails closed when its prerequisites or session-safety boundary are uncertain.
+
+**Applies To:** Enterprise
+
+**Acceptance Criteria:**
+
+1. Exclusive policy is rejected unless immutable policy is selected. <!-- @impl: src/lib/remote-curation.ts::resolveManagedResourcePolicy --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-016 AC1: rejects exclusive policy without immutable policy) -->
+2. Protected policy is rejected unless Enterprise Strict Gateway Egress is available. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-016 AC2: rejects unavailable protected policy before streaming) -->
+3. A policy change is rejected before Setup writes while a session is running or initializing. <!-- @impl: src/routes/setup/index.ts::assertNoActiveManagedSessions --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-016 AC3/AC4: policy changes fail closed on active, unreadable, or incompletely listed sessions) -->
+4. Session list, parse, metadata-read, and pagination uncertainty rejects a policy change before Setup writes. <!-- @impl: src/routes/setup/index.ts::assertNoActiveManagedSessions --> <!-- @impl: src/lib/kv-keys.ts::listAllKvKeys --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-016 AC3/AC4: policy changes fail closed on active, unreadable, or incompletely listed sessions) --> <!-- @test: src/__tests__/lib/kv-keys.test.ts (fails closed at MAX_KV_LIST_ITERATIONS instead of returning a partial scan) -->
+5. Policy selection preserves repository, signing-key, release-cache, and sequence fingerprints. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-016 AC5: policy changes preserve managed trust fingerprints) -->
+
+**Constraints:** Policy safety checks run before configuration writes.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SETUP-015](#req-setup-015-managed-resource-persistence-controls), [REQ-ENTERPRISE-016](enterprise-mode.md#req-enterprise-016-strict-gateway-egress)
+
+**Verification:** Automated policy-shape, availability, active-session, uncertainty, and trust-fingerprint tests
 
 **Status:** Implemented
 

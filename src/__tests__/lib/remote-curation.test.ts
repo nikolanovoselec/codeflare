@@ -31,15 +31,23 @@ vi.mock('../../lib/r2-admin', () => ({
 }));
 
 describe('managed resource policy selection', () => {
-  it('REQ-SETUP-015 AC3: resolves omitted managed resource policy from stored state', () => {
-    expect(resolveManagedResourcePolicy({ enabled: true }, 'exclusive')).toBe('exclusive');
-    expect(resolveManagedResourcePolicy({ enabled: true, immutableResources: true }, 'exclusive')).toBe('exclusive');
+  it('REQ-SETUP-015 AC2: normalizes explicit managed resource controls', () => {
+    expect(resolveManagedResourcePolicy({ enabled: true, immutableResources: false, disableUserCreatedResources: false }, 'exclusive')).toBe('mutable');
     expect(resolveManagedResourcePolicy({ enabled: true, immutableResources: true, disableUserCreatedResources: false }, 'exclusive')).toBe('immutable');
-    expect(resolveManagedResourcePolicy({ enabled: true }, undefined)).toBe('mutable');
+    expect(resolveManagedResourcePolicy({ enabled: true, immutableResources: true, disableUserCreatedResources: true }, 'mutable')).toBe('exclusive');
     expect(resolveManagedResourcePolicy({ enabled: false }, 'exclusive')).toBe('mutable');
   });
 
-  it('rejects exclusive policy without immutable policy', () => {
+  it('REQ-SETUP-015 AC4: omitted managed resource controls preserve stored policy', () => {
+    expect(resolveManagedResourcePolicy({ enabled: true }, 'exclusive')).toBe('exclusive');
+    expect(resolveManagedResourcePolicy({ enabled: true, immutableResources: true }, 'exclusive')).toBe('exclusive');
+  });
+
+  it('REQ-SETUP-015 AC5: omitted managed resource controls default to mutable', () => {
+    expect(resolveManagedResourcePolicy({ enabled: true }, undefined)).toBe('mutable');
+  });
+
+  it('REQ-SETUP-016 AC1: rejects exclusive policy without immutable policy', () => {
     expect(() => resolveManagedResourcePolicy({
       enabled: true,
       immutableResources: false,
@@ -47,7 +55,7 @@ describe('managed resource policy selection', () => {
     }, 'mutable')).toThrow(/requires Immutable Resources/);
   });
 
-  it('REQ-SETUP-015 AC7: policy changes preserve managed trust fingerprints', async () => {
+  it('REQ-SETUP-016 AC5: policy changes preserve managed trust fingerprints', async () => {
     const repositoryFingerprint = await getManagedEnvironmentConfigFingerprint(123456, 'ab'.repeat(32));
     const immutableFingerprint = await getManagedEnvironmentConfigFingerprint(123456, 'ab'.repeat(32));
     const exclusiveFingerprint = await getManagedEnvironmentConfigFingerprint(123456, 'ab'.repeat(32));

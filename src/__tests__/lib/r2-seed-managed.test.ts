@@ -187,7 +187,7 @@ describe('managed release user-bucket reconciliation', () => {
     ]);
   });
 
-  it('REQ-STOR-029 AC2: protected signed retirement deletes markerless prior content', async () => {
+  it('REQ-STOR-021 AC5: protected signed retirement deletes markerless prior content', async () => {
     const current = release(2, [document('.claude/current.md')]);
     current.retiredPaths = ['.pi/agent/extensions/retired.ts'];
     let policyBytes: BodyInit | null | undefined;
@@ -296,7 +296,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2.mock.calls.at(-1)?.[1]?.method).toBe('GET');
   });
 
-  it('REQ-STOR-029 AC4: exclusive cleanup bounds fail before every mutation', async () => {
+  it('REQ-STOR-029 AC2: exclusive cleanup bounds fail before every mutation', async () => {
     const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
     const objects = Array.from({ length: 10_001 }, (_, index) => (
       `<Contents><Key>.claude/skills/personal-${index}.md</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>`
@@ -312,7 +312,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2.mock.calls.some(([, init]) => ['PUT', 'DELETE', 'POST'].includes(String(init?.method)))).toBe(false);
   });
 
-  it('REQ-STOR-029 AC4: exclusive cleanup rejects summed object size above 1 GiB with zero mutations', async () => {
+  it('REQ-STOR-029 AC2: exclusive cleanup rejects summed object size above 1 GiB with zero mutations', async () => {
     const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
     fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === 'HEAD'
       ? new Response('', { status: 404 })
@@ -373,7 +373,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2.mock.calls.some(([, init]) => ['PUT', 'DELETE', 'POST'].includes(String(init?.method)))).toBe(false);
   });
 
-  it('REQ-STOR-028 AC5: exclusive generation fails before every R2 request', async () => {
+  it('REQ-STOR-028 AC6: exclusive generation fails before every R2 request', async () => {
     const unknown = await selection('e'.repeat(64), release(3, [document('.claude/toolboxes/company.md')]));
     await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
       overwrite: true,
