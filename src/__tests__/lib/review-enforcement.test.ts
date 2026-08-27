@@ -137,6 +137,14 @@ function triage(ciResult?: 'failure' | 'timeout', formatted = false): Record<str
   };
 }
 
+function reviewerPrompt(head: string, lane: ReviewLane): string {
+  return [
+    'scope=diff',
+    'review_base=origin/main',
+    `output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-${lane}.md`,
+  ].join('\n');
+}
+
 function appendSuccessfulRound(input: ReturnType<typeof fixture>, lanes: ReviewLane[], prefix: string): void {
   append(input.sessionFile,
     ...lanes.flatMap((lane, index) => {
@@ -146,7 +154,7 @@ function appendSuccessfulRound(input: ReturnType<typeof fixture>, lanes: ReviewL
           subagent_type: lane,
           run_in_background: true,
           inherit_context: false,
-          prompt: `scope=diff review_base=origin/main output_file=/tmp/codeflare-pr-42-${input.head.slice(0, 12)}-${lane}.md`,
+          prompt: reviewerPrompt(input.head, lane),
         }),
         toolResult(id, 'subagent'),
         notification(id),
@@ -493,7 +501,7 @@ describe('Pi marker-or-dialog review ingress', () => {
           subagent_type: lane,
           run_in_background: true,
           inherit_context: false,
-          prompt: `scope=diff review_base=origin/main output_file=/tmp/codeflare-pr-42-${input.head.slice(0, 12)}-${lane}.md`,
+          prompt: reviewerPrompt(input.head, lane),
         }),
         toolResult(id, 'subagent'),
         notification(id),
@@ -536,7 +544,7 @@ describe('Pi marker-or-dialog review ingress', () => {
               subagent_type: lane,
               run_in_background: true,
               inherit_context: false,
-              prompt: `scope=diff review_base=origin/main output_file=/tmp/codeflare-pr-42-${input.head.slice(0, 12)}-${lane}.md`,
+              prompt: reviewerPrompt(input.head, lane),
             }),
             toolResult(id, 'subagent'),
             notification(id),
@@ -575,7 +583,7 @@ describe('Pi marker-or-dialog review ingress', () => {
             subagent_type: lane,
             run_in_background: true,
             inherit_context: false,
-            prompt: `scope=diff review_base=origin/main output_file=/tmp/codeflare-pr-42-${input.head.slice(0, 12)}-${lane}.md`,
+            prompt: reviewerPrompt(input.head, lane),
           }),
           toolResult(id, 'subagent'),
           notification(id),

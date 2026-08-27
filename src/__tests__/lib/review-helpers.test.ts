@@ -185,7 +185,11 @@ function reviewReminder(
 }
 
 function reviewerPrompt(lane: ReviewLane, head: string, scope: string): string {
-  return `scope=diff ${scope} output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-${lane}.md`;
+  return [
+    'scope=diff',
+    scope,
+    `output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-${lane}.md`,
+  ].join('\n');
 }
 
 function notification(toolUseId: string, status = 'Done'): Record<string, unknown> {
