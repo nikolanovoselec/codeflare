@@ -10,8 +10,8 @@ const REPO = 'owner/repo';
 const PR = 42;
 const HEAD = 'ef819ed35e9cc57d66209d1330bc8a87519736df';
 
-function result(value) {
-  return { stdout: JSON.stringify(value), stderr: '', exitCode: 0 };
+function result(value, exitCode = 0) {
+  return { stdout: JSON.stringify(value), stderr: '', exitCode };
 }
 
 function run(conclusion, patch = {}) {
@@ -86,6 +86,21 @@ test('REQ-AGENT-070 AC6: Claude attached CI monitor reports unavailable GitHub a
     'monitor deadline must remain below the Agent Bash timeout');
   assertIdentity(monitored.output, 'timeout');
   assert.match(monitored.output, /deadline_exceeded/);
+});
+
+test('REQ-AGENT-070 AC6: Claude attached CI monitor rejects valid-looking output from a failed gh command', async () => {
+  const time = fakeClock();
+  const output = await monitorCi({
+    repo: REPO,
+    pr: PR,
+    head: HEAD,
+    clock: time.clock,
+    sleep: time.sleep,
+    runner: async () => result([run('success')], 1),
+  });
+
+  assertIdentity(output, 'timeout');
+  assert.match(output, /deadline_exceeded/);
 });
 
 test('REQ-OPS-049 AC4: attached Claude CI monitoring creates no script, PID, or result-log artifact', async () => {

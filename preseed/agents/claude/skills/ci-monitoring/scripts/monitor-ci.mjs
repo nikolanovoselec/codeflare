@@ -53,7 +53,7 @@ export async function monitorCi({ repo, pr, head, runner = runCommand, cwd, cloc
     let rows = null;
     try {
       const result = await runner('gh', ['run', 'list', '--repo', repo, '--commit', head, '--limit', '24', '--json', RUN_FIELDS], { cwd });
-      rows = parseRows(result, head);
+      rows = result.exitCode === 0 ? parseRows(result, head) : null;
     } catch { rows = null; }
 
     if (rows?.length === 0 && clock.now() - startedAt >= EMPTY_LIMIT_MS) {

@@ -160,6 +160,122 @@ describe('CF-016 dispatchInternalRoute', () => {
     expect(host._r2SecretAccessKey).toBe('scoped-secret');
   });
 
+  it('REQ-ENTERPRISE-026: refreshes warm strict interception with a changed scoped pair', async () => {
+    let activeCatchAll: { fetch(request: Request): Promise<Response> } | undefined;
+    const EgressController = vi.fn(({ props }: { props: { r2AccessKeyId: string } }) => ({
+      fetch: vi.fn(async () => new Response(props.r2AccessKeyId)),
+    }));
+    const host = makeHost({
+      env: { ENTERPRISE_MODE: 'active' } as any,
+      ctx: {
+        storage: { get: vi.fn().mockResolvedValue(null), put: vi.fn().mockResolvedValue(undefined) },
+        exports: { EgressController },
+        container: {
+          interceptOutboundHttps: vi.fn(async (pattern: string, worker: typeof activeCatchAll) => {
+            if (pattern === '*') activeCatchAll = worker;
+          }),
+        },
+      } as any,
+      _bucketName: 'b',
+      _r2AccountId: 'account',
+      _r2AccessKeyId: 'prior-access',
+      _r2SecretAccessKey: 'prior-secret',
+      _strictEgress: true,
+      _sessionMode: 'default',
+    });
+    const request = new Request('http://container/_internal/setBucketName', {
+      method: 'POST',
+      body: JSON.stringify({
+        bucketName: 'b',
+        r2AccessKeyId: 'replacement-access',
+        r2SecretAccessKey: 'replacement-secret',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await dispatchInternalRoute(host, request)!;
+
+    expect(response.status).toBe(409);
+    expect(EgressController).toHaveBeenCalledWith({
+      props: {
+        accountId: 'account',
+        bucket: 'b',
+        r2AccessKeyId: 'replacement-access',
+        r2SecretAccessKey: 'replacement-secret',
+        strict: true,
+      },
+    });
+    expect(activeCatchAll).toBeDefined();
+    expect(await (await activeCatchAll!.fetch(new Request('https://account.r2.cloudflarestorage.com/b/key'))).text())
+      .toBe('replacement-access');
+  });
+
+  it('REQ-ENTERPRISE-026: preserves the prior pair when warm catch-all replacement fails', async () => {
+    const host = makeHost({
+      env: { ENTERPRISE_MODE: 'active' } as any,
+      ctx: {
+        storage: { get: vi.fn().mockResolvedValue(null), put: vi.fn().mockResolvedValue(undefined) },
+        exports: { EgressController: vi.fn(() => ({ id: 'replacement' })) },
+        container: { interceptOutboundHttps: vi.fn().mockRejectedValue(new Error('registration failed')) },
+      } as any,
+      _bucketName: 'b',
+      _r2AccountId: 'account',
+      _r2AccessKeyId: 'prior-access',
+      _r2SecretAccessKey: 'prior-secret',
+      _strictEgress: true,
+      _sessionMode: 'default',
+    });
+    const request = new Request('http://container/_internal/setBucketName', {
+      method: 'POST',
+      body: JSON.stringify({
+        bucketName: 'b',
+        r2AccessKeyId: 'replacement-access',
+        r2SecretAccessKey: 'replacement-secret',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await dispatchInternalRoute(host, request)!;
+
+    expect(response.status).toBe(500);
+    expect(host._r2AccessKeyId).toBe('prior-access');
+    expect(host._r2SecretAccessKey).toBe('prior-secret');
+  });
+
+  it('REQ-ENTERPRISE-026: does not replace warm interception when the scoped pair is unchanged', async () => {
+    const EgressController = vi.fn(() => ({ id: 'replacement' }));
+    const interceptOutboundHttps = vi.fn();
+    const host = makeHost({
+      env: { ENTERPRISE_MODE: 'active' } as any,
+      ctx: {
+        storage: { get: vi.fn().mockResolvedValue(null), put: vi.fn().mockResolvedValue(undefined) },
+        exports: { EgressController },
+        container: { interceptOutboundHttps },
+      } as any,
+      _bucketName: 'b',
+      _r2AccountId: 'account',
+      _r2AccessKeyId: 'scoped-access',
+      _r2SecretAccessKey: 'scoped-secret',
+      _strictEgress: true,
+      _sessionMode: 'default',
+    });
+    const request = new Request('http://container/_internal/setBucketName', {
+      method: 'POST',
+      body: JSON.stringify({
+        bucketName: 'b',
+        r2AccessKeyId: 'scoped-access',
+        r2SecretAccessKey: 'scoped-secret',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await dispatchInternalRoute(host, request)!;
+
+    expect(response.status).toBe(409);
+    expect(EgressController).not.toHaveBeenCalled();
+    expect(interceptOutboundHttps).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid restart credentials without replacing the in-memory scoped pair', async () => {
     const host = makeHost({
       _bucketName: 'b',

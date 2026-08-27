@@ -15,6 +15,7 @@ import type { SessionWorkspace, TabConfig } from '../types';
 import { toError } from '../lib/error-types';
 import { SetSessionIdBodySchema } from '../lib/container-config-schema';
 import { validateBucketNameInput, applyPrefsOnRestart } from './container-env';
+import { refreshStrictEgressInterception } from './container-interception';
 import {
   setBucketName as applySetBucketName,
   updateEnvVars,
@@ -184,6 +185,9 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       const r2CredentialsProvided = r2AccessKeyId !== undefined && r2SecretAccessKey !== undefined;
       const r2CredentialsChanged = r2CredentialsProvided
         && (r2AccessKeyId !== host._r2AccessKeyId || r2SecretAccessKey !== host._r2SecretAccessKey);
+      if (r2CredentialsChanged && r2AccessKeyId !== undefined && r2SecretAccessKey !== undefined) {
+        await refreshStrictEgressInterception(host, { r2AccessKeyId, r2SecretAccessKey });
+      }
       if (r2CredentialsProvided) {
         host._r2AccessKeyId = r2AccessKeyId;
         host._r2SecretAccessKey = r2SecretAccessKey;
