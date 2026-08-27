@@ -42,7 +42,7 @@ export interface InterceptionHost {
   _r2AccessKeyId: string | null;
   _r2SecretAccessKey: string | null;
   /** REQ-ENTERPRISE-016 AC3: resolved once in the DO constructor — never re-read per start. */
-  _strictEgress: boolean;
+  _strictEgress?: boolean;
 }
 
 /** One resolved outbound-interception transport, ready to register. */
