@@ -224,12 +224,13 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     }
   });
 
-  it('REQ-TERM-026 AC1: Claude keeps its native notification path without competing Codeflare behavior', () => {
+  it('REQ-TERM-026 AC1: Claude keeps native Ghostty notifications and adds only the fixed Herdr permission hook', () => {
     for (const mode of ['advanced', 'default']) {
       const settings = runSessionModeSettings(mode);
       assert.equal(settings.preferredNotifChannel, 'ghostty');
       assert.deepEqual(settings.hooks.Notification, [
         { matcher: 'custom', hooks: [{ type: 'command', command: '/user/hook.sh' }] },
+        { matcher: 'permission_prompt', hooks: [{ type: 'command', command: '/usr/local/bin/codeflare-agent-event input-required' }] },
       ]);
       assert.equal(
         hookEntries(settings, 'Stop').filter((hook) => (hook.command ?? '').includes('notification')).length,

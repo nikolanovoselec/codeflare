@@ -15,6 +15,7 @@ import { getIframeInput, scrollBufferToBottom, resyncViewportScrollState } from 
 import { attachWheelScrolling } from '../lib/terminal-wheel';
 import { useScrollCorrection } from './useScrollCorrection';
 import { agentEventDisposition, showGrantedAgentEvent } from '../lib/agent-notifications';
+import { parseOsc52ClipboardWrite } from '../lib/osc52';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
 export const DECTCEM_CURSOR_PARAM = 25;
@@ -63,10 +64,10 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let cursorHideDisposable: { dispose: () => void } | undefined;
   let cursorShowDisposable: { dispose: () => void } | undefined;
   let notificationDisposable: { dispose: () => void } | undefined;
+  let clipboardDisposable: { dispose: () => void } | undefined;
   let agentEventDisposable: (() => void) | undefined;
   let hasInitialScrolled = false;
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let handleContextMenu: ((e: MouseEvent) => void) | undefined;
   let disposed = false;
   const cancelledAgentEventIds = new Set<string>();
   const MAX_CANCELLED_AGENT_EVENT_IDS = 16;
@@ -217,26 +218,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       }
       return true;
     });
-
-    // Right-click to paste (like a real terminal).
-    // MUST use bubbling phase (not capture) and MUST NOT stopPropagation —
-    // xterm.js needs its own contextmenu handler to run first to manage
-    // internal textarea focus. Without that, Chrome's clipboard readText()
-    // silently fails on subsequent calls (document focus state broken).
-    handleContextMenu = (e: MouseEvent) => {
-      e.preventDefault();
-      if (!term) return;
-      if (loadSettings().clipboardAccess !== true) return;
-      term.focus();
-      navigator.clipboard.readText().then((text) => {
-        if (text && term) {
-          term.paste(text);
-        }
-      }).catch(() => {
-        // Permission denied or not available
-      });
-    };
-    container.addEventListener('contextmenu', handleContextMenu);
 
     return { termBg };
   }
@@ -390,6 +371,12 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     // OSC 777 is consumed as terminal control output only. Browser notification
     // delivery is driven exclusively by validated host agent-event controls.
     notificationDisposable = t.parser.registerOscHandler(777, () => true);
+    clipboardDisposable = t.parser.registerOscHandler(52, (data) => {
+      const text = parseOsc52ClipboardWrite(data);
+      if (text === null || loadSettings().clipboardAccess !== true) return true;
+      void navigator.clipboard.writeText(text).catch(() => {});
+      return true;
+    });
 
     const currentAgentEventDisposition = () => {
       const sessionExists = sessionStore.sessions?.some(
@@ -738,10 +725,10 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     cursorHideDisposable?.dispose();
     cursorShowDisposable?.dispose();
     notificationDisposable?.dispose();
+    clipboardDisposable?.dispose();
     agentEventDisposable?.();
     resizeObserver?.disconnect();
     terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
-    if (handleContextMenu) mountedContainer?.removeEventListener('contextmenu', handleContextMenu);
     term = undefined;
     fitAddon = undefined;
     containerEl = undefined;

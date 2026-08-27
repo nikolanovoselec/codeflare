@@ -253,6 +253,13 @@ const server = http.createServer(createRequestHandler({
   readiness: () => ({ prewarmReady, initFlagObserved, terminalServiceReady, editorReady, editorReadyTimedOut }),
   silverbullet: SILVERBULLET,
   openvscode: OPENVSCODE,
+  enqueueAgentEvent: (kind) => {
+    const primarySession = [...sessionManager.sessions.values()]
+      .find((session) => session.terminalId === '1');
+    if (!primarySession) return false;
+    primarySession.enqueueAgentEvent(kind);
+    return true;
+  },
   drainAgentEvents: (request) => {
     const primarySession = [...sessionManager.sessions.values()]
       .find((session) => session.terminalId === '1');

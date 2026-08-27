@@ -17,6 +17,7 @@ import {
   type AgentEventAction,
   type AgentEventDisposition,
   type AgentEventDrainResult,
+  type AgentEventKind,
 } from './agent-events.js';
 
 import type {
@@ -409,6 +410,11 @@ export class Session {
     const result = this.agentEventQueue.confirmDisplay(eventId, ws);
     this.applyAgentEventActions(result.actions);
     return result.accepted;
+  }
+
+  enqueueAgentEvent(kind: AgentEventKind): void {
+    const clients = [...this.clients].filter((client) => client.readyState === WebSocket.OPEN);
+    this.applyAgentEventActions(this.agentEventQueue.enqueue(kind, clients).actions);
   }
 
   drainAgentEvents(request: { readonly ackEventIds: readonly string[]; readonly final?: true }): AgentEventDrainResult {

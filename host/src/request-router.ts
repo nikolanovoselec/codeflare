@@ -14,7 +14,7 @@ import { spawn } from 'node:child_process';
 import { checkContainerAuth } from './auth-check.js';
 import { getSyncStatus, getSystemMetrics } from './metrics.js';
 import { evaluateFinalSync } from './final-sync.js';
-import { AGENT_EVENT_LIMITS, type AgentEventDrainResult } from './agent-events.js';
+import { AGENT_EVENT_LIMITS, type AgentEventDrainResult, type AgentEventKind } from './agent-events.js';
 import type { HealthResponse } from './types.js';
 import { resolveGitClone, resolveWorkspaceRoot, buildCloneArgs } from './git-clone.js';
 import { stripVaultPrefix } from './vault-proxy.js';
@@ -45,6 +45,8 @@ const GIT_CLONE_TIMEOUT_MS = 120_000;
 export const FINAL_SYNC_INTERNAL_TIMEOUT_MS = 125_000;
 const FINAL_SYNC_POLL_MS = 500;
 const AGENT_EVENT_DRAIN_BODY_MAX_BYTES = 4 * 1024;
+const AGENT_EVENT_INGRESS_BODY_MAX_BYTES = 256;
+const AGENT_EVENT_KINDS = new Set<AgentEventKind>(['input-required', 'task-completed', 'task-failed']);
 const AGENT_EVENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 export interface AgentEventDrainRequest {
@@ -83,6 +85,7 @@ export interface RequestRouterDeps {
   openvscode: ProxyTarget;
   /** Production composition and focused router tests can provide the queue owner directly. */
   drainAgentEvents?: AgentEventDrainer['drainAgentEvents'];
+  enqueueAgentEvent?: (kind: AgentEventKind) => boolean;
   /** Injectable final-sync I/O keeps endpoint tests deterministic; production uses host I/O below. */
   finalSync?: {
     now(): number;
@@ -312,6 +315,73 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Session not found' }));
       }
+      return;
+    }
+
+    if (pathname === '/internal/agent-events/enqueue' && method === 'POST') {
+      const remoteAddress = req.socket.remoteAddress;
+      if (remoteAddress && remoteAddress !== '127.0.0.1' && remoteAddress !== '::1' && remoteAddress !== '::ffff:127.0.0.1') {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Loopback required' }));
+        return;
+      }
+      if ((req.headers['content-type'] ?? '').split(';', 1)[0]?.trim().toLowerCase() !== 'application/json') {
+        res.writeHead(415, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'application/json required' }));
+        return;
+      }
+
+      let body = '';
+      let bodySize = 0;
+      let tooLarge = false;
+      req.on('data', (chunk: Buffer) => {
+        if (tooLarge) return;
+        bodySize += chunk.length;
+        if (bodySize > AGENT_EVENT_INGRESS_BODY_MAX_BYTES) {
+          tooLarge = true;
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Request body too large' }));
+          return;
+        }
+        body += chunk.toString('utf8');
+      });
+      req.on('end', () => {
+        if (tooLarge) return;
+        try {
+          const duplicateKind = (body.match(/"kind"\s*:/g) ?? []).length !== 1;
+          const duplicateTerminal = (body.match(/"terminalId"\s*:/g) ?? []).length !== 1;
+          const parsed = JSON.parse(body) as Record<string, unknown>;
+          const keys = Object.keys(parsed);
+          const kind = parsed.kind;
+          if (
+            duplicateKind
+            || duplicateTerminal
+            || keys.length !== 2
+            || !keys.includes('kind')
+            || !keys.includes('terminalId')
+            || typeof kind !== 'string'
+            || !AGENT_EVENT_KINDS.has(kind as AgentEventKind)
+            || parsed.terminalId !== '1'
+          ) {
+            throw new Error('invalid');
+          }
+          if (!deps.enqueueAgentEvent) {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Primary terminal unavailable' }));
+            return;
+          }
+          if (!deps.enqueueAgentEvent(kind as AgentEventKind)) {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Primary terminal unavailable' }));
+            return;
+          }
+          res.writeHead(202, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ accepted: true }));
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid agent event' }));
+        }
+      });
       return;
     }
 

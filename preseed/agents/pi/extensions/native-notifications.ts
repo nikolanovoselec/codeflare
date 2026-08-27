@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
 const INPUT_NEEDED = '\u001b]777;notify;Pi;Agent needs your input\u0007';
@@ -20,6 +21,18 @@ export function isPiRpcMode(argv: readonly string[]): boolean {
 }
 
 function emit(sequence: string): void {
+  if (process.env.HERDR_ENV === '1') {
+    const kind = sequence === INPUT_NEEDED
+      ? 'input-required'
+      : sequence === TASK_FAILED
+        ? 'task-failed'
+        : 'task-completed';
+    const child = spawn('/usr/local/bin/codeflare-agent-event', [kind], {
+      stdio: 'ignore',
+    });
+    child.unref();
+    return;
+  }
   process.stdout.write(sequence);
 }
 

@@ -3606,6 +3606,21 @@ else
     echo "[entrypoint] Default mode: configuring settings.json without hooks"
 fi
 
+# Herdr consumes Claude's inner OSC notifications. Add one fixed permission
+# hook whose helper is inert outside a managed Herdr pane.
+HERDR_NOTIFICATION_HOOKS=$(jq -n '{
+  Notification: [
+    {matcher:"permission_prompt",hooks:[{type:"command",command:"/usr/local/bin/codeflare-agent-event input-required"}]}
+  ]
+}')
+SETTINGS_CONFIG=$(printf '%s' "$SETTINGS_CONFIG" | jq --argjson notify "$HERDR_NOTIFICATION_HOOKS" '
+  .hooks as $hooks | .hooks = (
+    (($hooks // {}) | keys) + ($notify | keys) | unique |
+    map(. as $key | {key: $key, value: ((($hooks // {})[$key] // []) + ($notify[$key] // []))}) |
+    from_entries
+  )
+')
+
 SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
     TMP_SETTINGS=$(mktemp)
@@ -3642,7 +3657,7 @@ if [ -f "$SETTINGS_FILE" ]; then
             [($existArr[] | .matcher // ""), ($cfgArr[] | .matcher // "")] | unique |
             map(. as $m |
               [$existArr[] | select((.matcher // "") == $m) | (.hooks // [])[] |
-                select((.command // "") | test("plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/|enforce-ctx-mode\\.sh|context-mode-cache-heal\\.mjs|(^context-mode |(bunx|npx) (-y )?context-mode@.* hook claude-code)") | not)
+                select((.command // "") | test("plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/|/usr/local/bin/codeflare-agent-event|enforce-ctx-mode\\.sh|context-mode-cache-heal\\.mjs|(^context-mode |(bunx|npx) (-y )?context-mode@.* hook claude-code)") | not)
               ] as $user |
               [$cfgArr[] | select((.matcher // "") == $m) | (.hooks // [])[]] as $mgr |
               {matcher: $m, hooks: ($user + $mgr)}

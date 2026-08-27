@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const spawnMock = vi.hoisted(() => vi.fn(() => ({ unref: vi.fn() })));
+vi.mock('node:child_process', () => ({ spawn: spawnMock }));
+
 import nativeNotifications, {
   isPiRpcMode,
   PI_IDLE_NOTIFICATION_DELAY_MS,
@@ -45,8 +48,10 @@ async function settle(
 
 describe('Pi native terminal notifications / REQ-TERM-024', () => {
   afterEach(() => {
+    delete process.env.HERDR_ENV;
     vi.useRealTimers();
     vi.restoreAllMocks();
+    spawnMock.mockClear();
   });
 
   it('REQ-TERM-024 AC3: registers nothing and writes no bytes in RPC mode', () => {
@@ -56,6 +61,19 @@ describe('Pi native terminal notifications / REQ-TERM-024', () => {
     const runtime = notificationRuntime(['/usr/local/bin/pi', '--mode', 'rpc', '--no-session']);
     expect(runtime.handlers.size).toBe(0);
     expect(runtime.channels.size).toBe(0);
+    expect(runtime.write).not.toHaveBeenCalled();
+  });
+
+  it('uses the fixed loopback helper instead of OSC bytes inside Herdr', () => {
+    process.env.HERDR_ENV = '1';
+    const runtime = notificationRuntime();
+    runtime.channels.get('rpiv:ask-user:prompt')?.({ question: 'untrusted' });
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      '/usr/local/bin/codeflare-agent-event',
+      ['input-required'],
+      { stdio: 'ignore' },
+    );
     expect(runtime.write).not.toHaveBeenCalled();
   });
 

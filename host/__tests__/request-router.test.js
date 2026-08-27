@@ -584,3 +584,65 @@ describe('REQ-IDE-003 AC3: the browser-IDE warming clock spans reloads and reset
     assert.ok(hasMetaRefresh(restarted.body), 'a restarted episode must reload itself again');
   });
 });
+
+describe('Herdr fixed agent-event ingress', () => {
+  const savedToken = process.env.CONTAINER_AUTH_TOKEN;
+  const calls = [];
+  let server;
+  let port;
+
+  before(async () => {
+    process.env.CONTAINER_AUTH_TOKEN = 'herdr-event-token';
+    const made = makeDeps({
+      enqueueAgentEvent(kind) {
+        calls.push(kind);
+        return true;
+      },
+    });
+    server = http.createServer(createRequestHandler(made.deps));
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    port = server.address().port;
+  });
+
+  after(async () => {
+    if (savedToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
+    else process.env.CONTAINER_AUTH_TOKEN = savedToken;
+    server.close();
+    await once(server, 'close');
+  });
+
+  it('accepts one fixed primary-runtime kind without recording arbitrary prose', async () => {
+    const response = await postJson(port, '/internal/agent-events/enqueue', {
+      kind: 'input-required', terminalId: '1',
+    }, { authorization: 'Bearer herdr-event-token' });
+    assert.equal(response.status, 202);
+    assert.deepEqual(calls, ['input-required']);
+  });
+
+  it('rejects missing auth, unknown kinds, non-primary identity, extra and duplicate keys', async () => {
+    assert.equal((await postJson(port, '/internal/agent-events/enqueue', {
+      kind: 'task-completed', terminalId: '1',
+    })).status, 401);
+    for (const body of [
+      { kind: 'custom-prose', terminalId: '1' },
+      { kind: 'task-completed', terminalId: '2' },
+      { kind: 'task-completed', terminalId: '1', body: 'untrusted' },
+      '{"kind":"task-completed","kind":"task-failed","terminalId":"1"}',
+    ]) {
+      const response = await postJson(port, '/internal/agent-events/enqueue', body, {
+        authorization: 'Bearer herdr-event-token',
+      });
+      assert.equal(response.status, 400);
+    }
+    assert.deepEqual(calls, ['input-required']);
+  });
+
+  it('rejects oversized bodies before enqueue', async () => {
+    const response = await postJson(port, '/internal/agent-events/enqueue', {
+      kind: 'task-failed', terminalId: '1', padding: 'x'.repeat(300),
+    }, { authorization: 'Bearer herdr-event-token' });
+    assert.equal(response.status, 413);
+    assert.deepEqual(calls, ['input-required']);
+  });
+});

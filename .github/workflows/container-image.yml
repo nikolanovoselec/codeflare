@@ -486,6 +486,8 @@ jobs:
           docker run --rm --entrypoint /bin/sh "$IMAGE" -c '
             set -eu
             test "$(stat -c %a /usr/local/bin/herdr)" = 755
+            test "$(stat -c %a /usr/local/bin/codeflare-agent-event)" = 755
+            /usr/local/bin/codeflare-agent-event input-required
             test -s /usr/share/licenses/herdr/LICENSE
             test -s /usr/share/licenses/herdr/provenance.json
             test -f /etc/codeflare/herdr/config.toml

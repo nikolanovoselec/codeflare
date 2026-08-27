@@ -637,6 +637,35 @@ PTY management, WebSocket transport, one Herdr surface per backend session, Mult
 
 ---
 
+### REQ-TERM-031: Herdr notification and clipboard compatibility boundaries
+
+**Intent:** Herdr terminals preserve Codeflare's fixed attention-event trust model and expose only bounded browser clipboard writes.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Under `HERDR_ENV=1`, managed Pi and Claude permission producers invoke a fixed local helper instead of relying on inner OSC 777 bytes; outside Herdr, existing native OSC behavior remains. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::emit --> <!-- @impl: entrypoint.sh::HERDR_NOTIFICATION_HOOKS --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (Herdr fixed helper transport) --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (fixed Claude Herdr permission hook) -->
+2. The Bearer-protected host ingress accepts only loopback requests containing one known fixed kind and terminal ID `1`; malformed, duplicate, extra, oversized, unknown, and non-primary payloads fail before enqueue. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/request-router.test.js (Herdr fixed agent-event ingress) -->
+3. Accepted events enter the existing primary Session queue without display prose or activity mutation, retaining suppress, grant, drain, Push, cancellation, and expiry semantics. <!-- @impl: host/src/session.ts::enqueueAgentEvent --> <!-- @test: host/__tests__/terminal-agent-events.test.js (Session-bound agent event coordination) -->
+4. OSC 52 accepts only bounded standard-selector base64 that decodes to valid UTF-8; read queries, other selectors, malformed data, invalid UTF-8, and oversized content are rejected without logging content. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (bounded OSC 52 parser) -->
+5. Clipboard writes still require the existing browser clipboard setting, while Herdr owns right-click menus and Codeflare installs no right-click paste handler on the standalone surface. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
+
+**Constraints:**
+
+- Event payloads contain enums only; prompts, output, paths, credentials, and arbitrary display text never cross ingress.
+- Notification ingress and clipboard handling never record user activity or log content.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
+
+**Verification:** Source and CI unit coverage; rendered product behavior remains user-tested manually.
+
+**Status:** Implemented
+
+---
+
 ### REQ-TERM-023: Away-only agent notification delivery
 
 **Intent:** Agent attention events are delivered only while every connected view of the originating terminal is away, without waking or extending the session container.

@@ -163,6 +163,7 @@ RUN HERDR_VERSION="0.8.2" && \
 COPY image/herdr/config.toml /etc/codeflare/herdr/config.toml
 COPY image/herdr/LICENSE image/herdr/provenance.json /usr/share/licenses/herdr/
 COPY --chmod=0755 image/herdr/codeflare-herdr-terminal /usr/local/bin/codeflare-herdr-terminal
+COPY --chmod=0755 image/herdr/codeflare-agent-event /usr/local/bin/codeflare-agent-event
 
 # Add GitHub CLI apt repo (key + source list only — actual install is after .cache-bust)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /tmp/githubcli-archive-keyring.gpg \
