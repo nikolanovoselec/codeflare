@@ -476,7 +476,8 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
-<a id="req-agent-120-claude-protected-base-review-boundaries"></a>### REQ-AGENT-120: Claude review enforcement lifecycle
+<a id="req-agent-120-claude-protected-base-review-boundaries"></a>
+### REQ-AGENT-120: Claude review enforcement lifecycle
 
 **Intent:** Claude must complete an eligible review through bounded enforcement, tool-free triage, exact-head acknowledgement, and a separate FIX handoff.
 
@@ -555,7 +556,8 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
-<a id="req-agent-121-downstream-boundary-after-develop-merge"></a>### REQ-AGENT-121: Checked-out branch boundary synchronization
+<a id="req-agent-121-downstream-boundary-after-develop-merge"></a>
+### REQ-AGENT-121: Checked-out branch boundary synchronization
 
 **Intent:** Pi and Claude must use authoritative checked-out-branch state to determine whether a PR head is eligible for review.
 
@@ -641,7 +643,8 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
-<a id="req-agent-122-downstream-merge-retry-and-recovery"></a>### REQ-AGENT-122: Per-PR review checkpoints
+<a id="req-agent-122-downstream-merge-retry-and-recovery"></a>
+### REQ-AGENT-122: Per-PR review checkpoints
 
 **Intent:** Feature and integration PR reviews must retain independent incremental checkpoints without bookkeeping failures crashing either runtime.
 

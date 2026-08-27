@@ -790,10 +790,10 @@ export function reviewTranscriptFacts(input: {
       const expectedOutput = window?.prNumber && window.head
         ? `output_file=/tmp/codeflare-pr-${window.prNumber}-${window.head.slice(0, 12)}-${lane}.md`
         : undefined;
-      const tokens = new Set(prompt.split(/\s+/).filter(Boolean));
-      const wrongContract = Boolean(window && (!tokens.has("scope=diff")
-        || (expectedScope && !tokens.has(expectedScope))
-        || (expectedOutput && !tokens.has(expectedOutput))));
+      const assignmentLines = new Set(prompt.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+      const wrongContract = Boolean(window && (!assignmentLines.has("scope=diff")
+        || (expectedScope && !assignmentLines.has(expectedScope))
+        || (expectedOutput && !assignmentLines.has(expectedOutput))));
       if (call.name !== "subagent" || call.arguments?.run_in_background !== true || call.arguments?.inherit_context !== false || !input.requiredLanes.includes(lane) || wrongContract) continue;
       const notifications = later.slice(entryIndex + 1)
         .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))

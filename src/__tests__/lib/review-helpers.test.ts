@@ -734,6 +734,9 @@ describe('native Pi transcript review facts', () => {
       `scope=difference review_base=origin/develop output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md`,
       `scope=diff not_review_base=origin/develop output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md`,
       `scope=diff review_base=origin/develop output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md.bak`,
+      `instructions scope=diff\nreview_base=origin/develop\noutput_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md`,
+      `scope=diff\nexample review_base=origin/develop\noutput_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md`,
+      `scope=diff\nreview_base=origin/develop\nuse output_file=/tmp/codeflare-pr-42-${head.slice(0, 12)}-code-reviewer.md`,
     ]) {
       const sessionFile = writeSession([
         ...common,
