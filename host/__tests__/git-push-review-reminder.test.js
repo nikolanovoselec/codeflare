@@ -253,6 +253,22 @@ describe('Claude marker-or-dialog ingress', () => {
     }
   });
 
+  it('recreates missing session state before publishing a push review plan', () => {
+    const fx = setup();
+    sessionStart(fx);
+    rmSync(fx.env.CODEFLARE_REVIEW_SESSION_DIR, { recursive: true, force: true });
+
+    const delivery = context(postTool(fx, 'git push origin feature'));
+    assert.match(delivery, /Execute this fresh contextual round now/);
+    const plans = readdirSync(fx.env.CODEFLARE_REVIEW_SESSION_DIR)
+      .filter((name) => name.endsWith('.review-plan.json'));
+    assert.equal(plans.length, 1);
+    const plan = JSON.parse(readFileSync(join(fx.env.CODEFLARE_REVIEW_SESSION_DIR, plans[0]), 'utf8'));
+    assert.equal(plan.boundary, 'push');
+    assert.equal(plan.head, fx.head);
+    assert.equal(plan.pr, 42);
+  });
+
   it('retries delivery until the authoritative PR head catches up', () => {
     const fx = setup();
     const previous = git(fx.repo, 'rev-parse', 'HEAD~1');
