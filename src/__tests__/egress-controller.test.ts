@@ -23,6 +23,10 @@ function makeController(
     bucket?: string;
     r2AccessKeyId?: string;
     r2SecretAccessKey?: string;
+    resourcePolicy?: 'mutable' | 'immutable' | 'exclusive';
+    releaseDigest?: string;
+    pathsDigest?: string;
+    r2SseDisabled?: boolean;
     strict?: boolean;
   } = { accountId: 'acc' },
 ) {
@@ -83,6 +87,84 @@ describe('REQ-ENTERPRISE-016: EgressController fail-closed guards', () => {
     expect(res.status).toBe(503);
     expect(((await res.json()) as { code?: string }).code).toBe('EGRESS_NOT_CONFIGURED');
     expect(kvGet).not.toHaveBeenCalled();
+  });
+});
+
+describe('REQ-ENTERPRISE-027: protected own-R2 enforcement', () => {
+  async function protectedFixture(digestCharacter = 'd') {
+    const releaseDigest = digestCharacter.repeat(64);
+    const value = {
+      schemaVersion: 1,
+      releaseDigest,
+      resourcePolicy: 'immutable',
+      paths: ['.codeflare/managed-extensions.json', '.codeflare/managed-paths.json'],
+      resourceRoots: [],
+    } as const;
+    const bytes = new TextEncoder().encode(`${JSON.stringify(value)}\n`);
+    const pathsDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)))
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    return { releaseDigest, pathsDigest, bytes };
+  }
+
+  it('loads policy with scoped credentials and denies protected mutation before user forwarding', async () => {
+    const fixture = await protectedFixture();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const request = input as Request;
+      if (request.url.endsWith('/bucket/.codeflare/managed-paths.json')) return new Response(fixture.bytes, { status: 200 });
+      return new Response('unexpected user forward', { status: 200 });
+    });
+    const { controller, egressFetch } = makeController({ R2_ACCOUNT_ID: 'acc' }, {
+      accountId: 'acc', bucket: 'bucket', resourcePolicy: 'immutable',
+      releaseDigest: fixture.releaseDigest, pathsDigest: fixture.pathsDigest,
+    });
+
+    const response = await controller.fetch(new Request('https://acc.r2.cloudflarestorage.com/bucket/.codeflare/managed-paths.json', { method: 'DELETE' }));
+
+    expect(response.status).toBe(403);
+    expect(await response.text()).toContain('<Code>AccessDenied</Code>');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const policyRequest = fetchSpy.mock.calls[0][0] as Request;
+    expect(policyRequest.headers.get('authorization')).toContain('Credential=user-r2-key/');
+    expect(policyRequest.headers.get('authorization')).not.toContain('admin-r2-key');
+    expect(egressFetch).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('signs approved adjacent mutation only with the scoped user key', async () => {
+    const fixture = await protectedFixture();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const request = input as Request;
+      if (request.url.endsWith('/bucket/.codeflare/managed-paths.json')) return new Response(fixture.bytes, { status: 200 });
+      return new Response('stored', { status: 200 });
+    });
+    const { controller } = makeController({ R2_ACCOUNT_ID: 'acc' }, {
+      accountId: 'acc', bucket: 'bucket', resourcePolicy: 'immutable',
+      releaseDigest: fixture.releaseDigest, pathsDigest: fixture.pathsDigest,
+    });
+
+    const response = await controller.fetch(new Request('https://acc.r2.cloudflarestorage.com/bucket/Vault/personal.md', { method: 'PUT', body: 'ok' }));
+
+    expect(response.status).toBe(200);
+    const userRequest = fetchSpy.mock.calls.map(call => call[0] as Request).find(request => request.url.endsWith('/Vault/personal.md'))!;
+    expect(userRequest.headers.get('authorization')).toContain('Credential=user-r2-key/');
+    expect(userRequest.headers.get('authorization')).not.toContain('admin-r2-key');
+    fetchSpy.mockRestore();
+  });
+
+  it('returns S3 503 and never forwards mutation when policy loading fails', async () => {
+    const fixture = await protectedFixture('c');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('missing', { status: 404 }));
+    const { controller } = makeController({ R2_ACCOUNT_ID: 'acc' }, {
+      accountId: 'acc', bucket: 'bucket', resourcePolicy: 'immutable',
+      releaseDigest: fixture.releaseDigest, pathsDigest: fixture.pathsDigest,
+    });
+
+    const response = await controller.fetch(new Request('https://acc.r2.cloudflarestorage.com/bucket/Vault/personal.md', { method: 'PUT', body: 'ok' }));
+
+    expect(response.status).toBe(503);
+    expect(await response.text()).toContain('<Code>ServiceUnavailable</Code>');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    fetchSpy.mockRestore();
   });
 });
 

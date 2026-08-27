@@ -36,7 +36,7 @@
  * catch-all when strict is true, so this class is otherwise unreached.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import type { Env } from './types';
+import type { Env, ManagedResourcePolicy } from './types';
 import {
   controllerFetch,
   isAccountScopedDestination,
@@ -46,7 +46,14 @@ import {
   STRIPPED_REQUEST_HOP_BY_HOP,
   RESPONSE_HOP_BY_HOP,
 } from './lib/controller-egress';
-import { createR2Client } from './lib/r2-client';
+import { createR2Client, getR2Url } from './lib/r2-client';
+import { getR2Config } from './lib/r2-config';
+import { getSseHeaders } from './lib/r2-sse';
+import {
+  classifyManagedR2Request,
+  MANAGED_R2_POLICY_KEY,
+  readVerifiedManagedR2Policy,
+} from './lib/managed-r2-policy';
 import { createLogger } from './lib/logger';
 
 const logger = createLogger('egress-controller');
@@ -60,8 +67,20 @@ interface EgressProps {
   /** Bucket-scoped credentials held by the DO and passed only to this Worker entrypoint. */
   r2AccessKeyId?: string;
   r2SecretAccessKey?: string;
+  resourcePolicy?: ManagedResourcePolicy;
+  releaseDigest?: string;
+  pathsDigest?: string;
+  r2SseDisabled?: boolean;
   /** Strict Gateway egress toggle, read once at wiring (the DO only wires when true). */
   strict?: boolean;
+}
+
+function s3PolicyError(status: 403 | 503, code: string, requestId: string): Response {
+  const message = status === 403 ? 'Access Denied' : 'Managed resource policy is unavailable';
+  return new Response(`<?xml version="1.0" encoding="UTF-8"?><Error><Code>${code}</Code><Message>${message}</Message><RequestId>${requestId}</RequestId></Error>`, {
+    status,
+    headers: { 'Content-Type': 'application/xml', 'x-amz-request-id': requestId },
+  });
 }
 
 function requestedR2Bucket(url: URL, accountId: string | undefined): string | undefined {
@@ -97,6 +116,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
     const scopedR2Credentials = props.r2AccessKeyId && props.r2SecretAccessKey
       ? { accessKeyId: props.r2AccessKeyId, secretAccessKey: props.r2SecretAccessKey }
       : null;
+    let effectiveRequest = request;
     if (ownR2) {
       const requestedBucket = requestedR2Bucket(url, accountId);
       if (!props.bucket || requestedBucket !== props.bucket) {
@@ -105,6 +125,41 @@ export class EgressController extends WorkerEntrypoint<Env> {
       if (!scopedR2Credentials) {
         return jsonError(503, 'EGRESS_R2_NOT_CONFIGURED', 'Scoped R2 credentials are unavailable');
       }
+      const resourcePolicy = props.resourcePolicy ?? 'mutable';
+      if (resourcePolicy !== 'mutable') {
+        const requestId = crypto.randomUUID();
+        if (!props.releaseDigest || !props.pathsDigest) return s3PolicyError(503, 'ServiceUnavailable', requestId);
+        try {
+          const config = await getR2Config(this.env);
+          if (config.accountId !== accountId) return s3PolicyError(503, 'ServiceUnavailable', requestId);
+          const policyClient = createR2Client({
+            R2_ACCESS_KEY_ID: scopedR2Credentials.accessKeyId,
+            R2_SECRET_ACCESS_KEY: scopedR2Credentials.secretAccessKey,
+          });
+          const policy = await readVerifiedManagedR2Policy({
+            fetchPolicyObject: () => policyClient.fetch(
+              getR2Url(config.endpoint, props.bucket, MANAGED_R2_POLICY_KEY),
+              { method: 'GET', headers: getSseHeaders(this.env, props.r2SseDisabled === true) },
+            ),
+            releaseDigest: props.releaseDigest,
+            pathsDigest: props.pathsDigest,
+            expectedPolicy: resourcePolicy,
+            bypassMemoryCache: false,
+          });
+          const classification = await classifyManagedR2Request({
+            request,
+            accountId: config.accountId,
+            boundBucket: props.bucket,
+            policy,
+          });
+          if (classification.action === 'deny') {
+            return s3PolicyError(classification.status, classification.code, classification.requestId);
+          }
+          effectiveRequest = classification.request;
+        } catch {
+          return s3PolicyError(503, 'ServiceUnavailable', requestId);
+        }
+      }
     }
 
     // WebSocket upgrades through the catch-all: bridge a fresh WebSocketPair to the upstream
@@ -112,10 +167,10 @@ export class EgressController extends WorkerEntrypoint<Env> {
     // (api.cloudflare.com /browser-rendering/devtools/...) does NOT arrive here — it is claimed
     // by the per-host CloudflareBrowserInterceptor (REQ-BROWSER-008). Returning the upstream
     // response as-is does not hand the socket back to the container, so we accept+forward both ends.
-    if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
+    if (effectiveRequest.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
       const t0 = Date.now();
       try {
-        const upstream = await controllerFetch(this.env, request, accountId);
+        const upstream = await controllerFetch(this.env, effectiveRequest, accountId);
         const upstreamWs = (upstream as unknown as { webSocket?: WebSocket }).webSocket;
         if (!upstreamWs) {
           // Not a 101 (e.g. an error response) — surface it unchanged.
@@ -145,18 +200,18 @@ export class EgressController extends WorkerEntrypoint<Env> {
 
     // Rebuild the request: strip ONLY hop-by-hop headers + the recomputed
     // host/content-length. NEVER add identity headers for the transparent path.
-    const headers = new Headers(request.headers);
+    const headers = new Headers(effectiveRequest.headers);
     for (const h of STRIPPED_REQUEST_HOP_BY_HOP) headers.delete(h);
     headers.delete('host');
     headers.delete('content-length');
 
     // GET/HEAD carry no body; everything else streams through unbuffered. Do not
     // follow redirects to an arbitrary Location host — surface the 3xx to the caller.
-    const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+    const hasBody = effectiveRequest.method !== 'GET' && effectiveRequest.method !== 'HEAD';
     const forward = new Request(url.toString(), {
-      method: request.method,
+      method: effectiveRequest.method,
       headers,
-      body: hasBody ? request.body : undefined,
+      body: hasBody ? effectiveRequest.body : undefined,
       redirect: 'manual',
     });
 

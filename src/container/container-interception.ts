@@ -44,6 +44,7 @@ export interface InterceptionHost {
   _managedResourcePolicy?: ManagedResourcePolicy;
   _managedResourceReleaseDigest?: string | null;
   _managedResourcePathsDigest?: string | null;
+  _r2SseDisabled?: boolean;
   /** REQ-ENTERPRISE-016 AC3: resolved once in the DO constructor — never re-read per start. */
   _strictEgress?: boolean;
 }
@@ -218,6 +219,7 @@ export interface StrictEgressSecurityProps {
   resourcePolicy: ManagedResourcePolicy;
   releaseDigest?: string;
   pathsDigest?: string;
+  r2SseDisabled?: boolean;
 }
 
 function resolveStrictEgress(
@@ -229,6 +231,7 @@ function resolveStrictEgress(
     resourcePolicy: host._managedResourcePolicy ?? 'mutable',
     ...(host._managedResourceReleaseDigest ? { releaseDigest: host._managedResourceReleaseDigest } : {}),
     ...(host._managedResourcePathsDigest ? { pathsDigest: host._managedResourcePathsDigest } : {}),
+    ...(host._r2SseDisabled ? { r2SseDisabled: true } : {}),
   },
 ): InterceptorRegistration | null {
   if (!host._strictEgress) return null;

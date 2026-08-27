@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { ManagedResourcePolicy } from '../types';
 import type { ManagedReleaseIndex } from './remote-curation';
-import { readBoundedResponse } from './bounded-stream';
+import { readBoundedResponse, readBoundedStream } from './bounded-stream';
+import { decodeXmlEntities } from './xml-utils';
 
 export const MANAGED_R2_POLICY_KEY = '.codeflare/managed-paths.json';
 const MANAGED_EXTENSIONS_KEY = '.codeflare/managed-extensions.json';
@@ -214,4 +215,110 @@ export function canPrefixIntersectManagedPolicy(policy: ManagedR2Policy, prefix:
     const rootObject = root.slice(0, -1);
     return root.startsWith(prefix) || prefix === rootObject || prefix.startsWith(root);
   });
+}
+
+export type ManagedR2RequestClassification =
+  | { action: 'allow'; request: Request }
+  | { action: 'deny'; status: 403 | 503; code: string; requestId: string };
+
+function denyManagedRequest(code = 'AccessDenied'): ManagedR2RequestClassification {
+  return { action: 'deny', status: 403, code, requestId: crypto.randomUUID() };
+}
+
+function rawManagedTarget(url: URL, accountId: string, boundBucket: string): { keyRaw: string } | null {
+  const accountHost = `${accountId.toLowerCase()}.r2.cloudflarestorage.com`;
+  const host = url.hostname.toLowerCase().replace(/\.$/, '');
+  const rawPath = url.pathname.slice(1);
+  if (host === accountHost) {
+    const separator = rawPath.indexOf('/');
+    const rawBucket = separator < 0 ? rawPath : rawPath.slice(0, separator);
+    if (rawBucket !== boundBucket) return null;
+    return { keyRaw: separator < 0 ? '' : rawPath.slice(separator + 1) };
+  }
+  const suffix = `.${accountHost}`;
+  if (!host.endsWith(suffix) || host.slice(0, -suffix.length) !== boundBucket) return null;
+  return { keyRaw: rawPath };
+}
+
+function decodeCanonicalRawKey(raw: string): string | null {
+  try {
+    const decodedSegments = raw.split('/').map(segment => decodeURIComponent(segment));
+    if (decodedSegments.some(segment => segment.includes('\\') || segment.includes('/'))) return null;
+    const canonical = decodedSegments.map(segment => encodeURIComponent(segment).replace(/[!'()*]/g, character => (
+      `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+    ))).join('/');
+    const normalizedRaw = raw.replace(/%[0-9a-f]{2}/gi, escape => escape.toUpperCase());
+    return canonical === normalizedRaw ? decodedSegments.join('/') : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasDuplicateControlQuery(url: URL): boolean {
+  return ['delete', 'uploads', 'uploadId', 'partNumber', 'tagging'].some(name => url.searchParams.getAll(name).length > 1);
+}
+
+function parseDeleteKeys(xml: string): string[] | null {
+  if (/<!DOCTYPE|<!ENTITY/i.test(xml)) return null;
+  if (!/^\s*(?:<\?xml[^?]*\?>\s*)?<Delete>[\s\S]*<\/Delete>\s*$/.test(xml)) return null;
+  const body = xml.replace(/^\s*(?:<\?xml[^?]*\?>\s*)?<Delete>/, '').replace(/<\/Delete>\s*$/, '');
+  const objectMatches = [...body.matchAll(/<Object>\s*<Key>([^<]*)<\/Key>\s*<\/Object>/g)];
+  if (objectMatches.length < 1 || objectMatches.length > 1_000) return null;
+  const remainder = body
+    .replace(/<Object>\s*<Key>[^<]*<\/Key>\s*<\/Object>/g, '')
+    .replace(/<Quiet>(?:true|false)<\/Quiet>/, '')
+    .trim();
+  if (remainder || (body.match(/<Quiet>/g)?.length ?? 0) > 1) return null;
+  const keys: string[] = [];
+  for (const match of objectMatches) {
+    const raw = match[1]!;
+    if (/&(?!(?:amp|lt|gt|quot|apos);)/.test(raw)) return null;
+    const key = decodeXmlEntities(raw);
+    if (!key || key.includes('\\') || /[\0-\x1f\x7f]/.test(key)) return null;
+    keys.push(key);
+  }
+  return keys;
+}
+
+/** @impl REQ-ENTERPRISE-027 */
+export async function classifyManagedR2Request(input: {
+  request: Request;
+  accountId: string;
+  boundBucket: string;
+  policy: VerifiedManagedR2Policy;
+}): Promise<ManagedR2RequestClassification> {
+  const url = new URL(input.request.url);
+  const target = rawManagedTarget(url, input.accountId, input.boundBucket);
+  if (!target || hasDuplicateControlQuery(url)) return denyManagedRequest();
+  if (input.request.method === 'GET' || input.request.method === 'HEAD') {
+    return { action: 'allow', request: input.request };
+  }
+
+  if (input.request.method === 'POST' && url.searchParams.has('delete')) {
+    if (target.keyRaw || url.searchParams.get('delete') !== '') return denyManagedRequest();
+    if (!/^application\/xml(?:\s*;\s*charset=utf-8)?$/i.test(input.request.headers.get('content-type') ?? '')) return denyManagedRequest();
+    if (input.request.headers.has('content-encoding')) return denyManagedRequest();
+    let bytes: Uint8Array;
+    try {
+      bytes = await readBoundedStream(input.request.body, 1024 * 1024, 'S3 multi-delete body');
+    } catch {
+      return denyManagedRequest();
+    }
+    let xml: string;
+    try {
+      xml = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
+    } catch {
+      return denyManagedRequest();
+    }
+    const keys = parseDeleteKeys(xml);
+    if (!keys || keys.some(key => isManagedMutationProtected(input.policy, key))) return denyManagedRequest();
+    const headers = new Headers(input.request.headers);
+    headers.delete('content-length');
+    return { action: 'allow', request: new Request(input.request.url, { method: 'POST', headers, body: bytes }) };
+  }
+
+  const key = decodeCanonicalRawKey(target.keyRaw);
+  if (!key) return denyManagedRequest();
+  if (isManagedMutationProtected(input.policy, key)) return denyManagedRequest();
+  return { action: 'allow', request: input.request };
 }

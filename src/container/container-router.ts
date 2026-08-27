@@ -197,6 +197,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       const nextPolicy = managedResourcePolicy ?? host._managedResourcePolicy ?? 'mutable';
       const nextReleaseDigest = nextPolicy === 'mutable' ? undefined : managedResourceReleaseDigest ?? host._managedResourceReleaseDigest ?? undefined;
       const nextPathsDigest = nextPolicy === 'mutable' ? undefined : managedResourcePathsDigest ?? host._managedResourcePathsDigest ?? undefined;
+      const nextR2SseDisabled = r2SseDisabled ?? (host._r2SseDisabled === true);
       const securityProps = {
         bucket: bucketName,
         r2AccessKeyId: r2CredentialsProvided ? r2AccessKeyId : host._r2AccessKeyId ?? undefined,
@@ -204,13 +205,15 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
         resourcePolicy: nextPolicy,
         ...(nextReleaseDigest ? { releaseDigest: nextReleaseDigest } : {}),
         ...(nextPathsDigest ? { pathsDigest: nextPathsDigest } : {}),
+        ...(nextR2SseDisabled ? { r2SseDisabled: true } : {}),
       };
       const securityChanged = bucketName !== host._bucketName
         || securityProps.r2AccessKeyId !== (host._r2AccessKeyId ?? undefined)
         || securityProps.r2SecretAccessKey !== (host._r2SecretAccessKey ?? undefined)
         || nextPolicy !== (host._managedResourcePolicy ?? 'mutable')
         || (nextReleaseDigest ?? null) !== (host._managedResourceReleaseDigest ?? null)
-        || (nextPathsDigest ?? null) !== (host._managedResourcePathsDigest ?? null);
+        || (nextPathsDigest ?? null) !== (host._managedResourcePathsDigest ?? null)
+        || nextR2SseDisabled !== (host._r2SseDisabled === true);
       if (securityChanged) await refreshStrictEgressInterception(host, securityProps);
       if (r2CredentialsProvided) {
         host._r2AccessKeyId = r2AccessKeyId;
