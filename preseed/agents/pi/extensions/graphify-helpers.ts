@@ -1,3 +1,26 @@
+type CloneTargetState = typeof globalThis & { __codeflareCloneTargetHadGit?: Map<string, boolean> };
+const cloneTargetState = globalThis as CloneTargetState;
+
+function cloneTargetMap(): Map<string, boolean> {
+  return cloneTargetState.__codeflareCloneTargetHadGit ??= new Map<string, boolean>();
+}
+
+function cloneTargetKey(toolUseId: string, target: string): string {
+  return `${toolUseId}\0${target}`;
+}
+
+export function rememberCloneTargetHadGit(toolUseId: string, target: string, hadGit: boolean): void {
+  cloneTargetMap().set(cloneTargetKey(toolUseId, target), hadGit);
+}
+
+export function cloneTargetHadGit(toolUseId: string, target: string): boolean | undefined {
+  return cloneTargetMap().get(cloneTargetKey(toolUseId, target));
+}
+
+export function clearCloneTargetState(): void {
+  cloneTargetMap().clear();
+}
+
 export type GraphifyCloneAction = {
   repo: string;
   hasGraph: boolean;

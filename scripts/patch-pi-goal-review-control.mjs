@@ -2,8 +2,8 @@
 // Applies Codeflare's reviewed compatibility patch to the exact locked pi-goal
 // release. The package remains upstream-owned and integrity-locked; this version-aware
 // image-build transform adds the session-local PR-review control
-// channel and a bounded continuation dispatch interval without a companion
-// extension or permanent fork. Every transformed source is calculated before
+// channel, compact Goal prompts, and a bounded continuation dispatch interval
+// without a companion extension or permanent fork. Every transformed source is calculated before
 // any package file is written so version or source-layout drift fails closed.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -16,6 +16,7 @@ export const SUPPORTED_PI_GOAL_VERSIONS = Object.freeze([
 export const PATCH_MARKER = 'CODEFLARE_GOAL_CONTROL_CHANNEL';
 export const GOAL_ENTRYPOINT_PATCH_MARKER = 'CODEFLARE_GOAL_LIFECYCLE_COMMANDS';
 export const COMMANDS_PATCH_MARKER = 'CODEFLARE_SUPPRESS_RESUME_PROMPT';
+export const PROMPTS_PATCH_MARKER = 'CODEFLARE_COMPACT_GOAL_PROMPTS';
 export const SETTINGS_PATCH_MARKER = 'CODEFLARE_GOAL_MIN_INTERVAL_SETTINGS';
 export const RUNTIME_PATCH_MARKER = 'CODEFLARE_GOAL_MIN_INTERVAL_RUNTIME';
 export const RUNTIME_SETTLED_RESTART_MARKER = 'CODEFLARE_GOAL_SETTLED_RESTART';
@@ -341,6 +342,69 @@ export function patchPiGoalCommandsSource(source) {
       '\t\t);',
     ].join('\n'),
     'resume continuation prompt',
+  );
+  return patched;
+}
+
+export function patchPiGoalPromptsSource(source) {
+  if (
+    isCompleteMarkedPatch(
+      source,
+      PROMPTS_PATCH_MARKER,
+      [
+        'Do not stop at a plan or partial result.',
+        '<external_wait_reason>',
+      ],
+      'Goal prompts',
+    )
+  ) return source;
+  let patched = replaceOnce(
+    source,
+    'import { MIN_GOAL_WAIT_DELAY_MS } from "./wait.js";',
+    `// ${PROMPTS_PATCH_MARKER}`,
+    'Goal wait import',
+  );
+  patched = replaceOnce(
+    patched,
+    [
+      'function goalModeRules(goalLabel: string) {',
+      '\treturn [',
+      '\t\t"Goal-mode rules:",',
+      '\t\t"- Preserve the full objective across turns; do not redefine success around a narrower, safer, smaller, merely compatible, or easier-to-test result.",',
+      '\t\t"- Derive concrete requirements from the objective and any referenced files, plans, specifications, issues, or user instructions.",',
+      '\t\t"- Treat the current worktree, command output, tests, runtime behavior, PR state, rendered artifacts, and external state as authoritative. Previous conversation, plans, and summaries are context, not proof; inspect the current state before relying on them.",',
+      '\t\t`- Keep working until ${goalLabel} is completely resolved end-to-end. Do not stop at analysis, a plan, TODO list, partial fixes, or suggested next steps.`,',
+      '\t\t"- Autonomously implement and verify the work. If a tool fails, try reasonable alternatives instead of yielding early.",',
+      '\t\t"- Before completion, treat completion as unproven and audit requirement by requirement. For every explicit requirement, artifact, command, test, gate, invariant, and deliverable, inspect authoritative evidence and match verification scope to requirement scope.",',
+      '\t\t"- Weak, indirect, missing, or merely consistent evidence is not enough; gather stronger evidence and keep working.",',
+      '\t\t`- Only call the goal_complete tool after evidence proves every requirement of ${goalLabel} is satisfied and no required work remains. Pass this exact goal_id and never reuse an id from an older, stopped, replaced, or cleared turn.`,',
+      '\t\t"- Use goal_blocked only at a true impasse after the same blocker recurs for at least three consecutive goal turns, with concrete evidence that user or external action is required. Never use it merely because work is hard, slow, uncertain, incomplete, needs ordinary clarification, or hit a recoverable failure.",',
+      '\t\t"- After a blocked goal is resumed, start a fresh three-turn blocker audit before using goal_blocked again.",',
+      '\t\t"- When progress genuinely depends on a later external event, first arrange a non-goal wake message, then call goal_wait with the exact current goal_id to keep the goal active without automatic continuation. Use resume_after_ms only as a bounded safety wake-up, not as a polling interval.",',
+      '\t\t`- Prefer longer goal_wait deadlines measured in minutes to avoid busy polling. Requests below ${MIN_GOAL_WAIT_DELAY_MS}ms are clamped to ${MIN_GOAL_WAIT_DELAY_MS}ms, and omitting resume_after_ms keeps the goal quiet until external input or explicit resume.`,',
+      '\t\t"- Call goal_wait alone because parallel sibling tools can prevent immediate turn termination. Do not use it for ordinary unfinished work, and do not use goal_blocked for a recoverable external wait.",',
+      '\t\t"- If the goal is incomplete at the end of a turn and goal_wait was not accepted, expect automatic continuation and keep working from the current state.",',
+      '\t].join("\\n");',
+      '}',
+    ].join('\n'),
+    [
+      'function goalModeRules(goalLabel: string) {',
+      '\treturn [',
+      '\t\t"Goal-mode rules:",',
+      '\t\t`- Continue until ${goalLabel} is complete; preserve its full scope and verify authoritative state.`,',
+      '\t\t"- Do not stop at a plan or partial result.",',
+      '\t\t`- Call goal_complete only after every requirement of ${goalLabel} is verified and no work remains.`,',
+      '\t\t"- If progress needs user input or an external event, state the required action and stop the turn.",',
+      '\t].join("\\n");',
+      '}',
+    ].join('\n'),
+    'Goal mode rules',
+  );
+  patched = replaceOnce(
+    patched,
+    '<goal_wait_reason>\\n${escapeXmlText(waitingReason)}\\n</goal_wait_reason>',
+    '<external_wait_reason>\\n${escapeXmlText(waitingReason)}\\n</external_wait_reason>',
+    'waiting reason tag',
   );
   return patched;
 }
@@ -773,6 +837,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     commands: join(directory, 'src', 'commands.ts'),
     goal: join(directory, 'src', 'goal.ts'),
     [sessionSourceName]: join(directory, 'src', `${sessionSourceName}.ts`),
+    prompts: join(directory, 'src', 'prompts.ts'),
     runtime: join(directory, 'src', 'runtime.ts'),
     settings: join(directory, 'src', 'settings.ts'),
   };
@@ -807,6 +872,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     commands: readFileSync(paths.commands, 'utf8'),
     goal: readFileSync(paths.goal, 'utf8'),
     [sessionSourceName]: readFileSync(paths[sessionSourceName], 'utf8'),
+    prompts: readFileSync(paths.prompts, 'utf8'),
     runtime: readFileSync(paths.runtime, 'utf8'),
     settings: readFileSync(paths.settings, 'utf8'),
   };
@@ -816,6 +882,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     [sessionSourceName]: sessionSourceName === 'lifecycle'
       ? patchPiGoalLifecycleSource(originals[sessionSourceName])
       : patchPiGoalSource(originals[sessionSourceName]),
+    prompts: patchPiGoalPromptsSource(originals.prompts),
     runtime: patchPiGoalRuntimeSource(originals.runtime),
     settings: patchPiGoalSettingsSource(originals.settings),
   };
@@ -824,6 +891,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     commands: COMMANDS_PATCH_MARKER,
     goal: GOAL_ENTRYPOINT_PATCH_MARKER,
     [sessionSourceName]: PATCH_MARKER,
+    prompts: PROMPTS_PATCH_MARKER,
     runtime: RUNTIME_PATCH_MARKER,
     settings: SETTINGS_PATCH_MARKER,
   };
@@ -834,7 +902,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
   }
 
   writeFileSync(paths.packageJson, patchedPackageManifest);
-  for (const name of ['commands', 'goal', sessionSourceName, 'runtime', 'settings']) {
+  for (const name of ['commands', 'goal', sessionSourceName, 'prompts', 'runtime', 'settings']) {
     writeFileSync(paths[name], patched[name]);
   }
 }

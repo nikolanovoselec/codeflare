@@ -4,16 +4,18 @@ Commit `<type>: <description>` using `feat|fix|refactor|docs|test|chore|perf|ci`
 
 <!-- git-workflow-ci-route -->
 
-## Boundary stop
+## Review exposure
 
-After `git push`, `gh pr create`, or accepting existing-head review leaves the checked-out branch at an unacknowledged exact PR head for `main`, `master`, or `develop`, end the turn and report only the result or PR URL. The plan arrives after idle; do not inspect, poll, edit, launch CI, or run another tool. A plan not yet visible is queued, not missing.
+Startup, resume, clone, switch, checkout, pull, checked-out-branch push, PR creation, and PR reopen may expose an open protected-base PR. An exact marker stays silent. Successful push, PR creation, and PR reopen emit one plan; other misses show `Mark review complete` or `Launch review`. Never choose.
 
-Unpublished commits are never review heads. Launch reviewers only from the emitted authoritative-head plan.
+Fetch, inspection, local mutation, detached/path checkout, tags, unrelated-ref pushes, unsynchronized heads, and merges without a checkout or full-`HEAD` transition are inert. A successful transition uses consent for the resulting open protected-base PR.
 
-## One plan
+## One current round
 
-Execute the emitted plan once: launch listed reviewers in parallel, launch its independent CI request last, then end the turn. Never poll or duplicate it. After reviewer results arrive, publish the required triage without file changes; apply accepted fixes only in the later FIX turn. Root alone changes repository state.
+Execute each plan once: start reviewers together, start independent CI next, then end. Never poll or duplicate. Interrupted work stores no progress; later exposure starts fresh.
+
+After all reviewers and terminal exact-head CI, publish triage without mutations. Verify evidence and scope, judge findings separately from fixes, reject unsupported or oversized proposals, and choose the smallest correction using existing machinery. Completion precedes the separate FIX reminder. Apply only accepted fixes then. Root alone mutates.
 
 <!-- git-workflow-hard-obligations -->
 
-Never mutate reviewed work between triage and FIX, recreate a plan, use a no-op PR edit, push before required review closes, or deploy before required CI is green.
+Never mutate reviewed work between triage and FIX, recreate a plan, use legacy `.git/sdd-review-*` state, use a no-op PR edit, push before review closes, or deploy before required CI is green.

@@ -32,7 +32,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD10](#ad10-bootstrap-window-pre-setup-endpoints-csrf-and-worker-name-derivation) | Permit a bounded unauthenticated bootstrap window | Setup routes relax authentication and CSRF until `setup:complete` reaches KV, enabling self-hosted configuration before Cloudflare Access exists. | Security | Active |
 | [AD11](#ad11-suffix-pattern-cors-with-credentials) | Allow credentialed CORS through boundary-checked suffix patterns | `matchesPattern()` accepts configured suffixes such as `.workers.dev` with credentials while enforcing domain boundaries and leaving JWT validation as the primary gate. | Security | Active |
 | [AD12](#ad12-kv-based-setup-lock-non-atomic) | Use a non-atomic KV lock for one-time setup | Setup reads and then writes `setup:complete` in KV because its Cloudflare API steps are idempotent and a rare race causes redundant calls rather than corrupt state. | Security | Active |
-| [AD13](#ad13-per-user-scoped-r2-tokens) | Issue bucket-scoped R2 credentials per user | Each container receives an AES-256-GCM-cached R2 token limited to its user's bucket, reducing cross-user exposure despite requiring token-edit permission. | Security | Active |
+| [AD13](#ad13-per-user-scoped-r2-tokens) | Issue bucket-scoped R2 credentials per user | Per-user R2 tokens remain bucket-scoped; [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) replaces direct container delivery only under strict interception. | Security | Partially superseded |
 | ~~[AD14](#ad14-never-auto---resync-on-bisync-failure)~~ | ~~Replace the ban on automatic bisync resync~~ | [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery) permits baseline re-establishment only after bounded recovery fails, while preserving deletion-safety concerns. | Storage | Superseded |
 | [AD15](#ad15-tabconfigschema-allows-arbitrary-command-strings) | Allow arbitrary bounded tab command strings | `TabConfigSchema` accepts command strings up to 200 characters because users already control a root shell inside their own ephemeral sandbox. | UI/Frontend | Active |
 | [AD16](#ad16-entrypointsh-1090-lines-complexity) | Retain the large entrypoint shell implementation | `entrypoint.sh` keeps its accumulated orchestration logic because rewriting production-tested migration, sync, PTY, and shutdown paths risks reviving solved defects. | Architecture | Active |
@@ -106,7 +106,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD84](#ad84-retain-the-vault-sw-encryption-key-in-memory-neuter-the-proactive-flush-and-open-a-green-vault-button-directly) | Retain the Vault worker key and open ready Vaults directly | The grafted Vault worker keeps its AES key until natural termination, and a green Vault control opens through the bootstrap hop without redundant readiness checks. | Architecture | Active |
 | [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) | Offer strict Gateway egress as a default-off boundary | An enterprise wizard toggle wires a fail-closed catch-all egress controller through the Workers VPC binding, applying customer Gateway policy to container web traffic. | Architecture, Security | Active |
 | [AD86](#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) | Exempt own-account platform traffic from strict egress | Own-account platform traffic bypasses Gateway only after account-scoped matching, while EgressController preserves fail-closed direct-internet routing. | Architecture, Security | Active |
-| [AD87](#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props) | Re-sign R2 and bridge WebSockets at the egress controller | R2 re-signing, WebSocket bridging, and props-based strict state remain; [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container) moved browser-token injection to its per-host interceptor. | Architecture, Security | Partially superseded |
+| [AD87](#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props) | Re-sign R2 and bridge WebSockets at the egress controller | R2 re-signing and WebSocket bridging remain; [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container) owns browser-token injection, while [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) replaces deployment-wide R2 signer authority. | Architecture, Security | Partially superseded |
 | [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads) | Compare bisync state with server modification times | Both bisync paths use `--use-server-modtime` with fast listings and 64 checkers, eliminating per-object HEAD storms while accepting R2 upload time as the conflict key. | Storage | Active |
 | [AD89](#ad89-governed-mode-deployment-wide-r2-sse-c-disable-via-a-kv-toggle-with-lossless-in-place-re-encrypt-migration) | Governed Mode controls deployment-wide R2 SSE-C policy | The enterprise-only KV toggle controls R2 SSE-C policy, separating deployment-wide encryption mode from the verified migration state machine. | Architecture, Security, Storage | Active |
 | [AD90](#ad90-governed-mode-preseed-bake--checksum-delta-initial-sync) | Bake Governed Mode seed files for checksum delta sync | Governed Mode lays an image-baked agent seed down before checksum-based R2 sync, avoiding full seed downloads while preserving user deltas. | Storage | Active |
@@ -117,8 +117,8 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault) | Keep Browser IDE runtime state session-isolated | The Browser IDE stays on a session-keyed route with ephemeral live state, preventing one session's workspace and editor state from bleeding into another. | Architecture, Security | Active |
 | [AD96](#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size) | Disable low-value CLI warm-ups to shrink the image | The Dockerfile skips Codex and Copilot V8 warming plus OpenCode database pre-init, saving about 147 MB while shifting cost to first launch. | Build / Container | Active |
 | ~~[AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk)~~ | ~~Retire the OpenVSCode vulnerability-risk acceptance~~ | [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) replaces the pinned OpenVSCode runtime, removing the accepted upstream vulnerability posture and its scanner suppressions. | Security, Build / Container | Superseded |
-| [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) | Run Pi PR review through visible session-scoped agents | Pi launches parallel report-only reviewers as public session agents and acknowledges an exact PR head only after root-published triage, avoiding a second durable lane system. | Agents | Active |
-| [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) | Monitor Pi CI with one attached native subagent | A single resolver launches one public ci-monitor for the authoritative PR head, making CI independent of review and preventing duplicate detached monitors. | Agents | Active |
+| [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) | Run Pi PR review through visible session-scoped agents | Parallel visible reviewers and root triage remain; [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) replaces persisted recovery and clone-local acknowledgement. | Agents | Partially superseded |
+| [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) | Monitor Pi CI with one attached native subagent | One attached exact-head CI monitor remains; [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) replaces durable launch checkpoints and settled recovery. | Agents | Partially superseded |
 | [AD100](#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) | Use upstream rpiv-todo 2.0.0 session isolation | The Pi seed pins rpiv-todo 2.0.0's session-keyed store and removes the temporary source override, so child lifecycle events cannot erase foreground tasks. | Agents | Active |
 | [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) | Give the foreground Pi session sole context-mode ownership | A managed process-global claim gives the root Pi session the only context-mode bridge, while in-process subagents use native or Bash transports to prevent helper leaks. | Agents, Architecture | Active |
 | [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | Make Pi extraction root-owned and transactional | The root Pi session launches visible request-scoped extraction jobs and advances memory or Vault state only after validated artifacts and graph publication succeed. | Agents, Architecture | Active |
@@ -134,13 +134,13 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD112](#ad112-ci-runs-as-parallel-path-filtered-lanes-and-deploys-reuse-content-addressed-container-images) | Parallelize CI lanes and reuse verified container images | Path-filtered PR lanes run in parallel while deployment alone builds or reuses provenance-verified content-addressed images, reducing checks without weakening evidence. | Architecture, Operations | Active |
 | ~~[AD113](#ad113-one-owned-browser-ide-extension-uses-pi-rpc-and-a-claude-pty)~~ | ~~Retire the owned dual-agent Browser IDE extension~~ | [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration) replaces the custom Pi RPC and Claude PTY sidebar with editor-native integrations that can access editor context. | Architecture, Security | Superseded |
 | [AD114](#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration) | Use native Pi Chat and the official Claude IDE extension | Native Pi and official Claude integrations retain panel, provider, runtime, and settings ownership, while [AD127](#ad127-native-inline-chat-uses-proposal-only-pi-turns-and-host-owned-text-edits) replaces Pi Inline execution. | Architecture, Security, Supply Chain | Partially superseded |
-| [AD115](#ad115-claude-pr-boundary-review-lanes-run-as-headless-claude--p-subprocesses) | Run Claude review lanes as bounded headless subprocesses | Each review lane runs `claude -p` with isolated settings, its own model and effort, Bash-only tools, and validated guards to remove inherited prompt overhead. | Architecture, Cost | Active |
+| [AD115](#ad115-claude-pr-boundary-review-lanes-run-as-headless-claude--p-subprocesses) | Run Claude review lanes as bounded headless subprocesses | The bounded headless lane runner remains; [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) replaces lane re-demand, transcript recovery, and clone-local acknowledgement. | Architecture, Cost | Partially superseded |
 | [AD116](#ad116-review-lane-phase-0-is-computed-deterministically-and-handed-to-the-lane) | Precompute review-lane Phase 0 deterministically | The lane launcher computes SDD triage before model invocation and passes authoritative results in the opening prompt, eliminating repeated discovery turns. | Architecture, Cost | Active |
 | [AD117](#ad117-review-lane-cost-is-governed-by-turn-count-so-evidence-gathering-is-structured-in-waves) | Gather review evidence in structured waves | Review lanes derive available evidence first and batch only named gaps into a second call, reducing quadratic turn cost without imposing a completeness cap. | Architecture, Cost | Active |
 | [AD118](#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on) | Mark seeded R2 objects with verified provenance metadata | Seed writes stamp a build hash in R2 custom metadata, so cleanup deletes retired files only with positive product-ownership evidence and preserves user replacements. | Storage, Agents | Active |
 | [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) | Run pinned code-server behind the session proxy | The Browser IDE uses a checksum-verified unmodified code-server release on loopback while preserving authenticated session routes, fixed inventories, and lazy lifecycle. | Architecture, Security, Build / Container | Active |
 | [AD120](#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) | Fix Browser IDE workspace selection and export safe UI state | The host rejects public workspace selectors and projects `/home/user/workspace`, while a bounded allowlist persists only safe UI preferences across sessions. | Architecture, Security, Storage, Build / Container | Active |
-| [AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation) | Anchor review coverage on delivery subcommands | Review candidacy still inspects any Git or GitHub CLI command, but lane coverage anchors only on push, PR creation, or merge to avoid read-only commands erasing earned coverage. | Architecture, Build / Container | Active |
+| ~~[AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation)~~ | ~~Anchor review coverage on delivery subcommands~~ | [AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint) replaces broad Git/GitHub candidacy and merge delivery with automatic push/PR-create ingress plus clone-only consent. | Architecture, Build / Container | Superseded |
 | [AD122](#ad122-the-ci-monitor-observes-and-reports-it-does-not-cancel-runs-or-chase-the-remote) | Keep the CI monitor observational | The CI monitor reports GitHub's terminal result with its head SHA and leaves cancellation to workflow concurrency, avoiding ambiguous branch-based remote control. | Architecture, Build / Container | Active |
 | [AD123](#ad123-the-claude-fix-directive-owns-delivery-pi-leaves-it-to-standing-rules) | Let Claude's FIX directive own conditional delivery | Claude's FIX directive commits, handles any terminal CI result, and then pushes, while Pi keeps standing-rule delivery because its follow-up has different precedence. | Architecture, Cost | Active |
 | [AD124](#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block) | Redeliver memory capture requests within a fixed bound | Claude persists and reissues a capture request up to six times instead of blocking tools, preventing review-gate deadlocks while retrying failed publication. | Architecture, Cost, Agents | Active |
@@ -160,6 +160,9 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD139](#ad139-pi-skill-discovery-uses-one-compiler-generated-compact-index) | Generate one compact Pi skill index per mode | The seed compiler indexes each mode's model-invocable source skills and suppresses duplicate native catalog entries without removing explicit invocation paths. | Agents, Architecture, Performance | Active |
 | [AD140](#ad140-pi-starts-context-mode-off-and-exposes-optional-tool-schemas-on-demand) | Start context-mode off and expose optional Pi tools on demand | Fresh containers keep context-mode installed but disabled, while Pi sends five bootstrap tool schemas and activates registered optional tools through capability only when required. | Agents, Architecture, Performance | Active |
 | [AD141](#ad141-browser-ide-startup-follows-the-session-workspace-snapshot) | Start Browser IDE services by immutable session workspace | Terminal sessions retain lazy editor startup and PTY prewarm, while VS Code sessions eagerly warm code-server without a host browser-terminal PTY. | Architecture, Build / Container | Active |
+| ~~[AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint)~~ | ~~Define delivery review and joint completion~~ | [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) retains automatic delivery while replacing clone-local completion and durable recovery with user-scoped markers and ephemeral rounds. | Agents, Architecture, Build / Container | Superseded |
+| [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) | Keep strict R2 signer authority inside the user's bucket | Strict interception re-signs only the session's exact bucket with its scoped credential and never falls back to deployment-wide R2 authority. | Architecture, Security | Active |
+| [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) | Persist exact-head review completion per user | Pi and Claude use R2-synced immutable exact-head markers, automatic delivery, explicit non-delivery consent, and ephemeral rounds without recovering partial work. | Agents, Architecture, Storage | Active |
 ---
 
 ## Decisions
@@ -395,7 +398,7 @@ Read `setup:complete`, check if false, perform setup, write true. Not atomic -- 
 
 **Category:** Security
 
-**Status:** Accepted (date not recorded)
+**Status:** Partially superseded by [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) for direct credential delivery under strict interception. Bucket scope, creation, caching, verification, and revocation remain active.
 
 **Context:** The original compact ADR did not separate a context field from its decision rationale.
 
@@ -406,7 +409,7 @@ Replaces previous shared credential model. Token lifecycle:
 1. **Creation**: `getOrCreateScopedR2Token()` creates token with Object Read+Write policy restricted to user's bucket
 2. **Caching**: Token data cached in KV as `r2token:{email}` (encrypted via AES-256-GCM) -- survives container restarts
 3. **Verification**: `verifyTokenExists()` validates cached tokens via `GET /tokens/{id}` before use. Only 404 invalidates; transient errors assume valid (prevents API blips from causing rclone 401s)
-4. **Delivery**: Passed via `setBucketName` body -> container env vars -> rclone config
+4. **Delivery**: Passed via `setBucketName` body -> container env vars -> rclone config. [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) replaces the env/rclone leg with Worker-side props when strict interception is active.
 5. **Revocation**: `deleteScopedR2Token()` on user deletion
 
 **Trade-off**: Requires `API Tokens: Edit` permission on deploy token (broader than ideal). Accepted because manual R2 credential management per user is operationally impractical.
@@ -2607,7 +2610,7 @@ own-account R2 (the `.r2.cloudflarestorage.com` suffix requires the leading dot,
 
 **Category:** Architecture, Security
 
-**Status:** Partially superseded by [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container): browser-token injection only. Accepted 2026-06-27; R2 re-signing, WebSocket bridging, props-based strict state, the own-account exemption, and the [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) fail-closed boundary remain active.
+**Status:** Partially superseded by [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container) for browser-token injection and [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) for R2 signer authority. Accepted 2026-06-27; R2 re-signing, WebSocket bridging, props-based strict state, the own-account exemption, and the [AD85](#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off) fail-closed boundary remain active.
 
 **Context:** AD86 narrowed strict egress to direct-internet traffic and added an account-scoped exemption, but its first deploy left three problems on `enterprise-integration`:
 
@@ -2937,7 +2940,7 @@ Because `--server-base-path` makes OpenVSCode base-path native, the Worker and h
 
 **Category:** Agents
 
-**Status:** Accepted (2026-07-12); amended 2026-07-22 with live-session agent-end acknowledgement, settled fallback, and event-scoped boundary identity; amended 2026-07-30 so explicit user bypasses acknowledge the validated boundary head; amended 2026-08-03 to derive eligibility from authoritative checked-out-branch state; amended 2026-08-17 with exact-head disposition checkpoints and pre-delivery recovery; amended 2026-08-20 with initiating-cycle recovery isolation.
+**Status:** Partially superseded by [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) on 2026-08-27 for persisted boundary/checkpoint recovery, clone-local acknowledgement, and bypass state. Parallel visible reviewers plus triage-before-FIX remain accepted.
 
 **Supersedes:** [AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes), [AD80](#ad80-pi-pr-boundary-merge-gate-is-report-only-and-defended-in-depth)
 
@@ -2947,7 +2950,7 @@ Because `--server-base-path` makes OpenVSCode base-path native, the Worker and h
 
 **Decision:** Pi PR-boundary review is session-scoped ([REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](../../sdd/spec/agents.md#req-agent-071-pr-boundary-review-agent-dispatch)). Each executable `git` or `gh` candidate is paired with the repository resolved from its exact executable shell segment. The repository's checked-out branch and local `HEAD` must exactly match that branch's authoritative open protected-base PR head; command arguments do not supply push source, destination, configured push branch, or merge identity. Deterministic parent-shell `cd` changes are carried between segments; pipeline cwd changes do not propagate, and unresolved conditional cwd changes fail closed.
 
-The emitted review window persists boundary-call, repository, branch, PR, base, and full-head identity, while PR-number-specific checkpoints preserve independent incremental ranges, so lifecycle acknowledgement never reroutes through ambient cwd or active-repository memory. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::commandInvocations --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::launchBoundaryPlan --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview -->
+The emitted review window carries boundary-call, repository, branch, PR, base, and full-head identity. AD144 replaces its persisted checkpoints and recovery with ephemeral coordination and user-scoped completion markers. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::commandInvocations --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview -->
 
 The live handler records a boundary as evaluated only after authoritative state resolves to a launch or a conclusive no-plan outcome. A launch or acknowledgement checkpoint includes its exact repository, PR, head, and disposition before Pi queues the follow-up; runtime-local queued identities suppress duplicate plans and missing-work messages until delivery becomes visible. A temporarily unavailable or stale boundary defers that marker and retries through same-session agent-end and settled recovery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
@@ -2973,7 +2976,7 @@ Pi owns native reviewer agents, engineering rules, and spec/document enforcement
 
 **Category:** Agents
 
-**Status:** Accepted (2026-07-12; amended 2026-08-04)
+**Status:** Partially superseded by [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) on 2026-08-27 for CI launch checkpoints and settled recovery. One attached exact-head CI monitor remains accepted.
 
 **Context:** Pi CI monitoring mixed three conflicting paths: a review-owned handoff, a generic agent prompt, and a detached shell embedded in a skill. Native task completion could arrive before the detached monitor finished. Historical incidents included duplicate launches, startup prompt collisions, shell and `jq` false results, workflow-name drift, PR checks missed by commit-SHA lookup, and lost delivery after reload. The replacement therefore needs one executable request resolver that validates the event, repository, open PR, protected base, and authoritative head before returning one native monitor request. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest -->
 
@@ -2981,11 +2984,11 @@ Pi owns native reviewer agents, engineering rules, and spec/document enforcement
 
 The dedicated agent runs one attached Node process and returns `CI_RESULT` through native task notification. Script timeouts bound runtime; no agent turn cap may replace the verbatim result with a wrapper summary. Malformed and superseded heads fail closed. [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed) permits only the remote-qualified 41-character transcription correction. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi -->
 
-A correlated successful public launch tool result immediately writes the exact per-PR CI-head checkpoint independently from review acknowledgement. Agent-end and settled transcript correlation remain idempotent fallbacks. Settled recovery checks the durable checkpoint before requesting missing CI, so a live transcript snapshot that has not yet incorporated the tool result cannot create a repeated follow-up loop. Failed, mismatched, or transiently unverifiable launches remain retryable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::checkpointCiLaunch --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+AD144 removes the durable CI-head checkpoint and settled recovery. Current rounds correlate one exact-head CI launch and terminal result ephemerally; interrupted rounds retain no progress. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 
 **Alternatives considered:** Repair the shared review/CI handoff; add a durable CI claim; keep the detached shell and watch its log; monitor hard-coded workflows or `gh run list --commit`; or auto-restart after reload. These retain the failures caused by conflicting ownership or disconnected lifecycles. One attached process and one native result path are sufficient.
 
-**Consequences:** CI launch and monitoring truth become behaviorally testable through one boundary plan, one resolver script, and one tiny agent. The separate root-rule trigger is removed, so a Git command cannot create a duplicate launch. Non-SDD repositories and default-mode sessions receive CI-only plans. A successful launch is durable before settled recovery runs, while failures remain retryable; review acknowledgement is unchanged. Reload may abort a monitor without a result; a later eligible boundary plan or explicit user request can start a fresh one. Review and CI never track, wait for, or restart each other, and CI never becomes a review lane. Claude CI behavior is unchanged.
+**Consequences:** CI launch and monitoring truth become behaviorally testable through one boundary plan, one resolver script, and one tiny agent. The separate root-rule trigger is removed, so one delivery boundary cannot create a duplicate launch. Non-SDD repositories remain inert. CI launch and result evidence exist only for the active exact-head round; reload or interruption discards them. A later eligible delivery boundary or explicit user request can start a fresh monitor. Review and CI never restart each other, and CI never becomes a review lane. Claude CI behavior is unchanged.
 
 **Related REQ:** [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-070](../../sdd/spec/agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy), [REQ-AGENT-090](../../sdd/spec/agents.md#req-agent-090-ci-monitor-head-correction-is-authoritative-and-fail-closed).
 
@@ -3378,7 +3381,7 @@ The custom webviews, xterm, node-pty, ABI-127 addon build, and owned Claude PTY 
 
 **Category:** Architecture, Cost
 
-**Status:** Accepted (2026-07-26). Implements [REQ-AGENT-102](../../sdd/spec/agents.md#req-agent-102-claude-reviewer-headless-lane-transport).
+**Status:** Partially superseded by [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) on 2026-08-27 for failed-lane re-demand, transcript-stack recovery, and clone-local acknowledgement. Headless lane transport remains accepted and implements [REQ-AGENT-102](../../sdd/spec/agents.md#req-agent-102-claude-reviewer-headless-lane-transport).
 
 **Context:** A review lane began work already holding context it had no way to refuse. Claude Code injects CLAUDE.md, every `~/.claude/rules/*.md`, MEMORY.md and the SessionStart blocks into every subagent, and exposes no frontmatter field that excludes any of them — measured at 20,513 prompt tokens against an agent whose own document is nearly empty, so the figure is the harness rather than the lane.
 
@@ -3394,15 +3397,15 @@ The Stop-hook gate matched an Agent envelope, which a subprocess never emits. It
 
 What must never count as completion is the tool_result the harness returns the instant a background call is launched: it carries the same identifier but holds a background shell id and means "launched". Accepting it would credit all three lanes at launch and acknowledge a head whose review was still running — the gate inverted. Spawn detection is likewise structural rather than textual, because a substring match let one command quoting the runner path satisfy every lane at once; the runner must occupy command position, quoted or not.
 
-`--lane <name>` is the gate's match token, and renaming it would disable enforcement silently. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_spawn_lines --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::tool_use_id_completed -->
+`--lane <name>` remains the gate's match token, and renaming it would disable enforcement silently.
 
 A launched lane can also end *badly*, and that is a third state the gate originally lacked. `completed` and `failed` are both terminal — the process is gone either way — but only `completed` may credit a review. Treating `failed` as indistinguishable from "still running" meant the gate waited on a dead process until a staleness bound expired, the head was never acknowledged, and the next push measured its range from the last *acknowledged* head rather than the last reviewed one. 
 
-One lost lane therefore widened every subsequent review permanently: measured once as a ten-commit re-review where a single commit was due. A failed lane is now re-demanded immediately and named in the demand, because its report can be readable enough to look like a finished round. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::spawn_ended_unsuccessfully --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::lane_has_coverage_after_line -->
+AD144 removes failed-lane re-demand and all durable partial progress. A stopped or failed round writes no marker; the next supported exposure starts fresh.
 
-Acknowledgement itself was also making the wrong claim. Advancing the checkpoint on lane exit records that three processes ran, not that anything was read, so a round returning into a session that never triaged it moved the checkpoint past its own unacted findings. The gate now requires the triage verdict — recognised structurally, by the table header and divider anywhere in the assistant text of a message following the last lane's completion — and then issues the fix directive itself rather than trusting the session to remember. The Pi enforcement path already worked this way, so both runtimes key on one table shape. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::triage_published_after_line -->
+Acknowledgement itself was also making the wrong claim. Advancing completion on lane exit records that processes ran, not that findings were triaged. The gate therefore requires the structural triage verdict after terminal evidence, writes the AD144 user-scoped marker, and only then issues the FIX directive.
 
-A published verdict can also fail to reach the transcript at all: a message whose tool call this same gate rejects is never persisted by the harness, so a table sharing a message with a blocked tool call can be invisible to a later scan. An interim round-stamped checkpoint file compensated for that gap, but it surfaced in the UI as diff noise and was superseded by aligning the contract to the Pi runtime's: the verdict is a tool-free message that ends the turn — the one shape the harness always persists — verified finding-by-finding before publication, with the acknowledgement's fix directive driving the following turn. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::stacked_table_in_stream -->
+The verdict remains a tool-free message that ends the turn—the shape the harness persists reliably—with the marker-backed acknowledgement's FIX directive driving the following turn.
 
 The subprocess is also time-bounded, and the bound is validated rather than merely defaulted: `timeout 0` means *no* timeout, so an empty, zero, or non-numeric override resolves to the default instead of silently removing the bound, and expiry escalates past `SIGTERM` so a lane wedged in an auth prompt or a retry loop is actually reaped. Guard settings are built programmatically and verified non-empty before use for the same fail-closed reason: a missing dependency, a missing guard script, or a config path containing a space must stop the lane rather than yield a settings file whose hooks never fire. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::bounded_cap -->
 
@@ -3544,7 +3547,7 @@ The Pi inventory activates after startup, marks generic Chat setup complete to s
 
 **Category:** Architecture, Build / Container
 
-**Status:** Accepted (2026-08-11).
+**Status:** Superseded by [AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint) (2026-08-26).
 
 **Context:** `enforce-review-spawn.sh` measures lane coverage strictly after `PUSH_LINE`, the last transcript line its Layer 1 detector matched. That detector matched the bare words `git` and `gh` in command position, so every `git log`, `git status`, and `git diff` was a boundary. Reading a lane report is done with exactly those commands, so the anchor routinely moved past the spawns of the round being read and the gate re-demanded lanes that had already returned. Replayed against one session's transcript: 58 matches against 8 real pushes, with `PUSH_LINE` resolving to a `git diff` issued while diagnosing this.
 
@@ -3926,5 +3929,76 @@ Browser IDE settings add explicit company IDs without removing the wildcard pers
 **Consequences:** VS Code sessions become editor-ready without duplicate host PTYs, while Terminal startup remains unchanged. Startup status has workspace-specific readiness semantics, and restart must clear stale editor readiness before a replacement container begins warming.
 
 **Related REQs:** [REQ-IDE-003](../../sdd/spec/browser-ide.md#req-ide-003-ide-lifecycle-and-availability), [REQ-IDE-047](../../sdd/spec/browser-ide.md#req-ide-047-bash-first-browser-ide-terminals), and [REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions).
+
+---
+
+### AD142: Review ingress is delivery-only and completion is joint
+
+**Category:** Agents, Architecture, Build / Container
+
+**Status:** Superseded by [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) (2026-08-27). Superseded [AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation) while active.
+
+**Context:** AD121 kept every executable Git or GitHub command as a review candidate and treated merge as delivery. That breadth moved coverage during ordinary inspection, while one-shot GitHub lookup and pre-delivery launch state made real push and PR-create boundaries easy to miss. Reviewer completion also advanced independently from exact-head CI, so the visible triage could omit terminal CI evidence.
+
+**Decision:** Automatic ingress is limited to successful executable `git push` and `gh pr create`. Successful clone is the only consent boundary and applies to the checkout that command produced. Ordinary Git/GitHub activity and `gh pr merge` are inert for review ingress; the mutation guard may still block merge while triage is pending. GitHub remains authoritative for the open protected-base PR, branch, and exact head.
+
+Reviewer calls start together and exact-head CI starts immediately afterward. Acknowledgement and FIX wait for every required reviewer, terminal CI success, failure, or timeout, and one later joint triage table. Failure and timeout require a dedicated `Exact-head CI` row with the exact matching `CI_RESULT` token. Delivery reconciliation retries immediately and then after 1, 3, 5, 10, and 15 seconds. Goal pause ownership, head drift, closure, bypass, and reload recovery retain their existing lifecycle.
+
+**Consequences:** Read-only commands cannot open or move a review round. A clone command cannot borrow consent state from another target in the same tool call. Each Pi reviewer prompt names its temporary report path, and CI evidence is correlated with the exact launched monitor before acknowledgement. Claude queries CI by commit SHA, so Git branch text never enters the monitor command.
+
+**Related REQs:** [REQ-AGENT-036](../../sdd/spec/agents.md#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-080](../../sdd/spec/agents.md#req-agent-080-unified-pi-pr-boundary-launch-plan), [REQ-AGENT-098](../../sdd/spec/agents.md#req-agent-098-pi-review-triage-acknowledgement-barrier), [REQ-AGENT-121](../../sdd/spec/agents.md#req-agent-121-checked-out-branch-boundary-synchronization), and [REQ-AGENT-132](../../sdd/spec/agents.md#req-agent-132-pr-delivery-and-existing-head-consent).
+
+<!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand -->
+<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewerOutputPath -->
+
+---
+
+### AD143: Strict R2 interception signs only with the bound user's scoped credential
+
+**Category:** Architecture, Security
+
+**Status:** Accepted (2026-08-26). Supersedes [AD87](#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props) only for R2 signer authority and [AD13](#ad13-per-user-scoped-r2-tokens) only for strict-mode container delivery.
+
+**Context:** AD13 created one Object Read and Write token scoped to each user's exact bucket. AD87 later removed real R2 credentials from strict-mode containers, but its first implementation re-signed intercepted requests with deployment-wide Worker credentials. Account-host validation did not preserve the per-user bucket boundary, so strict interception widened data-plane authority while claiming to contain it.
+
+**Decision:** The Container Durable Object passes its existing memory-only scoped credential and bound bucket to `EgressController` through Worker-side props. Path-style and virtual-hosted own-account R2 requests must identify that exact bucket. Another bucket or missing scoped credentials fails before any upstream send. The controller constructs its signer only from the scoped pair and never falls back to deployment-wide R2 credentials. A validated restart payload that carries scoped credentials restores the complete pair atomically before interception wiring after a Durable Object wake; a changed pair on a warm container replaces the strict catch-all before later traffic.
+
+Placeholder credentials remain inside the strict container. Streaming request bodies, SSE-C headers, Governed Mode, account-scoped direct routing, WebSocket bridging, and strict state resolved through props remain as AD87 decided.
+
+**Consequences:** Strict interception retains AD13's user-bucket authority without exposing the usable credential to root inside the container. Durable Object reconstruction depends on the existing start payload to restore credentials in memory; a missing pair fails closed instead of silently acquiring broader authority. A warm replacement is committed only after the new catch-all is installed, so registration failure preserves the prior pair.
+
+**Related REQs:** [REQ-SEC-003](../../sdd/spec/security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket), [REQ-ENTERPRISE-023](../../sdd/spec/enterprise-mode.md#req-enterprise-023-strict-gateway-egress-controller-transport), [REQ-ENTERPRISE-026](../../sdd/spec/enterprise-mode.md#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority).
+
+<!-- @impl: src/container/container-interception.ts::strictEgress -->
+<!-- @impl: src/container/container-router.ts::handleSetBucketName -->
+<!-- @impl: src/egress-controller.ts::EgressController -->
+
+---
+
+### AD144: User-scoped review completion uses marker-or-dialog ingress
+
+**Category:** Agents, Architecture, Storage
+
+**Status:** Accepted (2026-08-27). Supersedes [AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint).
+
+**Context:** Review completion used clone-local files under `.git`, so replacing a container or opening another clone erased a fact the user had already established. Recovery then tried to rebuild authority from old transcript windows and delivery commands. That machinery launched duplicate rounds after resume and could carry stale push authority into another checkout. A review gate that forgets completion but remembers half a launch has the priorities backwards.
+
+**Decision:** Store one immutable marker for each normalized GitHub host, repository, PR, branch, protected base, and exact head under `~/.codeflare/review-state/v1`. Markers follow the user's R2-synced home across sessions, worktrees, clones, replacement containers, and devices that share the bucket. They expire after 30 days, and each repository and branch retains its ten newest markers. Writes publish atomically, acknowledge locally before best-effort `SIGUSR1` sync, and never read or migrate legacy `.git/sdd-review-*` state.
+
+Startup, resume, clone, switch, branch checkout, PR checkout, pull, a successful PR merge that changes the active checkout or full `HEAD`, checked-out-branch push, checked-out-branch PR creation, and checked-out-branch PR reopen resolve the current open protected-base PR. A valid exact marker stays silent. Successful checked-out-branch push, PR creation, and PR reopen retain the deterministic automatic review-and-CI plan from the pre-recovery state machine. Other marker misses offer `Mark review complete` and `Launch review`; cancellation writes nothing. Fetch, inspection, local mutation, detached or path checkout, merges without that successful transition, and unrelated-ref push remain inert.
+
+A selected or automatic launch uses the existing range and lane planner. The newest retained same-PR ancestor sets an incremental range when it is still an ancestor; otherwise the round reviews the full protected-base diff. Required reviewers start together, and automatic delivery adds exact-head CI immediately afterward. Before Claude emits a round, it privately and atomically records the exact head, PR, canonical runner, boundary, and scope in a session-scoped plan under `/run`; transcript launch evidence earns credit only when it matches that plan. Active coordination exists only in memory for Pi and after a session offset under `/run` for Claude. Stopped or interrupted work creates no checkpoint, retry plan, counter, or missing-work follow-up. The next delivery launches a fresh round; the next non-delivery exposure asks again.
+
+After the root publishes canonical triage, FIX handling revalidates the exact identity, writes the marker, signals sync, emits the existing FIX reminder, and releases review-owned Goal pause. No triage, local write failure, or head drift means no marker and no FIX. Pi and Claude retain deterministic reviewer output, exact-head CI correlation, failure and timeout rows, and root-owned mutation.
+
+**Consequences:** Completion survives clone and container boundaries, while partial work deliberately does not. Missing, stale, or mismatched Claude plan state fails closed without launch credit. Sync failure can cause a duplicate prompt on another device, but it cannot create a false acknowledgement. Startup prunes only the bounded marker root and never scans workspace repositories. There is no review-state service, endpoint, database, migration, or second planner.
+
+**Related REQs:** [REQ-AGENT-171](../../sdd/spec/agents.md#req-agent-171-user-scoped-review-completion-and-common-consent), [REQ-STOR-027](../../sdd/spec/storage.md#req-stor-027-review-completion-marker-sync), and [REQ-AGENT-170](../../sdd/spec/agents.md#req-agent-170-joint-review-and-ci-triage).
+
+<!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::writeCompletion -->
+<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::writeCompletion -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
 
 ---

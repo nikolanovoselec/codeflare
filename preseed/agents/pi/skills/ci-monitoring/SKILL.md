@@ -6,7 +6,7 @@ version: 2.0.1
 
 # Independent Pi CI Monitoring
 
-The Pi PR-boundary extension is the sole automatic dispatcher. Run this resolver only when its launch plan includes a CI wave (or when the user explicitly requests monitoring). Issue every reviewer call in the plan first, then run the resolver once without waiting for reviewer completion:
+The Pi extension dispatches CI from an automatic delivery plan or a selected non-delivery review plan. Run this resolver when that plan includes a CI wave, when the user explicitly requests monitoring, or when deploy/merge needs a fresh result. Issue every reviewer call in the plan first, then run the resolver once without waiting for reviewer completion:
 
 ```bash
 node ~/.pi/agent/skills/ci-monitoring/scripts/monitor-ci.mjs request event=<push|pr-create> changed=true repo=<owner/repo> pr=<affected-pr-number> head=<boundary-plan-head> cwd=<absolute-repo-root> reviewState=<launched|not-required>
@@ -22,4 +22,4 @@ repo=<owner/repo> pr=<number> head=<full headRefOid>
 
 The dedicated agent runs the seeded monitor script once. Its native completion begins with exactly one of `CI_RESULT success`, `CI_RESULT failure`, or `CI_RESULT timeout`. Monitoring stays outside the main session. The agent only reports; the main session owns any follow-up changes.
 
-Do not infer another automatic trigger from the Git command itself. If a task is interrupted, wait for a later extension-issued boundary plan or explicit user request rather than relaunching it automatically.
+Use only the extension-emitted plan; never independently infer identity from Git text. Successful checked-out-branch push, PR creation, and PR reopen automatically plan review plus CI. If work is interrupted, wait for a later fresh delivery plan, non-delivery marker choice, or explicit user request rather than recovering it.

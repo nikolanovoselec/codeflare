@@ -10,10 +10,13 @@ export const REVIEW_TRIAGE_DIVIDER = "|---|---|---|---|---|";
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
 export type ReviewBoundaryEvent = "push" | "pr-create";
+export type ReviewExposureKind = "clone" | "switch" | "checkout" | "pr-checkout" | "pull" | "push" | "pr-create" | "pr-reopen";
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
   event?: ReviewBoundaryEvent;
+  clone?: boolean;
+  kind?: ReviewExposureKind;
 };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
 type TranscriptBoundary = {
@@ -36,6 +39,9 @@ export type TranscriptFacts = {
   reviewRequiredLanes?: ReviewLane[];
   bypassed: boolean;
   ciLaunched: boolean;
+  ciRequired: boolean;
+  ciTerminal: boolean;
+  ciResult?: "success" | "failure" | "timeout";
   triageComplete: boolean;
   fixDelivered: boolean;
   closedNotified: boolean;
@@ -174,20 +180,127 @@ export function shellSegments(command: string): string[] {
   return executableShellSegments(command).map((segment) => segment.command);
 }
 
+export function isReviewMergeCommand(command: string): boolean {
+  return executableShellCommands(command).some((words) => {
+    const executable = shellCommandExecutable(words);
+    if (executable !== "git" && executable !== "gh") return false;
+    const args = shellCommandArguments(words, executable);
+    return (executable === "git" && args[0] === "merge")
+      || (executable === "gh" && args[0] === "pr" && args[1] === "merge");
+  });
+}
+
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
-  let candidate = false;
-  let event: ReviewBoundaryEvent | undefined;
+  let exposure: BoundarySurfaces = { reminder: false, settled: false };
   for (const words of executableShellCommands(command)) {
     const executable = shellCommandExecutable(words);
     if (executable !== "git" && executable !== "gh") continue;
-    candidate = true;
     const args = shellCommandArguments(words, executable);
-    if (executable === "git" && args[0] === "push") event = "push";
-    if (executable === "gh" && args[0] === "pr" && args[1] === "create") event = "pr-create";
+    if ((executable === "git" && args[0] === "clone")
+      || (executable === "gh" && args[0] === "repo" && args[1] === "clone")) {
+      exposure = { reminder: true, settled: true, clone: true, kind: "clone" };
+    } else if (executable === "git" && args[0] === "switch"
+      && !args.includes("--detach") && !args.includes("-d")) {
+      exposure = { reminder: true, settled: true, kind: "switch" };
+    } else if (executable === "git" && args[0] === "checkout"
+      && !args.includes("--") && !args.includes("--detach")) {
+      exposure = { reminder: true, settled: true, kind: "checkout" };
+    } else if (executable === "gh" && args[0] === "pr" && args[1] === "checkout") {
+      exposure = { reminder: true, settled: true, kind: "pr-checkout" };
+    } else if (executable === "git" && args[0] === "pull") {
+      exposure = { reminder: true, settled: true, kind: "pull" };
+    } else if (executable === "git" && args[0] === "push") {
+      exposure = { reminder: true, settled: true, event: "push", kind: "push" };
+    } else if (executable === "gh" && args[0] === "pr" && args[1] === "create") {
+      exposure = { reminder: true, settled: true, event: "pr-create", kind: "pr-create" };
+    } else if (executable === "gh" && args[0] === "pr" && args[1] === "reopen") {
+      exposure = { reminder: true, settled: true, event: "pr-create", kind: "pr-reopen" };
+    }
   }
-  return candidate
-    ? { reminder: true, settled: true, ...(event ? { event } : {}) }
-    : { reminder: false, settled: false };
+  return exposure;
+}
+
+function reopenTarget(args: string[]): string | undefined {
+  for (let index = 2; index < args.length; index += 1) {
+    const value = args[index] ?? "";
+    if (value === "-c" || value === "--comment") {
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("--comment=") || value.startsWith("-")) continue;
+    return value;
+  }
+  return undefined;
+}
+
+function ghRepository(words: string[]): string | undefined {
+  const ghIndex = words.findIndex((word, index) => word === "gh"
+    && shellCommandExecutable(words.slice(0, index + 1)) === "gh");
+  for (let index = ghIndex + 1; ghIndex >= 0 && index < words.length; index += 1) {
+    const value = words[index] ?? "";
+    if (value === "-R" || value === "--repo") return words[index + 1]?.toLowerCase();
+    if (value.startsWith("--repo=")) return value.slice("--repo=".length).toLowerCase();
+    if (!value.startsWith("-")) break;
+  }
+  return undefined;
+}
+
+export function exposureTargetsCheckedOutBranch(
+  command: string,
+  identity: { branch: string; pr: number; repository: string },
+): boolean {
+  const relevant = executableShellCommands(command)
+    .flatMap((words) => {
+      const executable = shellCommandExecutable(words);
+      return executable === "git" || executable === "gh"
+        ? [{ executable, args: shellCommandArguments(words, executable), words }]
+        : [];
+    })
+    .filter(({ executable, args }) => (executable === "git" && args[0] === "push")
+      || (executable === "gh" && args[0] === "pr" && (args[1] === "create" || args[1] === "reopen")))
+    .at(-1);
+  if (!relevant) return true;
+  const branch = identity.branch;
+  if (relevant.executable === "gh") {
+    const repository = ghRepository(relevant.words);
+    if (repository && repository !== identity.repository.toLowerCase()) return false;
+    if (relevant.args[1] === "reopen") {
+      const target = reopenTarget(relevant.args);
+      if (!target) return true;
+      const url = /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/pull\/(\d+)(?:\/|$)/i.exec(target);
+      if (url) return url[1]?.toLowerCase() === identity.repository.toLowerCase()
+        && Number(url[2]) === identity.pr;
+      if (/^[0-9]+$/.test(target)) return Number(target) === identity.pr;
+      return target === branch || target.endsWith(`:${branch}`);
+    }
+    const headIndex = relevant.args.findIndex((arg) => arg === "--head" || arg === "-H");
+    const inline = relevant.args.find((arg) => arg.startsWith("--head="))?.slice("--head=".length);
+    const head = inline ?? (headIndex >= 0 ? relevant.args[headIndex + 1] : undefined);
+    return !head || head === branch || head.endsWith(`:${branch}`);
+  }
+  const takesValue = new Set(["--repo", "--receive-pack", "--exec", "--push-option", "-o"]);
+  const positional: string[] = [];
+  for (let index = 1; index < relevant.args.length; index += 1) {
+    const value = relevant.args[index] ?? "";
+    if (value === "--") {
+      positional.push(...relevant.args.slice(index + 1));
+      break;
+    }
+    if (takesValue.has(value)) {
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("-")) continue;
+    positional.push(value);
+  }
+  const refspecs = positional.slice(1);
+  if (refspecs.length === 0) return true;
+  return refspecs.every((refspec) => {
+    const [source, destination] = refspec.replace(/^\+/, "").split(":", 2);
+    const sourceMatches = source === branch || source === `refs/heads/${branch}` || source === "HEAD";
+    const destinationMatches = !destination || destination === branch || destination === `refs/heads/${branch}`;
+    return sourceMatches && destinationMatches;
+  });
 }
 
 export function isReviewTransitionSuspended(repo: string): boolean {
@@ -454,12 +567,54 @@ function userText(entry: Record<string, any>): string {
   return messageText(entry, "user");
 }
 
-function nativeNotification(entry: Record<string, any>): { toolUseId: string; succeeded: boolean } | undefined {
+function nativeNotification(entry: Record<string, any>): { toolUseId: string; succeeded: boolean; text: string } | undefined {
   if (entry.type !== "custom_message" || entry.customType !== "subagent-notification" || typeof entry.content !== "string") return undefined;
   const toolUseId = /<tool-use-id>([^<]+)<\/tool-use-id>/.exec(entry.content)?.[1];
   if (!toolUseId) return undefined;
   const status = /<status>([^<]+)<\/status>/.exec(entry.content)?.[1]?.trim() ?? "";
-  return { toolUseId, succeeded: /^(?:Done|Completed)$/i.test(status) };
+  return { toolUseId, succeeded: /^(?:Done|Completed)$/i.test(status), text: entry.content };
+}
+
+type CiTerminalResult = "success" | "failure" | "timeout";
+
+function ciTerminalResult(
+  text: string,
+  expected: { repository: string; prNumber: number; head: string },
+): CiTerminalResult | undefined {
+  const result = /(?:^|>)CI_RESULT\s+(success|failure|timeout)\b/mi.exec(text)?.[1] as CiTerminalResult | undefined;
+  const identity = /^pr=(\d+)\s+head=([0-9a-f]{40})\s+repo=([^\s<]+)(?:\s+[^<]*)?(?:<|$)/mi.exec(text);
+  return result
+    && Number(identity?.[1]) === expected.prNumber
+    && identity?.[2] === expected.head
+    && identity?.[3] === expected.repository
+    ? result
+    : undefined;
+}
+
+function triageTableIncludesRequiredCiResult(text: string, result: CiTerminalResult | undefined): boolean {
+  const lines = text.split("\n").map((line) => line.trim());
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index] !== REVIEW_TRIAGE_HEADER || lines[index + 1] !== REVIEW_TRIAGE_DIVIDER) continue;
+    if (result !== "failure" && result !== "timeout") return true;
+    for (let row = index + 2; row < lines.length && lines[row].startsWith("|"); row += 1) {
+      if (!lines[row].endsWith("|")) continue;
+      const cells = lines[row].slice(1, -1).split("|").map((cell) => cell.trim());
+      const proposedFix = /^`([^`]*)`$/.exec(cells[2] ?? "")?.[1] ?? cells[2];
+      if (cells.length === 5
+        && cells[0] === "Exact-head CI"
+        && proposedFix === `CI_RESULT ${result}`) return true;
+    }
+  }
+  return false;
+}
+
+function completedPublicCiResult(
+  text: string,
+  expected: { repository: string; prNumber: number; head: string },
+): CiTerminalResult | undefined {
+  return /^Type:\s*ci-monitor\s*\|\s*Status:\s*(?:completed|done)\b/mi.test(text)
+    ? ciTerminalResult(text, expected)
+    : undefined;
 }
 
 type ReviewWindow = {
@@ -511,6 +666,7 @@ export function reviewTranscriptFacts(input: {
   requiredLanes: ReviewLane[];
   ci?: { repository: string; repo: string; prNumber: number; head: string };
   reviewHead?: string;
+  activeBoundaryToolUseId?: string;
 }): TranscriptFacts {
   const entries = input.entries ?? readEntries(input.sessionFile);
   const successfulToolIds = new Set(entries
@@ -528,6 +684,10 @@ export function reviewTranscriptFacts(input: {
       && entry.message?.toolName === "subagent"
       && entry.message?.isError !== true)
     .map((entry) => entry.message.toolCallId));
+  const referencedBoundaryIds = new Set(entries
+    .map(reviewWindow)
+    .map((window) => window?.boundaryToolUseId)
+    .filter((toolUseId): toolUseId is string => typeof toolUseId === "string"));
   const boundaries = new Map<string, { index: number; value: NonNullable<TranscriptFacts["boundary"]> }>();
   let boundaryIndex = -1;
   let boundary: TranscriptFacts["boundary"];
@@ -535,7 +695,7 @@ export function reviewTranscriptFacts(input: {
     for (const call of toolCalls(entry)) {
       for (const command of shellCommands(call)) {
         if ((successfulToolIds.has(call.id) || reconciledBoundaryIds.has(call.id))
-          && classifyReviewBoundaryCommand(command).settled) {
+          && (classifyReviewBoundaryCommand(command).settled || referencedBoundaryIds.has(call.id))) {
           const value = {
             toolUseId: call.id,
             command,
@@ -550,14 +710,29 @@ export function reviewTranscriptFacts(input: {
     }
   });
   const latestBoundary = boundary;
-  const windows = entries.map(reviewWindow).filter((candidate) => candidate?.boundaryToolUseId
-    && boundaries.has(candidate.boundaryToolUseId));
-  const reviewHead = input.reviewHead ?? windows.at(-1)?.head;
-  const selectedWindow = reviewHead
-    ? windows.filter((candidate) => candidate?.head === reviewHead).at(-1)
+  const windows = entries
+    .map((entry, index) => ({ value: reviewWindow(entry), index }))
+    .filter(({ value }) => value?.boundaryToolUseId
+      && (boundaries.has(value.boundaryToolUseId)
+        || value.boundaryToolUseId === input.activeBoundaryToolUseId));
+  const reviewHead = input.reviewHead ?? windows.at(-1)?.value?.head;
+  const selected = reviewHead
+    ? windows.filter(({ value }) => value?.head === reviewHead).at(-1)
     : undefined;
+  const selectedWindow = selected?.value;
   const selectedBoundary = selectedWindow?.boundaryToolUseId
     ? boundaries.get(selectedWindow.boundaryToolUseId)
+      ?? (selectedWindow.boundaryToolUseId === input.activeBoundaryToolUseId && selected
+        ? {
+            index: selected.index,
+            value: {
+              toolUseId: selectedWindow.boundaryToolUseId,
+              command: "",
+              toolName: "",
+              toolArguments: {},
+            },
+          }
+        : undefined)
     : undefined;
   if (selectedBoundary) {
     boundaryIndex = selectedBoundary.index;
@@ -569,6 +744,8 @@ export function reviewTranscriptFacts(input: {
     latestBoundary,
     bypassed: false,
     ciLaunched: false,
+    ciRequired: false,
+    ciTerminal: false,
     triageComplete: false,
     fixDelivered: false,
     closedNotified: false,
@@ -609,15 +786,25 @@ export function reviewTranscriptFacts(input: {
     if (candidate.boundaryToolUseId && candidate.boundaryToolUseId !== boundary?.toolUseId) return current;
     return {
       ...candidate,
+      ciEvent: candidate.ciEvent ?? current?.ciEvent,
       requiredLanes: candidate.requiredLanes ?? current?.requiredLanes,
     };
-  }, undefined);
+  }, selectedWindow);
   later.forEach((entry, entryIndex) => {
     for (const call of toolCalls(entry)) {
       const lane = call.arguments?.subagent_type as ReviewLane;
       const prompt = typeof call.arguments?.prompt === "string" ? call.arguments.prompt : "";
-      const wrongRange = window?.range && !prompt.includes(`review_range=${window.range}`);
-      if (call.name !== "subagent" || call.arguments?.run_in_background !== true || call.arguments?.inherit_context !== false || !input.requiredLanes.includes(lane) || wrongRange) continue;
+      const expectedScope = window?.range
+        ? `review_range=${window.range}`
+        : window?.base ? `review_base=origin/${window.base}` : undefined;
+      const expectedOutput = window?.prNumber && window.head
+        ? `output_file=/tmp/codeflare-pr-${window.prNumber}-${window.head.slice(0, 12)}-${lane}.md`
+        : undefined;
+      const assignmentLines = new Set(prompt.split(/\r?\n/).map((line: string) => line.trim()).filter(Boolean));
+      const wrongContract = Boolean(window && (!assignmentLines.has("scope=diff")
+        || (expectedScope && !assignmentLines.has(expectedScope))
+        || (expectedOutput && !assignmentLines.has(expectedOutput))));
+      if (call.name !== "subagent" || call.arguments?.run_in_background !== true || call.arguments?.inherit_context !== false || !input.requiredLanes.includes(lane) || wrongContract) continue;
       const notifications = later.slice(entryIndex + 1)
         .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))
         .filter((candidate) => candidate.value?.toolUseId === call.id);
@@ -650,36 +837,88 @@ export function reviewTranscriptFacts(input: {
       else if (lanes[lane].state !== "terminal") lanes[lane] = { state: "in-flight", toolUseId: call.id };
     }
   });
+  const ci = input.ci;
+  const ciRequired = Boolean(window?.ciEvent);
+  let ciLaunched = false;
+  let ciTerminalIndex: number | undefined;
+  let ciResult: CiTerminalResult | undefined;
+  if (ci) {
+    later.forEach((entry, entryIndex) => {
+      for (const call of toolCalls(entry)) {
+        if (call.name !== "subagent"
+          || call.arguments?.subagent_type !== "ci-monitor"
+          || call.arguments?.run_in_background !== true
+          || call.arguments?.inherit_context !== false
+          || !successfulSubagentToolIds.has(call.id)
+          || typeof call.arguments?.prompt !== "string") continue;
+        let request: Record<string, unknown>;
+        try {
+          request = JSON.parse(call.arguments.prompt);
+        } catch {
+          continue;
+        }
+        if (request.repo !== ci.repository
+          || request.pr !== ci.prNumber
+          || request.head !== ci.head
+          || request.cwd !== ci.repo) continue;
+        ciLaunched = true;
+
+        const nativeTerminal = later.slice(entryIndex + 1)
+          .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))
+          .find((candidate) => {
+            const notification = candidate.value;
+            return notification !== undefined
+              && notification.toolUseId === call.id
+              && notification.succeeded
+              && ciTerminalResult(notification.text, ci) !== undefined;
+          });
+        const launchResult = later.find((candidate) => candidate.type === "message"
+          && candidate.message?.role === "toolResult"
+          && candidate.message?.toolCallId === call.id
+          && candidate.message?.toolName === "subagent"
+          && candidate.message?.isError !== true);
+        const launchedAgent = typeof launchResult?.message?.details?.agentId === "string"
+          ? launchResult.message.details.agentId
+          : undefined;
+        const publicTerminal = launchedAgent ? later
+          .map((candidate, index) => ({ candidate, index }))
+          .find(({ candidate }) => candidate.type === "message"
+            && candidate.message?.role === "toolResult"
+            && candidate.message?.toolName === "get_subagent_result"
+            && candidate.message?.isError !== true
+            && resultRequests.get(candidate.message.toolCallId) === launchedAgent
+            && completedPublicCiResult(messageContentText(candidate), ci) !== undefined)
+          : undefined;
+        const terminal = nativeTerminal && publicTerminal
+          ? nativeTerminal.index <= publicTerminal.index
+            ? { index: nativeTerminal.index, result: ciTerminalResult(nativeTerminal.value!.text, ci)! }
+            : { index: publicTerminal.index, result: completedPublicCiResult(messageContentText(publicTerminal.candidate), ci)! }
+          : nativeTerminal
+            ? { index: nativeTerminal.index, result: ciTerminalResult(nativeTerminal.value!.text, ci)! }
+            : publicTerminal
+              ? { index: publicTerminal.index, result: completedPublicCiResult(messageContentText(publicTerminal.candidate), ci)! }
+              : undefined;
+        if (terminal && (ciTerminalIndex === undefined || terminal.index < ciTerminalIndex)) {
+          ciTerminalIndex = terminal.index;
+          ciResult = terminal.result;
+        }
+      }
+    });
+  }
   const allRequiredTerminal = input.requiredLanes.length > 0
     && input.requiredLanes.every((lane) => terminalIndexes.has(lane));
   const latestRequiredTerminalIndex = allRequiredTerminal
     ? Math.max(...input.requiredLanes.map((lane) => terminalIndexes.get(lane)!))
     : undefined;
-  const triageComplete = latestRequiredTerminalIndex !== undefined && later.some((entry, index) =>
-    index > latestRequiredTerminalIndex
+  const completionIndex = latestRequiredTerminalIndex === undefined
+    || (ciRequired && ciTerminalIndex === undefined)
+    ? undefined
+    : Math.max(latestRequiredTerminalIndex, ciTerminalIndex ?? -1);
+  const triageComplete = completionIndex !== undefined && later.some((entry, index) =>
+    index > completionIndex
     && toolCalls(entry).length === 0
-    && messageText(entry, "assistant").split("\n").some((line, lineIndex, lines) =>
-      line.trim() === REVIEW_TRIAGE_HEADER && lines[lineIndex + 1]?.trim() === REVIEW_TRIAGE_DIVIDER,
-    ),
+    && triageTableIncludesRequiredCiResult(messageText(entry, "assistant"), ciResult),
   );
-  const ci = input.ci;
-  const ciLaunched = Boolean(ci && later.some((entry) => toolCalls(entry).some((call) => {
-    if (call.name !== "subagent"
-      || call.arguments?.subagent_type !== "ci-monitor"
-      || call.arguments?.run_in_background !== true
-      || call.arguments?.inherit_context !== false
-      || !successfulSubagentToolIds.has(call.id)
-      || typeof call.arguments?.prompt !== "string") return false;
-    try {
-      const request = JSON.parse(call.arguments.prompt);
-      return request?.repo === ci.repository
-        && request?.pr === ci.prNumber
-        && request?.head === ci.head
-        && request?.cwd === ci.repo;
-    } catch {
-      return false;
-    }
-  })));
   const bypassed = later.some((entry) => /\bskip (?:the )?(?:review|verification)\b/i.test(userText(entry)));
   const fixDelivered = later.some((entry) => entry.type === "custom_message"
     && entry.customType === "pr-boundary-fix-follow-up"
@@ -702,6 +941,9 @@ export function reviewTranscriptFacts(input: {
     reviewRequiredLanes: window?.requiredLanes,
     bypassed,
     ciLaunched,
+    ciRequired,
+    ciTerminal: ciTerminalIndex !== undefined,
+    ciResult,
     triageComplete,
     fixDelivered,
     closedNotified,

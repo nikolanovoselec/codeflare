@@ -14,10 +14,12 @@ import {
   EXPECTED_PI_GOAL_VERSION,
   GOAL_ENTRYPOINT_PATCH_MARKER,
   PATCH_MARKER,
+  PROMPTS_PATCH_MARKER,
   RUNTIME_PATCH_MARKER,
   SETTINGS_PATCH_MARKER,
   patchPiGoalCommandsSource,
   patchPiGoalDirectory,
+  patchPiGoalPromptsSource,
   patchPiGoalRuntimeSource,
   patchPiGoalSettingsSource,
   patchPiGoalSource,
@@ -609,7 +611,7 @@ function successorRuntimeHarness(minIntervalMs) {
 
 function readFixturePackage(root, sessionSourceName = 'lifecycle') {
   return Object.fromEntries(
-    ['package.json', 'src/commands.ts', 'src/goal.ts', `src/${sessionSourceName}.ts`, 'src/runtime.ts', 'src/settings.ts']
+    ['package.json', 'src/commands.ts', 'src/goal.ts', `src/${sessionSourceName}.ts`, 'src/prompts.ts', 'src/runtime.ts', 'src/settings.ts']
       .map((path) => [path, readFileSync(join(root, path), 'utf8')]),
   );
 }
@@ -658,7 +660,7 @@ const PINNED_RUNTIME_STUBS = {
   },
 };
 
-async function bundleFixture(entryPoint, outputPath) {
+async function bundleFixture(entryPoint, outputPath, exportName = 'default') {
   await build({
     entryPoints: [entryPoint],
     outfile: outputPath,
@@ -670,7 +672,8 @@ async function bundleFixture(entryPoint, outputPath) {
     plugins: [PINNED_RUNTIME_STUBS],
     nodePaths: [join(process.cwd(), 'node_modules')],
   });
-  return (await import(`${pathToFileURL(outputPath).href}?fixture=${Date.now()}`)).default;
+  const fixture = await import(`${pathToFileURL(outputPath).href}?fixture=${Date.now()}`);
+  return exportName === 'namespace' ? fixture : fixture.default;
 }
 
 function createExtensionHarness() {
@@ -796,6 +799,38 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(response?.ok, true);
     assert.equal(response?.status, 'active');
     assert.notEqual(response?.goalId, pausedGoalId);
+  });
+
+  it('REQ-AGENT-111: emits compact Goal prompts without blocked or wait tool coaching', async () => {
+    const goalRoot = mkdtempSync(join(tmpdir(), 'pi-goal-prompt-'));
+    extractPinnedFixturePackage(goalRoot);
+    patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, goalRoot);
+    const prompts = await bundleFixture(join(goalRoot, 'src/prompts.ts'), join(goalRoot, 'prompts.mjs'), 'namespace');
+    const goal = {
+      id: 'goal-id',
+      text: 'complete every open task',
+      status: 'active',
+      iteration: 4,
+      tokensUsed: 0,
+      startedAt: 0,
+      updatedAt: 0,
+      timeUsedSeconds: 0,
+      baselineTokens: 0,
+    };
+
+    const continuation = prompts.buildContinuePrompt(goal, 'marker');
+    assert.ok(continuation.length < 1_600, `continuation prompt grew to ${continuation.length} characters`);
+    assert.match(continuation, /complete every open task/);
+    assert.match(continuation, /goal_complete/);
+    assert.doesNotMatch(continuation, /goal_blocked|goal_wait/);
+    const waitingResume = prompts.buildWaitingResumePrompt(goal, 'waiting for user confirmation');
+    assert.ok(waitingResume.length < 1_600, `waiting prompt grew to ${waitingResume.length} characters`);
+    assert.doesNotMatch(waitingResume, /goal_blocked|goal_wait/);
+    assert.match(waitingResume, /external_wait_reason/);
+
+    const patchedSource = readFileSync(join(goalRoot, 'src/prompts.ts'), 'utf8');
+    assert.ok(patchedSource.includes(PROMPTS_PATCH_MARKER));
+    assert.equal(patchPiGoalPromptsSource(patchedSource), patchedSource);
   });
 
   it('REQ-AGENT-111/REQ-AGENT-112/REQ-AGENT-114/REQ-AGENT-144: executes the session-bound pause/resume control contract', async () => {
@@ -1170,6 +1205,8 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.match(first['src/goal.ts'], /registerGoalLifecycle\(pi, runtime, runController, commands, options\)/);
     assert.match(first['src/lifecycle.ts'], new RegExp(PATCH_MARKER));
     assert.match(first['src/lifecycle.ts'], /commands: GoalCommandController,/);
+    assert.match(first['src/prompts.ts'], new RegExp(PROMPTS_PATCH_MARKER));
+    assert.doesNotMatch(first['src/prompts.ts'], /goal_blocked|goal_wait/);
     assert.match(first['src/runtime.ts'], new RegExp(RUNTIME_PATCH_MARKER));
     assert.match(first['src/runtime.ts'], /kind: "explicit_pause"; expectedGoalId: string; abortTurn\?: boolean/);
     assert.match(first['src/runtime.ts'], /if \(request\.abortTurn !== false\) abortCurrentTurn\(ctx\);/);

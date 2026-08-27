@@ -39,8 +39,10 @@ export interface InterceptionHost {
   _userGroups: string[];
   _cloudflareApiToken: string | null;
   _r2AccountId: string | null;
+  _r2AccessKeyId: string | null;
+  _r2SecretAccessKey: string | null;
   /** REQ-ENTERPRISE-016 AC3: resolved once in the DO constructor — never re-read per start. */
-  _strictEgress: boolean;
+  _strictEgress?: boolean;
 }
 
 /** One resolved outbound-interception transport, ready to register. */
@@ -202,20 +204,35 @@ const browserRendering: InterceptorSpec = {
  * through the EgressController, which forces genuine direct-internet traffic through the
  * mandatory env.EGRESS Workers VPC binding (the customer's Zero Trust Gateway). The
  * account-scoped exemption: `_r2AccountId` is resolved in the DO constructor before wiring;
- * absent => fail-secure (nothing exempt, all egress Gateway-inspected).
+ * absent => fail-secure (nothing exempt, all egress Gateway-inspected). The bound bucket and
+ * its scoped credentials stay Worker-side in props so intercepted R2 cannot use deployment-wide
+ * credentials or cross the per-user bucket boundary.
  */
+function resolveStrictEgress(
+  host: InterceptionHost,
+  credentials = {
+    r2AccessKeyId: host._r2AccessKeyId ?? undefined,
+    r2SecretAccessKey: host._r2SecretAccessKey ?? undefined,
+  },
+): InterceptorRegistration | null {
+  if (!host._strictEgress) return null;
+  return {
+    entrypoint: 'EgressController',
+    props: {
+      accountId: host._r2AccountId ?? undefined,
+      bucket: host._bucketName ?? undefined,
+      ...credentials,
+      strict: true,
+    },
+    hosts: ['*'],
+    wiredLog: 'Enterprise strict Gateway egress wired (catch-all)',
+    failLog: 'Failed to wire enterprise strict Gateway egress',
+  };
+}
+
 const strictEgress: InterceptorSpec = {
   mode: 'enterprise',
-  resolve(host) {
-    if (!host._strictEgress) return null;
-    return {
-      entrypoint: 'EgressController',
-      props: { accountId: host._r2AccountId ?? undefined, strict: true },
-      hosts: ['*'],
-      wiredLog: 'Enterprise strict Gateway egress wired (catch-all)',
-      failLog: 'Failed to wire enterprise strict Gateway egress',
-    };
-  },
+  resolve: resolveStrictEgress,
 };
 
 /** The registry: one entry per transport, in wiring order. */
@@ -228,22 +245,30 @@ const CONTAINER_INTERCEPTION_REGISTRY: readonly InterceptorSpec[] = [
 ];
 
 /** Register one resolved transport; failures log and never break container start. */
-function applyInterception(host: InterceptionHost, reg: InterceptorRegistration): void {
+async function applyInterception(
+  host: InterceptionHost,
+  reg: InterceptorRegistration,
+  failClosed = false,
+): Promise<void> {
   try {
     // interceptOutbound* + ctx.exports are on by default at this worker's
     // compatibility_date (enable_ctx_exports defaulted on 2025-11-17 — see
     // wrangler.toml); the cast isolates the runtime surface from the generated types.
     const cctx = host.ctx as unknown as {
       exports: Record<string, (opts: { props: Record<string, unknown> }) => Fetcher>;
-      container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void };
+      container?: { interceptOutboundHttps(pattern: string, worker: Fetcher): void | Promise<void> };
     };
     if (!cctx.container?.interceptOutboundHttps) {
-      if (reg.mandatory) throw new Error('Mandatory outbound HTTPS interception is unavailable');
+      if (reg.mandatory || failClosed) {
+        throw new Error(reg.mandatory
+          ? 'Mandatory outbound HTTPS interception is unavailable'
+          : 'Outbound HTTPS interception is unavailable');
+      }
       return;
     }
     const interceptor = cctx.exports[reg.entrypoint]({ props: reg.props });
     for (const pattern of reg.hosts) {
-      cctx.container.interceptOutboundHttps(pattern, interceptor);
+      await cctx.container.interceptOutboundHttps(pattern, interceptor);
     }
     if (reg.wiredLogData) {
       host.logger.info(reg.wiredLog, reg.wiredLogData);
@@ -252,8 +277,17 @@ function applyInterception(host: InterceptionHost, reg: InterceptorRegistration)
     }
   } catch (err) {
     host.logger.error(reg.failLog, toError(err));
-    if (reg.mandatory) throw err;
+    if (reg.mandatory || failClosed) throw err;
   }
+}
+
+/** Replace the strict catch-all after a warm DO receives a rotated scoped R2 pair. */
+export async function refreshStrictEgressInterception(
+  host: InterceptionHost,
+  credentials: { r2AccessKeyId: string; r2SecretAccessKey: string },
+): Promise<void> {
+  const reg = resolveStrictEgress(host, credentials);
+  if (reg) await applyInterception(host, reg, true);
 }
 
 /**
@@ -267,6 +301,6 @@ export async function wireContainerInterception(host: InterceptionHost): Promise
   for (const spec of CONTAINER_INTERCEPTION_REGISTRY) {
     if ((spec.mode === 'enterprise') !== enterprise) continue;
     const reg = await spec.resolve(host);
-    if (reg) applyInterception(host, reg);
+    if (reg) await applyInterception(host, reg);
   }
 }

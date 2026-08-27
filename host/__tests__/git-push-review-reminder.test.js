@@ -1,938 +1,420 @@
-// Real behavioral tests for the SDD PostToolUse hook.
-//
-// Tests spawn the actual bash script with stdin input and assert on
-// exit code + stdout. Each test uses a fresh temp directory as cwd so
-// hook side-effects (.git/sdd-pr-cache) don't bleed between tests.
-
-import { describe, it } from 'node:test';
+import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { appendFileSync, chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const HOOK = resolve(
-  __dirname,
-  '../../preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh',
-);
+const ROOT = join(import.meta.dirname, '../..');
+const SCRIPT = join(ROOT, 'preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh');
+const STATE = join(ROOT, 'preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs');
+const { completionPath, writeCompletion } = await import(STATE);
+const roots = [];
 
-function makeFixture() {
-  const cwd = mkdtempSync(join(tmpdir(), 'pushrev-'));
-  spawnSync('git', ['init', '-q'], { cwd });
-  spawnSync('git', ['config', 'user.email', 'test@test'], { cwd });
-  spawnSync('git', ['config', 'user.name', 'Test'], { cwd });
-  spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd });
-  return cwd;
+function temp(prefix) {
+  const value = mkdtempSync(join(tmpdir(), prefix));
+  roots.push(value);
+  return value;
 }
 
-// Marks the fixture as SDD-bootstrapped. NOTE: the file is left UNTRACKED --
-// only its presence on disk gates the hook. Any test that later stages with
-// `git add -A` will sweep it into that commit and silently make the reviewed
-// range touch sdd/, which changes the required lane set. Stage by path.
-function withSdd(cwd) {
-  mkdirSync(join(cwd, 'sdd'), { recursive: true });
-  writeFileSync(join(cwd, 'sdd/README.md'), '# fixture\n');
+function git(repo, ...args) {
+  return execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
 }
 
-function fakeGh(cwd, { state = '', base = 'main', exitCode = 0, head: headOverride } = {}) {
-  const head = headOverride
-    ?? spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
-  const binDir = join(cwd, 'fake-bin');
-  mkdirSync(binDir, { recursive: true });
-  // Exact-match fixture (not substring): both hooks now share the
-  // gh CLI shape via lib/gh-pr-state.sh — `gh pr view <branch>
-  // --json number,state,headRefOid,baseRefName`. Anything else gets exit
-  // 99 + stderr noise so an unintended invocation in a future
-  // refactor surfaces loudly instead of silently passing.
-  const body = `#!/usr/bin/env bash
-ARGS="$*"
-if [[ "$ARGS" == "pr view "*" --json number,state,headRefOid,baseRefName" ]]; then
-  ${state ? `echo '{"number":42,"state":"${state}","headRefOid":"${head}","baseRefName":"${base}"}'` : ''}
-  exit ${exitCode}
-fi
-echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
-exit 99
-`;
-  writeFileSync(join(binDir, 'gh'), body);
-  chmodSync(join(binDir, 'gh'), 0o755);
-  return binDir;
-}
-
-function fakeGhFails(cwd) {
-  const binDir = join(cwd, 'fake-bin');
-  mkdirSync(binDir, { recursive: true });
-  writeFileSync(
-    join(binDir, 'gh'),
-    `#!/usr/bin/env bash\necho "GH_SHOULD_NOT_HAVE_BEEN_CALLED" >&2\nexit 99\n`,
-  );
-  chmodSync(join(binDir, 'gh'), 0o755);
-  return binDir;
-}
-
-function runHook(cwd, command, binDir) {
-  return runHookWithInput(cwd, { tool_input: { command } }, binDir);
-}
-
-// Helper for issue #317 — feed any tool_input shape (Bash, ctx_execute,
-// ctx_batch_execute) through the hook and capture exit + stdout.
-function runHookWithInput(cwd, payload, binDir) {
-  const env = { ...process.env };
-  if (binDir) env.PATH = `${binDir}:${process.env.PATH}`;
-  return spawnSync('bash', [HOOK], {
-    cwd,
-    input: JSON.stringify(payload),
-    encoding: 'utf-8',
-    env,
-  });
-}
-
-// REQ-AGENT-036: PR-Boundary Review Trigger Conditions
-// REQ-AGENT-044: Review-Agent Discipline Enforcement
-// REQ-AGENT-092: Import transition review suppression
-// REQ-AGENT-047: Resume Mode closure and review-pipeline gate
-
-describe('git-push-review-reminder.sh — pre-filter', () => {
-  it('exits 0 silently on non-push commands', () => {
-    const cwd = makeFixture();
-    const r = runHook(cwd, 'echo hello');
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout, '');
-  });
-});
-
-describe('git-push-review-reminder.sh — substring false-positive guard', () => {
-  // Candidate detection follows the executable command, not words in its
-  // arguments. A git commit is a candidate regardless of its message, while
-  // echo and similarly quoted examples remain inert.
-  it('classifies git commit from executable position regardless of message text', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: 'OPEN', exitCode: 0 });
-    const r = runHook(
-      cwd,
-      'git commit -m "fix: integration findings — git push hardening"',
-      binDir,
-    );
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
-  });
-
-  it('does NOT classify an echo whose argument mentions "git push"', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: 'OPEN', exitCode: 0 });
-    const r = runHook(cwd, 'echo "I will git push later"', binDir);
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout, '');
-  });
-
-  it('does NOT classify "git pushy" or "git push-something" as git push', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: 'OPEN', exitCode: 0 });
-    const r = runHook(cwd, 'echo git pushy', binDir);
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout, '');
-  });
-});
-
-describe('git-push-review-reminder.sh — structural shell boundaries', () => {
-  for (const command of [
-    'git -C . status --short',
-    'if git status --short; then :; fi',
-    'printf "%s\\n" "$(gh pr view)"',
-    'echo ready && "git" status --short',
-  ]) {
-    it(`classifies executable activity in: ${command}`, () => {
-      const cwd = makeFixture();
-      withSdd(cwd);
-      const r = runHook(cwd, command, fakeGh(cwd, { state: 'OPEN', base: 'main' }));
-      assert.equal(r.status, 0);
-      assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
-    });
-  }
-
-  for (const command of [
-    'printf "%s\\n" "x; git status"',
-    "printf '%s\\n' '$(gh pr view)'",
-    "cat <<'EOF'\ngit status\nEOF",
-  ]) {
-    it(`keeps non-executable lookalikes inert in: ${command}`, () => {
-      const cwd = makeFixture();
-      withSdd(cwd);
-      const r = runHook(cwd, command, fakeGhFails(cwd));
-      assert.equal(r.status, 0);
-      assert.equal(r.stdout, '');
-      assert.doesNotMatch(r.stderr, /GH_SHOULD_NOT_HAVE_BEEN_CALLED/);
-    });
-  }
-
-  for (const command of [
-    "printf '%s\\n' '<<EOF'\ngit status --short",
-    'printf "%s\\n" "<<EOF"\ngit status --short',
-    'printf "%s\\n" \\<\\<EOF\ngit status --short',
-  ]) {
-    it(`does not treat quoted or escaped << as a heredoc declaration in: ${command}`, () => {
-      const cwd = makeFixture();
-      withSdd(cwd);
-      const r = runHook(cwd, command, fakeGh(cwd, { state: 'OPEN', base: 'main' }));
-      assert.equal(r.status, 0);
-      assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
-    });
-  }
-});
-
-describe('git-push-review-reminder.sh — vibe-coding gate', () => {
-  it('exits 0 silently on git push when sdd/ is missing', () => {
-    const cwd = makeFixture();
-    const r = runHook(cwd, 'git push origin main');
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout, '');
-  });
-});
-
-describe('git-push-review-reminder.sh — authoritative checked-out branch state', () => {
-  for (const command of ['git push origin HEAD', 'git status --short', 'git pull --ff-only', 'gh pr view', 'gh pr merge 42 --squash']) {
-    it(`emits for unacknowledged current PR state after ${command}`, () => {
-      const cwd = makeFixture();
-      withSdd(cwd);
-      const r = runHook(cwd, command, fakeGh(cwd, { state: 'OPEN', base: 'main' }));
-      assert.equal(r.status, 0);
-      assert.match(r.stdout, /hookSpecificOutput/);
-      assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
-    });
-  }
-
-  it('asks before review for non-delivery Git activity but auto-launches after push or PR creation', () => {
-    const statusRepo = makeFixture();
-    withSdd(statusRepo);
-    const status = runHook(statusRepo, 'git switch review', fakeGh(statusRepo, { state: 'OPEN', base: 'main' }));
-    assert.match(status.stdout, /FIRST use AskUserQuestion/);
-    assert.match(status.stdout, /Acknowledge without review/);
-    assert.match(status.stdout, /do not recommend either choice/i,
-      'the agent must present the user-only bypass neutrally');
-    assert.match(status.stdout, /self-verification never substitutes/i,
-      'the agent may not recommend bypass because it considers the diff already verified');
-    assert.match(status.stdout, /If the question is cancelled, ask it again/);
-    assert.match(status.stdout, /ci-monitoring skill exactly once/);
-    assert.match(status.stdout, /Issue the lane calls in that same message\. Immediately after those calls, launch CI as the final launch\. Once CI is launched, END YOUR TURN\./);
-
-    for (const command of [
-      'git push origin HEAD',
-      'gh run list --branch review | xargs -r gh run cancel; echo stale-runs-handled; git push 2>&1 | tail -4',
-      'gh pr create --base main --title review --body body',
-    ]) {
-      const cwd = makeFixture();
-      withSdd(cwd);
-      const automatic = runHook(cwd, command, fakeGh(cwd, { state: 'OPEN', base: 'main' }));
-      assert.doesNotMatch(automatic.stdout, /FIRST use AskUserQuestion/);
-      assert.match(automatic.stdout, /Execute NOW/);
-      assert.match(automatic.stdout, /delivery boundary.*never ask.*consent/i,
-        'successful delivery must auto-launch review rather than asking again');
-      assert.match(automatic.stdout, /do NOT relaunch a lane while its first call is still in flight/,
-        'scope correction must not create a duplicate reviewer wave');
-      assert.match(automatic.stdout, /ci-monitoring skill exactly once/);
-    }
-  });
-
-  it('auto-launches an acknowledged PR continuation even when the exposing command is non-delivery activity', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: reviewed base');
-    writeAck(cwd, ackSha);
-    const headSha = commitAt(cwd, 'sdd/spec/fix.md', '# fix\n', 'fix: review finding');
-    const r = runHook(cwd, 'git status --short', fakeGhWithHead(cwd, { headSha }));
-
-    assert.doesNotMatch(r.stdout, /FIRST use AskUserQuestion/);
-    assert.match(r.stdout, /review-fix continuation/i);
-    assert.match(r.stdout, /Execute NOW/);
-    assert.match(r.stdout, new RegExp(`--range ${ackSha}\\.\\.${headSha}`));
-  });
-
-  it('does not treat a repository-global legacy acknowledgement as same-PR continuation evidence', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const legacySha = commitAt(cwd, 'src/legacy.ts', 'export {};\n', 'feat: another PR base');
-    writeFileSync(join(cwd, '.git/sdd-last-ack-pr-head'), legacySha);
-    const headSha = commitAt(cwd, 'sdd/spec/fix.md', '# fix\n', 'fix: current PR finding');
-    const r = runHook(cwd, 'git status --short', fakeGhWithHead(cwd, { headSha }));
-
-    assert.match(r.stdout, /FIRST use AskUserQuestion/,
-      'a legacy repository-global SHA cannot prove acknowledgement by this PR');
-    assert.doesNotMatch(r.stdout, /detected after review-fix continuation/);
-  });
-
-  it('does not accept a repository-global legacy acknowledgement for the current PR exact head', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const headSha = commitAt(cwd, 'sdd/spec/current.md', '# current\n', 'feat: current PR head');
-    writeFileSync(join(cwd, '.git/sdd-last-ack-pr-head'), headSha);
-    const r = runHook(cwd, 'git status --short', fakeGhWithHead(cwd, { headSha }));
-
-    assert.match(r.stdout, /FIRST use AskUserQuestion/,
-      'a legacy repository-global SHA cannot acknowledge this exact PR head');
-  });
-
-  it('does not repeat the launch reminder for the same unacknowledged head', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main' });
-
-    const first = runHook(cwd, 'git push origin HEAD', binDir);
-    const repeated = runHook(cwd, 'gh run view 123 --log-failed', binDir);
-
-    assert.match(first.stdout, /hookSpecificOutput/);
-    assert.match(first.stdout, /separate FIX directive next turn/);
-    assert.doesNotMatch(first.stdout, /THEN fix every finding/);
-    assert.equal(repeated.stdout, '');
-  });
-
-  it('requires an empty finding table without synthetic lane rows for a fully clean round', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const r = runHook(cwd, 'git push origin HEAD', fakeGh(cwd, { state: 'OPEN', base: 'main' }));
-    const directive = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
-
-    assert.match(directive, /fully clean round publishes the header and divider with no synthetic clean-lane rows/i);
-    assert.match(directive, /\| FINDING \| VALIDITY \| PROPOSED FIX \| PROPORTIONALITY \| MINIMAL DECISION \|/);
-    assert.doesNotMatch(directive, /one row per required lane/i);
-  });
-
-  it('stays inert when the authoritative PR head is already acknowledged', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
-    writeFileSync(join(cwd, '.git', 'sdd-review-ack-pr-42'), `${head}\n`);
-    const r = runHook(cwd, 'git status --short', fakeGh(cwd, { state: 'OPEN', base: 'main' }));
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout, '');
-  });
-
-  it('stays inert for detached HEAD and non-protected PR bases', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    spawnSync('git', ['checkout', '--detach', '-q'], { cwd });
-    const detached = runHook(cwd, 'git status --short', fakeGh(cwd, { state: 'OPEN', base: 'main' }));
-    assert.equal(detached.stdout, '');
-
-    const branch = makeFixture();
-    withSdd(branch);
-    const unprotected = runHook(branch, 'gh pr view', fakeGh(branch, { state: 'OPEN', base: 'staging' }));
-    assert.equal(unprotected.stdout, '');
-  });
-});
-
-describe('git-push-review-reminder.sh — MCP shell tool input shapes (issue #317)', () => {
-  // Issue #317: enforce-ctx-mode.sh denies gh/curl/git-log in the Bash tool
-  // and forces those invocations through MCP shell tools (ctx_execute /
-  // ctx_batch_execute). The hook used to extract command from
-  // .tool_input.command only — so when an agent retried `gh pr create`
-  // through ctx_execute, COMMAND was empty, the trigger never fired, and
-  // the SDD review pipeline silently skipped that PR. These tests pin the
-  // fix: the hook must classify identically regardless of which tool
-  // surfaced the command.
-
-  it('evaluates authoritative state for git push from ctx_execute shell code', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
-    const r = runHookWithInput(
-      cwd,
-      { tool_input: { language: 'shell', code: 'git push origin develop' } },
-      binDir,
-    );
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /additionalContext/,
-      'ctx_execute shell shape must fire the review directive');
-    assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
-  });
-
-  it('evaluates authoritative state for gh pr create from ctx_execute shell code', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
-    const r = runHookWithInput(
-      cwd,
-      {
-        tool_input: {
-          language: 'shell',
-          code: 'gh pr create --base main --title x --body y',
-        },
-      },
-      binDir,
-    );
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /additionalContext/);
-    assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
-  });
-
-  it('ignores ctx_execute with non-shell language even if code mentions git push', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGhFails(cwd); // gh must not be called
-    const r = runHookWithInput(
-      cwd,
-      {
-        tool_input: {
-          language: 'javascript',
-          code: 'const msg = "next step: git push";',
-        },
-      },
-      binDir,
-    );
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout, '',
-      'non-shell ctx_execute language must never trigger the hook');
-  });
-
-  it('classifies git push from ctx_batch_execute commands[].command', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
-    const r = runHookWithInput(
-      cwd,
-      {
-        tool_input: {
-          commands: [
-            { label: 'status', command: 'git status' },
-            { label: 'push', command: 'git push origin develop' },
-          ],
-        },
-      },
-      binDir,
-    );
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /additionalContext/,
-      'ctx_batch_execute shape must fire the review directive when any command is git push');
-  });
-
-  it('evaluates authoritative state for gh pr create from ctx_batch_execute', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
-    const r = runHookWithInput(
-      cwd,
-      {
-        tool_input: {
-          commands: [
-            { label: 'open', command: 'gh pr create --base main -t x -b y' },
-          ],
-        },
-      },
-      binDir,
-    );
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
-  });
-
-  it('classifies read-only git commands from ctx_batch_execute', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
-    const r = runHookWithInput(
-      cwd,
-      {
-        tool_input: {
-          commands: [
-            { label: 'list', command: 'git status' },
-            { label: 'log', command: 'git log --oneline -3' },
-          ],
-        },
-      },
-      binDir,
-    );
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
-  });
-
-  it('classifies git commit from ctx_execute regardless of message text', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
-    const r = runHookWithInput(
-      cwd,
-      {
-        tool_input: {
-          language: 'shell',
-          code: 'git commit -m "fix: integration findings - git push hardening"',
-        },
-      },
-      binDir,
-    );
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /authoritative state change on checked-out PR branch/);
-  });
-});
-
-describe('git-push-review-reminder.sh - SDD transition gate (REQ-AGENT-022)', () => {
-  function withTransitionConfig(cwd, { transition = true } = {}) {
-    writeFileSync(
-      join(cwd, 'sdd/config.yml'),
-      `mode: interactive\nenforce_tdd: false\n${transition ? 'transition: true' : '# transition: false'}\n`,
-    );
-  }
-
-  function withTriage(cwd, body) {
-    writeFileSync(join(cwd, 'sdd/.init-triage.md'), body);
-  }
-
-  it('exits 0 silently when transition: true AND triage has Status: open', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    withTransitionConfig(cwd);
-    withTriage(cwd, '## TRIAGE-001\n**Status:** open\n');
-    const binDir = fakeGhFails(cwd); // gh must NOT be called
-    const r = runHook(cwd, 'git push origin develop', binDir);
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout, '',
-      'transition with open triage suppresses the review directive');
-  });
-
-  it('exits 0 silently with mixed-case Status: Open (case-insensitive)', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    withTransitionConfig(cwd);
-    withTriage(cwd, '## TRIAGE-001\n**Status:** Open\n');
-    const binDir = fakeGhFails(cwd);
-    const r = runHook(cwd, 'git push origin develop', binDir);
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout, '');
-  });
-
-  it('fires normally when transition: true but every triage item is resolved/lost', () => {
-    // Corrupted state OR end-of-transition: triage file has no open items.
-    // Hook should NOT suppress -- the run proceeds so spec-reviewer can
-    // flag the missing closure (transition: true should have cleared).
-    const cwd = makeFixture();
-    withSdd(cwd);
-    withTransitionConfig(cwd);
-    withTriage(cwd, '## TRIAGE-001\n**Status:** resolved\n\n## TRIAGE-002\n**Status:** lost\n');
-    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
-    const r = runHook(cwd, 'git push origin develop', binDir);
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /additionalContext/,
-      'no open items means run proceeds to the normal PR-SYNC path');
-  });
-
-  it('fires normally when .init-triage.md is missing entirely', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    // No transition config, no triage file -- normal project state
-    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
-    const r = runHook(cwd, 'git push origin develop', binDir);
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /additionalContext/,
-      'no transition state at all means review fires normally');
-  });
-
-  it('fires normally when transition: false even if .init-triage.md has open items', () => {
-    // Conjunction: both transition: true AND open items required. If
-    // config flag is cleared but triage file lingers (e.g. archive),
-    // review must still fire.
-    const cwd = makeFixture();
-    withSdd(cwd);
-    withTransitionConfig(cwd, { transition: false });
-    withTriage(cwd, '## TRIAGE-001\n**Status:** open\n');
-    const binDir = fakeGh(cwd, { state: 'OPEN', base: 'main', exitCode: 0 });
-    const r = runHook(cwd, 'git push origin develop', binDir);
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /additionalContext/,
-      'transition: false means review fires regardless of stale triage file');
-  });
-});
-
-// Helpers for the lane-aware emission tests below. The default fakeGh
-// emits a synthetic "fakehead" SHA which the classifier cannot diff
-// against a real commit. These helpers wire a real git history so the
-// hook's compute_required_lanes call sees an actual diff.
-function commitAt(cwd, relpath, body, msg) {
-  const abs = join(cwd, relpath);
-  mkdirSync(dirname(abs), { recursive: true });
-  writeFileSync(abs, body);
-  spawnSync('git', ['add', relpath], { cwd });
-  spawnSync('git', ['commit', '-q', '-m', msg], { cwd });
-  return spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' })
-    .stdout.trim();
-}
-
-function writeAck(cwd, sha) {
-  // SHA-shape validation in the hook requires a 40-char lowercase hex
-  // string. `git rev-parse HEAD` already returns that shape on Linux.
-  mkdirSync(join(cwd, '.git'), { recursive: true });
-  writeFileSync(join(cwd, '.git/sdd-review-ack-pr-42'), sha);
-}
-
-function fakeGhWithHead(cwd, { state = 'OPEN', base = 'main', headSha }) {
-  // Same exact-match shape as fakeGh() but parameterises headRefOid so
-  // the classifier sees a real reachable SHA. exitCode is implicitly 0.
-  const binDir = join(cwd, 'fake-bin');
-  mkdirSync(binDir, { recursive: true });
-  const body = `#!/usr/bin/env bash
-ARGS="$*"
-if [[ "$ARGS" == "pr view "*" --json number,state,headRefOid,baseRefName" ]]; then
-  echo '{"number":42,"state":"${state}","headRefOid":"${headSha}","baseRefName":"${base}"}'
-  exit 0
-fi
-echo "FAKE_GH_UNEXPECTED_ARGS: $ARGS" >&2
-exit 99
-`;
-  writeFileSync(join(binDir, 'gh'), body);
-  chmodSync(join(binDir, 'gh'), 0o755);
-  return binDir;
-}
-
-describe('git-push-review-reminder.sh - lane-aware emission (compute_required_lanes integration)', () => {
-  // The PostToolUse nudge now classifies the LAST_ACK..CURRENT_PR_HEAD
-  // diff and emits a directive listing ONLY the lanes the Stop hook
-  // would actually require. The pre-existing tests above all run with
-  // an empty ACK file -> classifier short-circuits to "all 3" -> the
-  // lane-aware branches are never exercised. These cases pin the new
-  // emission shapes so a regression that flips them back to "all 3"
-  // would be caught by CI instead of slipping silently into prod.
-
-  it('emits doc-updater-only directive when ACK->HEAD diff is documentation-only', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: seed');
-    writeAck(cwd, ackSha);
-    const headSha = commitAt(cwd, 'documentation/notes.md', '# notes\n', 'docs: notes');
-    const binDir = fakeGhWithHead(cwd, { headSha });
-    const r = runHook(cwd, 'git push origin develop', binDir);
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /additionalContext/);
-    assert.match(r.stdout, /Lanes: doc-updater \(docs\/ lane\) only/,
-      'doc-only diff must produce the doc-only directive shape');
-    assert.doesNotMatch(r.stdout, /code-reviewer/,
-      'doc-only directive must NOT mention code-reviewer');
-    assert.doesNotMatch(r.stdout, /spec-reviewer/,
-      'doc-only directive must NOT mention spec-reviewer');
-  });
-
-  it('emits spec+doc parallel directive when ACK->HEAD diff is sdd/-only', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: seed');
-    writeAck(cwd, ackSha);
-    const headSha = commitAt(cwd, 'sdd/memory.md', '# REQ-MEM-001\n', 'spec: REQ');
-    const binDir = fakeGhWithHead(cwd, { headSha });
-    const r = runHook(cwd, 'git push origin develop', binDir);
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /Lanes: spec-reviewer.*doc-updater/,
-      'sdd-only diff must produce the parallel spec+doc directive');
-    assert.doesNotMatch(r.stdout, /code-reviewer/,
-      'sdd-only directive must NOT mention code-reviewer (no source touch)');
-    assert.match(r.stdout, /Code lane silently excluded by Stop hook/,
-      'sdd-only directive must explain the code lane exclusion');
-  });
-
-  it('emits a code-only directive when the ACK->HEAD diff is source-only', () => {
-    // A source-only diff leaves both other surfaces untouched, and no @impl
-    // anchor cites the changed file, so the spec and doc lanes would open,
-    // find nothing they own, and exit -- each still paying a full startup.
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const ackSha = commitAt(cwd, 'documentation/seed.md', '# seed\n', 'docs: seed');
-    writeAck(cwd, ackSha);
-    const headSha = commitAt(cwd, 'src/foo.ts', 'export {};\n', 'feat: foo');
-    const binDir = fakeGhWithHead(cwd, { headSha });
-    const r = runHook(cwd, 'git push origin develop', binDir);
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /Lanes: code-reviewer \(source lane\) only/);
-    assert.doesNotMatch(r.stdout, /spec-reviewer/,
-      'no sdd/ file changed and no @impl anchor cites the diff');
-    assert.match(r.stdout, /Reviewers do not write project or triage files\. The root evaluates findings/,
-      'the boundary directive must preserve root-only write ownership');
-  });
-
-  it('emits the all-3 directive when the diff touches source and sdd/ together', () => {
-    // The all-three branch is now reached by a diff that genuinely gives every
-    // lane something to own, rather than by any source touch whatsoever.
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const ackSha = commitAt(cwd, 'documentation/seed.md', '# seed\n', 'docs: seed');
-    writeAck(cwd, ackSha);
-    commitAt(cwd, 'src/foo.ts', 'export {};\n', 'feat: foo');
-    const headSha = commitAt(cwd, 'sdd/spec/thing.md', '# REQ-THING-001\n', 'spec: thing');
-    const binDir = fakeGhWithHead(cwd, { headSha });
-    const r = runHook(cwd, 'git push origin develop', binDir);
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /Lanes: code-reviewer.*spec-reviewer.*doc-updater/);
-    assert.match(r.stdout, new RegExp(`--boundary-pr 42 --range ${ackSha}\\.\\.${headSha}`),
-      'the emitted runner command must bind the acknowledged incremental range to this PR');
-    assert.doesNotMatch(r.stdout, /--base main/,
-      'an acknowledged ancestor must never fall back to the full PR diff');
-  });
-
-  it('emits no directive when LAST_ACK equals CURRENT_PR_HEAD (already acked)', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const sha = commitAt(cwd, 'src/foo.ts', 'export {};\n', 'feat: foo');
-    writeAck(cwd, sha);
-    const binDir = fakeGhWithHead(cwd, { headSha: sha });
-    const r = runHook(cwd, 'git push origin develop', binDir);
-    assert.equal(r.status, 0);
-    assert.equal(r.stdout, '',
-      'classifier returns empty when last_ack == current; hook must skip emission');
-  });
-
-  it('falls back to legacy all-3 directive when LAST_ACK is empty (initial baseline)', () => {
-    // Regression guard for the empty-ACK case the prior 33 tests
-    // exercised. Confirms the lane-aware refactor preserves the
-    // initial-baseline behaviour: no ACK -> classifier returns all 3
-    // -> directive emits all 3.
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const headSha = commitAt(cwd, 'src/foo.ts', 'export {};\n', 'feat: foo');
-    const binDir = fakeGhWithHead(cwd, { headSha });
-    const r = runHook(cwd, 'git push origin develop', binDir);
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /Lanes: code-reviewer/);
-    assert.match(r.stdout, /Lanes: code-reviewer.*spec-reviewer.*doc-updater/);
-  });
-});
-
-describe('git-push-review-reminder.sh - inert source delta emission', () => {
-  it('emits a code-reviewer-only directive when the source delta is comments only', () => {
-    // The saving is only realised if the nudge agrees with the classifier: a
-    // code-only lane set must not fall through to the all-three directive,
-    // or the agent spawns three lanes the Stop hook then silently excludes.
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const ackSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // old\n', 'feat: seed');
-    writeAck(cwd, ackSha);
-    const headSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // new\n', 'docs: reword');
-    const binDir = fakeGhWithHead(cwd, { headSha });
-    const r = runHook(cwd, 'git push origin develop', binDir);
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /Lanes: code-reviewer \(source lane\) only/);
-    assert.doesNotMatch(r.stdout, /spec-reviewer/,
-      'a comment-only delta cannot have moved the spec surface');
-    assert.doesNotMatch(r.stdout, /doc-updater/,
-      'a comment-only delta cannot have moved the documentation surface');
-  });
-
-  it('emits code-reviewer and doc-updater when an inert source delta ships with a doc change', () => {
-    // This lane pair became reachable when content-based reduction landed.
-    // With no branch of its own it fell through to the all-three directive,
-    // which asks for a spec lane the Stop hook then excludes -- the exact
-    // nudge/gate disagreement the shared classifier exists to prevent.
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const ackSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // old\n', 'feat: seed');
-    writeAck(cwd, ackSha);
-    writeFileSync(join(cwd, 'src/a.ts'), 'export const a = 1; // new\n');
-    mkdirSync(join(cwd, 'documentation'), { recursive: true });
-    writeFileSync(join(cwd, 'documentation/architecture.md'), '# arch\n');
-    // Stage by path, never `git add -A`: withSdd() leaves sdd/README.md
-    // UNTRACKED, so -A would sweep it into this commit and the reviewed range
-    // really would touch sdd/ -- the spec lane would then be correctly
-    // required and this test would be asserting against its own fixture.
-    spawnSync('git', ['add', 'src/a.ts', 'documentation/architecture.md'], { cwd });
-    spawnSync('git', ['commit', '-q', '-m', 'docs: reword and document'], { cwd });
-    const headSha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
-    const binDir = fakeGhWithHead(cwd, { headSha });
-    const r = runHook(cwd, 'git push origin develop', binDir);
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /code-reviewer/);
-    assert.match(r.stdout, /doc-updater/);
-    assert.doesNotMatch(r.stdout, /spec-reviewer/,
-      'nothing under sdd/ changed, so the spec lane must not be requested');
-  });
-
-  // These two are the prover's whole remaining value. Once a lane is spawned
-  // only where its surface has work, a source-only diff that no @impl anchor
-  // cites requires the code lane whether or not the delta is inert -- so the
-  // ONLY place inertness still changes the answer is a cited file. Gut the
-  // prover and the second expectation flips; drop the anchor from both and
-  // neither test can tell the prover from its absence.
-  it('adds the spec lane when a code-token change is cited by an sdd/ @impl anchor', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    commitAt(cwd, 'sdd/spec/x.md', '### AC1\n<!-- @impl: src/a.ts::a -->\n', 'spec: anchor');
-    const ackSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // x\n', 'feat: seed');
-    writeAck(cwd, ackSha);
-    const headSha = commitAt(cwd, 'src/a.ts', 'export const a = 2; // y\n', 'fix: bump');
-    const binDir = fakeGhWithHead(cwd, { headSha });
-    const r = runHook(cwd, 'git push origin develop', binDir);
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /Lanes: code-reviewer \(source lane\) and spec-reviewer \(sdd\/ lane\) - both/);
-    assert.doesNotMatch(r.stdout, /doc-updater/,
-      'nothing under documentation/ changed and no doc anchor cites the diff');
-  });
-
-  it('keeps the spec lane out when the cited file changes only comments', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    commitAt(cwd, 'sdd/spec/x.md', '### AC1\n<!-- @impl: src/a.ts::a -->\n', 'spec: anchor');
-    const ackSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // x\n', 'feat: seed');
-    writeAck(cwd, ackSha);
-    const headSha = commitAt(cwd, 'src/a.ts', 'export const a = 1; // y\n', 'docs: reword');
-    const binDir = fakeGhWithHead(cwd, { headSha });
-    const r = runHook(cwd, 'git push origin develop', binDir);
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /Lanes: code-reviewer \(source lane\) only/);
-    assert.doesNotMatch(r.stdout, /spec-reviewer/,
-      'the cited symbol cannot have drifted when only a comment moved');
-  });
-});
-
-// AD121 / REQ-AGENT-121 AC7. The boundary rework made gh's head authoritative
-// and exact equality the eligibility test, but it also kept bounded retries for
-// heads that are "still synchronizing". Only the equality half was implemented
-// here, so a push landing inside the API's lag window read the previous head
-// and exited silently, and PostToolUse never fires twice for one command.
-// Observed on PR #826: the boundary arrived on the next unrelated Bash call.
-//
-// The fake gh lags for a fixed number of calls and then catches up, which is
-// what the retry has to ride out. Both halves are the oracle: without the retry
-// the first case is silent, and without a bound the second never terminates or
-// fires on a head the PR does not carry.
-describe('git-push-review-reminder.sh - gh head still synchronizing after a delivery', () => {
-  const laggingGh = (cwd, { catchesUpAfter }) => {
-    const sha = () => spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
-    const stale = sha();
-    spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'accepted fix'], { cwd });
-    const landed = sha();
-    const binDir = join(cwd, 'fake-bin');
-    mkdirSync(binDir, { recursive: true });
-    // Counts its own invocations on disk; the Nth call is when gh catches up.
-    writeFileSync(join(binDir, 'gh'), `#!/usr/bin/env bash
-ARGS="$*"
-if [[ "$ARGS" == "pr view "*" --json number,state,headRefOid,baseRefName" ]]; then
-  n=$(cat "${binDir}/calls" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "${binDir}/calls"
-  if [ "$n" -ge ${catchesUpAfter} ]; then head=${landed}; else head=${stale}; fi
-  echo '{"number":42,"state":"OPEN","headRefOid":"'"$head"'","baseRefName":"main"}'
-  exit 0
-fi
-exit 99
+function setup() {
+  const home = temp('claude-review-home-');
+  const repo = temp('claude-review-repo-');
+  const bin = temp('claude-review-bin-');
+  git(repo, 'init', '-q');
+  git(repo, 'branch', '-M', 'feature');
+  git(repo, 'config', 'user.name', 'Test User');
+  git(repo, 'config', 'user.email', 'test@example.test');
+  writeFileSync(join(repo, 'README.md'), '# repo\n');
+  mkdirSync(join(repo, 'sdd/spec'), { recursive: true });
+  writeFileSync(join(repo, 'sdd/README.md'), '# SDD\n');
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-m', 'base');
+  writeFileSync(join(repo, 'src.ts'), 'export const changed = true;\n');
+  writeFileSync(join(repo, 'sdd/spec/review.md'), '# review\n');
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-m', 'change');
+  const head = git(repo, 'rev-parse', 'HEAD');
+  const transcript = join(repo, 'transcript.jsonl');
+  writeFileSync(transcript, `${JSON.stringify({ type: 'session', cwd: repo })}\n`);
+  const gh = join(bin, 'gh');
+  writeFileSync(gh, `#!/usr/bin/env bash
+case "$1 $2" in
+  "repo view") printf '%s\\n' '{"nameWithOwner":"owner/repo","url":"https://github.com/owner/repo"}' ;;
+  "pr view")
+    [ "\${GH_FAIL:-0}" = 0 ] || exit 1
+    HEAD_VALUE="\${PR_HEAD}"
+    if [ -n "\${PR_HEAD_SEQUENCE_FILE:-}" ] && [ -s "$PR_HEAD_SEQUENCE_FILE" ]; then
+      HEAD_VALUE=$(sed -n '1p' "$PR_HEAD_SEQUENCE_FILE")
+      sed '1d' "$PR_HEAD_SEQUENCE_FILE" > "$PR_HEAD_SEQUENCE_FILE.next"
+      mv "$PR_HEAD_SEQUENCE_FILE.next" "$PR_HEAD_SEQUENCE_FILE"
+    fi
+    printf '%s\\n' '{"state":"'"\${PR_STATE:-OPEN}"'","isDraft":false,"baseRefName":"main","headRefName":"'"\${PR_BRANCH:-feature}"'","headRefOid":"'"\${HEAD_VALUE}"'","number":42,"url":"https://github.com/owner/repo/pull/42"}'
+    ;;
+  *) exit 1 ;;
+esac
 `);
-    chmodSync(join(binDir, 'gh'), 0o755);
-    return { stale, landed, binDir };
+  chmodSync(gh, 0o755);
+  const sleep = join(bin, 'sleep');
+  writeFileSync(sleep, '#!/usr/bin/env bash\nprintf \'%s\\n\' "$1" >> "${SLEEP_LOG:-/dev/null}"\n');
+  chmodSync(sleep, 0o755);
+  const env = {
+    ...process.env,
+    HOME: home,
+    PATH: `${bin}:${process.env.PATH}`,
+    PR_HEAD: head,
+    CODEFLARE_REVIEW_SESSION_DIR: join(home, 'review-session'),
+    CODEFLARE_SYNC_DAEMON_PIDFILE: join(home, 'missing.pid'),
   };
+  return { home, repo, head, transcript, env };
+}
 
-  it('opens the round once the authoritative head catches up', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const { landed, binDir } = laggingGh(cwd, { catchesUpAfter: 3 });
-    const r = runHook(cwd, 'git push origin HEAD', binDir);
-    assert.match(r.stdout, /run-review-lane/,
-      'a landed delivery must open its round; the API being briefly behind is not a verdict');
-    assert.ok(r.stdout.includes(landed),
-      'and the round must name the authoritative head, never one inferred locally');
+function invoke(fx, input) {
+  return spawnSync('bash', [SCRIPT], {
+    cwd: fx.repo,
+    env: fx.env,
+    input: JSON.stringify({
+      hook_event_name: 'PostToolUse',
+      cwd: fx.repo,
+      transcript_path: fx.transcript,
+      session_id: 'session-1',
+      tool_use_id: 'tool-1',
+      ...input,
+    }),
+    encoding: 'utf8',
   });
+}
 
-  it('gives up silently when the head never synchronizes', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const { binDir } = laggingGh(cwd, { catchesUpAfter: 999 });
-    const r = runHook(cwd, 'git push origin HEAD', binDir);
-    assert.equal(r.stdout, '',
-      'the retry is bounded: a head that never matches stays ineligible rather than looping');
-    // Without this the bound has no oracle: widening 3 attempts to 30 keeps the
-    // assertion above green, merely slower. Only non-termination would fail.
-    assert.equal(Number(readFileSync(join(binDir, 'calls'), 'utf8').trim()), 4,
-      'one initial query plus exactly three retries');
-  });
+function sessionStart(fx) {
+  return invoke(fx, { hook_event_name: 'SessionStart' });
+}
 
-  // The ancestor guard separates waiting out an API lag from waiting on a push
-  // that never landed, and transposing its two arguments would break every
-  // legitimate lagging delivery. A nonexistent SHA cannot pin that: git exits
-  // 128 in BOTH argument orders, so an inverted guard would break at call 1 and
-  // pass this test. The reported head must be a REAL commit that local does not
-  // contain, so ancestry decides. Inverted, base is an ancestor of the side
-  // commit, the loop would not break, and the count would be 4.
-  it('does not spend the retry budget on a push that never landed', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const sha = () => spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).stdout.trim();
-    const branch = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd, encoding: 'utf8' })
-      .stdout.trim();
-    spawnSync('git', ['checkout', '-q', '-b', 'divergent'], { cwd });
-    spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'never delivered here'], { cwd });
-    const unreachable = sha();
-    spawnSync('git', ['checkout', '-q', branch], { cwd });
-    assert.equal(
-      spawnSync('git', ['merge-base', '--is-ancestor', unreachable, 'HEAD'], { cwd }).status, 1,
-      'fixture must present a real commit that local does not contain',
-    );
-    const binDir = join(cwd, 'fake-bin');
-    mkdirSync(binDir, { recursive: true });
-    writeFileSync(join(binDir, 'gh'), `#!/usr/bin/env bash
-ARGS="$*"
-if [[ "$ARGS" == "pr view "*" --json number,state,headRefOid,baseRefName" ]]; then
-  n=$(cat "${binDir}/calls" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "${binDir}/calls"
-  echo '{"number":42,"state":"OPEN","headRefOid":"${unreachable}","baseRefName":"main"}'
-  exit 0
-fi
-exit 99
-`);
-    chmodSync(join(binDir, 'gh'), 0o755);
-    const r = runHook(cwd, 'git push origin HEAD', binDir);
-    assert.equal(r.stdout, '', 'a head this checkout does not contain is ineligible');
-    assert.equal(Number(readFileSync(join(binDir, 'calls'), 'utf8').trim()), 1,
-      'nothing landed, so there is nothing to wait for: one authoritative query and out');
-  });
+function preTool(fx, command, toolUseId = 'tool-1') {
+  return invoke(fx, { hook_event_name: 'PreToolUse', tool_use_id: toolUseId, tool_input: { command } });
+}
 
-  it('never retries for non-delivery activity', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const { binDir } = laggingGh(cwd, { catchesUpAfter: 999 });
-    const r = runHook(cwd, 'git status --short', binDir);
-    assert.equal(r.stdout, '', 'an unsynchronized checkout is ineligible either way');
-    assert.equal(Number(readFileSync(join(binDir, 'calls'), 'utf8').trim()), 1,
-      'a single authoritative query: ordinary Git activity must never pay the retry wait');
-  });
+function postTool(fx, command, toolUseId = 'tool-1') {
+  return invoke(fx, { tool_use_id: toolUseId, tool_input: { command } });
+}
+
+function context(result) {
+  return JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
+}
+
+function sequenceHeads(fx, heads) {
+  const sequence = join(fx.home, 'pr-heads');
+  const sleepLog = join(fx.home, 'sleep.log');
+  writeFileSync(sequence, `${heads.join('\n')}\n`);
+  writeFileSync(sleepLog, '');
+  fx.env = { ...fx.env, PR_HEAD_SEQUENCE_FILE: sequence, SLEEP_LOG: sleepLog };
+  return sleepLog;
+}
+
+afterEach(() => {
+  for (const value of roots.splice(0)) rmSync(value, { recursive: true, force: true });
 });
 
-// The directive this hook emits is model-facing only, and everything it starts
-// runs in the background, so without a systemMessage the user watches an idle
-// session while three lanes and a CI monitor spin up. The notice is generated
-// from the same counts the directive was built from, which is what these rows
-// pin: a fixed sentence would keep passing a substring match while describing a
-// round that is not the one running.
-describe('git-push-review-reminder.sh - user-visible round notice', () => {
-  it('announces the lane count, the lanes, and the range the lanes were given', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const r = runHook(cwd, 'git push origin HEAD', fakeGh(cwd, { state: 'OPEN', base: 'main' }));
-    const out = JSON.parse(r.stdout);
-    assert.match(out.systemMessage, /Review round starting for PR #42/);
-    assert.match(out.systemMessage, /3 lanes/,
-      'the count must come from the classifier, not a fixed sentence');
-    for (const lane of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
-      assert.ok(out.systemMessage.includes(lane), `the notice must name ${lane}`);
+describe('Claude marker-or-dialog ingress', () => {
+  it('asks on SessionStart with simple reason and exact neutral choices', () => {
+    const fx = setup();
+    const result = sessionStart(fx);
+    assert.equal(result.status, 0);
+    const text = context(result);
+    assert.match(text, /Review completion is missing for repo:feature\./);
+    assert.match(text, /Reason: no saved completion\./);
+    assert.match(text, /Mark review complete\n- Launch review/);
+    assert.doesNotMatch(text.split('\n').slice(0, 8).join('\n'), new RegExp(fx.head));
+  });
+
+  it('prunes marker state once on first root startup without traversing symlinks', () => {
+    const fx = setup();
+    const stateRoot = join(fx.home, '.codeflare/review-state/v1');
+    const identity = {
+      gitHost: 'github.com',
+      repository: 'owner/repo',
+      pr: 42,
+      branch: 'feature',
+      base: 'main',
+      head: 'c'.repeat(40),
+    };
+    writeCompletion(identity, { root: stateRoot, now: () => new Date(0), requestSync: () => false });
+    const outside = join(fx.home, 'outside');
+    mkdirSync(outside);
+    const outsideMarker = join(outside, 'keep.json');
+    writeFileSync(outsideMarker, '{}');
+    symlinkSync(outside, join(stateRoot, 'linked'));
+
+    sessionStart(fx);
+    assert.equal(existsSync(completionPath(identity, stateRoot)), false);
+    assert.equal(existsSync(outsideMarker), true);
+
+    const later = { ...identity, repository: 'owner/unrelated', head: 'd'.repeat(40) };
+    writeCompletion(later, { root: stateRoot, now: () => new Date(0), requestSync: () => false });
+    sessionStart(fx);
+    assert.equal(existsSync(completionPath(later, stateRoot)), true);
+  });
+
+  it('suppresses review ingress only during an open SDD transition', () => {
+    const fx = setup();
+    writeFileSync(join(fx.repo, 'sdd/spec/config.yml'), 'transition: true\n');
+    writeFileSync(join(fx.repo, 'sdd/spec/.init-triage.md'), '**Status:** open\n');
+    assert.equal(postTool(fx, 'git push origin feature').stdout, '');
+
+    writeFileSync(join(fx.repo, 'sdd/spec/.init-triage.md'), '**Status:** resolved\n');
+    assert.match(context(postTool(fx, 'git push origin feature')), /Execute this fresh contextual round now/);
+  });
+
+  it('emits handling after planned exposures and ignores inert commands', () => {
+    const fx = setup();
+    sessionStart(fx);
+    for (const command of [
+      'git switch feature',
+      'git checkout feature',
+      'gh pr checkout 42',
+      'git pull',
+      'git push origin feature',
+      'gh pr create --base main',
+    ]) assert.notEqual(postTool(fx, command).stdout, '', command);
+    for (const command of ['git status', 'git fetch origin', 'gh pr view 42', 'gh pr merge 42']) {
+      assert.equal(postTool(fx, command).stdout, '', command);
     }
-    assert.match(out.systemMessage, /CI monitor/);
-    assert.match(out.systemMessage, /full PR diff vs main/,
-      'an unacknowledged head is reviewed whole, and the notice must say so');
   });
 
-  it('shrinks the notice to the lanes actually required', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const ackSha = commitAt(cwd, 'src/seed.ts', 'export {};\n', 'feat: seed');
-    writeAck(cwd, ackSha);
-    const headSha = commitAt(cwd, 'documentation/notes.md', '# notes\n', 'docs: notes');
-    const r = runHook(cwd, 'git push origin develop', fakeGhWithHead(cwd, { headSha }));
-    const out = JSON.parse(r.stdout);
-    assert.match(out.systemMessage, /1 lane \(doc-updater\)/,
-      'a doc-only push runs one lane; announcing three would describe a different round');
-    assert.doesNotMatch(out.systemMessage, /lanes/,
-      'the noun must agree with the count');
-    assert.match(out.systemMessage, new RegExp(`incremental since ${ackSha.slice(0, 7)}`),
-      'the notice must name the acknowledged base the lanes actually diff against');
+  it('asks only after a PR merge changes checkout identity into an unacknowledged open PR', () => {
+    const fx = setup();
+    const command = 'git merge --ff-only origin/develop';
+    assert.equal(preTool(fx, command).stdout, '');
+
+    git(fx.repo, 'switch', '-q', '-c', 'develop');
+    writeFileSync(join(fx.repo, 'merged.ts'), 'export const merged = true;\n');
+    git(fx.repo, 'add', '.');
+    git(fx.repo, 'commit', '-m', 'merge result');
+    fx.env = { ...fx.env, PR_BRANCH: 'develop', PR_HEAD: git(fx.repo, 'rev-parse', 'HEAD') };
+
+    const text = context(postTool(fx, command));
+    assert.match(text, /Review completion is missing for repo:develop\./);
+    assert.match(text, /Mark review complete\n- Launch review/);
+    assert.doesNotMatch(text, /Execute this fresh contextual round now/);
   });
 
-  it('stays silent on the consent path, which asks the user directly', () => {
-    const cwd = makeFixture();
-    withSdd(cwd);
-    const r = runHook(cwd, 'git switch review', fakeGh(cwd, { state: 'OPEN', base: 'main' }));
-    const out = JSON.parse(r.stdout);
-    assert.match(out.hookSpecificOutput.additionalContext, /FIRST use AskUserQuestion/,
-      'the fixture must still be on the consent path for this row to mean anything');
-    assert.equal(out.systemMessage, undefined,
-      'an AskUserQuestion is louder than a notice; two prompts for one event is noise');
+  it('keeps PR merges silent without a checkout transition, after failed execution, or with an exact marker', () => {
+    const unchanged = setup();
+    const command = 'gh pr merge 976 --merge';
+    preTool(unchanged, command, 'unchanged');
+    assert.equal(postTool(unchanged, command, 'unchanged').stdout, '');
+
+    const compound = setup();
+    const compoundCommand = 'gh pr merge 976 --merge && git push origin feature';
+    preTool(compound, compoundCommand, 'compound');
+    assert.match(context(postTool(compound, compoundCommand, 'compound')), /Execute this fresh contextual round now/);
+    assert.equal(readdirSync(compound.env.CODEFLARE_REVIEW_SESSION_DIR)
+      .filter((name) => name.endsWith('.merge-before.json')).length, 0);
+
+    const failed = setup();
+    preTool(failed, command, 'failed');
+    const failureState = () => readdirSync(failed.env.CODEFLARE_REVIEW_SESSION_DIR)
+      .filter((name) => name.endsWith('.merge-before.json'));
+    assert.equal(failureState().length, 1);
+    assert.equal(invoke(failed, {
+      hook_event_name: 'PostToolUseFailure',
+      tool_use_id: 'failed',
+      tool_input: { command },
+    }).stdout, '');
+    assert.equal(failureState().length, 0);
+
+    const marked = setup();
+    preTool(marked, command, 'marked');
+    git(marked.repo, 'switch', '-q', '-c', 'develop');
+    writeFileSync(join(marked.repo, 'merged.ts'), 'export const merged = true;\n');
+    git(marked.repo, 'add', '.');
+    git(marked.repo, 'commit', '-m', 'merge result');
+    marked.env = { ...marked.env, PR_BRANCH: 'develop', PR_HEAD: git(marked.repo, 'rev-parse', 'HEAD') };
+    execFileSync('node', [STATE, 'mark', '--cwd', marked.repo], { cwd: marked.repo, env: marked.env });
+    assert.equal(postTool(marked, command, 'marked').stdout, '');
+  });
+
+  it('automatically emits review and CI launch instructions after push, PR creation, and PR reopen', () => {
+    for (const command of ['git push origin feature', 'gh pr create --base main', 'gh pr reopen 42']) {
+      const fx = setup();
+      sessionStart(fx);
+      const delivery = context(postTool(fx, command));
+      assert.doesNotMatch(delivery, /Use AskUserQuestion once/);
+      assert.match(delivery, /Execute this fresh contextual round now/);
+      assert.match(delivery, /launch public ci-monitor/);
+      assert.match(delivery, /output_file|codeflare-pr-42/);
+      assert.match(delivery, /verify that it is evidence-backed and in scope/);
+      assert.match(delivery, /judge the finding separately from its proposed fix/);
+      assert.match(delivery, /reject unsupported or overengineered proposals/);
+      assert.match(delivery, /prefer the smallest correction that reuses existing machinery/);
+    }
+  });
+
+  it('recreates missing session state before publishing a push review plan', () => {
+    const fx = setup();
+    sessionStart(fx);
+    rmSync(fx.env.CODEFLARE_REVIEW_SESSION_DIR, { recursive: true, force: true });
+
+    const delivery = context(postTool(fx, 'git push origin feature'));
+    assert.match(delivery, /Execute this fresh contextual round now/);
+    const plans = readdirSync(fx.env.CODEFLARE_REVIEW_SESSION_DIR)
+      .filter((name) => name.endsWith('.review-plan.json'));
+    assert.equal(plans.length, 1);
+    const plan = JSON.parse(readFileSync(join(fx.env.CODEFLARE_REVIEW_SESSION_DIR, plans[0]), 'utf8'));
+    assert.equal(plan.boundary, 'push');
+    assert.equal(plan.head, fx.head);
+    assert.equal(plan.pr, 42);
+  });
+
+  it('retries delivery until the authoritative PR head catches up', () => {
+    const fx = setup();
+    const previous = git(fx.repo, 'rev-parse', 'HEAD~1');
+    const sleepLog = sequenceHeads(fx, [previous, previous, fx.head]);
+    const result = postTool(fx, 'git push origin feature');
+
+    assert.match(context(result), /Execute this fresh contextual round now/);
+    assert.equal(readFileSync(sleepLog, 'utf8'), '1\n3\n');
+  });
+
+  it('gives up silently after bounded authoritative-head retries', () => {
+    const fx = setup();
+    const previous = git(fx.repo, 'rev-parse', 'HEAD~1');
+    const sleepLog = sequenceHeads(fx, Array.from({ length: 6 }, () => previous));
+
+    assert.equal(postTool(fx, 'git push origin feature').stdout, '');
+    assert.equal(readFileSync(sleepLog, 'utf8'), '1\n3\n5\n10\n15\n');
+  });
+
+  it('never retries authoritative state for non-delivery exposure', () => {
+    const fx = setup();
+    const previous = git(fx.repo, 'rev-parse', 'HEAD~1');
+    const sleepLog = sequenceHeads(fx, [previous, fx.head]);
+
+    assert.equal(postTool(fx, 'git pull').stdout, '');
+    assert.equal(readFileSync(sleepLog, 'utf8'), '');
+  });
+
+  it('does not retry an unrelated push while the current PR head is stale', () => {
+    const fx = setup();
+    const previous = git(fx.repo, 'rev-parse', 'HEAD~1');
+    const sleepLog = sequenceHeads(fx, Array.from({ length: 6 }, () => previous));
+
+    assert.equal(postTool(fx, 'git push origin unrelated').stdout, '');
+    assert.equal(readFileSync(sleepLog, 'utf8'), '');
+  });
+
+  it('rejects delivery commands targeting another branch, PR, or repository', () => {
+    for (const command of [
+      'git push origin unrelated',
+      'git push origin HEAD:other',
+      'gh pr create --head unrelated --base main',
+      'gh pr reopen 99',
+      'gh --repo other/repo pr reopen 42',
+    ]) {
+      const fx = setup();
+      sessionStart(fx);
+      assert.equal(postTool(fx, command).stdout, '', command);
+    }
+  });
+
+  it('resolves a successful clone destination before repository lookup', () => {
+    const fx = setup();
+    const parent = temp('claude-clone-parent-');
+    const result = invoke(fx, {
+      hook_event_name: 'PostToolUse',
+      cwd: parent,
+      tool_input: { command: `git clone https://github.com/owner/repo.git ${fx.repo}` },
+    });
+    assert.equal(result.status, 0);
+    assert.match(context(result), /Review completion is missing for repo:feature/);
+  });
+
+  it('auto-acknowledges generated-only delivery and emits CI without reviewers or triage', () => {
+    const fx = setup();
+    execFileSync('node', [STATE, 'mark', '--cwd', fx.repo], { cwd: fx.repo, env: fx.env, stdio: 'pipe' });
+    sessionStart(fx);
+    mkdirSync(join(fx.repo, 'graphify-out'), { recursive: true });
+    writeFileSync(join(fx.repo, 'graphify-out/graph.json'), '{}\n');
+    git(fx.repo, 'add', 'graphify-out/graph.json');
+    git(fx.repo, 'commit', '-m', 'refresh graph');
+    fx.head = git(fx.repo, 'rev-parse', 'HEAD');
+    fx.env = { ...fx.env, PR_HEAD: fx.head };
+
+    const delivery = context(postTool(fx, 'git push origin feature'));
+    assert.match(delivery, /No reviewer launch or triage is required/);
+    assert.match(delivery, /launch public ci-monitor/);
+    assert.doesNotMatch(delivery, /run-review-lane/);
+    const status = JSON.parse(execFileSync('node', [STATE, 'status', '--cwd', fx.repo], {
+      cwd: fx.repo, env: fx.env, encoding: 'utf8',
+    }));
+    assert.equal(status.completion.status, 'complete');
+  });
+
+  it('keeps consent and omits CI for a non-delivery exposure', () => {
+    const fx = setup();
+    sessionStart(fx);
+    const pull = context(postTool(fx, 'git pull'));
+    assert.match(pull, /Use AskUserQuestion once/);
+    assert.doesNotMatch(pull, /launch public ci-monitor/);
+  });
+
+  it('stays silent after exact completion is marked', () => {
+    const fx = setup();
+    execFileSync('node', [STATE, 'mark', '--cwd', fx.repo], { cwd: fx.repo, env: fx.env, stdio: 'pipe' });
+    assert.equal(sessionStart(fx).stdout, '');
+    assert.equal(postTool(fx, 'git pull').stdout, '');
+  });
+
+  it('suppresses duplicate dialogs while a current-session round is visible', () => {
+    const fx = setup();
+    sessionStart(fx);
+    appendFileSync(fx.transcript, `${JSON.stringify({
+      type: 'message',
+      message: { role: 'assistant', content: [{ type: 'tool_use', id: 'lane-1', name: 'Bash', input: { command: `CODEFLARE_REVIEW_HEAD=${fx.head} bash run-review-lane.sh --lane code-reviewer --boundary-pr 42 --base main` } }] },
+    })}\n`);
+    assert.equal(postTool(fx, 'git pull').stdout, '');
+  });
+
+  it('does not let an older head, PR prefix, or quoted text suppress current-head delivery', () => {
+    const fx = setup();
+    sessionStart(fx);
+    appendFileSync(fx.transcript, `${JSON.stringify({
+      type: 'message',
+      message: { role: 'assistant', content: [{
+        type: 'tool_use', id: 'old-same-pr', name: 'Bash',
+        input: { command: `CODEFLARE_REVIEW_HEAD=${fx.head} bash run-review-lane.sh --lane code-reviewer --boundary-pr 42 --base main` },
+      }, {
+        type: 'tool_use', id: 'prefix-lane', name: 'Bash',
+        input: { command: `CODEFLARE_REVIEW_HEAD=${fx.head} bash run-review-lane.sh --lane code-reviewer --boundary-pr 420 --base main` },
+      }, {
+        type: 'text', text: `CODEFLARE_REVIEW_HEAD=${'f'.repeat(40)} bash run-review-lane.sh --boundary-pr 42`,
+      }] },
+    })}\n`);
+    writeFileSync(join(fx.repo, 'next.ts'), 'export const next = true;\n');
+    git(fx.repo, 'add', 'next.ts');
+    git(fx.repo, 'commit', '-m', 'next head');
+    fx.head = git(fx.repo, 'rev-parse', 'HEAD');
+    fx.env = { ...fx.env, PR_HEAD: fx.head };
+
+    assert.match(context(postTool(fx, 'git push origin feature')), /Execute this fresh contextual round now/);
+  });
+
+  it('fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD', () => {
+    const fx = setup();
+    assert.equal(invoke(fx, { hook_event_name: 'SessionStart', agent_type: 'Explore' }).stdout, '');
+    assert.equal(invoke({ ...fx, env: { ...fx.env, GH_FAIL: '1' } }, { hook_event_name: 'SessionStart' }).stdout, '');
+    assert.equal(invoke({ ...fx, env: { ...fx.env, PR_STATE: 'CLOSED' } }, { hook_event_name: 'SessionStart' }).stdout, '');
+    git(fx.repo, 'checkout', '--detach', fx.head);
+    assert.equal(sessionStart(fx).stdout, '');
+  });
+
+  it('uses only transcript bytes after SessionStart offset', () => {
+    const fx = setup();
+    appendFileSync(fx.transcript, `${JSON.stringify({ message: { content: [{ input: { command: 'run-review-lane.sh --boundary-pr 42' } }] } })}\n`);
+    sessionStart(fx);
+    assert.notEqual(postTool(fx, 'git pull').stdout, '');
   });
 });

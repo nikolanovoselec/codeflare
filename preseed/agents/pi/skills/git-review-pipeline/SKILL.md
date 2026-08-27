@@ -1,64 +1,47 @@
 ---
 name: git-review-pipeline
-description: "SDD-mode PR-boundary review policy for Pi. The root launches visible reviewer lanes, publishes triage, ends the turn for acknowledgement, then fixes in a separate follow-up. Review is independent of CI."
-version: 3.0.0
+description: "Execute an automatic-delivery or user-selected SDD exact-head review round with parallel reviewers, exact-head CI when planned, canonical triage, and separate FIX."
+version: 4.0.0
 disable-model-invocation: true
 ---
 
 # Git Review Pipeline in Pi
 
-This skill explains how the root main session handles Pi's PR-boundary review instruction.
+Use this skill for an extension-emitted automatic delivery plan or after the user selects `Launch review` from a non-delivery marker-miss dialog.
 
-## Trigger and scope
+## Eligibility and consent
 
-Use the `review-scope` skill as the canonical scope contract.
+Advanced SDD projects are eligible when the active normal checkout exactly matches an open PR targeting `main`, `master`, or `develop`. Startup, resume, clone, switch, branch checkout, PR checkout, pull, checked-out-branch push, checked-out-branch PR creation, and checked-out-branch PR reopen may expose that identity.
 
-SDD projects (`sdd/` + `sdd/README.md`) are reviewed when work is headed to `main`, `master`, or `develop`. Draft PRs remain eligible. PRs targeting any other integration branch defer review until their PR to one of those protected bases.
+A valid user-scoped exact-head marker stays silent. Successful checked-out-branch push, PR creation, and PR reopen automatically emit one review-and-CI plan. Other misses offer exactly `Mark review complete` and `Launch review`; never choose for the user. Cancellation writes nothing.
 
-The Pi extension emits one structured launch plan after a supported successful boundary and a follow-up naming every reviewer lane still needed for the current head. The plan has separate reviewer and CI waves. Passive startup, branch existence, child sessions, failed commands, and unsupported commands do not launch review.
+Fetch, inspection, local mutation, merge, detached or path checkout, tag, unrelated-ref push, failed commands, child sessions, GitHub lookup failure, and unsynchronized heads remain inert.
 
-| Boundary | Review behavior |
-|---|---|
-| Successful executable `git` or `gh` command while the checked-out branch and local `HEAD` exactly match a new open PR head targeting `main`/`master`/`develop` | Extension may name required lanes and an independent CI wave |
-| Checked-out branch already acknowledged, unsynchronized with its PR, detached, or without an open protected-base PR | No PR-boundary review |
-| PR into `staging` or another non-protected integration branch | Review deferred |
+## Fresh plan
 
-## Root main-session action
+Each automatic or accepted launch starts from current facts. The newest retained marker for the same host, repository, PR, branch, and base sets the range only when its head is an ancestor of the live head. Otherwise review the full PR against the protected base. Do not reuse reviewer results, CI evidence, or a previous launch choice.
 
-When the reminder or follow-up lists lanes:
+Call every listed reviewer together through public `subagent` with `run_in_background: true` and `inherit_context: false`. Preserve `scope=diff`, the exact `review_range` or protected-base scope, and each lane's exact `output_file=/tmp/...` value.
 
-1. Call every listed reviewer together through the public `subagent` tool.
-2. Set `run_in_background: true` and `inherit_context: false` on every call. Every reviewer prompt carries `scope=diff`: a PR review is a change-set review, never whole-tree enforcement. When the reminder supplies `review_range=<acknowledged>..<current>`, include that exact marker in each prompt; otherwise use the full protected-base PR diff.
-3. Do not duplicate any unmatched reviewer call; it remains in flight until a correlated successful native notification or public result retrieval.
-4. If the same extension plan includes a CI wave, submit that independent CI request last without waiting for review completion. Do not infer a second CI trigger from the Git command.
-5. Wait until every required reviewer has a correlated successful native notification or public result retrieval, regardless of completion order.
-6. Publish one consolidated triage summary. For every finding, decide independently whether the finding is evidence-backed and in scope, whether its proposed fix is proportional, and what smallest correction reuses existing machinery.
-7. Reject false positives and overengineered proposals with evidence. Make no file or Git changes after triage; end the turn immediately so agent-end enforcement can acknowledge the reviewed head from live session state; settled enforcement is the fallback.
-8. In the separate FIX follow-up turn, apply only the accepted legitimate minimal fixes unless the user explicitly requested approval or validation.
-9. The root main session alone commits and pushes. Reviewers and other subagents never push.
+When the plan includes CI, submit its unchanged `ci-monitoring` request immediately after reviewer calls. Do not wait for reviewers first. End the turn after the final launch. Do not poll, resume an in-flight agent, or duplicate any call.
 
-Review is session-scoped. Reload can discard active work and does not prove completion; a later supported root boundary may request the missing lanes again.
+## Triage and FIX
 
-## Independence from CI
+Wait for every required reviewer and required exact-head CI result. CI success, failure, and timeout are terminal. Publish one canonical table after all terminal evidence:
 
-Review never launches, tracks, waits for, or relaunches CI. CI never launches reviewers. The boundary dispatcher names both waves in one plan; the root issues CI after reviewer calls and before their completion. Their execution, completion, and acknowledgement remain independent.
+| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |
+|---|---|---|---|---|
 
-## Finding discipline
+A failed or timed-out CI result requires FINDING `Exact-head CI` and PROPOSED FIX `CI_RESULT failure` or `CI_RESULT timeout`. A clean successful round may keep the table empty. Judge finding validity separately from its proposed fix and reject oversized fixes with evidence.
 
-In `scope=diff`, reviewers inspect changed hunks and only directly invalidated callers, anchors, tests, and owner documentation. They do not run whole-tree manifests or report unchanged baseline debt. `scope=all` is reserved for explicit `/review --all` and `/sdd clean --all` requests.
+Make no file or Git change in the triage turn. End the turn. Agent-end handling revalidates the identity, writes completion, signals sync, and emits a separate FIX reminder. Apply only accepted decisions in FIX. Root alone mutates, commits, and pushes.
 
-Do not act on a subset of required reviewer outputs. Wait until every required reviewer has finished, then assess all findings together in the visible triage summary. Finding validity and proposed-fix validity are separate decisions: a real issue can still carry an unnecessary or overengineered correction. Prefer an existing implementation path before adding machinery. End the triage turn without mutation. In the acknowledged FIX follow-up, fix every accepted legitimate finding by default, explain rejected findings or proposals with evidence, and ask only when the user explicitly requested approval or the change is destructive or irreversible.
+Stopped or interrupted work stores no progress and emits no missing-work demand. After live siblings settle, the next delivery creates a fresh plan and the next non-delivery exposure asks again. Never read, write, migrate, or delete legacy `.git/sdd-review-*` state.
 
-## Claude behavior
+## CI relationship
 
-Claude uses the same authoritative checked-out-branch and per-PR checkpoint model. Its own lane ordering, bypasses, and Stop enforcement remain governed by the Claude rules and hooks.
+CI remains independent. Push or PR-create context may add one exact-head monitor; other exposures do not invent CI. Reviewers never launch CI, and CI never launches reviewers.
 
-## Branch-protection note
+## Branch protection
 
-The intended workflow is:
-
-```text
-feature branch -> develop -> PR to main
-```
-
-Branch protection on `main` should require PRs and CI, but changing branch protection is separate from opening a PR. Ask first.
+The expected route is `feature -> develop -> main`. Protect `main` with PR and required-CI rules. Changing branch protection requires user approval.

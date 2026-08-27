@@ -1,11 +1,11 @@
 import { execFile } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { cloneTargetHadGit, cloneTargetPath, rememberCloneTargetHadGit } from "./graphify-helpers";
 import {
   findGitRoot,
-  recallActiveRepo,
   rememberActiveRepoFromToolResult,
   resolveShellInvocationRepo,
   shellInvocations,
@@ -13,9 +13,19 @@ import {
 } from "./active-repo-memory";
 import { activateRegisteredTools, type ToolActivationPi } from "./capability-helpers";
 import {
+  latestAncestorCompletion,
+  pruneCompletionState,
+  readCompletion,
+  requestCompletionSync,
+  writeCompletion,
+  type ReviewIdentity,
+} from "./review-completion-state";
+import {
   classifyReviewBoundaryCommand,
+  exposureTargetsCheckedOutBranch,
   REVIEW_TRIAGE_DIVIDER,
   REVIEW_TRIAGE_HEADER,
+  isReviewMergeCommand,
   isReviewTransitionSuspended,
   requiredReviewLanes,
   reviewRange,
@@ -35,6 +45,8 @@ type PrState = {
   mergeCommit?: { oid: string } | null;
 };
 
+type RepositoryIdentity = { gitHost: string; repository: string };
+
 export const PR_LOOKUP_FAILED = Symbol("pr-lookup-failed");
 type PrLookup = PrState | undefined | typeof PR_LOOKUP_FAILED;
 
@@ -42,6 +54,7 @@ type Dependencies = {
   queryPr(repo: string, target?: string): Promise<PrLookup>;
   queryHead?(repo: string, revision?: string): Promise<string | undefined>;
   queryBranch?(repo: string): Promise<string | undefined>;
+  queryRepository?(repo: string): Promise<RepositoryIdentity | undefined>;
   sleep?(delayMs: number): Promise<void>;
   headRetryDelaysMs?: number[];
 };
@@ -62,7 +75,7 @@ type ReviewContext = {
 };
 
 type ReviewPi = ToolActivationPi & {
-  on(event: "session_start" | "tool_result" | "agent_end" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
+  on(event: "session_start" | "tool_call" | "tool_execution_start" | "tool_result" | "agent_end" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
   events: { emit(channel: string, payload: unknown): void };
   appendEntry(customType: string, data: unknown): void;
   sendMessage(
@@ -71,29 +84,19 @@ type ReviewPi = ToolActivationPi & {
   ): void;
 };
 
-type QueryPrRunner = (
+type QueryRunner = (
   command: string,
   args: string[],
   options: { cwd: string; encoding: "utf8"; timeout: number },
 ) => Promise<{ stdout: string | Buffer }>;
 
-const execFileAsync = promisify(execFile) as unknown as QueryPrRunner;
-const MAX_BLOCKS = 5;
-const BYPASS_FILE = process.env.REVIEW_BYPASS_FILE || "/tmp/review-bypass";
+const execFileAsync = promisify(execFile) as unknown as QueryRunner;
 const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const REVIEW_GOAL_PAUSE_ENTRY_TYPE = "pr-boundary-goal-pause";
-const BOUNDARY_EVALUATED_ENTRY_TYPE = "pr-boundary-evaluated";
 const GOAL_CONTROL_CHANNEL = "codeflare:pi-goal:control";
-
-type BoundaryDisposition = "launch" | "acknowledge";
-type BoundaryEvaluation = {
-  toolUseId: string;
-  disposition: BoundaryDisposition;
-  repo: string;
-  prNumber: number;
-  head: string;
-  ciEvent?: ReviewBoundaryEvent;
-};
+const MARK_COMPLETE = "Mark review complete";
+const LAUNCH_REVIEW = "Launch review";
+let globalPrunePerformed = false;
 
 type GoalSnapshot = { id: string; status: string };
 type ReviewGoalPause = { head: string; goalId: string };
@@ -111,76 +114,20 @@ function sessionEntries(ctx: ReviewContext): Record<string, any>[] {
   return readableSessionEntries(ctx) ?? [];
 }
 
-function goalSnapshot(entry: Record<string, any>): GoalSnapshot | undefined {
-  const goal = entry?.type === "custom" && entry.customType === GOAL_STATE_ENTRY_TYPE
-    ? entry.data?.goal
-    : undefined;
-  return goal
-    && typeof goal.id === "string"
-    && typeof goal.status === "string"
+function currentGoal(ctx: ReviewContext): GoalSnapshot | undefined {
+  const goal = sessionEntries(ctx)
+    .filter((entry) => entry?.type === "custom" && entry.customType === GOAL_STATE_ENTRY_TYPE)
+    .at(-1)?.data?.goal;
+  return goal && typeof goal.id === "string" && typeof goal.status === "string"
     ? { id: goal.id, status: goal.status }
     : undefined;
 }
 
-function currentGoal(ctx: ReviewContext): GoalSnapshot | undefined {
-  const entry = sessionEntries(ctx)
-    .filter((candidate) => (
-      candidate?.type === "custom" && candidate.customType === GOAL_STATE_ENTRY_TYPE
-    ))
-    .at(-1);
-  return entry ? goalSnapshot(entry) : undefined;
-}
-
-function boundaryWasEvaluated(ctx: ReviewContext, toolUseId: string): boolean {
-  return sessionEntries(ctx).some((entry) => entry?.type === "custom"
-    && entry.customType === BOUNDARY_EVALUATED_ENTRY_TYPE
-    && entry.data?.toolUseId === toolUseId);
-}
-
-function boundaryLaunchWasAccepted(ctx: ReviewContext, toolUseId: string): boolean {
-  return sessionEntries(ctx).some((entry) => entry?.type === "custom"
-    && entry.customType === BOUNDARY_EVALUATED_ENTRY_TYPE
-    && entry.data?.toolUseId === toolUseId
-    && entry.data?.disposition === "launch");
-}
-
-function boundaryEvaluation(
-  ctx: ReviewContext,
-  repo: string,
-  prNumber: number,
-  head: string,
-  toolUseId?: string,
-): BoundaryEvaluation | undefined {
-  const data = sessionEntries(ctx)
-    .filter((entry) => entry?.type === "custom"
-      && entry.customType === BOUNDARY_EVALUATED_ENTRY_TYPE
-      && entry.data?.repo === repo
-      && entry.data?.prNumber === prNumber
-      && entry.data?.head === head
-      && (toolUseId === undefined || entry.data?.toolUseId === toolUseId)
-      && (entry.data?.disposition === "launch" || entry.data?.disposition === "acknowledge"))
-    .at(-1)?.data;
-  if (!data || typeof data.toolUseId !== "string" || !fullSha(data.head)) return undefined;
-  return {
-    toolUseId: data.toolUseId,
-    disposition: data.disposition,
-    repo: data.repo,
-    prNumber: data.prNumber,
-    head: data.head,
-    ciEvent: data.ciEvent === "push" || data.ciEvent === "pr-create" ? data.ciEvent : undefined,
-  };
-}
-
 function reviewGoalPause(ctx: ReviewContext): ReviewGoalPause | undefined {
-  const entry = sessionEntries(ctx)
-    .filter((candidate) => (
-      candidate?.type === "custom" && candidate.customType === REVIEW_GOAL_PAUSE_ENTRY_TYPE
-    ))
-    .at(-1);
-  const data = entry?.data;
-  return data
-    && fullSha(data.head)
-    && typeof data.goalId === "string"
+  const data = sessionEntries(ctx)
+    .filter((entry) => entry?.type === "custom" && entry.customType === REVIEW_GOAL_PAUSE_ENTRY_TYPE)
+    .at(-1)?.data;
+  return data && fullSha(data.head) && typeof data.goalId === "string"
     ? data as ReviewGoalPause
     : undefined;
 }
@@ -189,15 +136,7 @@ function clearReviewGoalPause(pi: ReviewPi): void {
   try {
     pi.appendEntry(REVIEW_GOAL_PAUSE_ENTRY_TYPE, null);
   } catch {
-    // Goal integration is optional and must never block PR enforcement.
-  }
-}
-
-function notifyGoalBridgeFailure(ctx: ReviewContext, message: string): void {
-  try {
-    ctx.ui?.notify(message, "error");
-  } catch {
-    // Notification failure must not change the PR-boundary result.
+    // Goal integration is optional.
   }
 }
 
@@ -208,22 +147,16 @@ async function requestGoalControl(
 ): Promise<GoalControlResult | undefined> {
   let accepted = false;
   let resolveResponse: (result: GoalControlResult | undefined) => void = () => {};
-  const response = new Promise<GoalControlResult | undefined>((resolve) => {
-    resolveResponse = resolve;
-  });
+  const response = new Promise<GoalControlResult | undefined>((resolve) => { resolveResponse = resolve; });
   try {
     pi.events.emit(GOAL_CONTROL_CHANNEL, {
       action,
       goalId,
-      accepted: () => {
-        accepted = true;
-      },
+      accepted: () => { accepted = true; },
       respond: (result: GoalControlResult) => {
-        resolveResponse(
-          result && typeof result.ok === "boolean" && typeof result.goalId === "string" && typeof result.status === "string"
-            ? result
-            : undefined,
-        );
+        resolveResponse(result && typeof result.ok === "boolean"
+          && typeof result.goalId === "string"
+          && typeof result.status === "string" ? result : undefined);
       },
     });
   } catch {
@@ -234,68 +167,28 @@ async function requestGoalControl(
 
 async function pauseGoalForReview(pi: ReviewPi, ctx: ReviewContext, head: string): Promise<void> {
   const goal = currentGoal(ctx);
-  const owned = reviewGoalPause(ctx);
-  if (!goal) return;
-  if (owned?.head === head && owned.goalId === goal.id) return;
-  if (owned?.goalId === goal.id && goal.status === "paused") {
-    try {
-      pi.appendEntry(REVIEW_GOAL_PAUSE_ENTRY_TYPE, { head, goalId: goal.id } satisfies ReviewGoalPause);
-    } catch (error) {
-      const rollback = await requestGoalControl(pi, "resume", goal.id);
-      if (rollback?.ok && rollback.status === "active") {
-        clearReviewGoalPause(pi);
-        notifyGoalBridgeFailure(ctx, `Could not transfer Goal pause to the new PR head: ${String(error)}`);
-      } else {
-        notifyGoalBridgeFailure(
-          ctx,
-          `Could not transfer Goal pause to the new PR head and rollback also failed; review ownership was retained: ${String(error)}`,
-        );
-      }
-    }
-    return;
-  }
-  if (goal.status !== "active") return;
-
+  if (!goal || goal.status !== "active") return;
   try {
     pi.appendEntry(REVIEW_GOAL_PAUSE_ENTRY_TYPE, { head, goalId: goal.id } satisfies ReviewGoalPause);
-  } catch (error) {
-    notifyGoalBridgeFailure(ctx, `Could not record Goal review ownership before pausing: ${String(error)}`);
+  } catch {
     return;
   }
   const result = await requestGoalControl(pi, "pause", goal.id);
-  const persistedGoal = currentGoal(ctx);
-  const bridgeConfirmed = result?.ok && result.goalId === goal.id && result.status === "paused";
-  const persistenceConfirmed = persistedGoal?.id === goal.id && persistedGoal.status === "paused";
-  if (!bridgeConfirmed && !persistenceConfirmed) clearReviewGoalPause(pi);
+  if (!result?.ok || result.status !== "paused") clearReviewGoalPause(pi);
 }
 
-function ownsReviewGoalPause(ctx: ReviewContext, head: string): boolean {
+async function releaseReviewGoalPause(pi: ReviewPi, ctx: ReviewContext, head?: string): Promise<boolean> {
   const owned = reviewGoalPause(ctx);
+  if (!owned || (head && owned.head !== head)) return true;
   const goal = currentGoal(ctx);
-  return Boolean(owned && owned.head === head && goal?.id === owned.goalId && goal.status === "paused");
-}
-
-async function releaseReviewGoalPause(pi: ReviewPi, ctx: ReviewContext, head: string): Promise<boolean> {
-  const owned = reviewGoalPause(ctx);
-  if (!owned) return false;
-  const goal = currentGoal(ctx);
-  const retainsReplacementOwnership = goal?.id === owned.goalId && goal.status === "paused";
-  if (!ownsReviewGoalPause(ctx, head) && !retainsReplacementOwnership) {
-    clearReviewGoalPause(pi);
-    return false;
-  }
-  const result = await requestGoalControl(pi, "resume", owned.goalId);
-  if (result?.ok && result.status === "active") {
+  if (!goal || goal.id !== owned.goalId || goal.status !== "paused") {
     clearReviewGoalPause(pi);
     return true;
   }
-  const persistedGoal = currentGoal(ctx);
-  if (persistedGoal?.id !== owned.goalId || persistedGoal.status !== "paused") {
-    clearReviewGoalPause(pi);
-    return false;
-  }
-  notifyGoalBridgeFailure(ctx, "Could not resume Goal after PR review; review ownership was retained. Use /goal resume after resolving its current state.");
-  return false;
+  const result = await requestGoalControl(pi, "resume", goal.id);
+  if (!result?.ok || result.status !== "active") return false;
+  clearReviewGoalPause(pi);
+  return true;
 }
 
 function fullSha(value: string | undefined): value is string {
@@ -303,12 +196,10 @@ function fullSha(value: string | undefined): value is string {
 }
 
 function isProtectedPr(pr: PrState | undefined): pr is PrState {
-  return Boolean(
-    pr
+  return Boolean(pr
     && ["OPEN", "CLOSED", "MERGED"].includes(pr.state)
     && (pr.baseRefName === "main" || pr.baseRefName === "master" || pr.baseRefName === "develop")
-    && fullSha(pr.headRefOid),
-  );
+    && fullSha(pr.headRefOid));
 }
 
 function isEnforcedPr(pr: PrState | undefined): pr is PrState {
@@ -319,253 +210,23 @@ function isSddRepo(repo: string): boolean {
   return existsSync(join(repo, "sdd", "README.md"));
 }
 
-function sessionFile(ctx: ReviewContext): string | undefined {
+function rootSessionFile(ctx: ReviewContext): string | undefined {
   const file = ctx.sessionManager.getSessionFile();
-  return typeof file === "string" && file ? file : undefined;
-}
-
-function isChildSession(ctx: ReviewContext, file: string | undefined): boolean {
+  if (typeof file !== "string" || !file) return undefined;
   const liveHeader = ctx.sessionManager.getHeader?.();
-  if (liveHeader) return typeof liveHeader.parentSession === "string" && liveHeader.parentSession.length > 0;
-  if (!file) return true;
+  if (liveHeader) return liveHeader.parentSession ? undefined : file;
   let descriptor: number | undefined;
   try {
     descriptor = openSync(file, "r");
     const buffer = Buffer.alloc(16_384);
     const bytes = readSync(descriptor, buffer, 0, buffer.length, 0);
-    const firstLine = buffer.subarray(0, bytes).toString("utf8").split("\n", 1)[0];
-    const header = JSON.parse(firstLine);
-    return header?.type !== "session" || (typeof header.parentSession === "string" && header.parentSession.length > 0);
+    const header = JSON.parse(buffer.subarray(0, bytes).toString("utf8").split("\n", 1)[0]);
+    return header?.type === "session" && !header.parentSession ? file : undefined;
   } catch {
-    return true;
+    return undefined;
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);
   }
-}
-
-function gitMetadataDirectory(repo: string): string | undefined {
-  const dotGit = join(repo, ".git");
-  try {
-    return statSync(dotGit).isDirectory() ? dotGit : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function githubRepository(repo: string): Promise<string | undefined> {
-  try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["remote", "get-url", "origin"],
-      { cwd: repo, encoding: "utf8", timeout: 10_000 },
-    );
-    const remote = String(stdout).trim().replace(/\.git$/, "")
-      .replace(/^ssh:\/\/git@ssh\.github\.com:443\//, "https://github.com/");
-    const match = /github\.com(?::|\/)([^/:\s]+)\/([^/\s]+)$/.exec(remote);
-    return match ? `${match[1]}/${match[2]}` : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function statePath(repo: string, kind: "ack" | "ci" | "count", prNumber: number): string | undefined {
-  const metadata = gitMetadataDirectory(repo);
-  return metadata ? join(metadata, `sdd-review-${kind}-pr-${prNumber}`) : undefined;
-}
-
-function readAck(repo: string, prNumber: number): string | undefined {
-  const path = statePath(repo, "ack", prNumber);
-  if (!path) return undefined;
-  try {
-    const value = readFileSync(path, "utf8").trim();
-    return fullSha(value) ? value : undefined;
-  } catch {
-    try {
-      const legacy = readFileSync(join(repo, ".git", "sdd-last-ack-pr-head"), "utf8").trim();
-      return fullSha(legacy) ? legacy : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-}
-
-function readCiHead(repo: string, prNumber: number): string | undefined {
-  const path = statePath(repo, "ci", prNumber);
-  if (!path) return undefined;
-  try {
-    const value = readFileSync(path, "utf8").trim();
-    return fullSha(value) ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function checkpointCi(repo: string, prNumber: number, head: string): boolean {
-  const path = statePath(repo, "ci", prNumber);
-  if (!path || !fullSha(head)) return false;
-  try {
-    writeFileSync(path, `${head}\n`, "utf8");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function clearCount(repo: string, prNumber: number): void {
-  const path = statePath(repo, "count", prNumber);
-  if (!path) return;
-  try {
-    unlinkSync(path);
-  } catch {
-    // No counter is the normal state.
-  }
-}
-
-function acknowledge(repo: string, prNumber: number, head: string): boolean {
-  const path = statePath(repo, "ack", prNumber);
-  if (!path || !fullSha(head)) return false;
-  try {
-    writeFileSync(path, `${head}\n`, "utf8");
-    clearCount(repo, prNumber);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function blockDecision(repo: string, prNumber: number, head: string): "block" | "giveup" {
-  const path = statePath(repo, "count", prNumber);
-  if (!path) return "giveup";
-  let count = 0;
-  try {
-    const [storedHead, storedCount] = readFileSync(path, "utf8").trim().split(":", 2);
-    if (storedHead === head) {
-      if (storedCount === "GIVEUP") return "giveup";
-      count = Number.parseInt(storedCount, 10) || 0;
-    }
-  } catch {
-    // Start a fresh counter for this head.
-  }
-  try {
-    if (count >= MAX_BLOCKS) {
-      writeFileSync(path, `${head}:GIVEUP\n`, "utf8");
-      return "giveup";
-    }
-    writeFileSync(path, `${head}:${count + 1}\n`, "utf8");
-    return "block";
-  } catch {
-    return "giveup";
-  }
-}
-
-type ClassifiedBoundary = {
-  invocation: ShellInvocation;
-  classification: ReturnType<typeof classifyReviewBoundaryCommand>;
-  toolUseId: string;
-};
-
-function appendBoundaryEvaluation(
-  pi: ReviewPi,
-  boundary: ClassifiedBoundary,
-  review: { repo: string; pr: PrState },
-  disposition: BoundaryDisposition,
-  ciEvent?: ReviewBoundaryEvent,
-): boolean {
-  try {
-    pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, {
-      toolUseId: boundary.toolUseId,
-      disposition,
-      repo: review.repo,
-      prNumber: review.pr.number,
-      head: review.pr.headRefOid,
-      ciEvent,
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function followUpKey(
-  kind: "plan" | "ci" | "fix" | "follow-up",
-  repo: string,
-  prNumber: number,
-  head: string,
-  boundaryToolUseId?: string,
-): string {
-  return [kind, repo, prNumber, head, boundaryToolUseId].filter((value) => value !== undefined).join(":");
-}
-
-function visibleLaunchFollowUpCount(ctx: ReviewContext, head: string, boundaryToolUseId: string): number {
-  return sessionEntries(ctx).filter((entry) => entry?.type === "custom_message"
-    && entry.customType === "pr-boundary-launch-follow-up"
-    && entry.details?.head === head
-    && entry.details?.boundaryToolUseId === boundaryToolUseId).length;
-}
-
-function resultText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) return value.map(resultText).join("\n");
-  if (!value || typeof value !== "object") return "";
-  const record = value as Record<string, unknown>;
-  return ["text", "content", "message", "stdout", "stderr", "error", "result"]
-    .map((key) => resultText(record[key]))
-    .filter(Boolean)
-    .join("\n");
-}
-
-function ambiguousPrCreateFailure(event: any, boundary: ClassifiedBoundary | undefined): boolean {
-  if (boundary?.classification.event !== "pr-create") return false;
-  const text = resultText(event);
-  return /(?:\bHTTP\s*5\d\d\b|\b5\d\d\s+(?:Bad Gateway|Gateway Timeout|Server Error)\b|\bPR already exists\b|\bpull request\b[^\n]{0,160}\balready exists\b)/i.test(text);
-}
-
-function latestBoundary(event: any, sessionCwd: string): ClassifiedBoundary | undefined {
-  const toolUseId = typeof event?.toolCallId === "string" ? event.toolCallId : undefined;
-  if (!toolUseId) return undefined;
-  return shellInvocations(event, sessionCwd)
-    .map((invocation) => ({
-      invocation,
-      classification: classifyReviewBoundaryCommand(invocation.command),
-      toolUseId,
-    }))
-    .filter(({ classification }) => classification.reminder)
-    .at(-1);
-}
-
-function successful(event: any): boolean {
-  return event?.isError !== true && event?.result?.isError !== true;
-}
-
-function bypassSentinelPresent(): boolean {
-  return existsSync(BYPASS_FILE);
-}
-
-function consumeBypassSentinel(): boolean {
-  if (!bypassSentinelPresent()) return false;
-  try {
-    unlinkSync(BYPASS_FILE);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function rootSessionFile(ctx: ReviewContext): string | undefined {
-  const file = sessionFile(ctx);
-  return file && !isChildSession(ctx, file) ? file : undefined;
-}
-
-function boundaryContext(ctx: ReviewContext, preferredRepo?: string): { repo: string; file: string } | undefined {
-  const file = rootSessionFile(ctx);
-  if (!file) return undefined;
-  const preferredRoot = preferredRepo ? findGitRoot(preferredRepo) : undefined;
-  if (preferredRepo && !preferredRoot) return undefined;
-  const rememberedRepo = recallActiveRepo();
-  const repo = preferredRoot
-    ?? findGitRoot(ctx.cwd)
-    ?? (rememberedRepo ? findGitRoot(rememberedRepo) : undefined);
-  return repo ? { repo, file } : undefined;
 }
 
 function reviewEnabled(repo: string): boolean {
@@ -578,281 +239,147 @@ function defaultSleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+type CurrentReview = {
+  repo: string;
+  file: string;
+  pr: PrState;
+  identity: ReviewIdentity;
+  repository: string;
+};
+
 async function currentReview(
   ctx: ReviewContext,
   dependencies: Dependencies,
-  target: string | undefined,
-  revision = "HEAD",
-  preferredRepo?: string,
-  markRetryable?: () => void,
-  retryMissingPr = false,
-): Promise<{ repo: string; file: string; pr: PrState } | undefined> {
-  const context = boundaryContext(ctx, preferredRepo);
-  if (!context || !gitMetadataDirectory(context.repo)) return undefined;
-  let branch = target;
-  if (!branch) branch = await (dependencies.queryBranch ?? queryBranch)(context.repo);
-  if (!branch) {
-    markRetryable?.();
-    return undefined;
-  }
-  const head = await (dependencies.queryHead ?? queryHead)(context.repo, revision);
-  if (!head) {
-    markRetryable?.();
-    return undefined;
-  }
-  const delays = dependencies.headRetryDelaysMs ?? [0];
+  repo: string,
+  ciEvent?: ReviewBoundaryEvent,
+  command?: string,
+): Promise<CurrentReview | undefined> {
+  const file = rootSessionFile(ctx);
+  const root = findGitRoot(repo);
+  if (!file || !root || !reviewEnabled(root)) return undefined;
+  const branch = await (dependencies.queryBranch ?? queryBranch)(root);
+  const head = await (dependencies.queryHead ?? queryHead)(root, "HEAD");
+  const repositoryIdentity = await (dependencies.queryRepository ?? queryRepository)(root);
+  if (!branch || !head || !repositoryIdentity) return undefined;
+  const delays = ciEvent
+    ? dependencies.headRetryDelaysMs ?? [0, 1_000, 3_000, 5_000, 10_000, 15_000]
+    : [0];
   const sleep = dependencies.sleep ?? defaultSleep;
-  for (const delayMs of delays) {
-    if (delayMs > 0) await sleep(delayMs);
-    const pr = await dependencies.queryPr(context.repo, branch);
-    if (pr === PR_LOOKUP_FAILED || (pr === undefined && retryMissingPr)) {
-      markRetryable?.();
+  for (const delay of delays) {
+    if (delay > 0) await sleep(delay);
+    const pr = await dependencies.queryPr(root, branch);
+    if (pr === PR_LOOKUP_FAILED) return undefined;
+    if (!isEnforcedPr(pr) || pr.headRefName !== branch) return undefined;
+    if (ciEvent && command && !exposureTargetsCheckedOutBranch(command, {
+      branch: pr.headRefName,
+      pr: pr.number,
+      repository: repositoryIdentity.repository,
+    })) return undefined;
+    if (pr.headRefOid !== head) {
+      if (!ciEvent) return undefined;
       continue;
     }
-    if (!isProtectedPr(pr) || pr.headRefName !== branch) return undefined;
-    if (head === pr.headRefOid) return { ...context, pr };
-    markRetryable?.();
+    return {
+      repo: root,
+      file,
+      pr,
+      repository: repositoryIdentity.repository,
+      identity: {
+        ...repositoryIdentity,
+        pr: pr.number,
+        branch: pr.headRefName,
+        base: pr.baseRefName,
+        head: pr.headRefOid,
+      },
+    };
   }
   return undefined;
 }
 
-type CiBoundaryEvent = ReviewBoundaryEvent;
-
-type CiLaunchIdentity = {
-  repo: string;
-  pr: number;
-  head: string;
-  cwd: string;
+type ClassifiedBoundary = {
+  invocation: ShellInvocation;
+  classification: ReturnType<typeof classifyReviewBoundaryCommand>;
+  toolUseId: string;
+  repo?: string;
+  cloneTargetPreexisted?: boolean;
 };
 
+function resultText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(resultText).join("\n");
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  return ["text", "content", "message", "stdout", "stderr", "error", "result"]
+    .map((key) => resultText(record[key])).filter(Boolean).join("\n");
+}
+
+function latestBoundary(event: any, sessionCwd: string): ClassifiedBoundary | undefined {
+  const toolUseId = typeof event?.toolCallId === "string" ? event.toolCallId : undefined;
+  if (!toolUseId) return undefined;
+  return shellInvocations(event, sessionCwd)
+    .map((invocation) => {
+      const classification = classifyReviewBoundaryCommand(invocation.command);
+      const clonedPath = classification.clone
+        ? cloneTargetPath(invocation.command, invocation.cwd, resultText(event))
+        : undefined;
+      return {
+        invocation,
+        classification,
+        toolUseId,
+        repo: clonedPath ? findGitRoot(clonedPath) : undefined,
+        cloneTargetPreexisted: classification.clone && clonedPath !== undefined
+          && cloneTargetHadGit(toolUseId, clonedPath) === true,
+      };
+    })
+    .filter(({ classification, repo }) => classification.reminder && (!classification.clone || repo))
+    .at(-1);
+}
+
+function successful(event: any): boolean {
+  return event?.isError !== true && event?.result?.isError !== true;
+}
+
+function sameIdentity(left: ReviewIdentity, right: ReviewIdentity): boolean {
+  return left.gitHost === right.gitHost
+    && left.repository === right.repository
+    && left.pr === right.pr
+    && left.branch === right.branch
+    && left.base === right.base
+    && left.head === right.head;
+}
+
+function scopeSummary(pr: PrState, range: string | undefined): string {
+  return range ? `diff · \`review_range=${range}\`` : `full PR against \`origin/${pr.baseRefName}\``;
+}
+
+function reviewerScopeAssignment(pr: PrState, range: string | undefined): string {
+  return range ? `review_range=${range}` : `review_base=origin/${pr.baseRefName}`;
+}
+
+function reviewerOutputPath(pr: PrState, lane: ReviewLane): string {
+  return `/tmp/codeflare-pr-${pr.number}-${pr.headRefOid.slice(0, 12)}-${lane}.md`;
+}
+
+function reviewerPromptContract(pr: PrState, range: string | undefined, lane: ReviewLane): string[] {
+  return [
+    `- \`${lane}\``,
+    "```text",
+    "scope=diff",
+    reviewerScopeAssignment(pr, range),
+    `output_file=${reviewerOutputPath(pr, lane)}`,
+    "```",
+  ];
+}
+
 type LaunchMessage = {
-  phase: "plan" | "follow-up";
   repo: string;
   pr: PrState;
   boundaryToolUseId: string;
   ackHead?: string;
   range?: string;
   reviewers: ReviewLane[];
-  ciEvent?: CiBoundaryEvent;
+  ciEvent?: ReviewBoundaryEvent;
 };
-
-function ciBoundaryEvent(event: ReviewBoundaryEvent | undefined): CiBoundaryEvent | undefined {
-  return event;
-}
-
-function ciLaunchIdentity(event: any): CiLaunchIdentity | undefined {
-  if (!successful(event)
-    || event?.toolName !== "subagent"
-    || event?.input?.subagent_type !== "ci-monitor"
-    || event?.input?.run_in_background !== true
-    || event?.input?.inherit_context !== false
-    || event?.details?.subagentType !== "ci-monitor"
-    || typeof event?.input?.prompt !== "string") return undefined;
-  try {
-    const request = JSON.parse(event.input.prompt);
-    return typeof request?.repo === "string"
-      && Number.isInteger(request?.pr)
-      && fullSha(request?.head)
-      && typeof request?.cwd === "string"
-      ? request as CiLaunchIdentity
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function checkpointCiLaunch(
-  event: any,
-  ctx: ReviewContext,
-  dependencies: Dependencies,
-): Promise<boolean> {
-  const request = ciLaunchIdentity(event);
-  if (!request) return false;
-  const context = boundaryContext(ctx, request.cwd);
-  if (!context || request.cwd !== context.repo || !gitMetadataDirectory(context.repo)) return false;
-  const [repository, branch, head, pr] = await Promise.all([
-    githubRepository(context.repo),
-    (dependencies.queryBranch ?? queryBranch)(context.repo),
-    (dependencies.queryHead ?? queryHead)(context.repo, "HEAD"),
-    dependencies.queryPr(context.repo, String(request.pr)),
-  ]);
-  if (repository !== request.repo
-    || head !== request.head
-    || pr === PR_LOOKUP_FAILED
-    || !isEnforcedPr(pr)
-    || branch !== pr.headRefName
-    || pr.number !== request.pr
-    || pr.headRefOid !== request.head) return false;
-  return checkpointCi(context.repo, request.pr, request.head);
-}
-
-type BoundaryLaunch = { head: string; pauseGoal: boolean; queuedPlan: boolean };
-type BoundaryLaunchResult = BoundaryLaunch | "retry";
-
-async function launchBoundaryPlan(
-  pi: ReviewPi,
-  ctx: ReviewContext,
-  dependencies: Dependencies,
-  boundary: ClassifiedBoundary,
-  queuedFollowUps: Set<string>,
-  restoreExistingGoalPause = false,
-): Promise<BoundaryLaunchResult | undefined> {
-  const eventRepo = resolveShellInvocationRepo(boundary.invocation);
-  if (!eventRepo) return undefined;
-  let retryable = false;
-  const isDeliveryCandidate = boundary.classification.event !== undefined;
-  const review = await currentReview(
-    ctx,
-    dependencies,
-    undefined,
-    "HEAD",
-    eventRepo,
-    isDeliveryCandidate ? () => { retryable = true; } : undefined,
-    boundary.classification.event === "pr-create",
-  );
-  if (!review) return retryable ? "retry" : undefined;
-  if (!isEnforcedPr(review.pr)) return undefined;
-
-  const reviewsEnabled = reviewEnabled(review.repo);
-  const priorAckHead = readAck(review.repo, review.pr.number);
-  if (priorAckHead === review.pr.headRefOid) {
-    return { head: review.pr.headRefOid, pauseGoal: false, queuedPlan: false };
-  }
-  const skipReview = reviewsEnabled && bypassSentinelPresent();
-  if (skipReview) {
-    acknowledge(review.repo, review.pr.number, review.pr.headRefOid);
-    if (!boundary.classification.settled) consumeBypassSentinel();
-  }
-  const range = reviewRange({ repo: review.repo, ackHead: priorAckHead, head: review.pr.headRefOid });
-  const existing = transcriptFacts(ctx, review.file, [], undefined, review.pr.headRefOid);
-  const existingHeadPlan = existing.reviewHead === review.pr.headRefOid
-    && existing.reviewRepo === review.repo
-    && existing.reviewBranch === review.pr.headRefName
-    && existing.reviewPrNumber === review.pr.number
-    && existing.reviewBase === review.pr.baseRefName;
-  const reusableHeadPlan = existingHeadPlan && !existing.fixDelivered;
-  const existingCyclePlan = reusableHeadPlan
-    && existing.reviewBoundaryToolUseId === boundary.toolUseId;
-  const persistedDecision = boundaryEvaluation(
-    ctx,
-    review.repo,
-    review.pr.number,
-    review.pr.headRefOid,
-    boundary.toolUseId,
-  );
-  const persistedHeadDecision = existing.fixDelivered
-    ? undefined
-    : boundaryEvaluation(
-      ctx,
-      review.repo,
-      review.pr.number,
-      review.pr.headRefOid,
-    );
-
-  if (persistedHeadDecision?.disposition === "acknowledge") {
-    acknowledge(review.repo, review.pr.number, review.pr.headRefOid);
-    appendBoundaryEvaluation(pi, boundary, review, "acknowledge");
-    return { head: review.pr.headRefOid, pauseGoal: false, queuedPlan: false };
-  }
-
-  if (reusableHeadPlan && !existingCyclePlan) {
-    return {
-      head: review.pr.headRefOid,
-      pauseGoal: restoreExistingGoalPause,
-      queuedPlan: false,
-    };
-  }
-
-  let confirmedEvent = boundary.classification.event;
-  let planBoundaryToolUseId = boundary.toolUseId;
-  const persistedLaunch = persistedDecision?.disposition === "launch"
-    ? persistedDecision
-    : persistedHeadDecision?.disposition === "launch"
-      ? persistedHeadDecision
-      : undefined;
-  const recoveringPlan = existingCyclePlan || persistedLaunch !== undefined;
-  if (recoveringPlan) {
-    confirmedEvent = existing.reviewCiEvent ?? persistedLaunch?.ciEvent ?? confirmedEvent ?? "push";
-    planBoundaryToolUseId = existing.reviewBoundaryToolUseId
-      ?? persistedLaunch?.toolUseId
-      ?? boundary.toolUseId;
-  } else if (reviewsEnabled && !skipReview && !confirmedEvent) {
-    if (!ctx.hasUI || !ctx.ui) return undefined;
-    let decision: string | undefined;
-    while (decision !== "Launch review and CI" && decision !== "Acknowledge without review") {
-      decision = await ctx.ui.select(
-        `PR #${review.pr.number} (${review.pr.headRefName} at ${review.pr.headRefOid})`,
-        ["Launch review and CI", "Acknowledge without review"],
-      );
-    }
-    const refreshed = await currentReview(ctx, dependencies, undefined, "HEAD", eventRepo);
-    if (!refreshed
-      || refreshed.repo !== review.repo
-      || refreshed.pr.number !== review.pr.number
-      || refreshed.pr.baseRefName !== review.pr.baseRefName
-      || refreshed.pr.headRefName !== review.pr.headRefName
-      || refreshed.pr.headRefOid !== review.pr.headRefOid) return undefined;
-    if (readAck(review.repo, review.pr.number) === review.pr.headRefOid) {
-      return { head: review.pr.headRefOid, pauseGoal: false, queuedPlan: false };
-    }
-    if (decision === "Acknowledge without review") {
-      if (!appendBoundaryEvaluation(pi, boundary, review, "acknowledge")) return "retry";
-      acknowledge(review.repo, review.pr.number, review.pr.headRefOid);
-      return { head: review.pr.headRefOid, pauseGoal: false, queuedPlan: false };
-    }
-    if (decision !== "Launch review and CI") return undefined;
-    confirmedEvent = "push";
-  }
-
-  const ackHead = readAck(review.repo, review.pr.number);
-  const requiredLanes = reviewsEnabled && !skipReview
-    ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
-    : [];
-  const ciEvent = readCiHead(review.repo, review.pr.number) === review.pr.headRefOid
-    ? undefined
-    : ciBoundaryEvent(confirmedEvent);
-  if (requiredLanes.length === 0 && !ciEvent) return undefined;
-
-  if (existingCyclePlan) {
-    appendBoundaryEvaluation(pi, boundary, review, "launch", confirmedEvent);
-    return {
-      head: review.pr.headRefOid,
-      pauseGoal: restoreExistingGoalPause && requiredLanes.length > 0,
-      queuedPlan: false,
-    };
-  }
-
-  const key = followUpKey("plan", review.repo, review.pr.number, review.pr.headRefOid, planBoundaryToolUseId);
-  if (queuedFollowUps.has(key)) {
-    appendBoundaryEvaluation(pi, boundary, review, "launch", confirmedEvent);
-    return { head: review.pr.headRefOid, pauseGoal: requiredLanes.length > 0, queuedPlan: false };
-  }
-  if (!appendBoundaryEvaluation(pi, boundary, review, "launch", confirmedEvent)) return "retry";
-  queuedFollowUps.add(key);
-  sendLaunchMessage(pi, {
-    phase: "plan",
-    repo: review.repo,
-    pr: review.pr,
-    boundaryToolUseId: planBoundaryToolUseId,
-    ackHead,
-    range,
-    reviewers: requiredLanes,
-    ciEvent,
-  });
-  return { head: review.pr.headRefOid, pauseGoal: requiredLanes.length > 0, queuedPlan: true };
-}
-
-function scopeSummary(pr: PrState, range: string | undefined): string {
-  return range
-    ? `diff · \`review_range=${range}\``
-    : `full PR against \`origin/${pr.baseRefName}\``;
-}
-
-function reviewerPromptScope(pr: PrState, range: string | undefined): string {
-  return range
-    ? `\`scope=diff\` and \`review_range=${range}\``
-    : `\`scope=diff\` and \`review_base=origin/${pr.baseRefName}\``;
-}
 
 function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
   activateRegisteredTools(pi, ["subagent"]);
@@ -861,186 +388,120 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
   if (input.reviewers.length > 0) {
     order.push("REVIEWERS");
     sections.push([
-      `### ${sections.length + 1}. Start reviewers together`,
-      "",
+      `### ${sections.length + 1}. Start reviewers together`, "",
       `- Agents: ${input.reviewers.map((lane) => `\`${lane}\``).join(", ")}`,
       "- Calls: public background subagents",
       "- `inherit_context`: `false`",
-      `- Prompt scope: ${reviewerPromptScope(input.pr, input.range)}`,
+      "- Copy each lane's three assignment lines unchanged into its prompt:",
+      ...input.reviewers.flatMap((lane) => reviewerPromptContract(input.pr, input.range, lane)),
+      "- Keep every assignment on its own line. Do not add punctuation or Markdown delimiters to assignment values.",
     ].join("\n"));
   }
   if (input.ciEvent) {
     order.push("CI");
     sections.push([
-      `### ${sections.length + 1}. Start CI immediately`,
-      "",
-      input.reviewers.length > 0
-        ? "**Do not wait for reviewers to finish.**"
-        : "No reviewer launch is required; start CI now.",
-      "",
-      "Run the `ci-monitoring` request resolver exactly once with:",
-      "",
+      `### ${sections.length + 1}. Start CI immediately`, "",
+      input.reviewers.length > 0 ? "**Do not wait for reviewers to finish.**" : "No reviewer launch is required; start CI now.", "",
+      "Run the `ci-monitoring` request resolver exactly once with:", "",
       `- \`event\`: \`${input.ciEvent}\``,
       "- `changed`: `true`",
       "- `repo`: `<owner/repo>`",
       `- \`pr\`: \`${input.pr.number}\``,
       `- \`head\`: \`${input.pr.headRefOid}\``,
       `- \`cwd\`: \`${input.repo}\``,
-      `- \`reviewState\`: \`${input.reviewers.length > 0 ? "launched" : "not-required"}\``,
-      "",
-      "Submit its returned public `ci-monitor` subagent request unchanged exactly once.",
-      "",
-      "CI is independent of review acknowledgement.",
+      `- \`reviewState\`: \`${input.reviewers.length > 0 ? "launched" : "not-required"}\``, "",
+      "Submit its returned public `ci-monitor` subagent request unchanged exactly once.", "",
+      input.reviewers.length > 0
+        ? "CI success, failure, or timeout is terminal evidence for joint triage."
+        : "CI is independent of review completion.",
     ].join("\n"));
   }
-  const lastLaunchSection = sections.length - 1;
-  sections[lastLaunchSection] = [
-    sections[lastLaunchSection],
-    "",
-    "**After the final launch:** End this turn immediately.",
-    "",
-    "Do not run `sleep`, foreground waits, polling, resume an in-flight agent, or retrieve an in-flight result.",
-    "",
-    "Let native task notifications drive subsequent turns.",
-    "",
-    "After a terminal notification, public result retrieval is allowed only when the report is truncated or otherwise unavailable.",
+  if (sections.length === 0) return;
+  sections[sections.length - 1] = [
+    sections.at(-1), "", "**After the final launch:** End this turn immediately.", "",
+    "Do not poll or retrieve in-flight results. Let native task notifications drive subsequent turns.",
   ].join("\n");
   if (input.reviewers.length > 0) {
-    order.push("TRIAGE + ACK", "FIX");
+    order.push("JOINT TRIAGE", "FIX");
     sections.push([
-      `### ${sections.length + 1}. Triage and acknowledge before fixing`,
-      "",
-      "**Triage turn:** publish the triage table; make no mutations; end the turn",
-      "",
-      "**Fix delivery:** next-turn follow-up after acknowledgement",
-      "",
-      "Wait for every required reviewer result, then publish one table:",
-      "",
-      REVIEW_TRIAGE_HEADER,
-      REVIEW_TRIAGE_DIVIDER,
-      "",
-      "For every finding:",
-      "",
+      `### ${sections.length + 1}. Triage before fixing`, "",
+      input.ciEvent
+        ? "Wait for every required reviewer and terminal exact-head CI evidence, then publish one joint table:"
+        : "Wait for every required reviewer result, then publish one joint table:", "",
+      REVIEW_TRIAGE_HEADER, REVIEW_TRIAGE_DIVIDER, "",
+      ...(input.ciEvent
+        ? ["CI failure or timeout requires FINDING `Exact-head CI` and PROPOSED FIX `CI_RESULT failure` or `CI_RESULT timeout`.", ""]
+        : []),
+      "For every finding:", "",
       "- verify that it is evidence-backed and in scope",
       "- judge the finding separately from its proposed fix",
       "- reject unsupported or overengineered proposals",
-      "- prefer the smallest correction that reuses existing machinery",
-      "",
-      "After publishing the table, make no file or Git changes and end the turn immediately. Settled enforcement acknowledges the reviewed head and starts the FIX phase in a separate follow-up turn.",
+      "- prefer the smallest correction that reuses existing machinery", "",
+      "Make no file or Git changes in the triage turn. End the turn immediately.",
     ].join("\n"));
   }
-  const title = input.phase === "follow-up"
-    ? "## PR boundary follow-up — missing work"
-    : input.reviewers.length > 0 && input.ciEvent
-      ? "## PR boundary — review + CI"
-      : input.reviewers.length > 0
-        ? "## PR boundary — review"
-        : "## PR boundary — CI";
-  const status = [
-    ...(input.reviewers.length === 0 ? ["**Review:** No reviewer launch is required for this boundary."] : []),
-    ...(!input.ciEvent ? ["**CI:** No CI launch is required for this boundary."] : []),
-    ...(input.phase === "follow-up"
-      ? ["**Recovery rule:** Launch only the work listed below. Do not duplicate unmatched calls; they remain in flight until native completion."]
-      : []),
-  ];
-  const content = [
-    title,
-    "",
-    `**Order:** ${order.join(" → ")}`,
-    "",
-    "**Context**",
-    "",
-    `- PR: #${input.pr.number}`,
-    `- Head: \`${input.pr.headRefOid}\``,
-    `- Scope: ${scopeSummary(input.pr, input.range)}`,
-    ...(status.length > 0 ? ["", ...status] : []),
-    "",
-    ...sections.flatMap((section, index) => index === sections.length - 1 ? [section] : [section, ""]),
-  ].join("\n");
-  const details: Record<string, unknown> = {
-    repo: input.repo,
-    branch: input.pr.headRefName,
-    prNumber: input.pr.number,
-    base: input.pr.baseRefName,
-    boundaryToolUseId: input.boundaryToolUseId,
-    launchTurn: {
-      disposition: "stop-after-final-launch",
-      handoff: "native-task-notifications",
-    },
-    head: input.pr.headRefOid,
-    ackHead: input.ackHead,
-    reviewRange: input.range,
-    ...(input.phase === "plan" ? { scope: scopeContract("diff") } : {}),
-    [input.phase === "plan" ? "requiredLanes" : "missingLanes"]: input.reviewers,
-    launchWaves: [input.reviewers, ...(input.ciEvent ? [["ci-monitor"]] : [])],
-    ciEvent: input.ciEvent,
-  };
   pi.sendMessage({
-    customType: input.phase === "plan" ? "pr-boundary-launch-plan" : "pr-boundary-launch-follow-up",
-    content,
-    display: true,
-    details,
-  }, { deliverAs: "followUp", triggerTurn: true });
-}
-
-function headDriftAlreadyReported(ctx: ReviewContext, reviewedHead: string, liveHead: string): boolean {
-  return (liveEntries(ctx) ?? []).some((entry) => entry.type === "custom_message"
-    && entry.customType === "pr-boundary-head-drift"
-    && entry.details?.reviewedHead === reviewedHead
-    && entry.details?.liveHead === liveHead);
-}
-
-function sendHeadDriftFollowUp(
-  pi: ReviewPi,
-  ctx: ReviewContext,
-  pr: PrState,
-  reviewedHead: string,
-  range: string | undefined,
-): void {
-  if (headDriftAlreadyReported(ctx, reviewedHead, pr.headRefOid)) return;
-  pi.sendMessage({
-    customType: "pr-boundary-head-drift",
+    customType: "pr-boundary-launch-plan",
     content: [
-      "## PR boundary — reviewed head superseded",
-      "",
-      `- Reviewed head: \`${reviewedHead}\``,
-      `- Live PR head: \`${pr.headRefOid}\``,
-      `- Scope: ${scopeSummary(pr, range)}`,
-      "- Review acknowledgement: `not written`",
-      "- FIX follow-up: `not started`",
-      "",
-      "The PR changed before acknowledgement, so the completed review cannot authorize fixes on the live head. Synchronize the checked-out PR branch, then let the next eligible Git boundary create one replacement review and CI plan for the live head.",
+      input.reviewers.length > 0 ? "## PR boundary — review" : "## PR boundary — CI", "",
+      `**Order:** ${order.join(" → ")}`, "",
+      "**Context**", "",
+      `- PR: #${input.pr.number}`,
+      `- Head: \`${input.pr.headRefOid}\``,
+      `- Scope: ${scopeSummary(input.pr, input.range)}`, "",
+      ...sections.flatMap((section, index) => index === sections.length - 1 ? [section] : [section, ""]),
     ].join("\n"),
     display: true,
-    details: { reviewedHead, liveHead: pr.headRefOid, prNumber: pr.number },
+    details: {
+      repo: input.repo,
+      branch: input.pr.headRefName,
+      prNumber: input.pr.number,
+      base: input.pr.baseRefName,
+      boundaryToolUseId: input.boundaryToolUseId,
+      head: input.pr.headRefOid,
+      ackHead: input.ackHead,
+      reviewRange: input.range,
+      scope: scopeContract("diff"),
+      requiredLanes: input.reviewers,
+      launchWaves: [input.reviewers, ...(input.ciEvent ? [["ci-monitor"]] : [])],
+      ciEvent: input.ciEvent,
+    },
   }, { deliverAs: "followUp", triggerTurn: true });
 }
 
 async function sendFixFollowUp(
   pi: ReviewPi,
   ctx: ReviewContext,
-  pr: PrState,
-  range: string | undefined,
-  boundaryToolUseId: string,
+  round: ActiveRound,
 ): Promise<void> {
-  await releaseReviewGoalPause(pi, ctx, pr.headRefOid);
+  await releaseReviewGoalPause(pi, ctx, round.identity.head);
   pi.sendMessage({
     customType: "pr-boundary-fix-follow-up",
     content: [
-      "## PR boundary — apply accepted fixes",
-      "",
-      "**Phase:** FIX",
-      "",
-      `- Head: \`${pr.headRefOid}\``,
-      `- Scope: ${scopeSummary(pr, range)}`,
-      "- Review acknowledgement: written",
-      "",
-      "Apply only the accepted minimal decisions from the preceding triage. The reviewed head is now acknowledged, so fixes may begin without relaunching review or CI for that head.",
+      "## PR boundary — apply accepted fixes", "", "**Phase:** FIX", "",
+      `- Head: \`${round.identity.head}\``,
+      `- Scope: ${scopeSummary(round.pr, round.range)}`,
+      "- Review completion: saved", "",
+      "Apply only accepted minimal decisions from the preceding triage.",
     ].join("\n"),
     display: true,
-    details: { head: pr.headRefOid, reviewRange: range, boundaryToolUseId },
+    details: { head: round.identity.head, reviewRange: round.range, boundaryToolUseId: round.boundaryToolUseId },
   }, { deliverAs: "followUp", triggerTurn: true });
 }
+
+type ActiveRound = {
+  repo: string;
+  file: string;
+  pr: PrState;
+  identity: ReviewIdentity;
+  repository: string;
+  boundaryToolUseId: string;
+  range?: string;
+  ackHead?: string;
+  reviewers: ReviewLane[];
+  ciEvent?: ReviewBoundaryEvent;
+  ignoreAgentEnds: number;
+};
 
 function liveEntries(ctx: ReviewContext): Record<string, any>[] | undefined {
   try {
@@ -1050,500 +511,248 @@ function liveEntries(ctx: ReviewContext): Record<string, any>[] | undefined {
   }
 }
 
-function transcriptFacts(
-  ctx: ReviewContext,
-  file: string,
-  requiredLanes: ReviewLane[],
-  ci?: { repository: string; repo: string; prNumber: number; head: string },
-  reviewHead?: string,
-) {
+function roundFacts(ctx: ReviewContext, round: ActiveRound) {
   return reviewTranscriptFacts({
-    sessionFile: file,
+    sessionFile: round.file,
     entries: liveEntries(ctx),
-    requiredLanes,
-    ci,
-    reviewHead,
+    requiredLanes: round.reviewers,
+    ci: {
+      repository: round.repository,
+      repo: round.repo,
+      prNumber: round.pr.number,
+      head: round.identity.head,
+    },
+    reviewHead: round.identity.head,
+    activeBoundaryToolUseId: round.boundaryToolUseId,
   });
 }
 
-function persistedBoundary(ctx: ReviewContext, file: string): ClassifiedBoundary | undefined {
-  const facts = transcriptFacts(ctx, file, []);
-  const boundary = facts.latestBoundary ?? facts.boundary;
-  if (!boundary?.toolName || !boundary.toolArguments) return undefined;
-  return shellInvocations({
-    toolName: boundary.toolName,
-    input: boundary.toolArguments,
-  }, ctx.cwd)
-    .map((invocation) => ({
-      invocation,
-      classification: classifyReviewBoundaryCommand(invocation.command),
-      toolUseId: boundary.toolUseId,
-    }))
-    .filter(({ classification }) => classification.reminder)
-    .at(-1);
-}
-
-function completedTriageReadyAfterResume(ctx: ReviewContext): boolean {
-  const file = rootSessionFile(ctx);
-  if (!file) return false;
-  const preview = transcriptFacts(ctx, file, []);
-  if (!fullSha(preview.reviewHead) || !preview.reviewRepo || !preview.reviewPrNumber) return false;
-  const context = boundaryContext(ctx, preview.reviewRepo);
-  if (!context) return false;
-  const ackHead = readAck(context.repo, preview.reviewPrNumber);
-  const lanes = preview.reviewRequiredLanes?.length
-    ? preview.reviewRequiredLanes
-    : requiredReviewLanes({ repo: context.repo, ackHead, head: preview.reviewHead });
-  const facts = transcriptFacts(ctx, context.file, lanes, undefined, preview.reviewHead);
-  return facts.triageComplete && (ackHead !== preview.reviewHead || !facts.fixDelivered);
-}
-
-async function acknowledgeCompletedReview(
-  pi: ReviewPi,
-  ctx: ReviewContext,
-  dependencies: Dependencies,
-  queuedFollowUps: Set<string>,
-): Promise<boolean> {
-  const file = rootSessionFile(ctx);
-  if (!file) return false;
-  const preview = transcriptFacts(ctx, file, []);
-  if (!preview.boundary
-    || !fullSha(preview.reviewHead)
-    || !preview.reviewRepo
-    || !preview.reviewBranch
-    || !preview.reviewPrNumber
-    || !preview.reviewBase
-    || preview.reviewBoundaryToolUseId !== preview.boundary.toolUseId) return false;
-  const context = boundaryContext(ctx, preview.reviewRepo);
-  if (!context) return false;
-  const classification = classifyReviewBoundaryCommand(preview.boundary.command);
-  const reviewedPr = await dependencies.queryPr(context.repo, preview.reviewBranch);
-  if (reviewedPr === PR_LOOKUP_FAILED
-    || !isEnforcedPr(reviewedPr)
-    || reviewedPr.number !== preview.reviewPrNumber
-    || reviewedPr.baseRefName !== preview.reviewBase
-    || reviewedPr.headRefName !== preview.reviewBranch
-    || !reviewEnabled(context.repo)
-    || preview.bypassed
-    || bypassSentinelPresent()) return false;
-
-  const reviewedHead = preview.reviewHead;
-  const reviewedAck = readAck(context.repo, reviewedPr.number);
-  const reviewedRange = reviewedAck === reviewedHead
-    ? preview.reviewRange
-    : reviewRange({ repo: context.repo, ackHead: reviewedAck, head: reviewedHead });
-  const reviewedLanes = preview.reviewRequiredLanes?.length
-    ? preview.reviewRequiredLanes
-    : requiredReviewLanes({ repo: context.repo, ackHead: reviewedAck, head: reviewedHead });
-  const repository = await githubRepository(context.repo);
-  const reviewedFacts = transcriptFacts(ctx, context.file, reviewedLanes, repository ? {
-    repository,
-    repo: context.repo,
-    prNumber: reviewedPr.number,
-    head: reviewedHead,
-  } : undefined, reviewedHead);
-  const allReviewedLanesTerminal = reviewedLanes.length > 0
-    && reviewedLanes.every((lane) => reviewedFacts.lanes[lane].state === "terminal");
-  if (reviewedFacts.reviewHead !== reviewedHead
-    || reviewedFacts.reviewRange !== reviewedRange
-    || reviewedFacts.reviewRepo !== context.repo
-    || reviewedFacts.reviewBranch !== reviewedPr.headRefName
-    || reviewedFacts.reviewBoundaryToolUseId !== preview.boundary.toolUseId
-    || !allReviewedLanesTerminal
-    || !reviewedFacts.triageComplete) return false;
-
-  if (reviewedAck === reviewedHead && reviewedFacts.fixDelivered) return false;
-
-  if (reviewedPr.headRefOid !== reviewedHead) {
-    sendHeadDriftFollowUp(pi, ctx, reviewedPr, reviewedHead, reviewedRange);
-    return false;
-  }
-
-  if (reviewedFacts.ciLaunched) checkpointCi(context.repo, reviewedPr.number, reviewedHead);
-  if (reviewedAck !== reviewedHead && !acknowledge(context.repo, reviewedPr.number, reviewedHead)) return false;
-  const ciEvent = reviewedFacts.reviewCiEvent ?? ciBoundaryEvent(classification.event);
-  const ciKey = followUpKey("ci", context.repo, reviewedPr.number, reviewedHead);
-  if (!reviewedFacts.ciLaunched && ciEvent && !queuedFollowUps.has(ciKey)) {
-    queuedFollowUps.add(ciKey);
-    sendLaunchMessage(pi, {
-      phase: "follow-up",
-      repo: context.repo,
-      pr: reviewedPr,
-      boundaryToolUseId: preview.boundary.toolUseId,
-      ackHead: reviewedHead,
-      range: reviewedRange,
-      reviewers: [],
-      ciEvent,
-    });
-  }
-  const fixKey = followUpKey(
-    "fix",
-    context.repo,
-    reviewedPr.number,
-    reviewedHead,
-    preview.boundary.toolUseId,
-  );
-  if (reviewedFacts.fixDelivered || queuedFollowUps.has(fixKey)) return false;
-  queuedFollowUps.add(fixKey);
-  await sendFixFollowUp(pi, ctx, reviewedPr, reviewedRange, preview.boundary.toolUseId);
-  return true;
+function statusReason(status: ReturnType<typeof readCompletion>["status"]): string {
+  if (status === "expired") return "saved completion expired after 30 days";
+  if (status === "changed") return "branch changed since its last saved completion";
+  return "no saved completion";
 }
 
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
-  let resumedWithoutBoundary = false;
-  let deferredSettledRecoveryHead: string | undefined;
+  let activeRound: ActiveRound | undefined;
+  let dialogIdentity: string | undefined;
   let pendingGoalPauseHead: string | undefined;
-  const pendingBoundaries = new Map<string, ClassifiedBoundary>();
-  const deferredBoundaries = new Map<string, ClassifiedBoundary>();
-  const queuedFollowUps = new Set<string>();
-  const queuedMissingFollowUps = new Map<string, number>();
+  const mergeBefore = new Map<string, Promise<{
+    repo: string;
+    branch?: string;
+    head?: string;
+    command: string;
+  }>>();
 
-  const deliveryPendingForRepo = (repo: string): boolean =>
-    Array.from(pendingBoundaries.values()).some((candidate) => candidate.classification.event
-      && resolveShellInvocationRepo(candidate.invocation) === repo);
-
-  const recordLaunch = (launch: BoundaryLaunch | undefined): void => {
-    if (launch?.pauseGoal) pendingGoalPauseHead = launch.head;
-    if (launch?.queuedPlan) deferredSettledRecoveryHead = launch.head;
+  const clearRound = async (ctx: ReviewContext): Promise<void> => {
+    const head = activeRound?.identity.head;
+    activeRound = undefined;
+    if (head) await releaseReviewGoalPause(pi, ctx, head);
   };
 
-  const retryDeferredBoundaries = async (ctx: ReviewContext, repo: string): Promise<void> => {
-    if (deliveryPendingForRepo(repo)) return;
-    for (const boundary of deferredBoundaries.values()) {
-      if (resolveShellInvocationRepo(boundary.invocation) !== repo) continue;
-      const launch = await launchBoundaryPlan(
-        pi,
-        ctx,
-        dependencies,
-        boundary,
-        queuedFollowUps,
-        resumedWithoutBoundary,
-      );
-      if (launch === "retry") {
-        deferredBoundaries.delete(boundary.toolUseId);
-        pendingBoundaries.set(boundary.toolUseId, boundary);
-        continue;
+  const evaluate = async (
+    ctx: ReviewContext,
+    repo: string,
+    boundaryToolUseId: string,
+    ciEvent?: ReviewBoundaryEvent,
+    command?: string,
+  ): Promise<void> => {
+    const review = await currentReview(ctx, dependencies, repo, ciEvent, command);
+    if (!review) return;
+    if (readCompletion(review.identity).status === "complete") return;
+    if (activeRound && sameIdentity(activeRound.identity, review.identity)) return;
+    let decision: string | undefined;
+    if (ciEvent) {
+      decision = LAUNCH_REVIEW;
+    } else {
+      const key = JSON.stringify(review.identity);
+      if (dialogIdentity === key || !ctx.hasUI || !ctx.ui) return;
+      dialogIdentity = key;
+      const initial = readCompletion(review.identity);
+      try {
+        decision = await ctx.ui.select(
+          `Review completion is missing for ${review.repository.split("/").at(-1)}:${review.pr.headRefName}.\nReason: ${statusReason(initial.status)}.`,
+          [MARK_COMPLETE, LAUNCH_REVIEW],
+        );
+      } finally {
+        dialogIdentity = undefined;
       }
-      deferredBoundaries.delete(boundary.toolUseId);
-      if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
-        pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
+      if (decision !== MARK_COMPLETE && decision !== LAUNCH_REVIEW) return;
+    }
+    const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent);
+    if (!refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
+    if (readCompletion(refreshed.identity).status === "complete") return;
+    if (decision === MARK_COMPLETE) {
+      writeCompletion(refreshed.identity);
+      return;
+    }
+    const ancestor = latestAncestorCompletion(refreshed.identity, refreshed.repo);
+    const ackHead = ancestor?.head;
+    const range = reviewRange({ repo: refreshed.repo, ackHead, head: refreshed.identity.head });
+    const reviewers = requiredReviewLanes({ repo: refreshed.repo, ackHead, head: refreshed.identity.head });
+    if (reviewers.length === 0) {
+      try {
+        writeCompletion(refreshed.identity);
+      } catch {
+        // Exact-head CI remains independent of completion persistence.
       }
-      resumedWithoutBoundary = false;
-      recordLaunch(launch);
+      if (ciEvent) sendLaunchMessage(pi, {
+        repo: refreshed.repo,
+        pr: refreshed.pr,
+        boundaryToolUseId,
+        ackHead,
+        range,
+        reviewers,
+        ciEvent,
+      });
+      return;
+    }
+    const round: ActiveRound = {
+      ...refreshed,
+      boundaryToolUseId,
+      ackHead,
+      range,
+      reviewers,
+      ciEvent,
+      ignoreAgentEnds: 1,
+    };
+    sendLaunchMessage(pi, {
+      repo: round.repo,
+      pr: round.pr,
+      boundaryToolUseId,
+      ackHead,
+      range,
+      reviewers,
+      ciEvent,
+    });
+    activeRound = round;
+    if (reviewers.length > 0) pendingGoalPauseHead = round.identity.head;
+  };
+
+  const recordCloneTargetState = (event: any, ctx: ReviewContext): void => {
+    const toolUseId = event?.toolCallId ?? event?.toolUseId ?? event?.id;
+    if (typeof toolUseId !== "string") return;
+    for (const invocation of shellInvocations(event, ctx.cwd)) {
+      if (!classifyReviewBoundaryCommand(invocation.command).clone) continue;
+      const target = cloneTargetPath(invocation.command, invocation.cwd);
+      if (target && cloneTargetHadGit(toolUseId, target) === undefined) {
+        rememberCloneTargetHadGit(toolUseId, target, existsSync(join(target, ".git")));
+      }
     }
   };
 
-  const retryPendingBoundaries = async (ctx: ReviewContext): Promise<void> => {
-    for (const boundary of pendingBoundaries.values()) {
-      const launch = await launchBoundaryPlan(
-        pi,
-        ctx,
-        dependencies,
-        boundary,
-        queuedFollowUps,
-        resumedWithoutBoundary,
-      );
-      if (launch === "retry") continue;
-      pendingBoundaries.delete(boundary.toolUseId);
-      if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
-        pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
-      }
-      resumedWithoutBoundary = false;
-      recordLaunch(launch);
-      const repo = resolveShellInvocationRepo(boundary.invocation);
-      if (repo) await retryDeferredBoundaries(ctx, repo);
-    }
+  const recordMergeState = (event: any, ctx: ReviewContext): void => {
+    const toolUseId = event?.toolCallId ?? event?.toolUseId ?? event?.id;
+    if (typeof toolUseId !== "string" || mergeBefore.has(toolUseId)) return;
+    const invocation = shellInvocations(event, ctx.cwd)
+      .find((candidate) => isReviewMergeCommand(candidate.command));
+    if (!invocation) return;
+    const repo = resolveShellInvocationRepo(invocation);
+    if (!repo) return;
+    mergeBefore.set(toolUseId, Promise.all([
+      (dependencies.queryBranch ?? queryBranch)(repo),
+      (dependencies.queryHead ?? queryHead)(repo),
+    ]).then(([branch, head]) => ({ repo, branch, head, command: invocation.command })));
   };
 
-  pi.on("session_start", (event, ctx) => {
-    const file = rootSessionFile(ctx);
-    const existing = file ? transcriptFacts(ctx, file, []) : undefined;
-    resumedWithoutBoundary = event?.reason === "resume"
-      || (event?.reason === "startup" && Boolean(existing?.latestBoundary || existing?.reviewHead));
-    deferredSettledRecoveryHead = undefined;
+  pi.on("tool_call", recordCloneTargetState);
+  pi.on("tool_call", recordMergeState);
+  pi.on("tool_execution_start", recordCloneTargetState);
+  pi.on("tool_execution_start", recordMergeState);
+
+  pi.on("session_start", async (_event, ctx) => {
+    await releaseReviewGoalPause(pi, ctx);
+    activeRound = undefined;
+    dialogIdentity = undefined;
     pendingGoalPauseHead = undefined;
-    pendingBoundaries.clear();
-    deferredBoundaries.clear();
-    queuedFollowUps.clear();
-    queuedMissingFollowUps.clear();
+    if (!globalPrunePerformed) {
+      globalPrunePerformed = true;
+      if (pruneCompletionState()) requestCompletionSync();
+    }
+    const repo = findGitRoot(ctx.cwd);
+    if (repo) await evaluate(ctx, repo, `startup:${Date.now()}`);
   });
 
   pi.on("tool_result", async (event, ctx) => {
-    const boundary = latestBoundary(event, ctx.cwd);
-    const reconciledCreate = ambiguousPrCreateFailure(event, boundary);
-    if (!successful(event) && !reconciledCreate) return;
+    const toolUseId = event?.toolCallId ?? event?.toolUseId ?? event?.id;
+    const beforePromise = typeof toolUseId === "string" ? mergeBefore.get(toolUseId) : undefined;
+    if (typeof toolUseId === "string") mergeBefore.delete(toolUseId);
+    if (!successful(event)) return;
     rememberActiveRepoFromToolResult(event, ctx.cwd);
-    if (!boundary) {
-      if (successful(event)) await checkpointCiLaunch(event, ctx, dependencies);
+    const boundary = latestBoundary(event, ctx.cwd);
+    if (boundary) {
+      if (boundary.cloneTargetPreexisted) return;
+      const repo = boundary.repo ?? resolveShellInvocationRepo(boundary.invocation);
+      if (!repo) return;
+      await evaluate(ctx, repo, boundary.toolUseId, boundary.classification.event, boundary.invocation.command);
       return;
     }
-    if (boundaryWasEvaluated(ctx, boundary.toolUseId)) return;
-    if (boundary.classification.event) pendingBoundaries.set(boundary.toolUseId, boundary);
-    if (successful(event)) await checkpointCiLaunch(event, ctx, dependencies);
-    if (boundaryWasEvaluated(ctx, boundary.toolUseId)) {
-      pendingBoundaries.delete(boundary.toolUseId);
-      deferredBoundaries.delete(boundary.toolUseId);
-      return;
-    }
-    const boundaryRepo = resolveShellInvocationRepo(boundary.invocation);
-    if (!boundary.classification.event && boundaryRepo && deliveryPendingForRepo(boundaryRepo)) {
-      deferredBoundaries.set(boundary.toolUseId, boundary);
-      return;
-    }
-    const launch = await launchBoundaryPlan(
-      pi,
-      ctx,
-      dependencies,
-      boundary,
-      queuedFollowUps,
-      resumedWithoutBoundary,
-    );
-    if (launch === "retry") {
-      pendingBoundaries.set(boundary.toolUseId, boundary);
-      return;
-    }
-    pendingBoundaries.delete(boundary.toolUseId);
-    deferredBoundaries.delete(boundary.toolUseId);
-    if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
-      pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
-    }
-    resumedWithoutBoundary = false;
-    recordLaunch(launch);
-    if (boundary.classification.event && boundaryRepo) {
-      await retryDeferredBoundaries(ctx, boundaryRepo);
+    if (!beforePromise || typeof toolUseId !== "string") return;
+    const before = await beforePromise;
+    const [branch, head] = await Promise.all([
+      (dependencies.queryBranch ?? queryBranch)(before.repo),
+      (dependencies.queryHead ?? queryHead)(before.repo),
+    ]);
+    if ((branch !== before.branch || head !== before.head) && branch && head) {
+      await evaluate(ctx, before.repo, toolUseId, undefined, before.command);
     }
   });
 
+  const settleRound = async (ctx: ReviewContext, endOfTurn: boolean): Promise<void> => {
+    const round = activeRound;
+    if (!round) return;
+    if (endOfTurn && round.ignoreAgentEnds > 0) {
+      round.ignoreAgentEnds -= 1;
+      return;
+    }
+    const facts = roundFacts(ctx, round);
+    const laneStates = round.reviewers.map((lane) => facts.lanes[lane].state);
+    if (laneStates.includes("in-flight")) return;
+    if (laneStates.includes("missing") || (facts.ciRequired && !facts.ciLaunched)) {
+      if (endOfTurn) await clearRound(ctx);
+      return;
+    }
+    if (facts.ciRequired && !facts.ciTerminal) return;
+    if (!facts.triageComplete) return;
+    const refreshed = await currentReview(ctx, dependencies, round.repo);
+    if (!refreshed || !sameIdentity(refreshed.identity, round.identity)) {
+      await clearRound(ctx);
+      return;
+    }
+    try {
+      writeCompletion(round.identity);
+      if (readCompletion(round.identity).status !== "complete") return;
+    } catch {
+      return;
+    }
+    await sendFixFollowUp(pi, ctx, round);
+    activeRound = undefined;
+  };
+
   pi.on("agent_end", async (_event, ctx) => {
-    await retryPendingBoundaries(ctx);
     const pauseHead = pendingGoalPauseHead;
     pendingGoalPauseHead = undefined;
-    const goal = currentGoal(ctx);
-    const owned = reviewGoalPause(ctx);
-    const needsGoalPause = goal?.status === "active"
-      || Boolean(owned?.goalId === goal?.id && goal?.status === "paused");
-    if (pauseHead && needsGoalPause) {
-      try {
-        await pauseGoalForReview(pi, ctx, pauseHead);
-      } catch {
-        // Optional Goal control must not block review launch.
-      }
-    }
-    if (!resumedWithoutBoundary) {
-      await acknowledgeCompletedReview(pi, ctx, dependencies, queuedFollowUps);
-    }
+    if (pauseHead) await pauseGoalForReview(pi, ctx, pauseHead);
+    await settleRound(ctx, true);
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
-    await retryPendingBoundaries(ctx);
-    if (resumedWithoutBoundary && completedTriageReadyAfterResume(ctx)) {
-      pendingBoundaries.clear();
-      deferredBoundaries.clear();
-      resumedWithoutBoundary = false;
-    }
-    const recoveryFile = rootSessionFile(ctx);
-    if (resumedWithoutBoundary && recoveryFile) {
-      const recoveryFacts = transcriptFacts(ctx, recoveryFile, []);
-      const latest = recoveryFacts.latestBoundary ?? recoveryFacts.boundary;
-      if (latest
-        && (!boundaryWasEvaluated(ctx, latest.toolUseId)
-          || boundaryLaunchWasAccepted(ctx, latest.toolUseId))) {
-        const boundary = persistedBoundary(ctx, recoveryFile);
-        if (boundary) {
-          const launch = await launchBoundaryPlan(
-            pi,
-            ctx,
-            dependencies,
-            boundary,
-            queuedFollowUps,
-            true,
-          );
-          if (launch === "retry") {
-            pendingBoundaries.set(boundary.toolUseId, boundary);
-            return;
-          }
-          if (!boundaryWasEvaluated(ctx, boundary.toolUseId)) {
-            pi.appendEntry(BOUNDARY_EVALUATED_ENTRY_TYPE, { toolUseId: boundary.toolUseId });
-          }
-          resumedWithoutBoundary = false;
-          if (launch?.pauseGoal) pendingGoalPauseHead = launch.head;
-          if (launch?.queuedPlan) deferredSettledRecoveryHead = launch.head;
-          if (launch) return;
-        }
-      }
-    }
-    if (resumedWithoutBoundary) {
-      if (!completedTriageReadyAfterResume(ctx)) return;
-      resumedWithoutBoundary = false;
-    }
-    if (await acknowledgeCompletedReview(pi, ctx, dependencies, queuedFollowUps)) return;
-    const file = rootSessionFile(ctx);
-    if (!file) return;
-    const preview = transcriptFacts(ctx, file, []);
-    if (!preview.boundary
-      || !fullSha(preview.reviewHead)
-      || !preview.reviewRepo
-      || !preview.reviewBranch
-      || !preview.reviewPrNumber
-      || !preview.reviewBase
-      || preview.reviewBoundaryToolUseId !== preview.boundary.toolUseId) return;
-    const context = boundaryContext(ctx, preview.reviewRepo);
-    if (!context) return;
-    const pr = await dependencies.queryPr(context.repo, preview.reviewBranch);
-    if (pr === PR_LOOKUP_FAILED
-      || !isProtectedPr(pr)
-      || pr.number !== preview.reviewPrNumber
-      || pr.baseRefName !== preview.reviewBase
-      || pr.headRefName !== preview.reviewBranch
-      || pr.headRefOid !== preview.reviewHead) return;
-    const review = { ...context, pr };
-    const reviewsEnabled = reviewEnabled(review.repo);
-    const reviewIsOpen = isEnforcedPr(review.pr);
-    const sentinelBypassed = reviewIsOpen && reviewsEnabled && consumeBypassSentinel();
-    const bypassed = reviewIsOpen && reviewsEnabled && (preview.bypassed || sentinelBypassed);
-    if (bypassed && !acknowledge(review.repo, review.pr.number, review.pr.headRefOid)) return;
-    const ackHead = readAck(review.repo, review.pr.number);
-    const range = reviewRange({ repo: review.repo, ackHead, head: review.pr.headRefOid });
-    const shouldReview = reviewIsOpen
-      && reviewsEnabled
-      && !bypassed
-      && ackHead !== review.pr.headRefOid;
-    const requiredLanes = shouldReview
-      ? requiredReviewLanes({ repo: review.repo, ackHead, head: review.pr.headRefOid })
-      : [];
-    const repository = await githubRepository(review.repo);
-    const facts = transcriptFacts(ctx, review.file, requiredLanes, repository ? {
-      repository,
-      repo: review.repo,
-      prNumber: review.pr.number,
-      head: review.pr.headRefOid,
-    } : undefined);
-    if (!facts.boundary) return;
-    if (facts.ciLaunched) checkpointCi(review.repo, review.pr.number, review.pr.headRefOid);
-    if (deferredSettledRecoveryHead === review.pr.headRefOid) {
-      const noLaunchesRecorded = !facts.ciLaunched
-        && requiredLanes.every((lane) => facts.lanes[lane].state === "missing");
-      deferredSettledRecoveryHead = undefined;
-      if (reviewIsOpen && !bypassed && noLaunchesRecorded) return;
-    }
-    if (review.pr.state !== "OPEN") {
-      await releaseReviewGoalPause(pi, ctx, review.pr.headRefOid);
-      if (reviewEnabled(review.repo)
-        && ackHead !== review.pr.headRefOid
-        && !facts.closedNotified
-        && classifyReviewBoundaryCommand(facts.boundary.command).settled) {
-        pi.sendMessage({
-          customType: "pr-boundary-review-closed-unacknowledged",
-          content: [
-            "## PR review — acknowledgement missing",
-            "",
-            `- Head: \`${review.pr.headRefOid}\``,
-            `- PR state: \`${review.pr.state}\``,
-            "- Acknowledgement written: `no`",
-            "",
-            "Review completion was not proven before the PR closed. This notice is visibility only; review the head manually if required.",
-          ].join("\n"),
-          display: true,
-          details: { head: review.pr.headRefOid, state: review.pr.state },
-        }, { triggerTurn: false });
-      }
-      return;
-    }
-
-    const ciEvent = facts.ciLaunched
-      || readCiHead(review.repo, review.pr.number) === review.pr.headRefOid
-      ? undefined
-      : facts.reviewCiEvent ?? ciBoundaryEvent(classifyReviewBoundaryCommand(facts.boundary.command).event);
-    if (shouldReview && requiredLanes.length === 0) acknowledge(review.repo, review.pr.number, review.pr.headRefOid);
-
-    if (shouldReview && requiredLanes.length > 0
-      && (facts.reviewHead !== review.pr.headRefOid || facts.reviewRange !== range)) {
-      await pauseGoalForReview(pi, ctx, review.pr.headRefOid);
-      sendLaunchMessage(pi, {
-        phase: "plan",
-        repo: review.repo,
-        pr: review.pr,
-        boundaryToolUseId: preview.boundary.toolUseId,
-        ackHead,
-        range,
-        reviewers: requiredLanes,
-        ciEvent,
-      });
-      deferredSettledRecoveryHead = review.pr.headRefOid;
-      return;
-    }
-
-    const allReviewersTerminal = requiredLanes.length > 0
-      && requiredLanes.every((lane) => facts.lanes[lane].state === "terminal");
-
-    const missingLanes = allReviewersTerminal || !shouldReview
-      ? []
-      : requiredLanes.filter((lane): lane is ReviewLane => facts.lanes[lane].state === "missing");
-    if (missingLanes.length === 0 && !ciEvent) return;
-    if (missingLanes.length > 0 && blockDecision(review.repo, review.pr.number, review.pr.headRefOid) === "giveup") return;
-    const missingFollowUpKey = followUpKey(
-      "follow-up",
-      review.repo,
-      review.pr.number,
-      review.pr.headRefOid,
-      preview.boundary.toolUseId,
-    );
-    const visibleFollowUps = visibleLaunchFollowUpCount(
-      ctx,
-      review.pr.headRefOid,
-      preview.boundary.toolUseId,
-    );
-    const queuedAtCount = queuedMissingFollowUps.get(missingFollowUpKey);
-    if (queuedAtCount !== undefined) {
-      if (visibleFollowUps <= queuedAtCount) return;
-      queuedMissingFollowUps.delete(missingFollowUpKey);
-    }
-    queuedMissingFollowUps.set(missingFollowUpKey, visibleFollowUps);
-    if (missingLanes.length > 0) {
-      await pauseGoalForReview(pi, ctx, review.pr.headRefOid);
-    }
-
-    sendLaunchMessage(pi, {
-      phase: "follow-up",
-      repo: review.repo,
-      pr: review.pr,
-      boundaryToolUseId: preview.boundary.toolUseId,
-      ackHead,
-      range,
-      reviewers: missingLanes,
-      ciEvent,
-    });
+    await settleRound(ctx, false);
   });
 }
 
-export async function queryBranch(
-  repo: string,
-  runner: QueryPrRunner = execFileAsync,
-): Promise<string | undefined> {
+export async function queryBranch(repo: string, runner: QueryRunner = execFileAsync): Promise<string | undefined> {
   try {
-    const { stdout } = await runner(
-      "git",
-      ["symbolic-ref", "--quiet", "--short", "HEAD"],
-      { cwd: repo, encoding: "utf8", timeout: 10_000 },
-    );
-    const value = String(stdout).trim();
-    return value || undefined;
+    const { stdout } = await runner("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], { cwd: repo, encoding: "utf8", timeout: 10_000 });
+    return String(stdout).trim() || undefined;
   } catch {
     return undefined;
   }
 }
 
-export async function queryHead(
-  repo: string,
-  revision = "HEAD",
-  runner: QueryPrRunner = execFileAsync,
-): Promise<string | undefined> {
+export async function queryHead(repo: string, revision = "HEAD", runner: QueryRunner = execFileAsync): Promise<string | undefined> {
   try {
-    const { stdout } = await runner(
-      "git",
-      ["rev-parse", revision],
-      { cwd: repo, encoding: "utf8", timeout: 10_000 },
-    );
+    const { stdout } = await runner("git", ["rev-parse", revision], { cwd: repo, encoding: "utf8", timeout: 10_000 });
     const value = String(stdout).trim();
     return fullSha(value) ? value : undefined;
   } catch {
@@ -1551,25 +760,28 @@ export async function queryHead(
   }
 }
 
-export async function queryPr(
-  repo: string,
-  runner: QueryPrRunner = execFileAsync,
-  target?: string,
-): Promise<PrLookup> {
+export async function queryRepository(repo: string, runner: QueryRunner = execFileAsync): Promise<RepositoryIdentity | undefined> {
+  try {
+    const { stdout } = await runner("gh", ["repo", "view", "--json", "nameWithOwner,url"], { cwd: repo, encoding: "utf8", timeout: 10_000 });
+    const value = JSON.parse(String(stdout));
+    const url = new URL(value.url);
+    return typeof value.nameWithOwner === "string"
+      ? { gitHost: url.hostname.toLowerCase(), repository: value.nameWithOwner.toLowerCase() }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function queryPr(repo: string, runner: QueryRunner = execFileAsync, target?: string): Promise<PrLookup> {
   try {
     const args = ["pr", "view", ...(target ? [target] : []), "--json", "state,baseRefName,headRefOid,headRefName,number,isDraft,mergeCommit"];
-    const { stdout } = await runner(
-      "gh",
-      args,
-      { cwd: repo, encoding: "utf8", timeout: 10_000 },
-    );
+    const { stdout } = await runner("gh", args, { cwd: repo, encoding: "utf8", timeout: 10_000 });
     const value = JSON.parse(String(stdout)) as PrState;
     return isProtectedPr(value) ? value : undefined;
   } catch (error) {
     const stderr = String((error as { stderr?: unknown })?.stderr ?? "");
-    return /no pull requests found|could not resolve to a pullrequest/i.test(stderr)
-      ? undefined
-      : PR_LOOKUP_FAILED;
+    return /no pull requests found|could not resolve to a pullrequest/i.test(stderr) ? undefined : PR_LOOKUP_FAILED;
   }
 }
 
@@ -1577,5 +789,7 @@ export default function reviewEnforcement(pi: ExtensionAPI): void {
   registerReviewEnforcement(pi as unknown as ReviewPi, {
     queryPr: (repo, target) => queryPr(repo, execFileAsync, target),
     queryBranch: (repo) => queryBranch(repo, execFileAsync),
+    queryHead: (repo, revision) => queryHead(repo, revision, execFileAsync),
+    queryRepository: (repo) => queryRepository(repo, execFileAsync),
   });
 }

@@ -406,6 +406,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/post-compaction-recall-helpers.ts',
       '.pi/agent/extensions/post-compaction-recall.ts',
       '.pi/agent/extensions/review-command.ts',
+      '.pi/agent/extensions/review-completion-state.ts',
       '.pi/agent/extensions/review-enforcement.ts',
       '.pi/agent/extensions/review-helpers.ts',
       '.pi/agent/extensions/review-scope.ts',
@@ -417,6 +418,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       '.pi/agent/extensions/vault-manifest-fs.ts',
       '.pi/agent/extensions/zz-tool-exposure-finalizer.ts',
     ]);
+    expect(extensions.find((doc) => doc.key === '.pi/agent/extensions/review-completion-state.ts')?.modes)
+      .toEqual(['default', 'advanced']);
     expect(agents.map((d) => d.key)).toContain('.pi/agent/agents/Explore.md');
     for (const reviewer of ['code-reviewer', 'spec-reviewer', 'doc-updater']) {
       expect(agents.filter((doc) => doc.key === `.pi/agent/agents/${reviewer}.md`)).toHaveLength(1);

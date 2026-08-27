@@ -133,7 +133,7 @@ code-server listens only on container-local `127.0.0.1:13337`; the terminal host
 | `/run/codeflare/openvscode/` | Browser IDE trigger, generation PIDs, logs, sidebar projection, and mutable editor data |
 | `/run/codeflare/locks/` | Cross-process coordination locks |
 
-Path ownership is a runtime contract under [REQ-OPS-047](../../sdd/spec/operations.md#req-ops-047-cleanup-safe-synchronization-state), [REQ-OPS-048](../../sdd/spec/operations.md#req-ops-048-cleanup-safe-service-and-browser-ide-state), and [REQ-OPS-049](../../sdd/spec/operations.md#req-ops-049-cleanup-safe-coordination-and-detached-work); storage semantics and finalization authority remain in [Storage & Sync](storage-and-sync.md).
+Path ownership is a runtime contract under [REQ-OPS-047](../../sdd/spec/operations.md#req-ops-047-cleanup-safe-synchronization-state), [REQ-OPS-048](../../sdd/spec/operations.md#req-ops-048-cleanup-safe-service-and-browser-ide-state), and [REQ-OPS-049](../../sdd/spec/operations.md#req-ops-049-cleanup-safe-coordination-and-background-work); storage semantics and finalization authority remain in [Storage & Sync](storage-and-sync.md).
 
 <a id="container-startup"></a>
 ## Runtime Lifecycle

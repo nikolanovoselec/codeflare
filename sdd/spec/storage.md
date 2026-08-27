@@ -765,3 +765,29 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Status:** Implemented
 
 ---
+
+### REQ-STOR-027: Review completion marker sync
+
+**Intent:** Exact-head review completion survives container, clone, worktree, and shared-device boundaries without delaying local acknowledgement.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Completion uses one regular JSON file per normalized GitHub host, repository, PR, case-sensitive branch, protected base, and lowercase full head under `~/.codeflare/review-state/v1`. Reads validate schema, exact identity, timestamp, and regular-file boundaries without following symbolic links. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::completionPath --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::completionPath --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (isolates host, repository, PR, branch, base, and head identities) --> <!-- @test: host/__tests__/review-completion-state.test.js (isolates protected bases in marker paths) -->
+2. Marker publication uses a mode-`0600` same-directory temporary file and atomic hard-link publication. A valid destination is idempotent and never refreshes `reviewedAt`; an invalid destination is removed and publication retries once. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::publish --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::publish --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (writes one immutable exact marker and never refreshes its age) --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (replaces an invalid exact destination once and rejects symlinks) -->
+3. Before branch lookup and after write, invalid and older-than-30-day markers are removed; the ten newest markers per repository and branch remain, ordered by `reviewedAt` then head. First root startup performs one bounded global prune only under the marker root and follows no symbolic links. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::pruneCompletionState --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::pruneCompletionState --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (deletes expired markers and retains ten newest per repository and branch) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (prunes marker state once on first root startup without traversing symlinks) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (prunes marker state once on first root startup without traversing symlinks) -->
+4. Every workspace sync mode includes only `~/.codeflare/review-state/v1/**` through the common restore, baseline, regular bisync, and final-sync filter set while other private `.codeflare` files remain excluded. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (persists user-scoped review completion in every workspace sync mode) -->
+5. A successful local marker write reads `CODEFLARE_SYNC_DAEMON_PIDFILE`, defaulting to `/run/codeflare/sync/sync-daemon.pid`, and sends `SIGUSR1` once. Missing or invalid PID state and signaling failure log one bounded warning but never roll back local completion. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::requestCompletionSync --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::requestCompletionSync --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (keeps local acknowledgement when sync signaling fails) --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (warns for malformed daemon PID state without changing local acknowledgement) --> <!-- @test: host/__tests__/review-completion-state.test.js (warns for malformed daemon PID state) -->
+
+**Constraints:** No review-specific R2 service, Worker endpoint, database, or direct `/internal/bisync-trigger` call exists. R2 convergence may repeat a prompt but cannot fabricate completion.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-AGENT-171](agents.md#req-agent-171-user-scoped-review-completion-and-common-consent)
+
+**Verification:** Automated marker and rclone-filter tests plus one integration container-replacement round trip
+
+**Status:** Implemented
+
+---

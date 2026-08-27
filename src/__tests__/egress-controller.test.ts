@@ -1,11 +1,12 @@
 /**
- * REQ-ENTERPRISE-016 / REQ-ENTERPRISE-023: EgressController — strict Gateway egress proxy.
+ * REQ-ENTERPRISE-016 / REQ-ENTERPRISE-023 / REQ-ENTERPRISE-026: EgressController — strict Gateway egress proxy.
  *
  * A WorkerEntrypoint the container DO wires as a catch-all when the strict-egress toggle is
- * ON (the DO passes `{ accountId, strict }` via ctx.props, resolved once at wiring). For most
- * hosts it is a transparent proxy (no credential added, caller authorization/cookie/set-cookie
- * preserved) forcing traffic through env.EGRESS. This account's own R2 is the exception: its
- * placeholder Authorization is stripped and the request is RE-SIGNED with the worker-held key.
+ * ON (the DO passes account, bucket, scoped R2 credentials, and strict state via ctx.props,
+ * resolved once at wiring). For most hosts it is a transparent proxy (no credential added,
+ * caller authorization/cookie/set-cookie preserved) forcing traffic through env.EGRESS. This
+ * user's own R2 bucket is the exception: its placeholder Authorization is stripped and the
+ * request is RE-SIGNED with that user's bucket-scoped key.
  * WebSocket upgrades are BRIDGED (a fresh WebSocketPair accepted on both ends), not returned
  * as-is. `strict` comes from props (no per-request KV read).
  */
@@ -17,7 +18,13 @@ const STRICT_KEY = 'setup:strict_egress';
 
 function makeController(
   envOverrides: Partial<Env> & { __kv?: Record<string, string> } = {},
-  props: { accountId?: string; strict?: boolean } = { accountId: 'acc' },
+  props: {
+    accountId?: string;
+    bucket?: string;
+    r2AccessKeyId?: string;
+    r2SecretAccessKey?: string;
+    strict?: boolean;
+  } = { accountId: 'acc' },
 ) {
   const kvStore = envOverrides.__kv ?? { [STRICT_KEY]: 'active' };
   const egressFetch = vi.fn(
@@ -29,16 +36,23 @@ function makeController(
   );
   const env = {
     ENTERPRISE_MODE: 'active',
-    // Worker-held R2 key the EgressController re-signs own-account R2 with (REQ-ENTERPRISE-016).
-    R2_ACCESS_KEY_ID: 'test-r2-key',
-    R2_SECRET_ACCESS_KEY: 'test-r2-secret',
+    // Deployment-wide credentials must never sign intercepted per-user R2 traffic.
+    R2_ACCESS_KEY_ID: 'admin-r2-key',
+    R2_SECRET_ACCESS_KEY: 'admin-r2-secret',
     KV: { get: async (k: string) => kvStore[k] ?? null },
     EGRESS: { fetch: egressFetch },
     ...envOverrides,
   } as unknown as Env;
-  // The DO instantiates this via ctx.exports.EgressController({ props: { accountId, strict } }).
-  // strict defaults ON here (the catch-all is only wired when strict) unless a test overrides it.
-  const ctx = { props: { strict: true, ...props } } as unknown as ExecutionContext;
+  // Strict and scoped user-bucket values default here unless a test overrides them.
+  const ctx = {
+    props: {
+      strict: true,
+      bucket: 'bucket',
+      r2AccessKeyId: 'user-r2-key',
+      r2SecretAccessKey: 'user-r2-secret',
+      ...props,
+    },
+  } as unknown as ExecutionContext;
   return { controller: new EgressController(ctx, env), egressFetch };
 }
 
@@ -72,7 +86,7 @@ describe('REQ-ENTERPRISE-016: EgressController fail-closed guards', () => {
   });
 });
 
-describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (own account direct, all else Gateway) / REQ-ENTERPRISE-023', () => {
+describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (own account direct, all else Gateway) / REQ-ENTERPRISE-026', () => {
   it('forwards THIS account R2 DIRECT via global fetch — never env.EGRESS', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
     const { controller, egressFetch } = makeController({}, { accountId: 'acc' });
@@ -83,7 +97,7 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
     fetchSpy.mockRestore();
   });
 
-  it('re-signs own-account R2 with the worker key: strips the placeholder Authorization, preserves x-amz-content-sha256 + SSE-C, never env.EGRESS', async () => {
+  it('re-signs the bound bucket with its user-scoped key, never the deployment-wide key, while preserving streaming and SSE-C', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
     const { controller, egressFetch } = makeController({}, { accountId: 'acc' });
     await controller.fetch(
@@ -104,12 +118,63 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
     const auth = signed.headers.get('authorization') ?? '';
     expect(auth).toMatch(/^AWS4-HMAC-SHA256 /);
     expect(auth).not.toContain('PLACEHOLDER-KEY'); // container placeholder stripped
-    expect(auth).toContain('Credential=test-r2-key/'); // re-signed with the worker-held key
+    expect(auth).toContain('Credential=user-r2-key/');
+    expect(auth).not.toContain('admin-r2-key');
     // rclone's precomputed payload hash is REUSED (not recomputed / UNSIGNED) — body streams unbuffered.
     expect(signed.headers.get('x-amz-content-sha256')).toBe('fixedhash123');
     // SSE-C header preserved AND covered by the new signature (present in SignedHeaders).
     expect(signed.headers.get('x-amz-server-side-encryption-customer-algorithm')).toBe('AES256');
     expect(auth).toContain('x-amz-server-side-encryption-customer-algorithm');
+    fetchSpy.mockRestore();
+  });
+
+  it('accepts the bound bucket in virtual-hosted R2 form and signs with its scoped key', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
+    const { controller, egressFetch } = makeController({}, { accountId: 'acc', bucket: 'bound-bucket' });
+    const res = await controller.fetch(new Request('https://bound-bucket.acc.r2.cloudflarestorage.com/key'));
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalled();
+    const signed = fetchSpy.mock.calls[0][0] as Request;
+    expect(signed.headers.get('authorization')).toContain('Credential=user-r2-key/');
+    expect(egressFetch).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('rejects another virtual-hosted bucket in the same account before signing or forwarding', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('nope', { status: 200 }));
+    const { controller, egressFetch } = makeController({}, { accountId: 'acc', bucket: 'bound-bucket' });
+    const res = await controller.fetch(new Request('https://other-bucket.acc.r2.cloudflarestorage.com/key'));
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { code?: string }).code).toBe('EGRESS_R2_BUCKET_FORBIDDEN');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(egressFetch).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('rejects another path-style bucket in the same account before signing or forwarding', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('nope', { status: 200 }));
+    const { controller, egressFetch } = makeController({}, { accountId: 'acc', bucket: 'bound-bucket' });
+    const res = await controller.fetch(new Request('https://acc.r2.cloudflarestorage.com/other-bucket/key'));
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { code?: string }).code).toBe('EGRESS_R2_BUCKET_FORBIDDEN');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(egressFetch).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('fails closed when scoped credentials are missing instead of falling back to deployment credentials', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('nope', { status: 200 }));
+    const { controller, egressFetch } = makeController({}, {
+      accountId: 'acc',
+      bucket: 'bucket',
+      r2AccessKeyId: undefined,
+      r2SecretAccessKey: undefined,
+    });
+    const res = await controller.fetch(new Request('https://acc.r2.cloudflarestorage.com/bucket/key'));
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { code?: string }).code).toBe('EGRESS_R2_NOT_CONFIGURED');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(egressFetch).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
 

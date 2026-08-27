@@ -390,6 +390,9 @@ RCLONE_FILTERS_COMMON=(
     --filter "+ .codeflare/ide-ui-state.json"
     --filter "+ .codeflare/ide-extensions.json"
     --filter "+ .codeflare/managed-extensions.json"
+    --filter "+ .codeflare/review-state/"
+    --filter "+ .codeflare/review-state/v1/"
+    --filter "+ .codeflare/review-state/v1/**"
     --filter "- .codeflare/**"
 
     # Package manager caches — regenerated on npm/bun install
@@ -3467,25 +3470,16 @@ fi
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)
 PLUGIN_DIR="$USER_HOME/.claude/plugins"
 if [ "${SESSION_MODE:-default}" = "advanced" ]; then
-    # PreToolUse: block-attributed-commits fires on git * and gh * to catch
-    #   AI attribution in commits/PRs/issues/releases.
-    # PostToolUse: git-push-review-reminder.sh fires on every Bash call (no
-    #   `if` prefix gate — those silently miss chained pipelines like
-    #   `git add . && git commit && git push`, see #243). The script's
-    #   in-process case statement filters by command pattern. Classifies
-    #   the trigger as PR-OPEN (gh pr create), PR-SYNC (git push to a
-    #   branch with an open PR), or DEFERRED (push to a branch with no
-    #   PR — review fires when the PR opens). Only fires if sdd/ is
-    #   bootstrapped (vibe-coding gate). Cached at .git/sdd-pr-cache
-    #   (60s for OPEN, 10s for empty/transient results).
-    # Stop: enforce-review-spawn (v5) blocks turn-end if the SDD review
-    #   agents weren't spawned after the most recent PR-tracked push.
-    #   Checkpoint at .git/sdd-last-ack-pr-head (PR HEAD SHA). Only fires
-    #   if sdd/ is bootstrapped. Three USER-ONLY bypass methods (sentinel
-    #   file, "skip review" / "skip verification" phrase, 3-strike circuit
-    #   breaker) preserve user agency. Direct pushes to main are not
-    #   special-cased here — the project should rely on GitHub branch
-    #   protection to require PRs into main; see common/git-workflow.md.
+    # PreToolUse retains unrelated guards and snapshots merge-triggered checkout state.
+    # SessionStart and PostToolUse call git-push-review-reminder.sh; PostToolUseFailure
+    # removes an exact tool-scoped merge snapshot. Successful completion resolves
+    # the active checkout after planned exposures and honors user-scoped exact
+    # completion. Successful checked-out-branch push, PR creation, and PR
+    # reopen emit the automatic plan; other misses ask the neutral choice.
+    # Stop inspects only the current-session
+    # offset, writes completion after canonical terminal triage, and emits the
+    # separate FIX reminder. No hook reads clone-local review checkpoints,
+    # bypass files, counters, or recovery plans.
     # Base advanced-mode hooks (codeflare-memory + codeflare-hooks).
     #
     # Issue #317 / #319: both review-reminder (PostToolUse) AND
@@ -3516,7 +3510,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # setting on and watching background subagents spawn and complete. The
     # capture hooks depend on that half, and it fails silently if it breaks,
     # so re-check it when the pinned CLI version moves.
-    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"disableAgentView":true,"preferredNotifChannel":"ghostty","hooks":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh"}]},{"matcher":"Bash","hooks":[{"if":"Bash(git *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(gh *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_execute_file|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]}],"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh","asyncRewake":true,"rewakeSummary":"Review directive","rewakeMessage":"Review directive from the SDD review gate (working as designed):"}]}],"SessionStart":[{"matcher":"compact","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/post-compaction-recall.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-context-inject.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-vault/scripts/vault-monitor-hook.sh"}]}]}}'
+    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"disableAgentView":true,"preferredNotifChannel":"ghostty","hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"if":"Bash(git *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(gh *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_execute_file|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]}],"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"PostToolUseFailure":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh","asyncRewake":true,"rewakeSummary":"Review directive","rewakeMessage":"Review directive from the SDD review gate (working as designed):"}]}],"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"compact","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/post-compaction-recall.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-context-inject.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-vault/scripts/vault-monitor-hook.sh"}]}]}}'
     # context-mode hooks (Custom tier only, gated on plugin manifest presence).
     # Implements REQ-AGENT-005. Same four hooks the upstream context-mode
     # plugin would self-register via hooks.json — we wire them through

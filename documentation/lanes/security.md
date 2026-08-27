@@ -123,6 +123,8 @@ Supported Enterprise model/provider traffic is intercepted at exact Worker-owned
 
 When enabled, supported HTTP, HTTPS, and WebSocket direct-internet traffic uses the customer's Cloudflare Gateway path; raw internet TCP/UDP is denied. The account's own required Cloudflare control/data-plane destinations use documented scoped exceptions. Once strict routing is wired, Codeflare does not fall back to unrestricted direct egress on Gateway failure.
 
+Own-account R2 accepts only the session's exact bound bucket in path-style or virtual-hosted form. `EgressController` re-signs with that user's memory-only bucket-scoped credential; another bucket or missing credentials fail before any send, and deployment-wide R2 credentials are never a fallback. <!-- @impl: src/container/container-interception.ts::strictEgress --> <!-- @impl: src/egress-controller.ts::EgressController --> See [REQ-ENTERPRISE-026](../../sdd/spec/enterprise-mode.md#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority) and [REQ-SEC-003](../../sdd/spec/security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket).
+
 Gateway policy remains customer-owned. Codeflare does not create or weaken external allow/deny/DLP rules. Hostname policy cannot eliminate every DNS-rebinding or allowed-provider abuse scenario; account/path interception and provider policy remain defense in depth.
 
 ### Startup availability exception

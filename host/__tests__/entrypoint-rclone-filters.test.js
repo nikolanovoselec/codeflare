@@ -78,7 +78,8 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
   mkdirSync(join(fx, 'Uploads'), { recursive: true });
   mkdirSync(join(fx, 'Temporary'), { recursive: true });
   mkdirSync(join(fx, '.graphify'), { recursive: true });
-  mkdirSync(join(fx, '.codeflare'), { recursive: true });
+  mkdirSync(join(fx, '.codeflare/review-state/v1/repo/branch'), { recursive: true });
+  mkdirSync(join(fx, '.codeflare/review-state/v2/repo/branch'), { recursive: true });
   mkdirSync(join(fx, 'workspace/repo/graphify-out'), { recursive: true });
   mkdirSync(join(fx, '.cache/rclone'), { recursive: true });
   mkdirSync(join(fx, '.config/rclone'), { recursive: true });
@@ -99,6 +100,8 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
     '.codeflare/ide-ui-state.json': '{"version":1}',
     '.codeflare/ide-extensions.json': '{"version":1,"extensions":{},"settings":{}}',
     '.codeflare/managed-extensions.json': '{"schemaVersion":1,"extensions":[]}',
+    '.codeflare/review-state/v1/repo/branch/pr-42-main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json': '{"version":1}',
+    '.codeflare/review-state/v2/repo/branch/private.json': 'must stay local',
     '.codeflare/private-runtime.json': 'must stay local',
     'workspace/repo/graphify-out/g.json': 'repo graph artifact',
     '.cache/rclone/junk': 'ephemeral cache',
@@ -270,6 +273,18 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
       assert.equal(v['.codeflare/ide-extensions.json'], 'INCLUDED');
       assert.equal(v['.codeflare/managed-extensions.json'], 'INCLUDED');
       assert.equal(v['.codeflare/private-runtime.json'], 'EXCLUDED');
+    }
+  });
+
+  it('persists user-scoped review completion in every workspace sync mode', () => {
+    const marker = '.codeflare/review-state/v1/repo/branch/pr-42-main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json';
+    for (const sessionMode of ['advanced', 'default']) {
+      for (const syncMode of ['none', 'metadata', 'full']) {
+        const v = verdictUnder({ sessionMode, syncMode, defaultDeny: false });
+        assert.equal(v[marker], 'INCLUDED', `${marker} must sync in ${sessionMode}/${syncMode}`);
+        assert.equal(v['.codeflare/review-state/v2/repo/branch/private.json'], 'EXCLUDED');
+        assert.equal(v['.codeflare/private-runtime.json'], 'EXCLUDED');
+      }
     }
   });
 
