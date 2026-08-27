@@ -1,7 +1,7 @@
 # Herdr terminal integration implementation plan
 
-**Branch:** `feat/herdr-terminal-integration`  
-**Decision:** One Codeflare xterm.js surface and one Herdr runtime per backend Terminal session.  
+**Branch:** `feat/herdr-terminal-integration`
+**Decision:** One Codeflare xterm.js surface and one Herdr runtime per backend Terminal session.
 **Status:** Ready for SDD and test-first implementation.
 
 ## Product decision
