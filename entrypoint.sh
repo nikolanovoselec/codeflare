@@ -3469,25 +3469,14 @@ fi
 # Configure Claude Code settings.json with hooks (advanced) or just settings (default)
 PLUGIN_DIR="$USER_HOME/.claude/plugins"
 if [ "${SESSION_MODE:-default}" = "advanced" ]; then
-    # PreToolUse: block-attributed-commits fires on git * and gh * to catch
-    #   AI attribution in commits/PRs/issues/releases.
-    # PostToolUse: git-push-review-reminder.sh fires on every Bash call (no
-    #   `if` prefix gate — those silently miss chained pipelines like
-    #   `git add . && git commit && git push`, see #243). The script's
-    #   in-process case statement filters by command pattern. Classifies
-    #   the trigger as PR-OPEN (gh pr create), PR-SYNC (git push to a
-    #   branch with an open PR), or DEFERRED (push to a branch with no
-    #   PR — review fires when the PR opens). Only fires if sdd/ is
-    #   bootstrapped (vibe-coding gate). Cached at .git/sdd-pr-cache
-    #   (60s for OPEN, 10s for empty/transient results).
-    # Stop: enforce-review-spawn (v5) blocks turn-end if the SDD review
-    #   agents weren't spawned after the most recent PR-tracked push.
-    #   Checkpoint at .git/sdd-last-ack-pr-head (PR HEAD SHA). Only fires
-    #   if sdd/ is bootstrapped. Three USER-ONLY bypass methods (sentinel
-    #   file, "skip review" / "skip verification" phrase, 3-strike circuit
-    #   breaker) preserve user agency. Direct pushes to main are not
-    #   special-cased here — the project should rely on GitHub branch
-    #   protection to require PRs into main; see common/git-workflow.md.
+    # PreToolUse keeps unrelated attribution and local-build guards only.
+    # SessionStart and PostToolUse call git-push-review-reminder.sh. It resolves
+    # the active checkout after planned exposures, honors a user-scoped exact
+    # completion marker, or asks the neutral mark-or-launch question. No
+    # command auto-launches review. Stop inspects only the current-session
+    # offset, writes completion after canonical terminal triage, and emits the
+    # separate FIX reminder. No hook reads clone-local review checkpoints,
+    # bypass files, counters, or recovery plans.
     # Base advanced-mode hooks (codeflare-memory + codeflare-hooks).
     #
     # Issue #317 / #319: both review-reminder (PostToolUse) AND

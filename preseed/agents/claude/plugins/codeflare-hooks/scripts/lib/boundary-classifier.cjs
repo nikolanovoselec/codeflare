@@ -1,18 +1,10 @@
-// Shell-aware delivery-boundary classifier, shared by the two callers asking the
-// same question: transcript_scan (which transcript command opened a boundary)
-// and the PreToolUse triage gate (is the command about to run one).
+// Shell-aware classifier for marker-or-dialog review exposures. Quoting,
+// wrappers, substitution, and heredoc bodies must not turn mentioned commands
+// into executable review ingress.
 //
-// It lives here because the gate tried to answer this with a regex and needed
-// four revisions across three review rounds, each closing the forms the last
-// report named while leaving the class open: flags, then env assignments and
-// wrappers and absolute paths, then shell keywords. Shell is not a regular
-// language. This parser already handled every one of those for the Stop path,
-// quoting and command substitution and heredocs included, so the gate now asks
-// it instead of approximating it.
-//
-// boundaryOf returns '' when no git/gh ran at all, '-' when one ran but is not a
-// delivery, and the event name otherwise. Pass { commit: true } to count
-// `git commit` as an event; the Stop path deliberately does not.
+// boundaryOf returns '' when no git/gh ran, '-' when git/gh ran without a
+// planned exposure, and the final relevant exposure name otherwise. The
+// optional commit mode remains available to unrelated mutation guards.
 
 const EMPTY = new Set();
 const controls = new Set(['if', 'then', 'elif', 'else', 'while', 'until', 'do', '!', '{']);
@@ -36,12 +28,9 @@ const DURATION = /^[0-9]+(\.[0-9]+)?[smhd]?$/;
 // which is neither a tool nor a known wrapper, set command=false, and dropped
 // every remaining word including the one holding the push.
 const shells = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'eval']);
-// Boundary classification mirrors Pi's classifyReviewBoundaryCommand
-// (preseed/agents/pi/extensions/review-helpers.ts) and reuses its global-option
-// sets from guard-helpers.ts verbatim. Any git/gh in command position is still
-// recognised; the SUBCOMMAND is what says a delivery boundary happened, and
-// Layer 2 (`gh pr view` below) remains the authority on whether that boundary is
-// an eligible, open, unacknowledged PR head.
+// Boundary classification mirrors Pi's classifyReviewBoundaryCommand and
+// reuses its global-option sets. Command parsing selects an exposure; later
+// GitHub lookup decides whether the active checkout is eligible.
 const takesValue = {
   git: new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env', '--exec-path', '--super-prefix']),
   gh: new Set(['-R', '--repo', '--hostname', '--config']),
@@ -119,10 +108,7 @@ function stripHeredocs(text) {
   }
   return out.join('\n');
 }
-// Returns '' when the text runs no git/gh at all, '-' when it does but none is a
-// delivery subcommand, and the event name otherwise. Candidacy stays broad on
-// purpose: enforcement triggers on any git/gh activity, which is the contract
-// the structural-boundary tests pin. Only the coverage window narrows.
+// Returns the final relevant exposure. Ordinary git/gh activity remains inert.
 function boundaryOf(text, options) {
   let candidate = false, found = '';
   function scan(source) {

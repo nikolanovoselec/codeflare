@@ -160,8 +160,9 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD139](#ad139-pi-skill-discovery-uses-one-compiler-generated-compact-index) | Generate one compact Pi skill index per mode | The seed compiler indexes each mode's model-invocable source skills and suppresses duplicate native catalog entries without removing explicit invocation paths. | Agents, Architecture, Performance | Active |
 | [AD140](#ad140-pi-starts-context-mode-off-and-exposes-optional-tool-schemas-on-demand) | Start context-mode off and expose optional Pi tools on demand | Fresh containers keep context-mode installed but disabled, while Pi sends five bootstrap tool schemas and activates registered optional tools through capability only when required. | Agents, Architecture, Performance | Active |
 | [AD141](#ad141-browser-ide-startup-follows-the-session-workspace-snapshot) | Start Browser IDE services by immutable session workspace | Terminal sessions retain lazy editor startup and PTY prewarm, while VS Code sessions eagerly warm code-server without a host browser-terminal PTY. | Architecture, Build / Container | Active |
-| [AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint) | Use delivery-only review ingress with joint completion | Push and PR creation launch automatically, clone alone asks for consent, and acknowledgement waits for reviewer plus exact-head CI triage. | Agents, Architecture, Build / Container | Active |
+| ~~[AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint)~~ | ~~Replace delivery-only automatic review ingress~~ | [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) replaces automatic delivery, clone-only consent, and durable recovery with user-scoped completion markers and common consent. | Agents, Architecture, Build / Container | Superseded |
 | [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) | Keep strict R2 signer authority inside the user's bucket | Strict interception re-signs only the session's exact bucket with its scoped credential and never falls back to deployment-wide R2 authority. | Architecture, Security | Active |
+| [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) | Persist exact-head review completion per user | Pi and Claude use R2-synced immutable exact-head markers, common consent, and ephemeral rounds so completion follows the user without recovering partial work. | Agents, Architecture, Storage | Active |
 ---
 
 ## Decisions
@@ -3935,7 +3936,7 @@ Browser IDE settings add explicit company IDs without removing the wildcard pers
 
 **Category:** Agents, Architecture, Build / Container
 
-**Status:** Accepted (2026-08-26). Supersedes [AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation).
+**Status:** Superseded by [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) (2026-08-27). Superseded [AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation) while active.
 
 **Context:** AD121 kept every executable Git or GitHub command as a review candidate and treated merge as delivery. That breadth moved coverage during ordinary inspection, while one-shot GitHub lookup and pre-delivery launch state made real push and PR-create boundaries easy to miss. Reviewer completion also advanced independently from exact-head CI, so the visible triage could omit terminal CI evidence.
 
@@ -3972,5 +3973,33 @@ Placeholder credentials remain inside the strict container. Streaming request bo
 <!-- @impl: src/container/container-interception.ts::strictEgress -->
 <!-- @impl: src/container/container-router.ts::handleSetBucketName -->
 <!-- @impl: src/egress-controller.ts::EgressController -->
+
+---
+
+### AD144: User-scoped review completion uses marker-or-dialog ingress
+
+**Category:** Agents, Architecture, Storage
+
+**Status:** Accepted (2026-08-27). Supersedes [AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint).
+
+**Context:** Review completion used clone-local files under `.git`, so replacing a container or opening another clone erased a fact the user had already established. Recovery then tried to rebuild authority from old transcript windows and delivery commands. That machinery launched duplicate rounds after resume and could carry stale push authority into another checkout. A review gate that forgets completion but remembers half a launch has the priorities backwards.
+
+**Decision:** Store one immutable marker for each normalized GitHub host, repository, PR, branch, protected base, and exact head under `~/.codeflare/review-state/v1`. Markers follow the user's R2-synced home across sessions, worktrees, clones, replacement containers, and devices that share the bucket. They expire after 30 days, and each repository and branch retains its ten newest markers. Writes publish atomically, acknowledge locally before best-effort `SIGUSR1` sync, and never read or migrate legacy `.git/sdd-review-*` state.
+
+Startup, resume, clone, switch, branch checkout, PR checkout, pull, checked-out-branch push, and checked-out-branch PR creation resolve the current open protected-base PR. A valid exact marker stays silent. A miss offers `Mark review complete` and `Launch review`; cancellation writes nothing. Push and PR creation no longer launch automatically. Fetch, inspection, local mutation, detached or path checkout, merge, and unrelated-ref push remain inert.
+
+A selected launch uses the existing range and lane planner. The newest retained same-PR ancestor sets an incremental range when it is still an ancestor; otherwise the round reviews the full protected-base diff. Required reviewers start together, and push or PR-create context may add exact-head CI immediately afterward. Active coordination exists only in memory for Pi and after a session offset under `/run` for Claude. Stopped or interrupted work creates no checkpoint, retry plan, counter, or missing-work follow-up. The next exposure asks again and replans.
+
+After the root publishes canonical triage, FIX handling revalidates the exact identity, writes the marker, signals sync, emits the existing FIX reminder, and releases review-owned Goal pause. No triage, local write failure, or head drift means no marker and no FIX. Pi and Claude retain deterministic reviewer output, exact-head CI correlation, failure and timeout rows, and root-owned mutation.
+
+**Consequences:** Completion survives clone and container boundaries, while partial work deliberately does not. Sync failure can cause a duplicate prompt on another device, but it cannot create a false acknowledgement. Startup prunes only the bounded marker root and never scans workspace repositories. There is no review-state service, endpoint, database, migration, or second planner.
+
+**Related REQs:** [REQ-AGENT-171](../../sdd/spec/agents.md#req-agent-171-user-scoped-review-completion-and-common-consent), [REQ-STOR-027](../../sdd/spec/storage.md#req-stor-027-review-completion-marker-sync), and [REQ-AGENT-170](../../sdd/spec/agents.md#req-agent-170-joint-review-and-ci-triage).
+
+<!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::writeCompletion -->
+<!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::writeCompletion -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh -->
+<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
 
 ---
