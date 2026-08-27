@@ -63,6 +63,12 @@ graph TD
 
 The public Worker owns the edge boundary. Container credentials that must remain outside the workload are held or re-stamped at Worker-side interception boundaries. The container remains deliberately powerful inside its isolated workload and may change files or external systems permitted by its credentials and network policy.
 
+### Terminal topology ownership
+
+Each backend Terminal session exposes one xterm.js surface and one existing authenticated terminal WebSocket using internal terminal ID `1`. The host retains its outer `Session`, `node-pty`, headless restore, resize authority, input classification, and prewarm adoption. That outer PTY runs the official Herdr client through a fixed launcher; one ephemeral named Herdr server owns all tabs, panes, splits, workspaces, shells, and agents inside the session. Codeflare does not expose Herdr sockets or its private protocol.
+
+MultiView remains a browser-owned cross-session workspace. It arranges one terminal surface from each selected backend session, so every visible MultiView pane has a different container and Herdr runtime. Browser IDE remains a separate session service and does not attach to the standalone Herdr runtime. See [AD145](../decisions/README.md#ad145-herdr-owns-topology-inside-one-codeflare-terminal-surface).
+
 ### Deployment modes
 
 | Mode | Identity boundary | Public entry | Billing | Enterprise interception |

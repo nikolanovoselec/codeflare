@@ -106,6 +106,7 @@ export interface SessionOptions {
   readonly ptyKeepaliveMs?: number;
   readonly maxSessions?: number;
   readonly ptyCleanupIntervalMs?: number;
+  readonly stopTerminalRuntime?: () => void;
 }
 
 /** JSON representation of a session (returned by Session.toJSON()). */

@@ -45,7 +45,7 @@ interface WebSocketRouteResult {
   fullSessionId?: string;
   /** The base session ID without terminal suffix */
   baseSessionId?: string;
-  /** The terminal ID (1-6) */
+  /** Stable internal terminal ID (always 1) */
   terminalId?: string;
   /** Error response if validation failed */
   errorResponse?: Response;
@@ -73,13 +73,14 @@ export function validateWebSocketRoute(request: Request): WebSocketRouteResult {
 
   const fullSessionId = wsMatch[1];
 
-  // Parse compound sessionId (e.g., "abc123-1" -> baseSession="abc123", terminalId="1")
-  const compoundMatch = fullSessionId.match(/^(.+)-([1-6])$/);
-  const baseSessionId = compoundMatch ? compoundMatch[1] : fullSessionId;
-  const terminalId = compoundMatch ? compoundMatch[2] : '1';
+  // Herdr owns topology inside one Codeflare surface. Keep terminal ID 1 as
+  // the stable transport suffix and reject every other outer PTY identity.
+  const compoundMatch = fullSessionId.match(/^(.+)-(1)$/);
+  const baseSessionId = compoundMatch?.[1] ?? '';
+  const terminalId = compoundMatch?.[2] ?? '';
 
-  // Validate sessionId format (8-24 lowercase alphanumeric)
-  if (!SESSION_ID_PATTERN.test(baseSessionId)) {
+  // Validate the required compound shape and base session identity.
+  if (!compoundMatch || !SESSION_ID_PATTERN.test(baseSessionId)) {
     return {
       isWebSocketRoute: true,
       errorResponse: new Response(JSON.stringify({ error: 'Invalid session ID format', code: 'INVALID_SESSION' }), {

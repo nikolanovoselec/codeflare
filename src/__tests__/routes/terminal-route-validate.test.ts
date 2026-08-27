@@ -49,38 +49,26 @@ describe('REQ-TERM-002 AC1: WS URL pattern /api/terminal/{sessionId}-{terminalId
   });
 });
 
-describe('REQ-TERM-001 AC2: compound key {baseSession}-{terminalId} parsed from URL', () => {
-  it('REQ-TERM-001 AC2: terminal IDs 1..6 are extracted into terminalId', () => {
-    for (const tid of ['1', '2', '3', '4', '5', '6']) {
-      const result = validateWebSocketRoute(wsRequest(`/api/terminal/abc12345-${tid}/ws`));
-      expect(result.isWebSocketRoute, `tid=${tid}`).toBe(true);
-      expect(result.terminalId, `tid=${tid}`).toBe(tid);
-      expect(result.baseSessionId, `tid=${tid}`).toBe('abc12345');
-      expect(result.fullSessionId, `tid=${tid}`).toBe(`abc12345-${tid}`);
-    }
+describe('REQ-TERM-001: only internal terminal 1 is accepted', () => {
+  it('extracts the stable internal terminal 1 identity', () => {
+    const result = validateWebSocketRoute(wsRequest('/api/terminal/abc12345-1/ws'));
+    expect(result.isWebSocketRoute).toBe(true);
+    expect(result.errorResponse).toBeUndefined();
+    expect(result.terminalId).toBe('1');
+    expect(result.baseSessionId).toBe('abc12345');
+    expect(result.fullSessionId).toBe('abc12345-1');
   });
 
-  it('REQ-TERM-001 AC2: terminal ID 7 is NOT matched as suffix (defaults to terminalId="1" + full as base)', () => {
-    // Production regex is `[1-6]`, so `abc12345-7` does not compound-match and
-    // baseSessionId falls back to the full string, then SESSION_ID_PATTERN rejects
-    // because it contains '-7' (the hyphen).
-    const result = validateWebSocketRoute(wsRequest('/api/terminal/abc12345-7/ws'));
+  it.each(['0', '2', '3', '4', '5', '6', '7'])('rejects terminal ID %s', (terminalId) => {
+    const result = validateWebSocketRoute(wsRequest(`/api/terminal/abc12345-${terminalId}/ws`));
     expect(result.isWebSocketRoute).toBe(true);
     expect(result.errorResponse?.status).toBe(400);
   });
 
-  it('REQ-TERM-001 AC2: terminal ID 0 is NOT matched as suffix', () => {
-    const result = validateWebSocketRoute(wsRequest('/api/terminal/abc12345-0/ws'));
-    expect(result.isWebSocketRoute).toBe(true);
-    expect(result.errorResponse?.status).toBe(400);
-  });
-
-  it('REQ-TERM-001 AC2: sessionId without compound suffix defaults terminalId to "1"', () => {
+  it('rejects a session path without the internal suffix', () => {
     const result = validateWebSocketRoute(wsRequest('/api/terminal/abcdef1234567890abcdef12/ws'));
     expect(result.isWebSocketRoute).toBe(true);
-    expect(result.terminalId).toBe('1');
-    expect(result.baseSessionId).toBe('abcdef1234567890abcdef12');
-    expect(result.fullSessionId).toBe('abcdef1234567890abcdef12');
+    expect(result.errorResponse?.status).toBe(400);
   });
 });
 

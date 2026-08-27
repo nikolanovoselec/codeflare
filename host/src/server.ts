@@ -25,6 +25,7 @@
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { createActivityTracker } from './activity-tracker.js';
 import { getPrewarmConfig } from './prewarm-config.js';
 import { createRequestHandler, type ProxyTarget } from './request-router.js';
@@ -66,10 +67,9 @@ const log: Logger = (level: LogLevel, msg: string, meta?: Record<string, unknown
 const SERVER_START_TIME = Date.now();
 
 const PORT = parseInt(process.env.TERMINAL_PORT ?? '8080', 10);
-// Spawn a login shell so .bashrc runs and auto-starts the configured agent
-// The .bashrc has agent auto-start logic that only works in interactive login shells
-const TERMINAL_COMMAND = process.env.TERMINAL_COMMAND ?? '/bin/bash';
-const TERMINAL_ARGS = process.env.TERMINAL_ARGS ?? '-l';  // Login shell flag
+const HERDR_LAUNCHER = '/usr/local/bin/codeflare-herdr-terminal';
+const TERMINAL_COMMAND = process.env.TERMINAL_COMMAND ?? HERDR_LAUNCHER;
+const TERMINAL_ARGS = process.env.TERMINAL_ARGS ?? '';
 const WORKSPACE_DEFAULT = process.env.WORKSPACE ?? '/home/user/workspace';
 const SESSION_WORKSPACE = resolveSessionWorkspace(process.env.CODEFLARE_SESSION_WORKSPACE);
 
@@ -173,6 +173,18 @@ interface ServerState {
   readonly sessionOptions: SessionOptions;
 }
 
+function stopTerminalRuntime(): void {
+  if (TERMINAL_COMMAND !== HERDR_LAUNCHER) return;
+  const result = spawnSync(HERDR_LAUNCHER, ['stop'], {
+    env: process.env,
+    stdio: 'ignore',
+    timeout: 6000,
+  });
+  if (result.error) {
+    log('warn', 'Herdr runtime stop failed');
+  }
+}
+
 function createServerState(): ServerState {
   const tabConfigMap = buildTabConfigMap();
   const wsEventLog: WsEvent[] = [];
@@ -192,6 +204,7 @@ function createServerState(): ServerState {
     ptyKeepaliveMs: PTY_KEEPALIVE_MS,
     maxSessions: 20,
     ptyCleanupIntervalMs: PTY_CLEANUP_INTERVAL_MS,
+    stopTerminalRuntime,
   };
 
   return {
@@ -369,37 +382,52 @@ server.listen(PORT, '0.0.0.0', async () => {
   prewarmStartTime = Date.now();
   log('info', 'Pre-warming tab 1 PTY', { command: prewarmConfig.command, ptyAlive: prewarmSession.ptyProcess !== null, ptyPid: prewarmSession.ptyProcess?.pid ?? null });
 
-  // Readiness = first PTY output + 1.5s settle delay.
-  // The delay lets the agent render its initial UI before the user can click "Open".
+  // Classic test/dev shells settle after first output. Production Herdr also
+  // requires the launcher's atomic bootstrap marker, so the client repaint
+  // cannot make the session ready before its configured command is started.
   const PREWARM_SETTLE_MS = 1500;
+  const herdrBootstrapDone = `${process.env.CODEFLARE_RUNTIME_ROOT ?? '/run/codeflare'}/herdr/${process.env.SESSION_ID ?? ''}/bootstrap.done`;
+  const requiresHerdrBootstrap = TERMINAL_COMMAND === HERDR_LAUNCHER;
   let prewarmDataListener: { dispose(): void } | null = null;
-  if (prewarmSession.ptyProcess) {
-    prewarmDataListener = prewarmSession.ptyProcess.onData((data: string) => {
-      if (!prewarmReady) {
-        const elapsed = Date.now() - prewarmStartTime;
-        log('info', 'Pre-warm first output detected, settling', {
-          elapsedSec: (elapsed / 1000).toFixed(1),
-          command: prewarmConfig.command,
-          firstChars: data.substring(0, 80).replace(/[\x00-\x1f]/g, '?'),
-          bytesLen: data.length,
-        });
-        if (prewarmDataListener) {
-          prewarmDataListener.dispose();
-          prewarmDataListener = null;
-        }
-        setTimeout(() => {
-          if (!prewarmReady) {
-            prewarmReady = true;
-            log('info', 'Pre-warm ready (settled)', { elapsedSec: ((Date.now() - prewarmStartTime) / 1000).toFixed(1) });
-          }
-        }, PREWARM_SETTLE_MS);
-      }
+  let readinessPoll: ReturnType<typeof setInterval> | null = null;
+  let outputSeen = false;
+  let settlementStarted = false;
+  const beginSettlementWhenReady = (): void => {
+    if (settlementStarted || !outputSeen) return;
+    if (requiresHerdrBootstrap && !fs.existsSync(herdrBootstrapDone)) return;
+    settlementStarted = true;
+    if (prewarmDataListener) {
+      prewarmDataListener.dispose();
+      prewarmDataListener = null;
+    }
+    if (readinessPoll) {
+      clearInterval(readinessPoll);
+      readinessPoll = null;
+    }
+    log('info', 'Pre-warm runtime ready, settling', {
+      elapsedSec: ((Date.now() - prewarmStartTime) / 1000).toFixed(1),
+      command: prewarmConfig.command,
     });
+    setTimeout(() => {
+      if (!prewarmReady) {
+        prewarmReady = true;
+        log('info', 'Pre-warm ready (settled)', { elapsedSec: ((Date.now() - prewarmStartTime) / 1000).toFixed(1) });
+      }
+    }, PREWARM_SETTLE_MS);
+  };
+  if (prewarmSession.ptyProcess) {
+    prewarmDataListener = prewarmSession.ptyProcess.onData(() => {
+      outputSeen = true;
+      beginSettlementWhenReady();
+    });
+    if (requiresHerdrBootstrap) {
+      readinessPoll = setInterval(beginSettlementWhenReady, 100);
+    }
   } else {
     log('warn', 'Pre-warm: ptyProcess is null after start(), relying on timeout only');
   }
 
-  // Hard timeout safety net (20s) — in case PTY produces no output at all
+  // Hard timeout safety net (20s) keeps startup reachable after bounded failure.
   setTimeout(() => {
     if (!prewarmReady) {
       prewarmReady = true;
@@ -407,6 +435,10 @@ server.listen(PORT, '0.0.0.0', async () => {
       if (prewarmDataListener) {
         prewarmDataListener.dispose();
         prewarmDataListener = null;
+      }
+      if (readinessPoll) {
+        clearInterval(readinessPoll);
+        readinessPoll = null;
       }
     }
   }, PREWARM_TIMEOUT_MS);

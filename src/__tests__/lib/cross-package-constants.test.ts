@@ -23,14 +23,14 @@ import { TabConfigSchema } from '../../lib/schemas';
  *   - TabConfigSchema (backend) <-> TabConfigSchema (frontend)
  *   - StorageObject shape (backend types.ts) <-> StorageObjectSchema (frontend schemas.ts)
  */
-describe('Cross-Package Constants / REQ-TERM-001 AC1 (MAX_TABS=6 enforced session-wide, shared backend<->frontend constant)', () => {
+describe('Cross-Package Constants / REQ-TERM-001 AC1 (one outer terminal surface)', () => {
   // ========================================================================
   // MAX_TABS / MAX_TERMINALS_PER_SESSION
   // ========================================================================
 
   // Known value from web-ui/src/lib/constants.ts:MAX_TERMINALS_PER_SESSION
   // If this test fails, someone changed one side without updating the other.
-  const EXPECTED_MAX_TERMINALS = 6;
+  const EXPECTED_MAX_TERMINALS = 1;
 
   it('MAX_TABS (backend) equals expected cross-package value', () => {
     expect(MAX_TABS).toBe(EXPECTED_MAX_TERMINALS);

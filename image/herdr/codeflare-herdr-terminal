@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HERDR_BIN="${HERDR_BIN:-/usr/local/bin/herdr}"
+CODEFLARE_RUNTIME_ROOT="${CODEFLARE_RUNTIME_ROOT:-/run/codeflare}"
+
+fail() {
+    printf 'codeflare-herdr: %s\n' "$1" >&2
+    exit 1
+}
+
+validate_session_id() {
+    [[ "${SESSION_ID:-}" =~ ^[a-z0-9]{8,24}$ ]] || fail "invalid SESSION_ID"
+}
+
+prepare_runtime() {
+    validate_session_id
+    HERDR_NAME="cf-${SESSION_ID}"
+    HERDR_RUNTIME_ROOT="${CODEFLARE_RUNTIME_ROOT}/herdr/${SESSION_ID}"
+    umask 077
+    mkdir -p "$HERDR_RUNTIME_ROOT/config" "$HERDR_RUNTIME_ROOT/state"
+    chmod 0700 "$HERDR_RUNTIME_ROOT" "$HERDR_RUNTIME_ROOT/config" "$HERDR_RUNTIME_ROOT/state"
+    export HERDR_SESSION="$HERDR_NAME"
+    export HERDR_CONFIG_PATH="/etc/codeflare/herdr/config.toml"
+    export HERDR_DISABLE_SOUND=1
+    export XDG_CONFIG_HOME="$HERDR_RUNTIME_ROOT/config"
+    export XDG_STATE_HOME="$HERDR_RUNTIME_ROOT/state"
+    export TERMINAL_APP_STARTED=1
+}
+
+primary_command() {
+    local config="${TAB_CONFIG:-[]}" command
+    command=$(printf '%s' "$config" | jq -er '
+        if type != "array" then error("TAB_CONFIG must be an array") else . end
+        | [.[] | select(type == "object" and .id == "1")]
+        | if length == 0 then ""
+          elif length == 1 and (.[0].command | type) == "string" then .[0].command
+          else error("TAB_CONFIG must contain at most one valid primary entry") end
+    ') || fail "invalid TAB_CONFIG"
+    printf '%s' "$command"
+}
+
+wait_for_root_pane() {
+    local snapshot pane=""
+    for _ in $(seq 1 40); do
+        if snapshot=$("$HERDR_BIN" api snapshot 2>/dev/null); then
+            pane=$(printf '%s' "$snapshot" | jq -er '
+                .result.focused_pane_id
+                // .result.focused_pane.pane_id
+                // .focused_pane_id
+                // empty
+                | select(type == "string" and test("^[A-Za-z0-9._:-]{1,128}$"))
+            ' 2>/dev/null || true)
+            if [ -n "$pane" ]; then
+                printf '%s' "$pane"
+                return 0
+            fi
+        fi
+        sleep 0.25
+    done
+    fail "Herdr runtime did not expose an initial pane"
+}
+
+bootstrap() {
+    prepare_runtime
+    local done="$HERDR_RUNTIME_ROOT/bootstrap.done"
+    local lock="$HERDR_RUNTIME_ROOT/bootstrap.lock"
+    [ -f "$done" ] && return 0
+
+    if ! mkdir "$lock" 2>/dev/null; then
+        for _ in $(seq 1 40); do
+            [ -f "$done" ] && return 0
+            sleep 0.25
+        done
+        fail "Herdr bootstrap remained locked"
+    fi
+    trap 'rmdir "$lock" 2>/dev/null || true' EXIT
+
+    local pane command
+    pane=$(wait_for_root_pane)
+    command=$(primary_command)
+    case "$command" in
+        '') ;;
+        'claude'|'claude --dangerously-skip-permissions')
+            timeout 35 "$HERDR_BIN" agent start codeflare --kind claude --pane "$pane" --timeout 30000 -- --dangerously-skip-permissions >/dev/null
+            ;;
+        'codex')
+            timeout 35 "$HERDR_BIN" agent start codeflare --kind codex --pane "$pane" --timeout 30000 >/dev/null
+            ;;
+        'opencode')
+            timeout 35 "$HERDR_BIN" agent start codeflare --kind opencode --pane "$pane" --timeout 30000 >/dev/null
+            ;;
+        'copilot'|'copilot --yolo')
+            timeout 35 "$HERDR_BIN" agent start codeflare --kind copilot --pane "$pane" --timeout 30000 -- --yolo >/dev/null
+            ;;
+        'pi')
+            timeout 35 "$HERDR_BIN" agent start codeflare --kind pi --pane "$pane" --timeout 30000 >/dev/null
+            ;;
+        'agy'|'agy --dangerously-skip-permissions')
+            timeout 35 "$HERDR_BIN" agent start codeflare --kind agy --pane "$pane" --timeout 30000 -- --dangerously-skip-permissions >/dev/null
+            ;;
+        'htop'|'yazi'|'lazygit')
+            timeout 10 "$HERDR_BIN" pane run "$pane" "$command" >/dev/null
+            ;;
+        *) fail "unsupported terminal command" ;;
+    esac
+
+    : > "$done"
+    chmod 0600 "$done"
+    rmdir "$lock"
+    trap - EXIT
+}
+
+if [ "${1:-}" = "bootstrap" ]; then
+    bootstrap
+    exit 0
+fi
+
+if [ "${1:-}" = "stop" ]; then
+    prepare_runtime
+    timeout 5 "$HERDR_BIN" session stop "$HERDR_NAME" --json >/dev/null 2>&1 || true
+    exit 0
+fi
+
+prepare_runtime
+"$0" bootstrap &
+bootstrap_pid=$!
+
+set +e
+"$HERDR_BIN" --session "$HERDR_NAME"
+client_status=$?
+set -e
+wait "$bootstrap_pid" || exit $?
+
+printf '\r\nHerdr detached; reattaching once...\r\n' >&2
+sleep 1
+exec "$HERDR_BIN" --session "$HERDR_NAME"

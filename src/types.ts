@@ -282,7 +282,7 @@ export type UsageRecord = z.infer<typeof UsageRecordSchema>;
  * Configuration for a single terminal tab
  */
 export interface TabConfig {
-  id: string;        // "1" through "6"
+  id: string;        // internal outer terminal ID "1"
   command: string;   // Shell command or empty for bash
   label: string;     // Display label
 }

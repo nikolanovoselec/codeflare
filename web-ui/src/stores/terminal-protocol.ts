@@ -16,7 +16,7 @@ export type AgentEventControlMessage =
 // Server control messages always start with {"type": — raw PTY output never does.
 export type ControlMessage =
   | { kind: 'restore'; state: string | undefined }
-  | { kind: 'process-name'; processName: string }
+  | { kind: 'process-name' }
   | { kind: 'agent-event'; message: AgentEventControlMessage | undefined }
   | { kind: 'raw' };
 
@@ -60,9 +60,8 @@ function parseAgentEventControl(value: Record<string, unknown>): AgentEventContr
  * discriminator AND parses as JSON with a recognized `type`. A recognized
  * `restore` frame is always consumed (kind 'restore') even with no/empty
  * state — matching the original handler, which returned early on `type ===
- * 'restore'` and only conditionally rendered when `state` was present. A
- * `process-name` frame requires a non-empty `processName`. Recognized agent
- * event types are always consumed, but expose a message only after exact
+ * 'restore'` and only conditionally rendered when `state` was present.
+ * Recognized agent event types are always consumed, but expose a message only after exact
  * field, event-ID, and kind validation. Everything else — raw PTY bytes,
  * malformed JSON, or unknown control types — is `raw`, which the caller
  * writes verbatim to the terminal.
@@ -76,8 +75,8 @@ export function parseControlMessage(messageData: string): ControlMessage {
     if (msg.type === 'restore') {
       return { kind: 'restore', state: msg.state };
     }
-    if (msg.type === 'process-name' && msg.processName) {
-      return { kind: 'process-name', processName: msg.processName };
+    if (msg.type === 'process-name' && typeof msg.processName === 'string') {
+      return { kind: 'process-name' };
     }
     if (
       msg.type === 'agent-event'

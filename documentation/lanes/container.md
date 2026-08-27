@@ -32,6 +32,7 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 | Network | curl, openssh-client |
 | Process | procps (ps, pgrep) |
 | Utilities | jq, python3 plus `python` alias, ripgrep, fd, tree, htop, tmux, yazi, fzf, zoxide, bat |
+| Terminal runtime | Herdr v0.8.2, checksum-pinned official Linux x86-64 binary with image-owned config and Apache-2.0 attribution |
 
 ### Lock-backed NPM Tools
 
@@ -42,6 +43,8 @@ The shared npm-tool set—agent CLIs, Bun, context-mode, `consult-llm-mcp`, and 
 The environment-scoped GitHub variable `CODING_AGENTS` may narrow shared launchers to any non-empty subset of `claude-code,codex,copilot,antigravity,opencode,pi`; unset preserves all six. The build canonicalizes and hashes the set, prunes omitted npm agents in the install layer, and skips Antigravity's checksum-backed installer when omitted. Bash and shared non-agent tools remain. Native Pi/Claude IDE inventories and Pi's separate prewarm/Jiti layout are intentionally unaffected ([REQ-OPS-038](../../sdd/spec/operations.md#req-ops-038-build-selected-coding-agent-clis), [REQ-OPS-040](../../sdd/spec/operations.md#req-ops-040-selected-coding-agent-packaging), [REQ-OPS-039](../../sdd/spec/operations.md#req-ops-039-reduced-image-capability-preservation)).
 
 Antigravity remains a checksum-verified installer outside npm when selected. Browser Run MCP uses its own committed package lock. Weekly Shadow Pins updates each owning manifest and lock after the supply-chain cooldown.
+
+**Herdr terminal runtime:** Terminal workspaces keep Codeflare's existing outer `node-pty` and run one fixed launcher as its program. The launcher attaches the official client to named runtime `cf-<SESSION_ID>` under mode-0700 `/run/codeflare/herdr/<SESSION_ID>`. Herdr owns inner tabs and panes; its updater, remote manifest checks, sound, pane history, and Kitty graphics are disabled. Runtime state is ephemeral and never enters R2. Browser IDE workspaces start no Herdr runtime. See [AD145](../decisions/README.md#ad145-herdr-owns-topology-inside-one-codeflare-terminal-surface).
 
 **Known trade-off:** Long-lived sessions keep the image version they started with while a later reviewed image may carry newer CLIs. Version changes remain a compatibility risk, but they now pass PR checks and image smoke instead of entering an arbitrary deploy through mutable resolution.
 

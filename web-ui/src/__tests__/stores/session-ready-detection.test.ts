@@ -7,7 +7,6 @@ vi.mock('../../stores/terminal', () => ({
     triggerLayoutResize: vi.fn(),
   },
   sendInputToTerminal: vi.fn(() => false),
-  registerProcessNameCallback: vi.fn(),
 }));
 
 vi.mock('../../lib/constants', async (importOriginal) => {
@@ -64,7 +63,7 @@ describe('Session Ready Detection', () => {
     sessionStore.stopAllPolling();
   });
 
-  it('should mark session as running and initialize terminals when batch status reports running', async () => {
+  it('should mark session as running without creating browser-owned topology state', async () => {
     const session = {
       id: 'session-1',
       name: 'Test',
@@ -84,9 +83,7 @@ describe('Session Ready Detection', () => {
     const loaded = sessionStore.sessions.find(s => s.id === 'session-1');
     expect(loaded?.status).toBe('running');
 
-    const terminals = sessionStore.getTerminalsForSession('session-1');
-    expect(terminals).not.toBeNull();
-    expect(terminals!.tabs.length).toBeGreaterThan(0);
+    expect('getTerminalsForSession' in sessionStore).toBe(false);
   });
 
   it('should keep session as stopped when batch status reports stopped', async () => {

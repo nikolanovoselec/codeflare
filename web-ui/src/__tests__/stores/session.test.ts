@@ -11,7 +11,6 @@ vi.mock('../../stores/terminal', () => ({
     triggerLayoutResize: vi.fn(),
   },
   sendInputToTerminal: vi.fn(() => false),
-  registerProcessNameCallback: vi.fn(),
 }));
 
 // MOCK-DRIFT RISK: Overrides polling/timing constants to speed up tests.
@@ -57,7 +56,7 @@ vi.mock('../../lib/vault-cache', () => ({
 
 // Import after mocks
 import { sessionStore } from '../../stores/session';
-import { applyMetricsUpdate } from '../../stores/session';
+import { applyMetricsUpdate, retireLegacyTerminalLayoutState } from '../../stores/session';
 import * as api from '../../api/client';
 import * as storageApi from '../../api/storage';
 import * as terminal from '../../stores/terminal';
@@ -270,40 +269,10 @@ describe('Session Store', () => {
       expect(session?.status).toBe('running');
     });
 
-    it('should initialize terminals for sessions already known as running', async () => {
-      const mockSessions = [
-        {
-          id: 'session-1',
-          name: 'Running Session',
-          createdAt: new Date().toISOString(),
-          lastAccessedAt: new Date().toISOString(),
-        },
-      ];
-      mockGetSessions.mockResolvedValue(mockSessions);
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
-        'session-1': { status: 'running', ptyActive: true, startupStage: 'ready' },
-      }, maxSessions: 3 });
-      mockGetStartupStatus.mockResolvedValue({
-        stage: 'ready',
-        progress: 100,
-        message: 'Ready',
-        details: {
-          container: 'container-1',
-          bucketName: 'test-bucket',
-          path: '/workspace',
-        },
-      });
-
-      // First load — session arrives as 'stopped' (fresh load, no existingStatuses)
-      await sessionStore.loadSessions();
-      // Simulate user having started the session
-      sessionStore.updateSessionStatus('session-1', 'running');
-      // Second load — now existingStatuses has 'running', so terminals initialize
-      await sessionStore.loadSessions();
-
-      const terminals = sessionStore.getTerminalsForSession('session-1');
-      expect(terminals).not.toBeNull();
-      expect(terminals!.tabs.length).toBeGreaterThan(0);
+    it('does not create browser-owned topology state for running sessions', async () => {
+      localStorage.setItem('codeflare:terminalsPerSession', '{"legacy":true}');
+      retireLegacyTerminalLayoutState();
+      expect(localStorage.getItem('codeflare:terminalsPerSession')).toBeNull();
     });
 
     it('REQ-IDE-048 AC2: does not initialize terminal state for a running VS Code session', async () => {
@@ -322,7 +291,7 @@ describe('Session Store', () => {
       await sessionStore.loadSessions();
 
       expect(sessionStore.sessions[0]).toMatchObject({ status: 'running', workspace: 'vscode', editorReady: true });
-      expect(sessionStore.getTerminalsForSession('editor-session')).toBeNull();
+      expect(terminal.terminalStore.disposeSession).toHaveBeenCalledWith('editor-session');
     });
 
     it('should keep already-running sessions running regardless of startupStage', async () => {
@@ -625,7 +594,6 @@ describe('Session Store', () => {
       await vi.waitFor(() => expect(api.startSession).toHaveBeenCalled());
 
       expect(sessionStore.activeSessionId).toBeNull();
-      expect(sessionStore.getTerminalsForSession('clone-editor')).toBeNull();
       completeStart?.();
       await creating;
 
@@ -633,7 +601,6 @@ describe('Session Store', () => {
       expect(sessionStore.sessions.find((session) => session.id === 'clone-editor')).toMatchObject({
         status: 'running', workspace: 'vscode', editorReady: true,
       });
-      expect(sessionStore.getTerminalsForSession('clone-editor')).toBeNull();
     });
 
     it('keeps cloned historical sessions on the existing Terminal activation path', async () => {
@@ -659,7 +626,7 @@ describe('Session Store', () => {
       completeStart?.();
       await creating;
 
-      expect(sessionStore.getTerminalsForSession('clone-terminal')).not.toBeNull();
+      expect(sessionStore.activeSessionId).toBe('clone-terminal');
     });
   });
 
@@ -693,13 +660,10 @@ describe('Session Store', () => {
       expect(sessionStore.activeSessionId).toBeNull();
     });
 
-    it('should clean up terminal state', async () => {
+    it('should dispose the session terminal surface', async () => {
       mockDeleteSession.mockResolvedValue(undefined);
-      sessionStore.initializeTerminalsForSession('session-1');
-
       await sessionStore.deleteSession('session-1');
-
-      expect(sessionStore.getTerminalsForSession('session-1')).toBeNull();
+      expect(terminal.terminalStore.disposeSession).toHaveBeenCalledWith('session-1');
     });
 
     it('cleans the deleted session Vault cache without waiting on the UI path', async () => {
@@ -761,17 +725,14 @@ describe('Session Store', () => {
       expect(session?.status).toBe('stopped');
     });
 
-    it('should preserve terminal state (dispose without cleanup)', async () => {
+    it('disposes the sole terminal surface after confirmed stop', async () => {
       mockStopSession.mockResolvedValue(undefined);
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', ptyActive: false } }, maxSessions: 3 });
 
       const stopPromise = sessionStore.stopSession('session-1');
       await vi.advanceTimersByTimeAsync(3000);
       await stopPromise;
-
-      // stopSession disposes WebSockets/xterm but preserves tab structure
-      // so tiling layout survives restart. Only deleteSession wipes terminal state.
-      expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
+      expect(terminal.terminalStore.disposeSession).toHaveBeenCalledWith('session-1');
     });
 
     it('keeps the session stopping and terminal live state intact when confirmation times out', async () => {
@@ -787,7 +748,6 @@ describe('Session Store', () => {
 
       expect(sessionStore.sessions.find((session) => session.id === 'session-1')?.status).toBe('stopping');
       expect(terminal.terminalStore.disposeSession).not.toHaveBeenCalledWith('session-1');
-      expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
       expect(sessionStore.error).toMatch(/refresh.*retry/i);
     });
 
@@ -945,7 +905,6 @@ describe('Session Store', () => {
 
     it('REQ-IDE-048 AC2 + REQ-IDE-050 AC1: completes VS Code startup without creating terminal state', async () => {
       sessionStore.initializeTerminalsForSession('session-1');
-      expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
       mockGetSessions.mockResolvedValue([{
         id: 'session-1', name: 'Editor', workspace: 'vscode',
         createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
@@ -969,7 +928,7 @@ describe('Session Store', () => {
 
       expect(sessionStore.sessions[0]).toMatchObject({ status: 'running', editorReady: true });
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
-      expect(sessionStore.getTerminalsForSession('session-1')).toBeNull();
+      expect(terminal.terminalStore.disposeSession).toHaveBeenCalledWith('session-1');
     });
 
     it('REQ-IDE-049 AC3: marks a failed VS Code start as an editor-timeout retry', async () => {
@@ -1169,37 +1128,6 @@ describe('Session Store', () => {
       // Original session unchanged
       const session = sessionStore.sessions.find((s: { id: string }) => s.id === 'session-1');
       expect(session?.name).toBe('Original Name');
-    });
-  });
-
-  describe('tab invariants', () => {
-    beforeEach(async () => {
-      mockGetSessions.mockResolvedValue([
-        {
-          id: 'session-1',
-          name: 'Immutable Tab Session',
-          createdAt: new Date().toISOString(),
-          lastAccessedAt: new Date().toISOString(),
-        },
-      ]);
-      await sessionStore.loadSessions();
-      sessionStore.initializeTerminalsForSession('session-1');
-      sessionStore.addTerminalTab('session-1'); // tab 2
-    });
-
-    it('removeTerminalTab should reject removing tab 1', () => {
-      const before = sessionStore.getTerminalsForSession('session-1');
-      const beforeIds = before?.tabs.map((tab) => tab.id) || [];
-      const beforeOrder = before?.tabOrder || [];
-
-      const removed = sessionStore.removeTerminalTab('session-1', '1');
-
-      expect(removed).toBe(false);
-      expect(terminal.terminalStore.dispose).not.toHaveBeenCalledWith('session-1', '1');
-
-      const after = sessionStore.getTerminalsForSession('session-1');
-      expect(after?.tabs.map((tab) => tab.id)).toEqual(beforeIds);
-      expect(after?.tabOrder).toEqual(beforeOrder);
     });
   });
 
@@ -1468,68 +1396,13 @@ describe('Session Store', () => {
     });
   });
 
-  describe('localStorage persistence', () => {
-    it('should persist terminal state to localStorage', () => {
-      // Use a unique session ID to avoid conflicts
-      const uniqueSessionId = `session-persist-${Date.now()}`;
-      sessionStore.initializeTerminalsForSession(uniqueSessionId);
-
-      const stored = localStorage.getItem('codeflare:terminalsPerSession');
-      expect(stored).not.toBeNull();
-
-      const parsed = JSON.parse(stored!);
-      expect(parsed[uniqueSessionId]).toBeDefined();
-
-      // Cleanup
-      sessionStore.cleanupTerminalsForSession(uniqueSessionId);
-    });
-
-    it('should restore terminal state from localStorage on store initialization', () => {
-      // Use a unique session ID
-      const uniqueSessionId = `session-restore-${Date.now()}`;
-
-      // Pre-populate localStorage
-      const mockState = {
-        [uniqueSessionId]: {
-          tabs: [{ id: '1', createdAt: new Date().toISOString() }],
-          activeTabId: '1',
-          tabOrder: ['1'],
-          tiling: { enabled: false, layout: 'tabbed' },
-        },
-      };
-      localStorage.setItem('codeflare:terminalsPerSession', JSON.stringify(mockState));
-
-      // Re-initialize the session
-      sessionStore.initializeTerminalsForSession(uniqueSessionId);
-
-      const terminals = sessionStore.getTerminalsForSession(uniqueSessionId);
-      expect(terminals).not.toBeNull();
-
-      // Cleanup
-      sessionStore.cleanupTerminalsForSession(uniqueSessionId);
-    });
-
-    it('should restore tab 1 if persisted state is missing it', () => {
-      const uniqueSessionId = `session-missing-tab1-${Date.now()}`;
-      const mockState = {
-        [uniqueSessionId]: {
-          tabs: [{ id: '2', createdAt: new Date().toISOString() }],
-          activeTabId: '2',
-          tabOrder: ['2'],
-          tiling: { enabled: false, layout: 'tabbed' },
-        },
-      };
-      localStorage.setItem('codeflare:terminalsPerSession', JSON.stringify(mockState));
-
-      sessionStore.initializeTerminalsForSession(uniqueSessionId);
-
-      const terminals = sessionStore.getTerminalsForSession(uniqueSessionId);
-      expect(terminals).not.toBeNull();
-      expect(terminals!.tabs.map((tab) => tab.id)).toEqual(['1', '2']);
-      expect(terminals!.tabOrder).toEqual(['1', '2']);
-      expect(terminals!.activeTabId).toBe('2');
-
-      sessionStore.cleanupTerminalsForSession(uniqueSessionId);
+  describe('legacy terminal layout retirement', () => {
+    it('removes codeflare:terminalsPerSession without touching MultiView state', async () => {
+      localStorage.setItem('codeflare:terminalsPerSession', '{not-json');
+      localStorage.setItem('codeflare:terminalMultiViewWorkspace', '{"id":"multiview:1"}');
+      retireLegacyTerminalLayoutState();
+      expect(localStorage.getItem('codeflare:terminalsPerSession')).toBeNull();
+      expect(localStorage.getItem('codeflare:terminalMultiViewWorkspace')).toBe('{"id":"multiview:1"}');
     });
   });
 

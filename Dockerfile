@@ -146,6 +146,24 @@ RUN curl -fsSL https://downloads.rclone.org/v1.73.5/rclone-v1.73.5-linux-amd64.d
     && dpkg -i /tmp/rclone.deb \
     && rm /tmp/rclone.deb
 
+# Install the official Herdr terminal runtime from one immutable stable release.
+# Codeflare owns updates through image review; runtime checks and self-update are disabled.
+RUN HERDR_VERSION="0.8.2" && \
+    HERDR_COMMIT="9eb521456ac0d19d3ab3d9d7cea3cca10baa8a4c" && \
+    HERDR_SHA256="976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
+      "https://github.com/herdrdev/herdr/releases/download/v${HERDR_VERSION}/herdr-linux-x86_64" \
+      -o /tmp/herdr && \
+    echo "${HERDR_SHA256}  /tmp/herdr" | sha256sum -c - && \
+    install -m 0755 /tmp/herdr /usr/local/bin/herdr && \
+    test -n "${HERDR_COMMIT}" && \
+    HERDR_DISABLE_SOUND=1 herdr --version | grep -F "${HERDR_VERSION}" && \
+    rm /tmp/herdr
+
+COPY image/herdr/config.toml /etc/codeflare/herdr/config.toml
+COPY image/herdr/LICENSE image/herdr/provenance.json /usr/share/licenses/herdr/
+COPY --chmod=0755 image/herdr/codeflare-herdr-terminal /usr/local/bin/codeflare-herdr-terminal
+
 # Add GitHub CLI apt repo (key + source list only — actual install is after .cache-bust)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /tmp/githubcli-archive-keyring.gpg \
     && echo "6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b  /tmp/githubcli-archive-keyring.gpg" | sha256sum -c - \

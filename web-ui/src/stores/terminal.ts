@@ -49,16 +49,6 @@ import {
 
 const textDecoder = new TextDecoder();
 
-// Callback for process-name messages (avoids circular import with session store)
-let onProcessName: ((sessionId: string, terminalId: string, processName: string) => void) | null = null;
-
-/** Register callback for process-name control messages (called by session store) */
-export function registerProcessNameCallback(
-  cb: (sessionId: string, terminalId: string, processName: string) => void
-): void {
-  onProcessName = cb;
-}
-
 export type { AgentEventControlMessage } from './terminal-protocol';
 
 const agentEventCallbacks = new Map<string, Set<(message: AgentEventControlMessage) => void>>();
@@ -186,7 +176,6 @@ function getTerminal(sessionId: string, terminalId: string): Terminal | undefine
  * @param terminalId - The terminal tab ID within the session
  * @param terminal - The xterm.js Terminal instance
  * @param onError - Optional callback for error reporting
- * @param manual - Optional flag indicating user-created terminal tab (appends ?manual=1 to WS URL)
  * @returns Cleanup function to cancel connection and dispose resources
  */
 function connect(
@@ -194,7 +183,6 @@ function connect(
   terminalId: string,
   terminal: Terminal,
   onError?: (error: string) => void,
-  manual?: boolean
 ): () => void {
   const key = makeKey(sessionId, terminalId);
 
@@ -253,7 +241,7 @@ function connect(
       setRetryMessage(sessionId, terminalId, 'Connecting...');
     }
 
-    const url = getTerminalWebSocketUrl(sessionId, terminalId, manual);
+    const url = getTerminalWebSocketUrl(sessionId, terminalId);
     const ws = new WebSocket(url);
 
     ws.binaryType = 'arraybuffer';
@@ -370,8 +358,6 @@ function connect(
         return;
       }
       if (control.kind === 'process-name') {
-        logger.debug(`[Terminal ${key}] Process name: ${control.processName}`);
-        onProcessName?.(sessionId, terminalId, control.processName);
         return;
       }
       if (control.kind === 'agent-event') {

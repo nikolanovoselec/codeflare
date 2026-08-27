@@ -129,6 +129,7 @@ export class Session {
   private readonly _logWsEvent: WsEventLogger;
   private readonly _activityTracker: ActivityTracker | null;
   private readonly _ptyKeepaliveMs: number;
+  private readonly _stopTerminalRuntime: (() => void) | null;
 
   constructor(id: string, name = 'Terminal', manual = false, options: SessionOptions = {}) {
     this.id = id;
@@ -159,6 +160,7 @@ export class Session {
     this._logWsEvent = options.logWsEvent ?? (() => {});
     this._activityTracker = options.activityTracker ?? null;
     this._ptyKeepaliveMs = options.ptyKeepaliveMs ?? 14400000;
+    this._stopTerminalRuntime = options.stopTerminalRuntime ?? null;
   }
 
   /**
@@ -491,6 +493,10 @@ export class Session {
       this.processNameInterval = null;
     }
     this.lastProcessName = null;
+
+    if (this._stopTerminalRuntime) {
+      this._stopTerminalRuntime();
+    }
 
     if (this.ptyProcess) {
       this.ptyProcess.kill();

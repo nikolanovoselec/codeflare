@@ -477,6 +477,29 @@ jobs:
           printf 'official_claude_host=ready settings_path=/tmp/openvscode-claude-smoke-data/data/User/settings.json lazy_process=true\n' \
             | tee -a /tmp/browser-ide-image-evidence.txt
 
+      - name: Verify packaged Herdr runtime
+        if: steps.reuse.outputs.reused != 'true'
+        env:
+          IMAGE: ${{ steps.docker-build.outputs.local_ref }}
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint /bin/sh "$IMAGE" -c '
+            set -eu
+            test "$(stat -c %a /usr/local/bin/herdr)" = 755
+            test -s /usr/share/licenses/herdr/LICENSE
+            test -s /usr/share/licenses/herdr/provenance.json
+            test -f /etc/codeflare/herdr/config.toml
+            HERDR_DISABLE_SOUND=1 /usr/local/bin/herdr --version | grep -F "0.8.2"
+            grep -Fx "onboarding = false" /etc/codeflare/herdr/config.toml
+            grep -Fx "version_check = false" /etc/codeflare/herdr/config.toml
+            grep -Fx "manifest_check = false" /etc/codeflare/herdr/config.toml
+            grep -Fx "pane_history = false" /etc/codeflare/herdr/config.toml
+            grep -Fx "kitty_graphics = false" /etc/codeflare/herdr/config.toml
+            grep -Fx "mouse_capture = true" /etc/codeflare/herdr/config.toml
+          '
+          printf 'herdr_version=0.8.2 config=managed attribution=present\n' \
+            | tee -a /tmp/browser-ide-image-evidence.txt
+
       - name: Verify real code-server through the session proxy
         if: steps.reuse.outputs.reused != 'true'
         env:

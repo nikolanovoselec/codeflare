@@ -538,7 +538,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ### REQ-MOB-015: Virtual keyboard persists across terminal pane focus handoff
 
-**Intent:** On touch devices the virtual-keyboard mode (locked/anchored layout, swipe-as-arrows, keyboard-height padding) is driven by a single shared signal. When several terminal panes are visible at once (tiling layouts, tablet MultiView) and focus moves between panes while the keyboard is open, the keyboard must stay open and the newly focused pane must keep keyboard mode without the user dismissing and reopening the keyboard. The shared keyboard state is torn down only when focus leaves the terminal, not on a pane-to-pane handoff.
+**Intent:** On touch devices the virtual-keyboard mode (locked/anchored layout, swipe-as-arrows, keyboard-height padding) is driven by a single shared signal. When several backend-session terminal surfaces are visible in tablet MultiView and focus moves while the keyboard is open, the keyboard must stay open and the newly focused surface must keep keyboard mode without the user dismissing and reopening the keyboard. Focus among panes inside one session belongs to Herdr within one xterm.js surface. Shared keyboard state is torn down only when focus leaves terminal surfaces, not on a MultiView handoff.
 
 **Applies To:** User
 

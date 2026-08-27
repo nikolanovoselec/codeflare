@@ -1,0 +1,22 @@
+onboarding = false
+
+[terminal]
+default_shell = "/bin/bash"
+shell_mode = "login"
+new_cwd = "/home/user/workspace"
+
+[update]
+version_check = false
+manifest_check = false
+
+[ui]
+mouse_capture = true
+window_title = ""
+
+[ui.toast]
+delivery = "herdr"
+
+[experimental]
+allow_nested = false
+kitty_graphics = false
+pane_history = false

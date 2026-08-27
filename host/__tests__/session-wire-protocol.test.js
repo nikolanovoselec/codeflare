@@ -112,6 +112,16 @@ describe('REQ-TERM-002 AC3: PTY spawned as a full-color login shell', () => {
     session.kill();
   });
 
+  it('kill() invokes the injected terminal-runtime cleanup exactly once', () => {
+    let stops = 0;
+    const session = new Session('sess-herdr', 'Terminal', false, {
+      stopTerminalRuntime: () => { stops += 1; },
+    });
+    session.start();
+    session.kill();
+    assert.equal(stops, 1);
+  });
+
   it('start() forwards an explicitly configured terminalArgs string as argv', () => {
     spawnMock.mock.resetCalls();
     // A non-default args value proves args are split + forwarded, not hardcoded.

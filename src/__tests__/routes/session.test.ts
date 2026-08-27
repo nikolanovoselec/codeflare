@@ -363,7 +363,6 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
         lastAccessedAt: '2024-01-15T09:30:00.000Z',
         tabConfig: [
           { id: '1', command: 'claude --dangerously-skip-permissions', label: 'claude' },
-          { id: '2', command: 'yazi', label: 'yazi' },
         ],
       };
       mockKV._set('session:test-bucket:sessiontoupdate123', session);
@@ -373,9 +372,7 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tabConfig: [
-            { id: '1', command: 'claude --dangerously-skip-permissions', label: 'claude' },
-            { id: '2', command: 'lazygit', label: 'lazygit' },
-            { id: '3', command: 'yazi', label: 'yazi' },
+            { id: '1', command: 'pi', label: 'pi' },
           ],
         }),
       });
@@ -383,9 +380,7 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
       expect(res.status).toBe(200);
       const body = await res.json() as { session: Session };
       expect(body.session.tabConfig).toEqual([
-        { id: '1', command: 'claude --dangerously-skip-permissions', label: 'claude' },
-        { id: '2', command: 'lazygit', label: 'lazygit' },
-        { id: '3', command: 'yazi', label: 'yazi' },
+        { id: '1', command: 'pi', label: 'pi' },
       ]);
     });
 

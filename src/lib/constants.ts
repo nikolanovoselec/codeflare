@@ -40,8 +40,9 @@ export const ANONYMOUS_RATE_LIMIT_KEY = 'anonymous';
 export const CONTAINER_FETCH_TIMEOUT = 5000;
 
 /** Number of terminal tabs per session */
-// Keep in sync with web-ui/src/lib/constants.ts:MAX_TERMINALS_PER_SESSION
-export const MAX_TABS = 6;
+// One outer Codeflare terminal surface; Herdr owns inner topology.
+// Keep in sync with web-ui/src/lib/constants.ts:MAX_TERMINALS_PER_SESSION.
+export const MAX_TABS = 1;
 
 /** WebSocket rate limit: sliding window duration (ms) */
 export const WS_RATE_LIMIT_WINDOW_MS = 60_000;

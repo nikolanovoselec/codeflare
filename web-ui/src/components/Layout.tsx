@@ -12,7 +12,7 @@ import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import { forceResetKeyboardState, enableVirtualKeyboardOverlay, isSamsungBrowser, cleanupDebugOverlay } from '../lib/mobile';
 import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
-import type { TileLayout, AgentType, TabConfig } from '../types';
+import type { AgentType, TabConfig } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 import { startVaultReadinessProbe, probeVaultReady } from '../lib/vault-readiness';
 import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmStatus } from '../lib/vault-prewarm';
@@ -74,7 +74,6 @@ const Layout: Component<LayoutProps> = (props) => {
   const [terminalError, setTerminalError] = createSignal<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = createSignal(false);
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
-  const [showTilingOverlay, setShowTilingOverlay] = createSignal(false);
   const [viewState, setViewState] = createSignal<ViewState>('dashboard');
   let viewTransitionTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -393,29 +392,9 @@ const Layout: Component<LayoutProps> = (props) => {
     storageStore.fetchStats();
   });
 
-  const tiledSlotCount = (layout: TileLayout) => {
-    if (layout === '4-grid') return 4;
-    if (layout === '3-split') return 3;
-    return layout === '2-split' ? 2 : 1;
-  };
-
-  const visibleTerminalKeys = createMemo(() => {
-    const activeWorkspace = terminalWorkspaceStore.getActiveWorkspace();
-    const sessionId = activeWorkspace && activeWorkspace.kind === 'session' ? activeWorkspace.sessionId : null;
-    const terminals = sessionId ? sessionStore.getTerminalsForSession(sessionId) : null;
-    const tiling = sessionId ? sessionStore.getTilingForSession(sessionId) : null;
-    if (sessionId && terminals && tiling && tiling.enabled) {
-      const activeSessionId = sessionId;
-      const layout = tiling.layout;
-      const tabOrder = sessionStore.getTabOrder(activeSessionId) ?? [];
-      const terminalIds = new Set(terminals.tabs.map((tab) => tab.id));
-      return tabOrder
-        .filter((tabId) => terminalIds.has(tabId))
-        .slice(0, tiledSlotCount(layout))
-        .map((tabId) => `${activeSessionId}:${tabId}`);
-    }
-    return terminalWorkspaceStore.getVisiblePanes().map((pane) => `${pane.sessionId}:${pane.terminalId}`);
-  });
+  const visibleTerminalKeys = createMemo(() =>
+    terminalWorkspaceStore.getVisiblePanes().map((pane) => `${pane.sessionId}:1`)
+  );
 
   // Auto-refresh sessions + storage when tab returns from background
   const handleVisibilityChange = () => {
@@ -535,7 +514,6 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const keepDashboardOwnership = (historyMode?: 'push' | 'replace') => {
     terminalWorkspaceStore.setDashboardWorkspace();
-    setShowTilingOverlay(false);
     clearViewTransitionTimer();
     sessionStore.setActiveSession(null);
     setViewState('dashboard');
@@ -561,9 +539,8 @@ const Layout: Component<LayoutProps> = (props) => {
       return;
     }
 
-    const terminalId = shouldStart ? '1' : sessionStore.getTerminalsForSession(id)?.activeTabId || '1';
     sessionStore.setActiveSession(id);
-    terminalWorkspaceStore.setSingleSessionWorkspace(id, terminalId, session);
+    terminalWorkspaceStore.setSingleSessionWorkspace(id, session);
     enterTerminalView();
     if (updateHistory) writeSessionHistoryPath(id, 'push');
     if (shouldStart) void sessionStore.startSession(id).catch(() => {});
@@ -592,7 +569,7 @@ const Layout: Component<LayoutProps> = (props) => {
       keepDashboardOwnership('push');
     } else {
       sessionStore.setActiveSession(id);
-      terminalWorkspaceStore.setSingleSessionWorkspace(id, sessionStore.getTerminalsForSession(id)?.activeTabId || '1', session);
+      terminalWorkspaceStore.setSingleSessionWorkspace(id, session);
       enterTerminalView();
       writeSessionHistoryPath(id, 'push');
     }
@@ -619,7 +596,7 @@ const Layout: Component<LayoutProps> = (props) => {
       keepDashboardOwnership('push');
     } else {
       sessionStore.setActiveSession(session.id);
-      terminalWorkspaceStore.setSingleSessionWorkspace(session.id, '1', session);
+      terminalWorkspaceStore.setSingleSessionWorkspace(session.id, session);
       enterTerminalView();
       writeSessionHistoryPath(session.id, 'push');
     }
@@ -632,14 +609,12 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const handleOpenMultiView = () => {
     if (!terminalWorkspaceStore.openMultiView()) return;
-    setShowTilingOverlay(false);
     sessionStore.setActiveSession(null);
     enterTerminalView();
   };
 
   const handleCloseMultiView = () => {
     terminalWorkspaceStore.closeMultiView();
-    setShowTilingOverlay(false);
     clearViewTransitionTimer();
     sessionStore.setActiveSession(null);
     setViewState('dashboard');
@@ -683,11 +658,7 @@ const Layout: Component<LayoutProps> = (props) => {
         // notification was sent. Keep the trusted selection without waking it.
         clearViewTransitionTimer();
         sessionStore.setActiveSession(requestedSessionId);
-        terminalWorkspaceStore.setSingleSessionWorkspace(
-          requestedSessionId,
-          sessionStore.getTerminalsForSession(requestedSessionId)?.activeTabId || '1',
-          requestedSession,
-        );
+        terminalWorkspaceStore.setSingleSessionWorkspace(requestedSessionId, requestedSession);
         setViewState('dashboard');
       }
       return;
@@ -701,7 +672,6 @@ const Layout: Component<LayoutProps> = (props) => {
     // Keyboard cleanup is handled reactively by Terminal.tsx when props.active
     // becomes false (via onCleanup in the keyboard lifecycle effect).
     terminalWorkspaceStore.setDashboardWorkspace();
-    setShowTilingOverlay(false);
     clearViewTransitionTimer();
     setViewState('collapsing');
     sessionStore.setActiveSession(null);
@@ -740,30 +710,6 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const handleStoragePanelClose = () => {
     setIsStoragePanelOpen(false);
-  };
-
-  // Tiling handlers
-  const handleTilingButtonClick = () => {
-    setShowTilingOverlay(!showTilingOverlay());
-  };
-
-  const handleSelectTilingLayout = (layout: TileLayout) => {
-    const sessionId = sessionStore.activeSessionId;
-    if (sessionId) {
-      sessionStore.setTilingLayout(sessionId, layout);
-    }
-    setShowTilingOverlay(false);
-  };
-
-  const handleCloseTilingOverlay = () => {
-    setShowTilingOverlay(false);
-  };
-
-  const handleTileClick = (tabId: string) => {
-    const sessionId = sessionStore.activeSessionId;
-    if (sessionId) {
-      sessionStore.setActiveTerminalTab(sessionId, tabId);
-    }
   };
 
   const handleDismissError = () => {
@@ -840,11 +786,6 @@ const Layout: Component<LayoutProps> = (props) => {
         {/* Main content */}
         <TerminalArea
           showTerminal={showTerminal() ?? false}
-          showTilingOverlay={showTilingOverlay()}
-          onTilingButtonClick={handleTilingButtonClick}
-          onSelectTilingLayout={handleSelectTilingLayout}
-          onCloseTilingOverlay={handleCloseTilingOverlay}
-          onTileClick={handleTileClick}
           onOpenSessionById={handleOpenSessionById}
           onOpenMultiView={handleOpenMultiView}
           onDashboardSessionSelect={handleDashboardSessionSelect}

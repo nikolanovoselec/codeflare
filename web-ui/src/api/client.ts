@@ -1,6 +1,6 @@
 import type { Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, AuthStatus, AuthProvider } from '../types';
 import { logger } from '../lib/logger';
-import { STARTUP_POLL_INTERVAL_MS, SESSION_ID_DISPLAY_LENGTH, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION } from '../lib/constants';
+import { STARTUP_POLL_INTERVAL_MS, SESSION_ID_DISPLAY_LENGTH, MAX_STARTUP_POLL_ERRORS } from '../lib/constants';
 import { z } from 'zod';
 import {
   UserResponseSchema,
@@ -534,22 +534,16 @@ export async function deleteUser(email: string): Promise<{ success: boolean; ema
 // Session ID format: 8-24 lowercase alphanumeric characters (matches backend SESSION_ID_PATTERN)
 const SESSION_ID_RE = /^[a-z0-9]{8,24}$/;
 
-// WebSocket URL helper - uses compound session ID for multiple terminals per session
-export function getTerminalWebSocketUrl(sessionId: string, terminalId: string = '1', manual?: boolean): string {
+// Stable internal terminal identity for the sole Codeflare surface.
+export function getTerminalWebSocketUrl(sessionId: string, terminalId: string = '1'): string {
   if (!SESSION_ID_RE.test(sessionId)) {
     throw new Error(`Invalid sessionId "${sessionId}": must be 8-24 lowercase alphanumeric characters`);
   }
-  const id = parseInt(terminalId, 10);
-  if (isNaN(id) || id < 1 || id > MAX_TERMINALS_PER_SESSION) {
-    throw new Error(`Invalid terminalId "${terminalId}": must be between 1 and ${MAX_TERMINALS_PER_SESSION}`);
+  if (terminalId !== '1') {
+    throw new Error(`Invalid terminalId "${terminalId}": only internal terminal 1 is supported`);
   }
-  // Compound session ID: sessionId-terminalId (e.g., "abc123-1", "abc123-2")
-  // Backend treats each as a unique PTY session within the same container
-  const compoundSessionId = `${sessionId}-${terminalId}`;
+  const compoundSessionId = `${sessionId}-1`;
   const wsUrl = new URL(`/api/terminal/${compoundSessionId}/ws`, window.location.href);
   wsUrl.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  if (manual) {
-    wsUrl.searchParams.set('manual', '1');
-  }
   return wsUrl.toString();
 }

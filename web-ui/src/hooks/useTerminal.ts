@@ -585,9 +585,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
     if (canConnect() && shouldConnect && term && !cleanup) {
       logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Connecting WebSocket (stage: ${stage || 'running'})`);
-      const terminals = sessionStore.getTerminalsForSession(props.sessionId);
-      const tab = terminals?.tabs.find(t => t.id === props.terminalId);
-      cleanup = terminalStore.connect(props.sessionId, props.terminalId, term, props.onError, tab?.manual);
+      cleanup = terminalStore.connect(props.sessionId, props.terminalId, term, props.onError);
     }
   });
 

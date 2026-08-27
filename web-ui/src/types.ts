@@ -6,7 +6,7 @@ export type AgentType = z.infer<typeof AgentTypeSchema>;
 
 /** Configuration for a single terminal tab */
 export interface TabConfig {
-  id: string;        // "1" through "6"
+  id: string;        // internal outer terminal ID "1"
   command: string;   // Shell command or empty for bash
   label: string;     // Display label
 }
@@ -174,14 +174,6 @@ export type TerminalConnectionState =
   | 'connecting'
   | 'connected';
 
-// Terminal tab within a session (multiple terminals per container)
-export interface TerminalTab {
-  id: string;        // "1", "2", "3", "4"
-  createdAt: string;
-  processName?: string;  // Live process name from server (e.g., "claude", "htop")
-  manual?: boolean;      // true when tab was created by user clicking "+", skips .bashrc autostart
-}
-
 // Tiling layout types
 export type TileLayout = 'tabbed' | '2-split' | '3-split' | '4-grid';
 
@@ -216,17 +208,4 @@ export interface TerminalWorkspaceState {
   focusedPaneId: string | null;
   layout: TileLayout;
   multiView: MultiViewWorkspace | null;
-}
-
-export interface TilingState {
-  enabled: boolean;
-  layout: TileLayout;
-}
-
-// Track terminals per session
-export interface SessionTerminals {
-  tabs: TerminalTab[];
-  activeTabId: string | null;
-  tabOrder: string[];     // Display order (tab "1" always first)
-  tiling: TilingState;    // Tiling configuration
 }

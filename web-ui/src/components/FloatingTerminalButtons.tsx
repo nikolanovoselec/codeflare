@@ -41,9 +41,7 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
   const getActiveTerminalTarget = () => {
     const sessionId = sessionStore.activeSessionId;
     if (sessionId) {
-      const terminals = sessionStore.getTerminalsForSession(sessionId);
-      const terminalId = terminals?.activeTabId || '1';
-      return { sessionId, terminalId, term: terminalStore.getTerminal(sessionId, terminalId) };
+      return { sessionId, terminalId: '1', term: terminalStore.getTerminal(sessionId, '1') };
     }
     const focusedPaneId = terminalWorkspaceStore.getFocusedPaneId();
     const focusedPane = terminalWorkspaceStore.getVisiblePanes().find((pane) => pane.id === focusedPaneId);

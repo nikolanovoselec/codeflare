@@ -3,10 +3,9 @@
  * Default tab configurations for each agent type
  */
 import type { AgentType, TabConfig } from '../types';
-import { MAX_TABS } from './constants';
 
 /**
- * Primary command for each agent type (tab 1)
+ * Primary command for each agent type, consumed by the Herdr launcher.
  */
 const AGENT_COMMANDS: Record<AgentType, { command: string; label: string }> = {
   'claude-code': { command: 'claude --dangerously-skip-permissions', label: 'Terminal 1' },
@@ -19,18 +18,9 @@ const AGENT_COMMANDS: Record<AgentType, { command: string; label: string }> = {
 };
 
 /**
- * Generate the default TabConfig[] for a given agent type.
- * Tab 1 runs the agent command; tabs 2-6 are plain bash.
+ * Generate the sole outer terminal configuration for a given agent type.
  */
 export function getDefaultTabConfig(agentType: AgentType): TabConfig[] {
   const primary = AGENT_COMMANDS[agentType];
-  const tabs: TabConfig[] = [
-    { id: '1', command: primary.command, label: primary.label },
-  ];
-
-  for (let i = 2; i <= MAX_TABS; i++) {
-    tabs.push({ id: String(i), command: '', label: `Terminal ${i}` });
-  }
-
-  return tabs;
+  return [{ id: '1', command: primary.command, label: primary.label }];
 }

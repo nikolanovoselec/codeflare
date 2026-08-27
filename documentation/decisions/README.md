@@ -163,6 +163,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | ~~[AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint)~~ | ~~Define delivery review and joint completion~~ | [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) retains automatic delivery while replacing clone-local completion and durable recovery with user-scoped markers and ephemeral rounds. | Agents, Architecture, Build / Container | Superseded |
 | [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) | Keep strict R2 signer authority inside the user's bucket | Strict interception re-signs only the session's exact bucket with its scoped credential and never falls back to deployment-wide R2 authority. | Architecture, Security | Active |
 | [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) | Persist exact-head review completion per user | Pi and Claude use R2-synced immutable exact-head markers, automatic delivery, explicit non-delivery consent, and ephemeral rounds without recovering partial work. | Agents, Architecture, Storage | Active |
+| [AD145](#ad145-herdr-owns-topology-inside-one-codeflare-terminal-surface) | Give in-session terminal topology to Herdr | Each Terminal session keeps one Codeflare xterm.js and PTY transport while one ephemeral Herdr runtime owns inner tabs, panes, splits, and workspaces; MultiView remains cross-session Codeflare state. | Architecture, Build / Container, Terminal | Active |
 ---
 
 ## Decisions
@@ -4000,5 +4001,23 @@ After the root publishes canonical triage, FIX handling revalidates the exact id
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::writeCompletion -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
+
+---
+
+### AD145: Herdr owns topology inside one Codeflare terminal surface
+
+**Category:** Architecture, Build / Container, Terminal
+
+**Status:** Accepted (2026-08-27).
+
+**Context:** Codeflare currently owns up to six outer PTYs plus a tab bar and fixed tiling layouts. Herdr already provides terminal-native tabs, panes, splits, workspaces, agent state, and detach or reattach semantics. Keeping both topology layers would duplicate controls and multiply detached server/client processes. Herdr 0.8.2 also shares focus and geometry between clients attached to one server, so exposing several simultaneous Codeflare clients for one runtime would create resize and focus contention.
+
+**Decision:** Each backend Terminal session exposes exactly one Codeflare terminal surface using internal terminal ID `1`. Existing xterm.js rendering, authenticated WebSocket route, host `Session`, `node-pty`, headless restore, resize authority, input classification, prewarm adoption, idle accounting, and container lifecycle remain. The outer PTY runs one fixed Codeflare launcher, which starts or attaches the official pinned Herdr client to named runtime `cf-<SESSION_ID>`. Herdr owns every inner tab, pane, split, and workspace. Codeflare MultiView continues to arrange one surface from each of two to four backend sessions.
+
+Herdr runtime state stays ephemeral under mode-0700 `/run/codeflare/herdr`; R2 does not persist topology, pane history, sockets, logs, plugins, or updater state. The browser never speaks Herdr's private protocol, no Herdr route becomes public, and Browser IDE startup and terminal profiles remain independent. Codeflare removes its per-session tab, tiling, process-label, and saved-layout UI state rather than maintaining a fallback topology mode.
+
+**Consequences:** One official Herdr client continues rendering ordinary ANSI through xterm.js, so Codeflare transport and security boundaries do not change. New Bash and agent panes are created inside Herdr. Existing OSC 777 notification bytes no longer cross the inner emulator and need the fixed loopback event seam; OSC 52 clipboard writes need an explicit bounded browser boundary; Herdr owns right-click menus. Explicit terminal and container shutdown must stop the detached named runtime, while browser disconnect keeps it alive until Codeflare lifecycle stops the container.
+
+**Related REQs:** [REQ-TERM-001](../../sdd/spec/terminal.md#req-term-001-one-codeflare-terminal-surface-per-backend-session), [REQ-TERM-005](../../sdd/spec/terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-TERM-006](../../sdd/spec/terminal.md#req-term-006-herdr-owns-in-session-terminal-topology), [REQ-TERM-011](../../sdd/spec/terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), and [REQ-TERM-012](../../sdd/spec/terminal.md#req-term-012-multiview-virtual-session-workspace).
 
 ---

@@ -16,8 +16,8 @@ function paneId(source: VisibleTerminalPane['source'], sessionId: string, termin
   return `${source === 'multiview' ? 'multiview' : 'session'}:${sessionId}:${terminalId}`;
 }
 
-function paneForSession(sessionId: string, terminalId = '1', source: VisibleTerminalPane['source']): VisibleTerminalPane {
-  return { id: paneId(source, sessionId, terminalId), sessionId, terminalId, source };
+function paneForSession(sessionId: string, source: VisibleTerminalPane['source']): VisibleTerminalPane {
+  return { id: paneId(source, sessionId, '1'), sessionId, terminalId: '1', source };
 }
 
 function layoutForCount(count: number): Exclude<TileLayout, 'tabbed'> {
@@ -125,7 +125,6 @@ function setDashboardWorkspace(): void {
 
 function setSingleSessionWorkspace(
   sessionId: string,
-  terminalId: string,
   session: Pick<SessionWithStatus, 'workspace'>,
 ): void {
   if (!isTerminalSession(session)) {
@@ -133,7 +132,7 @@ function setSingleSessionWorkspace(
     return;
   }
 
-  const pane = paneForSession(sessionId, terminalId, 'session');
+  const pane = paneForSession(sessionId, 'session');
   if (
     state.mode === 'single-session'
     && state.activeWorkspace.kind === 'session'
@@ -225,7 +224,7 @@ function openMultiView(): boolean {
   const workspace = state.multiView;
   if (!workspace || workspace.memberSessionIds.length < 2) return false;
 
-  const panes = workspace.memberSessionIds.map((sessionId) => paneForSession(sessionId, '1', 'multiview'));
+  const panes = workspace.memberSessionIds.map((sessionId) => paneForSession(sessionId, 'multiview'));
   const focusedSessionId = workspace.focusedSessionId && workspace.memberSessionIds.includes(workspace.focusedSessionId)
     ? workspace.focusedSessionId
     : workspace.memberSessionIds[0];

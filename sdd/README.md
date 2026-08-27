@@ -31,7 +31,7 @@ Codeflare is the agentic engineering engine: it runs autonomous AI coding agents
 |--------|-------------|----------|--------|
 | [Session Lifecycle](spec/session-lifecycle.md) | Container creation, idle detection, auto-sleep, restart | P0 | Active |
 | [Authentication](spec/authentication.md) | Dual auth (CF Access + GitHub OIDC), user provisioning | P0 | Active |
-| [Terminal](spec/terminal.md) | PTY, WebSocket, multi-tab, tiling, keyboard | P0 | Active |
+| [Terminal](spec/terminal.md) | PTY, WebSocket, Herdr topology, MultiView, keyboard | P0 | Active |
 | [Mobile](spec/mobile.md) | Touch input, virtual keyboard, scroll stability | P2 | Active |
 | [Storage](spec/storage.md) | R2 persistence, rclone bisync, quotas | P0 | Active |
 | [Subscription](spec/subscription.md) | Tiers, billing, usage tracking, quotas | P1 | Active |

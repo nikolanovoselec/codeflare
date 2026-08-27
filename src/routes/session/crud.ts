@@ -21,10 +21,14 @@ import { toApiSession } from '../../lib/session-helpers';
 import { TabConfigSchema } from '../../lib/schemas';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 
+const PrimaryTabConfig = z.array(TabConfigSchema)
+  .length(MAX_TABS)
+  .refine((entries) => entries[0]?.id === '1', 'Only internal terminal id "1" is supported');
+
 const CreateSessionBody = z.object({
   name: z.string().trim().min(1, 'Session name cannot be blank').max(MAX_SESSION_NAME_LENGTH).optional(),
   agentType: AgentTypeSchema.optional(),
-  tabConfig: z.array(TabConfigSchema).min(1).max(MAX_TABS).optional(),
+  tabConfig: PrimaryTabConfig.optional(),
   // REQ-GITHUB-004: optional GitHub repo to clone at container start. The repo
   // shape is owner/name; ref is an optional branch/tag. Cloning is best-effort
   // in entrypoint.sh and uses the container's existing git credential helper.
@@ -35,7 +39,7 @@ const CreateSessionBody = z.object({
 
 const UpdateSessionBody = z.object({
   name: z.string().trim().min(1, 'Session name cannot be blank').max(MAX_SESSION_NAME_LENGTH).optional(),
-  tabConfig: z.array(TabConfigSchema).min(1).max(MAX_TABS).optional(),
+  tabConfig: PrimaryTabConfig.optional(),
 }).strict();
 
 const logger = createLogger('session-crud');
