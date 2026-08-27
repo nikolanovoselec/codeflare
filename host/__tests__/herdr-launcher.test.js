@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
@@ -90,6 +90,63 @@ describe('Codeflare Herdr launcher', () => {
     ]);
   });
 
+  it('cancels an in-flight bootstrap without deleting its lock, then permits one restart', async (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-race-'));
+    const bin = join(dir, 'bin');
+    const runtime = join(dir, 'runtime');
+    const log = join(dir, 'herdr.log');
+    const started = join(dir, 'agent.started');
+    const release = join(dir, 'agent.release');
+    mkdirSync(bin, { recursive: true });
+    const fake = join(bin, 'herdr');
+    writeFileSync(fake, `#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
+if [ "$*" = "api snapshot" ]; then
+  printf '%s\\n' '{"result":{"focused_pane_id":"w1:p1"}}'
+elif [ "\${HERDR_TEST_BLOCK:-}" = "1" ] && [ "$1 $2" = "agent start" ]; then
+  : > "$HERDR_TEST_STARTED"
+  while [ ! -f "$HERDR_TEST_RELEASE" ]; do sleep 0.02; done
+fi
+`, { mode: 0o755 });
+    const baseEnv = {
+      ...process.env,
+      HERDR_BIN: fake,
+      HERDR_TEST_LOG: log,
+      HERDR_TEST_STARTED: started,
+      HERDR_TEST_RELEASE: release,
+      CODEFLARE_RUNTIME_ROOT: runtime,
+      SESSION_ID: 'abc12345',
+      TAB_CONFIG: JSON.stringify([{ id: '1', command: 'claude', label: 'Terminal 1' }]),
+    };
+    const bootstrap = spawn(launcher, ['bootstrap'], {
+      stdio: 'ignore',
+      env: { ...baseEnv, HERDR_TEST_BLOCK: '1' },
+    });
+    const bootstrapExit = new Promise((resolve) => bootstrap.once('exit', resolve));
+    t.after(() => {
+      writeFileSync(release, '');
+      bootstrap.kill('SIGKILL');
+    });
+    for (let attempt = 0; attempt < 100 && !existsSync(started); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(existsSync(started), true, 'bootstrap did not reach the blocking agent start');
+
+    const stopped = spawnSync(launcher, ['stop'], { encoding: 'utf8', env: baseEnv });
+    assert.equal(stopped.status, 0, stopped.stderr);
+    assert.equal(existsSync(join(runtime, 'herdr/abc12345/bootstrap.lock')), true);
+    writeFileSync(release, '');
+    assert.equal(await bootstrapExit, 0);
+    assert.equal(existsSync(join(runtime, 'herdr/abc12345/bootstrap.done')), false);
+
+    const restarted = spawnSync(launcher, ['bootstrap'], { encoding: 'utf8', env: baseEnv });
+    assert.equal(restarted.status, 0, restarted.stderr);
+    const agentStarts = readFileSync(log, 'utf8').split('\n')
+      .filter((line) => line.startsWith('agent start '));
+    assert.equal(agentStarts.length, 2);
+  });
+
   it('leaves Bash untouched and maps ordinary TUI commands without shell interpolation', () => {
     const bash = harness('', [{ id: '1', command: '', label: 'Terminal 1' }]);
     assert.equal(bash.result.status, 0, bash.result.stderr);
@@ -106,6 +163,10 @@ describe('Codeflare Herdr launcher', () => {
     const log = join(dir, 'herdr.log');
     mkdirSync(bin, { recursive: true });
     const fake = join(bin, 'herdr');
+    const runtime = join(dir, 'runtime');
+    const staleLock = join(runtime, 'herdr/abc12345/bootstrap.lock');
+    mkdirSync(staleLock, { recursive: true });
+    writeFileSync(join(staleLock, 'pid'), '99999999\n');
     writeFileSync(fake, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "$HERDR_TEST_LOG"\n`, { mode: 0o755 });
     const result = spawnSync(launcher, ['stop'], {
       encoding: 'utf8',
@@ -113,12 +174,13 @@ describe('Codeflare Herdr launcher', () => {
         ...process.env,
         HERDR_BIN: fake,
         HERDR_TEST_LOG: log,
-        CODEFLARE_RUNTIME_ROOT: join(dir, 'runtime'),
+        CODEFLARE_RUNTIME_ROOT: runtime,
         SESSION_ID: 'abc12345',
       },
     });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(readFileSync(log, 'utf8').trim(), 'session stop cf-abc12345 --json');
+    assert.equal(existsSync(staleLock), false);
   });
 
   it('rejects unreviewed command text instead of passing it to a shell', () => {

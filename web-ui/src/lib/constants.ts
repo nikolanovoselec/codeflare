@@ -59,9 +59,6 @@ export const WS_CONTAINER_STOPPED_CODE = 4503;
 // Session
 // =============================================================================
 
-/** One outer Codeflare surface per session; Herdr owns inner topology. */
-export const MAX_TERMINALS_PER_SESSION = 1;
-
 /** Interval for polling the session list to keep the dashboard up to date (ms) */
 export const SESSION_LIST_POLL_INTERVAL_MS = 5_000;
 

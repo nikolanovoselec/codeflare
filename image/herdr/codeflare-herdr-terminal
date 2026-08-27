@@ -65,16 +65,22 @@ bootstrap() {
     prepare_runtime
     local done="$HERDR_RUNTIME_ROOT/bootstrap.done"
     local lock="$HERDR_RUNTIME_ROOT/bootstrap.lock"
+    local generation_file="$HERDR_RUNTIME_ROOT/bootstrap.generation"
+    local generation acquired=0
     [ -f "$done" ] && return 0
 
-    if ! mkdir "$lock" 2>/dev/null; then
-        for _ in $(seq 1 40); do
-            [ -f "$done" ] && return 0
-            sleep 0.25
-        done
-        fail "Herdr bootstrap remained locked"
-    fi
-    trap 'rmdir "$lock" 2>/dev/null || true' EXIT
+    for _ in $(seq 1 40); do
+        if mkdir "$lock" 2>/dev/null; then
+            acquired=1
+            break
+        fi
+        [ -f "$done" ] && return 0
+        sleep 0.25
+    done
+    [ "$acquired" -eq 1 ] || fail "Herdr bootstrap remained locked"
+    printf '%s\n' "$$" > "$lock/pid"
+    trap 'rm -f "$lock/pid"; rmdir "$lock" 2>/dev/null || true' EXIT
+    generation=$(cat "$generation_file" 2>/dev/null || true)
 
     local pane command
     pane=$(wait_for_root_pane)
@@ -105,8 +111,10 @@ bootstrap() {
         *) fail "unsupported terminal command" ;;
     esac
 
+    [ "$(cat "$generation_file" 2>/dev/null || true)" = "$generation" ] || return 0
     : > "$done"
     chmod 0600 "$done"
+    rm -f "$lock/pid"
     rmdir "$lock"
     trap - EXIT
 }
@@ -119,8 +127,14 @@ fi
 if [ "${1:-}" = "stop" ]; then
     prepare_runtime
     if timeout 5 "$HERDR_BIN" session stop "$HERDR_NAME" --json >/dev/null 2>&1; then
+        generation_tmp="$HERDR_RUNTIME_ROOT/bootstrap.generation.$$"
+        printf '%s-%s\n' "$$" "$(date +%s%N)" > "$generation_tmp"
+        mv "$generation_tmp" "$HERDR_RUNTIME_ROOT/bootstrap.generation"
         rm -f "$HERDR_RUNTIME_ROOT/bootstrap.done"
-        rm -rf "$HERDR_RUNTIME_ROOT/bootstrap.lock"
+        lock_pid=$(cat "$HERDR_RUNTIME_ROOT/bootstrap.lock/pid" 2>/dev/null || true)
+        if [[ "$lock_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$lock_pid" 2>/dev/null; then
+            rm -rf "$HERDR_RUNTIME_ROOT/bootstrap.lock"
+        fi
     fi
     exit 0
 fi

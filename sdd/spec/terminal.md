@@ -35,7 +35,7 @@ PTY management, WebSocket transport, one Herdr surface per backend session, Mult
 **Acceptance Criteria:**
 
 1. Single-session view mounts exactly one xterm.js surface and one terminal WebSocket. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (mounts one internal terminal 1 per visible backend session) -->
-2. Existing terminal transport and security gates remain unchanged. <!-- @impl: src/routes/terminal.ts::validateWebSocketRoute --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (extracts the stable internal terminal 1 identity) -->
+2. The terminal WebSocket route accepts only the stable internal terminal identity. <!-- @impl: src/routes/terminal.ts::validateWebSocketRoute --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (extracts the stable internal terminal 1 identity) -->
 3. Dashboard view mounts no terminal surface, and a VS Code workspace mounts no standalone terminal surface. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (mounts no terminal on Dashboard or for a VS Code workspace) -->
 4. Legacy per-session terminal layouts are retired without changing MultiView state. <!-- @impl: web-ui/src/stores/session.ts::retireLegacyTerminalLayoutState --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (removes codeflare:terminalsPerSession without touching MultiView state) -->
 
@@ -240,7 +240,7 @@ PTY management, WebSocket transport, one Herdr surface per backend session, Mult
 1. Codeflare renders no per-session terminal tab bar or within-session tiling controls. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (mounts one internal terminal 1 per visible backend session) -->
 2. The official Herdr client receives keyboard, mouse, focus, and resize input through the existing terminal surface. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (resize handling) -->
 3. Herdr-created tabs and panes start plain Bash unless the user explicitly launches another command. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (leaves Bash untouched and maps ordinary TUI commands without shell interpolation) -->
-4. Browser disconnect preserves the outer PTY and named Herdr runtime while the container remains alive. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-wire-protocol.test.js (preserves focus bytes and does not synthesize focus-out on detach) -->
+4. Browser disconnect preserves the outer PTY and named Herdr runtime while the container remains alive. <!-- @impl: host/src/session.ts::Session --> <!-- @manual: In integration, disconnect and reconnect the browser while the container remains alive and confirm the same Herdr tabs, panes, and running processes remain. -->
 5. Terminal and container lifecycle shutdowns stop the named Herdr runtime without orphan descendants. <!-- @impl: host/src/session.ts::kill --> <!-- @impl: host/src/server.ts::stopTerminalRuntime --> <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/session-wire-protocol.test.js (kill() invokes the injected terminal-runtime cleanup exactly once) --> <!-- @test: host/__tests__/herdr-launcher.test.js (stops only the deterministic named runtime) --> <!-- @manual: In integration, stop and delete a Terminal session and confirm no named Herdr runtime or descendants remain. -->
 
 **Constraints:**
@@ -687,8 +687,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. Valid bounded terminal clipboard writes copy UTF-8 text, while reads, malformed data, unsupported selectors, invalid UTF-8, and oversized content remain inert. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (parseOsc52ClipboardWrite) -->
-2. Clipboard writes still require the existing browser clipboard setting, and Herdr owns the terminal right-click menu. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration with clipboard access enabled and disabled, verify bounded OSC 52 writes follow the setting and right-click opens Herdr's menu without Codeflare paste. -->
+1. The terminal clipboard parser accepts bounded standard-selector base64 containing valid UTF-8 and rejects reads, malformed data, unsupported selectors, invalid UTF-8, and oversized content. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (parseOsc52ClipboardWrite) -->
+2. Accepted clipboard writes copy text only when the existing browser clipboard setting permits access. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send a valid OSC 52 write with clipboard access enabled and disabled and confirm only the enabled case updates the clipboard. -->
+3. Herdr owns the terminal right-click menu. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, right-click the terminal and confirm Herdr's menu opens without Codeflare paste. -->
 
 **Constraints:**
 
