@@ -12,7 +12,7 @@ type BoundarySurfaces = {
   settled: boolean;
   event?: BoundaryEvent;
   clone?: boolean;
-  kind?: 'clone' | 'switch' | 'checkout' | 'pr-checkout' | 'pull' | 'push' | 'pr-create';
+  kind?: 'clone' | 'switch' | 'checkout' | 'pr-checkout' | 'pull' | 'push' | 'pr-create' | 'pr-reopen';
 };
 type TranscriptFacts = {
   boundary?: {
@@ -231,6 +231,7 @@ describe('Claude-equivalent review boundary helpers', () => {
       ['gh pr checkout 42', { reminder: true, settled: true, kind: 'pr-checkout' }],
       ['gh pr create --base main --title review', prCreate],
       ['gh --repo owner/repo pr create --base develop --title review', prCreate],
+      ['gh pr reopen 42', { reminder: true, settled: true, event: 'pr-create', kind: 'pr-reopen' }],
       ['git clone --branch pi https://github.com/owner/repo.git cloned', clone],
       ['gh repo clone owner/repo cloned -- --branch pi', clone],
       ['gh pr merge 42 --squash', none],

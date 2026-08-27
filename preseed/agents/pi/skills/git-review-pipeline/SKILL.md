@@ -11,9 +11,9 @@ Use this skill for an extension-emitted automatic delivery plan or after the use
 
 ## Eligibility and consent
 
-Advanced SDD projects are eligible when the active normal checkout exactly matches an open PR targeting `main`, `master`, or `develop`. Startup, resume, clone, switch, branch checkout, PR checkout, pull, checked-out-branch push, and checked-out-branch PR creation may expose that identity.
+Advanced SDD projects are eligible when the active normal checkout exactly matches an open PR targeting `main`, `master`, or `develop`. Startup, resume, clone, switch, branch checkout, PR checkout, pull, checked-out-branch push, checked-out-branch PR creation, and checked-out-branch PR reopen may expose that identity.
 
-A valid user-scoped exact-head marker stays silent. Successful checked-out-branch push and PR creation automatically emit one review-and-CI plan. Other misses offer exactly `Mark review complete` and `Launch review`; never choose for the user. Cancellation writes nothing.
+A valid user-scoped exact-head marker stays silent. Successful checked-out-branch push, PR creation, and PR reopen automatically emit one review-and-CI plan. Other misses offer exactly `Mark review complete` and `Launch review`; never choose for the user. Cancellation writes nothing.
 
 Fetch, inspection, local mutation, merge, detached or path checkout, tag, unrelated-ref push, failed commands, child sessions, GitHub lookup failure, and unsynchronized heads remain inert.
 

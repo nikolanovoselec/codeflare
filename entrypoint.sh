@@ -3472,8 +3472,8 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # PreToolUse keeps unrelated attribution and local-build guards only.
     # SessionStart and PostToolUse call git-push-review-reminder.sh. It resolves
     # the active checkout after planned exposures and honors user-scoped exact
-    # completion. Successful checked-out-branch push and PR creation emit the
-    # automatic plan; other misses ask the neutral mark-or-launch question.
+    # completion. Successful checked-out-branch push, PR creation, and PR
+    # reopen emit the automatic plan; other misses ask the neutral choice.
     # Stop inspects only the current-session
     # offset, writes completion after canonical terminal triage, and emits the
     # separate FIX reminder. No hook reads clone-local review checkpoints,

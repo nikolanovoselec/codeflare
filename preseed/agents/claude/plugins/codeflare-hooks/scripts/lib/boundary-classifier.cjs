@@ -54,7 +54,7 @@ function boundaryEvent(executable, rest, options) {
   if (executable === 'gh' && args[0] === 'pr' && args[1] === 'checkout') return 'pr-checkout';
   if (executable === 'git' && args[0] === 'pull') return 'pull';
   if (executable === 'git' && args[0] === 'push') return 'push';
-  if (executable === 'gh' && args[0] === 'pr' && args[1] === 'create') return 'pr-create';
+  if (executable === 'gh' && args[0] === 'pr' && (args[1] === 'create' || args[1] === 'reopen')) return 'pr-create';
   if (executable === 'git' && args[0] === 'commit' && options && options.commit) return 'commit';
   if (executable === 'gh' && args[0] === 'pr' && args[1] === 'merge' && options && options.commit) return 'merge';
   return '';

@@ -10,7 +10,7 @@ export const REVIEW_TRIAGE_DIVIDER = "|---|---|---|---|---|";
 export type ReviewLane = (typeof ALL_REVIEW_LANES)[number];
 
 export type ReviewBoundaryEvent = "push" | "pr-create";
-export type ReviewExposureKind = "clone" | "switch" | "checkout" | "pr-checkout" | "pull" | "push" | "pr-create";
+export type ReviewExposureKind = "clone" | "switch" | "checkout" | "pr-checkout" | "pull" | "push" | "pr-create" | "pr-reopen";
 type BoundarySurfaces = {
   reminder: boolean;
   settled: boolean;
@@ -203,6 +203,8 @@ export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces
       exposure = { reminder: true, settled: true, event: "push", kind: "push" };
     } else if (executable === "gh" && args[0] === "pr" && args[1] === "create") {
       exposure = { reminder: true, settled: true, event: "pr-create", kind: "pr-create" };
+    } else if (executable === "gh" && args[0] === "pr" && args[1] === "reopen") {
+      exposure = { reminder: true, settled: true, event: "pr-create", kind: "pr-reopen" };
     }
   }
   return exposure;

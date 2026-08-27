@@ -256,6 +256,10 @@ describe('Pi marker-or-dialog review ingress', () => {
     await expectAutomaticDeliveryPlan('gh pr create --base main', false);
   });
 
+  it('automatically emits the exact review plan after successful PR reopen without requiring UI', async () => {
+    await expectAutomaticDeliveryPlan('gh pr reopen 42', false);
+  });
+
   it('repeats after cancellation and stays silent after marking complete', async () => {
     const input = fixture();
     const app = await harness(input, [undefined, 'Mark review complete']);

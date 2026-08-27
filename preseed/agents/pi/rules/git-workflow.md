@@ -6,7 +6,7 @@ Commit `<type>: <description>` using `feat|fix|refactor|docs|test|chore|perf|ci`
 
 ## Review exposure
 
-Startup, resume, clone, switch, branch checkout, PR checkout, pull, checked-out-branch push, and checked-out-branch PR creation may expose an open protected-base PR head. A saved exact completion stays silent. Successful checked-out-branch push and PR creation automatically emit one launch plan. Other misses wait for the neutral `Mark review complete` or `Launch review` choice; never choose for the user.
+Startup, resume, clone, switch, branch checkout, PR checkout, pull, checked-out-branch push, checked-out-branch PR creation, and checked-out-branch PR reopen may expose an open protected-base PR head. A saved exact completion stays silent. Successful checked-out-branch push, PR creation, and PR reopen automatically emit one launch plan. Other misses wait for the neutral `Mark review complete` or `Launch review` choice; never choose for the user.
 
 Fetch, inspection, local mutation, merge, detached or path checkout, tag, and unrelated-ref push are inert. Unpublished or unsynchronized heads never authorize review.
 

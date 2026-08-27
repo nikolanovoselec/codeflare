@@ -122,8 +122,8 @@ describe('Claude marker-or-dialog ingress', () => {
     }
   });
 
-  it('automatically emits review and CI launch instructions after push and PR creation', () => {
-    for (const command of ['git push origin feature', 'gh pr create --base main']) {
+  it('automatically emits review and CI launch instructions after push, PR creation, and PR reopen', () => {
+    for (const command of ['git push origin feature', 'gh pr create --base main', 'gh pr reopen 42']) {
       const fx = setup();
       sessionStart(fx);
       const delivery = context(postTool(fx, command));

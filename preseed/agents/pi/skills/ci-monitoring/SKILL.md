@@ -22,4 +22,4 @@ repo=<owner/repo> pr=<number> head=<full headRefOid>
 
 The dedicated agent runs the seeded monitor script once. Its native completion begins with exactly one of `CI_RESULT success`, `CI_RESULT failure`, or `CI_RESULT timeout`. Monitoring stays outside the main session. The agent only reports; the main session owns any follow-up changes.
 
-Use only the extension-emitted plan; never independently infer identity from Git text. Successful checked-out-branch push and PR creation automatically plan review plus CI. If work is interrupted, wait for a later fresh delivery plan, non-delivery marker choice, or explicit user request rather than recovering it.
+Use only the extension-emitted plan; never independently infer identity from Git text. Successful checked-out-branch push, PR creation, and PR reopen automatically plan review plus CI. If work is interrupted, wait for a later fresh delivery plan, non-delivery marker choice, or explicit user request rather than recovering it.
