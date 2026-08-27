@@ -141,6 +141,7 @@ function round(fx, options = {}) {
     if (lane === 'code-reviewer') {
       if (options.malformed === 'substitute-runner') command = command.replace(runner, '/tmp/run-review-lane.sh');
       if (options.malformed === 'missing-boundary') command = command.replace('CODEFLARE_REVIEW_CI=push ', '');
+      if (options.malformed === 'extra-environment') command = `PATH=/tmp ${command}`;
       if (options.malformed === 'quoted') command = `printf '%s' '${command}'`;
       if (options.malformed === 'wrong-tool') name = 'Agent';
       if (options.malformed === 'wrong-role') role = 'user';
@@ -212,6 +213,7 @@ describe('Claude current-round completion enforcement', () => {
     for (const malformed of [
       'substitute-runner',
       'missing-boundary',
+      'extra-environment',
       'quoted',
       'failed-receipt',
       'wrong-tool',

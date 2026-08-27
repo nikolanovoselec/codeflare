@@ -198,8 +198,9 @@ case "$BOUNDARY_KIND" in
     ;;
 esac
 
-PLAN_TMP="$PLAN_FILE.$$"
 umask 077
+mkdir -p "$SESSION_DIR" 2>/dev/null || exit 0
+PLAN_TMP="$PLAN_FILE.$$"
 jq -n --arg head "$HEAD" --argjson pr "$PR_NUMBER" --arg runner "$RUNNER" \
   --arg boundary "$BOUNDARY_KIND" --arg scope "$LANE_SCOPE" \
   '{head:$head,pr:$pr,runner:$runner,boundary:$boundary,scope:$scope}' > "$PLAN_TMP" 2>/dev/null \

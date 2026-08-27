@@ -112,7 +112,8 @@ const validLaunch = (command, lane) => {
   if (words[index + 1] !== expectedRunner) return false;
   const args = words.slice(index + 2);
   const [scopeName, scopeValue] = expectedScope.split(' ', 2);
-  return environment.get('CODEFLARE_REVIEW_HEAD') === head
+  return environment.size === 2
+    && environment.get('CODEFLARE_REVIEW_HEAD') === head
     && environment.get('CODEFLARE_REVIEW_CI') === expectedBoundary
     && optionValue(args, '--boundary-pr') === pr
     && optionValue(args, '--lane') === lane

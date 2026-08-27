@@ -660,7 +660,7 @@ const PINNED_RUNTIME_STUBS = {
   },
 };
 
-async function bundleFixture(entryPoint, outputPath) {
+async function bundleFixture(entryPoint, outputPath, exportName = 'default') {
   await build({
     entryPoints: [entryPoint],
     outfile: outputPath,
@@ -672,7 +672,8 @@ async function bundleFixture(entryPoint, outputPath) {
     plugins: [PINNED_RUNTIME_STUBS],
     nodePaths: [join(process.cwd(), 'node_modules')],
   });
-  return (await import(`${pathToFileURL(outputPath).href}?fixture=${Date.now()}`)).default;
+  const fixture = await import(`${pathToFileURL(outputPath).href}?fixture=${Date.now()}`);
+  return exportName === 'namespace' ? fixture : fixture.default;
 }
 
 function createExtensionHarness() {
@@ -804,7 +805,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     const goalRoot = mkdtempSync(join(tmpdir(), 'pi-goal-prompt-'));
     extractPinnedFixturePackage(goalRoot);
     patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, goalRoot);
-    const prompts = await bundleFixture(join(goalRoot, 'src/prompts.ts'), join(goalRoot, 'prompts.mjs'));
+    const prompts = await bundleFixture(join(goalRoot, 'src/prompts.ts'), join(goalRoot, 'prompts.mjs'), 'namespace');
     const goal = {
       id: 'goal-id',
       text: 'complete every open task',
