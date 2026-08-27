@@ -451,6 +451,7 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 | Finalization/teardown | REQ-OPS-010, REQ-SESSION-008/009/011 | `Container.destroy()` lifecycle and entrypoint backstop | Final drain result and authoritative persisted state |
 | Browser IDE runtime | REQ-IDE-006/007/008/021/022 | host, OpenVSCode package, agent-sidebar extension | Shared IDE conversation and bounded approval/process behavior |
 | Enterprise interception | [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering) | Worker container-start composition | Interceptor installation before `container.start()` |
+| Managed-resource persistence | [REQ-ENTERPRISE-027](../../sdd/spec/enterprise-mode.md#req-enterprise-027-managed-resource-persistence-enforcement) | lifecycle admission, DO security props, `EgressController` | Exact policy verification before start/signing; container receives only non-authoritative identity |
 
 ---
 

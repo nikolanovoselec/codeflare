@@ -163,6 +163,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | ~~[AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint)~~ | ~~Define delivery review and joint completion~~ | [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) retains automatic delivery while replacing clone-local completion and durable recovery with user-scoped markers and ephemeral rounds. | Agents, Architecture, Build / Container | Superseded |
 | [AD143](#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential) | Keep strict R2 signer authority inside the user's bucket | Strict interception re-signs only the session's exact bucket with its scoped credential and never falls back to deployment-wide R2 authority. | Architecture, Security | Active |
 | [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) | Persist exact-head review completion per user | Pi and Claude use R2-synced immutable exact-head markers, automatic delivery, explicit non-delivery consent, and ephemeral rounds without recovering partial work. | Agents, Architecture, Storage | Active |
+| [AD145](#ad145-active-managed-resource-policy-supersedes-provenance-ownership) | Enforce active managed-resource policy before scoped R2 signing | Canonical release-derived paths remain immutable at the Worker boundary; provenance ownership still governs paths outside the active policy. | Architecture, Security, Storage | Active |
 ---
 
 ## Decisions
@@ -4000,5 +4001,25 @@ After the root publishes canonical triage, FIX handling revalidates the exact id
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::writeCompletion -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
+
+---
+
+### AD145: Active managed-resource policy supersedes provenance ownership
+
+**Category:** Architecture, Security, Storage
+
+**Status:** Accepted (2026-08-27). Supersedes [AD118](#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on) only for exact paths and exclusive roots covered by the active applied policy.
+
+**Context:** AD118 deliberately transferred ownership when a user rewrite dropped seed provenance. Enterprise administrators now need signed managed resources to remain authoritative without preventing personal resources outside the managed inventory.
+
+**Decision:** Derive one canonical `.codeflare/managed-paths.json` from the verified active release, signed retirements, fixed Codeflare paths, and the normalized `mutable | immutable | exclusive` mode. Trusted reconciliation writes and verifies it in the exact user bucket and stamps its digest last. Protected sessions and Storage mutations verify that identity. `EgressController` classifies every own-R2 mutation immediately before signing with the user's scoped credential; protected exact paths and exclusive roots return S3 denial. Container-restored policy generates rclone exclusions only and grants no authority.
+
+**Consequences:** Protected files cannot become user-owned by dropping metadata, retired paths cannot be recreated, and exclusive resource roots cannot persist personal additions. Mutable mode and personal paths outside active coverage retain AD118 ownership behavior. Policy uncertainty blocks mutation or session admission. No policy database, KV distribution, deployment-wide signer, queue, or Durable Object persistence exists.
+
+**Related REQs:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-resource-persistence-policy), [REQ-STOR-028](../../sdd/spec/storage.md#req-stor-028-canonical-managed-resource-persistence-policy), [REQ-ENTERPRISE-027](../../sdd/spec/enterprise-mode.md#req-enterprise-027-managed-resource-persistence-enforcement).
+
+<!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy -->
+<!-- @impl: src/egress-controller.ts::EgressController -->
+<!-- @impl: entrypoint.sh::prepare_managed_resource_filter -->
 
 ---

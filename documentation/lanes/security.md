@@ -330,6 +330,10 @@ Exhaustive SDD status remains in `sdd/spec/security.md` and related domains. Par
 <!-- @test: host/__tests__/trivy-exception-gate.test.js (rejects p7zip RCE findings without a reviewed exception) -->
 <!-- @test: host/__tests__/trivy-exception-gate.test.js (rejects retired Pi findings after the runtime upgrade) -->
 
+## Immutable Managed Resources
+
+Enterprise protected modes enforce persistence at `EgressController`, immediately before the exact user-bucket request is signed with its scoped credential. The Worker verifies `.codeflare/managed-paths.json` against the applied release, mode, and SHA-256 digest; exact managed and retired paths are denied in `immutable`, and derived resource roots are additionally denied in `exclusive`. Storage API mutations use the same verified policy. Container policy copies and rclone filters are liveness aids only and cannot authorize writes. See [REQ-ENTERPRISE-027](../../sdd/spec/enterprise-mode.md#req-enterprise-027-managed-resource-persistence-enforcement) and [AD145](../decisions/README.md#ad145-active-managed-resource-policy-supersedes-provenance-ownership).
+
 <a id="adding-a-new-rate-limiter"></a>
 <a id="admin-elevation-via-access-group-enterprise"></a>
 <a id="browser-ide-native-agents-req-ide-005-req-ide-006-req-ide-007-req-ide-008-req-ide-009-req-ide-010-req-ide-011-req-ide-013-req-ide-014-req-ide-017-req-ide-019-req-ide-020-req-ide-021-req-ide-022"></a>

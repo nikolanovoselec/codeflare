@@ -13,6 +13,8 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Editor activity | Any message sent from the Browser IDE to its session; each message refreshes the input-based idle timer without inspecting its content. |
 | Session Mode | Standard (default) or Pro (advanced). Controls which preseed configs are deployed. |
 | Preseed | Pre-configured rules, skills, agents, commands, and plugins deployed to a container on start. |
+| Managed Resource Policy | Enterprise persistence mode for verified managed releases: `mutable`, `immutable` (exact managed/retired paths protected while personal resources persist), or `exclusive` (governed resource roots additionally reject personal persistence). |
+| Managed Path Policy | Canonical `.codeflare/managed-paths.json` in the exact user bucket, derived and stamped by trusted reconciliation. Its digest/release/mode identity authorizes Worker enforcement; a container copy is non-authoritative filter input. |
 | Tier | Subscription level (blocked, pending, free, trial, standard, advanced, max, unlimited/Custom). |
 | Durable Object (DO) | Cloudflare's stateful compute primitive. Container DO manages per-session state; Timekeeper DO tracks per-user usage. |
 | KV | Cloudflare Workers KV - globally distributed key-value store for session metadata, user records, and preferences. |

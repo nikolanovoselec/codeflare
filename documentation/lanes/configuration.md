@@ -520,6 +520,7 @@ Exhaustive status belongs to the active SDD domains. Configuration tables carry 
 |---|---|---|---|
 | Default Worker/container settings | `wrangler.toml`, deploy workflow, Worker types | Setup, Operations, Session Lifecycle | [Deployment](deployment.md), [Container](container.md) |
 | Setup KV and mode overlays | setup key catalogue and setup routes | Setup, Enterprise, Authentication | [Authentication](authentication.md), [User Provisioning](user-provisioning.md) |
+| Managed-resource policy | Enterprise Setup, applied stamp, canonical user-bucket policy | Setup, Enterprise, Storage | [Security](security.md), [Storage & Sync](storage-and-sync.md) |
 | Provider clients and user credentials | setup/provider/deploy-key routes | Agents, GitHub, Browser Run, Security | [Security](security.md), [API Reference](api-reference.md) |
 | Resource/capacity settings | deployment workflow and tier resolver | Operations, Subscription | [CI/CD](ci-cd.md), [Billing](billing.md) |
 | Graphify/tooling | preseed manifests and runtime configuration | Agents, Memory | [Preseed](preseed.md), [Vault](vault.md) |

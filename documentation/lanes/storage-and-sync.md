@@ -271,6 +271,10 @@ return an error response (4xx) rather than any listing.
 
 ---
 
+## Managed-Resource Sync Policy
+
+Protected managed environments restore one canonical `.codeflare/managed-paths.json` before baseline. The entrypoint verifies its exact digest, release, mode, schema, and canonical bytes, then excludes managed exact paths from every bisync. Exclusive mode also excludes each governed resource root. Mutable transition removes stale local policy/filter state before baseline. These filters keep normal bisync convergent; Worker-side mutation denial remains authoritative if root tampers with them. Exclusive enablement is destructive for personal objects inside governed roots and must reconcile only while the user's sessions are stopped.
+
 <a id="startup--steady-state-sync-performance"></a>
 ## Performance Characteristics
 
