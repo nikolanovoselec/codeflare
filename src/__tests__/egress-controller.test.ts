@@ -1,5 +1,5 @@
 /**
- * REQ-ENTERPRISE-016 / REQ-ENTERPRISE-023: EgressController — strict Gateway egress proxy.
+ * REQ-ENTERPRISE-016 / REQ-ENTERPRISE-023 / REQ-ENTERPRISE-026: EgressController — strict Gateway egress proxy.
  *
  * A WorkerEntrypoint the container DO wires as a catch-all when the strict-egress toggle is
  * ON (the DO passes account, bucket, scoped R2 credentials, and strict state via ctx.props,
@@ -86,7 +86,7 @@ describe('REQ-ENTERPRISE-016: EgressController fail-closed guards', () => {
   });
 });
 
-describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (own account direct, all else Gateway) / REQ-ENTERPRISE-023', () => {
+describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (own account direct, all else Gateway) / REQ-ENTERPRISE-026', () => {
   it('forwards THIS account R2 DIRECT via global fetch — never env.EGRESS', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('r2', { status: 200 }));
     const { controller, egressFetch } = makeController({}, { accountId: 'acc' });

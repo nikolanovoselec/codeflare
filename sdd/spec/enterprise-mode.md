@@ -577,7 +577,6 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 4. **Container holds no real R2 key (strict only).** When strict is active, a non-secret placeholder R2 access key/secret is emitted into the container instead of the real key. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/lib/constants.ts::ENTERPRISE_R2_KEY_PLACEHOLDER --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 5. Before any upstream send, the strict-egress controller rejects loopback, RFC 1918/private, link-local (including `169.254.169.254`), unspecified, and IPv4-mapped prohibited IPv6 targets with `403 EGRESS_TARGET_BLOCKED` and performs no fetch. Public IPv6 literals remain permitted. <!-- @impl: src/lib/controller-egress.ts::isDisallowedEgressHost --> <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016: isDisallowedEgressHost SSRF guard) -->
 6. Unbound strict egress makes direct-internet and GitHub paths return `503 EGRESS_UNAVAILABLE` without fallback; this account's own platform destinations and LLM routing remain direct and independent of the strict-egress binding. <!-- @impl: src/lib/controller-egress.ts::controllerFetch --> <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016: controllerFetch transport selection) -->
-7. Own-account R2 accepts only the session's bound bucket and re-signs it with that bucket's scoped credential. Another bucket or missing scoped credentials fail before any send; deployment-wide credentials are never used. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @impl: src/container/container-interception.ts::strictEgress --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (own account direct, all else Gateway) / REQ-ENTERPRISE-023) -->
 
 **Constraints:**
 
@@ -587,9 +586,38 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Priority:** P2
 
-**Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-SEC-003](security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket)
+**Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-026](#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)
 
 **Verification:** Automated test ([controller-egress resolver/transport/SSRF/account-scoped](../../src/__tests__/lib/controller-egress.test.ts), [EgressController transparent proxy + fail-closed + account-scoped passthrough + WebSocket](../../src/__tests__/egress-controller.test.ts), [container catch-all wiring + account-id prop](../../src/__tests__/container/index.test.ts), and [container env vars placeholder R2 key](../../src/__tests__/container/container-env.test.ts).)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-026: Strict R2 Interception Preserves User-Bucket Authority
+
+**Intent:** Strict egress re-signs own-account R2 traffic only for the session's bound bucket and only with that user's scoped credential, preserving the per-user storage boundary outside the root container.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. Path-style and virtual-hosted own-account R2 requests are accepted only when they identify the session's exact bound bucket. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (accepts the bound bucket in virtual-hosted R2 form and signs with its scoped key) --> <!-- @test: src/__tests__/egress-controller.test.ts (re-signs the bound bucket with its user-scoped key, never the deployment-wide key, while preserving streaming and SSE-C) -->
+2. A request for another path-style or virtual-hosted bucket returns `403 EGRESS_R2_BUCKET_FORBIDDEN` before signing or forwarding. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (rejects another virtual-hosted bucket in the same account before signing or forwarding) --> <!-- @test: src/__tests__/egress-controller.test.ts (rejects another path-style bucket in the same account before signing or forwarding) -->
+3. An accepted request is re-signed only with the session's bucket-scoped credential; the placeholder signature is discarded, deployment-wide R2 credentials are never used, and streaming payload hashes plus SSE-C headers remain intact. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @impl: src/container/container-interception.ts::strictEgress --> <!-- @test: src/__tests__/egress-controller.test.ts (re-signs the bound bucket with its user-scoped key, never the deployment-wide key, while preserving streaming and SSE-C) -->
+4. Missing scoped credentials return `503 EGRESS_R2_NOT_CONFIGURED` before any upstream send and never fall back to deployment-wide credentials. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (fails closed when scoped credentials are missing instead of falling back to deployment credentials) -->
+5. A validated restart payload restores the complete scoped credential pair atomically after a Durable Object wake; invalid or partial replacement credentials leave the prior pair unchanged. <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @test: src/__tests__/container/container-router.test.ts (restores scoped R2 credentials from the validated restart payload after a Durable Object wake) --> <!-- @test: src/__tests__/container/container-router.test.ts (rejects invalid restart credentials without replacing the in-memory scoped pair) --> <!-- @test: src/__tests__/container/container-router.test.ts (rejects a partial restart credential pair without mutating prior credentials) -->
+
+**Constraints:**
+
+- Scoped credentials and the bound bucket remain Worker-side interceptor props; the strict container receives placeholders only.
+- Governed Mode controls SSE-C behavior, not R2 signer authority.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-SEC-003](security.md#req-sec-003-per-user-r2-tokens-scoped-to-user-bucket)
+
+**Verification:** Automated test ([bound-bucket authorization and scoped signing](../../src/__tests__/egress-controller.test.ts) and [atomic restart restoration](../../src/__tests__/container/container-router.test.ts).)
 
 **Status:** Implemented
 

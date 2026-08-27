@@ -152,7 +152,7 @@ The registry below keeps one stable evidence-bearing dossier per runtime compone
 
 **Source:** `src/egress-controller.ts`, `src/lib/controller-egress.ts`, `src/container/container-interception.ts`.
 
-**Requirements:** [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023](../../sdd/spec/enterprise-mode.md#req-enterprise-023-strict-gateway-egress-controller-transport)
+**Requirements:** [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023](../../sdd/spec/enterprise-mode.md#req-enterprise-023-strict-gateway-egress-controller-transport), [REQ-ENTERPRISE-026](../../sdd/spec/enterprise-mode.md#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority)
 
 **Decisions:** [AD85](../decisions/README.md#ad85-controller-mediated-cloudflare-gateway-egress-as-a-mandatory-web-boundary-wizard-toggled-default-off), [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network), [AD87](../decisions/README.md#ad87-egresscontroller-re-signs-own-account-r2-container-holds-a-placeholder-key-bridges-websocket-upgrades-and-resolves-strict-via-props), [AD143](../decisions/README.md#ad143-strict-r2-interception-signs-only-with-the-bound-users-scoped-credential)
 
@@ -606,7 +606,7 @@ sequenceDiagram
 
 Host-specific interceptors remain responsible for credential stamping. The catch-all controller is transparent except for own-account R2 re-signing. Strict mode never falls back to unrestricted fetch when the required egress binding is absent.
 
-**Requirements:** [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023](../../sdd/spec/enterprise-mode.md#req-enterprise-023-strict-gateway-egress-controller-transport), [REQ-ENTERPRISE-024](../../sdd/spec/enterprise-mode.md#req-enterprise-024-strict-gateway-egress-host-specific-interceptor-routing)
+**Requirements:** [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023](../../sdd/spec/enterprise-mode.md#req-enterprise-023-strict-gateway-egress-controller-transport), [REQ-ENTERPRISE-024](../../sdd/spec/enterprise-mode.md#req-enterprise-024-strict-gateway-egress-host-specific-interceptor-routing), [REQ-ENTERPRISE-026](../../sdd/spec/enterprise-mode.md#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority)
 
 ### Pi Memory and Vault Extraction Data Flow
 
