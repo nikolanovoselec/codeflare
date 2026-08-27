@@ -90,7 +90,7 @@ describe('Managed environment Setup section', () => {
     expect(onEnabledChange).toHaveBeenCalledWith(true);
   });
 
-  it('REQ-SETUP-013 AC7: renders nested immutable resource controls', async () => {
+  it('REQ-SETUP-015 AC1: renders nested immutable resource controls', async () => {
     const onImmutableResourcesChange = vi.fn();
     const onDisableUserCreatedResourcesChange = vi.fn();
     const view = render(() => (

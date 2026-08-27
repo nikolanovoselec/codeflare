@@ -31,7 +31,7 @@ vi.mock('../../lib/r2-admin', () => ({
 }));
 
 describe('managed resource policy selection', () => {
-  it('REQ-SETUP-013 AC8: resolves omitted managed resource policy from stored state', () => {
+  it('REQ-SETUP-015 AC3: resolves omitted managed resource policy from stored state', () => {
     expect(resolveManagedResourcePolicy({ enabled: true }, 'exclusive')).toBe('exclusive');
     expect(resolveManagedResourcePolicy({ enabled: true, immutableResources: true }, 'exclusive')).toBe('exclusive');
     expect(resolveManagedResourcePolicy({ enabled: true, immutableResources: true, disableUserCreatedResources: false }, 'exclusive')).toBe('immutable');
@@ -47,7 +47,7 @@ describe('managed resource policy selection', () => {
     }, 'mutable')).toThrow(/requires Immutable Resources/);
   });
 
-  it('REQ-SETUP-013 AC11: policy changes preserve managed trust fingerprints', async () => {
+  it('REQ-SETUP-015 AC7: policy changes preserve managed trust fingerprints', async () => {
     const repositoryFingerprint = await getManagedEnvironmentConfigFingerprint(123456, 'ab'.repeat(32));
     const immutableFingerprint = await getManagedEnvironmentConfigFingerprint(123456, 'ab'.repeat(32));
     const exclusiveFingerprint = await getManagedEnvironmentConfigFingerprint(123456, 'ab'.repeat(32));

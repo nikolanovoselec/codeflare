@@ -99,7 +99,7 @@ function findManagedHome(path: string): string | undefined {
   return MANAGED_HOMES.find(home => path.startsWith(home));
 }
 
-/** @impl REQ-STOR-028 AC2, AC3 */
+/** @impl REQ-STOR-028 AC3, AC5 */
 function deriveManagedResourceRoots(paths: Iterable<string>): string[] {
   const roots = new Set<string>();
   for (const path of paths) {
@@ -117,7 +117,7 @@ function deriveManagedResourceRoots(paths: Iterable<string>): string[] {
   return [...roots].sort(compareStrings);
 }
 
-/** @impl REQ-STOR-028 AC1 */
+/** @impl REQ-STOR-028 AC1, AC2 */
 export async function buildManagedR2Policy(
   releaseDigest: string,
   release: ManagedReleaseIndex,
@@ -162,7 +162,7 @@ function assertExpectedIdentity(
   if (policy.resourcePolicy !== input.expectedPolicy) throw new Error('Managed policy mode does not match applied state');
 }
 
-/** @impl REQ-STOR-028 AC4 */
+/** @impl REQ-STOR-028 AC6, AC7 */
 export async function readVerifiedManagedR2Policy(input: ReadVerifiedManagedR2PolicyInput): Promise<VerifiedManagedR2Policy> {
   if (!/^[0-9a-f]{64}$/.test(input.releaseDigest)) throw new Error('Managed policy expected release digest is invalid');
   if (!/^[0-9a-f]{64}$/.test(input.pathsDigest)) throw new Error('Managed policy expected paths digest is invalid');
@@ -202,7 +202,7 @@ export async function readVerifiedManagedR2Policy(input: ReadVerifiedManagedR2Po
   return verified;
 }
 
-/** @impl REQ-STOR-028 AC2 */
+/** @impl REQ-STOR-028 AC4 */
 export function isManagedMutationProtected(policy: ManagedR2Policy, key: string): boolean {
   if (policy.paths.includes(key)) return true;
   return policy.resourceRoots.some(root => key === root.slice(0, -1) || key.startsWith(root));
@@ -280,7 +280,7 @@ function parseDeleteKeys(xml: string): string[] | null {
   return keys;
 }
 
-/** @impl REQ-ENTERPRISE-027 */
+/** @impl REQ-ENTERPRISE-028 */
 export async function classifyManagedR2Request(input: {
   request: Request;
   accountId: string;

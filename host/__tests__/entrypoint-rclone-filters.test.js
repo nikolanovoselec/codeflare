@@ -335,7 +335,7 @@ function extractManagedResourceFilterFunction() {
   return src.slice(start, end);
 }
 
-describe('REQ-STOR-028 managed-resource rclone filter', () => {
+describe('REQ-STOR-029 managed-resource rclone filter', () => {
   const functionSource = extractManagedResourceFilterFunction();
 
   it('validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths', () => {

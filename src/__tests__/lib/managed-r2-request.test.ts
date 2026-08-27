@@ -24,7 +24,7 @@ async function classify(method: string, target: string, init: RequestInit = {}) 
   });
 }
 
-describe('REQ-ENTERPRISE-027 managed R2 request classifier', () => {
+describe('REQ-ENTERPRISE-028 managed R2 request classifier', () => {
   it('allows reads and listing while denying cross-bucket targets', async () => {
     expect((await classify('GET', 'https://account.r2.cloudflarestorage.com/user-bucket?list-type=2')).action).toBe('allow');
     expect((await classify('HEAD', 'https://user-bucket.account.r2.cloudflarestorage.com/.claude/skills/company/SKILL.md')).action).toBe('allow');

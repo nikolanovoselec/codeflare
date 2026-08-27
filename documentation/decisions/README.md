@@ -4016,7 +4016,7 @@ After the root publishes canonical triage, FIX handling revalidates the exact id
 
 **Consequences:** Protected files cannot become user-owned by dropping metadata, retired paths cannot be recreated, and exclusive resource roots cannot persist personal additions. Mutable mode and personal paths outside active coverage retain AD118 ownership behavior. Policy uncertainty blocks mutation or session admission. No policy database, KV distribution, deployment-wide signer, queue, or Durable Object persistence exists.
 
-**Related REQs:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-environment-configuration), [REQ-STOR-028](../../sdd/spec/storage.md#req-stor-028-canonical-managed-resource-persistence-policy), [REQ-ENTERPRISE-027](../../sdd/spec/enterprise-mode.md#req-enterprise-027-managed-resource-persistence-enforcement).
+**Related REQs:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-environment-configuration), [REQ-SETUP-015](../../sdd/spec/setup.md#req-setup-015-managed-resource-persistence-policy-setup), [REQ-STOR-028](../../sdd/spec/storage.md#req-stor-028-canonical-managed-resource-persistence-policy), [REQ-STOR-029](../../sdd/spec/storage.md#req-stor-029-managed-resource-reconciliation-and-sync), [REQ-ENTERPRISE-027](../../sdd/spec/enterprise-mode.md#req-enterprise-027-managed-resource-admission-and-transport), [REQ-ENTERPRISE-028](../../sdd/spec/enterprise-mode.md#req-enterprise-028-managed-resource-mutation-enforcement).
 
 <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy -->
 <!-- @impl: src/egress-controller.ts::EgressController -->

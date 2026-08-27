@@ -16,6 +16,7 @@ R2 persistent storage, rclone bisync synchronization, sync modes, storage quotas
 - [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
 - [File Browser](#file-browser-req-stor-016)
 - [Requirement and Source Map](#requirement-and-source-map)
+- [Managed-Resource Sync Policy](#managed-resource-sync-policy-req-stor-029)
 - [Performance Characteristics](#performance-characteristics)
 - [Encryption-Regime Alias](#encryption-regime-alias)
 - [Related Documentation](#related-documentation)
@@ -271,7 +272,7 @@ return an error response (4xx) rather than any listing.
 
 ---
 
-## Managed-Resource Sync Policy
+## Managed-Resource Sync Policy ([REQ-STOR-029](../../sdd/spec/storage.md#req-stor-029-managed-resource-reconciliation-and-sync))
 
 Protected managed environments restore one canonical `.codeflare/managed-paths.json` before baseline. The entrypoint verifies its exact digest, release, mode, schema, and canonical bytes, then excludes managed exact paths from every bisync. Exclusive mode also excludes each governed resource root. Mutable transition removes stale local policy/filter state before baseline. These filters keep normal bisync convergent; Worker-side mutation denial remains authoritative if root tampers with them. Exclusive enablement is destructive for personal objects inside governed roots and must reconcile only while the user's sessions are stopped.
 

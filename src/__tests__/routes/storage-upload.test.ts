@@ -100,7 +100,7 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
       expect(opts.method).toBe('PUT');
     });
 
-    it('REQ-ENTERPRISE-027: denies protected upload before the user-object R2 request', async () => {
+    it('REQ-ENTERPRISE-028: denies protected upload before the user-object R2 request', async () => {
       await configureProtectedPolicy();
       const app = createApp();
 
@@ -118,7 +118,7 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
       ['/upload/part', { key: '.codeflare/managed-paths.json', uploadId: 'u', partNumber: 1, content: btoa('part') }],
       ['/upload/complete', { key: '.codeflare/managed-paths.json', uploadId: 'u', parts: [{ partNumber: 1, etag: 'abc' }] }],
       ['/upload/abort', { key: '.codeflare/managed-paths.json', uploadId: 'u' }],
-    ])('REQ-ENTERPRISE-027: denies protected multipart mutation at %s before user R2', async (path, body) => {
+    ])('REQ-ENTERPRISE-028: denies protected multipart mutation at %s before user R2', async (path, body) => {
       await configureProtectedPolicy();
       const app = createApp();
       const res = await app.request(path, {
