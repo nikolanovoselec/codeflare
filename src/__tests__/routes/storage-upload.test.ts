@@ -4,6 +4,7 @@ import { createMockR2Config } from '../helpers/mock-factories';
 import { createTestApp } from '../helpers/test-app';
 
 const mockFetch = vi.fn();
+const managedState = vi.hoisted(() => ({ snapshot: { configured: false, enabled: false } as any }));
 
 vi.mock('../../lib/r2-client', () => ({
   createR2Client: vi.fn(() => ({ fetch: mockFetch })),
@@ -16,6 +17,10 @@ vi.mock('../../lib/r2-client', () => ({
 vi.mock('../../lib/r2-config', () => ({
   getR2Config: vi.fn().mockResolvedValue(createMockR2Config({ accountId: 'test' })),
 }));
+vi.mock('../../lib/remote-curation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/remote-curation')>()),
+  readManagedEnvironmentSnapshot: vi.fn(async () => managedState.snapshot),
+}));
 
 import uploadRoutes from '../../routes/storage/upload';
 
@@ -27,6 +32,7 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
   beforeEach(() => {
     mockKV = createMockKV();
     mockFetch.mockReset();
+    managedState.snapshot = { configured: false, enabled: false };
   });
 
   afterEach(() => {
@@ -69,6 +75,41 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
       const [url, opts] = mockFetch.mock.calls[0];
       expect(url).toContain('workspace/file.ts');
       expect(opts.method).toBe('PUT');
+    });
+
+    it('REQ-ENTERPRISE-027: denies protected upload before the user-object R2 request', async () => {
+      const releaseDigest = 'd'.repeat(64);
+      const policyValue = {
+        schemaVersion: 1, releaseDigest, resourcePolicy: 'immutable',
+        paths: ['.codeflare/managed-paths.json'], resourceRoots: [],
+      };
+      const policyBytes = new TextEncoder().encode(`${JSON.stringify(policyValue)}\n`);
+      const pathsDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', policyBytes)))
+        .map(byte => byte.toString(16).padStart(2, '0')).join('');
+      managedState.snapshot = {
+        configured: true,
+        enabled: true,
+        config: { resourcePolicy: 'immutable' },
+        active: { digest: releaseDigest, sequence: 1 },
+      };
+      mockKV._set('user-prefs:test-bucket', {
+        managedEnvironmentApplied: {
+          digest: releaseDigest, sequence: 1, mode: 'default', managedExtensionsDigest: 'e'.repeat(64),
+          resourcePolicy: 'immutable', managedPathsDigest: pathsDigest, appliedAt: '2026-01-01T00:00:00.000Z',
+        },
+      });
+      mockFetch.mockResolvedValueOnce(new Response(policyBytes, { status: 200 }));
+      const app = createApp();
+
+      const res = await app.request('/upload', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: '.codeflare/managed-paths.json', content: btoa('replacement') }),
+      });
+
+      expect(res.status).toBe(403);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(String(mockFetch.mock.calls[0][0])).toContain('/.codeflare/managed-paths.json');
+      expect(mockFetch.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
     });
 
     it('rejects key with path traversal (..)', async () => {
