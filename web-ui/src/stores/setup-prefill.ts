@@ -25,6 +25,8 @@ function applyProviderPrefill(s: SetupState, prefill: SetupPrefill): void {
   s.managedEnvironmentEnabled = managed.enabled;
   s.managedEnvironmentConfigured = managed.configured;
   s.managedEnvironmentTouched = false;
+  s.managedEnvironmentImmutableResources = managed.immutableResources;
+  s.managedEnvironmentDisableUserCreatedResources = managed.disableUserCreatedResources;
   s.managedEnvironmentRepository = managed.repository;
   s.managedEnvironmentPersonalAccessToken = '';
   s.managedEnvironmentPersonalAccessTokenSet = managed.personalAccessTokenSet;

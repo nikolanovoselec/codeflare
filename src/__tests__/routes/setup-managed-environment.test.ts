@@ -5,12 +5,21 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Env } from '../../types';
 import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
+import { SETUP_KEYS } from '../../lib/kv-keys';
 
 const mocks = vi.hoisted(() => ({
   configureManagedEnvironment: vi.fn(async () => ({
     enabled: true,
     active: { sequence: 1, digest: 'd'.repeat(64) },
   })),
+  readManagedEnvironmentSnapshot: vi.fn(async (): Promise<Record<string, unknown>> => ({ configured: false, enabled: false })),
+  resolveManagedResourcePolicy: vi.fn((request: { enabled: boolean; immutableResources?: boolean; disableUserCreatedResources?: boolean }, stored?: 'mutable' | 'immutable' | 'exclusive') => {
+    if (!request.enabled) return 'mutable';
+    const immutable = request.immutableResources ?? (stored === 'immutable' || stored === 'exclusive');
+    const exclusive = request.disableUserCreatedResources ?? (stored === 'exclusive');
+    if (exclusive && !immutable) throw new Error('Disable User Created Resources requires Immutable Resources');
+    return exclusive ? 'exclusive' : immutable ? 'immutable' : 'mutable';
+  }),
   getManagedEnvironmentPrefill: vi.fn(async () => ({
     enabled: true,
     configured: true,
@@ -29,6 +38,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../lib/remote-curation', () => ({
   configureManagedEnvironment: mocks.configureManagedEnvironment,
   getManagedEnvironmentPrefill: mocks.getManagedEnvironmentPrefill,
+  readManagedEnvironmentSnapshot: mocks.readManagedEnvironmentSnapshot,
+  resolveManagedResourcePolicy: mocks.resolveManagedResourcePolicy,
 }));
 vi.mock('../../routes/setup/account', () => ({
   handleGetAccount: vi.fn(async () => 'account-123'),
@@ -63,6 +74,7 @@ describe('REQ-SETUP-013 managed environment Setup boundary', () => {
   beforeEach(() => {
     kv = createMockKV();
     vi.clearAllMocks();
+    mocks.readManagedEnvironmentSnapshot.mockResolvedValue({ configured: false, enabled: false });
   });
 
   function app(overrides: Partial<Env> = {}) {
@@ -134,6 +146,102 @@ describe('REQ-SETUP-013 managed environment Setup boundary', () => {
       }),
     });
 
+    expect(response.status).toBe(400);
+    expect(mocks.configureManagedEnvironment).not.toHaveBeenCalled();
+  });
+
+  it('REQ-SETUP-013 AC9: rejects invalid or unavailable protected policy before streaming', async () => {
+    const base = {
+      customDomain: 'code.example.com',
+      allowedUsers: ['admin@example.com'],
+      adminUsers: ['admin@example.com'],
+      dynamicRoutes: ['development'],
+      managedEnvironment: { ...managedEnvironment, immutableResources: true, disableUserCreatedResources: false },
+      strictGatewayEgress: true,
+    };
+
+    const outsideEnterprise = await app().request('https://codeflare-test.example.com/api/setup/configure', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(base),
+    });
+    expect(outsideEnterprise.status).toBe(400);
+
+    const withoutBinding = await app({ ENTERPRISE_MODE: 'active' }).request('https://codeflare-test.example.com/api/setup/configure', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(base),
+    });
+    expect(withoutBinding.status).toBe(400);
+
+    const withoutStrict = await app({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher }).request('https://codeflare-test.example.com/api/setup/configure', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...base, strictGatewayEgress: false }),
+    });
+    expect(withoutStrict.status).toBe(400);
+    expect(mocks.configureManagedEnvironment).not.toHaveBeenCalled();
+  });
+
+  it('REQ-SETUP-013 AC10: policy changes fail closed on active or unreadable sessions', async () => {
+    const body = {
+      customDomain: 'code.example.com', allowedUsers: ['admin@example.com'], adminUsers: ['admin@example.com'],
+      dynamicRoutes: ['development'], strictGatewayEgress: true,
+      managedEnvironment: { ...managedEnvironment, immutableResources: true, disableUserCreatedResources: false },
+    };
+    kv._set('session:bucket:running', { status: 'running' }, { s: 'r' });
+    const active = await app({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher }).request('https://codeflare-test.example.com/api/setup/configure', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    expect(active.status).toBe(400);
+    expect(mocks.configureManagedEnvironment).not.toHaveBeenCalled();
+
+    kv._clear();
+    kv.list.mockRejectedValueOnce(new Error('KV list unavailable'));
+    const unreadable = await app({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher }).request('https://codeflare-test.example.com/api/setup/configure', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    expect(unreadable.status).toBe(400);
+    expect(mocks.configureManagedEnvironment).not.toHaveBeenCalled();
+  });
+
+  it('uses stored Strict Gateway Egress when the request omits that field', async () => {
+    kv._store.set(SETUP_KEYS.STRICT_EGRESS, 'active');
+    const response = await app({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher }).request('https://codeflare-test.example.com/api/setup/configure', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        customDomain: 'code.example.com', allowedUsers: ['admin@example.com'], adminUsers: ['admin@example.com'],
+        dynamicRoutes: ['development'],
+        managedEnvironment: { ...managedEnvironment, immutableResources: true, disableUserCreatedResources: false },
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect((await terminal(response)).success).toBe(true);
+  });
+
+  it('does not scan sessions when effective policy is unchanged', async () => {
+    mocks.readManagedEnvironmentSnapshot.mockResolvedValue({
+      configured: true,
+      enabled: true,
+      config: { resourcePolicy: 'immutable' },
+    });
+    const response = await app({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher }).request('https://codeflare-test.example.com/api/setup/configure', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        customDomain: 'code.example.com', allowedUsers: ['admin@example.com'], adminUsers: ['admin@example.com'],
+        dynamicRoutes: ['development'], strictGatewayEgress: true,
+        managedEnvironment: { ...managedEnvironment, immutableResources: true, disableUserCreatedResources: false },
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(kv.list).not.toHaveBeenCalled();
+  });
+
+  it('REQ-SETUP-013 AC12: rejects applied and interceptor state injection', async () => {
+    const response = await app({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher }).request('https://codeflare-test.example.com/api/setup/configure', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        customDomain: 'code.example.com', allowedUsers: ['admin@example.com'], adminUsers: ['admin@example.com'],
+        dynamicRoutes: ['development'], strictGatewayEgress: true,
+        managedEnvironment: {
+          ...managedEnvironment,
+          immutableResources: true,
+          managedEnvironmentApplied: { digest: 'a'.repeat(64) },
+          remoteCurationPathsDigest: 'b'.repeat(64),
+        },
+      }),
+    });
     expect(response.status).toBe(400);
     expect(mocks.configureManagedEnvironment).not.toHaveBeenCalled();
   });

@@ -31,6 +31,8 @@ export function buildConfigurePayload(state: SetupState): Record<string, unknown
         repository: state.managedEnvironmentRepository,
         personalAccessToken: state.managedEnvironmentPersonalAccessToken,
         publicKey: state.managedEnvironmentPublicKey,
+        immutableResources: state.managedEnvironmentImmutableResources,
+        disableUserCreatedResources: state.managedEnvironmentDisableUserCreatedResources,
       } : { enabled: false },
     } : {}),
     // Enterprise-only fields; omitted entirely for other modes so their

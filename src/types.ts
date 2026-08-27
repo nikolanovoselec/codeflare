@@ -215,6 +215,9 @@ export type AgentType = z.infer<typeof AgentTypeSchema>;
 export const SessionModeSchema = z.enum(['default', 'advanced']);
 export type SessionMode = z.infer<typeof SessionModeSchema>;
 
+export const ManagedResourcePolicySchema = z.enum(['mutable', 'immutable', 'exclusive']);
+export type ManagedResourcePolicy = z.infer<typeof ManagedResourcePolicySchema>;
+
 export const SessionWorkspaceSchema = z.enum(['terminal', 'vscode']);
 export type SessionWorkspace = z.infer<typeof SessionWorkspaceSchema>;
 
@@ -311,6 +314,8 @@ export interface UserPreferences {
     managedExtensionsDigest?: string;
     sequence: number;
     mode: SessionMode;
+    resourcePolicy?: ManagedResourcePolicy;
+    managedPathsDigest?: string;
     appliedAt: string;
   };
   /**

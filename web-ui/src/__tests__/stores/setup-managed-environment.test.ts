@@ -53,6 +53,8 @@ function state(): SetupState {
     managedEnvironmentEnabled: false,
     managedEnvironmentConfigured: false,
     managedEnvironmentTouched: false,
+    managedEnvironmentImmutableResources: false,
+    managedEnvironmentDisableUserCreatedResources: false,
     managedEnvironmentRepository: '',
     managedEnvironmentPersonalAccessToken: '',
     managedEnvironmentPersonalAccessTokenSet: false,
@@ -81,6 +83,11 @@ describe('managed-environment setup prefill', () => {
     expect(setupStore.managedEnvironmentRepository).toBe('acme/curation');
     expect(setupStore.managedEnvironmentPersonalAccessToken).toBe('github_pat_replacement');
     expect(setupStore.managedEnvironmentPublicKey).toBe('ab'.repeat(32));
+
+    setupStore.setManagedEnvironmentImmutableResources(true);
+    setupStore.setManagedEnvironmentDisableUserCreatedResources(true);
+    expect(setupStore.managedEnvironmentImmutableResources).toBe(true);
+    expect(setupStore.managedEnvironmentDisableUserCreatedResources).toBe(true);
 
     setupStore.setManagedEnvironmentEnabled(false);
     setupStore.setManagedEnvironmentRepository('');
@@ -111,11 +118,49 @@ describe('managed-environment setup prefill', () => {
 
     expect(target.managedEnvironmentEnabled).toBe(true);
     expect(target.managedEnvironmentConfigured).toBe(true);
+    expect(target.managedEnvironmentImmutableResources).toBe(false);
+    expect(target.managedEnvironmentDisableUserCreatedResources).toBe(false);
     expect(target.managedEnvironmentTouched).toBe(false);
     expect(target.managedEnvironmentRepository).toBe('acme/curation');
     expect(target.managedEnvironmentPersonalAccessTokenSet).toBe(true);
     expect(target.managedEnvironmentPersonalAccessToken).toBe('');
     expect(target.managedEnvironmentActiveSequence).toBe(7);
     expect(target.managedEnvironmentFreshness).toBe('fresh');
+  });
+
+  it('REQ-SETUP-013 AC7: clearing immutable resources clears exclusive mode', () => {
+    setupStore.setManagedEnvironmentEnabled(true);
+    setupStore.setManagedEnvironmentImmutableResources(true);
+    setupStore.setManagedEnvironmentDisableUserCreatedResources(true);
+
+    setupStore.setManagedEnvironmentImmutableResources(false);
+
+    expect(setupStore.managedEnvironmentImmutableResources).toBe(false);
+    expect(setupStore.managedEnvironmentDisableUserCreatedResources).toBe(false);
+    setupStore.setManagedEnvironmentEnabled(false);
+  });
+
+  it('hydrates protected policy checkboxes from prefill', () => {
+    const target = state();
+    const prefill = SetupPrefillResponseSchema.parse({
+      adminUsers: [],
+      allowedUsers: [],
+      managedEnvironment: {
+        enabled: true,
+        configured: true,
+        repository: 'acme/curation',
+        personalAccessTokenSet: true,
+        publicKeyFingerprint: '0123456789abcdef',
+        immutableResources: true,
+        disableUserCreatedResources: true,
+        freshness: 'fresh',
+        patExpiryState: 'valid',
+      },
+    });
+
+    applyInitialPrefill(target, prefill);
+
+    expect(target.managedEnvironmentImmutableResources).toBe(true);
+    expect(target.managedEnvironmentDisableUserCreatedResources).toBe(true);
   });
 });

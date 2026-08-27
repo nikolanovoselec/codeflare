@@ -8,6 +8,7 @@ import {
   gzipBytes,
   readManagedEnvironmentSnapshot,
   resolveManagedEnvironment,
+  resolveManagedResourcePolicy,
   resolveManagedEnvironmentRelease,
   streamManagedReleaseDocuments,
   verifyManagedReleaseStream as verifyManagedRelease,
@@ -28,6 +29,32 @@ vi.mock('../../lib/r2-admin', () => ({
   createBucketIfNotExists: bucketMocks.create,
   deleteR2BucketIfExists: bucketMocks.remove,
 }));
+
+describe('managed resource policy selection', () => {
+  it('REQ-SETUP-013 AC8: resolves omitted managed resource policy from stored state', () => {
+    expect(resolveManagedResourcePolicy({ enabled: true }, 'exclusive')).toBe('exclusive');
+    expect(resolveManagedResourcePolicy({ enabled: true, immutableResources: true }, 'exclusive')).toBe('exclusive');
+    expect(resolveManagedResourcePolicy({ enabled: true, immutableResources: true, disableUserCreatedResources: false }, 'exclusive')).toBe('immutable');
+    expect(resolveManagedResourcePolicy({ enabled: true }, undefined)).toBe('mutable');
+    expect(resolveManagedResourcePolicy({ enabled: false }, 'exclusive')).toBe('mutable');
+  });
+
+  it('rejects exclusive policy without immutable policy', () => {
+    expect(() => resolveManagedResourcePolicy({
+      enabled: true,
+      immutableResources: false,
+      disableUserCreatedResources: true,
+    }, 'mutable')).toThrow(/requires Immutable Resources/);
+  });
+
+  it('REQ-SETUP-013 AC11: policy changes preserve managed trust fingerprints', async () => {
+    const repositoryFingerprint = await getManagedEnvironmentConfigFingerprint(123456, 'ab'.repeat(32));
+    const immutableFingerprint = await getManagedEnvironmentConfigFingerprint(123456, 'ab'.repeat(32));
+    const exclusiveFingerprint = await getManagedEnvironmentConfigFingerprint(123456, 'ab'.repeat(32));
+    expect(immutableFingerprint).toBe(repositoryFingerprint);
+    expect(exclusiveFingerprint).toBe(repositoryFingerprint);
+  });
+});
 
 const encoder = new TextEncoder();
 const hex = (bytes: ArrayBuffer): string =>

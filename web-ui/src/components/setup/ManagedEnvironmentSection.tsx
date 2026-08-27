@@ -9,6 +9,9 @@ import type {
 
 interface ManagedEnvironmentSectionProps {
   enabled: boolean;
+  enterpriseMode: boolean;
+  immutableResources: boolean;
+  disableUserCreatedResources: boolean;
   repository: string;
   personalAccessToken: string;
   personalAccessTokenSet: boolean;
@@ -22,6 +25,8 @@ interface ManagedEnvironmentSectionProps {
   patExpiryState: ManagedEnvironmentPatExpiryState;
   lastError?: string;
   onEnabledChange: (value: boolean) => void;
+  onImmutableResourcesChange: (value: boolean) => void;
+  onDisableUserCreatedResourcesChange: (value: boolean) => void;
   onRepositoryChange: (value: string) => void;
   onPersonalAccessTokenChange: (value: string) => void;
   onPublicKeyChange: (value: string) => void;
@@ -42,6 +47,32 @@ const ManagedEnvironmentSection: Component<ManagedEnvironmentSectionProps> = (pr
       </div>
 
       <Show when={props.enabled}>
+        <Show when={props.enterpriseMode}>
+          <div class="setup-field setup-field--nested">
+            <Checkbox
+              label="Immutable Resources"
+              checked={props.immutableResources}
+              onChange={props.onImmutableResourcesChange}
+            />
+            <p class="setup-field-description">
+              Managed files stay editable inside the current session, but their mutations cannot persist to R2. Protected edits are lost when the container is replaced.
+            </p>
+          </div>
+
+          <Show when={props.immutableResources}>
+            <div class="setup-field setup-field--nested setup-field--nested-deeper">
+              <Checkbox
+                label="Disable User Created Resources"
+                checked={props.disableUserCreatedResources}
+                onChange={props.onDisableUserCreatedResourcesChange}
+              />
+              <p class="setup-field-description">
+                Existing personal agent resources in governed skills, extensions, rules, hooks, scripts, plugins, prompts, commands, agents, and exceptions folders are deleted during reconciliation. New ones remain local and disappear after termination.
+              </p>
+            </div>
+          </Show>
+        </Show>
+
         <div class="setup-field">
           <label class="setup-field-label">Release repository</label>
           <p class="setup-field-description">Private GitHub repository in owner/name form.</p>

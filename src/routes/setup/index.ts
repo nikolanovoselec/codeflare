@@ -5,7 +5,7 @@ import { CONFIGURABLE_ENTERPRISE_AGENTS, installedAgents } from '../../lib/agent
 import { ValidationError, toError } from '../../lib/error-types';
 import { parseJsonBody } from '../../lib/request-helpers';
 import { resetSetupCache } from '../../lib/cache-reset';
-import { getPreferencesKey, SETUP_KEYS } from '../../lib/kv-keys';
+import { getPreferencesKey, listAllKvKeys, SETUP_KEYS, type SessionListMetadata } from '../../lib/kv-keys';
 import { resolveBucketName } from '../../lib/access';
 import { getOrImportKey, encryptAndStore } from '../../lib/kv-crypto';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
@@ -20,7 +20,12 @@ import { handleConfigureTurnstile } from './turnstile';
 import handlers from './handlers';
 import { isOnboardingLandingPageActive, isSaasModeActive, isSessionOidcMode } from '../../lib/onboarding';
 import { isEnterpriseMode } from '../../lib/subscription';
-import { configureManagedEnvironment } from '../../lib/remote-curation';
+import {
+  configureManagedEnvironment,
+  readManagedEnvironmentSnapshot,
+  resolveManagedResourcePolicy,
+} from '../../lib/remote-curation';
+import { countsTowardSessionLimit } from '../container/lifecycle-validation';
 
 // Feature A/C: a Cloudflare Access group name or a gateway route name. Trimmed,
 // 1–256 chars, and MUST NOT contain comma or newline — those are the delimiters
@@ -116,6 +121,8 @@ const ConfigureBodySchema = z.object({
         (value) => value.trim() === '' || /^[0-9a-f]{64}$/.test(value.trim()),
         'Managed environment public key must be 64 lowercase hex characters',
       ),
+      immutableResources: z.boolean().optional(),
+      disableUserCreatedResources: z.boolean().optional(),
     }).strict(),
   ]).optional(),
   // REQ-ENTERPRISE-013 (enterprise-only): per-group routing. Keyed by Access group
@@ -186,6 +193,40 @@ const ConfigureBodySchema = z.object({
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
+const SessionStatusSchema = z.object({
+  status: z.enum(['running', 'initializing', 'stopped']).optional(),
+}).passthrough();
+const SessionMetadataSchema = z.object({
+  s: z.enum(['r', 'i', 's']).optional(),
+}).passthrough();
+
+export async function assertNoActiveManagedSessions(kv: KVNamespace): Promise<void> {
+  try {
+    const keys = await listAllKvKeys(kv, 'session:');
+    for (const key of keys) {
+      const parsedMetadata = SessionMetadataSchema.safeParse(key.metadata);
+      if (key.metadata !== null && key.metadata !== undefined && !parsedMetadata.success) {
+        throw new Error('Session metadata is invalid');
+      }
+      const metadata = parsedMetadata.success ? parsedMetadata.data as SessionListMetadata : undefined;
+      if (metadata?.s) {
+        if (countsTowardSessionLimit(metadata.s)) {
+          throw new ValidationError('Managed resource policy cannot change while a session is active');
+        }
+        continue;
+      }
+      const session = SessionStatusSchema.safeParse(await kv.get(key.name, 'json'));
+      if (!session.success) throw new Error('Session state is invalid');
+      if (countsTowardSessionLimit(session.data.status)) {
+        throw new ValidationError('Managed resource policy cannot change while a session is active');
+      }
+    }
+  } catch (error) {
+    if (error instanceof ValidationError) throw error;
+    throw new ValidationError('Managed resource policy cannot change because session state is unavailable');
+  }
+}
+
 /**
  * Conditional auth middleware factory for setup routes (FIX-11).
  * - First-time setup (setup:complete not set): public access (bootstrap)
@@ -226,6 +267,23 @@ app.post('/configure', async (c) => {
 
   const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, managedEnvironment, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled, activeAgents } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
+
+  if (managedEnvironment !== undefined) {
+    const snapshot = await readManagedEnvironmentSnapshot(c.env);
+    const currentPolicy = snapshot.config?.resourcePolicy ?? 'mutable';
+    const requestedPolicy = resolveManagedResourcePolicy(managedEnvironment, currentPolicy);
+    if (requestedPolicy !== 'mutable') {
+      if (!isEnterpriseMode(c.env)) {
+        throw new ValidationError('Immutable managed resources require Enterprise Mode');
+      }
+      const effectiveStrictEgress = strictGatewayEgress
+        ?? (await c.env.KV.get(SETUP_KEYS.STRICT_EGRESS)) === 'active';
+      if (!effectiveStrictEgress || !c.env.EGRESS) {
+        throw new ValidationError('Immutable managed resources require Strict Gateway Egress and the EGRESS VPC binding');
+      }
+    }
+    if (requestedPolicy !== currentPolicy) await assertNoActiveManagedSessions(c.env.KV);
+  }
 
   if (isEnterpriseMode(c.env) && activeAgents?.some((agent) => !installedAgents(c.env).includes(agent))) {
     throw new ValidationError('Active coding agents must be installed in this deployment');

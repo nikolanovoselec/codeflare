@@ -57,6 +57,8 @@ function baseState(overrides: Partial<SetupState> = {}): SetupState {
     managedEnvironmentEnabled: false,
     managedEnvironmentConfigured: false,
     managedEnvironmentTouched: false,
+    managedEnvironmentImmutableResources: false,
+    managedEnvironmentDisableUserCreatedResources: false,
     managedEnvironmentRepository: '',
     managedEnvironmentPersonalAccessToken: '',
     managedEnvironmentPersonalAccessTokenSet: false,
@@ -89,6 +91,8 @@ describe('buildConfigurePayload (setup store split)', () => {
       managedEnvironmentEnabled: true,
       managedEnvironmentTouched: true,
       managedEnvironmentRepository: 'acme/curation',
+      managedEnvironmentImmutableResources: true,
+      managedEnvironmentDisableUserCreatedResources: true,
       managedEnvironmentPersonalAccessToken: '',
       managedEnvironmentPersonalAccessTokenSet: true,
       managedEnvironmentPublicKey: 'ab'.repeat(32),
@@ -100,6 +104,8 @@ describe('buildConfigurePayload (setup store split)', () => {
       repository: 'acme/curation',
       personalAccessToken: '',
       publicKey: 'ab'.repeat(32),
+      immutableResources: true,
+      disableUserCreatedResources: true,
     };
     expect(standard.managedEnvironment).toEqual(expected);
     expect(enterprise.managedEnvironment).toEqual(expected);
