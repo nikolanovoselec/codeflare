@@ -42,6 +42,8 @@ function makeHost(overrides: Partial<ContainerHost> = {}): ContainerHost {
     _vaultKey: null,
     _sessionId: null,
     _userEmail: null,
+    _routeCatalog: [],
+    _routeContextWindows: {},
     _sessionWorkspace: 'terminal',
     ...(overrides as any),
   } as ContainerHost;
