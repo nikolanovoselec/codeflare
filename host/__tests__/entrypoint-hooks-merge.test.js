@@ -146,7 +146,7 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
   it('advanced mode registers each managed hook on its own event type', () => {
     const { advanced } = settingsConfigs();
 
-    for (const event of ['PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Stop', 'SessionStart']) {
+    for (const event of ['PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'UserPromptSubmit', 'Stop', 'SessionStart']) {
       assert.ok(hookEntries(advanced, event).length > 0, `${event} should carry at least one hook`);
     }
 
@@ -157,7 +157,9 @@ describe('settings.json configuration / REQ-AGENT-015 (/review command)', () => 
     // e.g. a commit blocker is useless after the tool has already run.
     assert.ok(commandFor('PreToolUse', 'block-attributed-commits.sh'), 'commit blocker belongs on PreToolUse');
     assert.ok(commandFor('PreToolUse', 'block-local-builds.sh'), 'local-build blocker belongs on PreToolUse');
+    assert.ok(commandFor('PreToolUse', 'git-push-review-reminder.sh'), 'review reminder captures merge state on PreToolUse');
     assert.ok(commandFor('PostToolUse', 'git-push-review-reminder.sh'), 'review reminder belongs on PostToolUse');
+    assert.ok(commandFor('PostToolUseFailure', 'git-push-review-reminder.sh'), 'review reminder cleans merge state on PostToolUseFailure');
     assert.ok(commandFor('SessionStart', 'git-push-review-reminder.sh'), 'review reminder belongs on SessionStart');
     assert.ok(commandFor('UserPromptSubmit', 'memory-capture.sh'), 'memory capture belongs on UserPromptSubmit');
     assert.equal(commandFor('PreToolUse', 'memory-capture-block.sh'), undefined,

@@ -25,6 +25,7 @@ import {
   exposureTargetsCheckedOutBranch,
   REVIEW_TRIAGE_DIVIDER,
   REVIEW_TRIAGE_HEADER,
+  isReviewMergeCommand,
   isReviewTransitionSuspended,
   requiredReviewLanes,
   reviewRange,
@@ -536,6 +537,12 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   let activeRound: ActiveRound | undefined;
   let dialogIdentity: string | undefined;
   let pendingGoalPauseHead: string | undefined;
+  const mergeBefore = new Map<string, Promise<{
+    repo: string;
+    branch?: string;
+    head?: string;
+    command: string;
+  }>>();
 
   const clearRound = async (ctx: ReviewContext): Promise<void> => {
     const head = activeRound?.identity.head;
@@ -634,8 +641,24 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     }
   };
 
+  const recordMergeState = (event: any, ctx: ReviewContext): void => {
+    const toolUseId = event?.toolCallId ?? event?.toolUseId ?? event?.id;
+    if (typeof toolUseId !== "string" || mergeBefore.has(toolUseId)) return;
+    const invocation = shellInvocations(event, ctx.cwd)
+      .find((candidate) => isReviewMergeCommand(candidate.command));
+    if (!invocation) return;
+    const repo = resolveShellInvocationRepo(invocation);
+    if (!repo) return;
+    mergeBefore.set(toolUseId, Promise.all([
+      (dependencies.queryBranch ?? queryBranch)(repo),
+      (dependencies.queryHead ?? queryHead)(repo),
+    ]).then(([branch, head]) => ({ repo, branch, head, command: invocation.command })));
+  };
+
   pi.on("tool_call", recordCloneTargetState);
+  pi.on("tool_call", recordMergeState);
   pi.on("tool_execution_start", recordCloneTargetState);
+  pi.on("tool_execution_start", recordMergeState);
 
   pi.on("session_start", async (_event, ctx) => {
     await releaseReviewGoalPause(pi, ctx);
@@ -651,13 +674,28 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   });
 
   pi.on("tool_result", async (event, ctx) => {
+    const toolUseId = event?.toolCallId ?? event?.toolUseId ?? event?.id;
+    const beforePromise = typeof toolUseId === "string" ? mergeBefore.get(toolUseId) : undefined;
+    if (typeof toolUseId === "string") mergeBefore.delete(toolUseId);
     if (!successful(event)) return;
     rememberActiveRepoFromToolResult(event, ctx.cwd);
     const boundary = latestBoundary(event, ctx.cwd);
-    if (!boundary || boundary.cloneTargetPreexisted) return;
-    const repo = boundary.repo ?? resolveShellInvocationRepo(boundary.invocation);
-    if (!repo) return;
-    await evaluate(ctx, repo, boundary.toolUseId, boundary.classification.event, boundary.invocation.command);
+    if (boundary) {
+      if (boundary.cloneTargetPreexisted) return;
+      const repo = boundary.repo ?? resolveShellInvocationRepo(boundary.invocation);
+      if (!repo) return;
+      await evaluate(ctx, repo, boundary.toolUseId, boundary.classification.event, boundary.invocation.command);
+      return;
+    }
+    if (!beforePromise || typeof toolUseId !== "string") return;
+    const before = await beforePromise;
+    const [branch, head] = await Promise.all([
+      (dependencies.queryBranch ?? queryBranch)(before.repo),
+      (dependencies.queryHead ?? queryHead)(before.repo),
+    ]);
+    if ((branch !== before.branch || head !== before.head) && branch && head) {
+      await evaluate(ctx, before.repo, toolUseId, undefined, before.command);
+    }
   });
 
   const settleRound = async (ctx: ReviewContext, endOfTurn: boolean): Promise<void> => {

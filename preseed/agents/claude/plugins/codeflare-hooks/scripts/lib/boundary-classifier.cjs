@@ -65,6 +65,7 @@ function boundaryMatch(executable, rest, options) {
   else if (executable === 'git' && args[0] === 'push') kind = 'push';
   else if (executable === 'gh' && args[0] === 'pr' && (args[1] === 'create' || args[1] === 'reopen')) kind = 'pr-create';
   else if (executable === 'git' && args[0] === 'commit' && options && options.commit) kind = 'commit';
+  else if (executable === 'git' && args[0] === 'merge' && options && options.commit) kind = 'merge';
   else if (executable === 'gh' && args[0] === 'pr' && args[1] === 'merge' && options && options.commit) kind = 'merge';
   return kind ? { kind, executable, args, repository } : undefined;
 }
@@ -246,6 +247,10 @@ function boundaryDetails(text) {
   return boundaryOf(text, { details: true });
 }
 
+function isReviewMergeCommand(text) {
+  return boundaryOf(text, { commit: true, details: true })?.kind === 'merge';
+}
+
 function reopenTarget(args) {
   for (let index = 2; index < args.length; index++) {
     const value = args[index] ?? '';
@@ -351,4 +356,5 @@ module.exports = {
   cloneTargetPath,
   currentRoundVisible,
   exposureTargetsCheckedOutBranch,
+  isReviewMergeCommand,
 };

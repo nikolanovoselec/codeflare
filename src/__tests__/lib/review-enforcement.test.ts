@@ -294,6 +294,81 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(app.sent).toHaveLength(0);
   });
 
+  it('asks only when a successful PR merge changes checkout identity into an unacknowledged open PR', async () => {
+    const input = fixture();
+    const mergedHead = 'a'.repeat(40);
+    let branch = 'feature';
+    let head = input.head;
+    const app = await harness(input, [undefined], {
+      queryBranch: async () => branch,
+      queryHead: async () => head,
+      queryPr: async () => ({ ...input.pr, headRefName: branch, headRefOid: head, number: 969 }),
+    });
+    const event = boundary('git merge --ff-only origin/develop', 'merge-transition');
+
+    await app.emit('tool_call', event);
+    branch = 'develop';
+    head = mergedHead;
+    await app.emit('tool_result', event);
+
+    expect(app.prompts).toEqual([{
+      title: 'Review completion is missing for repo:develop.\nReason: no saved completion.',
+      options: ['Mark review complete', 'Launch review'],
+    }]);
+    expect(app.sent).toHaveLength(0);
+  });
+
+  it('keeps PR merge commands silent without a successful checkout transition or with an exact marker', async () => {
+    const input = fixture();
+    const mergedHead = 'b'.repeat(40);
+    let branch = 'feature';
+    let head = input.head;
+    const dependencies = {
+      queryBranch: async () => branch,
+      queryHead: async () => head,
+      queryPr: async () => ({ ...input.pr, headRefName: branch, headRefOid: head, number: 969 }),
+    };
+    const unchanged = await harness(input, [], dependencies);
+    const unchangedEvent = boundary('gh pr merge 976 --merge', 'merge-unchanged');
+    await unchanged.emit('tool_call', unchangedEvent);
+    await unchanged.emit('tool_result', unchangedEvent);
+    expect(unchanged.prompts).toHaveLength(0);
+
+    const failed = await harness(input, [], dependencies);
+    const failedEvent = boundary('gh pr merge 976 --merge', 'merge-failed');
+    failedEvent.result.isError = true;
+    await failed.emit('tool_call', failedEvent);
+    branch = 'develop';
+    head = mergedHead;
+    await failed.emit('tool_result', failedEvent);
+    expect(failed.prompts).toHaveLength(0);
+
+    const marked = await harness(input, [], dependencies);
+    const markedEvent = boundary('gh pr merge 976 --merge', 'merge-marked');
+    branch = 'feature';
+    head = input.head;
+    await marked.emit('tool_call', markedEvent);
+    branch = 'develop';
+    head = mergedHead;
+    writeCompletion({ ...input.identity, pr: 969, branch, head }, { root: join(input.home, '.codeflare/review-state/v1') });
+    await marked.emit('tool_result', markedEvent);
+    expect(marked.prompts).toHaveLength(0);
+    expect(marked.sent).toHaveLength(0);
+  });
+
+  it('keeps an ordinary classified boundary authoritative in a compound merge command', async () => {
+    const input = fixture();
+    const app = await harness(input, []);
+    const event = boundary('gh pr merge 976 --merge && git push origin feature', 'merge-then-push');
+
+    await app.emit('tool_call', event);
+    await app.emit('tool_result', event);
+
+    expect(app.prompts).toHaveLength(0);
+    expect(app.sent.map((message) => message.customType)).toEqual(['pr-boundary-launch-plan']);
+    expect(app.sent[0]?.details).toMatchObject({ ciEvent: 'push', head: input.head });
+  });
+
   async function expectAutomaticDeliveryPlan(command: string, hasUI = true) {
     const input = fixture();
     const app = await harness(input, []);

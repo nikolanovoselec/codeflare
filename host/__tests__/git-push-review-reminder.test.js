@@ -1,7 +1,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { appendFileSync, chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -52,7 +52,7 @@ case "$1 $2" in
       sed '1d' "$PR_HEAD_SEQUENCE_FILE" > "$PR_HEAD_SEQUENCE_FILE.next"
       mv "$PR_HEAD_SEQUENCE_FILE.next" "$PR_HEAD_SEQUENCE_FILE"
     fi
-    printf '%s\\n' '{"state":"'"\${PR_STATE:-OPEN}"'","isDraft":false,"baseRefName":"main","headRefName":"feature","headRefOid":"'"\${HEAD_VALUE}"'","number":42,"url":"https://github.com/owner/repo/pull/42"}'
+    printf '%s\\n' '{"state":"'"\${PR_STATE:-OPEN}"'","isDraft":false,"baseRefName":"main","headRefName":"'"\${PR_BRANCH:-feature}"'","headRefOid":"'"\${HEAD_VALUE}"'","number":42,"url":"https://github.com/owner/repo/pull/42"}'
     ;;
   *) exit 1 ;;
 esac
@@ -81,6 +81,7 @@ function invoke(fx, input) {
       cwd: fx.repo,
       transcript_path: fx.transcript,
       session_id: 'session-1',
+      tool_use_id: 'tool-1',
       ...input,
     }),
     encoding: 'utf8',
@@ -91,8 +92,12 @@ function sessionStart(fx) {
   return invoke(fx, { hook_event_name: 'SessionStart' });
 }
 
-function postTool(fx, command) {
-  return invoke(fx, { tool_input: { command } });
+function preTool(fx, command, toolUseId = 'tool-1') {
+  return invoke(fx, { hook_event_name: 'PreToolUse', tool_use_id: toolUseId, tool_input: { command } });
+}
+
+function postTool(fx, command, toolUseId = 'tool-1') {
+  return invoke(fx, { tool_use_id: toolUseId, tool_input: { command } });
 }
 
 function context(result) {
@@ -148,6 +153,59 @@ describe('Claude marker-or-dialog ingress', () => {
     for (const command of ['git status', 'git fetch origin', 'gh pr view 42', 'gh pr merge 42']) {
       assert.equal(postTool(fx, command).stdout, '', command);
     }
+  });
+
+  it('asks only after a PR merge changes checkout identity into an unacknowledged open PR', () => {
+    const fx = setup();
+    const command = 'git merge --ff-only origin/develop';
+    assert.equal(preTool(fx, command).stdout, '');
+
+    git(fx.repo, 'switch', '-q', '-c', 'develop');
+    writeFileSync(join(fx.repo, 'merged.ts'), 'export const merged = true;\n');
+    git(fx.repo, 'add', '.');
+    git(fx.repo, 'commit', '-m', 'merge result');
+    fx.env = { ...fx.env, PR_BRANCH: 'develop', PR_HEAD: git(fx.repo, 'rev-parse', 'HEAD') };
+
+    const text = context(postTool(fx, command));
+    assert.match(text, /Review completion is missing for repo:develop\./);
+    assert.match(text, /Mark review complete\n- Launch review/);
+    assert.doesNotMatch(text, /Execute this fresh contextual round now/);
+  });
+
+  it('keeps PR merges silent without a checkout transition, after failed execution, or with an exact marker', () => {
+    const unchanged = setup();
+    const command = 'gh pr merge 976 --merge';
+    preTool(unchanged, command, 'unchanged');
+    assert.equal(postTool(unchanged, command, 'unchanged').stdout, '');
+
+    const compound = setup();
+    const compoundCommand = 'gh pr merge 976 --merge && git push origin feature';
+    preTool(compound, compoundCommand, 'compound');
+    assert.match(context(postTool(compound, compoundCommand, 'compound')), /Execute this fresh contextual round now/);
+    assert.equal(readdirSync(compound.env.CODEFLARE_REVIEW_SESSION_DIR)
+      .filter((name) => name.endsWith('.merge-before.json')).length, 0);
+
+    const failed = setup();
+    preTool(failed, command, 'failed');
+    const failureState = () => readdirSync(failed.env.CODEFLARE_REVIEW_SESSION_DIR)
+      .filter((name) => name.endsWith('.merge-before.json'));
+    assert.equal(failureState().length, 1);
+    assert.equal(invoke(failed, {
+      hook_event_name: 'PostToolUseFailure',
+      tool_use_id: 'failed',
+      tool_input: { command },
+    }).stdout, '');
+    assert.equal(failureState().length, 0);
+
+    const marked = setup();
+    preTool(marked, command, 'marked');
+    git(marked.repo, 'switch', '-q', '-c', 'develop');
+    writeFileSync(join(marked.repo, 'merged.ts'), 'export const merged = true;\n');
+    git(marked.repo, 'add', '.');
+    git(marked.repo, 'commit', '-m', 'merge result');
+    marked.env = { ...marked.env, PR_BRANCH: 'develop', PR_HEAD: git(marked.repo, 'rev-parse', 'HEAD') };
+    execFileSync('node', [STATE, 'mark', '--cwd', marked.repo], { cwd: marked.repo, env: marked.env });
+    assert.equal(postTool(marked, command, 'marked').stdout, '');
   });
 
   it('automatically emits review and CI launch instructions after push, PR creation, and PR reopen', () => {

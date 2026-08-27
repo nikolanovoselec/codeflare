@@ -38,6 +38,7 @@ type TranscriptFacts = {
 };
 type PlannedReviewHelpers = {
   classifyReviewBoundaryCommand(command: string): BoundarySurfaces;
+  isReviewMergeCommand(command: string): boolean;
   exposureTargetsCheckedOutBranch(command: string, identity: { branch: string; pr: number; repository: string }): boolean;
   isReviewTransitionSuspended(repo: string): boolean;
   requiredReviewLanes(input: { repo: string; ackHead?: string; head: string; prover?: string }): ReviewLane[];
@@ -259,6 +260,16 @@ describe('Claude-equivalent review boundary helpers', () => {
 
     expect(cases.map(([command, expected]) => [command, classifyReviewBoundaryCommand(command), expected]))
       .toEqual(cases.map(([command, expected]) => [command, expected, expected]));
+  });
+
+  it('recognizes executable PR merges without turning quoted mentions into transitions', async () => {
+    const { isReviewMergeCommand } = await plannedHelpers();
+    expect(isReviewMergeCommand('gh pr merge 976 --merge --delete-branch')).toBe(true);
+    expect(isReviewMergeCommand('gh --repo owner/repo pr merge 976 --merge')).toBe(true);
+    expect(isReviewMergeCommand('git merge --ff-only origin/develop')).toBe(true);
+    expect(isReviewMergeCommand('git merge --squash feature')).toBe(true);
+    expect(isReviewMergeCommand("printf '%s' 'gh pr merge 976'")).toBe(false);
+    expect(isReviewMergeCommand("printf '%s' 'git merge --ff-only develop'")).toBe(false);
   });
 
   it('REQ-AGENT-171: accepts delivery only when push, create, or reopen targets checked-out identity', async () => {

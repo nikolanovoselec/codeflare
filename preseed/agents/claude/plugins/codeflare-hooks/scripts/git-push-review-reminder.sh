@@ -13,8 +13,11 @@ CLASSIFIER="$SCRIPT_DIR/lib/boundary-classifier.cjs"
 TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // .sessionId // .transcript_path // "root"' 2>/dev/null)
 SESSION_KEY=$(printf '%s' "$SESSION_ID" | cksum | awk '{print $1}')
+TOOL_USE_ID=$(printf '%s' "$INPUT" | jq -r '.tool_use_id // .toolUseId // empty' 2>/dev/null)
+TOOL_KEY=$(printf '%s' "$SESSION_ID:$TOOL_USE_ID" | cksum | awk '{print $1}')
 SESSION_DIR="${CODEFLARE_REVIEW_SESSION_DIR:-/run/codeflare/review-session}"
 OFFSET_FILE="$SESSION_DIR/$SESSION_KEY.offset"
+MERGE_STATE_FILE="$SESSION_DIR/$TOOL_KEY.merge-before.json"
 
 command_text() {
   printf '%s' "$INPUT" | jq -r '
@@ -30,6 +33,28 @@ CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 REPO_CWD="$CWD"
 BOUNDARY_KIND="startup"
 case "$EVENT" in
+  PreToolUse)
+    COMMAND=$(command_text)
+    [ -n "$COMMAND" ] && [ -n "$TOOL_USE_ID" ] || exit 0
+    IS_MERGE=$(node -e '
+      const { isReviewMergeCommand } = require(process.argv[1]);
+      process.stdout.write(isReviewMergeCommand(process.argv[2]) ? "true" : "false");
+    ' "$CLASSIFIER" "$COMMAND" 2>/dev/null) || exit 0
+    [ "$IS_MERGE" = "true" ] || exit 0
+    REPO=$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null) || exit 0
+    BRANCH=$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null) || exit 0
+    HEAD=$(git -C "$REPO" rev-parse HEAD 2>/dev/null) || exit 0
+    mkdir -p "$SESSION_DIR" 2>/dev/null || exit 0
+    TEMP_STATE="$MERGE_STATE_FILE.$$.tmp"
+    jq -cn --arg repo "$REPO" --arg branch "$BRANCH" --arg head "$HEAD" \
+      '{repo:$repo,branch:$branch,head:$head}' > "$TEMP_STATE" 2>/dev/null || exit 0
+    mv "$TEMP_STATE" "$MERGE_STATE_FILE" 2>/dev/null || rm -f "$TEMP_STATE"
+    exit 0
+    ;;
+  PostToolUseFailure)
+    [ -n "$TOOL_USE_ID" ] && rm -f "$MERGE_STATE_FILE"
+    exit 0
+    ;;
   SessionStart)
     mkdir -p "$SESSION_DIR" 2>/dev/null || true
     OFFSET=0
@@ -46,7 +71,23 @@ case "$EVENT" in
       const { boundaryOf } = require(process.argv[1]);
       process.stdout.write(boundaryOf(process.argv[2]) || "-");
     ' "$CLASSIFIER" "$COMMAND" 2>/dev/null) || exit 0
-    case "$BOUNDARY_KIND" in clone|switch|checkout|pr-checkout|pull|push|pr-create) ;; *) exit 0 ;; esac
+    case "$BOUNDARY_KIND" in
+      clone|switch|checkout|pr-checkout|pull|push|pr-create)
+        rm -f "$MERGE_STATE_FILE"
+        ;;
+      *)
+        [ -n "$TOOL_USE_ID" ] && [ -f "$MERGE_STATE_FILE" ] || exit 0
+        BEFORE_REPO=$(jq -r '.repo // empty' "$MERGE_STATE_FILE" 2>/dev/null)
+        BEFORE_BRANCH=$(jq -r '.branch // empty' "$MERGE_STATE_FILE" 2>/dev/null)
+        BEFORE_HEAD=$(jq -r '.head // empty' "$MERGE_STATE_FILE" 2>/dev/null)
+        rm -f "$MERGE_STATE_FILE"
+        REPO_CWD=$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null) || exit 0
+        AFTER_BRANCH=$(git -C "$REPO_CWD" symbolic-ref --quiet --short HEAD 2>/dev/null) || exit 0
+        AFTER_HEAD=$(git -C "$REPO_CWD" rev-parse HEAD 2>/dev/null) || exit 0
+        [ "$BEFORE_REPO" != "$REPO_CWD" ] || [ "$BEFORE_BRANCH" != "$AFTER_BRANCH" ] || [ "$BEFORE_HEAD" != "$AFTER_HEAD" ] || exit 0
+        BOUNDARY_KIND="merge"
+        ;;
+    esac
     if [ "$BOUNDARY_KIND" = "clone" ]; then
       REPO_CWD=$(node -e '
         const { cloneTargetPath } = require(process.argv[1]);

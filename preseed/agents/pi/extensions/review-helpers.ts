@@ -180,6 +180,16 @@ export function shellSegments(command: string): string[] {
   return executableShellSegments(command).map((segment) => segment.command);
 }
 
+export function isReviewMergeCommand(command: string): boolean {
+  return executableShellCommands(command).some((words) => {
+    const executable = shellCommandExecutable(words);
+    if (executable !== "git" && executable !== "gh") return false;
+    const args = shellCommandArguments(words, executable);
+    return (executable === "git" && args[0] === "merge")
+      || (executable === "gh" && args[0] === "pr" && args[1] === "merge");
+  });
+}
+
 export function classifyReviewBoundaryCommand(command: string): BoundarySurfaces {
   let exposure: BoundarySurfaces = { reminder: false, settled: false };
   for (const words of executableShellCommands(command)) {
