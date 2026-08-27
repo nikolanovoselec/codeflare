@@ -175,14 +175,14 @@ function getTerminal(sessionId: string, terminalId: string): Terminal | undefine
  * @param sessionId - The session ID to connect to
  * @param terminalId - The terminal tab ID within the session
  * @param terminal - The xterm.js Terminal instance
- * @param onError - Optional callback for error reporting
+ * @param _onError - Reserved callback for error reporting
  * @returns Cleanup function to cancel connection and dispose resources
  */
 function connect(
   sessionId: string,
   terminalId: string,
   terminal: Terminal,
-  onError?: (error: string) => void,
+  _onError?: (error: string) => void,
 ): () => void {
   const key = makeKey(sessionId, terminalId);
 

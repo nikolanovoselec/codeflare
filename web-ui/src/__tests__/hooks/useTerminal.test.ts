@@ -165,7 +165,6 @@ import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
 import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen, forceResetKeyboardState, disableVirtualKeyboardOverlay } from '../../lib/mobile';
 import * as mobileModule from '../../lib/mobile';
-import { loadSettings } from '../../lib/settings';
 import { showAgentNotification, showGrantedAgentEvent } from '../../lib/agent-notifications';
 
 // REQ-TERM-016: Terminal Pane Reconnect and Resize Authority

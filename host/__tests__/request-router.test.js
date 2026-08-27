@@ -588,6 +588,7 @@ describe('REQ-IDE-003 AC3: the browser-IDE warming clock spans reloads and reset
 describe('Herdr fixed agent-event ingress', () => {
   const savedToken = process.env.CONTAINER_AUTH_TOKEN;
   const calls = [];
+  const activityCalls = [];
   let server;
   let port;
 
@@ -597,6 +598,11 @@ describe('Herdr fixed agent-event ingress', () => {
       enqueueAgentEvent(kind) {
         calls.push(kind);
         return true;
+      },
+      activityTracker: {
+        recordHeartbeat: () => activityCalls.push('heartbeat'),
+        recordInput: () => activityCalls.push('input'),
+        getActivityInfo: () => ({ ok: true }),
       },
     });
     server = http.createServer(createRequestHandler(made.deps));
@@ -618,6 +624,7 @@ describe('Herdr fixed agent-event ingress', () => {
     }, { authorization: 'Bearer herdr-event-token' });
     assert.equal(response.status, 202);
     assert.deepEqual(calls, ['input-required']);
+    assert.deepEqual(activityCalls, []);
   });
 
   it('rejects missing auth, unknown kinds, non-primary identity, extra and duplicate keys', async () => {

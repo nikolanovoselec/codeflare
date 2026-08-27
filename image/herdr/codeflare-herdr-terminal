@@ -118,7 +118,10 @@ fi
 
 if [ "${1:-}" = "stop" ]; then
     prepare_runtime
-    timeout 5 "$HERDR_BIN" session stop "$HERDR_NAME" --json >/dev/null 2>&1 || true
+    if timeout 5 "$HERDR_BIN" session stop "$HERDR_NAME" --json >/dev/null 2>&1; then
+        rm -f "$HERDR_RUNTIME_ROOT/bootstrap.done"
+        rm -rf "$HERDR_RUNTIME_ROOT/bootstrap.lock"
+    fi
     exit 0
 fi
 

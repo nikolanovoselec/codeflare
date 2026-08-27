@@ -44,6 +44,8 @@ fi
     result,
     calls: readFileSync(log, 'utf8').trim().split('\n').filter(Boolean),
     runtime,
+    fake,
+    log,
   };
 }
 
@@ -58,26 +60,34 @@ describe('Codeflare Herdr launcher', () => {
     assert.match(result.stderr, /invalid SESSION_ID/);
   });
 
-  it('maps Claude to fixed Herdr agent argv and bootstraps once', () => {
-    const { result, calls, runtime } = harness('claude --dangerously-skip-permissions');
+  it('maps Claude to fixed argv, bootstraps once, and bootstraps again after a successful stop', () => {
+    const { result, calls, runtime, fake, log } = harness('claude --dangerously-skip-permissions');
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(calls, [
       'api snapshot',
       'agent start codeflare --kind claude --pane w1:p1 --timeout 30000 -- --dangerously-skip-permissions',
     ]);
 
-    const second = spawnSync(launcher, ['bootstrap'], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        PATH: process.env.PATH,
-        HERDR_BIN: '/bin/false',
-        CODEFLARE_RUNTIME_ROOT: runtime,
-        SESSION_ID: 'abc12345',
-        TAB_CONFIG: JSON.stringify([{ id: '1', command: 'claude --dangerously-skip-permissions', label: 'Terminal 1' }]),
-      },
-    });
+    const env = {
+      ...process.env,
+      HERDR_BIN: fake,
+      HERDR_TEST_LOG: log,
+      CODEFLARE_RUNTIME_ROOT: runtime,
+      SESSION_ID: 'abc12345',
+      TAB_CONFIG: JSON.stringify([{ id: '1', command: 'claude --dangerously-skip-permissions', label: 'Terminal 1' }]),
+    };
+    const second = spawnSync(launcher, ['bootstrap'], { encoding: 'utf8', env });
     assert.equal(second.status, 0, second.stderr);
+    const stopped = spawnSync(launcher, ['stop'], { encoding: 'utf8', env });
+    assert.equal(stopped.status, 0, stopped.stderr);
+    const restarted = spawnSync(launcher, ['bootstrap'], { encoding: 'utf8', env });
+    assert.equal(restarted.status, 0, restarted.stderr);
+    assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n'), [
+      ...calls,
+      'session stop cf-abc12345 --json',
+      'api snapshot',
+      'agent start codeflare --kind claude --pane w1:p1 --timeout 30000 -- --dangerously-skip-permissions',
+    ]);
   });
 
   it('leaves Bash untouched and maps ordinary TUI commands without shell interpolation', () => {

@@ -302,7 +302,6 @@ async function loadSessions(): Promise<void> {
       }
 
       if (batchStatus.status === 'running') {
-        const wasRunning = existingStatuses.get(session.id) === 'running';
         updateSessionStatus(session.id, 'running');
       } else {
         const wasRunning = existingStatuses.get(session.id) === 'running';

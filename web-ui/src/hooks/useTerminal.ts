@@ -712,7 +712,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
   onCleanup(() => {
     disposed = true;
-    const mountedContainer = containerEl;
     if (kbDebounceTimer !== null) {
       clearTimeout(kbDebounceTimer);
       kbDebounceTimer = null;

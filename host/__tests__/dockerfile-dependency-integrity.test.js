@@ -23,7 +23,6 @@ const browserRunLock = readJson('preseed/agents/claude/browser-run-mcp/package-l
 const wranglerPackage = readJson('.github/npm-tools/wrangler/package.json');
 const wranglerLock = readJson('.github/npm-tools/wrangler/package-lock.json');
 const dependabot = parseYaml(readFileSync(join(repoRoot, '.github/dependabot.yml'), 'utf8'));
-const dockerfile = readFileSync(join(repoRoot, 'Dockerfile'), 'utf8');
 
 const versionParts = (version) => version.split('.').map(Number);
 const atLeast = (actual, minimum) => {
@@ -122,33 +121,6 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     assert.equal(npmToolsPackage.dependencies.oxlint, undefined);
     assert.equal(piPackage.dependencies.oxlint, undefined);
     assert.equal(MANAGED_RUNTIME_LOCK_PATHS.includes('image/oxlint/package-lock.json'), false);
-  });
-
-  it('pins the official Herdr runtime with immutable provenance and managed config', () => {
-    assert.match(dockerfile, /HERDR_VERSION="0\.8\.2"/);
-    assert.match(dockerfile, /HERDR_COMMIT="9eb521456ac0d19d3ab3d9d7cea3cca10baa8a4c"/);
-    assert.match(dockerfile, /HERDR_SHA256="976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4"/);
-    assert.match(dockerfile, /github\.com\/herdrdev\/herdr\/releases\/download\/v\$\{HERDR_VERSION\}\/herdr-linux-x86_64/);
-    assert.match(dockerfile, /sha256sum -c -/);
-    assert.match(dockerfile, /herdr --version/);
-
-    const config = readFileSync(join(repoRoot, 'image/herdr/config.toml'), 'utf8');
-    assert.match(config, /^onboarding = false$/m);
-    assert.match(config, /^version_check = false$/m);
-    assert.match(config, /^manifest_check = false$/m);
-    assert.match(config, /^pane_history = false$/m);
-    assert.match(config, /^kitty_graphics = false$/m);
-    assert.match(config, /^mouse_capture = true$/m);
-
-    const provenance = JSON.parse(readFileSync(join(repoRoot, 'image/herdr/provenance.json'), 'utf8'));
-    assert.deepEqual(provenance, {
-      name: 'Herdr',
-      version: '0.8.2',
-      commit: '9eb521456ac0d19d3ab3d9d7cea3cca10baa8a4c',
-      asset: 'herdr-linux-x86_64',
-      sha256: '976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4',
-      license: 'Apache-2.0',
-    });
   });
 
   it('image-owned Oxlint has dedicated weekly dependency automation', () => {

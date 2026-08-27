@@ -700,7 +700,6 @@ describe('Session Store', () => {
       await sessionStore.loadSessions();
       // Simulate user started the session
       sessionStore.updateSessionStatus('session-1', 'running');
-      sessionStore.initializeTerminalsForSession('session-1');
     });
 
     it('should set status to stopping immediately then stopped after polling', async () => {
@@ -764,19 +763,6 @@ describe('Session Store', () => {
       expect(sessionStore.error).toMatch(/refresh.*retry/i);
     });
 
-    it('should clear initialization state if in progress', async () => {
-      mockStopSession.mockResolvedValue(undefined);
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped', ptyActive: false } }, maxSessions: 3 });
-
-      // Simulate session being in initializing state
-      sessionStore.initializeTerminalsForSession('session-1');
-
-      const stopPromise = sessionStore.stopSession('session-1');
-      await vi.advanceTimersByTimeAsync(3000);
-      await stopPromise;
-
-      expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
-    });
   });
 
   describe('setActiveSession', () => {
@@ -904,7 +890,6 @@ describe('Session Store', () => {
     });
 
     it('REQ-IDE-048 AC2 + REQ-IDE-050 AC1: completes VS Code startup without creating terminal state', async () => {
-      sessionStore.initializeTerminalsForSession('session-1');
       mockGetSessions.mockResolvedValue([{
         id: 'session-1', name: 'Editor', workspace: 'vscode',
         createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
@@ -1230,8 +1215,6 @@ describe('Session Store', () => {
     });
 
     it('should stop metrics polling when setting status to stopped', async () => {
-      // Manually start metrics polling first
-      sessionStore.initializeTerminalsForSession('session-1');
       mockGetStartupStatus.mockResolvedValue({
         stage: 'ready',
         progress: 100,
@@ -1245,7 +1228,7 @@ describe('Session Store', () => {
         },
       });
 
-      // loadSessions with running status starts polling via initializeTerminalsForSession path
+      // loadSessions with running status starts session metrics polling
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
         'session-1': { status: 'running', ptyActive: true, startupStage: 'ready' },
       }, maxSessions: 3 });
