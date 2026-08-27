@@ -622,10 +622,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 4. Image-owned runtime files, user roots, transcripts, Vault content, and company package bytes remain outside managed documents. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/lib/r2-seed.ts::reseedContextModePlugin --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC4: image-owned and user-owned roots remain outside managed documents) -->
 5. In protected modes, signed retirements delete prior content without requiring an ownership marker. <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC5: protected signed retirement deletes markerless prior content) -->
 
-**Constraints:**
-
-- Changed or absent ownership markers preserve mutable content, except active protected signed retirements.
-- Company extension metadata may enter R2; package bytes may not.
+**Constraints:** Changed or absent ownership markers preserve mutable content except active protected signed retirements; company extension metadata may enter R2, but package bytes may not.
 
 **Priority:** P1
 

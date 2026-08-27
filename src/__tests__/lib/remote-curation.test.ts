@@ -55,13 +55,6 @@ describe('managed resource policy selection', () => {
     }, 'mutable')).toThrow(/requires Immutable Resources/);
   });
 
-  it('REQ-SETUP-016 AC5: policy changes preserve managed trust fingerprints', async () => {
-    const repositoryFingerprint = await getManagedEnvironmentConfigFingerprint(123456, 'ab'.repeat(32));
-    const immutableFingerprint = await getManagedEnvironmentConfigFingerprint(123456, 'ab'.repeat(32));
-    const exclusiveFingerprint = await getManagedEnvironmentConfigFingerprint(123456, 'ab'.repeat(32));
-    expect(immutableFingerprint).toBe(repositoryFingerprint);
-    expect(exclusiveFingerprint).toBe(repositoryFingerprint);
-  });
 });
 
 const encoder = new TextEncoder();
@@ -1166,8 +1159,25 @@ describe('managed release resolver', () => {
         publicKey: firstFixture.publicKeyHex,
       },
     });
-    const firstConfig = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}') as { configFingerprint: string; cacheBucketName: string };
+    const firstConfig = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}') as { configFingerprint: string; cacheBucketName: string; resourcePolicy: string };
+    expect(firstConfig.resourcePolicy).toBe('mutable');
     expect(bucketMocks.create).toHaveBeenCalledWith('account-1', 'cloudflare-token', firstConfig.cacheBucketName);
+
+    await configureManagedEnvironment({
+      ...base,
+      request: { enabled: true, immutableResources: true, disableUserCreatedResources: false },
+    });
+    const immutableConfig = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}') as { configFingerprint: string; resourcePolicy: string };
+    expect(immutableConfig.resourcePolicy).toBe('immutable');
+    expect(immutableConfig.configFingerprint).toBe(firstConfig.configFingerprint);
+
+    await configureManagedEnvironment({
+      ...base,
+      request: { enabled: true, immutableResources: true, disableUserCreatedResources: true },
+    });
+    const exclusiveConfig = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}') as { configFingerprint: string; resourcePolicy: string };
+    expect(exclusiveConfig.resourcePolicy).toBe('exclusive');
+    expect(exclusiveConfig.configFingerprint).toBe(firstConfig.configFingerprint);
     const patKey = getManagedEnvironmentPatKey(firstConfig.configFingerprint);
     expect(kv._store.get(patKey)).toMatch(/^v1:/);
     expect(kv._store.get(patKey)).not.toContain('github_pat_first');
