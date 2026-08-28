@@ -9,6 +9,11 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(resolve(here, '../../entrypoint.sh'), 'utf8');
 const lines = source.split('\n');
+const companionDeclaration = lines.find((line) => line.startsWith('readonly -a IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS='));
+assert.ok(companionDeclaration, 'image-owned companion declaration missing');
+const companionResult = spawnSync('bash', ['-c', `${companionDeclaration}\nprintf '%s\\n' "\${IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS[@]}"`], { encoding: 'utf8' });
+assert.equal(companionResult.status, 0, companionResult.stderr);
+const imageOwnedCompanions = companionResult.stdout.trim().split('\n').filter(Boolean);
 
 function functionSource(name) {
   const start = lines.findIndex((line) => line === `${name}() {`);
@@ -45,7 +50,9 @@ function fixture() {
   writeFileSync(join(bake, 'default/.claude/company.md'), 'baked');
   writeFileSync(join(home, '.pi/agent/extensions/codeflare.ts'), 'restored release');
   writeFileSync(join(warm, 'codeflare.ts'), 'baked image');
-  writeFileSync(join(warm, 'context-mode-runtime.ts'), 'image-owned runtime');
+  for (const companion of imageOwnedCompanions) {
+    writeFileSync(join(warm, companion), `image-owned ${companion}`);
+  }
   return { root, home, bake, warm, runtimeRoot, events: join(root, 'events') };
 }
 
@@ -85,6 +92,7 @@ function runStartup(remoteCurationActive) {
     'renice() { :; }',
     'ionice() { :; }',
     layDown,
+    companionDeclaration,
     relay,
     initialRestore,
     completeStartup,
@@ -100,18 +108,23 @@ function runStartup(remoteCurationActive) {
     result,
     companyFile: join(f.home, '.claude/company.md'),
     extensionFile: join(f.home, '.pi/agent/extensions/codeflare.ts'),
-    contextModeRuntimeFile: join(f.home, '.pi/agent/extensions/context-mode-runtime.ts'),
+    companionFiles: imageOwnedCompanions.map((companion) => ({
+      content: `image-owned ${companion}`,
+      destination: join(f.home, '.pi/agent/extensions', companion),
+    })),
   };
 }
 
 describe('managed curation entrypoint behavior', () => {
-  it('REQ-STOR-031 AC1/AC2/AC7: restores managed content and its image-owned runtime companion before baseline', () => {
+  it('REQ-STOR-031 AC1/AC2/AC7: restores managed content and declared image companions before baseline', () => {
     const run = runStartup(true);
 
     assert.equal(run.result.status, 0, run.result.stderr);
     assert.equal(existsSync(run.companyFile), false);
     assert.equal(readFileSync(run.extensionFile, 'utf8'), 'restored release');
-    assert.equal(readFileSync(run.contextModeRuntimeFile, 'utf8'), 'image-owned runtime');
+    for (const companion of run.companionFiles) {
+      assert.equal(readFileSync(companion.destination, 'utf8'), companion.content);
+    }
     assert.deepEqual(readFileSync(run.events, 'utf8').trim().split('\n'), [
       'initial',
       'post-restore',

@@ -418,6 +418,20 @@ A curated content change lands in `codeflare-curation` and is published there. I
 
 Curated content is not copied into this public preseed, and a public baked-preseed edit must not overwrite newer private source. A task for managed content changes the private repository. A task explicitly limited to image fallback changes this repository only.
 
+### Image-owned managed-extension companions
+
+Image-owned companion exceptions are explicit. Their declaration names each exact extension file, and startup restores only those companions. ([REQ-STOR-031 AC7](../../sdd/spec/storage.md#req-stor-031-managed-resource-container-sync)) <!-- @impl: entrypoint.sh::IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
+
+An image-owned exception requires every step below:
+
+1. Ship the companion in Codeflare's warm image before curated code imports it.
+2. Declare its exact filename in `IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS`. <!-- @impl: entrypoint.sh::IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS -->
+3. Relay only that file after R2 restore and before PTY release and bisync baseline. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
+4. Test companion restoration and preservation of release-owned bytes.
+5. Advance curation's exact Codeflare compiler pin before publishing the dependent release.
+
+Never replace this declaration with a generic “copy every missing extension” fallback. Exclusive cleanup must not expand image ownership implicitly.
+
 **Agents working on Codeflare:** when a task asks for a new or changed skill, rule, hook, agent, script, plugin, or required Browser IDE extension, that work does not belong in this repository. Clone the curation repository, branch, commit, and open a PR there:
 
 ```bash

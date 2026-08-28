@@ -813,6 +813,7 @@ lay_down_agent_seed_preseed() {
 # curation, preserve release-owned bytes and restore only their excluded image-owned runtime
 # companion. Uses cp without -p so relaid bytes receive fresh local mtimes. Idempotent and
 # mode-aware.
+readonly -a IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS=(context-mode-runtime.ts)
 relay_managed_pi_extensions() {
     local warm_src="${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}"
     local dest="$USER_HOME/.pi/agent/extensions"
@@ -820,13 +821,16 @@ relay_managed_pi_extensions() {
         # Curation deliberately excludes context-mode runtime code because it is
         # image-owned, while its managed /ctx command imports this companion.
         # Initial rclone sync removes local files absent from R2, so restore this
-        # one image-owned dependency without overwriting release-owned extensions.
+        # declared image-owned dependencies without overwriting release-owned extensions.
         mkdir -p "$dest"
-        if [ -f "$warm_src/context-mode-runtime.ts" ] && cp "$warm_src/context-mode-runtime.ts" "$dest/context-mode-runtime.ts"; then
-            echo "[entrypoint] Managed release active: restored image-owned context-mode runtime" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
-        else
-            echo "[entrypoint] WARNING: image-owned context-mode runtime restore failed" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
-        fi
+        local companion
+        for companion in "${IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS[@]}"; do
+            if [ -f "$warm_src/$companion" ] && cp "$warm_src/$companion" "$dest/$companion"; then
+                echo "[entrypoint] Managed release active: restored image-owned $companion" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+            else
+                echo "[entrypoint] WARNING: image-owned $companion restore failed" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+            fi
+        done
         return 0
     fi
     # Source = the EXACT dir the jiti prewarm cache was baked from (Dockerfile copies
