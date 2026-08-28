@@ -68,6 +68,13 @@ function withoutLegacyPresetId(preferences: UserPreferences & { lastPresetId?: u
   ) as UserPreferences;
 }
 
+function mergePreferences(
+  existing: UserPreferences,
+  update: Partial<UserPreferences>,
+): UserPreferences {
+  return { ...existing, ...update };
+}
+
 const preferencesPatchRateLimiter = createRateLimiter({
   windowMs: 60_000,
   maxRequests: 20,
@@ -180,7 +187,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
     if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
   }
 
-  const updated: UserPreferences = { ...existing, ...body } as UserPreferences;
+  const updated = mergePreferences(existing, body);
 
   await c.env.KV.put(key, JSON.stringify(updated));
 

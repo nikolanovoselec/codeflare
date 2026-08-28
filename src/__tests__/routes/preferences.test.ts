@@ -139,6 +139,22 @@ describe('Preferences Routes', () => {
       });
     });
 
+    it('persists Herdr preference independently of existing session records', async () => {
+      const sessionKey = 'session:codeflare-test-user:session12345678';
+      const existingSession = { id: 'session12345678', terminalMode: 'classic' };
+      mockKV._set(sessionKey, existingSession);
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ herdrEnabled: true }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(await mockKV.get(sessionKey, 'json')).toEqual(existingSession);
+    });
+
     it('rejects a non-boolean Herdr preference', async () => {
       const app = createTestApp();
       const res = await app.request('/preferences', {

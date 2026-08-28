@@ -297,6 +297,30 @@ describe('TerminalArea', () => {
     expect(screen.queryByTestId('terminal-session-c-1')).not.toBeInTheDocument();
   });
 
+  it('renders classic tabs and tiling controls', () => {
+    mockSessions = [{ id: 'classic-a', name: 'Classic', status: 'running', terminalMode: 'classic' }];
+    mockActiveSessionId = 'classic-a';
+    mockVisiblePanes = [{ id: 'session:classic-a:1', sessionId: 'classic-a', terminalId: '1', source: 'session' }];
+    mockFocusedPaneId = 'session:classic-a:1';
+    vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({
+      tabs: [
+        { id: '1', createdAt: 'now' },
+        { id: '2', createdAt: 'now' },
+      ],
+      activeTabId: '1',
+      tabOrder: ['1', '2'],
+      tiling: { enabled: false, layout: 'tabbed' },
+    });
+    vi.mocked(sessionStore.getTilingForSession).mockReturnValue({ enabled: false, layout: 'tabbed' });
+    vi.mocked(sessionStore.getTabOrder).mockReturnValue(['1', '2']);
+
+    render(() => <TerminalArea {...defaultProps} showTerminal={true} viewState="terminal" />);
+
+    expect(screen.getByTestId('terminal-tabs')).toBeInTheDocument();
+    expect(screen.getByTestId('tiling-button')).toBeInTheDocument();
+    expect(screen.getByTestId('terminal-classic-a-1')).toBeInTheDocument();
+  });
+
   it('renders one Herdr surface without classic tabs or tiling controls', () => {
     mockSessions = [{ id: 'herdr-a', name: 'Herdr', status: 'running', terminalMode: 'herdr' }];
     mockActiveSessionId = 'herdr-a';

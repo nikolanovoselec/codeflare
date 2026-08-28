@@ -178,7 +178,7 @@ export interface AccessUser {
 /**
  * Session metadata stored in KV
  */
-export const TerminalModeSchema = z.enum(['classic', 'herdr']);
+const TerminalModeSchema = z.enum(['classic', 'herdr']);
 export type TerminalMode = z.infer<typeof TerminalModeSchema>;
 
 export function resolveTerminalMode(value: unknown): TerminalMode {

@@ -8,6 +8,7 @@ import {
 } from './tiling';
 
 const TERMINALS_STORAGE_KEY = 'codeflare:terminalsPerSession';
+const TERMINAL_ID_PATTERN = /^[1-6]$/;
 
 function createTabOne(): TerminalTab {
   return { id: '1', createdAt: new Date().toISOString() };
@@ -16,7 +17,7 @@ function createTabOne(): TerminalTab {
 function normalizeSessionTerminals(terminals: SessionTerminals): SessionTerminals {
   const tabMap = new Map<string, TerminalTab>();
   for (const tab of terminals.tabs || []) {
-    if (!tab?.id) continue;
+    if (typeof tab?.id !== 'string' || !TERMINAL_ID_PATTERN.test(tab.id)) continue;
     if (!tabMap.has(tab.id)) {
       tabMap.set(tab.id, tab);
     }

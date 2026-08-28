@@ -13,6 +13,7 @@ function harness(command, tabConfig) {
   const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-launcher-'));
   const bin = join(dir, 'bin');
   const runtime = join(dir, 'runtime');
+  const persistent = join(dir, '.codeflare');
   const log = join(dir, 'herdr.log');
   mkdirSync(bin, { recursive: true });
   mkdirSync(runtime, { recursive: true });
@@ -39,6 +40,7 @@ fi
       HERDR_BIN: fake,
       HERDR_TEST_LOG: log,
       CODEFLARE_RUNTIME_ROOT: runtime,
+      CODEFLARE_HERDR_PERSIST_ROOT: persistent,
       SESSION_ID: 'abc12345',
       TAB_CONFIG: JSON.stringify([{ id: '1', command, label: 'Terminal 1' }]),
       HERDR_TEST_AGENT: command.startsWith('claude') ? 'claude'
@@ -55,6 +57,7 @@ fi
     result,
     calls: readFileSync(log, 'utf8').trim().split('\n').filter(Boolean),
     runtime,
+    persistent,
     fake,
     log,
   };
@@ -75,6 +78,7 @@ describe('Codeflare Herdr launcher', () => {
     const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-socket-path-'));
     const bin = join(dir, 'bin');
     const runtime = join(dir, 'runtime');
+    const persistent = join(dir, '.codeflare');
     const log = join(dir, 'herdr.log');
     const sessionId = 'abcdefghijklmnopqrstuvwx';
     mkdirSync(bin, { recursive: true });
@@ -83,6 +87,9 @@ describe('Codeflare Herdr launcher', () => {
 set -eu
 printf 'config=%s\\n' "$XDG_CONFIG_HOME" >> "$HERDR_TEST_LOG"
 if [ "$*" = "api snapshot" ]; then
+  session_dir="$XDG_CONFIG_HOME/herdr/sessions/$HERDR_SESSION"
+  mkdir -p "$session_dir"
+  printf '%s\\n' '{"version":3}' > "$session_dir/session.json"
   printf '%s\\n' '{"result":{"focused_pane_id":"w1:p1"}}'
 fi
 `, { mode: 0o755 });
@@ -95,21 +102,118 @@ fi
         HERDR_BIN: fake,
         HERDR_TEST_LOG: log,
         CODEFLARE_RUNTIME_ROOT: runtime,
+        CODEFLARE_HERDR_PERSIST_ROOT: persistent,
         SESSION_ID: sessionId,
         TAB_CONFIG: '[]',
       },
     });
 
     assert.equal(result.status, 0, result.stderr);
-    const configHome = join(runtime, 'herdr', sessionId);
+    const configHome = join(runtime, 'herdr-config');
     assert.equal(readFileSync(log, 'utf8').trim(), `config=${configHome}`);
-    const productionConfigHome = join('/run/codeflare/herdr', sessionId);
-    const clientSocket = join(productionConfigHome, 'herdr/sessions', `cf-${sessionId}`, 'herdr-client.sock');
+    assert.equal(readFileSync(join(persistent, 'herdr/sessions', `cf-${sessionId}`, 'session.json'), 'utf8').trim(), '{"version":3}');
+    const clientSocket = join('/run/codeflare/herdr-config', 'herdr/sessions', `cf-${sessionId}`, 'herdr-client.sock');
     assert.ok(Buffer.byteLength(clientSocket) <= 107, clientSocket);
   });
 
-  it('maps Claude to fixed argv, bootstraps once, and bootstraps again after a successful stop', () => {
-    const { result, calls, runtime, fake, log } = harness('claude --dangerously-skip-permissions');
+  it('reattaches after repeated client exits while the Herdr server remains healthy', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-reattach-'));
+    const bin = join(dir, 'bin');
+    const runtime = join(dir, 'runtime');
+    const persistent = join(dir, '.codeflare');
+    const log = join(dir, 'herdr.log');
+    const count = join(dir, 'client-count');
+    mkdirSync(bin, { recursive: true });
+    const fake = join(bin, 'herdr');
+    writeFileSync(fake, `#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
+if [ "\${1:-}" = "--session" ]; then
+  current=0
+  [ ! -f "$HERDR_CLIENT_COUNT" ] || current=$(cat "$HERDR_CLIENT_COUNT")
+  printf '%s' "$((current + 1))" > "$HERDR_CLIENT_COUNT"
+  exit 0
+fi
+if [ "$*" = "api snapshot" ]; then
+  current=0
+  [ ! -f "$HERDR_CLIENT_COUNT" ] || current=$(cat "$HERDR_CLIENT_COUNT")
+  [ "$current" -lt 3 ] || exit 1
+  printf '%s\\n' '{"result":{"focused_pane_id":"w1:p1"}}'
+fi
+`, { mode: 0o755 });
+
+    const result = spawnSync(launcher, [], {
+      encoding: 'utf8',
+      timeout: 10_000,
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        HERDR_BIN: fake,
+        HERDR_TEST_LOG: log,
+        HERDR_CLIENT_COUNT: count,
+        CODEFLARE_RUNTIME_ROOT: runtime,
+        CODEFLARE_HERDR_PERSIST_ROOT: persistent,
+        SESSION_ID: 'abc12345',
+        TAB_CONFIG: JSON.stringify([{ id: '1', command: '', label: 'Terminal 1' }]),
+      },
+    });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Herdr server unavailable after client exit/);
+    const clientStarts = readFileSync(log, 'utf8').split('\n')
+      .filter((line) => line.startsWith('--session cf-abc12345')).length;
+    assert.equal(clientStarts, 3);
+  });
+
+  it('lets Herdr resume a persisted native agent instead of submitting the configured command again', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-restore-'));
+    const bin = join(dir, 'bin');
+    const runtime = join(dir, 'runtime');
+    const persistent = join(dir, '.codeflare');
+    const sessionDir = join(persistent, 'herdr/sessions/cf-abc12345');
+    const log = join(dir, 'herdr.log');
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(sessionDir, { recursive: true });
+    writeFileSync(join(sessionDir, 'session.json'), '{"version":3,"workspaces":[]}');
+    const fake = join(bin, 'herdr');
+    writeFileSync(fake, `#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
+if [ "$*" = "api snapshot" ]; then
+  [ ! -f "$HERDR_RESTORE_READY" ] || exit 1
+  printf '%s\\n' '{"result":{"focused_pane_id":"w1:p1"}}'
+elif [ "$*" = "agent list" ]; then
+  printf '%s' ready > "$HERDR_RESTORE_READY"
+  printf '%s\\n' '{"result":{"agents":[{"agent":"pi"}]}}'
+elif [ "\${1:-}" = "--session" ]; then
+  sleep 0.2
+fi
+`, { mode: 0o755 });
+
+    const result = spawnSync(launcher, [], {
+      encoding: 'utf8',
+      timeout: 10_000,
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        HERDR_BIN: fake,
+        HERDR_TEST_LOG: log,
+        HERDR_RESTORE_READY: join(dir, 'restore-ready'),
+        CODEFLARE_RUNTIME_ROOT: runtime,
+        CODEFLARE_HERDR_PERSIST_ROOT: persistent,
+        SESSION_ID: 'abc12345',
+        TAB_CONFIG: JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]),
+      },
+    });
+
+    assert.equal(result.status, 1, result.stderr);
+    const calls = readFileSync(log, 'utf8').trim().split('\n');
+    assert.equal(calls.includes('agent list'), true);
+    assert.equal(calls.some((call) => call.startsWith('pane run ')), false);
+  });
+
+  it('submits fixed commands and waits for expected detection', () => {
+    const { result, calls, runtime, persistent, fake, log } = harness('claude --dangerously-skip-permissions');
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(calls, [
       'api snapshot',
@@ -123,6 +227,7 @@ fi
       HERDR_BIN: fake,
       HERDR_TEST_LOG: log,
       CODEFLARE_RUNTIME_ROOT: runtime,
+      CODEFLARE_HERDR_PERSIST_ROOT: persistent,
       SESSION_ID: 'abc12345',
       TAB_CONFIG: JSON.stringify([{ id: '1', command: 'claude --dangerously-skip-permissions', label: 'Terminal 1' }]),
       HERDR_TEST_AGENT: 'claude',
@@ -147,6 +252,7 @@ fi
     const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-concurrent-'));
     const bin = join(dir, 'bin');
     const runtime = join(dir, 'runtime');
+    const persistent = join(dir, '.codeflare');
     const log = join(dir, 'herdr.log');
     const started = join(dir, 'agent.started');
     const release = join(dir, 'agent.release');
@@ -172,6 +278,7 @@ fi
       HERDR_TEST_STARTED: started,
       HERDR_TEST_RELEASE: release,
       CODEFLARE_RUNTIME_ROOT: runtime,
+      CODEFLARE_HERDR_PERSIST_ROOT: persistent,
       SESSION_ID: 'abc12345',
       TAB_CONFIG: JSON.stringify([{ id: '1', command: 'claude', label: 'Terminal 1' }]),
       HERDR_TEST_AGENT: 'claude',
@@ -203,6 +310,7 @@ fi
     const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-race-'));
     const bin = join(dir, 'bin');
     const runtime = join(dir, 'runtime');
+    const persistent = join(dir, '.codeflare');
     const log = join(dir, 'herdr.log');
     const started = join(dir, 'agent.started');
     const release = join(dir, 'agent.release');
@@ -227,6 +335,7 @@ fi
       HERDR_TEST_STARTED: started,
       HERDR_TEST_RELEASE: release,
       CODEFLARE_RUNTIME_ROOT: runtime,
+      CODEFLARE_HERDR_PERSIST_ROOT: persistent,
       SESSION_ID: 'abc12345',
       TAB_CONFIG: JSON.stringify([{ id: '1', command: 'claude', label: 'Terminal 1' }]),
       HERDR_TEST_AGENT: 'claude',
@@ -276,6 +385,7 @@ fi
     mkdirSync(bin, { recursive: true });
     const fake = join(bin, 'herdr');
     const runtime = join(dir, 'runtime');
+    const persistent = join(dir, '.codeflare');
     const staleLock = join(runtime, 'herdr/abc12345/bootstrap.lock');
     mkdirSync(staleLock, { recursive: true });
     writeFileSync(fake, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "$HERDR_TEST_LOG"\n`, { mode: 0o755 });
@@ -286,6 +396,7 @@ fi
         HERDR_BIN: fake,
         HERDR_TEST_LOG: log,
         CODEFLARE_RUNTIME_ROOT: runtime,
+        CODEFLARE_HERDR_PERSIST_ROOT: persistent,
         SESSION_ID: 'abc12345',
       },
     });

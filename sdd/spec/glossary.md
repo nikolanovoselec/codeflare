@@ -32,7 +32,7 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | PTY | Pseudo-terminal - classic sessions use up to six outer PTYs; Herdr sessions use one outer client PTY and Herdr-owned inner PTYs. |
 | Terminal Surface | The single xterm.js and outer PTY exposed by Codeflare for one backend Terminal session, using internal terminal ID `1`. |
 | Terminal Mode | Immutable `classic` or `herdr` ownership stamped by the Worker when a session is created; missing or invalid historical values resolve to classic. |
-| Herdr Runtime | The named, ephemeral in-container terminal multiplexer that owns tabs, panes, splits, workspaces, shells, and agents inside an opt-in Herdr Terminal session. |
+| Herdr Runtime | The named in-container terminal multiplexer that owns tabs, panes, splits, workspaces, shells, and agents inside an opt-in Herdr Terminal session. Live processes are ephemeral; its official structural `session.json` snapshot persists under `.codeflare` for bounded recovery. |
 | MultiView Layout | Codeflare's 2-split, 3-split, or 4-grid arrangement of terminal surfaces from distinct backend sessions. |
 | CF Access | Cloudflare Access - external auth service used in default/onboarding modes. |
 | Direct GitHub OAuth | Worker-managed GitHub OAuth flow used in SaaS mode when OAUTH_CLIENT_ID is configured. Completely separate from CF Access. |

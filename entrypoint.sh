@@ -391,6 +391,14 @@ RCLONE_FILTERS_COMMON=(
     --filter "+ .codeflare/ide-ui-state.json"
     --filter "+ .codeflare/ide-extensions.json"
     --filter "+ .codeflare/managed-extensions.json"
+    # Herdr's structural snapshot restores workspaces, tabs, panes, layout,
+    # cwd, focus, and native agent session references. Pane history and every
+    # runtime artifact remain excluded because terminal output may hold secrets.
+    --filter "+ .codeflare/herdr/"
+    --filter "+ .codeflare/herdr/sessions/"
+    --filter "+ .codeflare/herdr/sessions/cf-${SESSION_ID:-unknown}/"
+    --filter "+ .codeflare/herdr/sessions/cf-${SESSION_ID:-unknown}/session.json"
+    --filter "- .codeflare/herdr/**"
     --filter "+ .codeflare/review-state/"
     --filter "+ .codeflare/review-state/v1/"
     --filter "+ .codeflare/review-state/v1/**"

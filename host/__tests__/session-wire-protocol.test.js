@@ -153,7 +153,7 @@ describe('REQ-TERM-026 AC3: Claude notification focus independence', () => {
 
 // ── REQ-TERM-002 AC4: raw PTY data flows unwrapped ──────────────────────────
 
-describe('REQ-TERM-002 AC4: raw PTY output reaches clients without JSON wrapping', () => {
+describe('REQ-TERM-002 AC5: raw PTY output reaches clients without JSON wrapping', () => {
   it('forwards a PTY data frame byte-for-byte to an attached OPEN client', () => {
     const session = new Session('sess-5', 'Terminal');
     const ws = createWs();

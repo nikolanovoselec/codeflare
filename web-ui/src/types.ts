@@ -181,6 +181,14 @@ export type TerminalConnectionState =
   | 'connecting'
   | 'connected';
 
+// Terminal tab within a classic session
+export interface TerminalTab {
+  id: string;
+  createdAt: string;
+  processName?: string;
+  manual?: boolean;
+}
+
 // Tiling layout types
 export type TileLayout = 'tabbed' | '2-split' | '3-split' | '4-grid';
 
@@ -196,6 +204,18 @@ export interface VisibleTerminalPane {
   sessionId: string;
   terminalId: string;
   source: 'session' | 'multiview';
+}
+
+export interface TilingState {
+  enabled: boolean;
+  layout: TileLayout;
+}
+
+export interface SessionTerminals {
+  tabs: TerminalTab[];
+  activeTabId: string | null;
+  tabOrder: string[];
+  tiling: TilingState;
 }
 
 export interface MultiViewWorkspace {

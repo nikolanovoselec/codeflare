@@ -50,6 +50,7 @@ const SortableTab: Component<{
   canClose: boolean;
   onSelect: () => void;
   onClose: (e: MouseEvent) => void;
+  onKeyDown: (e: KeyboardEvent) => void;
   onPointerDown?: (e: PointerEvent) => void;
   onPointerUp?: (e: PointerEvent) => void;
   onPointerLeave?: (e: PointerEvent) => void;
@@ -65,7 +66,11 @@ const SortableTab: Component<{
       data-testid={`terminal-tab-${props.id}`}
       data-type={getTabType(props.sessionId, props.id)}
       data-active={props.isActive ? 'true' : 'false'}
+      role="tab"
+      tabIndex={props.isActive ? 0 : -1}
+      aria-selected={props.isActive}
       onClick={() => props.onSelect()}
+      onKeyDown={props.onKeyDown}
       onPointerDown={props.onPointerDown}
       onPointerUp={props.onPointerUp}
       onPointerLeave={props.onPointerLeave}
@@ -110,6 +115,7 @@ const StaticTab: Component<{
   canClose: boolean;
   onSelect: () => void;
   onClose: (e: MouseEvent) => void;
+  onKeyDown: (e: KeyboardEvent) => void;
   onPointerDown?: (e: PointerEvent) => void;
   onPointerUp?: (e: PointerEvent) => void;
   onPointerLeave?: (e: PointerEvent) => void;
@@ -122,7 +128,11 @@ const StaticTab: Component<{
       data-testid={`terminal-tab-${props.id}`}
       data-type={getTabType(props.sessionId, props.id)}
       data-active={props.isActive ? 'true' : 'false'}
+      role="tab"
+      tabIndex={props.isActive ? 0 : -1}
+      aria-selected={props.isActive}
       onClick={() => props.onSelect()}
+      onKeyDown={props.onKeyDown}
       onPointerDown={props.onPointerDown}
       onPointerUp={props.onPointerUp}
       onPointerLeave={props.onPointerLeave}
@@ -253,6 +263,32 @@ const TerminalTabs: Component<TerminalTabsProps> = (props) => {
     sessionStore.setActiveTerminalTab(props.sessionId, terminalId);
   };
 
+  const handleTabKeyDown = (event: KeyboardEvent, terminalId: string) => {
+    if (event.currentTarget !== event.target) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleSelectTab(terminalId);
+      return;
+    }
+
+    const tabs = orderedTabs();
+    const currentIndex = tabs.findIndex((tab) => tab.id === terminalId);
+    if (currentIndex < 0) return;
+    let targetIndex: number | undefined;
+    if (event.key === 'ArrowRight') targetIndex = (currentIndex + 1) % tabs.length;
+    if (event.key === 'ArrowLeft') targetIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    if (event.key === 'Home') targetIndex = 0;
+    if (event.key === 'End') targetIndex = tabs.length - 1;
+    if (targetIndex === undefined) return;
+
+    event.preventDefault();
+    const targetId = tabs[targetIndex].id;
+    handleSelectTab(targetId);
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-testid="terminal-tab-${targetId}"]`)?.focus();
+    });
+  };
+
   const handleCloseTab = (e: MouseEvent, terminalId: string) => {
     e.stopPropagation();
     if (terminalId === '1') return;
@@ -282,7 +318,7 @@ const TerminalTabs: Component<TerminalTabsProps> = (props) => {
   };
 
   return (
-    <div class="terminal-tabs" data-testid="terminal-tabs">
+    <div class="terminal-tabs" data-testid="terminal-tabs" role="tablist" aria-label="Terminals">
       <DragDropProvider onDragEnd={onDragEnd} collisionDetector={closestCenter}>
         <DragDropSensors />
         {/* Tab 1 is always first and not draggable */}
@@ -295,6 +331,7 @@ const TerminalTabs: Component<TerminalTabsProps> = (props) => {
               canClose={false}
               onSelect={() => handleSelectTab(tab().id)}
               onClose={(e) => handleCloseTab(e, tab().id)}
+              onKeyDown={(e) => handleTabKeyDown(e, tab().id)}
             />
           )}
         </Show>
@@ -311,6 +348,7 @@ const TerminalTabs: Component<TerminalTabsProps> = (props) => {
                   canClose={canCloseTab()}
                   onSelect={() => handleSelectTab(tab.id)}
                   onClose={(e) => handleCloseTab(e, tab.id)}
+                  onKeyDown={(e) => handleTabKeyDown(e, tab.id)}
                   onPointerDown={handlePointerDown(tab.id)}
                   onPointerUp={handlePointerUp}
                   onPointerLeave={handlePointerUp}

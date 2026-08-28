@@ -158,6 +158,27 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
       expect(body.sessions).toHaveLength(45);
     });
 
+    it('resolves missing and invalid historical terminal modes to classic', async () => {
+      const app = createCrudApp();
+      for (const [id, terminalMode] of [
+        ['missingmode12345', undefined],
+        ['invalidmode12345', 'future-mode'],
+      ] as const) {
+        mockKV._set(`session:test-bucket:${id}`, {
+          id,
+          name: id,
+          userId: 'test-bucket',
+          createdAt: '2024-01-15T09:00:00.000Z',
+          lastAccessedAt: '2024-01-15T09:30:00.000Z',
+          ...(terminalMode && { terminalMode }),
+        });
+      }
+
+      const res = await app.request('/sessions');
+      const body = await res.json() as { sessions: Session[] };
+      expect(body.sessions.map((session) => session.terminalMode)).toEqual(['classic', 'classic']);
+    });
+
     it('only returns sessions for the current user bucket', async () => {
       const app = createCrudApp('user-bucket');
       const mySession: Session = {

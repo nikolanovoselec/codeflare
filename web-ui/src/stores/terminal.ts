@@ -49,6 +49,15 @@ import {
 
 const textDecoder = new TextDecoder();
 
+// Callback keeps terminal transport independent from classic tab state.
+let onProcessName: ((sessionId: string, terminalId: string, processName: string) => void) | null = null;
+
+export function registerProcessNameCallback(
+  callback: (sessionId: string, terminalId: string, processName: string) => void,
+): void {
+  onProcessName = callback;
+}
+
 export type { AgentEventControlMessage } from './terminal-protocol';
 
 const agentEventCallbacks = new Map<string, Set<(message: AgentEventControlMessage) => void>>();

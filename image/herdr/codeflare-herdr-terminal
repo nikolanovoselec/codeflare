@@ -17,16 +17,28 @@ prepare_runtime() {
     validate_session_id
     HERDR_NAME="cf-${SESSION_ID}"
     HERDR_RUNTIME_ROOT="${CODEFLARE_RUNTIME_ROOT}/herdr/${SESSION_ID}"
+    HERDR_PERSIST_ROOT="${CODEFLARE_HERDR_PERSIST_ROOT:-${HOME:-/home/user}/.codeflare}"
+    HERDR_CONFIG_LINK="${CODEFLARE_RUNTIME_ROOT}/herdr-config"
     umask 077
-    mkdir -p "$HERDR_RUNTIME_ROOT/state"
+    mkdir -p "$HERDR_RUNTIME_ROOT/state" "$HERDR_PERSIST_ROOT"
     chmod 0700 "$HERDR_RUNTIME_ROOT" "$HERDR_RUNTIME_ROOT/state"
+    if [ -L "$HERDR_CONFIG_LINK" ]; then
+        [ "$(readlink "$HERDR_CONFIG_LINK")" = "$HERDR_PERSIST_ROOT" ] \
+            || fail "Herdr config link points outside persistent state"
+    elif [ -e "$HERDR_CONFIG_LINK" ]; then
+        fail "Herdr config link path is not a symlink"
+    else
+        ln -s "$HERDR_PERSIST_ROOT" "$HERDR_CONFIG_LINK"
+    fi
     export HERDR_SESSION="$HERDR_NAME"
     export HERDR_CONFIG_PATH="/etc/codeflare/herdr/config.toml"
     export HERDR_DISABLE_SOUND=1
-    # Herdr appends /herdr/sessions/<name>/herdr-client.sock. Keeping the XDG
-    # root here bounds the maximum-session path below Linux's 108-byte sun_path.
-    export XDG_CONFIG_HOME="$HERDR_RUNTIME_ROOT"
+    # Herdr writes structural session.json below ~/.codeflare/herdr/sessions so
+    # normal home bisync carries it to R2. The short runtime symlink keeps Unix
+    # client sockets below Linux's 108-byte sun_path without syncing sockets.
+    export XDG_CONFIG_HOME="$HERDR_CONFIG_LINK"
     export XDG_STATE_HOME="$HERDR_RUNTIME_ROOT/state"
+    HERDR_SESSION_FILE="$XDG_CONFIG_HOME/herdr/sessions/$HERDR_NAME/session.json"
     export TERMINAL_APP_STARTED=1
 }
 
@@ -96,9 +108,26 @@ wait_for_process() {
     fail "configured process was not detected"
 }
 
+wait_for_restored_agent() {
+    local expected="$1" snapshot
+    for _ in $(seq 1 120); do
+        if snapshot=$("$HERDR_BIN" agent list 2>/dev/null) \
+            && printf '%s' "$snapshot" | jq -e --arg expected "$expected" \
+                '.result.agents[]? | select(.agent == $expected)' >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.25
+    done
+    return 1
+}
+
 run_agent() {
     local pane="$1" command="$2" integration="$3" expected="$4"
     install_integration "$integration"
+    if [ "${CODEFLARE_HERDR_RESTORING:-0}" = "1" ] \
+        && wait_for_restored_agent "$expected"; then
+        return 0
+    fi
     timeout 10 "$HERDR_BIN" pane run "$pane" "$command" >/dev/null
     wait_for_agent "$pane" "$expected"
 }
@@ -160,6 +189,38 @@ bootstrap() {
     exec {lock_fd}>&-
 }
 
+server_is_healthy() {
+    for _ in $(seq 1 12); do
+        if timeout 1 "$HERDR_BIN" api snapshot >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.25
+    done
+    return 1
+}
+
+supervise_client() {
+    local bootstrap_pid="$1" client_status
+    while true; do
+        set +e
+        "$HERDR_BIN" --session "$HERDR_NAME"
+        client_status=$?
+        set -e
+
+        if [ -n "$bootstrap_pid" ]; then
+            wait "$bootstrap_pid" || exit $?
+            bootstrap_pid=
+        fi
+
+        if ! server_is_healthy; then
+            fail "Herdr server unavailable after client exit (client status $client_status)"
+        fi
+
+        printf '\r\nHerdr client detached; reattaching...\r\n' >&2
+        sleep 1
+    done
+}
+
 if [ "${1:-}" = "bootstrap" ]; then
     bootstrap
     exit 0
@@ -180,15 +241,10 @@ if [ "${1:-}" = "stop" ]; then
 fi
 
 prepare_runtime
+if [ -f "$HERDR_SESSION_FILE" ]; then
+    export CODEFLARE_HERDR_RESTORING=1
+fi
 "$0" bootstrap &
 bootstrap_pid=$!
 
-set +e
-"$HERDR_BIN" --session "$HERDR_NAME"
-client_status=$?
-set -e
-wait "$bootstrap_pid" || exit $?
-
-printf '\r\nHerdr detached; reattaching once...\r\n' >&2
-sleep 1
-exec "$HERDR_BIN" --session "$HERDR_NAME"
+supervise_client "$bootstrap_pid"
