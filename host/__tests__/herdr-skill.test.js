@@ -9,11 +9,16 @@ import { describe, it } from 'node:test';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const skill = readFileSync(join(root, 'preseed/agents/pi/skills/herdr/SKILL.md'), 'utf8');
 
-function bashBlock(heading) {
-  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = skill.match(new RegExp(`## ${escaped}\\n[\\s\\S]*?\\n\\x60\\x60\\x60bash\\n([\\s\\S]*?)\\n\\x60\\x60\\x60`));
-  assert.ok(match, `missing bash block for ${heading}`);
-  return match[1];
+function bashBlocks(heading, level = 2) {
+  const marker = `${'#'.repeat(level)} ${heading}\n`;
+  const start = skill.indexOf(marker);
+  assert.notEqual(start, -1, `missing section ${heading}`);
+  const afterMarker = skill.slice(start + marker.length);
+  const nextHeading = afterMarker.search(new RegExp(`\\n#{1,${level}} `));
+  const section = nextHeading === -1 ? afterMarker : afterMarker.slice(0, nextHeading);
+  const blocks = [...section.matchAll(/```bash\n([\s\S]*?)\n```/g)].map((match) => match[1]);
+  assert.ok(blocks.length > 0, `missing bash block for ${heading}`);
+  return blocks;
 }
 
 function fixture() {
@@ -25,7 +30,9 @@ set -eu
 printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
 case "$*" in
   'pane current --current') printf '%s\\n' '{"result":{"pane":{"pane_id":"w1:p1"}}}' ;;
-  tab\\ create*) printf '%s\\n' '{"result":{"root_pane":{"pane_id":"w9:p4"}}}' ;;
+  'tab list') printf '%s\\n' '{"result":{"tabs":[{"number":2,"tab_id":"w1:t2"}]}}' ;;
+  'pane list') printf '%s\\n' "{\"result\":{\"panes\":[{\"pane_id\":\"\${HERDR_TEST_FOCUSED_PANE:-w1:p2}\",\"focused\":true}]}}" ;;
+  tab\\ create*) printf '%s\\n' '{"result":{"tab":{"tab_id":"w1:t2"},"root_pane":{"pane_id":"w9:p4"}}}' ;;
   agent\\ read*) printf '%s\\n' 'helper result' ;;
   *) printf '%s\\n' '{"result":{"agent":{"name":"helper"}}}' ;;
 esac
@@ -38,15 +45,22 @@ function run(block, env, cwd) {
   return spawnSync('bash', ['-c', block], { encoding: 'utf8', cwd, env });
 }
 
-describe('Pi Herdr orchestration skill', () => {
-  it('REQ-AGENT-173: executes the documented Herdr orchestration flow', () => {
+function runBlocks(blocks, env, cwd) {
+  for (const block of blocks) {
+    const result = run(block, env, cwd);
+    assert.equal(result.status, 0, result.stderr);
+  }
+}
+
+describe('Pi Herdr control skill', () => {
+  it('REQ-AGENT-173 + REQ-AGENT-174: executes documented Herdr control flows', () => {
     const { dir, herdr, log } = fixture();
     const outsideEnv = { ...process.env, HERDR_TEST_LOG: log };
     delete outsideEnv.HERDR_ENV;
     delete outsideEnv.HERDR_PANE_ID;
     delete outsideEnv.HERDR_SOCKET_PATH;
     delete outsideEnv.HERDR_BIN_PATH;
-    const outside = run(bashBlock('Gate'), outsideEnv, dir);
+    const outside = run(bashBlocks('Gate')[0], outsideEnv, dir);
     assert.notEqual(outside.status, 0);
     assert.match(outside.stdout, /not running inside Herdr/);
     assert.equal(existsSync(log), false);
@@ -61,24 +75,54 @@ describe('Pi Herdr orchestration skill', () => {
       PWD: dir,
     };
     delete env.HERDR;
-    assert.equal(run(bashBlock('Gate'), env, dir).status, 0);
-    assert.equal(run(bashBlock('Start a helper in a new tab'), env, dir).status, 0);
-    assert.equal(run(bashBlock('Give a settled agent work'), env, dir).status, 0);
-    assert.equal(run(bashBlock('Steer a working agent'), env, dir).status, 0);
-    const read = run(bashBlock('Read results'), env, dir);
-    assert.equal(read.status, 0);
-    assert.match(read.stdout, /helper result/);
+    runBlocks(bashBlocks('Gate'), env, dir);
+    runBlocks(bashBlocks('Fast UI operations'), env, dir);
+    runBlocks(bashBlocks('Tabs', 3), env, dir);
+    runBlocks(bashBlocks('Splits', 3), env, dir);
+    runBlocks(bashBlocks('Agent orchestration'), env, dir);
 
     const calls = readFileSync(log, 'utf8').trim().split('\n');
     assert.deepEqual(calls, [
       'pane current --current',
+      'tab list',
+      'pane list',
+      `tab create --cwd ${dir} --label pi`,
+      'agent start pi2 --kind pi --pane w9:p4 --timeout 60000',
+      'tab list',
+      'tab focus w1:t2',
+      `pane split --current --direction right --cwd ${dir} --focus`,
+      `pane split --current --direction down --cwd ${dir} --focus`,
+      'pane list',
+      `pane split --pane w1:p2 --direction right --cwd ${dir} --focus`,
+      'pane list',
+      'pane close w1:p2',
+      'agent list',
       `tab create --cwd ${dir} --label helper --no-focus`,
       'agent start helper --kind pi --pane w9:p4 --timeout 60000',
       'agent wait helper --until idle --until done --timeout 120000',
-      'agent prompt helper Implement the focused task and report changed paths --wait --until idle --until done --until blocked --timeout 120000',
-      'agent prompt helper Adjust the current work using this new constraint',
+      'agent prompt helper Implement focused task and report changed paths --wait --until idle --until done --until blocked --timeout 120000',
+      'agent prompt helper Adjust current work using this new constraint',
       'agent read helper --source recent-unwrapped --lines 200',
     ]);
-    assert.doesNotMatch(calls[5], /--wait/);
+    assert.doesNotMatch(calls[18], /--wait/);
+  });
+
+  it('REQ-AGENT-174: refuses to close the current Pi pane', () => {
+    const { dir, herdr, log } = fixture();
+    const env = {
+      ...process.env,
+      HERDR_ENV: '1',
+      HERDR_PANE_ID: 'w1:p1',
+      HERDR_SOCKET_PATH: join(dir, 'herdr.sock'),
+      HERDR_BIN_PATH: herdr,
+      HERDR_TEST_LOG: log,
+      HERDR_TEST_FOCUSED_PANE: 'w1:p1',
+      PWD: dir,
+    };
+    delete env.HERDR;
+    const closeFocused = bashBlocks('Splits', 3)[2];
+    const result = run(closeFocused, env, dir);
+    assert.notEqual(result.status, 0);
+    assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n'), ['pane list']);
   });
 });

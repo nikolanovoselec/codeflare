@@ -4256,12 +4256,12 @@ None.
 **Acceptance Criteria:**
 
 1. Default and advanced Pi projections include one on-demand Herdr skill. <!-- @impl: preseed/agents/pi/manifest.json::skills/herdr/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-173: projects the Herdr orchestration skill) -->
-2. Outside a live Herdr pane, Pi continues normal terminal work without starting Herdr. <!-- @impl: preseed/agents/pi/SYSTEM.md::Herdr orchestration --> <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Gate --> <!-- @manual: In a plain Codeflare terminal, request Herdr orchestration and confirm the failed gate leaves Pi doing normal terminal work without starting Herdr. -->
-3. Herdr orchestration begins only after Pi verifies that its current pane is live in Herdr. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Gate --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173: executes the documented Herdr orchestration flow) -->
-4. A separately named helper runs in a newly created unfocused pane. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Start a helper in a new tab --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173: executes the documented Herdr orchestration flow) -->
-5. A settled helper receives a task under a bounded lifecycle wait. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Give a settled agent work --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173: executes the documented Herdr orchestration flow) -->
-6. Working-agent steering is not reported complete without independent task evidence. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Steer a working agent --> <!-- @manual: In Herdr, steer a working helper and confirm Pi does not report completion until the helper provides task-specific evidence. -->
-7. Reading helper results leaves the current focus unchanged. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Read results --> <!-- @manual: In Herdr, read a helper's results and confirm the current focus remains unchanged. -->
+2. Outside a live Herdr pane, Pi continues normal terminal work without starting Herdr. <!-- @impl: preseed/agents/pi/SYSTEM.md::Herdr control --> <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Gate --> <!-- @manual: In a plain Codeflare terminal, request Herdr orchestration and confirm the failed gate leaves Pi doing normal terminal work without starting Herdr. -->
+3. Herdr orchestration begins only after Pi verifies that its current pane is live in Herdr. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Gate --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173 + REQ-AGENT-174: executes documented Herdr control flows) -->
+4. A separately named helper runs in a newly created unfocused pane. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Agent orchestration --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173 + REQ-AGENT-174: executes documented Herdr control flows) -->
+5. A settled helper receives a task under a bounded lifecycle wait. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Agent orchestration --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173 + REQ-AGENT-174: executes documented Herdr control flows) -->
+6. Working-agent steering is not reported complete without independent task evidence. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Agent orchestration --> <!-- @manual: In Herdr, steer a working helper and confirm Pi does not report completion until the helper provides task-specific evidence. -->
+7. Reading helper results leaves the current focus unchanged. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Agent orchestration --> <!-- @manual: In Herdr, read a helper's results and confirm the current focus remains unchanged. -->
 
 **Constraints:**
 
@@ -4274,6 +4274,34 @@ None.
 **Dependencies:** [REQ-AGENT-172](#req-agent-172-herdr-preserves-the-pi-extension-policy), [REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup)
 
 **Verification:** Automated tests and manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-174: Pi safely controls Herdr topology
+
+**Intent:** Pi can fulfill direct Herdr tab and pane requests without relying on stale topology or closing active work unexpectedly.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Follow-up UI operations refresh current tab and pane state instead of reusing stale IDs. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Fast UI operations --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173 + REQ-AGENT-174: executes documented Herdr control flows) -->
+2. A visible tab number is focused only after resolving its current tab ID. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Tabs --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173 + REQ-AGENT-174: executes documented Herdr control flows) -->
+3. Side-by-side splits use the right direction, while stacked splits use the down direction. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Splits --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173 + REQ-AGENT-174: executes documented Herdr control flows) -->
+4. Pi distinguishes its calling pane from the pane currently focused in Herdr before choosing a split target. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Splits --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173 + REQ-AGENT-174: executes documented Herdr control flows) -->
+5. Pi refuses to close its own pane. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Splits --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-174: refuses to close the current Pi pane) -->
+6. Pi obtains user confirmation before closing a pane that may contain an active agent or process. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Splits --> <!-- @manual: In Herdr, ask Pi to close a pane running an agent or process and confirm it requests approval without closing the pane. -->
+7. A missing pane or tab ID causes one state refresh and resolved retry rather than guessed IDs or repeated command discovery. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Avoid command discovery loops --> <!-- @manual: Give Pi a stale pane or tab target and confirm it refreshes state once, retries a resolved ID once, and does not guess IDs or loop through help commands. -->
+
+**Constraints:** Every executable example resolves the configured Herdr binary within its own shell block.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-173](#req-agent-173-pi-can-orchestrate-coding-agents-through-herdr), [REQ-TERM-006](terminal.md#req-term-006-herdr-owns-in-session-terminal-topology)
+
+**Verification:** Executable skill contract tests and manual safety checks
 
 **Status:** Implemented
 
