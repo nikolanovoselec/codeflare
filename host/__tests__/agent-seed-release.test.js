@@ -197,6 +197,46 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
       /runtime/i,
     );
   });
+
+  it('REQ-AGENT-147 AC4: closes managed extension relative imports over release and declared image companions', async () => {
+    const { buildAgentSeedRelease } = await import(releaseUrl);
+    const extension = (key, content, modes = ['advanced', 'default']) => ({
+      key: `.pi/agent/extensions/${key}`,
+      contentType: 'text/typescript; charset=utf-8',
+      content,
+      modes,
+    });
+
+    await buildAgentSeedRelease(releaseOptions(compiledSeed({
+      documents: [
+        extension('ctx-command.ts', "import './context-mode-runtime';\n"),
+        extension('main.ts', "export { helper } from './helper.js';\n"),
+        extension('helper.ts', 'export const helper = true;\n'),
+      ],
+    })));
+
+    await assert.rejects(
+      buildAgentSeedRelease(releaseOptions(compiledSeed({
+        documents: [extension('main.ts', "import './missing';\n")],
+      }))),
+      /relative import.*\.\/missing.*not declared/i,
+    );
+    await assert.rejects(
+      buildAgentSeedRelease(releaseOptions(compiledSeed({
+        documents: [extension('other.ts', "import './context-mode-runtime';\n")],
+      }))),
+      /relative import.*context-mode-runtime.*not declared/i,
+    );
+    await assert.rejects(
+      buildAgentSeedRelease(releaseOptions(compiledSeed({
+        documents: [
+          extension('main.ts', "import './helper';\n"),
+          extension('helper.ts', 'export const helper = true;\n', ['advanced']),
+        ],
+      }))),
+      /relative import.*\.\/helper.*default.*not declared/i,
+    );
+  });
 });
 
 describe('REQ-AGENT-147 AC6: fixed seed-v1 resource limits', () => {

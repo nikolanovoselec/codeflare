@@ -7,6 +7,7 @@ import {
   sign,
   verify,
 } from 'node:crypto';
+import { posix as pathPosix } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { compileAgentSeed } from './agent-seed-core.mjs';
 import {
@@ -25,6 +26,15 @@ const FULL_SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const measuredExtensionRecords = new WeakSet();
 const SUPPORTED_CONTENT_TYPES = new Set(MANAGED_RELEASE_CONTENT_TYPES);
+const MANAGED_PI_EXTENSION_PREFIX = '.pi/agent/extensions/';
+
+export const IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS = Object.freeze([
+  Object.freeze({
+    key: '.pi/agent/extensions/context-mode-runtime.ts',
+    importers: Object.freeze(['.pi/agent/extensions/ctx-command.ts']),
+    modes: Object.freeze(['advanced', 'default']),
+  }),
+]);
 
 function compareStrings(left, right) {
   if (left < right) return -1;
@@ -128,6 +138,63 @@ function normalizeDocuments(documents) {
     compareStrings(left.key, right.key)
     || compareStrings(left.modes.join(','), right.modes.join(','))
   ));
+}
+
+function relativeModuleSpecifiers(content) {
+  const specifiers = new Set();
+  const patterns = [
+    /\b(?:import|export)\s+(?:type\s+)?(?:[^"'`;]*?\s+from\s+)?(["'])(\.[^"'\r\n]+)\1/g,
+    /\b(?:import|require)\s*\(\s*(["'])(\.[^"'\r\n]+)\1\s*\)/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of content.matchAll(pattern)) specifiers.add(match[2]);
+  }
+  return [...specifiers].sort(compareStrings);
+}
+
+function relativeModuleCandidates(sourceKey, specifier) {
+  const resolved = pathPosix.normalize(pathPosix.join(pathPosix.dirname(sourceKey), specifier));
+  const extension = pathPosix.extname(resolved);
+  if (extension === '.js') return [resolved, `${resolved.slice(0, -3)}.ts`];
+  if (extension) return [resolved];
+  return [
+    resolved,
+    `${resolved}.ts`,
+    `${resolved}.js`,
+    `${resolved}.mjs`,
+    `${resolved}.cjs`,
+    `${resolved}/index.ts`,
+    `${resolved}/index.js`,
+  ];
+}
+
+function validateManagedExtensionImportClosure(documents) {
+  const documentsByKey = new Map();
+  for (const document of documents) {
+    const existing = documentsByKey.get(document.key) ?? [];
+    existing.push(document);
+    documentsByKey.set(document.key, existing);
+  }
+
+  for (const document of documents) {
+    if (!document.key.startsWith(MANAGED_PI_EXTENSION_PREFIX)) continue;
+    for (const specifier of relativeModuleSpecifiers(document.content)) {
+      const candidates = relativeModuleCandidates(document.key, specifier);
+      for (const mode of document.modes) {
+        const releaseOwnsImport = candidates.some((candidate) => (
+          (documentsByKey.get(candidate) ?? []).some((dependency) => dependency.modes.includes(mode))
+        ));
+        const imageOwnsImport = IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS.some((companion) => (
+          candidates.includes(companion.key)
+          && companion.importers.includes(document.key)
+          && companion.modes.includes(mode)
+        ));
+        if (!releaseOwnsImport && !imageOwnsImport) {
+          throw new Error(`managed extension relative import ${specifier} from ${document.key} is not declared for ${mode} mode`);
+        }
+      }
+    }
+  }
 }
 
 function normalizeRetiredPaths(retiredKeys, livePaths) {
@@ -284,6 +351,7 @@ export async function buildAgentSeedRelease({
   }
 
   const documents = normalizeDocuments(compiled.documents);
+  validateManagedExtensionImportClosure(documents);
   const livePaths = new Set(documents.map((document) => document.key));
   const retiredPaths = normalizeRetiredPaths(compiled.retiredKeys, livePaths);
   const extensions = validateExtensions(managedExtensions);

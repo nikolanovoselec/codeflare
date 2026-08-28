@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS } from '../../scripts/agent-seed-release.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(resolve(here, '../../entrypoint.sh'), 'utf8');
@@ -45,7 +46,9 @@ function fixture() {
   writeFileSync(join(bake, 'default/.claude/company.md'), 'baked');
   writeFileSync(join(home, '.pi/agent/extensions/codeflare.ts'), 'restored release');
   writeFileSync(join(warm, 'codeflare.ts'), 'baked image');
-  writeFileSync(join(warm, 'context-mode-runtime.ts'), 'image-owned runtime');
+  for (const companion of IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS) {
+    writeFileSync(join(warm, companion.key.split('/').at(-1)), `image-owned ${companion.key}`);
+  }
   return { root, home, bake, warm, runtimeRoot, events: join(root, 'events') };
 }
 
@@ -100,7 +103,10 @@ function runStartup(remoteCurationActive) {
     result,
     companyFile: join(f.home, '.claude/company.md'),
     extensionFile: join(f.home, '.pi/agent/extensions/codeflare.ts'),
-    contextModeRuntimeFile: join(f.home, '.pi/agent/extensions/context-mode-runtime.ts'),
+    companionFiles: IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS.map((companion) => ({
+      ...companion,
+      destination: join(f.home, companion.key),
+    })),
   };
 }
 
@@ -111,7 +117,9 @@ describe('managed curation entrypoint behavior', () => {
     assert.equal(run.result.status, 0, run.result.stderr);
     assert.equal(existsSync(run.companyFile), false);
     assert.equal(readFileSync(run.extensionFile, 'utf8'), 'restored release');
-    assert.equal(readFileSync(run.contextModeRuntimeFile, 'utf8'), 'image-owned runtime');
+    for (const companion of run.companionFiles) {
+      assert.equal(readFileSync(companion.destination, 'utf8'), `image-owned ${companion.key}`);
+    }
     assert.deepEqual(readFileSync(run.events, 'utf8').trim().split('\n'), [
       'initial',
       'post-restore',
