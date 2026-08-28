@@ -22,7 +22,7 @@ describe('host terminal mode', () => {
     }), { mode: 'herdr', command: '/tmp/fake', args: '--test' });
   });
 
-  it('REQ-TERM-035 AC2: timeout never reports Herdr ready before bootstrap', () => {
+  it('REQ-TERM-035 AC2: timeout and orphan expiry never report Herdr ready before bootstrap', () => {
     assert.equal(isPrewarmTimeoutReady('classic', false), true);
     assert.equal(isPrewarmTimeoutReady('herdr', false), false);
     assert.equal(isPrewarmTimeoutReady('herdr', true), true);

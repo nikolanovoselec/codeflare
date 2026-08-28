@@ -347,7 +347,7 @@ When `claude-code` is build-selected, terminal tab 1 runs the official global `@
 
 **Global (Dockerfile ENV):** `NPM_CONFIG_UPDATE_NOTIFIER=false`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`, `DISABLE_AUTOUPDATER=1`, `NODE_COMPILE_CACHE=/root/.cache/node-compile-cache`, `BROWSER=/usr/local/bin/open-url`, and canonical `CODEFLARE_CODING_AGENTS` build evidence.
 
-**Prewarm readiness:** Classic settles after first PTY output and retains the 20-second timeout safety net. Herdr also requires its configured-command bootstrap marker; reaching the timeout without that marker logs a diagnostic and continues waiting.
+**Prewarm readiness:** Classic settles after first PTY output and retains the 20-second timeout safety net. Herdr also requires its configured-command bootstrap marker; reaching the timeout without that marker logs a diagnostic and continues waiting. See [REQ-TERM-035](../../sdd/spec/terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace).
 
 **Auto-start flags (.bashrc):** `--dangerously-skip-permissions`
 

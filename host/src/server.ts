@@ -465,8 +465,20 @@ server.listen(PORT, '0.0.0.0', async () => {
   prewarmSession.orphanTimeout = setTimeout(() => {
     if (sessionManager.sessions.has(state.prewarmSessionId)) {
       log('warn', 'Pre-warm session expired without adoption, killing');
+      const bootstrapDone = !requiresHerdrBootstrap || fs.existsSync(herdrBootstrapDone);
+      if (prewarmDataListener) {
+        prewarmDataListener.dispose();
+        prewarmDataListener = null;
+      }
+      if (readinessPoll) {
+        clearInterval(readinessPoll);
+        readinessPoll = null;
+      }
       sessionManager.delete(state.prewarmSessionId);
-      prewarmReady = true;
+      prewarmReady = isPrewarmTimeoutReady(TERMINAL_MODE, bootstrapDone);
+      if (!prewarmReady) {
+        log('warn', 'Expired Herdr pre-warm never completed bootstrap');
+      }
     }
   }, PREWARM_ORPHAN_MS);
 });
