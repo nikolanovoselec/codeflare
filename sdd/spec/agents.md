@@ -4209,7 +4209,6 @@ None.
 5. Image construction includes Caveman in the warm path so new images load it without first-session compilation. <!-- @impl: Dockerfile::caveman_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131/REQ-AGENT-155: managed extension JITI warm-cache contract) -->
 6. Image construction fails when Caveman's expected compiled artifact is absent. <!-- @impl: Dockerfile::caveman_hit --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131/REQ-AGENT-155: managed extension JITI warm-cache contract) -->
 7. Weekly Pi-extension discovery includes Caveman and applies its candidate version to every source-owned runtime pin. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-AGENT-155 AC7: Caveman participates in coherent Pi extension shadow bumps) -->
-8. Herdr's private XDG configuration root does not redirect Pi from the authoritative Caveman configuration under `~/.pi/agent`. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps Pi on its authoritative config root while Herdr uses private XDG state) -->
 
 **Constraints:**
 
@@ -4221,6 +4220,28 @@ None.
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-supported-coding-agent-runtimes), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-OPS-020](operations.md#req-ops-020-shadow-pin-version-bump-automation)
 
 **Verification:** Automated package, image-policy, startup, seed-exclusion, and image-cache contract tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-172: Herdr preserves the Pi extension policy
+
+**Intent:** Pi sessions launched through Herdr retain Codeflare's image-owned extension policy rather than falling back to package defaults.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A Herdr-launched Pi session retains lite Caveman responses without the Caveman status display. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps Pi on its authoritative config root while Herdr uses private XDG state) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-155 AC2: overwrites Caveman with lite mode and no footer on every start) -->
+
+**Constraints:** Herdr state remains separate from Pi's image-owned extension configuration.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-155](#req-agent-155-image-owned-caveman-response-policy), [REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup)
+
+**Verification:** Automated launcher and startup-policy tests
 
 **Status:** Implemented
 
