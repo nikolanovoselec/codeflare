@@ -84,7 +84,7 @@ describe('Session Ready Detection', () => {
     const loaded = sessionStore.sessions.find(s => s.id === 'session-1');
     expect(loaded?.status).toBe('running');
 
-    expect('getTerminalsForSession' in sessionStore).toBe(false);
+    expect(localStorage.getItem('codeflare:terminalsPerSession')).toBeNull();
   });
 
   it('should keep session as stopped when batch status reports stopped', async () => {

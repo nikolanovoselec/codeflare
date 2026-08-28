@@ -27,7 +27,7 @@ import { WebSocketServer } from 'ws';
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createActivityTracker } from './activity-tracker.js';
-import { resolveHostTerminalConfig } from './terminal-mode.js';
+import { isPrewarmTimeoutReady, resolveHostTerminalConfig } from './terminal-mode.js';
 import { getPrewarmConfig } from './prewarm-config.js';
 import { createRequestHandler, type ProxyTarget } from './request-router.js';
 import { AGENT_EVENT_LIMITS } from './agent-events.js';
@@ -306,7 +306,7 @@ const parsedTabConfig: TabConfigEntry[] = (() => {
   try { return JSON.parse(process.env.TAB_CONFIG ?? '[]') as TabConfigEntry[]; } catch { return []; }
 })();
 const prewarmConfig = getPrewarmConfig(parsedTabConfig);
-const PREWARM_TIMEOUT_MS = 20000;     // Hard cap: consider terminal ready after 20s regardless
+const PREWARM_TIMEOUT_MS = 20000;     // Classic fallback; Herdr still requires bootstrap proof
 const PREWARM_ORPHAN_MS = 120000;     // Kill pre-warmed session if not adopted within 2min
 // Init-flag wait must exceed entrypoint's SYNC_TIMEOUT (120s in initial_sync_from_r2)
 // + slack, so a legitimately-slow R2 sync never trips the fallback. If the
@@ -437,9 +437,18 @@ server.listen(PORT, '0.0.0.0', async () => {
     log('warn', 'Pre-warm: ptyProcess is null after start(), relying on timeout only');
   }
 
-  // Hard timeout safety net (20s) keeps startup reachable after bounded failure.
+  // Classic retains the hard timeout safety net. Herdr may keep waiting through
+  // its bounded agent-detection window, but never reports ready without proof.
   setTimeout(() => {
     if (!prewarmReady) {
+      const bootstrapDone = !requiresHerdrBootstrap || fs.existsSync(herdrBootstrapDone);
+      if (!isPrewarmTimeoutReady(TERMINAL_MODE, bootstrapDone)) {
+        log('warn', 'Pre-warm timeout reached before Herdr bootstrap completed', {
+          elapsedSec: (PREWARM_TIMEOUT_MS / 1000).toFixed(1),
+          command: prewarmConfig.command,
+        });
+        return;
+      }
       prewarmReady = true;
       log('info', 'Pre-warm ready (timeout)', { elapsedSec: (PREWARM_TIMEOUT_MS / 1000).toFixed(1), command: prewarmConfig.command });
       if (prewarmDataListener) {

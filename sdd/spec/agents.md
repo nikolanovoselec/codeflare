@@ -784,7 +784,7 @@ Multi-agent support, preseed system, and session modes.
 3. User-created classic manual tabs and Herdr-created tabs or panes open plain Bash and do not auto-start another agent. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC3: generated .bashrc guards autostart with the MANUAL_TAB skip branch) -->
 4. The agent CLI is findable on the system PATH in all terminal sessions. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC1+AC2+AC4: default layout writes the claude --dangerously-skip-permissions launch line + hardened PATH into .bashrc) -->
 5. Classic first output or Herdr launcher bootstrap detection begins a fixed 1.5-second settlement period; readiness becomes true after that period so the initial terminal UI can render before opening. <!-- @impl: host/src/server.ts::PREWARM_SETTLE_MS --> <!-- @impl: host/src/server.ts::server.listen --> <!-- @manual: Observe first PTY output and confirm `/health` reports `prewarmReady: true` only after the fixed settlement period. -->
-6. A 20-second hard timeout exists as a safety net if the PTY produces no output. <!-- @impl: host/src/server.ts::server.listen --> <!-- @manual -->
+6. The 20-second no-output timeout safety net applies only to classic sessions. <!-- @impl: host/src/server.ts::server.listen --> <!-- @test: host/__tests__/terminal-mode.test.js (REQ-TERM-035 AC2: timeout never reports Herdr ready before bootstrap) -->
 
 **Constraints:**
 
@@ -794,7 +794,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-TERM-035](terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace)
 
 **Verification:** Automated test
 

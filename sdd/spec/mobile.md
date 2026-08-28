@@ -213,8 +213,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 2. Herdr forwards that navigation through terminal mouse input when the fullscreen application requests it. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1: routes keyboard-closed vertical swipes as wheel input) -->
 3. Classic preserves its existing fullscreen wheel forwarding. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC3: preserves classic fullscreen wheel forwarding) -->
 4. A stationary single-finger Herdr tap emits one left mouse click sequence. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (sends a stationary touch to the xterm screen only when enabled) -->
-5. Movement or cancellation prevents terminal mouse click synthesis. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (does not synthesize a click after movement) --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC5: does not synthesize a click after cancellation) -->
-6. Classic stationary taps do not synthesize terminal mouse clicks. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (sends a stationary touch to the xterm screen only when enabled) -->
+5. Movement prevents terminal mouse click synthesis. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (does not synthesize a click after movement) -->
+6. Cancellation prevents terminal mouse click synthesis. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC6: does not synthesize a click after cancellation) -->
+7. Classic stationary taps do not synthesize terminal mouse clicks. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (sends a stationary touch to the xterm screen only when enabled) -->
 
 **Constraints:**
 

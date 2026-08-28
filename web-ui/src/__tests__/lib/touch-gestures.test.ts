@@ -583,7 +583,7 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         cleanup();
       });
 
-      it('REQ-MOB-017 AC5: does not synthesize a click after cancellation', () => {
+      it('REQ-MOB-017 AC6: does not synthesize a click after cancellation', () => {
         (window as any).ontouchstart = null;
         const { terminal, element } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
         const screenElement = document.createElement('div');

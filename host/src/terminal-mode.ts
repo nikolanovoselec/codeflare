@@ -6,6 +6,10 @@ export interface HostTerminalConfig {
   args: string;
 }
 
+export function isPrewarmTimeoutReady(mode: HostTerminalMode, herdrBootstrapDone: boolean): boolean {
+  return mode === 'classic' || herdrBootstrapDone;
+}
+
 export function resolveHostTerminalConfig(env: NodeJS.ProcessEnv): HostTerminalConfig {
   const mode: HostTerminalMode = env.CODEFLARE_TERMINAL_MODE === 'herdr' ? 'herdr' : 'classic';
   return {
