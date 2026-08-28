@@ -29,6 +29,7 @@ import { spawnSync } from 'node:child_process';
 import { createActivityTracker } from './activity-tracker.js';
 import { isPrewarmTimeoutReady, resolveHostTerminalConfig } from './terminal-mode.js';
 import { getPrewarmConfig } from './prewarm-config.js';
+import { handlePrewarmOrphanExpiry } from './prewarm-readiness.js';
 import { createRequestHandler, type ProxyTarget } from './request-router.js';
 import { AGENT_EVENT_LIMITS } from './agent-events.js';
 import { attachTerminalConnectionHandler } from './terminal-ws.js';
@@ -466,19 +467,28 @@ server.listen(PORT, '0.0.0.0', async () => {
     if (sessionManager.sessions.has(state.prewarmSessionId)) {
       log('warn', 'Pre-warm session expired without adoption, killing');
       const bootstrapDone = !requiresHerdrBootstrap || fs.existsSync(herdrBootstrapDone);
-      if (prewarmDataListener) {
-        prewarmDataListener.dispose();
-        prewarmDataListener = null;
+      const outcome = handlePrewarmOrphanExpiry(TERMINAL_MODE, bootstrapDone, {
+        disposeDataListener: () => {
+          if (prewarmDataListener) {
+            prewarmDataListener.dispose();
+            prewarmDataListener = null;
+          }
+        },
+        clearReadinessPoll: () => {
+          if (readinessPoll) {
+            clearInterval(readinessPoll);
+            readinessPoll = null;
+          }
+        },
+        deleteSession: () => {
+          sessionManager.delete(state.prewarmSessionId);
+        },
+      });
+      if (outcome === 'bootstrap_failed') {
+        log('error', 'Expired Herdr pre-warm never completed bootstrap; terminating terminal server');
+        process.exit(1);
       }
-      if (readinessPoll) {
-        clearInterval(readinessPoll);
-        readinessPoll = null;
-      }
-      sessionManager.delete(state.prewarmSessionId);
-      prewarmReady = isPrewarmTimeoutReady(TERMINAL_MODE, bootstrapDone);
-      if (!prewarmReady) {
-        log('warn', 'Expired Herdr pre-warm never completed bootstrap');
-      }
+      prewarmReady = true;
     }
   }, PREWARM_ORPHAN_MS);
 });
