@@ -9,7 +9,7 @@ import {
 } from 'node:crypto';
 import { posix as pathPosix } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import ts from 'typescript';
+import * as ts from 'typescript';
 import { compileAgentSeed } from './agent-seed-core.mjs';
 import {
   MANAGED_RELEASE_CONTENT_TYPES,
@@ -28,6 +28,16 @@ const SHA256 = /^[0-9a-f]{64}$/;
 const measuredExtensionRecords = new WeakSet();
 const SUPPORTED_CONTENT_TYPES = new Set(MANAGED_RELEASE_CONTENT_TYPES);
 const MANAGED_PI_EXTENSION_PREFIX = '.pi/agent/extensions/';
+const MANAGED_EXTENSION_SCRIPT_KINDS = new Map([
+  ['.cjs', ts.ScriptKind.JS],
+  ['.cts', ts.ScriptKind.TS],
+  ['.js', ts.ScriptKind.JS],
+  ['.jsx', ts.ScriptKind.JSX],
+  ['.mjs', ts.ScriptKind.JS],
+  ['.mts', ts.ScriptKind.TS],
+  ['.ts', ts.ScriptKind.TS],
+  ['.tsx', ts.ScriptKind.TSX],
+]);
 
 export const IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS = Object.freeze([
   Object.freeze({
@@ -141,13 +151,13 @@ function normalizeDocuments(documents) {
   ));
 }
 
-function relativeModuleSpecifiers(content, sourceKey) {
+function relativeModuleSpecifiers(content, sourceKey, scriptKind) {
   const sourceFile = ts.createSourceFile(
     sourceKey,
     content,
     ts.ScriptTarget.Latest,
     true,
-    sourceKey.endsWith('.js') ? ts.ScriptKind.JS : ts.ScriptKind.TS,
+    scriptKind,
   );
   if (sourceFile.parseDiagnostics?.length > 0) {
     throw new Error(`managed extension ${sourceKey} contains invalid TypeScript or JavaScript syntax`);
@@ -202,7 +212,9 @@ function validateManagedExtensionImportClosure(documents) {
 
   for (const document of documents) {
     if (!document.key.startsWith(MANAGED_PI_EXTENSION_PREFIX)) continue;
-    for (const specifier of relativeModuleSpecifiers(document.content, document.key)) {
+    const scriptKind = MANAGED_EXTENSION_SCRIPT_KINDS.get(pathPosix.extname(document.key).toLowerCase());
+    if (scriptKind === undefined) continue;
+    for (const specifier of relativeModuleSpecifiers(document.content, document.key, scriptKind)) {
       const candidates = relativeModuleCandidates(document.key, specifier);
       for (const mode of document.modes) {
         const releaseOwnsImport = candidates.some((candidate) => (

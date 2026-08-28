@@ -210,13 +210,16 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
     await buildAgentSeedRelease(releaseOptions(compiledSeed({
       documents: [
         extension('ctx-command.ts', "import './context-mode-runtime';\n"),
-        extension('main.ts', [
-          "// import './comment-only';",
-          "const example = \"import './string-only'\";",
-          "export { helper } from './helper.js';",
-          "const loaded = require('./helper');",
-        ].join('\n')),
+        extension('main.js', "export { helper } from './helper.js';\nconst loaded = require('./helper');\nvoid loaded;\n"),
+        extension('import-equals.ts', "import helper = require('./helper');\nvoid helper;\n"),
+        extension('json-main.ts', "void import('./config.json', { with: { type: 'json' } });\n"),
         extension('helper.ts', 'export const helper = true;\n'),
+        {
+          key: '.pi/agent/extensions/config.json',
+          contentType: 'application/json',
+          content: '{"enabled":true}\n',
+          modes: ['advanced', 'default'],
+        },
       ],
     })));
 
@@ -247,6 +250,21 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
       }))),
       /relative import.*\.\/helper.*not declared.*default/i,
     );
+  });
+
+  it('REQ-AGENT-178 AC5: ignores comments and string contents that resemble imports', async () => {
+    const { buildAgentSeedRelease } = await import(releaseUrl);
+    await buildAgentSeedRelease(releaseOptions(compiledSeed({
+      documents: [{
+        key: '.pi/agent/extensions/example.ts',
+        contentType: 'text/typescript; charset=utf-8',
+        content: [
+          "// import './comment-only';",
+          "const example = \"import './string-only'\";",
+        ].join('\n'),
+        modes: ['advanced', 'default'],
+      }],
+    })));
   });
 });
 

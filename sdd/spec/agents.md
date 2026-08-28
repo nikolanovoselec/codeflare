@@ -4389,12 +4389,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. Release construction parses managed TypeScript and JavaScript extensions, ignores comments and string contents, and discovers static imports and exports, import-equals, literal `require`, and literal dynamic imports with options. <!-- @impl: scripts/agent-seed-release.mjs::relativeModuleSpecifiers --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-178 AC1-AC3: closes managed extension relative imports over release and declared image companions) -->
+1. Release construction parses managed TypeScript and JavaScript extensions and discovers static imports and exports, import-equals, literal `require`, and literal dynamic imports with options. <!-- @impl: scripts/agent-seed-release.mjs::relativeModuleSpecifiers --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-178 AC1-AC3: closes managed extension relative imports over release and declared image companions) -->
 2. Every discovered relative import resolves to a managed release document available in each mode where its importer is present. <!-- @impl: scripts/agent-seed-release.mjs::validateManagedExtensionImportClosure --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-178 AC1-AC3: closes managed extension relative imports over release and declared image companions) -->
 3. An image-owned dependency satisfies closure only for its exact declared release key, importer, and modes. <!-- @impl: scripts/agent-seed-release.mjs::IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS --> <!-- @impl: scripts/agent-seed-release.mjs::validateManagedExtensionImportClosure --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-178 AC1-AC3: closes managed extension relative imports over release and declared image companions) -->
-4. Behavioral coverage restores every declared image companion after R2 restore while preserving release-owned extension bytes. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7 and REQ-AGENT-178 AC4: restores managed content and declared image companions before baseline) -->
+4. Post-restore startup restores every declared image companion while preserving release-owned extension bytes. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7 and REQ-AGENT-178 AC4: restores managed content and declared image companions before baseline) -->
+5. Import discovery ignores comments and string contents that resemble imports. <!-- @impl: scripts/agent-seed-release.mjs::relativeModuleSpecifiers --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-178 AC5: ignores comments and string contents that resemble imports) -->
 
-**Constraints:** Every image companion exception has post-restore relay coverage. Startup never copies arbitrary missing extensions.
+**Constraints:** Startup restores only declared image companions and never arbitrary missing extensions.
 
 **Priority:** P1
 
