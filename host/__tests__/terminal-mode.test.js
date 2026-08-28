@@ -22,9 +22,12 @@ describe('host terminal mode', () => {
     }), { mode: 'herdr', command: '/tmp/fake', args: '--test' });
   });
 
-  it('REQ-TERM-035 AC2: timeout never reports Herdr ready before bootstrap', () => {
-    assert.equal(isPrewarmTimeoutReady('classic', false), true);
+  it('REQ-AGENT-003 AC6 / REQ-TERM-035 AC2: Herdr timeout readiness requires bootstrap', () => {
     assert.equal(isPrewarmTimeoutReady('herdr', false), false);
     assert.equal(isPrewarmTimeoutReady('herdr', true), true);
+  });
+
+  it('REQ-AGENT-003 AC7: classic timeout readiness is unconditional', () => {
+    assert.equal(isPrewarmTimeoutReady('classic', false), true);
   });
 });
