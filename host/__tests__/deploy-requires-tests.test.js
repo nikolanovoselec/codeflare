@@ -438,8 +438,12 @@ describe('REQ-OPS-013 AC6-AC7: notification deployment configuration', () => {
       const result = validate(env);
       assert.notEqual(result.status, 0, name);
       const output = `${result.stdout}${result.stderr}`;
-      assert.ok(!output.includes(env.VAPID_PUBLIC_KEY), `${name}: public key value leaked`);
-      assert.ok(!output.includes(env.VAPID_PRIVATE_KEY), `${name}: private key value leaked`);
+      if (env.VAPID_PUBLIC_KEY) {
+        assert.ok(!output.includes(env.VAPID_PUBLIC_KEY), `${name}: public key value leaked`);
+      }
+      if (env.VAPID_PRIVATE_KEY) {
+        assert.ok(!output.includes(env.VAPID_PRIVATE_KEY), `${name}: private key value leaked`);
+      }
     }
   });
 });
