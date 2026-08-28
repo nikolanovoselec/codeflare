@@ -213,6 +213,15 @@ describe('SessionDropdown', () => {
       expect(btn).toHaveAttribute('aria-label', 'Updating session environment');
     });
 
+    it('disables New Session button and shows Updating during managed reconciliation', () => {
+      (sessionStore as any)._setManagedReleaseStatus('upgrading');
+      render(() => <SessionDropdown {...defaultProps} />);
+      const btn = screen.getByTestId('session-dropdown-new');
+      expect(btn).toBeDisabled();
+      expect(btn.textContent).toContain('Updating');
+      expect(btn).toHaveAttribute('aria-label', 'Updating session environment');
+    });
+
     it('REQ-STOR-022 AC2: disables New Session while a managed update waits for sessions to stop', () => {
       (sessionStore as any)._setManagedReleaseStatus('update_pending');
       render(() => <SessionDropdown {...defaultProps} />);

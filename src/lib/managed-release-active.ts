@@ -87,11 +87,11 @@ export async function getCachedActiveManagedRelease(
 /** Refresh and read the already-verified active descriptor without loading release payload bytes. */
 export async function getActiveManagedRelease(
   env: Env,
-): Promise<{ digest: string; pointer: ActiveManagedRelease } | null> {
+): Promise<{ digest: string; pointer: ActiveManagedRelease; resourcePolicy: ManagedEnvironmentConfig['resourcePolicy'] } | null> {
   const resolved = await resolveManagedEnvironment({ env, requireFresh: false });
   if (!resolved.config || !resolved.config.enabled) return null;
   if (!resolved.active) throw new Error('Managed environment is enabled without a verified active release');
-  return { digest: resolved.active.digest, pointer: resolved.active };
+  return { digest: resolved.active.digest, pointer: resolved.active, resourcePolicy: resolved.config.resourcePolicy };
 }
 
 /** Read bytes selected by Phase 3's verified, monotonic active pointer. */
