@@ -143,10 +143,19 @@ function round(fx, options = {}) {
       if (options.malformed === 'missing-boundary') command = command.replace('CODEFLARE_REVIEW_CI=push ', '');
       if (options.malformed === 'extra-environment') command = `PATH=/tmp ${command}`;
       if (options.malformed === 'quoted') command = `printf '%s' '${command}'`;
+      if (options.malformed === 'wrong-pr') command = command.replace('--boundary-pr 42', '--boundary-pr 43');
+      if (options.malformed === 'wrong-lane') command = command.replace('--lane code-reviewer', '--lane doc-updater');
+      if (options.malformed === 'wrong-base') command = command.replace('--base main', '--base develop');
+      if (options.malformed === 'wrong-range') {
+        command = command.replace('--base main', `--range ${'f'.repeat(40)}..${fx.head}`);
+      }
       if (options.malformed === 'wrong-tool') name = 'Agent';
       if (options.malformed === 'wrong-role') role = 'user';
     }
-    const launch = call(id, name, { command, run_in_background: true });
+    const launch = call(id, name, {
+      command,
+      run_in_background: options.malformed !== 'foreground',
+    });
     launch.message.role = role;
     entries.push(
       launch,
@@ -215,7 +224,12 @@ describe('Claude current-round completion enforcement', () => {
       'missing-boundary',
       'extra-environment',
       'quoted',
+      'foreground',
       'failed-receipt',
+      'wrong-pr',
+      'wrong-lane',
+      'wrong-base',
+      'wrong-range',
       'wrong-tool',
       'wrong-role',
     ]) {
