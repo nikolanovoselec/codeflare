@@ -21,11 +21,18 @@ function validBucketNameBody(): Record<string, unknown> {
     fastStartEnabled: false,
     sessionMode: 'pro',
     sessionWorkspace: 'terminal',
+    terminalMode: 'classic',
     sleepAfter: '30m',
   };
 }
 
 describe('CF-046: SetBucketNameBodySchema', () => {
+  it('accepts classic and Herdr terminal modes but rejects unknown values', () => {
+    expect(SetBucketNameBodySchema.safeParse({ ...validBucketNameBody(), terminalMode: 'classic' }).success).toBe(true);
+    expect(SetBucketNameBodySchema.safeParse({ ...validBucketNameBody(), terminalMode: 'herdr' }).success).toBe(true);
+    expect(SetBucketNameBodySchema.safeParse({ ...validBucketNameBody(), terminalMode: 'other' }).success).toBe(false);
+  });
+
   // CF-006: shared transport schema for /_internal/setBucketName
   describe('valid payloads', () => {
     it('accepts a fully-populated valid body', () => {

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { getDefaultTabConfig } from '../../lib/agent-config';
 import { AgentTypeSchema } from '../../types';
 import type { AgentType } from '../../types';
+import { MAX_TABS } from '../../lib/constants';
 
 /**
  * Expected command mapping for every agent type.
@@ -42,8 +43,14 @@ describe('AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent typ
 });
 
 describe('getDefaultTabConfig / REQ-AGENT-002 AC1/AC2/AC5 (POST /api/sessions accepts agentType field, validated against AgentTypeSchema, defaults to claude-code)', () => {
-  it('returns only the primary configuration consumed by the Herdr launcher', () => {
-    expect(getDefaultTabConfig('claude-code')).toHaveLength(1);
+  it('returns only the primary terminal for Herdr mode', () => {
+    expect(getDefaultTabConfig('pi', 'herdr')).toEqual([
+      { id: '1', command: 'pi', label: 'Terminal 1' },
+    ]);
+  });
+  it('returns MAX_TABS tabs', () => {
+    const tabs = getDefaultTabConfig('claude-code');
+    expect(tabs).toHaveLength(MAX_TABS);
   });
 
   it('sets tab 1 to the agent command for claude-code', () => {
@@ -91,7 +98,20 @@ describe('getDefaultTabConfig / REQ-AGENT-002 AC1/AC2/AC5 (POST /api/sessions ac
     expect(tabs[0].command).toBe('');
   });
 
-  it('uses only internal terminal ID 1', () => {
-    expect(getDefaultTabConfig('bash').map((tab) => tab.id)).toEqual(['1']);
+  it('sets tabs 2-6 to empty bash terminals', () => {
+    const tabs = getDefaultTabConfig('claude-code');
+    for (let i = 1; i < tabs.length; i++) {
+      expect(tabs[i]).toEqual({
+        id: String(i + 1),
+        command: '',
+        label: `Terminal ${i + 1}`,
+      });
+    }
+  });
+
+  it('generates correct tab IDs as strings', () => {
+    const tabs = getDefaultTabConfig('bash');
+    const ids = tabs.map(t => t.id);
+    expect(ids).toEqual(['1', '2', '3', '4', '5', '6']);
   });
 });

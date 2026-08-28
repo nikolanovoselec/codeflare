@@ -16,6 +16,7 @@ import { attachWheelScrolling } from '../lib/terminal-wheel';
 import { useScrollCorrection } from './useScrollCorrection';
 import { agentEventDisposition, showGrantedAgentEvent } from '../lib/agent-notifications';
 import { parseOsc52ClipboardWrite } from '../lib/osc52';
+import { resolveTerminalMode, type TerminalMode } from '../types';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
 export const DECTCEM_CURSOR_PARAM = 25;
@@ -27,6 +28,7 @@ export interface UseTerminalOptions {
   sessionId: string;
   terminalId: string;
   sessionName?: string;
+  terminalMode?: TerminalMode;
   active: boolean;
   visible?: boolean;
   focused?: boolean;
@@ -65,6 +67,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let cursorShowDisposable: { dispose: () => void } | undefined;
   let notificationDisposable: { dispose: () => void } | undefined;
   let clipboardDisposable: { dispose: () => void } | undefined;
+  let handleContextMenu: ((event: MouseEvent) => void) | undefined;
   let agentEventDisposable: (() => void) | undefined;
   let hasInitialScrolled = false;
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -82,6 +85,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   const isVisible = () => props.visible ?? props.active;
   const isFocused = () => props.focused ?? props.active;
   const canConnect = () => props.connect ?? isVisible();
+  const isHerdr = () => resolveTerminalMode(props.terminalMode) === 'herdr';
   const isMounted = () => !disposed && !!term && !!fitAddon && !!containerEl;
 
   function setContainerRef(el: HTMLDivElement) {
@@ -218,6 +222,18 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       }
       return true;
     });
+
+    if (!isHerdr()) {
+      handleContextMenu = (event: MouseEvent) => {
+        event.preventDefault();
+        if (!term || loadSettings().clipboardAccess !== true) return;
+        term.focus();
+        void navigator.clipboard.readText().then((text) => {
+          if (text && term) term.paste(text);
+        }).catch(() => {});
+      };
+      container.addEventListener('contextmenu', handleContextMenu);
+    }
 
     return { termBg };
   }
@@ -371,12 +387,14 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     // OSC 777 is consumed as terminal control output only. Browser notification
     // delivery is driven exclusively by validated host agent-event controls.
     notificationDisposable = t.parser.registerOscHandler(777, () => true);
-    clipboardDisposable = t.parser.registerOscHandler(52, (data) => {
-      const text = parseOsc52ClipboardWrite(data);
-      if (text === null || loadSettings().clipboardAccess !== true) return true;
-      void navigator.clipboard.writeText(text).catch(() => {});
-      return true;
-    });
+    if (isHerdr()) {
+      clipboardDisposable = t.parser.registerOscHandler(52, (data) => {
+        const text = parseOsc52ClipboardWrite(data);
+        if (text === null || loadSettings().clipboardAccess !== true) return true;
+        void navigator.clipboard.writeText(text).catch(() => {});
+        return true;
+      });
+    }
 
     const currentAgentEventDisposition = () => {
       const sessionExists = sessionStore.sessions?.some(
@@ -463,7 +481,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       },
     );
 
-    cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen);
+    cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen, isHerdr());
 
     // Font loading fix
     if (document.fonts) {
@@ -572,7 +590,16 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
     if (canConnect() && shouldConnect && term && !cleanup) {
       logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Connecting WebSocket (stage: ${stage || 'running'})`);
-      cleanup = terminalStore.connect(props.sessionId, props.terminalId, term, props.onError);
+      const terminals = sessionStore.getTerminalsForSession(props.sessionId);
+      const tab = terminals?.tabs.find((candidate) => candidate.id === props.terminalId);
+      cleanup = terminalStore.connect(
+        props.sessionId,
+        props.terminalId,
+        term,
+        props.onError,
+        !isHerdr() && tab?.manual === true,
+        !isHerdr(),
+      );
     }
   });
 
@@ -712,6 +739,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
   onCleanup(() => {
     disposed = true;
+    const mountedContainer = containerEl;
     if (kbDebounceTimer !== null) {
       clearTimeout(kbDebounceTimer);
       kbDebounceTimer = null;
@@ -727,6 +755,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     clipboardDisposable?.dispose();
     agentEventDisposable?.();
     resizeObserver?.disconnect();
+    if (handleContextMenu) mountedContainer?.removeEventListener('contextmenu', handleContextMenu);
     terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
     term = undefined;
     fitAddon = undefined;

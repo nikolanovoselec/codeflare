@@ -8,6 +8,7 @@ import type {
   TileLayout,
   VisibleTerminalPane,
 } from '../types';
+import { resolveTerminalMode } from '../types';
 
 const MULTIVIEW_STORAGE_KEY = 'codeflare:terminalMultiViewWorkspace';
 const MULTIVIEW_ID = 'multiview:1' as const;
@@ -16,8 +17,8 @@ function paneId(source: VisibleTerminalPane['source'], sessionId: string, termin
   return `${source === 'multiview' ? 'multiview' : 'session'}:${sessionId}:${terminalId}`;
 }
 
-function paneForSession(sessionId: string, source: VisibleTerminalPane['source']): VisibleTerminalPane {
-  return { id: paneId(source, sessionId, '1'), sessionId, terminalId: '1', source };
+function paneForSession(sessionId: string, terminalId = '1', source: VisibleTerminalPane['source']): VisibleTerminalPane {
+  return { id: paneId(source, sessionId, terminalId), sessionId, terminalId, source };
 }
 
 function layoutForCount(count: number): Exclude<TileLayout, 'tabbed'> {
@@ -125,6 +126,7 @@ function setDashboardWorkspace(): void {
 
 function setSingleSessionWorkspace(
   sessionId: string,
+  terminalId: string,
   session: Pick<SessionWithStatus, 'workspace'>,
 ): void {
   if (!isTerminalSession(session)) {
@@ -132,7 +134,7 @@ function setSingleSessionWorkspace(
     return;
   }
 
-  const pane = paneForSession(sessionId, 'session');
+  const pane = paneForSession(sessionId, terminalId, 'session');
   if (
     state.mode === 'single-session'
     && state.activeWorkspace.kind === 'session'
@@ -186,7 +188,7 @@ function reconcileMultiView(sessions: SessionWithStatus[], viewport: TerminalVie
     setState('multiView', next);
     persistMultiView(next);
     if (state.mode === 'multiview') {
-      openMultiView();
+      openMultiView(sessions);
     }
   }
 
@@ -220,15 +222,28 @@ function createOrUpdateMultiView(
   return true;
 }
 
-function openMultiView(): boolean {
+function openMultiView(
+  sessions: SessionWithStatus[] = [],
+  activeTerminalId?: (sessionId: string) => string,
+): boolean {
   const workspace = state.multiView;
   if (!workspace || workspace.memberSessionIds.length < 2) return false;
 
-  const panes = workspace.memberSessionIds.map((sessionId) => paneForSession(sessionId, 'multiview'));
+  const panes = workspace.memberSessionIds.map((sessionId) => {
+    const session = sessions.find((candidate) => candidate.id === sessionId);
+    const terminalId = resolveTerminalMode(session?.terminalMode) === 'herdr'
+      ? '1'
+      : activeTerminalId?.(sessionId)
+        ?? state.panes.find((pane) => pane.sessionId === sessionId)?.terminalId
+        ?? '1';
+    return paneForSession(sessionId, terminalId, 'multiview');
+  });
   const focusedSessionId = workspace.focusedSessionId && workspace.memberSessionIds.includes(workspace.focusedSessionId)
     ? workspace.focusedSessionId
     : workspace.memberSessionIds[0];
-  const focusedPaneId = paneId('multiview', focusedSessionId, '1');
+  const focusedPaneId = panes.find((pane) => pane.sessionId === focusedSessionId)?.id
+    ?? panes[0]?.id
+    ?? null;
 
   if (
     state.mode === 'multiview'

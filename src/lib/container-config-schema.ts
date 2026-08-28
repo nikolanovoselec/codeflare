@@ -17,6 +17,7 @@ export const SetBucketNameBodySchema = z.object({
   r2AccountId: z.string(),
   r2Endpoint: z.string(),
   tabConfig: z.array(z.object({}).passthrough()),
+  terminalMode: z.enum(['classic', 'herdr']),
   workspaceSyncEnabled: z.boolean(),
   fastStartEnabled: z.boolean(),
   openaiApiKey: z.string().optional(),

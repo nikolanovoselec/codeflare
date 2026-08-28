@@ -1,21 +1,118 @@
 import { describe, it, expect } from 'vitest';
-import { mdiCodeBraces, mdiConsole, mdiGithub, mdiPi, mdiRobotIndustrial, mdiRobotOutline, mdiRocketLaunchOutline, mdiViewCompactOutline } from '@mdi/js';
-import { AGENT_ICON_MAP, MULTIVIEW_ICON } from '../../lib/terminal-config';
+import { mdiConsole, mdiRobotOutline, mdiCodeBraces, mdiRocketLaunchOutline, mdiRobotIndustrial, mdiGithub } from '@mdi/js';
+import { TERMINAL_TAB_CONFIG, getTabIcon, getTabDisplayName, AGENT_ICON_MAP } from '../../lib/terminal-config';
 
-describe('terminal-config session identity', () => {
-  it('keeps configured session agent icons without outer process-label helpers', () => {
-    expect(AGENT_ICON_MAP).toEqual({
-      'claude-code': mdiRobotOutline,
-      codex: mdiCodeBraces,
-      antigravity: mdiRocketLaunchOutline,
-      opencode: mdiRobotIndustrial,
-      copilot: mdiGithub,
-      pi: mdiPi,
-      bash: mdiConsole,
+describe('terminal-config / REQ-TERM-006 (per-tab agent autostart config) / REQ-TERM-009 (PROCESS_ICON_MAP renders icons per tab process kind)', () => {
+  describe('TERMINAL_TAB_CONFIG', () => {
+    it('defines configs for tabs 1 through 6', () => {
+      for (let i = 1; i <= 6; i++) {
+        const config = TERMINAL_TAB_CONFIG[String(i)];
+        expect(config).toBeTruthy();
+        expect(config.name).toBe(`Terminal ${i}`);
+        expect(config.icon).toBe(mdiConsole);
+      }
     });
   });
 
-  it('keeps the MultiView icon', () => {
-    expect(MULTIVIEW_ICON).toBe(mdiViewCompactOutline);
+  describe('getTabIcon', () => {
+    it('returns robot icon for claude', () => {
+      expect(getTabIcon('claude')).toBe(mdiRobotOutline);
+    });
+
+    it('returns codex icon for "codex"', () => {
+      expect(getTabIcon('codex')).toBe(mdiCodeBraces);
+    });
+
+    it('returns rocket icon for "agy"', () => {
+      expect(getTabIcon('agy')).toBe(mdiRocketLaunchOutline);
+    });
+
+    it('returns robot-industrial icon for "opencode"', () => {
+      expect(getTabIcon('opencode')).toBe(mdiRobotIndustrial);
+    });
+
+    it('returns github icon for "copilot"', () => {
+      expect(getTabIcon('copilot')).toBe(mdiGithub);
+    });
+
+    it('returns console icon for shell processes', () => {
+      expect(getTabIcon('bash')).toBe(mdiConsole);
+      expect(getTabIcon('sh')).toBe(mdiConsole);
+      expect(getTabIcon('zsh')).toBe(mdiConsole);
+    });
+
+    it('returns console icon as fallback for unknown processes', () => {
+      expect(getTabIcon('unknown-process')).toBe(mdiConsole);
+      expect(getTabIcon('')).toBe(mdiConsole);
+    });
+  });
+
+  describe('getTabDisplayName', () => {
+    it('returns claude display name', () => {
+      expect(getTabDisplayName('claude')).toBe('claude');
+    });
+
+    it('returns process name unchanged for other processes', () => {
+      expect(getTabDisplayName('bash')).toBe('bash');
+      expect(getTabDisplayName('codex')).toBe('codex');
+      expect(getTabDisplayName('agy')).toBe('agy');
+    });
+  });
+
+  describe('AGENT_ICON_MAP', () => {
+    it('maps agent types to their icons', () => {
+      expect(AGENT_ICON_MAP['claude-code']).toBe(mdiRobotOutline);
+      expect(AGENT_ICON_MAP['codex']).toBe(mdiCodeBraces);
+      expect(AGENT_ICON_MAP['antigravity']).toBe(mdiRocketLaunchOutline);
+      expect(AGENT_ICON_MAP['opencode']).toBe(mdiRobotIndustrial);
+      expect(AGENT_ICON_MAP['copilot']).toBe(mdiGithub);
+      expect(AGENT_ICON_MAP['bash']).toBe(mdiConsole);
+    });
+
+    it('does not have claude-unleashed entry', () => {
+      expect(AGENT_ICON_MAP['claude-unleashed']).toBeUndefined();
+    });
+
+    it('has entries for all 7 agent types', () => {
+      const expectedAgentTypes = ['claude-code', 'codex', 'antigravity', 'opencode', 'copilot', 'pi', 'bash'];
+      expect(Object.keys(AGENT_ICON_MAP).sort()).toEqual(expectedAgentTypes.sort());
+    });
+
+    it('has no extra entries beyond the expected agent types', () => {
+      expect(Object.keys(AGENT_ICON_MAP)).toHaveLength(7);
+    });
+
+    it('every icon value is a non-empty string (valid SVG path)', () => {
+      for (const [agentType, icon] of Object.entries(AGENT_ICON_MAP)) {
+        expect(icon, `${agentType} should have a valid icon`).toBeTruthy();
+        expect(typeof icon).toBe('string');
+        expect(icon.length).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  describe('PROCESS_ICON_MAP exhaustiveness via getTabIcon', () => {
+    it('every agent type command resolves to a non-console icon', () => {
+      // Agent commands that should have dedicated icons (not fallback console)
+      const agentProcessNames = ['claude', 'codex', 'agy', 'opencode', 'copilot'];
+      for (const name of agentProcessNames) {
+        const icon = getTabIcon(name);
+        expect(icon, `${name} should have a dedicated icon, not fallback`).not.toBe(mdiConsole);
+      }
+    });
+
+    it('opencode maps to mdiRobotIndustrial in both PROCESS_ICON_MAP and AGENT_ICON_MAP', () => {
+      expect(getTabIcon('opencode')).toBe(mdiRobotIndustrial);
+      expect(AGENT_ICON_MAP['opencode']).toBe(mdiRobotIndustrial);
+      // Both should be the same icon
+      expect(getTabIcon('opencode')).toBe(AGENT_ICON_MAP['opencode']);
+    });
+
+    it('copilot maps to mdiGithub in both PROCESS_ICON_MAP and AGENT_ICON_MAP', () => {
+      expect(getTabIcon('copilot')).toBe(mdiGithub);
+      expect(AGENT_ICON_MAP['copilot']).toBe(mdiGithub);
+      // Both should be the same icon
+      expect(getTabIcon('copilot')).toBe(AGENT_ICON_MAP['copilot']);
+    });
   });
 });

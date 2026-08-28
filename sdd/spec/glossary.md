@@ -29,9 +29,10 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Admin Access Group | An enterprise Setup-configured Cloudflare Access group (`SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP`) whose members are granted admin (= Setup / user-administration) access, parallel to the email-based Admin Users list. Resolved live per-request in `requireAdmin` (never the hot auth path); elevation lives only on the request context. Distinct from the user-access groups — admin groups never participate in per-group routing ([REQ-ENTERPRISE-014](enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups)). |
 | Bisync | rclone's bidirectional sync mode - keeps container local files and R2 bucket in sync. |
 | sleepAfter | Configurable idle timeout (15m-4h) before a container is stopped. Input-based detection. |
-| PTY | Pseudo-terminal - the host uses one outer PTY for the standalone terminal surface; Herdr owns inner PTYs for its tabs and panes. |
+| PTY | Pseudo-terminal - classic sessions use up to six outer PTYs; Herdr sessions use one outer client PTY and Herdr-owned inner PTYs. |
 | Terminal Surface | The single xterm.js and outer PTY exposed by Codeflare for one backend Terminal session, using internal terminal ID `1`. |
-| Herdr Runtime | The named, ephemeral in-container terminal multiplexer that owns tabs, panes, splits, workspaces, shells, and agents inside one Terminal session. |
+| Terminal Mode | Immutable `classic` or `herdr` ownership stamped by the Worker when a session is created; missing or invalid historical values resolve to classic. |
+| Herdr Runtime | The named, ephemeral in-container terminal multiplexer that owns tabs, panes, splits, workspaces, shells, and agents inside an opt-in Herdr Terminal session. |
 | MultiView Layout | Codeflare's 2-split, 3-split, or 4-grid arrangement of terminal surfaces from distinct backend sessions. |
 | CF Access | Cloudflare Access - external auth service used in default/onboarding modes. |
 | Direct GitHub OAuth | Worker-managed GitHub OAuth flow used in SaaS mode when OAUTH_CLIENT_ID is configured. Completely separate from CF Access. |
@@ -45,7 +46,7 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Effective Tier | The billing-resolved subscription tier after applying grace periods and expiry rules |
 | Fast Start | Container optimization that disables agent CLI auto-updaters to reduce startup time |
 | Bisync Baseline | Initial rclone --resync state that establishes bidirectional sync tracking |
-| Pre-warm | Pre-spawning the sole outer terminal PTY and its Herdr client during container startup before the terminal service is ready |
+| Pre-warm | Pre-spawning a Terminal session's classic primary login shell or sole outer Herdr client before the terminal service is ready |
 | Reconcile | Process of syncing preseed configs to match the current session mode (overwrite + cleanup) |
 | BillingStatus | Subscription state: active, trialing, past_due, or canceled |
 | Anti-flapping | 3-minute startup guard preventing stale KV data from toggling session status |

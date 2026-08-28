@@ -17,7 +17,7 @@
  */
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session } from '../types';
+import { resolveTerminalMode, type Env, type Session } from '../types';
 import { getSessionKey, putSessionWithMetadata } from '../lib/kv-keys';
 import { SESSION_ID_PATTERN, REQUEST_ID_LENGTH, REQUEST_ID_PATTERN, WS_RATE_LIMIT_WINDOW_MS, WS_RATE_LIMIT_MAX_CONNECTIONS, WS_RATE_LIMIT_TTL_SECONDS, CONTAINER_WS_FORWARD_TIMEOUT_MS } from '../lib/constants';
 import { checkRateLimit } from '../lib/rate-limit-core';
@@ -35,6 +35,11 @@ import { AuthError, ForbiddenError, NotFoundError, toError, toErrorMessage } fro
 
 const logger = createLogger('terminal');
 
+export function isTerminalIdAllowed(session: Pick<Session, 'terminalMode'>, terminalId: string): boolean {
+  return /^[1-6]$/.test(terminalId)
+    && (resolveTerminalMode(session.terminalMode) === 'classic' || terminalId === '1');
+}
+
 /**
  * Result of WebSocket routing validation
  */
@@ -45,7 +50,7 @@ interface WebSocketRouteResult {
   fullSessionId?: string;
   /** The base session ID without terminal suffix */
   baseSessionId?: string;
-  /** Stable internal terminal ID (always 1) */
+  /** Structurally valid outer terminal ID (1 through 6) */
   terminalId?: string;
   /** Error response if validation failed */
   errorResponse?: Response;
@@ -73,9 +78,9 @@ export function validateWebSocketRoute(request: Request): WebSocketRouteResult {
 
   const fullSessionId = wsMatch[1];
 
-  // Herdr owns topology inside one Codeflare surface. Keep terminal ID 1 as
-  // the stable transport suffix and reject every other outer PTY identity.
-  const compoundMatch = fullSessionId.match(/^(.+)-(1)$/);
+  // Parse the full classic route range. Herdr's ID-1 restriction is authorized
+  // only after authentication and persisted session lookup below.
+  const compoundMatch = fullSessionId.match(/^(.+)-([1-6])$/);
   const baseSessionId = compoundMatch?.[1] ?? '';
   const terminalId = compoundMatch?.[2] ?? '';
 
@@ -190,6 +195,13 @@ export async function handleWebSocketUpgrade(
     if (!session) {
       return new Response(JSON.stringify({ error: 'Session not found', code: 'SESSION_NOT_FOUND' }), {
         status: 404,
+        headers: jsonHeaders,
+      });
+    }
+
+    if (!isTerminalIdAllowed(session, terminalId)) {
+      return new Response(JSON.stringify({ error: 'Herdr sessions expose terminal 1 only', code: 'INVALID_TERMINAL' }), {
+        status: 400,
         headers: jsonHeaders,
       });
     }

@@ -27,6 +27,8 @@ function renderSection(overrides: {
   canChangeSleepAfter?: boolean;
   onSessionModeChange?: ModeChange;
   onDefaultWorkspaceChange?: (workspace: 'terminal' | 'vscode') => void;
+  herdrEnabled?: boolean;
+  onHerdrToggle?: () => void;
 } = {}) {
   const props = {
     enterpriseMode: () => overrides.enterpriseMode ?? false,
@@ -35,6 +37,7 @@ function renderSection(overrides: {
     defaultWorkspace: () => overrides.defaultWorkspace ?? 'terminal',
     canUseAdvanced: () => overrides.canUseAdvanced ?? true,
     fastStartEnabled: () => true,
+    herdrEnabled: () => overrides.herdrEnabled ?? false,
     workspaceSyncEnabled: () => false,
     clipboardAccess: () => false,
     notificationPermission: () => 'default' as const,
@@ -50,6 +53,7 @@ function renderSection(overrides: {
     onSessionModeChange: overrides.onSessionModeChange ?? (() => {}),
     onDefaultWorkspaceChange: overrides.onDefaultWorkspaceChange ?? (() => {}),
     onFastStartToggle: () => {},
+    onHerdrToggle: overrides.onHerdrToggle ?? (() => {}),
     onWorkspaceSyncToggle: () => {},
     onEnableAgentNotifications: () => {},
     onSleepAfterChange: () => {},
@@ -60,6 +64,24 @@ function renderSection(overrides: {
   // Cast: the typed Accessor<...> props are satisfied by these zero-arg getters.
   render(() => <SessionSection {...(props as unknown as Parameters<typeof SessionSection>[0])} />);
 }
+
+describe('terminal experience preference', () => {
+  afterEach(() => cleanup());
+
+  it('defaults off and invokes the server-preference toggle', () => {
+    const onHerdrToggle = vi.fn();
+    renderSection({ onHerdrToggle });
+    const toggle = screen.getByTestId('settings-herdr-toggle');
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(toggle);
+    expect(onHerdrToggle).toHaveBeenCalledOnce();
+  });
+
+  it('reflects an enabled preference', () => {
+    renderSection({ herdrEnabled: true });
+    expect(screen.getByTestId('settings-herdr-toggle')).toHaveAttribute('aria-checked', 'true');
+  });
+});
 
 describe('REQ-AGENT-004 AC3: mode selection in Settings session-defaults', () => {
   afterEach(() => cleanup());

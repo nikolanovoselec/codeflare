@@ -2,7 +2,8 @@
  * Agent configuration helpers
  * Default tab configurations for each agent type
  */
-import type { AgentType, TabConfig } from '../types';
+import type { AgentType, TabConfig, TerminalMode } from '../types';
+import { MAX_TABS } from './constants';
 
 /**
  * Primary command for each agent type, consumed by the Herdr launcher.
@@ -17,10 +18,13 @@ const AGENT_COMMANDS: Record<AgentType, { command: string; label: string }> = {
   'bash': { command: '', label: 'Terminal 1' },
 };
 
-/**
- * Generate the sole outer terminal configuration for a given agent type.
- */
-export function getDefaultTabConfig(agentType: AgentType): TabConfig[] {
+/** Generate mode-specific default outer terminal configuration. */
+export function getDefaultTabConfig(agentType: AgentType, terminalMode: TerminalMode = 'classic'): TabConfig[] {
   const primary = AGENT_COMMANDS[agentType];
-  return [{ id: '1', command: primary.command, label: primary.label }];
+  const tabs: TabConfig[] = [{ id: '1', command: primary.command, label: primary.label }];
+  if (terminalMode === 'herdr') return tabs;
+  for (let id = 2; id <= MAX_TABS; id += 1) {
+    tabs.push({ id: String(id), command: '', label: `Terminal ${id}` });
+  }
+  return tabs;
 }

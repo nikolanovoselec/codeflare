@@ -65,9 +65,9 @@ The public Worker owns the edge boundary. Container credentials that must remain
 
 ### Terminal topology ownership
 
-Each backend Terminal session exposes one xterm.js surface and one existing authenticated terminal WebSocket using internal terminal ID `1`. The host retains its outer `Session`, `node-pty`, headless restore, resize authority, input classification, and prewarm adoption. That outer PTY runs the official Herdr client through a fixed launcher; one ephemeral named Herdr server owns all tabs, panes, splits, workspaces, shells, and agents inside the session. Codeflare does not expose Herdr sockets or its private protocol.
+The Worker stamps each new Terminal session with immutable `classic` or `herdr` ownership from the authenticated user's server preference; absence resolves classic. Classic exposes up to six xterm.js surfaces with Codeflare tabs, labels, saved layouts, and tiling. Herdr exposes one outer surface at terminal ID `1`; its outer `node-pty` runs the official client through a fixed launcher, and one ephemeral named server owns tabs, panes, splits, workspaces, shells, and agents inside that session. Both modes retain authenticated WebSocket transport, host `Session`, headless restore, resize authority, input classification, and prewarm adoption. Codeflare exposes no Herdr socket or private protocol.
 
-MultiView remains a browser-owned cross-session workspace. It arranges one terminal surface from each selected backend session, so every visible MultiView pane has a different container and Herdr runtime. Browser IDE remains a separate session service and does not attach to the standalone Herdr runtime. See [AD145](../decisions/README.md#ad145-herdr-owns-topology-inside-one-codeflare-terminal-surface).
+MultiView remains a browser-owned cross-session workspace and may combine both modes: classic members use their active outer terminal, Herdr members use terminal `1`. Browser IDE remains a separate session service and starts no standalone Herdr runtime. See [AD145](../decisions/README.md#ad145-terminal-mode-is-an-immutable-per-session-choice).
 
 ### Deployment modes
 

@@ -39,8 +39,8 @@ export const ANONYMOUS_RATE_LIMIT_KEY = 'anonymous';
 /** Timeout for container fetch operations (5 seconds for cold start) */
 export const CONTAINER_FETCH_TIMEOUT = 5000;
 
-/** One outer Codeflare terminal identity; Herdr owns inner topology. */
-export const MAX_TABS = 1;
+/** Maximum classic outer terminals; Herdr sessions authorize only terminal 1. */
+export const MAX_TABS = 6;
 
 /** WebSocket rate limit: sliding window duration (ms) */
 export const WS_RATE_LIMIT_WINDOW_MS = 60_000;

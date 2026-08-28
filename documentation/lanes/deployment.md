@@ -145,7 +145,7 @@ Notes:
 - The example assumes one account, one 160-hour active session, 1 vCPU, 3 GiB memory, 6 GB local disk, and 20% average CPU as of `2026-08-09`.
 - Pricing: [Cloudflare Containers Pricing](https://developers.cloudflare.com/containers/pricing/)
 
-Container resource usage scales per active session (each session is one container with one outer Codeflare terminal surface and one ephemeral Herdr runtime). Herdr inner panes add processes inside that container. Idle sessions stop after `sleepAfter` (default 30m, configurable 15m-4h) of no user input; durable state comes back from R2 on a later fresh Container, while Herdr topology does not.
+Container resource usage scales per active session. Classic sessions may run up to six outer PTYs; opt-in Herdr sessions run one outer client plus inner pane processes in the same container. Idle sessions stop after `sleepAfter` (default 30m, configurable 15m-4h) of no user input; durable files return from R2 on a later fresh container, while Herdr topology does not.
 
 ---
 

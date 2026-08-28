@@ -33,6 +33,9 @@ export const WS_RECONNECT_MAX_MS = 15_000;
  *  (REQ-TERM-020 AC2). */
 export const WS_CONNECT_TIMEOUT_MS = 10_000;
 
+/** Maximum outer terminals for a classic session; Herdr authorizes only ID 1. */
+export const MAX_TERMINALS_PER_SESSION = 6;
+
 // =============================================================================
 // UI Timing
 // =============================================================================

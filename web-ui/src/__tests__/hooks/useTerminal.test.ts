@@ -165,6 +165,7 @@ import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
 import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen, forceResetKeyboardState, disableVirtualKeyboardOverlay } from '../../lib/mobile';
 import * as mobileModule from '../../lib/mobile';
+import { loadSettings } from '../../lib/settings';
 import { showAgentNotification, showGrantedAgentEvent } from '../../lib/agent-notifications';
 
 // REQ-TERM-016: Terminal Pane Reconnect and Resize Authority
@@ -589,6 +590,8 @@ describe('useTerminal hook', () => {
         defaultProps.terminalId,
         expect.anything(),
         undefined,
+        false,
+        true,
       );
 
       dispose();
@@ -747,6 +750,168 @@ describe('useTerminal hook', () => {
         defaultProps.terminalId,
         expect.objectContaining({ fit: expect.any(Function) })
       );
+
+      dispose();
+    });
+  });
+
+  describe('right-click to paste', () => {
+    it('leaves contextmenu ownership to Herdr', () => {
+      const addEventSpy = vi.spyOn(containerEl, 'addEventListener');
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      expect(addEventSpy).not.toHaveBeenCalledWith('contextmenu', expect.any(Function));
+      dispose();
+    });
+
+    it('should add contextmenu listener to container on mount', () => {
+      const addEventSpy = vi.spyOn(containerEl, 'addEventListener');
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(addEventSpy).toHaveBeenCalledWith('contextmenu', expect.any(Function));
+
+      dispose();
+    });
+
+    it('should prevent default context menu and paste clipboard text', async () => {
+      const clipboardText = 'pasted content';
+      Object.assign(navigator, {
+        clipboard: {
+          readText: vi.fn().mockResolvedValue(clipboardText),
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault');
+      containerEl.dispatchEvent(event);
+
+      expect(preventDefaultSpy).toHaveBeenCalled();
+
+      // Wait for clipboard promise to resolve
+      await vi.waitFor(() => {
+        expect(mockTerminalInstance.paste).toHaveBeenCalledWith(clipboardText);
+      });
+
+      dispose();
+    });
+
+    it('should not paste when clipboard is empty', async () => {
+      Object.assign(navigator, {
+        clipboard: {
+          readText: vi.fn().mockResolvedValue(''),
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      containerEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+      // Give the promise time to settle
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mockTerminalInstance.paste).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('should handle clipboard permission denial gracefully', async () => {
+      Object.assign(navigator, {
+        clipboard: {
+          readText: vi.fn().mockRejectedValue(new DOMException('Denied')),
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      // Should not throw
+      containerEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mockTerminalInstance.paste).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('should remove contextmenu listener on cleanup', () => {
+      const removeEventSpy = vi.spyOn(containerEl, 'removeEventListener');
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      dispose();
+
+      expect(removeEventSpy).toHaveBeenCalledWith('contextmenu', expect.any(Function));
+    });
+  });
+
+  describe('clipboard access setting', () => {
+    beforeEach(() => {
+      Object.assign(navigator, {
+        clipboard: {
+          readText: vi.fn().mockResolvedValue('clipboard text'),
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+    });
+
+    it('should not read clipboard on right-click when clipboardAccess is disabled', async () => {
+      vi.mocked(loadSettings).mockReturnValue({ clipboardAccess: false });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      containerEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+      await new Promise((r) => setTimeout(r, 10));
+      expect(navigator.clipboard.readText).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('should read clipboard on right-click when clipboardAccess is enabled', async () => {
+      vi.mocked(loadSettings).mockReturnValue({ clipboardAccess: true });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      containerEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+      await vi.waitFor(() => {
+        expect(navigator.clipboard.readText).toHaveBeenCalled();
+      });
 
       dispose();
     });

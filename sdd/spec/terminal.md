@@ -1,6 +1,6 @@
 # Terminal
 
-PTY management, WebSocket transport, one Herdr surface per backend session, MultiView workspaces, and browser terminal boundaries.
+PTY management, immutable classic or Herdr terminal ownership, WebSocket transport, MultiView workspaces, and browser terminal boundaries.
 
 **Domain owner:** Frontend (SolidJS + xterm.js) + Container (terminal server)
 
@@ -8,16 +8,17 @@ PTY management, WebSocket transport, one Herdr surface per backend session, Mult
 
 - **PTY** -- Pseudo-terminal; the OS-level device that bridges a shell process to terminal I/O over the WebSocket.
 - **WebSocket** -- The bidirectional transport carrying raw terminal data and JSON control messages between browser and container.
-- **Terminal Surface** -- The single xterm.js and outer PTY exposed for one backend Terminal session, using internal terminal ID `1`.
-- **Herdr Runtime** -- The named, container-local terminal multiplexer that owns tabs, panes, splits, workspaces, shells, and agents inside one Terminal session.
-- **MultiView** -- A virtual frontend workspace that displays one terminal surface from each of multiple existing backend sessions without creating another backend session.
+- **Terminal Mode** -- The immutable `classic` or `herdr` ownership choice stamped when a session is created; missing or invalid historical values resolve to `classic`.
+- **Terminal Surface** -- One xterm.js and outer PTY. Classic sessions expose terminal IDs `1` through `6`; Herdr sessions expose only terminal ID `1`.
+- **Herdr Runtime** -- The named, container-local terminal multiplexer that owns tabs, panes, splits, workspaces, shells, and agents inside an opt-in Herdr session.
+- **MultiView** -- A virtual frontend workspace that displays one active surface from each of multiple existing backend sessions without creating another backend session.
 
 ### Out of Scope
 
 - Terminal recording and playback (session replay)
 - Collaborative terminal sharing (multi-user viewing or input on the same PTY)
 - Saved terminal command presets / header "bookmarks" (feature removed; see [changes.md](changes.md))
-- Codeflare-owned tabs or within-session tiling; Herdr owns that topology
+- Running Codeflare and Herdr topology controls simultaneously inside one session
 
 ### Domain Dependencies
 
@@ -26,24 +27,25 @@ PTY management, WebSocket transport, one Herdr surface per backend session, Mult
 
 ---
 
-### REQ-TERM-001: One Codeflare terminal surface per backend session
+### REQ-TERM-001: Terminal surface count follows session mode
 
-**Intent:** Each backend Terminal session exposes one browser terminal surface while Herdr owns all topology inside it.
+**Intent:** Each Terminal session preserves its immutable ownership mode: classic exposes Codeflare tabs and tiling, while Herdr exposes one outer surface and owns inner topology.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Single-session view mounts exactly one xterm.js surface and one terminal WebSocket. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (mounts one internal terminal 1 per visible backend session) -->
-2. The terminal WebSocket route accepts only the stable internal terminal identity. <!-- @impl: src/routes/terminal.ts::validateWebSocketRoute --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (extracts the stable internal terminal 1 identity) --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (rejects terminal ID %s) -->
+1. Session creation stamps `classic` unless the authenticated user's server preference is exactly `herdrEnabled: true`; missing or invalid historical stamps resolve to classic. <!-- @impl: src/types.ts::resolveTerminalMode --> <!-- @impl: src/routes/session/crud.ts::app --> <!-- @test: src/__tests__/routes/session.test.ts (terminal mode stamping) -->
+2. Classic single-session view supports terminal IDs `1` through `6`, tabs, labels, saved layouts, and tiling; Herdr view mounts one outer xterm.js surface at terminal ID `1` without classic topology controls. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (mode-specific terminal ownership) -->
 3. Dashboard view mounts no terminal surface, and a VS Code workspace mounts no standalone terminal surface. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (mounts no terminal on Dashboard or for a VS Code workspace) -->
-4. Legacy per-session terminal layouts are retired without changing MultiView state. <!-- @impl: web-ui/src/stores/session.ts::retireLegacyTerminalLayoutState --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (removes codeflare:terminalsPerSession without touching MultiView state) -->
+4. Changing the preference never mutates an existing session's mode, and the client cannot choose or patch the authoritative stamp. <!-- @impl: src/routes/preferences.ts::app --> <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session.test.ts (terminal mode immutability) -->
+5. MultiView resolves each classic member to its active outer terminal and each Herdr member to terminal `1`. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::terminalWorkspaceStore --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (mixed terminal modes) -->
 
 **Constraints:**
 
-- The stable WebSocket path is `/api/terminal/{sessionId}-1/ws`, and internal terminal ID `1` is the only browser and route identity.
-- IDs 2 through 6 remain unavailable from the browser UI and terminal route.
-- The legacy storage key is `codeflare:terminalsPerSession`; the MultiView key remains unchanged.
+- The stable WebSocket path remains `/api/terminal/{sessionId}-{terminalId}/ws`.
+- The persisted session stamp, never current preference or browser input, governs routing, startup, resume, prewarm, cleanup, and rendering.
+- Previously deleted browser-local layouts cannot be recovered; absent classic layout state initializes defaults.
 
 **Priority:** P0
 
@@ -57,15 +59,15 @@ PTY management, WebSocket transport, one Herdr surface per backend session, Mult
 
 ### REQ-TERM-002: WebSocket connection to container PTY
 
-**Intent:** The session terminal surface connects to its outer PTY through the existing WebSocket and renders the official Herdr client output without a new browser protocol.
+**Intent:** Each terminal surface connects to its outer PTY through the existing WebSocket; classic renders its shell or agent directly and Herdr renders the official client without a new browser protocol.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The WebSocket URL embeds the backend session identity and internal terminal ID `1` on the stable terminal route. <!-- @impl: src/routes/terminal.ts::validateWebSocketRoute --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (REQ-TERM-002 AC1: WS URL pattern /api/terminal/{sessionId}-{terminalId}/ws) -->
+1. The WebSocket URL embeds the backend session identity and terminal ID `1` through `6` on the stable route shape; authenticated session lookup rejects IDs above `1` for Herdr. <!-- @impl: src/routes/terminal.ts::validateWebSocketRoute --> <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (REQ-TERM-002 AC1: WS URL pattern /api/terminal/{sessionId}-{terminalId}/ws) --> <!-- @test: src/__tests__/routes/terminal.test.ts (mode-aware terminal authorization) -->
 2. The Worker upgrades the HTTP request to a WebSocket and forwards it through the Container DO to the in-container terminal server. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal.test.ts (validateWebSocketRoute / REQ-TERM-002 (terminal WebSocket connection to container PTY)) -->
-3. The terminal server spawns the fixed Codeflare Herdr launcher in a full-color outer PTY so the official Herdr client renders through xterm.js. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-002 AC3: PTY spawned as a full-color login shell) -->
+3. The terminal server spawns `/bin/bash -l` for classic sessions and the fixed Codeflare Herdr launcher for Herdr sessions in a full-color PTY. <!-- @impl: host/src/server.ts::TERMINAL_MODE --> <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-wire-protocol.test.js (mode-specific PTY command) -->
 4. Raw terminal data flows over the WebSocket without JSON wrapping so binary-clean PTY output is preserved. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-002 AC4: raw PTY output reaches clients without JSON wrapping) -->
 
 **Constraints:**
@@ -199,17 +201,17 @@ PTY management, WebSocket transport, one Herdr surface per backend session, Mult
 
 ### REQ-TERM-005: Herdr runtime and configured agent startup
 
-**Intent:** A Terminal workspace starts one pinned Herdr runtime and bootstraps the configured session command once before the surface is reported ready.
+**Intent:** An opt-in Herdr Terminal session starts one pinned runtime and bootstraps the configured command once before its surface is reported ready; classic sessions retain direct shell startup.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. The built image provides one verified, attributed Herdr runtime with managed non-updating terminal settings. <!-- @impl: Dockerfile::HERDR_VERSION --> <!-- @impl: image/herdr/config.toml::version_check --> <!-- @manual: The container-image workflow verifies the installed Herdr version, managed configuration, executable mode, license, provenance, SBOM, and vulnerability scan. -->
-2. Each Terminal session starts or attaches to one deterministic private Herdr runtime, including at the maximum session-ID length. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (rejects malformed session identity before invoking Herdr) --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps the maximum-length session client socket within the Linux path limit) --> <!-- @test: host/__tests__/herdr-launcher.test.js (stops only the deterministic named runtime) -->
-3. The configured supported agent or TUI starts in the initial Herdr pane exactly once, while Bash or empty configuration remains a plain shell. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (maps Claude to fixed argv, bootstraps once, and bootstraps again after a successful stop) --> <!-- @test: host/__tests__/herdr-launcher.test.js (leaves Bash untouched and maps ordinary TUI commands without shell interpolation) -->
+2. Each Herdr session starts or attaches to one deterministic private runtime, including at the maximum session-ID length; classic sessions never start or stop Herdr. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @impl: host/src/server.ts::TERMINAL_MODE --> <!-- @test: host/__tests__/herdr-launcher.test.js (rejects malformed session identity before invoking Herdr) --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps the maximum-length session client socket within the Linux path limit) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (classic mode excludes Herdr lifecycle) -->
+3. The launcher submits the fixed allowlisted configured command to the initial pane and publishes bootstrap readiness only after bounded expected-agent or process detection; Bash or empty configuration remains a plain shell. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (submits fixed commands and waits for expected detection) -->
 4. Later Herdr tabs and panes open plain Bash instead of repeating Codeflare agent autostart. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @manual: In integration, start a configured agent, open a new Herdr tab and pane, and confirm each new shell is plain Bash. -->
-5. Terminal prewarm preserves the existing outer Session and adoption flow, and readiness waits for configured-command bootstrap with a bounded fallback. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @manual: In integration, confirm cold Terminal readiness follows Herdr bootstrap and still completes at the bounded timeout when bootstrap readiness is unavailable. -->
+5. Terminal prewarm preserves the existing outer Session and adoption flow; only Herdr mode waits for configured-command bootstrap before settlement, while classic uses its established first-output readiness. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @test: host/__tests__/prewarm-readiness.test.js (mode-specific readiness) -->
 6. VS Code workspaces start no Herdr runtime and retain existing Browser IDE terminal profiles. <!-- @impl: host/src/server.ts::SESSION_WORKSPACE --> <!-- @test: host/__tests__/workspace-readiness.test.js (never constructs, inserts, or starts a host Session for VS Code) -->
 
 **Constraints:**
@@ -231,13 +233,13 @@ PTY management, WebSocket transport, one Herdr surface per backend session, Mult
 
 ### REQ-TERM-006: Herdr owns in-session terminal topology
 
-**Intent:** Users create tabs, Bash shells, panes, splits, and workspaces inside Herdr rather than through duplicate Codeflare controls.
+**Intent:** In sessions stamped Herdr, users create tabs, Bash shells, panes, splits, and workspaces inside Herdr rather than through duplicate Codeflare controls.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Codeflare renders no per-session terminal tab bar or within-session tiling controls. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (mounts one internal terminal 1 per visible backend session) -->
+1. Codeflare renders no per-session terminal tab bar or within-session tiling controls for a Herdr session. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (Herdr mode hides classic topology) -->
 2. The official Herdr client receives keyboard, mouse, focus, and resize input through the existing terminal surface. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (resize handling) -->
 3. Herdr-created tabs and panes start plain Bash unless the user explicitly launches another command. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (leaves Bash untouched and maps ordinary TUI commands without shell interpolation) -->
 4. Browser disconnect preserves the outer PTY and named Herdr runtime while the container remains alive. <!-- @impl: host/src/session.ts::Session --> <!-- @manual: In integration, disconnect and reconnect the browser while the container remains alive and confirm the same Herdr tabs, panes, and running processes remain. -->
@@ -245,12 +247,13 @@ PTY management, WebSocket transport, one Herdr surface per backend session, Mult
 
 **Constraints:**
 
-- Codeflare does not add a fallback topology mode or browser Herdr protocol.
+- Classic is a complete independent terminal mode, not a second topology layer inside a Herdr session.
+- Codeflare adds no browser Herdr protocol.
 - Browser IDE integrated terminals remain outside this runtime.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-TERM-001](#req-term-001-one-codeflare-terminal-surface-per-backend-session), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
+**Dependencies:** [REQ-TERM-001](#req-term-001-terminal-surface-count-follows-session-mode), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
 
 **Verification:** Automated frontend, launcher, and host cleanup tests plus manual lifecycle verification.
 
@@ -258,20 +261,22 @@ PTY management, WebSocket transport, one Herdr surface per backend session, Mult
 
 ---
 
-### REQ-TERM-007: Codeflare within-session tiling is retired
+### REQ-TERM-007: Classic topology remains available
 
-**Intent:** Remove the superseded Codeflare tab and tiling layer once Herdr owns in-session topology.
+**Intent:** Sessions stamped classic retain the proven Codeflare tab, process-label, saved-layout, and tiling experience.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Per-session tab, order, active-tab, process-label, and tiling state are absent from the frontend session store. <!-- @impl: web-ui/src/stores/session.ts::sessionStore --> <!-- @manual: Inspect the shipped frontend state surface and confirm it exposes no per-session tab, process-label, or tiling state. -->
-2. Codeflare exposes no dedicated tab or tiling controls on the terminal surface. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (mounts one internal terminal 1 per visible backend session) -->
+1. Classic session state owns up to six ordered tabs, active-tab identity, process labels, and one saved tiling layout per backend session. <!-- @impl: web-ui/src/stores/session-tabs.ts::sessionTabsStore --> <!-- @impl: web-ui/src/stores/tiling.ts::tilingStore --> <!-- @test: web-ui/src/__tests__/stores/session-tabs.test.ts --> <!-- @test: web-ui/src/__tests__/stores/tiling.test.ts -->
+2. Classic terminal view exposes the established tab bar, manual Bash-tab action, drag ordering, and tiling controls; Herdr view exposes none of them. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (mode-specific topology controls) -->
+3. Classic right-click paste, mobile gestures, and process-label updates preserve existing behavior. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal-protocol.ts::parseControlMessage --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (classic compatibility behavior) -->
 
 **Constraints:**
 
-- The obsolete drag-and-drop dependency and dedicated tab or tiling components, styles, and APIs remain absent.
+- The `codeflare:terminalsPerSession` state is retained for classic sessions; absent state initializes defaults.
+- Herdr sessions never read that state as topology authority.
 
 **Priority:** P2
 
@@ -285,13 +290,13 @@ PTY management, WebSocket transport, one Herdr surface per backend session, Mult
 
 ### REQ-TERM-030: Herdr owns inner pane focus lifecycle
 
-**Intent:** Focus changes within one backend session belong to Herdr; Codeflare coordinates focus only among backend-session surfaces in MultiView.
+**Intent:** Focus changes inside an opt-in Herdr session belong to Herdr; classic retains Codeflare outer-pane focus, and MultiView coordinates focus among backend-session surfaces.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Codeflare has no inner pane focus model for a single backend session. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (mounts one internal terminal 1 per visible backend session) -->
+1. Codeflare has no inner pane focus model for a Herdr session; classic focus remains attached to its visible outer terminal tabs or tiles. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (mode-specific terminal ownership) -->
 2. MultiView focus moves among mounted backend-session surfaces without remounting or reconnecting them. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal) -->
 
 **Constraints:**
@@ -338,16 +343,16 @@ None.
 
 ---
 
-### REQ-TERM-009: Session identity replaces outer process labels
+### REQ-TERM-009: Process-label ownership follows terminal mode
 
-**Intent:** Codeflare labels the single outer surface by backend session identity while Herdr displays inner process and agent state.
+**Intent:** Classic keeps outer process labels, while Herdr sessions label the one outer surface by backend session identity and leave inner process and agent state to Herdr.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Codeflare never presents the outer Herdr process name as inner pane or agent state. <!-- @impl: web-ui/src/stores/terminal-protocol.ts::parseControlMessage --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (keeps restore controls and raw PTY bytes distinct) -->
-2. Session cards retain their configured agent icon, and the terminal surface exposes no process label. <!-- @impl: web-ui/src/lib/terminal-config.ts::AGENT_ICON_MAP --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/lib/terminal-config.test.ts (keeps configured session agent icons without outer process-label helpers) -->
+1. Herdr sessions ignore the outer client process name so it is never presented as inner pane or agent state; classic sessions apply validated `process-name` controls to the targeted outer tab. <!-- @impl: web-ui/src/stores/terminal-protocol.ts::parseControlMessage --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts --> <!-- @test: web-ui/src/__tests__/stores/update-terminal-label.test.ts -->
+2. Session cards retain their configured agent icon; classic terminal tabs expose process labels while the Herdr surface does not. <!-- @impl: web-ui/src/lib/terminal-config.ts::AGENT_ICON_MAP --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (mode-specific terminal ownership) -->
 3. Unknown control messages remain ignored and raw terminal bytes remain unaffected. <!-- @impl: web-ui/src/stores/terminal-protocol.ts::parseControlMessage --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (keeps restore controls and raw PTY bytes distinct) -->
 
 **Constraints:**
@@ -414,7 +419,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-TERM-001](#req-term-001-one-codeflare-terminal-surface-per-backend-session), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
+**Dependencies:** [REQ-TERM-001](#req-term-001-terminal-surface-count-follows-session-mode), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
 
 **Verification:** Automated test ([Workspace store tests](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts) + [TerminalArea tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx) + [TerminalGrid tests](../../web-ui/src/__tests__/components/TerminalGrid.test.tsx) + [Dashboard tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Floating button tests](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx))
 
@@ -690,14 +695,15 @@ None.
 1. The terminal clipboard parser accepts bounded standard-selector base64 containing valid UTF-8. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (decodes a bounded standard clipboard UTF-8 write) -->
 2. The parser rejects reads, malformed data, unsupported selectors, and invalid UTF-8. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (rejects query, selector, malformed, or invalid UTF-8 payload %s) -->
 3. The parser rejects decoded content above the fixed byte limit. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (rejects decoded content above the fixed byte limit) -->
-4. Accepted clipboard writes copy text only when the existing browser clipboard setting permits access. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send a valid OSC 52 write with clipboard access enabled and disabled and confirm only the enabled case updates the clipboard. -->
-5. Herdr owns the terminal right-click menu. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, right-click the terminal and confirm Herdr's menu opens without Codeflare paste. -->
+4. Herdr sessions register accepted clipboard writes only when the existing browser clipboard setting permits access; classic sessions do not install the Herdr OSC 52 handler. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send a valid OSC 52 write with clipboard access enabled and disabled and confirm only the enabled Herdr case updates the clipboard. -->
+5. Herdr owns ordinary right-click, with Ctrl+right-click configured for pane passthrough; classic retains Codeflare right-click paste. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: image/herdr/config.toml::right_click_passthrough_modifier --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (right-click to paste) -->
+6. Herdr touch taps and alternate-buffer wheel gestures target xterm's `.xterm-screen`; classic input behavior remains unchanged. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (Herdr mouse taps) -->
 
 **Constraints:**
 
 - OSC 52 accepts only the standard `c` selector, valid base64, valid UTF-8 text, and at most 64 KiB decoded content.
 - Clipboard read queries and clipboard content are never logged.
-- No second clipboard service or Codeflare right-click handler is installed.
+- No second clipboard service is installed; the Codeflare right-click handler exists only for classic sessions.
 
 **Priority:** P1
 

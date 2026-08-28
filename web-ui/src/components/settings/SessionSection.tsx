@@ -22,6 +22,7 @@ interface SessionSectionProps {
   defaultWorkspace: Accessor<SessionWorkspace>;
   canUseAdvanced: Accessor<boolean>;
   fastStartEnabled: Accessor<boolean>;
+  herdrEnabled: Accessor<boolean>;
   workspaceSyncEnabled: Accessor<boolean>;
   clipboardAccess: Accessor<boolean>;
   notificationPermission: Accessor<AgentNotificationEnablement>;
@@ -38,6 +39,7 @@ interface SessionSectionProps {
   onSessionModeChange: (mode: 'default' | 'advanced') => void;
   onDefaultWorkspaceChange: (workspace: SessionWorkspace) => void;
   onFastStartToggle: () => void;
+  onHerdrToggle: () => void;
   onWorkspaceSyncToggle: () => void;
   onEnableAgentNotifications: () => void;
   onSleepAfterChange: (value: string) => void;
@@ -152,6 +154,33 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
           </div>
         </section>
       </Show>
+
+      <section class="settings-section">
+        <div class="settings-section-header">
+          <h3 class="settings-section-title type-section-header">Terminal experience</h3>
+        </div>
+        <div class="setting-row setting-row--clickable" onClick={(event) => {
+          if (!(event.target as HTMLElement).closest('.toggle')) props.onHerdrToggle();
+        }}>
+          <label class="type-label" for="settings-herdr">Use Herdr terminal</label>
+          <button
+            type="button"
+            id="settings-herdr"
+            class={`toggle ${props.herdrEnabled() ? 'toggle-on' : ''}`}
+            onClick={props.onHerdrToggle}
+            role="switch"
+            aria-checked={props.herdrEnabled()}
+            data-testid="settings-herdr-toggle"
+          >
+            <span class="toggle-thumb" />
+          </button>
+        </div>
+        <div class="setting-row setting-row--column-gap">
+          <span class="settings-hint type-hint" data-testid="settings-herdr-hint">
+            Applies to newly created sessions. Existing sessions keep their terminal mode.
+          </span>
+        </div>
+      </section>
 
       {/* Agent Startup / Fast Start */}
       <section class="settings-section">

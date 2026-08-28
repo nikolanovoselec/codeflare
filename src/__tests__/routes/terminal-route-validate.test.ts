@@ -13,7 +13,7 @@
  * function boundary, not via regex on the source.
  */
 import { describe, it, expect } from 'vitest';
-import { validateWebSocketRoute } from '../../routes/terminal';
+import { isTerminalIdAllowed, validateWebSocketRoute } from '../../routes/terminal';
 
 function wsRequest(path: string, upgrade: string | null = 'websocket'): Request {
   const headers: Record<string, string> = {};
@@ -49,7 +49,7 @@ describe('REQ-TERM-002 AC1: WS URL pattern /api/terminal/{sessionId}-{terminalId
   });
 });
 
-describe('REQ-TERM-001: only internal terminal 1 is accepted', () => {
+describe('REQ-TERM-001: classic terminal IDs are structurally accepted', () => {
   it('extracts the stable internal terminal 1 identity', () => {
     const result = validateWebSocketRoute(wsRequest('/api/terminal/abc12345-1/ws'));
     expect(result.isWebSocketRoute).toBe(true);
@@ -59,7 +59,14 @@ describe('REQ-TERM-001: only internal terminal 1 is accepted', () => {
     expect(result.fullSessionId).toBe('abc12345-1');
   });
 
-  it.each(['0', '2', '3', '4', '5', '6', '7'])('rejects terminal ID %s', (terminalId) => {
+  it.each(['2', '3', '4', '5', '6'])('accepts classic terminal ID %s for later session-mode authorization', (terminalId) => {
+    const result = validateWebSocketRoute(wsRequest(`/api/terminal/abc12345-${terminalId}/ws`));
+    expect(result.isWebSocketRoute).toBe(true);
+    expect(result.errorResponse).toBeUndefined();
+    expect(result.terminalId).toBe(terminalId);
+  });
+
+  it.each(['0', '7'])('rejects out-of-range terminal ID %s', (terminalId) => {
     const result = validateWebSocketRoute(wsRequest(`/api/terminal/abc12345-${terminalId}/ws`));
     expect(result.isWebSocketRoute).toBe(true);
     expect(result.errorResponse?.status).toBe(400);
@@ -69,6 +76,18 @@ describe('REQ-TERM-001: only internal terminal 1 is accepted', () => {
     const result = validateWebSocketRoute(wsRequest('/api/terminal/abcdef1234567890abcdef12/ws'));
     expect(result.isWebSocketRoute).toBe(true);
     expect(result.errorResponse?.status).toBe(400);
+  });
+});
+
+describe('mode-aware terminal authorization', () => {
+  it.each(['1', '2', '3', '4', '5', '6'])('permits classic terminal %s', (terminalId) => {
+    expect(isTerminalIdAllowed({ terminalMode: 'classic' }, terminalId)).toBe(true);
+  });
+
+  it('permits only terminal 1 for Herdr and defaults unstamped sessions to classic', () => {
+    expect(isTerminalIdAllowed({ terminalMode: 'herdr' }, '1')).toBe(true);
+    expect(isTerminalIdAllowed({ terminalMode: 'herdr' }, '2')).toBe(false);
+    expect(isTerminalIdAllowed({}, '6')).toBe(true);
   });
 });
 

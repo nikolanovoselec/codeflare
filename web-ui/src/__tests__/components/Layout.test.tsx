@@ -94,6 +94,9 @@ let mockSessions: any[] = [];
 let mockActiveSessionId: string | null = null;
 let mockPreferences: Record<string, any> = {};
 let mockVisiblePanes: Array<{ sessionId: string; terminalId: string }> = [];
+let mockTerminalsForSession: any = null;
+let mockTilingForSession: any = null;
+let mockTabOrder: string[] = [];
 let mockSaasMode = false;
 let mockActiveWorkspace: { kind: 'dashboard' } | { kind: 'session'; sessionId: string } | { kind: 'multiview'; id: 'multiview:1' } = { kind: 'dashboard' };
 let readSessionStoreVersion = () => 0;
@@ -123,6 +126,16 @@ vi.mock('../../stores/session', () => ({
     getInitProgressForSession: vi.fn(() => null),
     getMetricsForSession: vi.fn(() => null),
     stopAllPolling: vi.fn(),
+    getTerminalsForSession: vi.fn(() => mockTerminalsForSession),
+    initializeTerminalsForSession: vi.fn(),
+    addTerminalTab: vi.fn(),
+    removeTerminalTab: vi.fn(),
+    setActiveTerminalTab: vi.fn(),
+    cleanupTerminalsForSession: vi.fn(),
+    reorderTerminalTabs: vi.fn(),
+    setTilingLayout: vi.fn(),
+    getTilingForSession: vi.fn(() => mockTilingForSession),
+    getTabOrder: vi.fn(() => mockTabOrder),
     renameSession: vi.fn(),
     loadPreferences: vi.fn(),
     updatePreferences: vi.fn(),
@@ -149,9 +162,9 @@ vi.mock('../../stores/terminal-workspace', () => ({
     getActiveWorkspace: vi.fn(() => mockActiveWorkspace),
     getVisiblePanes: vi.fn(() => mockVisiblePanes),
     setDashboardWorkspace: vi.fn(() => { mockActiveWorkspace = { kind: 'dashboard' }; mockVisiblePanes = []; bumpSessionStoreVersion(); }),
-    setSingleSessionWorkspace: vi.fn((sessionId: string) => {
+    setSingleSessionWorkspace: vi.fn((sessionId: string, terminalId = '1') => {
       mockActiveWorkspace = { kind: 'session', sessionId };
-      mockVisiblePanes = [{ sessionId, terminalId: '1' }];
+      mockVisiblePanes = [{ sessionId, terminalId }];
       bumpSessionStoreVersion();
     }),
     openMultiView: vi.fn(() => {
@@ -201,6 +214,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     mockActiveSessionId = null;
     mockPreferences = {};
     mockVisiblePanes = [];
+    mockTerminalsForSession = null;
+    mockTilingForSession = null;
+    mockTabOrder = [];
     mockActiveWorkspace = { kind: 'dashboard' };
     mockSaasMode = false;
     const [sessionStoreVersion, setSessionStoreVersion] = createSignal(0);
@@ -235,7 +251,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       render(() => <Layout />);
 
       await waitFor(() => expect(mockActiveSessionId).toBe(sessionId));
-      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith(sessionId, expect.objectContaining({ id: sessionId }));
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith(sessionId, '1', expect.objectContaining({ id: sessionId }));
       expect((await import('../../stores/session')).sessionStore.startSession).not.toHaveBeenCalled();
       expect(window.location.pathname).toBe(`/app/session/${sessionId}`);
     });
@@ -252,7 +268,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         await waitFor(() => expect(window.location.pathname).toBe('/app/'));
         expect(mockActiveSessionId).toBeNull();
         expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });
-        expect(terminalWorkspaceStore.setSingleSessionWorkspace).not.toHaveBeenCalledWith(sessionId, expect.anything());
+        expect(terminalWorkspaceStore.setSingleSessionWorkspace).not.toHaveBeenCalledWith(sessionId, expect.anything(), expect.anything());
         expect((await import('../../stores/session')).sessionStore.startSession).not.toHaveBeenCalled();
         expect(openSpy).not.toHaveBeenCalled();
       } finally {
@@ -1007,6 +1023,16 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       expect(props.error).toBeFalsy();
     });
 
+    it('passes tiling-related callbacks as functions to TerminalArea', () => {
+      render(() => <Layout />);
+
+      const props = (window as any).__terminalAreaProps;
+      expect(typeof props.onTilingButtonClick).toBe('function');
+      expect(typeof props.onSelectTilingLayout).toBe('function');
+      expect(typeof props.onCloseTilingOverlay).toBe('function');
+      expect(typeof props.onTileClick).toBe('function');
+    });
+
     it('passes session lifecycle callbacks as functions to TerminalArea', () => {
       render(() => <Layout />);
 
@@ -1071,7 +1097,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       (window as any).__headerProps.onSelectSession('sess2');
 
       expect(sessionStore.setActiveSession).toHaveBeenCalledWith('sess2');
-      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess2', expect.objectContaining({ id: 'sess2' }));
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess2', '1', expect.objectContaining({ id: 'sess2' }));
       expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
       expect(mockActiveWorkspace).toEqual({ kind: 'session', sessionId: 'sess2' });
     });
@@ -1089,7 +1115,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       (window as any).__headerProps.onSelectSession('sess2');
 
       expect(sessionStore.setActiveSession).toHaveBeenCalledWith('sess2');
-      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess2', expect.objectContaining({ id: 'sess2' }));
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess2', '1', expect.objectContaining({ id: 'sess2' }));
       expect(sessionStore.startSession).not.toHaveBeenCalled();
       expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
     });
@@ -1117,7 +1143,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         await waitFor(() => expect((window as any).__terminalAreaProps.showTerminal).toBe(false));
         expect(sessionStore.setActiveSession).toHaveBeenLastCalledWith(null);
         expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });
-        expect(terminalWorkspaceStore.setSingleSessionWorkspace).not.toHaveBeenCalledWith(vscodeSessionId, expect.anything());
+        expect(terminalWorkspaceStore.setSingleSessionWorkspace).not.toHaveBeenCalledWith(vscodeSessionId, expect.anything(), expect.anything());
         expect(window.location.pathname).toBe('/app/');
         expect(openSpy).not.toHaveBeenCalled();
       } finally {
@@ -1241,7 +1267,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       (window as any).__headerProps.onSelectSession('sess2');
 
       expect(sessionStore.setActiveSession).toHaveBeenCalledWith('sess2');
-      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess2', expect.objectContaining({ id: 'sess2' }));
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess2', '1', expect.objectContaining({ id: 'sess2' }));
       expect(sessionStore.startSession).toHaveBeenCalledWith('sess2');
       expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
       expect((window as any).__terminalAreaProps.viewState).not.toBe('dashboard');
@@ -1292,7 +1318,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await waitFor(() => expect(sessionStore.startSession).toHaveBeenCalledWith('sess-new'));
 
       expect(mockActiveSessionId).toBe('sess-new');
-      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess-new', expect.objectContaining({ id: 'sess-new' }));
+      expect(terminalWorkspaceStore.setSingleSessionWorkspace).toHaveBeenCalledWith('sess-new', '1', expect.objectContaining({ id: 'sess-new' }));
       expect((window as any).__terminalAreaProps.showTerminal).toBe(true);
       expect((window as any).__terminalAreaProps.viewState).not.toBe('dashboard');
 
@@ -1409,7 +1435,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     it('calls forceResetKeyboardState on visibility return in terminal view', () => {
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
-      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '2' }];
 
       render(() => <Layout />);
 
@@ -1422,7 +1448,27 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       document.dispatchEvent(new Event('visibilitychange'));
 
       expect(forceResetKeyboardState).toHaveBeenCalled();
-      expect(reconnectOnVisibilityReturn).toHaveBeenCalledWith(undefined, ['sess1:1']);
+      expect(reconnectOnVisibilityReturn).toHaveBeenCalledWith(undefined, ['sess1:2']);
+    });
+
+    it('REQ-TERM-011: reconnects only visible tiled slots after visibility return', () => {
+      mockSessions = [createMockSession({ status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '4' }];
+      mockTerminalsForSession = { tabs: [{ id: '1' }, { id: '2' }, { id: '3' }, { id: '4' }], activeTabId: '4' };
+      mockTilingForSession = { enabled: true, layout: '2-split' };
+      mockTabOrder = ['1', '2', '3', '4'];
+
+      render(() => <Layout />);
+
+      vi.mocked(reconnectOnVisibilityReturn).mockClear();
+
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      const reconnectCalls = vi.mocked(reconnectOnVisibilityReturn).mock.calls;
+      expect(reconnectCalls[reconnectCalls.length - 1]?.[1]).toEqual(['sess1:1', 'sess1:2']);
     });
 
     it('does NOT call forceResetKeyboardState when on dashboard', () => {

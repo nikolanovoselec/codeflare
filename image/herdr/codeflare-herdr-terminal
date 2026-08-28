@@ -63,6 +63,52 @@ wait_for_root_pane() {
     fail "Herdr runtime did not expose an initial pane"
 }
 
+install_integration() {
+    local integration="$1"
+    if ! timeout 10 "$HERDR_BIN" integration install "$integration" >/dev/null; then
+        printf 'codeflare-herdr: integration install failed for %s; using process detection\n' "$integration" >&2
+    fi
+}
+
+wait_for_agent() {
+    local pane="$1" expected="$2" snapshot
+    for _ in $(seq 1 120); do
+        if snapshot=$("$HERDR_BIN" agent get "$pane" 2>/dev/null) \
+            && printf '%s' "$snapshot" | jq -e --arg expected "$expected" \
+                '.result.agent.agent == $expected' >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.25
+    done
+    fail "configured agent was not detected"
+}
+
+wait_for_process() {
+    local pane="$1" expected="$2" snapshot
+    for _ in $(seq 1 40); do
+        if snapshot=$("$HERDR_BIN" pane process-info --pane "$pane" 2>/dev/null) \
+            && printf '%s' "$snapshot" | jq -e --arg expected "$expected" \
+                '.result.process_info.foreground_processes[]? | select(.name == $expected or .argv0 == $expected)' >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.25
+    done
+    fail "configured process was not detected"
+}
+
+run_agent() {
+    local pane="$1" command="$2" integration="$3" expected="$4"
+    install_integration "$integration"
+    timeout 10 "$HERDR_BIN" pane run "$pane" "$command" >/dev/null
+    wait_for_agent "$pane" "$expected"
+}
+
+run_process() {
+    local pane="$1" command="$2"
+    timeout 10 "$HERDR_BIN" pane run "$pane" "$command" >/dev/null
+    wait_for_process "$pane" "$command"
+}
+
 bootstrap() {
     prepare_runtime
     local done="$HERDR_RUNTIME_ROOT/bootstrap.done"
@@ -96,27 +142,13 @@ bootstrap() {
     command=$(primary_command)
     case "$command" in
         '') ;;
-        'claude'|'claude --dangerously-skip-permissions')
-            timeout 35 "$HERDR_BIN" agent start codeflare --kind claude --pane "$pane" --timeout 30000 -- --dangerously-skip-permissions >/dev/null
-            ;;
-        'codex')
-            timeout 35 "$HERDR_BIN" agent start codeflare --kind codex --pane "$pane" --timeout 30000 >/dev/null
-            ;;
-        'opencode')
-            timeout 35 "$HERDR_BIN" agent start codeflare --kind opencode --pane "$pane" --timeout 30000 >/dev/null
-            ;;
-        'copilot'|'copilot --yolo')
-            timeout 35 "$HERDR_BIN" agent start codeflare --kind copilot --pane "$pane" --timeout 30000 -- --yolo >/dev/null
-            ;;
-        'pi')
-            timeout 35 "$HERDR_BIN" agent start codeflare --kind pi --pane "$pane" --timeout 30000 >/dev/null
-            ;;
-        'agy'|'agy --dangerously-skip-permissions')
-            timeout 35 "$HERDR_BIN" agent start codeflare --kind agy --pane "$pane" --timeout 30000 -- --dangerously-skip-permissions >/dev/null
-            ;;
-        'htop'|'yazi'|'lazygit')
-            timeout 10 "$HERDR_BIN" pane run "$pane" "$command" >/dev/null
-            ;;
+        'claude'|'claude --dangerously-skip-permissions') run_agent "$pane" "$command" claude claude ;;
+        'codex') run_agent "$pane" "$command" codex codex ;;
+        'opencode') run_agent "$pane" "$command" opencode opencode ;;
+        'copilot'|'copilot --yolo') run_agent "$pane" "$command" copilot copilot ;;
+        'pi') run_agent "$pane" "$command" pi pi ;;
+        'agy'|'agy --dangerously-skip-permissions') run_agent "$pane" "$command" antigravity-cli agy ;;
+        'htop'|'yazi'|'lazygit') run_process "$pane" "$command" ;;
         *) fail "unsupported terminal command" ;;
     esac
 

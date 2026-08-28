@@ -51,7 +51,7 @@ The `overlaysContent` flag must be managed carefully throughout the terminal lif
 
 #### Multi-pane focus handoff
 
-The virtual-keyboard signals (`vkOpen`, `keyboardHeight`) and `overlaysContent` are a single shared resource for the whole window, owned by the focused Codeflare terminal surface. When several backend-session surfaces are visible in tablet MultiView and focus moves while the keyboard is open, the keyboard must stay open and the newly focused surface keeps keyboard mode rather than dropping to keyboard-closed/freescroll. Focus among panes inside one session belongs to Herdr within the same xterm.js surface.
+The virtual-keyboard signals (`vkOpen`, `keyboardHeight`) and `overlaysContent` are a single shared resource for the whole window, owned by the focused Codeflare terminal surface. When several backend-session surfaces are visible in tablet MultiView and focus moves while the keyboard is open, the keyboard stays open and the newly focused surface keeps keyboard mode. Classic retains the established tap, right-click, and buffer-authoritative gesture behavior. Herdr sessions additionally translate stationary taps and alternate-buffer swipe wheels through xterm's actual `.xterm-screen`, so xterm emits the mouse protocol Herdr requested; movement, long press, multi-touch, and cancellation never synthesize a click.
 
 `web-ui/src/lib/mobile.ts::isFocusOnTerminalInput` is the single discriminator: it reports whether `document.activeElement` is a terminal input iframe (class `terminal-input-iframe`). The three per-pane focus-loss teardown sites gate on it so a handoff does not tear the shared keyboard down:
 

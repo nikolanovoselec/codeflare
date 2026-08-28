@@ -31,13 +31,14 @@ describe('validateWebSocketRoute / REQ-TERM-002 (terminal WebSocket connection t
       expect(result.errorResponse).toBeUndefined();
     });
 
-    it('accepts only internal terminal ID 1', () => {
-      for (let i = 2; i <= 6; i++) {
+    it('accepts classic terminal IDs 1 through 6 for later authenticated authorization', () => {
+      for (let i = 1; i <= 6; i++) {
         const result = validateWebSocketRoute(createRequest(`/api/terminal/abcdef12-${i}/ws`, {
           Upgrade: 'websocket',
         }));
         expect(result.isWebSocketRoute).toBe(true);
-        expect(result.errorResponse?.status).toBe(400);
+        expect(result.errorResponse).toBeUndefined();
+        expect(result.terminalId).toBe(String(i));
       }
     });
 

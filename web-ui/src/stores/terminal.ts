@@ -176,6 +176,7 @@ function getTerminal(sessionId: string, terminalId: string): Terminal | undefine
  * @param terminalId - The terminal tab ID within the session
  * @param terminal - The xterm.js Terminal instance
  * @param _onError - Reserved callback for error reporting
+ * @param manual - User-created classic tab; skips shell autostart
  * @returns Cleanup function to cancel connection and dispose resources
  */
 function connect(
@@ -183,6 +184,8 @@ function connect(
   terminalId: string,
   terminal: Terminal,
   _onError?: (error: string) => void,
+  manual?: boolean,
+  processLabels = true,
 ): () => void {
   const key = makeKey(sessionId, terminalId);
 
@@ -241,7 +244,7 @@ function connect(
       setRetryMessage(sessionId, terminalId, 'Connecting...');
     }
 
-    const url = getTerminalWebSocketUrl(sessionId, terminalId);
+    const url = getTerminalWebSocketUrl(sessionId, terminalId, manual);
     const ws = new WebSocket(url);
 
     ws.binaryType = 'arraybuffer';
@@ -358,6 +361,7 @@ function connect(
         return;
       }
       if (control.kind === 'process-name') {
+        if (processLabels) onProcessName?.(sessionId, terminalId, control.processName);
         return;
       }
       if (control.kind === 'agent-event') {

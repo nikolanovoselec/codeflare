@@ -498,7 +498,12 @@ jobs:
             grep -Fx "manifest_check = false" /etc/codeflare/herdr/config.toml
             grep -Fx "pane_history = false" /etc/codeflare/herdr/config.toml
             grep -Fx "kitty_graphics = false" /etc/codeflare/herdr/config.toml
+            grep -Fx "mobile_width_threshold = 96" /etc/codeflare/herdr/config.toml
             grep -Fx "mouse_capture = true" /etc/codeflare/herdr/config.toml
+            grep -Fx "copy_on_select = false" /etc/codeflare/herdr/config.toml
+            grep -Fx "right_click_passthrough_modifier = \"ctrl\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "status_indicators = \"symbols\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "scrollback_limit_bytes = 10000000" /etc/codeflare/herdr/config.toml
           '
           printf 'herdr_version=0.8.2 config=managed attribution=present\n' \
             | tee -a /tmp/browser-ide-image-evidence.txt

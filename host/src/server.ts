@@ -27,6 +27,7 @@ import { WebSocketServer } from 'ws';
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createActivityTracker } from './activity-tracker.js';
+import { resolveHostTerminalConfig } from './terminal-mode.js';
 import { getPrewarmConfig } from './prewarm-config.js';
 import { createRequestHandler, type ProxyTarget } from './request-router.js';
 import { AGENT_EVENT_LIMITS } from './agent-events.js';
@@ -68,8 +69,10 @@ const SERVER_START_TIME = Date.now();
 
 const PORT = parseInt(process.env.TERMINAL_PORT ?? '8080', 10);
 const HERDR_LAUNCHER = '/usr/local/bin/codeflare-herdr-terminal';
-const TERMINAL_COMMAND = process.env.TERMINAL_COMMAND ?? HERDR_LAUNCHER;
-const TERMINAL_ARGS = process.env.TERMINAL_ARGS ?? '';
+const TERMINAL_CONFIG = resolveHostTerminalConfig(process.env);
+const TERMINAL_MODE = TERMINAL_CONFIG.mode;
+const TERMINAL_COMMAND = TERMINAL_CONFIG.command;
+const TERMINAL_ARGS = TERMINAL_CONFIG.args;
 const WORKSPACE_DEFAULT = process.env.WORKSPACE ?? '/home/user/workspace';
 const SESSION_WORKSPACE = resolveSessionWorkspace(process.env.CODEFLARE_SESSION_WORKSPACE);
 
@@ -174,7 +177,7 @@ interface ServerState {
 }
 
 function stopTerminalRuntime(): void {
-  if (TERMINAL_COMMAND !== HERDR_LAUNCHER) return;
+  if (TERMINAL_MODE !== 'herdr') return;
   const result = spawnSync(HERDR_LAUNCHER, ['stop'], {
     env: process.env,
     stdio: 'ignore',
@@ -394,7 +397,7 @@ server.listen(PORT, '0.0.0.0', async () => {
   // cannot make the session ready before its configured command is started.
   const PREWARM_SETTLE_MS = 1500;
   const herdrBootstrapDone = `${process.env.CODEFLARE_RUNTIME_ROOT ?? '/run/codeflare'}/herdr/${process.env.SESSION_ID ?? ''}/bootstrap.done`;
-  const requiresHerdrBootstrap = TERMINAL_COMMAND === HERDR_LAUNCHER;
+  const requiresHerdrBootstrap = TERMINAL_MODE === 'herdr';
   let prewarmDataListener: { dispose(): void } | null = null;
   let readinessPoll: ReturnType<typeof setInterval> | null = null;
   let outputSeen = false;

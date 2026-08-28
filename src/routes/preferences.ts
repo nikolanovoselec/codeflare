@@ -51,6 +51,7 @@ function isValidIanaTz(tz: string): boolean {
 
 const UpdatePreferencesBody = z.object({
   lastAgentType: AgentTypeSchema.optional(),
+  herdrEnabled: z.boolean().optional(),
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),

@@ -319,20 +319,20 @@ describe('Fuzz: isOnboardingLandingPageActive', () => {
 describe('Fuzz: getDefaultTabConfig', () => {
   const VALID_AGENT_TYPES = ['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'bash'] as const;
 
-  it('always returns one primary outer terminal configuration', () => {
+  it('always returns array of length 6 (MAX_TABS)', () => {
     fc.assert(
       fc.property(
         fc.constantFrom(...VALID_AGENT_TYPES),
         (agentType) => {
           const tabs = getDefaultTabConfig(agentType);
-          expect(tabs).toHaveLength(1);
+          expect(tabs).toHaveLength(6);
         },
       ),
       { numRuns: NUM_RUNS },
     );
   });
 
-  it('uses only internal terminal ID "1"', () => {
+  it('tab IDs are "1" through "6" in order', () => {
     fc.assert(
       fc.property(
         fc.constantFrom(...VALID_AGENT_TYPES),

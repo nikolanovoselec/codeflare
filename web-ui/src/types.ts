@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AgentTypeSchema, SessionModeSchema, SessionWorkspaceSchema } from './lib/schemas';
+import { AgentTypeSchema, SessionModeSchema, SessionWorkspaceSchema, TerminalModeSchema } from './lib/schemas';
 
 /** Supported agent types for multi-agent sessions */
 export type AgentType = z.infer<typeof AgentTypeSchema>;
@@ -14,11 +14,17 @@ export interface TabConfig {
 /** User preferences persisted across sessions */
 export type SessionMode = z.infer<typeof SessionModeSchema>;
 export type SessionWorkspace = z.infer<typeof SessionWorkspaceSchema>;
+export type TerminalMode = z.infer<typeof TerminalModeSchema>;
+
+export function resolveTerminalMode(value: unknown): TerminalMode {
+  return value === 'herdr' ? 'herdr' : 'classic';
+}
 
 export type SleepAfterOption = '15m' | '30m' | '1h' | '2h' | '4h';
 
 export interface UserPreferences {
   lastAgentType?: AgentType;
+  herdrEnabled?: boolean;
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   sessionMode?: SessionMode;
@@ -46,6 +52,7 @@ export interface Session {
   status?: 'stopped' | 'running';
   agentType?: AgentType;
   workspace?: SessionWorkspace;
+  terminalMode?: TerminalMode;
   editorReady?: boolean;
   editorReadyError?: boolean;
   tabConfig?: TabConfig[];

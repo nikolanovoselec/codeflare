@@ -6,7 +6,7 @@ Multi-agent support, preseed system, and session modes.
 
 | Concept | Definition |
 |---------|-----------|
-| Agent | One of seven supported AI coding tools (`claude-code`, `codex`, `copilot`, `antigravity`, `opencode`, `pi`, `bash`) that runs inside the container and is bootstrapped once in the initial Herdr pane |
+| Agent | One of seven supported AI coding tools (`claude-code`, `codex`, `copilot`, `antigravity`, `opencode`, `pi`, `bash`) that runs inside the container: classic starts it directly in tab 1; Herdr submits it once to the initial inner pane |
 | Preseed | A set of configuration files (rules, skills, agents, commands, plugins) generated from a single Claude Code source of truth and deployed to each user's R2 bucket |
 | Session Mode | Either Standard (`default`) or Pro (`advanced`) controlling the scope of agent enhancements seeded to a user's storage |
 | Manifest | The declarative `manifest.json` file that maps each preseed source file to its applicable modes and drives the code generation pipeline |
@@ -23,7 +23,7 @@ Multi-agent support, preseed system, and session modes.
 
 | Domain | Dependency |
 |--------|-----------|
-| Session Lifecycle | Container start triggers one configured-agent bootstrap in the initial Herdr pane; session creation accepts `agentType` selection |
+| Session Lifecycle | Container start launches the configured agent through classic tab-1 autostart or Herdr initial-pane submission according to the immutable terminal mode; session creation accepts `agentType` selection |
 | Storage | R2 bucket stores preseed files; initial sync restores agent configs to the container filesystem |
 | Subscription | Session mode gating (`REQ-SUB-014`) controls whether a user can select Pro mode |
 
@@ -779,11 +779,11 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. The container passes the selected agent's fixed launch identity to the Herdr launcher, which starts it once in the initial pane. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC1 dynamic: an agy (Antigravity) tab emits its launch command into .bashrc) -->
+1. The container passes the selected agent's fixed launch identity to classic tab-1 autostart or to the Herdr launcher, which submits it once in the initial pane. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC1 dynamic: an agy (Antigravity) tab emits its launch command into .bashrc) -->
 2. Claude Code starts in permissions-bypass mode appropriate for an isolated sandbox container. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC1+AC2+AC4: default layout writes the claude --dangerously-skip-permissions launch line + hardened PATH into .bashrc) -->
-3. User-created Herdr tabs and panes open plain Bash and do not auto-start another agent. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC3: generated .bashrc guards autostart with the MANUAL_TAB skip branch) -->
+3. User-created classic manual tabs and Herdr-created tabs or panes open plain Bash and do not auto-start another agent. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC3: generated .bashrc guards autostart with the MANUAL_TAB skip branch) -->
 4. The agent CLI is findable on the system PATH in all terminal sessions. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC1+AC2+AC4: default layout writes the claude --dangerously-skip-permissions launch line + hardened PATH into .bashrc) -->
-5. Herdr launcher readiness and configured bootstrap output begin a fixed 1.5-second settlement period; readiness becomes true after that period so the initial terminal UI can render before opening. <!-- @impl: host/src/server.ts::PREWARM_SETTLE_MS --> <!-- @impl: host/src/server.ts::server.listen --> <!-- @manual: Observe first PTY output and confirm `/health` reports `prewarmReady: true` only after the fixed settlement period. -->
+5. Classic first output or Herdr launcher bootstrap detection begins a fixed 1.5-second settlement period; readiness becomes true after that period so the initial terminal UI can render before opening. <!-- @impl: host/src/server.ts::PREWARM_SETTLE_MS --> <!-- @impl: host/src/server.ts::server.listen --> <!-- @manual: Observe first PTY output and confirm `/health` reports `prewarmReady: true` only after the fixed settlement period. -->
 6. A 20-second hard timeout exists as a safety net if the PTY produces no output. <!-- @impl: host/src/server.ts::server.listen --> <!-- @manual -->
 
 **Constraints:**

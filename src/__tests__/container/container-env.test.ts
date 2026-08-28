@@ -27,6 +27,7 @@ function baseState(): ContainerEnvState {
     _encryptionKey: null,
     _sessionMode: 'default',
     _sessionWorkspace: 'terminal',
+    _terminalMode: 'classic',
     _containerAuthToken: 'tok',
     _sessionId: 'sid-abcdef12',
     _userEmail: 'user@example.com',
@@ -68,6 +69,14 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     (state as unknown as { _userTimezone: string | null })._userTimezone = '';
     const vars = buildEnvVars(state, baseEnv);
     expect(vars.USER_TIMEZONE).toBeUndefined();
+  });
+
+  it('emits the immutable terminal mode', () => {
+    const classic = buildEnvVars(baseState(), baseEnv);
+    const herdrState = baseState();
+    herdrState._terminalMode = 'herdr';
+    expect(classic.CODEFLARE_TERMINAL_MODE).toBe('classic');
+    expect(buildEnvVars(herdrState, baseEnv).CODEFLARE_TERMINAL_MODE).toBe('herdr');
   });
 
   it('REQ-IDE-048 AC3: emits the immutable session workspace', () => {

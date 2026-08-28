@@ -314,9 +314,12 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
           mouseTrackingMode: 'any',
         });
         const wheelEvents: WheelEvent[] = [];
-        element.addEventListener('wheel', (event) => wheelEvents.push(event as WheelEvent));
+        const screen = document.createElement('div');
+        screen.className = 'xterm-screen';
+        element.appendChild(screen);
+        screen.addEventListener('wheel', (event) => wheelEvents.push(event as WheelEvent));
         container.appendChild(element);
-        const cleanup = attachSwipeGestures(container, terminal, () => false)!;
+        const cleanup = attachSwipeGestures(container, terminal, () => false, true)!;
 
         container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
         container.dispatchEvent(makeTouchEvent('touchmove', 100, 60));
@@ -515,6 +518,51 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         container.dispatchEvent(makeTouchEvent('touchmove', 70, 100));
 
         expect(triggerDataEvent).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('Herdr mouse taps', () => {
+      it('sends a stationary touch to the xterm screen only when enabled', () => {
+        (window as any).ontouchstart = null;
+        const { terminal, element } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
+        const screenElement = document.createElement('div');
+        screenElement.className = 'xterm-screen';
+        element.appendChild(screenElement);
+        container.appendChild(element);
+        const mouseDown = vi.fn();
+        const mouseUp = vi.fn();
+        screenElement.addEventListener('mousedown', mouseDown);
+        screenElement.addEventListener('mouseup', mouseUp);
+
+        const classicCleanup = attachSwipeGestures(container, terminal, () => false, false)!;
+        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        container.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
+        expect(mouseDown).not.toHaveBeenCalled();
+        classicCleanup();
+
+        const herdrCleanup = attachSwipeGestures(container, terminal, () => false, true)!;
+        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        container.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
+        expect(mouseDown).toHaveBeenCalledOnce();
+        expect(mouseUp).toHaveBeenCalledOnce();
+        herdrCleanup();
+      });
+
+      it('does not synthesize a click after movement', () => {
+        (window as any).ontouchstart = null;
+        const { terminal, element } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
+        const screenElement = document.createElement('div');
+        screenElement.className = 'xterm-screen';
+        element.appendChild(screenElement);
+        container.appendChild(element);
+        const mouseDown = vi.fn();
+        screenElement.addEventListener('mousedown', mouseDown);
+        const cleanup = attachSwipeGestures(container, terminal, () => false, true)!;
+        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        container.dispatchEvent(makeTouchEvent('touchmove', 40, 80));
+        container.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
+        expect(mouseDown).not.toHaveBeenCalled();
+        cleanup();
       });
     });
 

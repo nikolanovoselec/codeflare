@@ -4,12 +4,14 @@ import { useTerminal } from '../hooks/useTerminal';
 import InitProgress from './InitProgress';
 import { isTouchDevice, isIOSDevice, getKeyboardHeight, enableVirtualKeyboardOverlay } from '../lib/mobile';
 import { getRemoveFocusGuard, getIframeInput } from '../lib/xterm-internals';
+import type { TerminalMode } from '../types';
 import '../styles/terminal.css';
 
 interface TerminalProps {
   sessionId: string;
   terminalId: string;
   sessionName?: string;
+  terminalMode?: TerminalMode;
   active: boolean;
   visible?: boolean;
   focused?: boolean;

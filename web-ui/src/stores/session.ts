@@ -1,12 +1,32 @@
 import { createStore, produce } from 'solid-js/store';
 import { createSignal } from 'solid-js';
-import type { SessionWithStatus, SessionStatus, InitProgress, AgentType, TabConfig, UserPreferences } from '../types';
+import type { SessionWithStatus, SessionStatus, InitProgress, SessionTerminals, AgentType, TabConfig, UserPreferences } from '../types';
 import * as api from '../api/client';
 import { recreateAgentConfigs } from '../api/storage';
 import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
 import { cleanupSessionVaultCache, sweepOrphanVaultCaches } from '../lib/vault-cache';
 import { MAX_STOP_POLL_ATTEMPTS, STOP_POLL_INTERVAL_MS, MAX_STOP_POLL_ERRORS, CONTEXT_EXPIRY_MS } from '../lib/constants';
+import {
+  setTilingLayout,
+  getTilingForSession,
+  getTabOrder,
+  registerSessionStoreAccess,
+} from './tiling';
+import { registerProcessNameCallback } from './terminal';
+import {
+  loadTerminalsFromStorage,
+  saveTerminalsToStorage,
+  registerTabsDeps,
+  initializeTerminalsForSession,
+  addTerminalTab,
+  removeTerminalTab,
+  setActiveTerminalTab,
+  getTerminalsForSession,
+  reorderTerminalTabs,
+  updateTerminalLabel,
+  cleanupTerminalsForSession,
+} from './session-tabs';
 import { updateStatsFromBatch } from './storage';
 import {
   registerR2ReadinessDeps,
@@ -42,7 +62,8 @@ export {
 /**
  * Session Store — central facade for session lifecycle management.
  *
- * Delegates to session polling, usage, R2 readiness, and preferences.
+ * Delegates to: session-tabs, session-polling,
+ * session-usage, tiling, r2-readiness, preferences.
  */
 
 // ── Session Metrics ─────────────────────────────────────────────────────────
@@ -92,6 +113,7 @@ export interface SessionState {
   error: string | null;
   initializingSessionIds: Record<string, boolean>;
   initProgressBySession: Record<string, InitProgress>;
+  terminalsPerSession: Record<string, SessionTerminals>;
   sessionMetrics: Record<string, SessionMetrics>;
   preferences: UserPreferences;
   maxSessions: number;
@@ -110,17 +132,6 @@ export interface SessionState {
   allowedAgents: AgentType[] | null;
 }
 
-export function retireLegacyTerminalLayoutState(): void {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.removeItem('codeflare:terminalsPerSession');
-  } catch {
-    // Browser-local migration is best-effort and carries no runtime authority.
-  }
-}
-
-retireLegacyTerminalLayoutState();
-
 const [state, setState] = createStore<SessionState>({
   sessions: [],
   activeSessionId: null,
@@ -128,6 +139,7 @@ const [state, setState] = createStore<SessionState>({
   error: null,
   initializingSessionIds: {},
   initProgressBySession: {},
+  terminalsPerSession: loadTerminalsFromStorage(),
   sessionMetrics: {},
   preferences: {},
   maxSessions: 3,
@@ -146,6 +158,25 @@ const [state, setState] = createStore<SessionState>({
 const [authExpired, setAuthExpired] = createSignal(false);
 
 // ── Dependency registration for extracted modules ───────────────────────────
+
+registerTabsDeps(
+  () => state,
+  (fn) => setState(produce(fn)),
+  terminalStore,
+  () => saveTerminalsToStorage(state.terminalsPerSession),
+);
+
+// Register session store access for tiling module (avoids circular imports)
+registerSessionStoreAccess(
+  () => state,
+  (fn) => setState(produce(fn)),
+  () => saveTerminalsToStorage(state.terminalsPerSession),
+);
+
+// Register process-name callback for terminal store (avoids circular imports)
+registerProcessNameCallback((sessionId, terminalId, processName) => {
+  updateTerminalLabel(sessionId, terminalId, processName);
+});
 
 // Register R2 readiness dependencies (extracted to r2-readiness.ts)
 registerR2ReadinessDeps({
@@ -265,7 +296,7 @@ async function loadSessions(): Promise<void> {
     const newIds = new Set(sessions.map(s => s.id));
     for (const id of oldIds) {
       if (!newIds.has(id)) {
-        terminalStore.disposeSession(id);
+        cleanupTerminalsForSession(id);
       }
     }
 
@@ -273,7 +304,7 @@ async function loadSessions(): Promise<void> {
       if (thisGen !== loadSessionsGeneration) return;
 
       if (session.workspace === 'vscode') {
-        terminalStore.disposeSession(session.id);
+        cleanupTerminalsForSession(session.id);
       }
 
       const batchStatus = batchStatuses[session.id];
@@ -302,7 +333,11 @@ async function loadSessions(): Promise<void> {
       }
 
       if (batchStatus.status === 'running') {
+        const wasRunning = existingStatuses.get(session.id) === 'running';
         updateSessionStatus(session.id, 'running');
+        if (!wasRunning && session.workspace !== 'vscode') {
+          initializeTerminalsForSession(session.id);
+        }
       } else {
         const wasRunning = existingStatuses.get(session.id) === 'running';
         updateSessionStatus(session.id, batchStatus.status);
@@ -326,7 +361,10 @@ async function loadSessions(): Promise<void> {
 
 async function createSession(name: string, agentType?: AgentType, tabConfig?: TabConfig[], clone?: api.CreateSessionClone): Promise<SessionWithStatus | null> {
   try {
-    const session = await api.createSession(name, agentType, tabConfig, clone);
+    const submittedTabConfig = state.preferences.herdrEnabled === true
+      ? tabConfig?.slice(0, 1)
+      : tabConfig;
+    const session = await api.createSession(name, agentType, submittedTabConfig, clone);
     const sessionWithStatus: SessionWithStatus = {
       ...session,
       status: 'stopped',
@@ -385,7 +423,7 @@ async function deleteSession(id: string): Promise<void> {
     }
     await api.deleteSession(id);
     sessionMissCounters.delete(id);
-    terminalStore.disposeSession(id);
+    cleanupTerminalsForSession(id);
     // REQ-VAULT-015 AC3: drop the per-session SilverBullet IDB cache,
     // localStorage marker, and SW registration. Best-effort and async
     // -- we do not block the UI on it.
@@ -439,6 +477,8 @@ function startSession(id: string): Promise<void> {
             delete s.initializingSessionIds[id];
             delete s.initProgressBySession[id];
           }));
+        } else {
+          initializeTerminalsForSession(id);
         }
         resolve();
       },
@@ -616,6 +656,17 @@ export const sessionStore = {
   setActiveSession,
   clearError,
   dismissInitProgressForSession,
+  getTerminalsForSession,
+  initializeTerminalsForSession,
+  addTerminalTab,
+  removeTerminalTab,
+  setActiveTerminalTab,
+  cleanupTerminalsForSession,
+  reorderTerminalTabs,
+  setTilingLayout,
+  getTilingForSession,
+  getTabOrder,
+  updateTerminalLabel,
   get preferences() { return state.preferences; },
   loadPreferences,
   updatePreferences: updateUserPreferences,

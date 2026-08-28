@@ -1199,6 +1199,7 @@ describe('API Client', () => {
     it('should send tabConfig in patch payload', async () => {
       const tabConfig = [
         { id: '1', command: 'claude', label: 'claude' },
+        { id: '2', command: 'yazi', label: 'yazi' },
       ];
 
       mockFetch.mockResolvedValueOnce({
@@ -1246,7 +1247,7 @@ describe('API Client', () => {
   // WebSocket URL Helper Tests
   // ==========================================================================
   describe('getTerminalWebSocketUrl', () => {
-    it('should reject outer terminal IDs other than 1', () => {
+    it('should generate correct WebSocket URL', () => {
       // Mock window.location
       Object.defineProperty(globalThis, 'window', {
         value: {
@@ -1259,7 +1260,9 @@ describe('API Client', () => {
         writable: true,
       });
 
-      expect(() => getTerminalWebSocketUrl('session123abc', '2')).toThrow(/only internal terminal 1/);
+      const url = getTerminalWebSocketUrl('session123abc', '2');
+
+      expect(url).toBe('wss://codeflare.workers.dev/api/terminal/session123abc-2/ws');
     });
 
     it('should use ws: protocol for http:', () => {

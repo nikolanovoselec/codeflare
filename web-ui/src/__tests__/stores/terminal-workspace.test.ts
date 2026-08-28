@@ -6,6 +6,7 @@ const session = (
   id: string,
   status: SessionWithStatus['status'] = 'running',
   workspace?: SessionWithStatus['workspace'],
+  terminalMode?: SessionWithStatus['terminalMode'],
 ): SessionWithStatus => ({
   id,
   name: id,
@@ -13,6 +14,7 @@ const session = (
   lastAccessedAt: '2026-06-18T00:00:00Z',
   status,
   ...(workspace ? { workspace } : {}),
+  ...(terminalMode ? { terminalMode } : {}),
 });
 
 describe('terminalWorkspaceStore visible pane ownership', () => {
@@ -21,7 +23,7 @@ describe('terminalWorkspaceStore visible pane ownership', () => {
   });
 
   it('REQ-TERM-011: dashboard workspace has no visible terminal panes', () => {
-    terminalWorkspaceStore.setSingleSessionWorkspace('session-a', session('session-a'));
+    terminalWorkspaceStore.setSingleSessionWorkspace('session-a', '1', session('session-a'));
     terminalWorkspaceStore.setDashboardWorkspace();
 
     expect(terminalWorkspaceStore.getActiveWorkspace()).toEqual({ kind: 'dashboard' });
@@ -30,18 +32,18 @@ describe('terminalWorkspaceStore visible pane ownership', () => {
   });
 
   it('REQ-TERM-011: single-session workspace exposes exactly one visible pane', () => {
-    terminalWorkspaceStore.setSingleSessionWorkspace('session-a', session('session-a'));
+    terminalWorkspaceStore.setSingleSessionWorkspace('session-a', '2', session('session-a'));
 
     expect(terminalWorkspaceStore.getActiveWorkspace()).toEqual({ kind: 'session', sessionId: 'session-a' });
     expect(terminalWorkspaceStore.getVisiblePanes()).toEqual([
-      { id: 'session:session-a:1', sessionId: 'session-a', terminalId: '1', source: 'session' },
+      { id: 'session:session-a:2', sessionId: 'session-a', terminalId: '2', source: 'session' },
     ]);
-    expect(terminalWorkspaceStore.getFocusedPaneId()).toBe('session:session-a:1');
+    expect(terminalWorkspaceStore.getFocusedPaneId()).toBe('session:session-a:2');
   });
 
   it('rejects known VS Code single-session ownership at workspace boundary', () => {
-    terminalWorkspaceStore.setSingleSessionWorkspace('terminal-a', session('terminal-a'));
-    terminalWorkspaceStore.setSingleSessionWorkspace('vscode-a', session('vscode-a', 'running', 'vscode'));
+    terminalWorkspaceStore.setSingleSessionWorkspace('terminal-a', '1', session('terminal-a'));
+    terminalWorkspaceStore.setSingleSessionWorkspace('vscode-a', '1', session('vscode-a', 'running', 'vscode'));
 
     expect(terminalWorkspaceStore.getActiveWorkspace()).toEqual({ kind: 'dashboard' });
     expect(terminalWorkspaceStore.getVisiblePanes()).toEqual([]);
@@ -59,6 +61,19 @@ describe('terminalWorkspaceStore visible pane ownership', () => {
 
     expect(terminalWorkspaceStore.createOrUpdateMultiView(['a', 'b', 'c', 'd', 'e'], sessions, 'desktop')).toBe(false);
     expect(terminalWorkspaceStore.getMultiView()?.memberSessionIds).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('resolves mixed MultiView members by immutable terminal mode', () => {
+    const sessions = [
+      session('classic', 'running', 'terminal', 'classic'),
+      session('herdr', 'running', 'terminal', 'herdr'),
+    ];
+    expect(terminalWorkspaceStore.createOrUpdateMultiView(['classic', 'herdr'], sessions, 'desktop')).toBe(true);
+    expect(terminalWorkspaceStore.openMultiView(sessions, (id) => id === 'classic' ? '3' : '6')).toBe(true);
+    expect(terminalWorkspaceStore.getVisiblePanes().map((pane) => [pane.sessionId, pane.terminalId])).toEqual([
+      ['classic', '3'],
+      ['herdr', '1'],
+    ]);
   });
 
   it('REQ-TERM-012: tablet MultiView accepts exactly two live sessions', () => {

@@ -209,7 +209,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. In an alternate buffer with wheel-capable mouse tracking and the keyboard closed, vertical swipes send line-granularity wheel events to the fullscreen application. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1: routes keyboard-closed vertical swipes as wheel input) -->
+1. In an alternate buffer with wheel-capable mouse tracking and the keyboard closed, vertical swipes send line-granularity wheel events to the fullscreen application. Herdr mode targets xterm's `.xterm-screen` so the requested SGR mouse protocol receives them; classic retains its established target. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1: routes keyboard-closed vertical swipes as wheel input) -->
+2. A stationary single-finger Herdr tap emits left mouse down/up through `.xterm-screen`, while movement, long press, multi-touch, cancellation, and classic mode synthesize no terminal mouse click. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (Herdr mouse taps) -->
 
 **Constraints:**
 
@@ -538,7 +539,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ### REQ-MOB-015: Virtual keyboard persists across terminal pane focus handoff
 
-**Intent:** On touch devices the virtual-keyboard mode (locked/anchored layout, swipe-as-arrows, keyboard-height padding) is driven by a single shared signal. When several backend-session terminal surfaces are visible in tablet MultiView and focus moves while the keyboard is open, the keyboard must stay open and the newly focused surface must keep keyboard mode without the user dismissing and reopening the keyboard. Focus among panes inside one session belongs to Herdr within one xterm.js surface. Shared keyboard state is torn down only when focus leaves terminal surfaces, not on a MultiView handoff.
+**Intent:** On touch devices the virtual-keyboard mode (locked/anchored layout, swipe-as-arrows, keyboard-height padding) is driven by a single shared signal. When several backend-session terminal surfaces are visible in tablet MultiView and focus moves while the keyboard is open, the keyboard must stay open and the newly focused surface must keep keyboard mode without the user dismissing and reopening the keyboard. Classic focus remains among Codeflare outer panes; focus among panes inside a Herdr session belongs to Herdr within one xterm.js surface. Shared keyboard state is torn down only when focus leaves terminal surfaces, not on a MultiView handoff.
 
 **Applies To:** User
 

@@ -1,0 +1,84 @@
+          .tiling-overlay-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 98;
+          }
+
+          .tiling-overlay {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: var(--space-1);
+            background: var(--color-bg-elevated);
+            border: 1px solid var(--color-border-subtle);
+            border-radius: var(--radius-lg);
+            padding: var(--space-2);
+            min-width: 140px;
+            z-index: 99;
+            box-shadow: var(--shadow-lg);
+            animation: fadeInDown 150ms ease-out;
+          }
+
+          .tiling-option {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            width: 100%;
+            padding: var(--space-2);
+            border: 2px solid transparent;
+            border-radius: var(--radius-md);
+            background: transparent;
+            color: var(--color-text-secondary);
+            font-size: var(--text-sm);
+            cursor: pointer;
+            transition: all var(--transition-fast);
+          }
+
+          .tiling-option:hover {
+            background: var(--color-bg-muted);
+            color: var(--color-text-primary);
+          }
+
+          .tiling-option--active {
+            border-color: var(--color-accent);
+            color: var(--color-text-primary);
+          }
+
+          .tiling-option--active:hover {
+            border-color: var(--color-accent-hover);
+          }
+
+          .tiling-preview-icon {
+            width: 32px;
+            height: 24px;
+            flex-shrink: 0;
+          }
+
+          .tiling-preview-rect {
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 1.5;
+          }
+
+          .tiling-option-label {
+            flex: 1;
+            text-align: left;
+          }
+
+          @keyframes fadeInDown {
+            from {
+              opacity: 0;
+              transform: translateY(-4px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+
+          /* Reduced motion */
+          @media (prefers-reduced-motion: reduce) {
+            .tiling-overlay {
+              animation: none;
+            }
+          }

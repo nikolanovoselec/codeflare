@@ -1697,7 +1697,9 @@ shutdown_handler() {
         walk_kill TERM "$BISYNC_INIT_PID"
     fi
 
-    if [ -x /usr/local/bin/codeflare-herdr-terminal ] && [ -n "${SESSION_ID:-}" ]; then
+    if [ "${CODEFLARE_TERMINAL_MODE:-classic}" = "herdr" ] \
+        && [ -x /usr/local/bin/codeflare-herdr-terminal ] \
+        && [ -n "${SESSION_ID:-}" ]; then
         /usr/local/bin/codeflare-herdr-terminal stop || true
     fi
 

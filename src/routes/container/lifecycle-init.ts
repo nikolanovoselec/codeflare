@@ -47,6 +47,7 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     r2AccountId: params.r2Config.accountId,
     r2Endpoint: params.r2Config.endpoint,
     tabConfig: params.tabConfig,
+    terminalMode: params.terminalMode,
     workspaceSyncEnabled: params.workspaceSyncEnabled,
     fastStartEnabled: params.fastStartEnabled,
     ...(params.llmKeys?.openaiApiKey && { openaiApiKey: params.llmKeys.openaiApiKey }),

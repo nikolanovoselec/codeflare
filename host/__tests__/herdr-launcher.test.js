@@ -22,6 +22,10 @@ set -eu
 printf '%s\n' "$*" >> "$HERDR_TEST_LOG"
 if [ "$*" = "api snapshot" ]; then
   printf '%s\n' '{"result":{"focused_pane_id":"w1:p1"}}'
+elif [ "$1 $2" = "agent get" ] && [ -n "\${HERDR_TEST_AGENT:-}" ]; then
+  printf '{"result":{"agent":{"agent":"%s"}}}\n' "$HERDR_TEST_AGENT"
+elif [ "$1 $2" = "pane process-info" ] && [ -n "\${HERDR_TEST_PROCESS:-}" ]; then
+  printf '{"result":{"process_info":{"foreground_processes":[{"name":"%s"}]}}}\n' "$HERDR_TEST_PROCESS"
 fi
 `, { mode: 0o755 });
   chmodSync(fake, 0o755);
@@ -37,6 +41,13 @@ fi
       CODEFLARE_RUNTIME_ROOT: runtime,
       SESSION_ID: 'abc12345',
       TAB_CONFIG: JSON.stringify([{ id: '1', command, label: 'Terminal 1' }]),
+      HERDR_TEST_AGENT: command.startsWith('claude') ? 'claude'
+        : command === 'codex' ? 'codex'
+          : command === 'opencode' ? 'opencode'
+            : command.startsWith('copilot') ? 'copilot'
+              : command === 'pi' ? 'pi'
+                : command.startsWith('agy') ? 'agy' : '',
+      HERDR_TEST_PROCESS: ['htop', 'yazi', 'lazygit'].includes(command) ? command : '',
       ...(tabConfig === undefined ? {} : { TAB_CONFIG: JSON.stringify(tabConfig) }),
     },
   });
@@ -102,7 +113,9 @@ fi
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(calls, [
       'api snapshot',
-      'agent start codeflare --kind claude --pane w1:p1 --timeout 30000 -- --dangerously-skip-permissions',
+      'integration install claude',
+      'pane run w1:p1 claude --dangerously-skip-permissions',
+      'agent get w1:p1',
     ]);
 
     const env = {
@@ -112,6 +125,7 @@ fi
       CODEFLARE_RUNTIME_ROOT: runtime,
       SESSION_ID: 'abc12345',
       TAB_CONFIG: JSON.stringify([{ id: '1', command: 'claude --dangerously-skip-permissions', label: 'Terminal 1' }]),
+      HERDR_TEST_AGENT: 'claude',
     };
     const second = spawnSync(launcher, ['bootstrap'], { encoding: 'utf8', env });
     assert.equal(second.status, 0, second.stderr);
@@ -123,11 +137,13 @@ fi
       ...calls,
       'session stop cf-abc12345 --json',
       'api snapshot',
-      'agent start codeflare --kind claude --pane w1:p1 --timeout 30000 -- --dangerously-skip-permissions',
+      'integration install claude',
+      'pane run w1:p1 claude --dangerously-skip-permissions',
+      'agent get w1:p1',
     ]);
   });
 
-  it('serializes concurrent bootstrap launchers to one agent start', async (t) => {
+  it('serializes concurrent bootstrap launchers to one command submission', async (t) => {
     const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-concurrent-'));
     const bin = join(dir, 'bin');
     const runtime = join(dir, 'runtime');
@@ -141,9 +157,11 @@ set -eu
 printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
 if [ "$*" = "api snapshot" ]; then
   printf '%s\\n' '{"result":{"focused_pane_id":"w1:p1"}}'
-elif [ "$1 $2" = "agent start" ]; then
+elif [ "$1 $2" = "pane run" ]; then
   : > "$HERDR_TEST_STARTED"
   while [ ! -f "$HERDR_TEST_RELEASE" ]; do sleep 0.02; done
+elif [ "$1 $2" = "agent get" ]; then
+  printf '%s\n' '{"result":{"agent":{"agent":"claude"}}}'
 fi
 `, { mode: 0o755 });
     const env = {
@@ -156,6 +174,7 @@ fi
       CODEFLARE_RUNTIME_ROOT: runtime,
       SESSION_ID: 'abc12345',
       TAB_CONFIG: JSON.stringify([{ id: '1', command: 'claude', label: 'Terminal 1' }]),
+      HERDR_TEST_AGENT: 'claude',
     };
     const first = spawn(launcher, ['bootstrap'], { stdio: 'ignore', env });
     const firstExit = new Promise((resolve) => first.once('exit', resolve));
@@ -166,7 +185,7 @@ fi
     for (let attempt = 0; attempt < 100 && !existsSync(started); attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    assert.equal(existsSync(started), true, 'first bootstrap did not reach agent start');
+    assert.equal(existsSync(started), true, 'first bootstrap did not reach command submission');
 
     const second = spawn(launcher, ['bootstrap'], { stdio: 'ignore', env });
     const secondExit = new Promise((resolve) => second.once('exit', resolve));
@@ -175,9 +194,9 @@ fi
     writeFileSync(release, '');
 
     assert.deepEqual(await Promise.all([firstExit, secondExit]), [0, 0]);
-    const agentStarts = readFileSync(log, 'utf8').split('\n')
-      .filter((line) => line.startsWith('agent start '));
-    assert.equal(agentStarts.length, 1);
+    const commandSubmissions = readFileSync(log, 'utf8').split('\n')
+      .filter((line) => line.startsWith('pane run '));
+    assert.equal(commandSubmissions.length, 1);
   });
 
   it('cancels an in-flight bootstrap without deleting its lock, then permits one restart', async (t) => {
@@ -194,9 +213,11 @@ set -eu
 printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
 if [ "$*" = "api snapshot" ]; then
   printf '%s\\n' '{"result":{"focused_pane_id":"w1:p1"}}'
-elif [ "\${HERDR_TEST_BLOCK:-}" = "1" ] && [ "$1 $2" = "agent start" ]; then
+elif [ "\${HERDR_TEST_BLOCK:-}" = "1" ] && [ "$1 $2" = "pane run" ]; then
   : > "$HERDR_TEST_STARTED"
   while [ ! -f "$HERDR_TEST_RELEASE" ]; do sleep 0.02; done
+elif [ "$1 $2" = "agent get" ]; then
+  printf '%s\n' '{"result":{"agent":{"agent":"claude"}}}'
 fi
 `, { mode: 0o755 });
     const baseEnv = {
@@ -208,6 +229,7 @@ fi
       CODEFLARE_RUNTIME_ROOT: runtime,
       SESSION_ID: 'abc12345',
       TAB_CONFIG: JSON.stringify([{ id: '1', command: 'claude', label: 'Terminal 1' }]),
+      HERDR_TEST_AGENT: 'claude',
     };
     const bootstrap = spawn(launcher, ['bootstrap'], {
       stdio: 'ignore',
@@ -221,7 +243,7 @@ fi
     for (let attempt = 0; attempt < 100 && !existsSync(started); attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    assert.equal(existsSync(started), true, 'bootstrap did not reach the blocking agent start');
+    assert.equal(existsSync(started), true, 'bootstrap did not reach the blocking command submission');
 
     const stopped = spawnSync(launcher, ['stop'], { encoding: 'utf8', env: baseEnv });
     assert.equal(stopped.status, 0, stopped.stderr);
@@ -232,9 +254,9 @@ fi
 
     const restarted = spawnSync(launcher, ['bootstrap'], { encoding: 'utf8', env: baseEnv });
     assert.equal(restarted.status, 0, restarted.stderr);
-    const agentStarts = readFileSync(log, 'utf8').split('\n')
-      .filter((line) => line.startsWith('agent start '));
-    assert.equal(agentStarts.length, 2);
+    const commandSubmissions = readFileSync(log, 'utf8').split('\n')
+      .filter((line) => line.startsWith('pane run '));
+    assert.equal(commandSubmissions.length, 2);
   });
 
   it('leaves Bash untouched and maps ordinary TUI commands without shell interpolation', () => {
@@ -244,7 +266,7 @@ fi
 
     const lazygit = harness('lazygit');
     assert.equal(lazygit.result.status, 0, lazygit.result.stderr);
-    assert.deepEqual(lazygit.calls, ['api snapshot', 'pane run w1:p1 lazygit']);
+    assert.deepEqual(lazygit.calls, ['api snapshot', 'pane run w1:p1 lazygit', 'pane process-info --pane w1:p1']);
   });
 
   it('stops only the deterministic named runtime', () => {

@@ -59,6 +59,8 @@ vi.mock('../../stores/terminal', () => ({
 vi.mock('../../stores/session', () => ({
   sessionStore: {
     activeSessionId: null,
+    sessions: [],
+    getTerminalsForSession: vi.fn(() => ({ activeTabId: '1' })),
   },
 }));
 
