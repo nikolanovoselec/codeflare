@@ -191,9 +191,16 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       textarea.setAttribute('data-enable-grammarly', 'false');
     }
 
-    // Custom key handler: Shift+Enter (CSI u for Claude Code), Ctrl+C (copy), Ctrl+V (paste)
+    // Custom key handler: Herdr prefix, Shift+Enter (CSI u for Claude Code), Ctrl+C (copy), Ctrl+V (paste)
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true;
+      // Browsers reserve Ctrl+B for bookmarks. Herdr uses its canonical control
+      // byte as a prefix, then receives the following action key normally.
+      if (isHerdr() && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'b') {
+        event.preventDefault();
+        sendTerminalKey(term!, '\x02');
+        return false;
+      }
       // Shift+Enter → send CSI u encoded sequence so Claude Code can distinguish
       // it from plain Enter and insert a newline instead of submitting.
       // Without this, xterm.js sends \r for both Enter and Shift+Enter.

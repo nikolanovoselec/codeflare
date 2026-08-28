@@ -4,7 +4,7 @@ import { attachHerdrMouseInput } from '../../lib/herdr-mouse';
 
 describe('Herdr SGR mouse input', () => {
   let screen: HTMLDivElement;
-  let send: ReturnType<typeof vi.fn>;
+  let send: ReturnType<typeof vi.fn<(sequence: string) => void>>;
   let focus: ReturnType<typeof vi.fn>;
   let cleanup: () => void;
 
@@ -22,7 +22,7 @@ describe('Herdr SGR mouse input', () => {
       y: 20,
       toJSON: () => ({}),
     });
-    send = vi.fn();
+    send = vi.fn<(sequence: string) => void>();
     focus = vi.fn();
     cleanup = attachHerdrMouseInput(
       screen,
@@ -58,6 +58,38 @@ describe('Herdr SGR mouse input', () => {
     expect(send).toHaveBeenNthCalledWith(1, '\x1b[<0;3;2M');
     expect(send).toHaveBeenNthCalledWith(2, '\x1b[<0;3;2m');
     expect(focus).toHaveBeenCalledOnce();
+  });
+
+  it('encodes held-button movement and ignores movement without an active press', () => {
+    document.dispatchEvent(new MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 84,
+      clientY: 59,
+      buttons: 1,
+      shiftKey: true,
+    }));
+    expect(send).not.toHaveBeenCalled();
+
+    screen.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 34,
+      clientY: 34,
+      button: 0,
+      buttons: 1,
+    }));
+    document.dispatchEvent(new MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 84,
+      clientY: 59,
+      buttons: 1,
+      shiftKey: true,
+    }));
+
+    expect(send).toHaveBeenNthCalledWith(1, '\x1b[<0;3;2M');
+    expect(send).toHaveBeenNthCalledWith(2, '\x1b[<36;8;4M');
   });
 
   it('encodes wheel navigation and modifier-aware right clicks', () => {

@@ -5,6 +5,11 @@ default_shell = "/bin/bash"
 shell_mode = "login"
 new_cwd = "/home/user/workspace"
 
+[keys]
+prefix = "ctrl+b"
+help = "prefix+?"
+settings = "prefix+s"
+
 [update]
 version_check = false
 manifest_check = false

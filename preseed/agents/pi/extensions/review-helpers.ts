@@ -42,6 +42,7 @@ export type TranscriptFacts = {
   ciRequired: boolean;
   ciTerminal: boolean;
   ciResult?: "success" | "failure" | "timeout";
+  triagePresent: boolean;
   triageComplete: boolean;
   fixDelivered: boolean;
   closedNotified: boolean;
@@ -591,6 +592,12 @@ function ciTerminalResult(
     : undefined;
 }
 
+function triageTablePresent(text: string): boolean {
+  const lines = text.split("\n").map((line) => line.trim());
+  return lines.some((line, index) => line === REVIEW_TRIAGE_HEADER
+    && lines[index + 1] === REVIEW_TRIAGE_DIVIDER);
+}
+
 function triageTableIncludesRequiredCiResult(text: string, result: CiTerminalResult | undefined): boolean {
   const lines = text.split("\n").map((line) => line.trim());
   for (let index = 0; index < lines.length; index += 1) {
@@ -746,6 +753,7 @@ export function reviewTranscriptFacts(input: {
     ciLaunched: false,
     ciRequired: false,
     ciTerminal: false,
+    triagePresent: false,
     triageComplete: false,
     fixDelivered: false,
     closedNotified: false,
@@ -914,6 +922,11 @@ export function reviewTranscriptFacts(input: {
     || (ciRequired && ciTerminalIndex === undefined)
     ? undefined
     : Math.max(latestRequiredTerminalIndex, ciTerminalIndex ?? -1);
+  const triagePresent = completionIndex !== undefined && later.some((entry, index) =>
+    index > completionIndex
+    && toolCalls(entry).length === 0
+    && triageTablePresent(messageText(entry, "assistant")),
+  );
   const triageComplete = completionIndex !== undefined && later.some((entry, index) =>
     index > completionIndex
     && toolCalls(entry).length === 0
@@ -944,6 +957,7 @@ export function reviewTranscriptFacts(input: {
     ciRequired,
     ciTerminal: ciTerminalIndex !== undefined,
     ciResult,
+    triagePresent,
     triageComplete,
     fixDelivered,
     closedNotified,

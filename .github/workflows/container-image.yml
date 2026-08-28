@@ -498,6 +498,9 @@ jobs:
             grep -Fx "default_shell = \"/bin/bash\"" /etc/codeflare/herdr/config.toml
             grep -Fx "shell_mode = \"login\"" /etc/codeflare/herdr/config.toml
             grep -Fx "new_cwd = \"/home/user/workspace\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "prefix = \"ctrl+b\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "help = \"prefix+?\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "settings = \"prefix+s\"" /etc/codeflare/herdr/config.toml
             grep -Fx "version_check = false" /etc/codeflare/herdr/config.toml
             grep -Fx "manifest_check = false" /etc/codeflare/herdr/config.toml
             grep -Fx "name = \"catppuccin\"" /etc/codeflare/herdr/config.toml

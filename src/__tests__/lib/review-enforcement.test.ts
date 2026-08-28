@@ -137,6 +137,24 @@ function triage(ciResult?: 'failure' | 'timeout', formatted = false): Record<str
   };
 }
 
+function malformedFailureTriage(): Record<string, unknown> {
+  return {
+    type: 'message',
+    id: `triage-${sequence += 1}`,
+    message: {
+      role: 'assistant',
+      content: [{
+        type: 'text',
+        text: [
+          '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |',
+          '|---|---|---|---|---|',
+          '| Exact-head CI | Valid failure | CI_RESULT failure: fix the type error | Proportional | Fix CI |',
+        ].join('\n'),
+      }],
+    },
+  };
+}
+
 function reviewerPrompt(head: string, lane: ReviewLane): string {
   return [
     'scope=diff',
@@ -701,6 +719,58 @@ describe('Pi marker-or-dialog review ingress', () => {
     append(input.sessionFile, triage());
     await app.emit('agent_settled');
     expect(app.sent.some((message) => message.customType === 'pr-boundary-fix-follow-up')).toBe(true);
+  });
+
+  it('requests one canonical triage correction when a terminal CI failure row is malformed', async () => {
+    const input = fixture();
+    const app = await harness(input, []);
+    await app.emit('tool_result', boundary('git push origin feature', 'push-correct-triage'));
+    await app.emit('agent_end');
+    const lanes = app.sent[0]!.details?.requiredLanes as ReviewLane[];
+    append(input.sessionFile,
+      ...lanes.flatMap((lane, index) => {
+        const id = `correct-triage-review-${index}`;
+        return [
+          toolCall(id, 'subagent', {
+            subagent_type: lane,
+            run_in_background: true,
+            inherit_context: false,
+            prompt: reviewerPrompt(input.head, lane),
+          }),
+          toolResult(id, 'subagent'),
+          notification(id),
+        ];
+      }),
+      toolCall('correct-triage-ci', 'subagent', {
+        subagent_type: 'ci-monitor',
+        run_in_background: true,
+        inherit_context: false,
+        prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head: input.head, cwd: input.repo }),
+      }),
+      toolResult('correct-triage-ci', 'subagent'),
+      notification('correct-triage-ci', `<result>CI_RESULT failure\npr=42 head=${input.head} repo=owner/repo</result>`),
+      malformedFailureTriage(),
+    );
+
+    await app.emit('agent_end');
+    await app.emit('agent_settled');
+
+    expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).not.toBe('complete');
+    expect(app.sent.map((message) => message.customType)).toEqual([
+      'pr-boundary-launch-plan',
+      'pr-boundary-triage-correction',
+    ]);
+    expect(app.sent[1]?.content).toContain('| Exact-head CI | Terminal exact-head failure | `CI_RESULT failure` | Required exact contract | Address exact-head CI before FIX |');
+
+    append(input.sessionFile, triage('failure', true));
+    await app.emit('agent_settled');
+
+    expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).toBe('complete');
+    expect(app.sent.map((message) => message.customType)).toEqual([
+      'pr-boundary-launch-plan',
+      'pr-boundary-triage-correction',
+      'pr-boundary-fix-follow-up',
+    ]);
   });
 
   it('preserves review-owned Goal pause and releases it only after acknowledged FIX handoff', async () => {

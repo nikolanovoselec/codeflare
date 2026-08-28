@@ -776,9 +776,9 @@ None.
 
 ---
 
-### REQ-TERM-032: Herdr clipboard and mouse compatibility boundary
+### REQ-TERM-032: Herdr clipboard compatibility boundary
 
-**Intent:** Herdr owns terminal context menus while the browser exposes only bounded clipboard writes under existing user permission.
+**Intent:** The browser exposes only bounded Herdr clipboard writes under existing user permission.
 
 **Applies To:** User
 
@@ -789,21 +789,73 @@ None.
 3. The parser rejects decoded content above the fixed byte limit. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (rejects decoded content above the fixed byte limit) -->
 4. Herdr sessions register accepted clipboard writes only when the existing browser clipboard setting permits access. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send a valid clipboard write with access enabled and disabled and confirm only the enabled Herdr case updates the clipboard. -->
 5. Classic sessions do not install the Herdr clipboard-write handler. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send the same clipboard control sequence to classic and confirm no browser clipboard write occurs. -->
-6. Herdr owns ordinary right-click, with its configured passthrough gesture preserved. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: image/herdr/config.toml::right_click_passthrough_modifier --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (leaves contextmenu ownership to Herdr) -->
-7. Classic retains Codeflare right-click paste. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (should read clipboard on right-click when clipboardAccess is enabled) -->
-8. Herdr hardware mouse and synthesized touch clicks, drags, and wheels are encoded as SGR terminal input at the addressed terminal cell. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (Herdr SGR mouse input) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (leaves contextmenu ownership to Herdr) -->
 
 **Constraints:**
 
 - OSC 52 accepts only the standard `c` selector, valid base64, valid UTF-8 text, and at most 64 KiB decoded content.
 - Clipboard read queries and clipboard content are never logged.
-- No second clipboard service is installed; the Codeflare right-click handler exists only for classic sessions.
+- No second clipboard service is installed.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-019](#req-term-019-terminal-websocket-control-frames-and-protocol-guards)
+
+**Verification:** Automated parser tests plus manual browser permission verification.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-036: Browser pointer interaction with Herdr
+
+**Intent:** Browser-hosted Herdr controls remain usable with hardware mouse and touch while classic terminal input stays unchanged.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Herdr owns ordinary right-click, with its configured passthrough gesture preserved. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: image/herdr/config.toml::right_click_passthrough_modifier --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (leaves contextmenu ownership to Herdr) -->
+2. Classic retains Codeflare right-click paste. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (should read clipboard on right-click when clipboardAccess is enabled) -->
+3. Hardware mouse clicks, held-button movement, and wheels operate the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (Herdr SGR mouse input) -->
+4. Stationary touch taps operate the addressed Herdr control, and vertical touch swipes navigate Herdr application views. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (sends a stationary touch to the xterm screen only when enabled) --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes Herdr swipes as SGR wheel input without xterm mouse tracking) -->
+
+**Constraints:**
+
+- Herdr pointer events use terminal-cell SGR reports through the existing terminal transport without a second browser protocol.
+- The Herdr adapter does not alter classic mouse, wheel, selection, or paste behavior.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-TERM-019](#req-term-019-terminal-websocket-control-frames-and-protocol-guards), [REQ-MOB-017](mobile.md#req-mob-017-fullscreen-application-touch-scrolling)
 
-**Verification:** Automated parser tests plus manual browser permission and context-menu verification.
+**Verification:** Automated pointer encoding and mode-isolation tests plus manual browser interaction verification.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-037: Browser keyboard interaction with Herdr
+
+**Intent:** Browser-hosted Herdr receives its standard prefix without browser chrome consuming it.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In a Herdr session, `Ctrl+B` sends Herdr's canonical control prefix and suppresses the browser's conflicting bookmark action. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-037 AC1-AC2: sends the canonical Herdr prefix and leaves its action key to xterm) -->
+2. Herdr continues to own action interpretation after the prefix, including managed Help at `prefix+?` and Settings at `prefix+s`. <!-- @impl: image/herdr/config.toml::keys --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-037 AC1-AC2: sends the canonical Herdr prefix and leaves its action key to xterm) --> <!-- @test: .github/workflows/container-image.yml (Verify packaged Herdr runtime validates managed bindings with the pinned Herdr binary) -->
+3. Classic sessions and unrelated modified keys retain existing xterm keyboard handling. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-037 AC3: preserves classic and unrelated modified key handling) -->
+
+**Constraints:**
+
+- Codeflare forwards only the canonical prefix byte; it does not duplicate Herdr's action map or add a second keyboard protocol.
+- Browser-delivered keys are supported; operating-system-reserved combinations remain outside browser control.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-019](#req-term-019-terminal-websocket-control-frames-and-protocol-guards), [REQ-TERM-006](#req-term-006-herdr-owns-in-session-terminal-topology)
+
+**Verification:** Automated mode-isolation and packaged-config checks plus manual browser shortcut verification.
 
 **Status:** Implemented
 

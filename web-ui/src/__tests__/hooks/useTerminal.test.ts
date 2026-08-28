@@ -6,7 +6,7 @@ const mockFit = vi.fn();
 const mockTerminalOpen = vi.fn();
 const mockTerminalDispose = vi.fn();
 const mockLoadAddon = vi.fn();
-const mockAttachCustomKeyEventHandler = vi.fn();
+const mockAttachCustomKeyEventHandler = vi.fn<(handler: (event: KeyboardEvent) => boolean) => void>();
 const mockScrollToBottom = vi.fn();
 const mockRefresh = vi.fn();
 const mockFocus = vi.fn();
@@ -175,6 +175,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
 import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen, forceResetKeyboardState, disableVirtualKeyboardOverlay } from '../../lib/mobile';
+import { sendTerminalKey } from '../../lib/touch-gestures';
 import * as mobileModule from '../../lib/mobile';
 import { loadSettings } from '../../lib/settings';
 import { showAgentNotification, showGrantedAgentEvent } from '../../lib/agent-notifications';
@@ -763,6 +764,53 @@ describe('useTerminal hook', () => {
       );
 
       dispose();
+    });
+  });
+
+  describe('Herdr keyboard prefix', () => {
+    function mountAndGetKeyHandler(terminalMode?: 'classic' | 'herdr') {
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      const handler = mockAttachCustomKeyEventHandler.mock.calls[0]?.[0] as
+        | ((event: KeyboardEvent) => boolean)
+        | undefined;
+      expect(handler).toBeDefined();
+      return { dispose, handler: handler! };
+    }
+
+    it('REQ-TERM-037 AC1-AC2: sends the canonical Herdr prefix and leaves its action key to xterm', () => {
+      const { dispose, handler } = mountAndGetKeyHandler('herdr');
+
+      const prefixEvent = new KeyboardEvent('keydown', {
+        key: 'b',
+        ctrlKey: true,
+        cancelable: true,
+      });
+      expect(handler(prefixEvent)).toBe(false);
+      expect(prefixEvent.defaultPrevented).toBe(true);
+      expect(sendTerminalKey).toHaveBeenCalledWith(expect.anything(), '\x02');
+
+      vi.mocked(sendTerminalKey).mockClear();
+      expect(handler(new KeyboardEvent('keydown', { key: 's' }))).toBe(true);
+      expect(sendTerminalKey).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('REQ-TERM-037 AC3: preserves classic and unrelated modified key handling', () => {
+      const classic = mountAndGetKeyHandler('classic');
+      expect(classic.handler(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true }))).toBe(true);
+      expect(sendTerminalKey).not.toHaveBeenCalled();
+      classic.dispose();
+
+      vi.clearAllMocks();
+      const herdr = mountAndGetKeyHandler('herdr');
+      expect(herdr.handler(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, shiftKey: true }))).toBe(true);
+      expect(sendTerminalKey).not.toHaveBeenCalled();
+      herdr.dispose();
     });
   });
 
