@@ -4261,7 +4261,7 @@ None.
 4. A separately named helper runs in a newly created unfocused pane. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Start a helper in a new tab --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173: executes the documented Herdr orchestration flow) -->
 5. A settled helper receives a task under a bounded lifecycle wait. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Give a settled agent work --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173: executes the documented Herdr orchestration flow) -->
 6. Working-agent steering is not reported complete without independent task evidence. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Steer a working agent --> <!-- @manual: In Herdr, steer a working helper and confirm Pi does not report completion until the helper provides task-specific evidence. -->
-7. Reading helper results leaves the current focus unchanged and keeps the helper pane open. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Read results --> <!-- @manual: In Herdr, read a helper's results and confirm the current focus and helper pane remain unchanged. -->
+7. Reading helper results leaves the current focus unchanged. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Read results --> <!-- @manual: In Herdr, read a helper's results and confirm the current focus remains unchanged. -->
 
 **Constraints:**
 
