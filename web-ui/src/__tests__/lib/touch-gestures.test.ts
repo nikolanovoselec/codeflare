@@ -26,6 +26,7 @@ function createMockTerminal(options: {
     element,
     buffer: { active: { type: options.bufferType ?? 'normal' } },
     modes: { mouseTrackingMode: options.mouseTrackingMode ?? 'none' },
+    cols: 80,
     rows: 24,
     scrollLines,
     refresh,

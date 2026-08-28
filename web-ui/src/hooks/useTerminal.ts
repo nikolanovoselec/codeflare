@@ -503,7 +503,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (document.fonts) {
       const currentFont = t.options.fontFamily;
       document.fonts.ready.then(() => {
-        if (isMounted() && term?.element && currentFont) {
+        if (isMounted() && containerEl!.clientHeight > 0 && term?.element && currentFont) {
           const wasBottom = isAtBottom(term);
           term.options.fontFamily = currentFont;
           fitAddon?.fit();
