@@ -483,12 +483,12 @@ server.listen(PORT, '0.0.0.0', async () => {
         deleteSession: () => {
           sessionManager.delete(state.prewarmSessionId);
         },
+        terminateHost: () => {
+          log('error', 'Expired Herdr pre-warm never completed bootstrap; terminating terminal server');
+          process.exit(1);
+        },
       });
-      if (outcome === 'bootstrap_failed') {
-        log('error', 'Expired Herdr pre-warm never completed bootstrap; terminating terminal server');
-        process.exit(1);
-      }
-      prewarmReady = true;
+      prewarmReady = outcome === 'ready';
     }
   }, PREWARM_ORPHAN_MS);
 });
