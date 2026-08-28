@@ -825,10 +825,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. Managed-seed reconciliation writes and read-verifies protected policy after managed content. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC1: writes and read-verifies canonical protected policy after managed content) -->
 2. Exclusive cleanup prevalidates the 10,000-object and 1-GiB object-size bounds, including exact root objects. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC2: exclusive cleanup bounds fail before every mutation) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC2: exclusive cleanup rejects summed object size above 1 GiB with zero mutations) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC2: exact root object size contributes to the exclusive cleanup bound) -->
-3. Exclusive cleanup uses bounded delete batches, confirms each batch is error-free, and does not touch managed or similarly prefixed objects. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC3: exclusive cleanup preserves managed and similarly prefixed objects in one bounded delete batch) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC3: partial exclusive batch failures prevent policy identity from being committed) -->
-4. Malformed or over-bound exclusive listing or root metadata fails before every cleanup mutation. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC4: invalid exact root size %s causes zero mutations) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC4: malformed exclusive listings cause zero mutations) -->
-5. Mutable transition removes stale R2 policy. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC5: mutable transition removes stale canonical policy) -->
-6. Applied release, mode, and policy identity are stamped only after successful reconciliation. <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-029 AC6: transports configured policy and stamps verified identity last) -->
+3. Exclusive cleanup uses bounded delete batches without touching managed or similarly prefixed objects. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC3: exclusive cleanup preserves managed and similarly prefixed objects in one bounded delete batch) -->
+4. Exclusive reconciliation writes canonical policy only after every delete response confirms error-free completion. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC4: partial exclusive batch failures prevent policy identity from being committed) -->
+5. Malformed or over-bound exclusive listing or root metadata fails before every cleanup mutation. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC5: invalid exact root size %s causes zero mutations) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC5: malformed exclusive listings cause zero mutations) -->
+6. Mutable transition removes stale R2 policy. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC6: mutable transition removes stale canonical policy) -->
+7. Applied release, mode, and policy identity are stamped only after successful reconciliation. <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-029 AC7: transports configured policy and stamps verified identity last) -->
 
 **Constraints:** Reconciliation reuses the managed-seed path; no queue, database, or separate reconciler is introduced.
 
@@ -836,7 +837,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-STOR-028](#req-stor-028-canonical-managed-resource-persistence-policy), [REQ-STOR-030](#req-stor-030-managed-resource-policy-loading), [REQ-STOR-032](#req-stor-032-exclusive-managed-resource-boundaries)
 
-**Verification:** Automated reconciliation-order, cleanup-bound, mutable-transition, and stamping tests
+**Verification:** Automated reconciliation-order, cleanup-bound, delete-response, mutable-transition, and stamping tests
 
 **Status:** Implemented
 

@@ -338,7 +338,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2.mock.calls.some(([, init]) => ['PUT', 'DELETE', 'POST'].includes(String(init?.method)))).toBe(false);
   });
 
-  it.each([null, 'invalid', '-1', '9007199254740992'])('REQ-STOR-029 AC4: invalid exact root size %s causes zero mutations', async (contentLength) => {
+  it.each([null, 'invalid', '-1', '9007199254740992'])('REQ-STOR-029 AC5: invalid exact root size %s causes zero mutations', async (contentLength) => {
     const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
     fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === 'HEAD'
       ? new Response(null, { status: 200, headers: contentLength === null ? {} : { 'content-length': contentLength } })
@@ -385,7 +385,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(String(deleteBatches[0][1].body)).not.toContain('.claude/skills-other/personal.md');
   });
 
-  it('REQ-STOR-029 AC3: partial exclusive batch failures prevent policy identity from being committed', async () => {
+  it('REQ-STOR-029 AC4: partial exclusive batch failures prevent policy identity from being committed', async () => {
     const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') return new Response('', { status: 404 });
@@ -404,7 +404,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2.mock.calls.some(([url, init]) => url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT')).toBe(false);
   });
 
-  it('REQ-STOR-029 AC4: malformed exclusive listings cause zero mutations', async () => {
+  it('REQ-STOR-029 AC5: malformed exclusive listings cause zero mutations', async () => {
     const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
     fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === 'HEAD'
       ? new Response('', { status: 404 })
@@ -430,7 +430,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2).not.toHaveBeenCalled();
   });
 
-  it('REQ-STOR-029 AC5: mutable transition removes stale canonical policy', async () => {
+  it('REQ-STOR-029 AC6: mutable transition removes stale canonical policy', async () => {
     await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
       overwrite: true,
       cleanup: true,
