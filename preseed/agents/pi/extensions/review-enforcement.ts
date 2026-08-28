@@ -32,6 +32,7 @@ import {
   reviewTranscriptFacts,
   type ReviewBoundaryEvent,
   type ReviewLane,
+  type ReviewLaunchIssue,
 } from "./review-helpers";
 import { scopeContract } from "./review-scope";
 
@@ -489,6 +490,31 @@ function sendTriageCorrectionFollowUp(
   }, { deliverAs: "followUp", triggerTurn: true });
 }
 
+function sendLaunchRejectionFollowUp(
+  pi: ReviewPi,
+  round: ActiveRound,
+  issue: ReviewLaunchIssue,
+): void {
+  pi.sendMessage({
+    customType: "pr-boundary-launch-rejection",
+    content: [
+      "## PR boundary — rejected launch", "",
+      `The \`${issue.target}\` launch was not credited for head \`${round.identity.head}\`:`, "",
+      ...issue.problems.map((problem) => `- ${problem}`), "",
+      "Correct and relaunch only this rejected target. Review and CI completion remain pending.",
+    ].join("\n"),
+    display: true,
+    details: {
+      head: round.identity.head,
+      reviewRange: round.range,
+      boundaryToolUseId: round.boundaryToolUseId,
+      launchToolUseId: issue.toolUseId,
+      target: issue.target,
+      problems: issue.problems,
+    },
+  }, { deliverAs: "followUp", triggerTurn: true });
+}
+
 async function sendFixFollowUp(
   pi: ReviewPi,
   ctx: ReviewContext,
@@ -522,6 +548,7 @@ type ActiveRound = {
   ciEvent?: ReviewBoundaryEvent;
   ignoreAgentEnds: number;
   triageCorrectionDelivered: boolean;
+  launchRejectionsDelivered: Set<string>;
 };
 
 function liveEntries(ctx: ReviewContext): Record<string, any>[] | undefined {
@@ -637,6 +664,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       ciEvent,
       ignoreAgentEnds: 1,
       triageCorrectionDelivered: false,
+      launchRejectionsDelivered: new Set(),
     };
     sendLaunchMessage(pi, {
       repo: round.repo,
@@ -728,6 +756,15 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       return;
     }
     const facts = roundFacts(ctx, round);
+    const unresolvedLaunchIssues = facts.launchIssues.filter((issue) => issue.target === "ci-monitor"
+      ? !facts.ciLaunched
+      : facts.lanes[issue.target].state === "missing");
+    for (const issue of unresolvedLaunchIssues) {
+      if (round.launchRejectionsDelivered.has(issue.toolUseId)) continue;
+      round.launchRejectionsDelivered.add(issue.toolUseId);
+      sendLaunchRejectionFollowUp(pi, round, issue);
+    }
+    if (unresolvedLaunchIssues.length > 0) return;
     const laneStates = round.reviewers.map((lane) => facts.lanes[lane].state);
     if (laneStates.includes("in-flight")) return;
     if (laneStates.includes("missing") || (facts.ciRequired && !facts.ciLaunched)) {

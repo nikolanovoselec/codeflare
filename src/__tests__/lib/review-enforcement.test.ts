@@ -721,6 +721,46 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(app.sent.some((message) => message.customType === 'pr-boundary-fix-follow-up')).toBe(true);
   });
 
+  it('reports malformed reviewer and CI launches once, then accepts corrected launches', async () => {
+    const input = fixture();
+    const app = await harness(input, []);
+    await app.emit('tool_result', boundary('git push origin feature', 'push-rejected-launches'));
+    await app.emit('agent_end');
+    const lane = (app.sent[0]!.details?.requiredLanes as ReviewLane[])[0]!;
+
+    append(input.sessionFile,
+      toolCall('bad-review', 'subagent', {
+        subagent_type: lane,
+        run_in_background: true,
+        prompt: reviewerPrompt(input.head, lane),
+      }),
+      toolResult('bad-review', 'subagent'),
+      toolCall('bad-ci', 'subagent', {
+        subagent_type: 'ci-monitor',
+        run_in_background: true,
+        inherit_context: false,
+        prompt: JSON.stringify({ repo: 'owner/repo', pr: 42, head: '0'.repeat(40), cwd: input.repo }),
+      }),
+      toolResult('bad-ci', 'subagent'),
+    );
+
+    await app.emit('agent_settled');
+    expect(app.sent.map((message) => message.customType)).toEqual([
+      'pr-boundary-launch-plan',
+      'pr-boundary-launch-rejection',
+      'pr-boundary-launch-rejection',
+    ]);
+    expect(app.sent[1]?.content).toContain('inherit_context must be false');
+    expect(app.sent[2]?.content).toContain(`prompt head must equal ${input.head}`);
+
+    await app.emit('agent_settled');
+    expect(app.sent).toHaveLength(3);
+
+    appendSuccessfulRound(input, app.sent[0]!.details?.requiredLanes as ReviewLane[], 'corrected');
+    await app.emit('agent_settled');
+    expect(app.sent.at(-1)?.customType).toBe('pr-boundary-fix-follow-up');
+  });
+
   it('requests one canonical triage correction when a terminal CI failure row is malformed', async () => {
     const input = fixture();
     const app = await harness(input, []);

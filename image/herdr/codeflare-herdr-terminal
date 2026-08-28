@@ -108,7 +108,7 @@ wait_for_process() {
 }
 
 supports_pi_live_readiness() {
-    "$HERDR_BIN" --version 2>/dev/null | grep -Fxq 'herdr 0.8.2'
+    timeout 1 "$HERDR_BIN" --version 2>/dev/null | grep -Fxq 'herdr 0.8.2'
 }
 
 wait_for_live_pi() {

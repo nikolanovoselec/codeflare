@@ -297,6 +297,87 @@ fi
     assert.equal(calls.filter((call) => call.startsWith('pane run ')).length, 1);
   });
 
+  it('uses regular fresh Pi startup when the native readiness probe hangs', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-fresh-pi-probe-timeout-'));
+    const bin = join(dir, 'bin');
+    const runtime = join(dir, 'runtime');
+    const persistent = join(dir, '.codeflare');
+    const log = join(dir, 'herdr.log');
+    mkdirSync(bin, { recursive: true });
+    const fake = join(bin, 'herdr');
+    writeFileSync(fake, `#!/usr/bin/env bash
+set -eu
+printf '%s\n' "$*" >> "$HERDR_TEST_LOG"
+if [ "$*" = "--version" ]; then
+  exec sleep 60
+elif [ "$*" = "api snapshot" ]; then
+  printf '%s\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
+elif [ "$1 $2" = "agent get" ]; then
+  printf '%s\n' '{"result":{"agent":{"agent":"pi"}}}'
+fi
+`, { mode: 0o755 });
+
+    const result = spawnSync(launcher, ['bootstrap'], {
+      encoding: 'utf8',
+      timeout: 5_000,
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        HERDR_BIN: fake,
+        HERDR_TEST_LOG: log,
+        CODEFLARE_RUNTIME_ROOT: runtime,
+        CODEFLARE_HERDR_PERSIST_ROOT: persistent,
+        SESSION_ID: 'abc12345',
+        TAB_CONFIG: JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]),
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(join(runtime, 'herdr/abc12345/bootstrap.done')), true);
+  });
+
+  it('uses regular fresh Pi startup when pinned live readiness fails', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-fresh-pi-live-fallback-'));
+    const bin = join(dir, 'bin');
+    const runtime = join(dir, 'runtime');
+    const persistent = join(dir, '.codeflare');
+    const log = join(dir, 'herdr.log');
+    mkdirSync(bin, { recursive: true });
+    const fake = join(bin, 'herdr');
+    writeFileSync(fake, `#!/usr/bin/env bash
+set -eu
+printf '%s\n' "$*" >> "$HERDR_TEST_LOG"
+if [ "$*" = "--version" ]; then
+  printf '%s\n' 'herdr 0.8.2'
+elif [ "$*" = "api snapshot" ]; then
+  printf '%s\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
+elif [ "$1 $2" = "agent get" ]; then
+  printf '%s\n' '{"result":{"agent":{"agent":"pi"}}}'
+elif [ "$*" = "agent list" ]; then
+  printf '%s\n' '{"result":{"agents":[{"agent":"pi"}]}}'
+fi
+`, { mode: 0o755 });
+
+    const result = spawnSync(launcher, ['bootstrap'], {
+      encoding: 'utf8',
+      timeout: 15_000,
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        HERDR_BIN: fake,
+        HERDR_TEST_LOG: log,
+        CODEFLARE_RUNTIME_ROOT: runtime,
+        CODEFLARE_HERDR_PERSIST_ROOT: persistent,
+        SESSION_ID: 'abc12345',
+        TAB_CONFIG: JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]),
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /Pi live readiness unavailable; continuing after process detection/);
+    assert.equal(existsSync(join(runtime, 'herdr/abc12345/bootstrap.done')), true);
+  });
+
   it('falls back to persisted agent metadata when Pi lifecycle readiness is unavailable', () => {
     const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-restore-'));
     const bin = join(dir, 'bin');

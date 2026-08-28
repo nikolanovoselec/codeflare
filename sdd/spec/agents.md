@@ -786,7 +786,6 @@ Multi-agent support, preseed system, and session modes.
 5. Outside timeout fallback, readiness follows a fixed 1.5-second settlement after mode-specific readiness conditions are met. <!-- @impl: host/src/server.ts::PREWARM_SETTLE_MS --> <!-- @impl: host/src/server.ts::server.listen --> <!-- @manual: In integration, confirm normal-path readiness waits for fixed settlement in both modes. -->
 6. At the 20-second timeout, Herdr becomes ready only after bootstrap completes, even if first output or settlement is incomplete. <!-- @impl: host/src/server.ts::server.listen --> <!-- @test: host/__tests__/terminal-mode.test.js (REQ-AGENT-003 AC6 / REQ-TERM-035 AC2: Herdr timeout readiness requires bootstrap) -->
 7. At the 20-second timeout, classic becomes ready even without first output or settlement. <!-- @impl: host/src/server.ts::server.listen --> <!-- @test: host/__tests__/terminal-mode.test.js (REQ-AGENT-003 AC7: classic timeout readiness is unconditional) -->
-8. On a fresh Herdr Pi start, the pinned native lifecycle signal delays bootstrap completion until Pi finishes initialization; unsupported Herdr versions or a bounded signal failure retain regular process-detection startup. <!-- @impl: image/herdr/codeflare-herdr-terminal::run_agent --> <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_live_pi --> <!-- @test: host/__tests__/herdr-launcher.test.js (waits for live Pi integration on a fresh start) --> <!-- @test: host/__tests__/herdr-launcher.test.js (uses regular fresh Pi startup when native readiness version changes) -->
 
 **Constraints:**
 
@@ -4303,6 +4302,29 @@ None.
 **Dependencies:** [REQ-AGENT-173](#req-agent-173-pi-can-orchestrate-coding-agents-through-herdr), [REQ-TERM-006](terminal.md#req-term-006-herdr-owns-in-session-terminal-topology)
 
 **Verification:** Executable skill contract tests and manual safety checks
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-176: Malformed review launches receive actionable feedback
+
+**Intent:** A malformed required reviewer or CI launch remains uncredited while telling the root exactly how to correct it.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. After a malformed required reviewer or CI subagent call returns successfully, Pi emits one visible rejection naming every mismatched launch-contract field and retains the active round without granting completion credit. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchRejectionFollowUp --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) -->
+2. Repeated settlement does not repeat feedback for the same rejected call, and a corrected launch can complete the same round. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::settleRound --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) -->
+
+**Constraints:** Malformed launches never earn reviewer or CI completion credit.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
+
+**Verification:** Automated Pi review-enforcement tests
 
 **Status:** Implemented
 
