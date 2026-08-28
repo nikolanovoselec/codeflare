@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
+import { mdiConsoleLine } from '@mdi/js';
 import SessionSection from '../../../components/settings/SessionSection';
 
 // isTouchDevice gates the desktop-only clipboard row; pin it to desktop so the
@@ -80,6 +81,16 @@ describe('terminal experience preference', () => {
   it('reflects an enabled preference', () => {
     renderSection({ herdrEnabled: true });
     expect(screen.getByTestId('settings-herdr-toggle')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('explains Herdr and marks the terminal experience as beta', () => {
+    renderSection();
+
+    expect(screen.getByTestId('settings-herdr-icon').querySelector('path')).toHaveAttribute('d', mdiConsoleLine);
+    expect(screen.getByTestId('settings-herdr-beta')).toHaveTextContent('beta');
+    expect(screen.getByTestId('settings-herdr-hint')).toHaveTextContent(
+      'Use Herdr for terminal workspaces, splits, panes, and built-in agent status. Leave off to use Codeflare’s standard terminal tabs and tiling. Applies to new sessions.',
+    );
   });
 });
 

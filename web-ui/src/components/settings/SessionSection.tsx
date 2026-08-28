@@ -2,6 +2,7 @@ import { Component, Accessor, Show } from 'solid-js';
 import {
   mdiFastForward,
   mdiBellOutline,
+  mdiConsoleLine,
   mdiCloudSyncOutline,
   mdiContentPaste,
   mdiFileDocumentRefreshOutline,
@@ -157,12 +158,16 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
 
       <section class="settings-section">
         <div class="settings-section-header">
-          <h3 class="settings-section-title type-section-header">Terminal experience</h3>
+          <Icon path={mdiConsoleLine} size={16} aria-hidden="true" data-testid="settings-herdr-icon" />
+          <h3 class="settings-section-title type-section-header">Terminal Experience</h3>
         </div>
         <div class="setting-row setting-row--clickable" onClick={(event) => {
           if (!(event.target as HTMLElement).closest('.toggle')) props.onHerdrToggle();
         }}>
-          <label class="type-label" for="settings-herdr">Use Herdr terminal</label>
+          <label class="type-label settings-label-with-badge" for="settings-herdr">
+            Use Herdr terminal
+            <span class="settings-beta-badge" data-testid="settings-herdr-beta">beta</span>
+          </label>
           <button
             type="button"
             id="settings-herdr"
@@ -177,7 +182,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
         </div>
         <div class="setting-row setting-row--column-gap">
           <span class="settings-hint type-hint" data-testid="settings-herdr-hint">
-            Applies to newly created sessions. Existing sessions keep their terminal mode.
+            Use Herdr for terminal workspaces, splits, panes, and built-in agent status. Leave off to use Codeflare’s standard terminal tabs and tiling. Applies to new sessions.
           </span>
         </div>
       </section>

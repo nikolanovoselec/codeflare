@@ -254,6 +254,24 @@
   margin: 0;
 }
 
+.settings-label-with-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings-beta-badge {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: var(--space-1) var(--space-2);
+  border-radius: 8px;
+  background: var(--color-accent-muted);
+  color: var(--color-accent);
+  line-height: 1.3;
+}
+
 /* Setting Row */
 .setting-row {
   display: flex;
