@@ -229,8 +229,10 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # the overlay pins 4.3.1 under an independent integrity hash as defence in
 # depth. The immutable Node and code-server artifacts also carry node-tar
 # versions affected by CVE-2026-73566, so one integrity-pinned 7.5.21 artifact
-# replaces both runtime copies. Drop each overlay after its upstream artifact
-# contains at least the pinned fixed version.
+# replaces both runtime copies. The Node image's bundled npm also carries pacote
+# 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
+# that runtime copy. Drop each overlay after its upstream artifact contains at
+# least the pinned fixed version.
 RUN CODE_SERVER_VERSION="4.133.0" && \
     CODE_SERVER_SHA256="a4e0f8f8c76e7de8e7424289f74e507af4c97bfe104c3e8ee272b8cc7b46c6f1" && \
     CODE_SERVER_COMMIT="d2f7a122522456b351e9b3ddd39e4f3fb9fd5318" && \
@@ -240,6 +242,8 @@ RUN CODE_SERVER_VERSION="4.133.0" && \
     JS_YAML_SHA512="098e9cac6ab7d77317f06930bc1eedce0a7df6f8d0c58d7efb9cb5d3f04a37f1947c7a9668e19030d66406fa92cec64a5a4fe28f01e55b3ce42ee96c18786359" && \
     NODE_TAR_VERSION="7.5.21" && \
     NODE_TAR_SHA512="5dd86d0af94ccb0c31a425bc604ab794e5c126950f4d1d8e1c77302cf3b71f0b09a8e1dad8e93fa09eebb86ce9f89acaa113d50b327001d123a8b5bfbcd44f1c" && \
+    PACOTE_VERSION="21.5.1" && \
+    PACOTE_SHA512="2af709f62cb772bcac0ac82a738f8f9271ffc3a8e4ae9f09377ea6a5904fc0d6834704df3190f7ed8cd16b336cb626543a1b85e699e8f5fefc9fd9842416afc2" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 \
       "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server-${CODE_SERVER_VERSION}-linux-amd64.tar.gz" \
       -o /tmp/code-server.tar.gz && \
@@ -252,6 +256,10 @@ RUN CODE_SERVER_VERSION="4.133.0" && \
       "https://registry.npmjs.org/tar/-/tar-${NODE_TAR_VERSION}.tgz" \
       -o /tmp/node-tar.tgz && \
     echo "${NODE_TAR_SHA512}  /tmp/node-tar.tgz" | sha512sum -c - && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
+      "https://registry.npmjs.org/pacote/-/pacote-${PACOTE_VERSION}.tgz" \
+      -o /tmp/pacote.tgz && \
+    echo "${PACOTE_SHA512}  /tmp/pacote.tgz" | sha512sum -c - && \
     mkdir -p /opt/code-server && \
     tar -xzf /tmp/code-server.tar.gz -C /opt/code-server --strip-components=1 && \
     rm -rf /opt/code-server/node_modules/js-yaml && \
@@ -266,6 +274,10 @@ RUN CODE_SERVER_VERSION="4.133.0" && \
       tar -xzf /tmp/node-tar.tgz -C "$NODE_TAR_DIR" --strip-components=1 && \
       test "$(jq -r .version "$NODE_TAR_DIR/package.json")" = "$NODE_TAR_VERSION"; \
     done && \
+    rm -rf /usr/local/lib/node_modules/npm/node_modules/pacote && \
+    mkdir -p /usr/local/lib/node_modules/npm/node_modules/pacote && \
+    tar -xzf /tmp/pacote.tgz -C /usr/local/lib/node_modules/npm/node_modules/pacote --strip-components=1 && \
+    test "$(jq -r .version /usr/local/lib/node_modules/npm/node_modules/pacote/package.json)" = "$PACOTE_VERSION" && \
     npm --version >/dev/null && \
     ln -sf /opt/code-server/bin/code-server /usr/local/bin/code-server && \
     test -x /opt/code-server/bin/code-server && \
@@ -287,7 +299,7 @@ RUN CODE_SERVER_VERSION="4.133.0" && \
     /usr/local/bin/code-server --version && \
     test ! -e /usr/local/bin/openvscode-server && \
     test ! -e /opt/openvscode-server && \
-    rm -f /tmp/code-server.tar.gz /tmp/js-yaml.tgz /tmp/node-tar.tgz
+    rm -f /tmp/code-server.tar.gz /tmp/js-yaml.tgz /tmp/node-tar.tgz /tmp/pacote.tgz
 
 # Install the selected shared coding-agent launchers. IS_SANDBOX=1 allows
 # permissions bypass inside the container. .cache-bust invalidates this layer on

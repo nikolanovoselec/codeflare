@@ -167,6 +167,18 @@ export async function verifyNodeTarRuntimes({
   return runtimePaths;
 }
 
+export async function verifyPacoteRuntime({
+  runtimePath = '/usr/local/lib/node_modules/npm/node_modules/pacote',
+  expectedVersion = '21.5.1',
+} = {}) {
+  const manifest = JSON.parse(await readFile(join(runtimePath, 'package.json'), 'utf8'));
+  assert.equal(manifest.version, expectedVersion, `${runtimePath} must contain pacote ${expectedVersion}`);
+  const require = createRequire(import.meta.url);
+  const pacote = require(runtimePath);
+  assert.equal(typeof pacote.manifest, 'function', `${runtimePath} must load pacote manifest()`);
+  return runtimePath;
+}
+
 export async function verifyUnsupportedInventory(inventory) {
   const entries = await readdir(inventory, { withFileTypes: true });
   assert.deepEqual(
@@ -199,6 +211,7 @@ async function waitForUnsupportedInventoryInitialization(inventory) {
 async function main() {
   const codeServerRuntime = await verifyCodeServerRuntime();
   const nodeTarRuntimes = await verifyNodeTarRuntimes();
+  const pacoteRuntime = await verifyPacoteRuntime();
   const oxlintVersion = verifyOxlintRuntime();
   const welcomeRoot = join(CODE_SERVER_ROOT, 'lib', 'vscode', 'extensions', WELCOME_EXTENSION_NAME);
   const welcomeManifest = JSON.parse(await readFile(join(welcomeRoot, 'package.json'), 'utf8'));
@@ -282,6 +295,7 @@ async function main() {
     userExtensionPersistence,
     codeServerRuntime,
     nodeTarRuntimes,
+    pacoteRuntime,
     oxlintVersion,
     agentPackages,
     agentVersions,
