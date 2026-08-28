@@ -69,13 +69,11 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. Pi's required package set includes one exact-pinned, integrity-locked `@narumitw/pi-goal` package. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Goal package preseed) -->
-2. Image construction makes Goal's declared Pi entrypoint resolve to the reviewed transformed source and warms that same installed path, so a new session uses the control/cadence patch and its path-correct transpile cache. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: Dockerfile::goal_source --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6/AC7: declared pinned Goal entrypoint carries review control and workflow ownership) --> <!-- @manual: Start a new Pi session from the complete image and confirm Goal's installed extension loads from the baked jiti cache. -->
+2. Image construction makes Goal's declared Pi entrypoint resolve to the reviewed transformed source and warms that same installed path, so a new session uses the control/cadence patch and its path-correct transpile cache. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: Dockerfile::goal_source --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) --> <!-- @manual: Start a new Pi session from the complete image and confirm Goal's installed extension loads from the baked jiti cache. -->
 3. The image build fails if Goal's path-correct transpile-cache artifact is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification) --> <!-- @manual: Run the deployment image build; in a controlled build omit or replace Goal's expected cache file and confirm the jiti warm-cache layer exits non-zero before image publication. -->
 4. Startup supplies `toolVisibility: "after-first-goal"` only when the Goal visibility preference is missing. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent) -->
 5. Capability initialization keeps both terminal Goal tools for an unfinished Goal or Goal's already-active `always` policy; absent, cleared, completed, malformed, or lazy fresh state does not independently widen the set. <!-- @impl: preseed/agents/pi/extensions/capability.ts::hasUnfinishedGoal --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: restores terminal Goal tools only for an unfinished session Goal) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: preserves Goal tools already active under the always-visible policy) -->
-6. Goal and Plan Mode each refuse activation while the other owns the same Pi session. <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-goal --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-plan-mode --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6/AC7: declared pinned Goal entrypoint carries review control and workflow ownership) -->
-7. Ending either workflow releases its session ownership so the other can activate. <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-goal --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-plan-mode --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6/AC7: declared pinned Goal entrypoint carries review control and workflow ownership) -->
-8. Goal start, resume, system, waiting-resume, and automatic-continuation prompts share compact completion rules, retain the exact objective and stale-turn completion guard, and do not coach terminal wait or blocked tools. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalPromptsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111: emits compact Goal prompts without blocked or wait tool coaching) -->
+6. Goal start, resume, system, waiting-resume, and automatic-continuation prompts share compact completion rules, retain the exact objective and stale-turn completion guard, and do not coach terminal wait or blocked tools. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalPromptsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111: emits compact Goal prompts without blocked or wait tool coaching) -->
 
 **Constraints:**
 
@@ -86,6 +84,29 @@ Multi-agent support, preseed system, and session modes.
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
 **Verification:** Entrypoint runtime behavior test; capability-filtering tests; deployment image verification
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-178: Goal and Plan session ownership
+
+**Intent:** Pi keeps Goal and Plan Mode mutually exclusive while allowing either workflow to start after the other ends.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Goal and Plan Mode each refuse activation while the other owns the same Pi session. <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-goal --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-plan-mode --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
+2. Ending either workflow releases its session ownership so the other can activate. <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-goal --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-plan-mode --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
+
+**Constraints:** Goal remains an exact-pinned upstream dependency and must pass normal package review, lock regeneration, and deployment-image verification.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions)
+
+**Verification:** Goal control and deployment-image tests
 
 **Status:** Implemented
 
