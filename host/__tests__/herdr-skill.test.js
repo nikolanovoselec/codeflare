@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -49,6 +49,7 @@ describe('Pi Herdr orchestration skill', () => {
     const outside = run(bashBlock('Gate'), outsideEnv, dir);
     assert.notEqual(outside.status, 0);
     assert.match(outside.stdout, /not running inside Herdr/);
+    assert.equal(existsSync(log), false);
 
     const env = {
       ...process.env,
@@ -57,9 +58,9 @@ describe('Pi Herdr orchestration skill', () => {
       HERDR_SOCKET_PATH: join(dir, 'herdr.sock'),
       HERDR_BIN_PATH: herdr,
       HERDR_TEST_LOG: log,
-      HERDR: herdr,
       PWD: dir,
     };
+    delete env.HERDR;
     assert.equal(run(bashBlock('Gate'), env, dir).status, 0);
     assert.equal(run(bashBlock('Start a helper in a new tab'), env, dir).status, 0);
     assert.equal(run(bashBlock('Give a settled agent work'), env, dir).status, 0);
@@ -78,5 +79,6 @@ describe('Pi Herdr orchestration skill', () => {
       'agent prompt helper Adjust the current work using this new constraint',
       'agent read helper --source recent-unwrapped --lines 200',
     ]);
+    assert.doesNotMatch(calls[5], /--wait/);
   });
 });

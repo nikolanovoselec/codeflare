@@ -27,6 +27,7 @@ If this fails, continue as a normal Codeflare terminal agent. Do not start a Her
 A new tab supplies an available shell pane. Capture IDs from JSON:
 
 ```bash
+HERDR="${HERDR_BIN_PATH:-herdr}"
 created=$("$HERDR" tab create --cwd "$PWD" --label helper --no-focus)
 pane=$(printf '%s\n' "$created" | jq -r '.result.root_pane.pane_id')
 "$HERDR" agent start helper --kind pi --pane "$pane" --timeout 60000
@@ -39,6 +40,7 @@ Choose a unique lowercase agent name after checking `"$HERDR" agent list`. Use `
 Wait until the helper can accept a new task, then submit and wait:
 
 ```bash
+HERDR="${HERDR_BIN_PATH:-herdr}"
 "$HERDR" agent wait helper --until idle --until done --timeout 120000
 "$HERDR" agent prompt helper "Implement the focused task and report changed paths" \
   --wait --until idle --until done --until blocked --timeout 120000
@@ -49,14 +51,16 @@ A blocked agent rejects prompts. Read its UI, then use `agent send-keys` for a d
 ## Steer a working agent
 
 ```bash
+HERDR="${HERDR_BIN_PATH:-herdr}"
 "$HERDR" agent prompt helper "Adjust the current work using this new constraint"
 ```
 
-This is asynchronous. Herdr v0.8.2 does not bind a wait to an individual steer submitted while the agent is working. Do not treat an immediate settled state or read as proof that the steer finished; require a task-specific completion artifact from the helper when completion matters.
+This is asynchronous. Herdr v0.8.2 does not bind a wait to an individual steer submitted while the agent is working. Do not treat an immediate settled state or read as proof that the steer finished; require task-specific evidence from the helper when completion matters.
 
 ## Read results
 
 ```bash
+HERDR="${HERDR_BIN_PATH:-herdr}"
 "$HERDR" agent read helper --source recent-unwrapped --lines 200
 ```
 

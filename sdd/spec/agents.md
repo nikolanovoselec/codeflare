@@ -4255,10 +4255,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. Default and advanced Pi projections include one on-demand Herdr skill. <!-- @impl: preseed/agents/pi/manifest.json::skills/herdr/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-173: projects the conditional Herdr orchestration skill) -->
-2. The always-loaded system instruction points to the skill only when Herdr orchestration is needed. <!-- @impl: preseed/agents/pi/SYSTEM.md::Herdr orchestration --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-173: projects the conditional Herdr orchestration skill) -->
-3. The skill checks for a live Herdr pane before acting and continues as a normal Codeflare terminal agent when that check fails. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Gate --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173: executes the documented Herdr orchestration flow) -->
-4. The skill shows Pi how to create an unfocused agent pane, capture returned IDs, start and task a named agent, steer without false completion, wait with bounds, and read results. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Start a helper in a new tab --> <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Give a settled agent work --> <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Steer a working agent --> <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Read results --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173: executes the documented Herdr orchestration flow) -->
+1. Default and advanced Pi projections include one on-demand Herdr skill. <!-- @impl: preseed/agents/pi/manifest.json::skills/herdr/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-173: projects the Herdr orchestration skill) -->
+2. Plain Codeflare work neither loads the skill nor starts Herdr, and a failed gate returns Pi to normal terminal work. <!-- @impl: preseed/agents/pi/SYSTEM.md::Herdr orchestration --> <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Gate --> <!-- @manual: In a plain Codeflare terminal, give Pi a non-Herdr task and confirm it neither loads the Herdr skill nor starts Herdr; then ask for Herdr orchestration and confirm the failed gate returns Pi to normal terminal work. -->
+3. Before issuing a Herdr command, the skill checks its environment and confirms that its pane is live. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Gate --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173: executes the documented Herdr orchestration flow) -->
+4. The skill creates an unfocused helper pane, captures its returned ID, and starts a separately named agent in that pane. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Start a helper in a new tab --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173: executes the documented Herdr orchestration flow) -->
+5. A new task waits for a settled helper and then waits for a bounded terminal lifecycle state. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Give a settled agent work --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173: executes the documented Herdr orchestration flow) -->
+6. A working-agent steer is asynchronous, omits `--wait`, and is not treated as complete without independent task evidence. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Steer a working agent --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173: executes the documented Herdr orchestration flow) --> <!-- @manual: In Herdr, steer a working helper and confirm Pi sends the prompt without `--wait` and does not report completion until the helper provides task-specific evidence. -->
+7. Pi can read helper results without focusing or closing the helper pane. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Read results --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173: executes the documented Herdr orchestration flow) --> <!-- @manual: In Herdr, read a helper's results and confirm the current focus and helper pane remain unchanged. -->
 
 **Constraints:**
 
@@ -4270,7 +4273,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-172](#req-agent-172-herdr-preserves-the-pi-extension-policy), [REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup)
 
-**Verification:** Generated-seed and executable skill contract tests
+**Verification:** Automated tests and manual check
 
 **Status:** Implemented
 

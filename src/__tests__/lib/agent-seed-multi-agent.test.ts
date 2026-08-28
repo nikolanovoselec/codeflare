@@ -375,13 +375,11 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(piRun!.content).toContain('Decision order');
   });
 
-  it('REQ-AGENT-173: projects the conditional Herdr orchestration skill', () => {
+  it('REQ-AGENT-173: projects the Herdr orchestration skill', () => {
     const herdrSkill = AGENTS_SEEDED_CONFIGS.find(
       (doc) => doc.key === '.pi/agent/skills/herdr/SKILL.md',
     );
     expect(herdrSkill?.modes).toEqual(['default', 'advanced']);
-    const piSystem = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/SYSTEM.md');
-    expect(piSystem?.content).toContain('Herdr orchestration: load [skill](skills/herdr/SKILL.md) only when needed.');
   });
 
   it('REQ-AGENT-021: Pi has skills, native runtime extensions, and subagent definitions', () => {
