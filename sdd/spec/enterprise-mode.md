@@ -880,7 +880,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Priority:** P0
 
-**Dependencies:** [REQ-STOR-028](storage.md#req-stor-028-canonical-managed-resource-persistence-policy)
+**Dependencies:** [REQ-STOR-028](storage.md#req-stor-028-canonical-managed-resource-persistence-policy), [REQ-STOR-032](storage.md#req-stor-032-exclusive-managed-resource-boundaries)
 
 **Verification:** Automated addressing, mutation-form, canonical-key, multi-delete, and adjacent-path tests
 

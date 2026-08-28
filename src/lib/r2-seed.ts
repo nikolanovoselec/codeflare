@@ -726,6 +726,7 @@ const MAX_EXCLUSIVE_LIST_BYTES = 1024 * 1024 * 1024;
 const MAX_EXCLUSIVE_OBJECT_BYTES = 1024 * 1024 * 1024;
 const MAX_EXCLUSIVE_LIST_PAGE_BYTES = 8 * 1024 * 1024;
 const MAX_EXCLUSIVE_LIST_PAGES = 10_001;
+const MAX_EXCLUSIVE_DELETE_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 function parseExclusiveListPage(xml: string, root: string): ReturnType<typeof parseListObjectsXml> {
   const listRoots = xml.match(/<ListBucketResult(?:\s[^>]*)?>/g) ?? [];
@@ -843,6 +844,18 @@ async function listExclusiveCleanupCandidates(
   return [...candidates].sort();
 }
 
+function verifyExclusiveDeleteResponse(xml: string): void {
+  const result = xml.match(/^\s*(?:<\?xml(?:\s+[A-Za-z_][\w:.-]*=(?:"[^"]*"|'[^']*'))*\s*\?>\s*)?<DeleteResult(?:\s+[A-Za-z_][\w:.-]*=(?:"[^"]*"|'[^']*'))*\s*(?:\/>|>([\s\S]*)<\/DeleteResult>)\s*$/);
+  if (!result) throw new Error('Exclusive managed-resource DeleteObjects response is malformed');
+  const body = result[1] ?? '';
+  if (/<Error(?:\s|\/?>)/.test(body)) {
+    throw new Error('Exclusive managed-resource DeleteObjects response reported per-object errors');
+  }
+  if (body.trim().length > 0) {
+    throw new Error('Exclusive managed-resource DeleteObjects response is malformed');
+  }
+}
+
 async function deleteExclusiveCleanupCandidates(
   env: SeedEnv,
   bucketName: string,
@@ -862,6 +875,18 @@ async function deleteExclusiveCleanupCandidates(
       body,
     });
     if (!response.ok) throw new Error(`DeleteObjects: HTTP ${response.status}`);
+    const bytes = await readBoundedResponse(
+      response,
+      MAX_EXCLUSIVE_DELETE_RESPONSE_BYTES,
+      'Exclusive managed-resource DeleteObjects response',
+    );
+    let xml: string;
+    try {
+      xml = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
+    } catch {
+      throw new Error('Exclusive managed-resource DeleteObjects response is not valid UTF-8');
+    }
+    verifyExclusiveDeleteResponse(xml);
   });
   return [...candidates];
 }

@@ -99,7 +99,7 @@ function findManagedHome(path: string): string | undefined {
   return MANAGED_HOMES.find(home => path.startsWith(home));
 }
 
-/** @impl REQ-STOR-028 AC4, AC6 */
+/** @impl REQ-STOR-032 AC1, AC3 */
 function deriveManagedResourceRoots(paths: Iterable<string>): string[] {
   const roots = new Set<string>();
   for (const path of paths) {
@@ -202,7 +202,7 @@ export async function readVerifiedManagedR2Policy(input: ReadVerifiedManagedR2Po
   return verified;
 }
 
-/** @impl REQ-STOR-028 AC5 */
+/** @impl REQ-STOR-032 AC2 */
 export function isManagedMutationProtected(policy: ManagedR2Policy, key: string): boolean {
   if (policy.paths.includes(key)) return true;
   return policy.resourceRoots.some(root => key === root.slice(0, -1) || key.startsWith(root));
