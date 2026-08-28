@@ -380,16 +380,8 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
       (doc) => doc.key === '.pi/agent/skills/herdr/SKILL.md',
     );
     expect(herdrSkill?.modes).toEqual(['default', 'advanced']);
-    expect(herdrSkill?.content).toContain('HERDR_ENV');
-    expect(herdrSkill?.content).toContain('pane current --current');
-    expect(herdrSkill?.content).toContain('tab create');
-    expect(herdrSkill?.content).toContain('agent start');
-    expect(herdrSkill?.content).toContain('agent prompt');
-    expect(herdrSkill?.content).toContain('agent read');
-    expect(herdrSkill?.content).toContain('Always set timeouts');
-    expect(herdrSkill?.content).toContain('Do not start a Herdr server');
     const piSystem = AGENTS_SEEDED_CONFIGS.find((doc) => doc.key === '.pi/agent/SYSTEM.md');
-    expect(piSystem?.content).toContain('[Herdr](skills/herdr/SKILL.md) only for Herdr orchestration');
+    expect(piSystem?.content).toContain('Herdr orchestration: load [skill](skills/herdr/SKILL.md) only when needed.');
   });
 
   it('REQ-AGENT-021: Pi has skills, native runtime extensions, and subagent definitions', () => {

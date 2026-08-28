@@ -34,21 +34,25 @@ pane=$(printf '%s\n' "$created" | jq -r '.result.root_pane.pane_id')
 
 Choose a unique lowercase agent name after checking `"$HERDR" agent list`. Use `pane split --current --direction right --no-focus` instead when a split is more useful. Never run the current Pi session file in two processes.
 
-## Task, steer, and wait
+## Give a settled agent work
+
+Wait until the helper can accept a new task, then submit and wait:
 
 ```bash
+"$HERDR" agent wait helper --until idle --until done --timeout 120000
 "$HERDR" agent prompt helper "Implement the focused task and report changed paths" \
   --wait --until idle --until done --until blocked --timeout 120000
 ```
 
-`agent prompt` can steer an agent that is already working. A blocked agent rejects prompts; inspect it, then send deliberate UI keys:
+A blocked agent rejects prompts. Read its UI, then use `agent send-keys` for a deliberate response. Always set timeouts because Herdr waits indefinitely when none is supplied. Treat `unknown` as unknown, never success.
+
+## Steer a working agent
 
 ```bash
-"$HERDR" agent read helper --source recent-unwrapped --lines 120
-"$HERDR" agent send-keys helper esc
+"$HERDR" agent prompt helper "Adjust the current work using this new constraint"
 ```
 
-Use `agent get`, `agent list`, or `agent wait` for state. Always set timeouts because Herdr waits indefinitely when none is supplied. Treat `unknown` as unknown, never success.
+This is asynchronous. Herdr v0.8.2 does not bind a wait to an individual steer submitted while the agent is working. Do not treat an immediate settled state or read as proof that the steer finished; require a task-specific completion artifact from the helper when completion matters.
 
 ## Read results
 
