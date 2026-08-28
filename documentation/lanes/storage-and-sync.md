@@ -87,7 +87,7 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 15 min
 1. One-way `rclone sync` from R2 to local (restore data) - blocking, container waits for completion (120s timeout)
 2. Managed configuration and tab autostart finish—including generated `.claude.json` and `.codex/version.json`—then `relay_managed_pi_extensions()` completes Pi extension ownership. <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
 
-    Baked mode restores image bytes and removes retired managed files; remote curation preserves release-owned bytes while restoring the image-owned context-mode runtime they import.
+    Baked mode restores image bytes and removes retired managed files; remote curation preserves release-owned bytes while restoring the image-owned context-mode runtime they import. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
 3. `rclone bisync --resync --ignore-checksum --max-delete 100 --check-sync=false --retries 3 --retries-sleep 10s` to establish baseline (non-blocking - runs in background), then start the 15-minute daemon (SIGUSR1-interruptible)
 
 The generated writes in step 2 settle before the baseline so they do not create immediate post-baseline hash/mtime mismatches.
