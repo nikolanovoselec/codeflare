@@ -36,6 +36,7 @@ type TranscriptFacts = {
   triagePresent: boolean;
   triageComplete: boolean;
   lanes: Record<ReviewLane, { state: 'missing' | 'in-flight' | 'terminal'; toolUseId?: string }>;
+  launchIssues: Array<{ toolUseId: string; target: ReviewLane | 'ci-monitor'; problems: string[] }>;
 };
 type PlannedReviewHelpers = {
   classifyReviewBoundaryCommand(command: string): BoundarySurfaces;
@@ -581,7 +582,7 @@ describe('native Pi transcript review facts', () => {
     expect(Object.values(facts.lanes).every((lane) => lane.state === 'missing')).toBe(true);
   });
 
-  it('REQ-AGENT-170/REQ-AGENT-176: leaves reviewer launches uncredited without an authoritative window', async () => {
+  it('REQ-AGENT-176/REQ-AGENT-177: leaves reviewer launches uncredited without an authoritative window', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
     const head = 'b'.repeat(40);
     const sessionFile = writeSession([
@@ -811,7 +812,7 @@ describe('native Pi transcript review facts', () => {
     expect(facts.lanes['spec-reviewer']).toEqual({ state: 'missing' });
   });
 
-  it('REQ-AGENT-170: counts full-PR reviewers only with exact scope, base, and output contract', async () => {
+  it('REQ-AGENT-177: counts full-PR reviewers only with exact scope, base, and output contract', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
     const head = 'b'.repeat(40);
     const common = [

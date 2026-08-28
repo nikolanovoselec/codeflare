@@ -4315,7 +4315,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A malformed required reviewer or CI subagent call remains uncredited without ending the active round. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::settleRound --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-170/REQ-AGENT-176: leaves reviewer launches uncredited without an authoritative window) -->
+1. A malformed required reviewer or CI subagent call remains uncredited without ending the active round. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::settleRound --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-176/REQ-AGENT-177: leaves reviewer launches uncredited without an authoritative window) -->
 2. After that malformed call returns successfully, Pi emits one visible rejection naming every mismatched launch-contract field. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchRejectionFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) -->
 3. Repeated settlement does not repeat feedback for the same rejected call. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::settleRound --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) -->
 4. A corrected launch can complete the same round. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::settleRound --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) -->
@@ -4324,9 +4324,34 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
+**Dependencies:** [REQ-AGENT-177](#req-agent-177-canonical-reviewer-launch-evidence)
 
 **Verification:** Automated Pi review-enforcement tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-177: Canonical reviewer launch evidence
+
+**Intent:** Reviewer completion consumes only launch evidence that matches the active review contract.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Pi reviewer completion requires exact standalone `scope=diff`, expected `review_range` or `review_base`, and lane-specific `output_file` assignments; prefixed or suffixed lookalikes earn no credit. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-177: counts full-PR reviewers only with exact scope, base, and output contract) -->
+2. A Pi reviewer launch without a complete authoritative review window earns no completion credit. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-176/REQ-AGENT-177: leaves reviewer launches uncredited without an authoritative window) -->
+3. Claude reviewer completion requires an assistant-originated background call through the canonical runner using only emitted head and boundary environment assignments. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (rejects otherwise-complete rounds with noncanonical launch evidence) -->
+4. The Claude launch earns credit only after successful receipt with exact PR, lane, and range-or-base assignments. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (does not reuse completed lane launches after the exact PR head advances) -->
+
+**Constraints:** Reviewer launch evidence never substitutes values from outside the active review contract.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
+
+**Verification:** Automated Pi transcript and Claude hook tests
 
 **Status:** Implemented
 
@@ -4670,7 +4695,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Triage waits for every required reviewer and a terminal success, failure, or timeout from the exact launched CI monitor for the same repository, PR, and head. Pi reviewer completion counts only a launch prompt carrying exact whitespace-delimited `scope=diff`, expected `review_range` or `review_base`, and lane-specific `output_file` assignment tokens; prefixed or suffixed lookalikes earn no credit. Claude reviewer completion requires an assistant-originated Bash background call using only the emitted head and boundary environment assignments, canonical runner, successful launch receipt, and exact PR, lane, and range-or-base assignments. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (treats every exact-head CI result as terminal and writes completion before FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (does not reuse completed lane launches after the exact PR head advances) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (rejects otherwise-complete rounds with noncanonical launch evidence) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-170: counts full-PR reviewers only with exact scope, base, and output contract) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-170/REQ-AGENT-176: leaves reviewer launches uncredited without an authoritative window) -->
+1. Triage waits for every required reviewer and terminal success, failure, or timeout from the exact launched CI monitor for the same repository, PR, and head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (treats every exact-head CI result as terminal and writes completion before FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
 2. CI failure or timeout requires a dedicated `Exact-head CI` triage row with the exact matching `CI_RESULT` token before acknowledgement; one outer Markdown code span does not change that token. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::triageTableIncludesRequiredCiResult --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-053/REQ-AGENT-074/REQ-AGENT-098: requires exact-head CI terminal evidence before joint triage) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (requires exact CI failure and timeout rows and accepts directive formatting) -->
 3. The triage turn makes no mutation and ends before acknowledgement delivers FIX. Its plan requires evidence and scope validation, separate judgment of findings and proposed fixes, rejection of unsupported or overengineered proposals, and the smallest correction reusing existing machinery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (automatically emits review and CI launch instructions after push, PR creation, and PR reopen) -->
 4. Every Pi review plan emits each lane's exact scope, range or base, and deterministic temporary output-path assignments as standalone copy-ready lines, with no punctuation or Markdown added to assignment values. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewerPromptContract --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (emits copy-ready standalone reviewer assignment contracts without punctuation) -->
@@ -4682,7 +4707,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
+**Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-177](#req-agent-177-canonical-reviewer-launch-evidence)
 
 **Verification:** Automated Pi transcript and Claude hook tests
 
