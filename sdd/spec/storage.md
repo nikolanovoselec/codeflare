@@ -883,7 +883,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 6. Baseline, periodic, manual, recovery, and final bisync use the common generated filter. <!-- @impl: entrypoint.sh::RCLONE_FILTERS --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persistence) / REQ-STOR-004 (initial sync) / REQ-STOR-005 (graceful shutdown final sync) / REQ-SESSION-003 AC3 (entrypoint initial rclone sync) + AC4 (bisync daemon + SIGUSR1) / REQ-SESSION-011 (graceful shutdown with final sync) / REQ-VAULT-006 (shutdown bisync vault writes) / REQ-OPS-010 (graceful container shutdown) / REQ-MEM-004 (memory dirs in bisync filter)) -->
 7. With remote curation active, post-restore startup restores image-owned runtime companions required by managed extensions. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7: restores managed content and its image-owned runtime companion before baseline) -->
 
-**Constraints:** Container policy is non-authoritative; no Durable Object policy persistence is introduced. Remote curation never replaces release-owned extension bytes with image copies.
+**Constraints:** Container policy is non-authoritative, with no Durable Object policy persistence or replacement of release-owned extension bytes by image copies.
 
 **Priority:** P0
 
