@@ -448,5 +448,6 @@ export async function listAllKvKeys(kv: KVNamespace, prefix: string): Promise<KV
     cursor = result.list_complete ? undefined : result.cursor;
     iterations++;
   } while (cursor && iterations < MAX_KV_LIST_ITERATIONS);
+  if (cursor) throw new Error(`KV pagination exceeded ${MAX_KV_LIST_ITERATIONS} pages`);
   return keys;
 }

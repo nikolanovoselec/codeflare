@@ -443,6 +443,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
           bucket: 'codeflare-enterprise-nikola-novoselec-ch',
           r2AccessKeyId: 'scoped-access-key',
           r2SecretAccessKey: 'scoped-secret-key',
+          resourcePolicy: 'mutable',
           strict: true,
         },
       });

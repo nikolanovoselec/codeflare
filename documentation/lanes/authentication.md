@@ -113,7 +113,7 @@ Authenticated API clients treat explicit 401, manual/opaque redirects, and HTML 
 <a id="service-automation-auth"></a>
 ## Service Authentication
 
-Service automation uses `X-Service-Auth` only when the optional Worker `SERVICE_AUTH_SECRET` is configured. Environment-specific source-secret mapping and GitHub Environment placement remain private operations concerns.
+Service automation uses `X-Service-Auth` only when the optional Worker `SERVICE_AUTH_SECRET` is configured. Environment-specific source-secret mapping and GitHub Environment placement belong to private [Deployment testing](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/verification/deployment-testing.md).
 
 Current source checks this header before user authentication, compares it in constant time, and returns an admin automation identity when it matches. The stress-mode, SaaS-mode, and hostname restrictions accepted in [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) are **not implemented** and remain tracked by issue #130. This path must therefore be treated as a privileged residual risk, not described as environment-gated hardening. <!-- @impl: src/lib/access.ts::validateServiceAuthHeader -->
 
@@ -170,7 +170,7 @@ Authentication supplies verified identity; [User Provisioning](user-provisioning
 <a id="environment-variables-for-saas-mode"></a>
 ### Configuration
 
-Public activation flags, identity-provider settings, cookie secrets, email credentials, and their consumers are catalogued in [Configuration](configuration.md). Exact non-default values and environment placement remain private operations material.
+Public activation flags, identity-provider settings, cookie secrets, email credentials, and their consumers are catalogued in [Configuration](configuration.md). Exact non-default values and environment placement belong to private [Onboarding and SaaS modes](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/onboarding-and-saas.md) and [user OAuth registration](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/integrations/user-oauth.md).
 
 <a id="header-user-dropdown"></a>
 ### Frontend identity surfaces

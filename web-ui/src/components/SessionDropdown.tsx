@@ -154,11 +154,12 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
           ref={setCreateBtnRef}
           class="session-dropdown__new-session"
           data-testid="session-dropdown-new"
-          disabled={sessionStore.preseedUpgrading}
+          disabled={sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' || sessionStore.managedReleaseStatus === 'update_pending'}
+          aria-label={sessionStore.managedReleaseStatus === 'update_pending' ? 'Session environment update pending until session stops' : sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' ? 'Updating session environment' : 'New Session'}
           onClick={() => setShowCreateDialog(!showCreateDialog())}
         >
           <Icon path={mdiPlus} size={16} />
-          <span>{sessionStore.preseedUpgrading ? 'Upgrading' : 'New Session'}</span>
+          <span>{sessionStore.managedReleaseStatus === 'update_pending' ? 'Update pending' : sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' ? 'Updating' : 'New Session'}</span>
         </button>
 
         <Show when={showMultiViewRow()}>

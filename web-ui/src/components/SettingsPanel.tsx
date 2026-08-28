@@ -20,6 +20,7 @@ import LlmKeysSection from './settings/LlmKeysSection';
 import AdminActionButton from './settings/AdminActionButton';
 import {
   agentNotificationPermission,
+  agentNotificationsAvailable,
   agentNotificationsEnabled,
   setAgentNotificationsEnabled,
 } from '../lib/agent-notifications';
@@ -124,6 +125,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [recreateAgentError, setRecreateAgentError] = createSignal<string | null>(null);
   const [openGroup, setOpenGroup] = createSignal<AccordionGroup>('appearance');
   const [notificationPermission, setNotificationPermission] = createSignal<AgentNotificationEnablement>('default');
+  const [notificationAvailable, setNotificationAvailable] = createSignal(false);
   const [notificationEnabled, setNotificationEnabled] = createSignal(false);
   let notificationRevision = 0;
 
@@ -189,7 +191,11 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     setAccentHexInput(loaded.accentColor || '');
     setNotificationPermission(agentNotificationPermission());
     const revision = notificationRevision;
-    void agentNotificationsEnabled().then((enabled) => {
+    void agentNotificationsAvailable().then(async (available) => {
+      if (notificationRevision !== revision) return;
+      setNotificationAvailable(available);
+      if (!available) return;
+      const enabled = await agentNotificationsEnabled();
       if (notificationRevision === revision) setNotificationEnabled(enabled);
     });
   });
@@ -384,6 +390,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               workspaceSyncEnabled={workspaceSyncEnabled}
               clipboardAccess={clipboardAccess}
               notificationPermission={notificationPermission}
+              notificationAvailable={notificationAvailable}
               notificationEnabled={notificationEnabled}
               sleepAfter={sleepAfter}
               canChangeSleepAfter={canChangeSleepAfter}

@@ -479,6 +479,52 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
     });
   });
 
+  describe('REQ-ENTERPRISE-027 managed-resource identity', () => {
+    it('emits protected identity without exposing Worker-held scoped credentials', () => {
+      const vars = buildEnvVars({
+        ...baseState(),
+        _strictEgress: true,
+        _remoteCurationActive: true,
+        _remoteCurationReleaseDigest: 'd'.repeat(64),
+        _managedResourcePolicy: 'exclusive',
+        _managedResourcePathsDigest: 'e'.repeat(64),
+        _r2AccessKeyId: 'real-access',
+        _r2SecretAccessKey: 'real-secret',
+      }, { ...baseEnv, ENTERPRISE_MODE: 'active' } as Env);
+
+      expect(vars).toMatchObject({
+        MANAGED_RESOURCE_POLICY: 'exclusive',
+        REMOTE_CURATION_RELEASE_DIGEST: 'd'.repeat(64),
+        MANAGED_RESOURCE_PATHS_DIGEST: 'e'.repeat(64),
+      });
+      expect(vars.R2_ACCESS_KEY_ID).not.toBe('real-access');
+      expect(vars.R2_SECRET_ACCESS_KEY).not.toBe('real-secret');
+    });
+
+    it('clears protected state and env on an explicit mutable warm reset', async () => {
+      const state = {
+        ...baseState(),
+        _remoteCurationActive: true,
+        _remoteCurationReleaseDigest: 'd'.repeat(64),
+        _managedResourcePolicy: 'immutable' as const,
+        _managedResourcePathsDigest: 'e'.repeat(64),
+      };
+      const { storage } = makeStorage();
+
+      expect(await applyPrefsOnRestart(state, storage, {
+        managedResourcePolicy: 'mutable',
+        managedResourcePathsDigest: null,
+      })).toBe(true);
+
+      expect(state._remoteCurationReleaseDigest).toBe('d'.repeat(64));
+      expect(state._managedResourcePolicy).toBe('mutable');
+      expect(state._managedResourcePathsDigest).toBeNull();
+      expect(buildEnvVars(state, baseEnv)).not.toHaveProperty('MANAGED_RESOURCE_POLICY');
+      expect(buildEnvVars(state, baseEnv)).toHaveProperty('REMOTE_CURATION_RELEASE_DIGEST', 'd'.repeat(64));
+      expect(buildEnvVars(state, baseEnv)).not.toHaveProperty('MANAGED_RESOURCE_PATHS_DIGEST');
+    });
+  });
+
   describe('R2_SSE_DISABLED (REQ-ENTERPRISE-018)', () => {
     it('emits R2_SSE_DISABLED=true when _r2SseDisabled is set', () => {
       const state = baseState();

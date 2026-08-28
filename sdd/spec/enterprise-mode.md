@@ -61,7 +61,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 - The flag is read at deploy time from a Worker binding, not from request data, so it cannot be toggled per request.
 - When the flag is unset there is no new code path: every enterprise branch is gated behind the resolver returning false.
 - Successful enterprise upgrade stamps preserve the latest stored preference fields they do not own. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-ENTERPRISE-001 constraint: enterprise upgrade preserves preferences changed while reconciliation is running) --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (REQ-ENTERPRISE-001 constraint: enterprise reseed preserves preferences changed during reconciliation) -->
-- Enterprise deployment-variable values, rollout, and rollback procedures remain owned by the private operations repository; this public specification records only runtime behavior.
+- Enterprise deployment-variable values, rollout, and rollback procedures are owned by the private [Enterprise deployment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md); this public specification records only runtime behavior.
 
 **Priority:** P1
 
@@ -828,6 +828,114 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-AGENT-001](agents.md#req-agent-001-support-multiple-ai-coding-agents), [REQ-OPS-040](operations.md#req-ops-040-selected-coding-agent-packaging)
 
 **Verification:** Automated test ([Setup persistence + validation](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [prefill](../../src/__tests__/routes/setup/handlers.test.ts), [wizard store](../../web-ui/src/__tests__/stores/setup.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-027: Managed-resource admission and transport
+
+**Intent:** Enterprise sessions admit protected managed resources only from verified applied identity and transport that identity without moving authority into the container.
+
+**Applies To:** Enterprise
+
+**Acceptance Criteria:**
+
+1. Session admission compares desired release, sequence, effective mode, extension digest, resource policy, and path digest with the applied stamp. A mismatch returns managed-update-pending before bucket or container work. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (blocks a desired and applied resource-policy mismatch before bucket work) -->
+2. Protected start requires Enterprise Strict Gateway Egress and its binding, then requires fresh verification of exact user-bucket policy identity before container work. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @impl: src/lib/managed-r2-policy.ts::readVerifiedManagedR2Policy --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (verifies protected bucket policy without cache and transports only its identity) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (blocks corrupt protected policy before container work) -->
+3. Authenticated lifecycle transport uses one normalized policy enum, one path digest, and the existing curation release digest. <!-- @impl: src/lib/container-config-schema.ts::SetBucketNameBodySchema --> <!-- @impl: src/routes/container/lifecycle-init.ts::buildSetBucketNameBody --> <!-- @test: src/__tests__/lib/container-config-schema.test.ts (accepts mutable only with a null managed path identity) -->
+4. Invalid policy identity combinations do not cross the Worker-to-DO boundary. <!-- @impl: src/lib/container-config-schema.ts::SetBucketNameBodySchema --> <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @test: src/__tests__/lib/container-config-schema.test.ts (requires the curation release and managed path digests for both protected modes) --> <!-- @test: src/__tests__/container/container-router.test.ts (rejects injected policy digests when policy mode is omitted) --> <!-- @test: src/__tests__/container/container-router.test.ts (rejects injected policy digests when policy mode is omitted) -->
+5. A warm Durable Object refreshes strict interception before committing changed bucket, scoped credential, policy, release, or path-digest security state. <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @impl: src/container/container-interception.ts::refreshStrictEgressInterception --> <!-- @test: src/__tests__/container/container-router.test.ts (refreshes warm strict interception when only policy identity changes) -->
+6. Explicit mutable identity clears stale protected state. <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/container/container-env.test.ts (clears protected state and env on an explicit mutable warm reset) -->
+7. The container receives only non-authoritative policy identity hints; policy bytes and scoped credentials remain Worker-side. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env.test.ts (emits protected identity without exposing Worker-held scoped credentials) -->
+
+**Constraints:** Durable Objects do not persist policy bytes or make authorization decisions.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-STOR-030](storage.md#req-stor-030-managed-resource-policy-loading)
+
+**Verification:** Automated admission, schema, transport, and warm-refresh tests
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-028: Managed-resource request classification
+
+**Intent:** The Worker classifies every own-bucket S3 mutation before scoped signing without changing ordinary reads or adjacent personal paths.
+
+**Applies To:** Enterprise
+
+**Acceptance Criteria:**
+
+1. The classifier allows reads and listing for the bound user bucket. <!-- @impl: src/lib/managed-r2-policy.ts::classifyManagedR2Request --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (allows reads and listing while denying cross-bucket targets) -->
+2. Exact-path and exclusive-root mutations are denied across path-style, virtual-host, multipart, tagging, metadata-replacement, and copy destinations. <!-- @impl: src/lib/managed-r2-policy.ts::classifyManagedR2Request --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (denies protected mutation %s %s) -->
+3. Malformed, ambiguous, bucket-level, or noncanonical mutation targets fail closed without double decoding. <!-- @impl: src/lib/managed-r2-policy.ts::classifyManagedR2Request --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (decodes exactly once and rejects malformed, noncanonical, backslash, duplicate-control, and empty mutations) -->
+4. Multi-delete accepts bounded, uncompressed strict XML with no namespace or the canonical S3 namespace and at most 1,000 keys. <!-- @impl: src/lib/managed-r2-policy.ts::classifyManagedR2Request --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (denies a whole mixed multi-delete and forwards exact ordinary bytes) --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (fails closed above the multi-delete byte and key-count bounds) --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (fails closed on malformed, compressed, or ambiguous multi-delete) -->
+5. A protected or uncertain multi-delete key denies the whole request. <!-- @impl: src/lib/managed-r2-policy.ts::classifyManagedR2Request --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (denies a whole mixed multi-delete and forwards exact ordinary bytes) -->
+6. Approved multi-delete bytes are forwarded unchanged. <!-- @impl: src/lib/managed-r2-policy.ts::classifyManagedR2Request --> <!-- @test: src/__tests__/lib/managed-r2-request.test.ts (denies a whole mixed multi-delete and forwards exact ordinary bytes) -->
+
+**Constraints:** Classification runs before scoped signing and decodes keys exactly once.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-028](storage.md#req-stor-028-canonical-managed-resource-persistence-policy)
+
+**Verification:** Automated addressing, mutation-form, canonical-key, multi-delete, and adjacent-path tests
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-029: Managed-resource Egress enforcement
+
+**Intent:** Egress applies verified policy with the exact scoped user credential and fails closed before forwarding protected mutations.
+
+**Applies To:** Enterprise
+
+**Acceptance Criteria:**
+
+1. Egress derives policy location and identity only from Worker state. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (loads policy with scoped credentials and denies protected mutation before user forwarding) -->
+2. Policy reads use only the scoped user key. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (loads policy with scoped credentials and denies protected mutation before user forwarding) -->
+3. Approved user requests use only the scoped user key. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (signs approved adjacent mutation only with the scoped user key) -->
+4. Missing or mismatched policy returns S3 XML `503` without forwarding the mutation. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (returns S3 503 and never forwards mutation when policy loading fails) -->
+5. Protected mutation returns S3 XML `403` before user forwarding. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (loads policy with scoped credentials and denies protected mutation before user forwarding) -->
+6. Policy decisions log only operation, identity/hash prefixes, request ID, and reason. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (loads policy with scoped credentials and denies protected mutation before user forwarding) --> <!-- @test: src/__tests__/egress-controller.test.ts (signs approved adjacent mutation only with the scoped user key) --> <!-- @test: src/__tests__/egress-controller.test.ts (returns S3 503 and never forwards mutation when policy loading fails) -->
+
+**Constraints:** Worker interception immediately before scoped signing is authoritative.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-ENTERPRISE-016](#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-026](#req-enterprise-026-strict-r2-interception-preserves-user-bucket-authority), [REQ-ENTERPRISE-027](#req-enterprise-027-managed-resource-admission-and-transport), [REQ-ENTERPRISE-028](#req-enterprise-028-managed-resource-request-classification), [REQ-STOR-030](storage.md#req-stor-030-managed-resource-policy-loading)
+
+**Verification:** Automated scoped-policy-read, scoped-forwarding, policy-failure, protected-denial, and privacy-safe logging tests
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-030: Managed-resource Storage enforcement
+
+**Intent:** User-facing Storage mutations enforce the same applied policy before any user-object R2 request.
+
+**Applies To:** Enterprise
+
+**Acceptance Criteria:**
+
+1. Storage uploads, multipart operations, and exact, batch, or prefix deletes check bucket migration before policy evaluation. <!-- @impl: src/routes/storage/upload.ts::app --> <!-- @impl: src/routes/storage/delete.ts::app --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT)) -->
+2. Storage compares full desired and applied identity before policy loading. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (fails update-pending before policy lookup on %s mismatch) -->
+3. Storage verifies policy before a user-object R2 request. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/routes/storage-upload.test.ts (REQ-ENTERPRISE-030: denies protected upload before the user-object R2 request) -->
+4. Exact or intersecting protected targets return `403`. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (blocks exact keys and intersecting prefixes but permits adjacent paths) -->
+5. Uncertain desired, applied, or policy state returns managed-update-pending without a user-object R2 request. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (fails update-pending before policy lookup on %s mismatch) -->
+
+**Constraints:** Storage uses the verified user-bucket policy and does not create another authority.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-ENTERPRISE-027](#req-enterprise-027-managed-resource-admission-and-transport), [REQ-STOR-030](storage.md#req-stor-030-managed-resource-policy-loading)
+
+**Verification:** Automated migration, identity, policy, protected-target, and uncertainty tests
 
 **Status:** Implemented
 

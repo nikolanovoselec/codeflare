@@ -1,4 +1,4 @@
-import type { Env, SessionMode } from '../types';
+import type { Env, ManagedResourcePolicy, SessionMode } from '../types';
 import {
   streamManagedReleaseDocuments,
   type ManagedReleaseDocument,
@@ -9,6 +9,14 @@ import { SEEDED_DOCUMENTS } from './tutorial-seed.generated';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH, RETIRED_PRESEED_KEYS } from './agent-seed.generated';
 import { createLogger } from './logger';
 import { getSseHeaders } from './r2-sse';
+import { escapeXml } from './xml-utils';
+import { readBoundedResponse } from './bounded-stream';
+import {
+  buildManagedR2Policy,
+  MANAGED_R2_POLICY_KEY,
+  readVerifiedManagedR2Policy,
+  type BuiltManagedR2Policy,
+} from './managed-r2-policy';
 
 const logger = createLogger('r2-seed');
 
@@ -683,6 +691,7 @@ async function deleteRetiredManagedConfigs(
   endpoint: string,
   release: ManagedReleaseIndex,
   r2SseDisabled?: boolean,
+  deleteWithoutProvenance = false,
 ): Promise<{ deleted: string[]; warnings: string[] }> {
   const client = createR2Client(env);
   const sseHeaders = getSseHeaders(env, r2SseDisabled);
@@ -691,12 +700,13 @@ async function deleteRetiredManagedConfigs(
   const outcomes = await mapWithConcurrency(release.retiredPaths, async (key) => {
     const url = getR2Url(endpoint, bucketName, key);
     try {
-      const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
-      if (head.status === 404) return {};
-      if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
-      // A signed retirement may remove only content still marked as Codeflare-owned.
-      // An absent marker preserves a user-created or subsequently replaced object.
-      if (!head.headers.get(PRESEED_MARKER_HEADER)) return {};
+      if (!deleteWithoutProvenance) {
+        const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
+        if (head.status === 404) return {};
+        if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
+        // Mutable mode retains AD118 ownership transfer when provenance is absent.
+        if (!head.headers.get(PRESEED_MARKER_HEADER)) return {};
+      }
       const response = await client.fetch(url, { method: 'DELETE' });
       if (!response.ok && response.status !== 404) throw new Error(`DELETE ${key}: HTTP ${response.status}`);
       return { deleted: key };
@@ -711,6 +721,178 @@ async function deleteRetiredManagedConfigs(
   return { deleted, warnings };
 }
 
+const MAX_EXCLUSIVE_OBJECTS = 10_000;
+const MAX_EXCLUSIVE_LIST_BYTES = 1024 * 1024 * 1024;
+const MAX_EXCLUSIVE_OBJECT_BYTES = 1024 * 1024 * 1024;
+const MAX_EXCLUSIVE_LIST_PAGE_BYTES = 8 * 1024 * 1024;
+const MAX_EXCLUSIVE_LIST_PAGES = 10_001;
+
+function parseExclusiveListPage(xml: string, root: string): ReturnType<typeof parseListObjectsXml> {
+  const listRoots = xml.match(/<ListBucketResult(?:\s[^>]*)?>/g) ?? [];
+  const listRootEnds = xml.match(/<\/ListBucketResult>/g) ?? [];
+  if (listRoots.length !== 1 || listRootEnds.length !== 1 || !/^\s*(?:<\?xml[^?]*\?>\s*)?<ListBucketResult(?:\s[^>]*)?>[\s\S]*<\/ListBucketResult>\s*$/.test(xml)) {
+    throw new Error('Exclusive managed-resource listing response has an invalid root');
+  }
+  const truncatedMatches = [...xml.matchAll(/<IsTruncated>(true|false)<\/IsTruncated>/g)];
+  if (truncatedMatches.length !== 1) throw new Error('Exclusive managed-resource listing response has invalid truncation state');
+  const rawContents = xml.match(/<Contents(?:\s[^>]*)?>/g) ?? [];
+  const rawContentEnds = xml.match(/<\/Contents>/g) ?? [];
+  const parsed = parseListObjectsXml(xml);
+  if (rawContents.length !== rawContentEnds.length || parsed.objects.length !== rawContents.length) {
+    throw new Error('Exclusive managed-resource listing response contains malformed objects');
+  }
+  if (parsed.objects.some(object => (
+    !object.key.startsWith(root)
+    || !Number.isFinite(object.size)
+    || object.size < 0
+    || Number.isNaN(Date.parse(object.lastModified))
+  ))) {
+    throw new Error('Exclusive managed-resource listing response contains an invalid object');
+  }
+  const tokenMatches = [...xml.matchAll(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/g)];
+  const isTruncated = truncatedMatches[0]![1] === 'true';
+  if (isTruncated !== parsed.isTruncated || (isTruncated ? tokenMatches.length !== 1 || !parsed.nextContinuationToken : tokenMatches.length !== 0)) {
+    throw new Error('Exclusive managed-resource listing response has invalid continuation state');
+  }
+  return parsed;
+}
+
+async function listExclusiveCleanupCandidates(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  policy: BuiltManagedR2Policy,
+  r2SseDisabled?: boolean,
+): Promise<string[]> {
+  const client = createR2Client(env);
+  const candidates = new Set<string>();
+  const protectedPaths = new Set(policy.value.paths);
+  const sseHeaders = getSseHeaders(env, r2SseDisabled);
+  let listedObjects = 0;
+  let listBytes = 0;
+  let objectBytes = 0;
+  let listPages = 0;
+
+  for (const root of policy.value.resourceRoots) {
+    const rootObject = root.slice(0, -1);
+    const rootHead = await client.fetch(getR2Url(endpoint, bucketName, rootObject), { method: 'HEAD', headers: sseHeaders });
+    if (rootHead.ok) {
+      const contentLength = rootHead.headers.get('content-length');
+      if (!contentLength || !/^(?:0|[1-9]\d*)$/.test(contentLength)) {
+        throw new Error('Exclusive managed-resource root object size is invalid');
+      }
+      const rootObjectBytes = Number(contentLength);
+      if (!Number.isSafeInteger(rootObjectBytes)) {
+        throw new Error('Exclusive managed-resource root object size is invalid');
+      }
+      listedObjects += 1;
+      objectBytes += rootObjectBytes;
+      if (listedObjects > MAX_EXCLUSIVE_OBJECTS) throw new Error('Exclusive managed-resource cleanup exceeds 10,000 objects');
+      if (objectBytes > MAX_EXCLUSIVE_OBJECT_BYTES) throw new Error('Exclusive managed-resource cleanup exceeds 1 GiB of object size');
+      if (!protectedPaths.has(rootObject)) candidates.add(rootObject);
+    } else if (rootHead.status !== 404) {
+      throw new Error(`Exclusive managed-resource root check failed: HTTP ${rootHead.status}`);
+    }
+
+    let continuationToken: string | undefined;
+    const seenContinuationTokens = new Set<string>();
+    do {
+      const url = new URL(getR2Url(endpoint, bucketName));
+      url.searchParams.set('list-type', '2');
+      url.searchParams.set('prefix', root);
+      url.searchParams.set('max-keys', '1000');
+      if (continuationToken) url.searchParams.set('continuation-token', continuationToken);
+      listPages += 1;
+      if (listPages > MAX_EXCLUSIVE_LIST_PAGES) throw new Error('Exclusive managed-resource cleanup exceeds listing page limit');
+      const response = await client.fetch(url.toString(), { method: 'GET' });
+      if (!response.ok) throw new Error(`Exclusive managed-resource listing failed: HTTP ${response.status}`);
+      const bytes = await readBoundedResponse(
+        response,
+        Math.min(MAX_EXCLUSIVE_LIST_PAGE_BYTES, MAX_EXCLUSIVE_LIST_BYTES - listBytes),
+        'Exclusive managed-resource listing metadata',
+      );
+      listBytes += bytes.byteLength;
+      let xml: string;
+      try {
+        xml = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
+      } catch {
+        throw new Error('Exclusive managed-resource listing response is not valid UTF-8');
+      }
+      const parsed = parseExclusiveListPage(xml, root);
+      listedObjects += parsed.objects.length;
+      objectBytes += parsed.objects.reduce((sum, object) => sum + object.size, 0);
+      if (listedObjects > MAX_EXCLUSIVE_OBJECTS) {
+        throw new Error('Exclusive managed-resource cleanup exceeds 10,000 objects');
+      }
+      if (objectBytes > MAX_EXCLUSIVE_OBJECT_BYTES) {
+        throw new Error('Exclusive managed-resource cleanup exceeds 1 GiB of object size');
+      }
+      for (const object of parsed.objects) {
+        if (!protectedPaths.has(object.key)) candidates.add(object.key);
+      }
+      if (parsed.isTruncated && !parsed.nextContinuationToken) {
+        throw new Error('Exclusive managed-resource listing omitted its continuation token');
+      }
+      if (parsed.nextContinuationToken && seenContinuationTokens.has(parsed.nextContinuationToken)) {
+        throw new Error('Exclusive managed-resource listing repeated its continuation token');
+      }
+      if (parsed.nextContinuationToken) seenContinuationTokens.add(parsed.nextContinuationToken);
+      continuationToken = parsed.isTruncated ? parsed.nextContinuationToken : undefined;
+    } while (continuationToken);
+  }
+  return [...candidates].sort();
+}
+
+async function deleteExclusiveCleanupCandidates(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  candidates: readonly string[],
+): Promise<string[]> {
+  const client = createR2Client(env);
+  const batches = Array.from({ length: Math.ceil(candidates.length / 1_000) }, (_, index) => (
+    candidates.slice(index * 1_000, (index + 1) * 1_000)
+  ));
+  await mapWithConcurrency(batches, async (batch) => {
+    const body = `<?xml version="1.0" encoding="UTF-8"?><Delete><Quiet>true</Quiet>${batch
+      .map(key => `<Object><Key>${escapeXml(key)}</Key></Object>`).join('')}</Delete>`;
+    const response = await client.fetch(`${getR2Url(endpoint, bucketName)}?delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/xml' },
+      body,
+    });
+    if (!response.ok) throw new Error(`DeleteObjects: HTTP ${response.status}`);
+  });
+  return [...candidates];
+}
+
+async function writeAndVerifyManagedPolicy(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  policy: BuiltManagedR2Policy,
+  r2SseDisabled?: boolean,
+): Promise<void> {
+  const client = createR2Client(env);
+  const url = getR2Url(endpoint, bucketName, MANAGED_R2_POLICY_KEY);
+  const sseHeaders = getSseHeaders(env, r2SseDisabled);
+  const write = await client.fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json; charset=utf-8', ...markerHeaders(policy.value.releaseDigest), ...sseHeaders },
+    body: policy.bytes,
+  });
+  if (!write.ok) throw new Error(`Managed policy write failed: HTTP ${write.status}`);
+  await readVerifiedManagedR2Policy({
+    fetchPolicyObject: () => client.fetch(url, { method: 'GET', headers: sseHeaders }),
+    releaseDigest: policy.value.releaseDigest,
+    pathsDigest: policy.digest,
+    expectedPolicy: policy.value.resourcePolicy,
+    bypassMemoryCache: true,
+  });
+}
+
+/** @impl REQ-STOR-021 AC3, AC5 */
+/** @impl REQ-STOR-029 AC1, AC2, AC3, AC4, AC5 */
 export async function reconcileAgentConfigs(
   env: SeedEnv,
   bucketName: string,
@@ -726,10 +908,20 @@ export async function reconcileAgentConfigs(
     priorManagedRelease?: PriorManagedReleaseSelection;
     /** Prior applied ownership marker used only for bounded current-release paths. */
     priorManagedDigest?: string;
+    /** Explicit only for managed-environment reconciliation; omission preserves legacy seed behavior. */
+    resourcePolicy?: ManagedResourcePolicy;
   }
-): Promise<{ written: string[]; skipped: string[]; deleted: string[]; warnings: string[] }> {
+): Promise<{ written: string[]; skipped: string[]; deleted: string[]; warnings: string[]; managedPathsDigest?: string }> {
   const contextModeEnabled = options.contextModeEnabled === true;
   const managedRelease = options.managedRelease;
+  const policy = options.resourcePolicy && options.resourcePolicy !== 'mutable'
+    ? managedRelease
+      ? await buildManagedR2Policy(managedRelease.digest, managedRelease.release, options.resourcePolicy)
+      : (() => { throw new Error('Protected managed-resource policy requires a verified active release'); })()
+    : undefined;
+  const exclusiveCandidates = policy?.value.resourcePolicy === 'exclusive'
+    ? await listExclusiveCleanupCandidates(env, bucketName, endpoint, policy, options.r2SseDisabled)
+    : [];
   const seedResult = managedRelease
     ? await seedManagedDocuments(env, bucketName, endpoint, mode, managedRelease, {
         overwrite: options.overwrite,
@@ -809,10 +1001,25 @@ export async function reconcileAgentConfigs(
         endpoint,
         managedRelease.release,
         options.r2SseDisabled,
+        options.resourcePolicy !== undefined && options.resourcePolicy !== 'mutable',
       );
       deleted.push(...cleanupResult.deleted);
       warnings.push(...cleanupResult.warnings);
     }
+  }
+
+  if (exclusiveCandidates.length > 0) {
+    deleted.push(...await deleteExclusiveCleanupCandidates(env, bucketName, endpoint, exclusiveCandidates));
+  }
+
+  if (policy) {
+    await writeAndVerifyManagedPolicy(env, bucketName, endpoint, policy, options.r2SseDisabled);
+  } else if (options.resourcePolicy === 'mutable') {
+    const response = await createR2Client(env).fetch(
+      getR2Url(endpoint, bucketName, MANAGED_R2_POLICY_KEY),
+      { method: 'DELETE' },
+    );
+    if (!response.ok && response.status !== 404) throw new Error(`Managed policy delete failed: HTTP ${response.status}`);
   }
 
   logger.info('Reconciled agent configs', {
@@ -831,6 +1038,7 @@ export async function reconcileAgentConfigs(
     skipped: seedResult.skipped,
     deleted,
     warnings,
+    ...(policy ? { managedPathsDigest: policy.digest } : {}),
   };
 }
 

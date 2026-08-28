@@ -56,9 +56,9 @@ Every table below identifies default, required state, consumer, and requirement.
 | `REVIEW_LANE_PACKET_MAX_BYTES` | Largest review packet inlined into a lane's opening prompt. Above this the lane builds its own packet, so a very large diff cannot force an oversized prompt onto a lane that may exit early. | `131072` | no | Lane process env | [REQ-AGENT-102](../../sdd/spec/agents.md#req-agent-102-claude-reviewer-headless-lane-transport) |
 | `CLOUDFLARE_WORKER_NAME` | Worker name override for forks (set at deploy time via `--var`, also used at runtime by worker code) | `codeflare` | no | GitHub Actions variable / Worker runtime env <!-- @impl: .github/workflows/deploy.yml::prepare --> | [REQ-AUTH-001](../../sdd/spec/authentication.md#req-auth-001-two-authentication-modes), [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration) |
 | `CODING_AGENTS` | Comma-separated shared coding-agent CLIs included in the environment's image. Accepted values: `claude-code`, `codex`, `copilot`, `antigravity`, `opencode`, `pi`; unset installs all. Bash, native IDE inventories, and Pi prewarm/Jiti assets remain present. | all six coding agents | no | Environment-scoped GitHub Actions variable / Worker runtime env | [REQ-OPS-038](../../sdd/spec/operations.md#req-ops-038-build-selected-coding-agent-clis), [REQ-OPS-040](../../sdd/spec/operations.md#req-ops-040-selected-coding-agent-packaging), [REQ-OPS-039](../../sdd/spec/operations.md#req-ops-039-reduced-image-capability-preservation) |
-| `VAPID_SUBJECT` | Stable canonical Web Push sender contact URI (`mailto:` or `https:`) shared by every deployment environment; surrounding whitespace or an empty target fails deployment. It is public protocol metadata but uses Actions secret context so step metadata remains masked. | - | yes | Repository-level GitHub Actions secret / Worker runtime env | [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks) |
-| `VAPID_PUBLIC_KEY` | Stable unpadded-base64url 65-byte uncompressed P-256 public key paired and validated against `VAPID_PRIVATE_KEY`. Although public at runtime, it uses repository secret context and the bulk secret file so Actions masks deployment metadata; the authenticated notification config route may return it. | - | yes | Repository-level GitHub Actions secret / Worker runtime binding | [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks) |
-| `VAPID_PRIVATE_KEY` | Stable unpadded-base64url 32-byte P-256 private key validated against `VAPID_PUBLIC_KEY`. Secret-only: never place it in `wrangler.toml`, logs, responses, or an environment override. | - | yes | Repository-level GitHub Actions secret / Worker secret | [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks) |
+| `VAPID_SUBJECT` | Optional stable Web Push sender contact URI (`mailto:` or `https:`) shared by every deployment environment. When any VAPID field is set, all three are required and validated together. It is public protocol metadata but uses Actions secret context so step metadata remains masked. | - | no | Repository-level GitHub Actions secret / Worker runtime env | [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks) |
+| `VAPID_PUBLIC_KEY` | Optional unpadded-base64url 65-byte uncompressed P-256 public key paired and validated against `VAPID_PRIVATE_KEY`. Although public at runtime, it uses repository secret context and the bulk secret file so Actions masks deployment metadata; the authenticated notification config route may return it. | - | no | Repository-level GitHub Actions secret / Worker runtime binding | [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks) |
+| `VAPID_PRIVATE_KEY` | Optional unpadded-base64url 32-byte P-256 private key validated against `VAPID_PUBLIC_KEY`. Secret-only: never place it in `wrangler.toml`, logs, responses, or an environment override. | - | no | Repository-level GitHub Actions secret / Worker secret | [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks) |
 | `MAX_SESSIONS_USER` | Per-user session cap (default: 3) | `3` | no | wrangler.toml | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-OPS-007](../../sdd/spec/operations.md#req-ops-007-container-specs-configurable-per-environment) |
 | `MAX_SESSIONS_ADMIN` | Per-admin session cap (default: 10) | `10` | no | wrangler.toml | [REQ-SESSION-001](../../sdd/spec/session-lifecycle.md#req-session-001-session-creation-with-name-and-agent-type), [REQ-OPS-007](../../sdd/spec/operations.md#req-ops-007-container-specs-configurable-per-environment) |
 | `MAX_USERS` | **Removed** - replaced by KV key `setup:max_users` (admin-configurable via User Management page). | - | no | - | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-SUB-003](../../sdd/spec/subscription.md#req-sub-003-free-tier-requires-no-payment) |
@@ -113,11 +113,11 @@ Additional details:
 
 ### Secrets
 
-Default deployments use `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Non-default mode credentials are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
+Default deployments use `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Non-default credential placement is maintained in [Shared settings and Web Push identity](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md).
 
-Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN` and the repository's shared VAPID key pair through one temporary bulk secret file; setup writes `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`; Turnstile keys are stored in KV. The [deployment validator](../../scripts/ci/validate-vapid-config.mjs) fails before promotion when `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, or the secret-only `VAPID_PRIVATE_KEY` is missing ([REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks), [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-SEC-024](../../sdd/spec/security.md#req-sec-024-agent-notification-delivery-trust-boundaries)).
+Worker secrets lifecycle: deploy always sets `CLOUDFLARE_API_TOKEN`; when configured, it also uploads the repository's shared VAPID key pair through the temporary bulk secret file. Setup writes `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`; Turnstile keys are stored in KV. The [deployment validator](../../scripts/ci/validate-vapid-config.mjs) permits all three VAPID fields to be absent, but fails before promotion when configuration is partial, malformed, whitespace-padded, or internally inconsistent ([REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks), [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-SEC-024](../../sdd/spec/security.md#req-sec-024-agent-notification-delivery-trust-boundaries)). Without the complete group, Web Push and its Settings control are unavailable.
 
-Same-name environment secrets must remain absent so every target resolves the repository identity. Rotating the pair invalidates existing push subscriptions in every environment and requires user re-enrollment. The operator setup and rotation procedure is maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). **Worker-level R2 credentials are derived from the API token** for bucket administration. Per-user scoped R2 tokens are separate, created on first login, and revoked when the API token changes. If that token is rotated, setup must be re-run.
+When configured, same-name environment secrets must remain absent so every target resolves the repository identity. Rotating the pair invalidates existing push subscriptions in every environment and requires user re-enrollment. The operator setup and rotation procedure is maintained in [Shared settings and Web Push identity](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md). **Worker-level R2 credentials are derived from the API token** for bucket administration. Per-user scoped R2 tokens are separate, created on first login, and revoked when the API token changes. If that token is rotated, setup must be re-run.
 
 ### CORS
 
@@ -235,7 +235,7 @@ The env-var pairs below are the fallback provider source when no Setup config ex
 
 **Container transport** ([REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)). In non-enterprise modes the real token flows to the container as `GH_TOKEN` via the existing deploy-keys path, unchanged. In enterprise mode the container instead receives the non-secret placeholder `GH_TOKEN` = `codeflare-enterprise` (the `ENTERPRISE_GH_TOKEN_PLACEHOLDER` code constant, **not** a configured value); the real token is injected at the container egress boundary (see the [security](security.md) and [architecture](architecture.md) lanes).
 
-**Provider registration permissions** (set at app registration, not via config). Every OAuth App connection tier includes `gist`; its remaining `scope` values are derived from the selected tier (default `repo gist read:org workflow`; see [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) and [REQ-GITHUB-013](../../sdd/spec/github.md#req-github-013-connected-github-tokens-grant-gist-access)). The enterprise GitHub App's registration permissions and internal-app requirement are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
+**Provider registration permissions** (set at app registration, not via config). Every OAuth App connection tier includes `gist`; its remaining `scope` values are derived from the selected tier (default `repo gist read:org workflow`; see [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) and [REQ-GITHUB-013](../../sdd/spec/github.md#req-github-013-connected-github-tokens-grant-gist-access)). GitHub OAuth App and GitHub App registration, including the internal-App requirement for EMU, are maintained in [GitHub Connect provider registration](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/integrations/github-provider.md).
 
 ## Onboarding mode
 
@@ -243,7 +243,7 @@ Onboarding mode (`ONBOARDING_LANDING_PAGE` = active) serves the public waitlist 
 
 ### Onboarding variables and secrets
 
-The activation flag, GitHub Actions secret inventory, email settings, and operator setup steps are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally retains behavior and REQ backlinks without duplicating non-default deployment configuration.
+The activation flag, GitHub Actions secret inventory, email settings, and operator setup steps are maintained in [Onboarding and SaaS modes](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/onboarding-and-saas.md). This public lane intentionally retains behavior and REQ backlinks without duplicating non-default deployment configuration.
 
 ### SEO / Discoverability
 
@@ -263,7 +263,7 @@ SaaS mode (`SAAS_MODE` = active) adds a custom login page, GitHub-OAuth auto-pro
 
 ### SaaS variables and secrets
 
-The activation flag, OAuth, billing, email, identity-provider, and environment configuration are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally does not duplicate the SaaS deployment matrix.
+The activation flag, OAuth, billing, email, identity-provider, and environment configuration are maintained in [Onboarding and SaaS modes](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/onboarding-and-saas.md). This public lane intentionally does not duplicate the SaaS deployment matrix.
 
 ## Enterprise mode
 
@@ -271,11 +271,11 @@ Enterprise mode (`ENTERPRISE_MODE` = active) forces all users to the unlimited t
 
 ### Enterprise mode variables
 
-The enterprise activation flag, GitHub Environment layout, worker naming, account overrides, and dynamic-route setup are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). Runtime behavior remains documented below and in the enterprise specification.
+The enterprise activation flag, GitHub Environment layout, worker naming, account overrides, and dynamic-route setup are maintained in the [Enterprise deployment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md). Runtime behavior remains documented below and in the enterprise specification.
 
 ### Enterprise Mode Secrets (optional)
 
-The AI Gateway fallback-secret inventory, required token permissions, and deployment procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally does not duplicate non-default deployment credentials.
+The AI Gateway fallback-secret inventory, required token permissions, and deployment procedure are maintained in the [Enterprise deployment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md). This public lane intentionally does not duplicate non-default deployment credentials.
 
 ### Enterprise Mode Runtime Configuration
 
@@ -520,6 +520,7 @@ Exhaustive status belongs to the active SDD domains. Configuration tables carry 
 |---|---|---|---|
 | Default Worker/container settings | `wrangler.toml`, deploy workflow, Worker types | Setup, Operations, Session Lifecycle | [Deployment](deployment.md), [Container](container.md) |
 | Setup KV and mode overlays | setup key catalogue and setup routes | Setup, Enterprise, Authentication | [Authentication](authentication.md), [User Provisioning](user-provisioning.md) |
+| Managed-resource policy | Enterprise Setup, applied stamp, canonical user-bucket policy | Setup, Enterprise, Storage | [Security](security.md), [Storage & Sync](storage-and-sync.md) |
 | Provider clients and user credentials | setup/provider/deploy-key routes | Agents, GitHub, Browser Run, Security | [Security](security.md), [API Reference](api-reference.md) |
 | Resource/capacity settings | deployment workflow and tier resolver | Operations, Subscription | [CI/CD](ci-cd.md), [Billing](billing.md) |
 | Graphify/tooling | preseed manifests and runtime configuration | Agents, Memory | [Preseed](preseed.md), [Vault](vault.md) |

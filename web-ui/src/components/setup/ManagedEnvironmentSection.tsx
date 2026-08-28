@@ -9,6 +9,9 @@ import type {
 
 interface ManagedEnvironmentSectionProps {
   enabled: boolean;
+  enterpriseMode: boolean;
+  immutableResources: boolean;
+  disableUserCreatedResources: boolean;
   repository: string;
   personalAccessToken: string;
   personalAccessTokenSet: boolean;
@@ -22,6 +25,8 @@ interface ManagedEnvironmentSectionProps {
   patExpiryState: ManagedEnvironmentPatExpiryState;
   lastError?: string;
   onEnabledChange: (value: boolean) => void;
+  onImmutableResourcesChange: (value: boolean) => void;
+  onDisableUserCreatedResourcesChange: (value: boolean) => void;
   onRepositoryChange: (value: string) => void;
   onPersonalAccessTokenChange: (value: string) => void;
   onPublicKeyChange: (value: string) => void;
@@ -42,6 +47,39 @@ const ManagedEnvironmentSection: Component<ManagedEnvironmentSectionProps> = (pr
       </div>
 
       <Show when={props.enabled}>
+        <Show when={props.enterpriseMode}>
+          <div class="setup-field setup-field--nested">
+            <Checkbox
+              label="Immutable Resources"
+              checked={props.immutableResources}
+              onChange={props.onImmutableResourcesChange}
+            />
+          </div>
+
+          <Show when={props.immutableResources}>
+            <div class="setup-field setup-field--nested setup-field--nested-deeper">
+              <Checkbox
+                label="Disable User Created Resources"
+                checked={props.disableUserCreatedResources}
+                onChange={props.onDisableUserCreatedResourcesChange}
+              />
+            </div>
+          </Show>
+
+          <div class="setup-field setup-field--nested">
+            <p class="setup-field-description" data-testid="managed-resource-policy-description">
+              {props.disableUserCreatedResources
+                ? 'Only managed agent resources persist. Existing user-created agent resources are removed. New agent resources and changes to managed resources are lost when the session ends.'
+                : props.immutableResources
+                  ? 'Managed resources cannot be changed permanently. User-created resources are allowed, saved, and restored in future sessions. Changes to managed resources are lost when the session ends.'
+                  : 'Managed company resources are provisioned and updated. Users can modify them and create their own resources. New managed versions overwrite changes to managed resources.'}
+            </p>
+            <p class="setup-field-description" data-testid="managed-resource-policy-transition">
+              The new policy applies to each user after their active sessions stop. Existing sessions continue with their current policy.
+            </p>
+          </div>
+        </Show>
+
         <div class="setup-field">
           <label class="setup-field-label">Release repository</label>
           <p class="setup-field-description">Private GitHub repository in owner/name form.</p>

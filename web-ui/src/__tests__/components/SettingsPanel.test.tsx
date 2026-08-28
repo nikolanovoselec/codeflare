@@ -33,6 +33,7 @@ const mockAgentNotificationPermission = vi.hoisted(() => vi.fn<() => Notificatio
 const mockEnableAgentNotifications = vi.hoisted(() => vi.fn(
   async (): Promise<'granted' | 'unavailable'> => 'granted',
 ));
+const mockAgentNotificationsAvailable = vi.hoisted(() => vi.fn(async () => true));
 const mockAgentNotificationsEnabled = vi.hoisted(() => vi.fn(async () => false));
 const mockSetAgentNotificationsEnabled = vi.hoisted(() => vi.fn(
   async (_enabled: boolean): Promise<'on' | 'off' | 'denied' | 'unavailable'> => 'on',
@@ -66,6 +67,7 @@ vi.mock('../../api/storage', () => ({
 vi.mock('../../lib/agent-notifications', () => ({
   agentNotificationPermission: mockAgentNotificationPermission,
   enableAgentNotifications: mockEnableAgentNotifications,
+  agentNotificationsAvailable: mockAgentNotificationsAvailable,
   agentNotificationsEnabled: mockAgentNotificationsEnabled,
   setAgentNotificationsEnabled: mockSetAgentNotificationsEnabled,
 }));
@@ -126,6 +128,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
     mockUpdateLlmKeys.mockResolvedValue({});
     mockAgentNotificationPermission.mockReturnValue('default');
     mockEnableAgentNotifications.mockResolvedValue('granted');
+    mockAgentNotificationsAvailable.mockResolvedValue(true);
     mockAgentNotificationsEnabled.mockResolvedValue(false);
     mockSetAgentNotificationsEnabled.mockResolvedValue('on');
   });
@@ -264,7 +267,16 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
     });
   });
 
-  describe('Agent notifications / REQ-TERM-025 AC1-AC5', () => {
+  describe('Agent notifications / REQ-TERM-025 AC1-AC6', () => {
+    it('hides the notification setting when sender configuration is absent', async () => {
+      mockAgentNotificationsAvailable.mockResolvedValueOnce(false);
+      render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('accordion-header-session'));
+
+      await vi.waitFor(() => expect(mockAgentNotificationsAvailable).toHaveBeenCalledTimes(1));
+      expect(screen.queryByTestId('settings-agent-notifications')).not.toBeInTheDocument();
+    });
+
     it('renders one off switch when no valid Push subscription exists', async () => {
       mockAgentNotificationsEnabled.mockResolvedValueOnce(false);
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);

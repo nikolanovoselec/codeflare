@@ -25,9 +25,9 @@ Default deployment execution, verification, rollback, development references, an
 
 **When:** Normal production promotion starts automatically after the reviewed `main` commit's required `PR Checks` workflow succeeds. Use a manual **production** dispatch only for an initial deployment or an intentional retry/recovery from `main`; manual integration dispatches may use another branch, but the workflow rejects a manual production target unless the ref is `main`.
 
-**Prerequisites:** Confirm the intended commit is `origin/main`, every required exact-head check is green, and the production environment owns the expected public configuration. The repository must define stable `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, and `VAPID_PRIVATE_KEY` Actions secrets shared by every deployment environment; no GitHub Environment may override those names. The subject and public key use secret context to mask Actions step metadata, while only the private key is confidential at runtime. The [deployment workflow](../../.github/workflows/deploy.yml) fails before Worker deployment when a value is missing, whitespace-padded, malformed, or when the unpadded-base64url P-256 pair does not match ([REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks), [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries)).
+**Prerequisites:** Confirm the intended commit is `origin/main`, every required exact-head check is green, and the production environment owns the expected public configuration. Web Push is optional. To enable it, define `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, and `VAPID_PRIVATE_KEY` as one complete repository-level Actions secret group shared by every deployment environment; no GitHub Environment may override those names. The subject and public key use secret context to mask Actions step metadata, while only the private key is confidential at runtime. The [deployment workflow](../../.github/workflows/deploy.yml) accepts the wholly absent group but fails before Worker deployment when configuration is partial, whitespace-padded, malformed, or when the unpadded-base64url P-256 pair does not match ([REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks), [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries)).
 
-Keep the private key out of Wrangler configuration and logs. Rotating the pair invalidates existing Push subscriptions across every environment and requires re-enrollment; follow [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). For a manual retry, confirm the failed automatic run did not already promote the same tree.
+Without the group, Push delivery and the Settings enrollment control are unavailable. When configured, keep the private key out of Wrangler configuration and logs. Rotating the pair invalidates existing Push subscriptions across every environment and requires re-enrollment; follow [Shared settings and Web Push identity](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md). For a manual retry, confirm the failed automatic run did not already promote the same tree.
 
 **Action:** For normal promotion, retain the automatically triggered `Deploy` run. For initial deployment or retry, run GitHub's `Deploy` workflow from `main` with target **production**; the manual target defaults to integration. Never substitute a local Wrangler deploy. The workflow verifies the source tree, builds and scans the container image, publishes its digest, and deploys the Worker and binding. Workflow topology and permissions belong to [CI/CD](ci-cd.md#deploy-workflow-detail).
 
@@ -46,17 +46,17 @@ Exercise the changed user path after provider discovery returns the expected `{ 
 
 ## Enterprise Mode Secrets
 
-**Type:** Canonical private-operations alias.
+**Type:** Canonical private-runbook redirect.
 
-The enterprise GitHub Environment layout, activation variable, account overrides, AI Gateway fallback secrets, required token permissions, and deployment procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally does not duplicate non-default deployment credentials.
+The enterprise GitHub Environment layout, activation variable, account overrides, AI Gateway fallback secrets, required token permissions, and deployment procedure are maintained in the [Enterprise deployment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md). This public lane intentionally does not duplicate non-default deployment credentials.
 
 ---
 
 ## Strict Gateway Egress (Enterprise Mode)
 
-**Type:** Canonical private-operations alias.
+**Type:** Canonical private-runbook redirect.
 
-The enterprise-only binding procedure, Gateway policy preparation, verification steps, and rollback runbook are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private#strict-gateway-egress). The behavioral contract remains public in [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress).
+The enterprise-only binding procedure, Gateway policy preparation, verification steps, and rollback runbook are maintained in the [Strict Gateway Egress runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/strict-gateway-egress.md). The behavioral contract remains public in [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress).
 
 ---
 
@@ -151,9 +151,9 @@ Container resource usage scales per active session (each session is one containe
 
 ## Governed Mode migration (batch-status driven)
 
-**Type:** Canonical private-operations alias.
+**Type:** Canonical private-runbook redirect.
 
-The operator procedure, migration bounds, pause/resume behavior, verification, rollback, and recovery guidance are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private#governed-mode-migration). The public state-machine rationale remains in [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile).
+The operator procedure, migration bounds, pause/resume behavior, verification, rollback, and recovery guidance are maintained in the [Governed Mode migration runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/governed-mode-migration.md). The public state-machine rationale remains in [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile).
 
 ---
 

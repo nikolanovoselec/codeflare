@@ -401,8 +401,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. Required worker secrets are written after deployment. <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) --> <!-- @manual -->
 4. The service user is seeded only when a service-auth secret is configured. <!-- @impl: scripts/ci/seed-service-user.sh::CF_ACCESS_CLIENT_SECRET --> <!-- @test: host/__tests__/seed-service-user.test.js (does nothing when neither service-auth secret is configured) --> <!-- @test: host/__tests__/seed-service-user.test.js (writes the fixed admin identity once when the first attempt succeeds) -->
 5. Three failed seed attempts fail deployment instead of publishing partial configuration as successful. <!-- @impl: scripts/ci/seed-service-user.sh::attempt --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/seed-service-user.test.js (fails after three unsuccessful writes) -->
-6. Notification-enabled deployment fails before Worker promotion when required sender configuration is missing, malformed, whitespace-padded, or internally inconsistent. <!-- @impl: scripts/ci/validate-vapid-config.mjs::validateSubject --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (validates the subject and matching P-256 keypair before Worker promotion) -->
-7. Deployment logs identify configured notification fields without printing their values. <!-- @impl: scripts/ci/validate-vapid-config.mjs::required --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (rejects whitespace, bad subjects, malformed keys, and mismatched pairs without printing key values) -->
+6. Deployment permits notification sender configuration to be absent; when any sender field is configured, all three fields must be present, valid, whitespace-trimmed, and internally consistent before Worker promotion. <!-- @impl: scripts/ci/validate-vapid-config.mjs::validateSubject --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (allows notifications to be omitted and validates a configured matching P-256 keypair before Worker promotion) -->
+7. Deployment logs identify whether notification fields are configured without printing their values. <!-- @impl: scripts/ci/validate-vapid-config.mjs::required --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (rejects partial, whitespace, malformed, and mismatched configuration without printing key values) -->
 
 **Notes:** Partial pending a successful deployment record showing accepted sender configuration, value-free logs, a public-only config response, and off/on re-enrollment after controlled key rotation.
 
@@ -410,7 +410,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 - Worker secrets are written after worker creation.
 - Absent service auth skips seeding; configured seeding fails closed.
-- One repository-level notification sender identity is shared across deployment environments without same-name environment overrides.
+- Notification sender configuration is optional and all-or-none. When present, one repository-level identity is shared across deployment environments without same-name environment overrides.
 
 **Priority:** P0
 

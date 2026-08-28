@@ -189,6 +189,7 @@ describe('REQ-ENTERPRISE-008 AC3: SessionSection mode selector', () => {
     workspaceSyncEnabled: () => false,
     clipboardAccess: () => false,
     notificationPermission: () => 'default' as const,
+    notificationAvailable: () => true,
     sleepAfter: () => '30m',
     canChangeSleepAfter: () => true,
     isFreeUser: () => false,
