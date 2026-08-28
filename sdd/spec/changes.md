@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-28
 
-- **Managed reconciliation uses compact environment-update status copy** ([REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release) AC5 and [REQ-STOR-022](storage.md#req-stor-022-managed-reconciliation-admission) AC2 corrected; remain Implemented). Dashboard and session-menu New Session controls now display "Updating" with an environment-specific accessible label during seed sync or managed reconciliation. A managed update waiting for an owning session to stop displays "Update pending" and blocks both entry points.
+- **Managed reconciliation uses compact environment-update status copy** ([REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release) AC5 and [REQ-STOR-022](storage.md#req-stor-022-managed-reconciliation-admission) AC2 narrowed; [REQ-AGENT-172](agents.md#req-agent-172-environment-update-ui-lockdown) added; all Implemented). Dashboard and session-menu New Session controls now display "Updating" with an environment-specific accessible label during seed sync or managed reconciliation. A managed update waiting for an owning session to stop displays "Update pending" and blocks both entry points.
 
 ## 2026-08-27
 

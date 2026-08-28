@@ -2275,7 +2275,7 @@ None.
 2. After a successful reconcile (manual or auto), the applied hash is persisted in the user's preferences store. <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) --> <!-- @manual -->
 3. On initial dashboard load, the backend compares the stored hash against the build-time constant (and, under enterprise, the stored session mode against the forced Pro mode) and returns whether an upgrade is needed. This check is omitted from periodic polling to avoid overhead. <!-- @test: src/__tests__/routes/session-batch-status.test.ts (returns preseedNeedsUpgrade true when hash missing from preferences) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (enterprise: returns preseedNeedsUpgrade true when stored sessionMode is not advanced despite matching hash) --> <!-- @manual -->
 4. On initial dashboard load, if an upgrade is needed, the frontend triggers the reconcile in the background. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) -->
-5. While preseed sync or managed reconciliation is in progress, the dashboard and session menu disable New Session, display "Updating", and expose the accessible label "Updating session environment". During preseed sync, stopped session cards are visually de-emphasized and cannot be opened. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (should disable new session button and show Updating during preseed upgrade) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (disables New Session button and shows Updating during preseed sync) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (disables New Session button and shows Updating during managed reconciliation) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-AGENT-049 AC5: stopped card dimmed during preseed upgrade) -->
+5. Automatic reconciliation exposes the frontend environment-update states defined by [REQ-AGENT-172](#req-agent-172-environment-update-ui-lockdown). <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (should set preseedUpgrading during upgrade and clear after) -->
 6. If the auto-upgrade fails, the error is logged but the dashboard remains fully usable. A page refresh retries the check. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049 AC7: should clear preseedUpgrading on failure so dashboard remains usable) -->
 7. The reconcile respects the user's current session mode and tier (standard/pro/unlimited) - identical behavior to the manual "Recreate" button. <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) --> <!-- @manual -->
 
@@ -2283,9 +2283,33 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-011](#req-agent-011-agent-skills--rules-manually-recreatable-from-settings), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
+**Dependencies:** [REQ-AGENT-011](#req-agent-011-agent-skills--rules-manually-recreatable-from-settings), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-AGENT-172](#req-agent-172-environment-update-ui-lockdown)
 
 **Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-172: Environment update UI lockdown
+
+**Intent:** Environment updates remain visible and cannot be bypassed through another session-creation surface.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. During preseed sync or managed reconciliation, the dashboard and session menu disable New Session, display "Updating", and expose the accessible label "Updating session environment". <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (should disable new session button and show Updating during preseed upgrade) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (disables New Session while a managed release is updating) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-172 AC1: disables New Session button and shows Updating during preseed sync) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-172 AC1: disables New Session button and shows Updating during managed reconciliation) -->
+2. While managed reconciliation waits for an owning session to stop, both controls remain disabled, display "Update pending", and expose the accessible label "Session environment update pending until session stops". <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (disables New Session while a managed release is update_pending) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-172 AC2: disables New Session while a managed update waits for sessions to stop) -->
+3. During preseed sync, stopped session cards are visually de-emphasized and cannot be opened. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-AGENT-172 AC3: stopped card dimmed during preseed upgrade) -->
+
+**Constraints:** Update states reuse existing dashboard polling and add no independent poller.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-022](storage.md#req-stor-022-managed-reconciliation-admission)
+
+**Verification:** Automated dashboard and session-menu component tests
 
 **Status:** Implemented
 

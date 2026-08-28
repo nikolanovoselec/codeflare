@@ -198,13 +198,13 @@ describe('SessionDropdown', () => {
     });
   });
 
-  describe('REQ-AGENT-049 AC5: environment update lockdown', () => {
+  describe('REQ-AGENT-172: environment update lockdown', () => {
     afterEach(() => {
       (sessionStore as any)._setPreseedUpgrading(false);
       (sessionStore as any)._setManagedReleaseStatus(null);
     });
 
-    it('disables New Session button and shows Updating during preseed sync', () => {
+    it('REQ-AGENT-172 AC1: disables New Session button and shows Updating during preseed sync', () => {
       (sessionStore as any)._setPreseedUpgrading(true);
       render(() => <SessionDropdown {...defaultProps} />);
       const btn = screen.getByTestId('session-dropdown-new');
@@ -213,7 +213,7 @@ describe('SessionDropdown', () => {
       expect(btn).toHaveAttribute('aria-label', 'Updating session environment');
     });
 
-    it('disables New Session button and shows Updating during managed reconciliation', () => {
+    it('REQ-AGENT-172 AC1: disables New Session button and shows Updating during managed reconciliation', () => {
       (sessionStore as any)._setManagedReleaseStatus('upgrading');
       render(() => <SessionDropdown {...defaultProps} />);
       const btn = screen.getByTestId('session-dropdown-new');
@@ -222,7 +222,7 @@ describe('SessionDropdown', () => {
       expect(btn).toHaveAttribute('aria-label', 'Updating session environment');
     });
 
-    it('REQ-STOR-022 AC2: disables New Session while a managed update waits for sessions to stop', () => {
+    it('REQ-AGENT-172 AC2: disables New Session while a managed update waits for sessions to stop', () => {
       (sessionStore as any)._setManagedReleaseStatus('update_pending');
       render(() => <SessionDropdown {...defaultProps} />);
       const btn = screen.getByTestId('session-dropdown-new');

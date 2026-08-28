@@ -349,7 +349,7 @@ describe('SessionStatCard', () => {
     });
   });
 
-  describe('REQ-AGENT-049 AC5: stopped card dimmed during preseed upgrade', () => {
+  describe('REQ-AGENT-172 AC3: stopped card dimmed during preseed upgrade', () => {
     afterEach(() => {
       (sessionStore as any)._setPreseedUpgrading(false);
     });
