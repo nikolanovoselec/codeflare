@@ -6,6 +6,7 @@ const session = (
   id: string,
   status: SessionWithStatus['status'] = 'running',
   workspace?: SessionWithStatus['workspace'],
+  terminalMode?: SessionWithStatus['terminalMode'],
 ): SessionWithStatus => ({
   id,
   name: id,
@@ -13,6 +14,7 @@ const session = (
   lastAccessedAt: '2026-06-18T00:00:00Z',
   status,
   ...(workspace ? { workspace } : {}),
+  ...(terminalMode ? { terminalMode } : {}),
 });
 
 describe('terminalWorkspaceStore visible pane ownership', () => {
@@ -59,6 +61,19 @@ describe('terminalWorkspaceStore visible pane ownership', () => {
 
     expect(terminalWorkspaceStore.createOrUpdateMultiView(['a', 'b', 'c', 'd', 'e'], sessions, 'desktop')).toBe(false);
     expect(terminalWorkspaceStore.getMultiView()?.memberSessionIds).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('resolves mixed MultiView members by immutable terminal mode', () => {
+    const sessions = [
+      session('classic', 'running', 'terminal', 'classic'),
+      session('herdr', 'running', 'terminal', 'herdr'),
+    ];
+    expect(terminalWorkspaceStore.createOrUpdateMultiView(['classic', 'herdr'], sessions, 'desktop')).toBe(true);
+    expect(terminalWorkspaceStore.openMultiView(sessions, (id) => id === 'classic' ? '3' : '6')).toBe(true);
+    expect(terminalWorkspaceStore.getVisiblePanes().map((pane) => [pane.sessionId, pane.terminalId])).toEqual([
+      ['classic', '3'],
+      ['herdr', '1'],
+    ]);
   });
 
   it('REQ-TERM-012: tablet MultiView accepts exactly two live sessions', () => {

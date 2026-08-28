@@ -31,29 +31,23 @@ describe('validateWebSocketRoute / REQ-TERM-002 (terminal WebSocket connection t
       expect(result.errorResponse).toBeUndefined();
     });
 
-    it('extracts terminal IDs 1-6', () => {
+    it('accepts classic terminal IDs 1 through 6 for later authenticated authorization', () => {
       for (let i = 1; i <= 6; i++) {
-        const request = createRequest(`/api/terminal/abcdef12-${i}/ws`, {
+        const result = validateWebSocketRoute(createRequest(`/api/terminal/abcdef12-${i}/ws`, {
           Upgrade: 'websocket',
-        });
-
-        const result = validateWebSocketRoute(request);
-
+        }));
         expect(result.isWebSocketRoute).toBe(true);
+        expect(result.errorResponse).toBeUndefined();
         expect(result.terminalId).toBe(String(i));
       }
     });
 
-    it('defaults terminalId to 1 when no compound suffix', () => {
-      const request = createRequest('/api/terminal/abcdef12/ws', {
+    it('requires the internal terminal suffix', () => {
+      const result = validateWebSocketRoute(createRequest('/api/terminal/abcdef12/ws', {
         Upgrade: 'websocket',
-      });
-
-      const result = validateWebSocketRoute(request);
-
+      }));
       expect(result.isWebSocketRoute).toBe(true);
-      expect(result.baseSessionId).toBe('abcdef12');
-      expect(result.terminalId).toBe('1');
+      expect(result.errorResponse?.status).toBe(400);
     });
 
     it('handles case-insensitive Upgrade header', () => {
@@ -171,7 +165,7 @@ describe('validateWebSocketRoute / REQ-TERM-002 (terminal WebSocket connection t
 
     it('handles long session IDs (24 chars)', () => {
       const sessionId = 'a'.repeat(24);
-      const request = createRequest(`/api/terminal/${sessionId}-2/ws`, {
+      const request = createRequest(`/api/terminal/${sessionId}-1/ws`, {
         Upgrade: 'websocket',
       });
 
@@ -179,7 +173,7 @@ describe('validateWebSocketRoute / REQ-TERM-002 (terminal WebSocket connection t
 
       expect(result.isWebSocketRoute).toBe(true);
       expect(result.baseSessionId).toBe(sessionId);
-      expect(result.terminalId).toBe('2');
+      expect(result.terminalId).toBe('1');
     });
   });
 });

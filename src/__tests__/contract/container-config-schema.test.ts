@@ -29,6 +29,7 @@ function baseBody() {
     fastStartEnabled: true,
     sessionMode: 'default',
     sessionWorkspace: 'terminal',
+    terminalMode: 'classic',
     sleepAfter: '30m',
     managedResourcePolicy: 'mutable' as const,
     managedResourcePathsDigest: null,

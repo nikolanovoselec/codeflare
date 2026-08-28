@@ -102,7 +102,7 @@ Codeflare's own curated content lives in [codeflare-curation](https://github.com
 
 ![Codeflare session preload](assets/documentation/platform-preload.gif)
 
-The browser workspace provides up to six terminal tabs, multi-pane layouts, MultiView for following several sessions, GitHub repository and pull-request workflows, per-user R2 persistence, and a mobile-oriented terminal that works without a local agent toolchain.
+The browser workspace defaults to Codeflare's classic six-terminal tabs and tiling. Users may opt future sessions into a single outer Herdr surface with Herdr-owned tabs and panes. Both modes support MultiView, GitHub repository and pull-request workflows, per-user R2 persistence, and mobile-oriented terminal access without a local agent toolchain ([AD146](documentation/decisions/README.md#ad146-terminal-mode-is-an-immutable-per-session-choice)).
 
 Advanced users choose Terminal or VS Code as the default for new sessions. Terminal sessions keep lazy Browser VS Code startup; VS Code sessions stay on the dashboard while code-server warms, then open only when the user clicks **Open**. Pi sessions receive native Codeflare Chat, editor Inline Chat, and **Review with Codeflare**. Claude sessions use Anthropic's pinned official panel. A bounded snapshot preserves theme, the selected web keyboard layout, Explorer expansion, and open files. Credentials, authentication, other User settings, extension state, editor databases, chat history, and logs remain temporary. See [Browser IDE architecture](documentation/lanes/architecture.md) for the owned state boundary.
 

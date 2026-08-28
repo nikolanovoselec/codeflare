@@ -51,7 +51,7 @@ The `overlaysContent` flag must be managed carefully throughout the terminal lif
 
 #### Multi-pane focus handoff
 
-The virtual-keyboard signals (`vkOpen`, `keyboardHeight`) and `overlaysContent` are a single shared resource for the whole window, owned by the focused terminal pane. When several terminal panes are visible (tiling layouts, tablet MultiView) and focus moves between panes while the keyboard is open, the keyboard must stay open and the newly focused pane keeps keyboard mode rather than dropping to keyboard-closed/freescroll.
+The virtual-keyboard signals (`vkOpen`, `keyboardHeight`) and `overlaysContent` are a single shared resource for the whole window, owned by the focused Codeflare terminal surface. When several backend-session surfaces are visible in tablet MultiView and focus moves while the keyboard is open, the keyboard stays open and the newly focused surface keeps keyboard mode. Classic retains the established tap, right-click, and buffer-authoritative gesture behavior. Herdr sessions translate hardware mouse clicks, drags, and wheels on xterm's actual `.xterm-screen` into SGR terminal input. Stationary touch taps become clicks, while vertical touch swipes become wheel navigation. Touch movement reaching 20 pixels, long press, multi-touch, or cancellation prevents touch-click synthesis. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> See [REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling) and [REQ-TERM-036](../../sdd/spec/terminal.md#req-term-036-browser-pointer-interaction-with-herdr).
 
 `web-ui/src/lib/mobile.ts::isFocusOnTerminalInput` is the single discriminator: it reports whether `document.activeElement` is a terminal input iframe (class `terminal-input-iframe`). The three per-pane focus-loss teardown sites gate on it so a handoff does not tear the shared keyboard down:
 
@@ -151,7 +151,7 @@ In `web-ui/src/hooks/useTerminal.ts`, a `kbDebounceTimer` variable (timer ID, no
 - **Mobile with keyboard open:** Always anchor to the bottom after `fit()` via `scrollBufferToBottom()` (buffer-authoritative — the public `scrollToBottom()` resolves relative to clamp-vulnerable DOM scroll state, [AD110](../decisions/README.md#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops)).
 - The user expects to see the prompt whenever the keyboard is open.
 - **Desktop / mobile without keyboard:** Check `isAtBottom()` *before* `fit()`. If the user was following output (viewport at bottom), call `scrollBufferToBottom()` after `fit()`; if they had scrolled up into scrollback, preserve their position and call `resyncViewportScrollState()`.
-- **Zero-height guard:** All `fit()` call sites check `containerEl.clientHeight === 0` and bail early.
+- **Zero-height guard:** Every fit path prevents `fit()` from running while the container height is zero. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
     - Inactive terminals have `height: 0` via CSS; calling `fit()` on a zero-height container calculates `rows = 0`, which clamps `viewportY` and corrupts scroll state when the terminal re-expands.
 
 `resyncViewportScrollState()` re-commands the DOM scroll state from the buffer instead of letting it drift toward the next divergence jump. This applies to all three `fit()` paths above, plus the init-overlay refit and keyboard lifecycle refit.
@@ -248,7 +248,7 @@ Generic correction stays inactive while the keyboard is open, and vertical swipe
 **Verification (git: Fix 10):** Deep analysis of xterm 6.0.0 source confirmed that `.xterm-viewport` is genuinely empty (`CoreBrowserTerminal.ts` creates a bare `<div>` with no children), no xterm code reads/writes `_viewportElement.scrollTop`, mouse wheel is handled by `SmoothScrollableElement` JS (`scrollableElement.ts`), and the visible scrollbar is the overlay widget (`.xterm-scrollable-element > .scrollbar`). `overflow: hidden` on an empty element has zero functional impact on xterm.
 
 **Additional hardening:**
-- All `fitAddon.fit()` call sites are guarded with `containerEl.clientHeight === 0` checks to prevent zero-row dimension calculations during CSS visibility transitions (inactive terminals have `height: 0`).
+- Every fit path prevents `fit()` while the container height is zero, avoiding zero-row dimension calculations during CSS visibility transitions (inactive terminals have `height: 0`). <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
 - All `scrollToBottom()` call sites check `viewportY >= baseY` before scrolling to preserve manual scrollback position.
 - `flushWriteBuffer()` either defers the batch (owned viewport) or passes it to xterm unchanged; it never inspects or alters viewport position after a write.
 - `refitAllTerminals()` skips the resize WS message if dimensions didn't change.

@@ -6,7 +6,7 @@ Multi-agent support, preseed system, and session modes.
 
 | Concept | Definition |
 |---------|-----------|
-| Agent | One of seven supported AI coding tools (`claude-code`, `codex`, `copilot`, `antigravity`, `opencode`, `pi`, `bash`) that runs inside the container and is auto-started in terminal tab 1 |
+| Agent | One of seven supported AI coding tools (`claude-code`, `codex`, `copilot`, `antigravity`, `opencode`, `pi`, `bash`) that runs inside the container: classic starts it directly in tab 1; Herdr submits it once to the initial inner pane |
 | Preseed | A set of configuration files (rules, skills, agents, commands, plugins) generated from a single Claude Code source of truth and deployed to each user's R2 bucket |
 | Session Mode | Either Standard (`default`) or Pro (`advanced`) controlling the scope of agent enhancements seeded to a user's storage |
 | Manifest | The declarative `manifest.json` file that maps each preseed source file to its applicable modes and drives the code generation pipeline |
@@ -23,7 +23,7 @@ Multi-agent support, preseed system, and session modes.
 
 | Domain | Dependency |
 |--------|-----------|
-| Session Lifecycle | Container start triggers agent CLI auto-start in tab 1; session creation accepts `agentType` selection |
+| Session Lifecycle | Container start launches the configured agent through classic tab-1 autostart or Herdr initial-pane submission according to the immutable terminal mode; session creation accepts `agentType` selection |
 | Storage | R2 bucket stores preseed files; initial sync restores agent configs to the container filesystem |
 | Subscription | Session mode gating (`REQ-SUB-014`) controls whether a user can select Pro mode |
 
@@ -779,12 +779,13 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. The container entrypoint configures the selected agent's launch command to run automatically when tab 1's shell starts. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC1 dynamic: an agy (Antigravity) tab emits its launch command into .bashrc) -->
+1. The container passes the selected agent's fixed launch identity to classic tab-1 autostart or to the Herdr launcher, which submits it once in the initial pane. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC1 dynamic: an agy (Antigravity) tab emits its launch command into .bashrc) -->
 2. Claude Code starts in permissions-bypass mode appropriate for an isolated sandbox container. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC1+AC2+AC4: default layout writes the claude --dangerously-skip-permissions launch line + hardened PATH into .bashrc) -->
-3. User-opened tabs beyond tab 1 do not auto-start an agent. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC3: generated .bashrc guards autostart with the MANUAL_TAB skip branch) -->
+3. User-created classic manual tabs and Herdr-created tabs or panes open plain Bash and do not auto-start another agent. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC3: generated .bashrc guards autostart with the MANUAL_TAB skip branch) -->
 4. The agent CLI is findable on the system PATH in all terminal sessions. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC1+AC2+AC4: default layout writes the claude --dangerously-skip-permissions launch line + hardened PATH into .bashrc) -->
-5. First PTY output begins a fixed 1.5-second settlement period; readiness becomes true after that period so the initial terminal UI can render before opening. <!-- @impl: host/src/server.ts::PREWARM_SETTLE_MS --> <!-- @impl: host/src/server.ts::server.listen --> <!-- @manual: Observe first PTY output and confirm `/health` reports `prewarmReady: true` only after the fixed settlement period. -->
-6. A 20-second hard timeout exists as a safety net if the PTY produces no output. <!-- @impl: host/src/server.ts::server.listen --> <!-- @manual -->
+5. Outside timeout fallback, readiness follows a fixed 1.5-second settlement after mode-specific readiness conditions are met. <!-- @impl: host/src/server.ts::PREWARM_SETTLE_MS --> <!-- @impl: host/src/server.ts::server.listen --> <!-- @manual: In integration, confirm normal-path readiness waits for fixed settlement in both modes. -->
+6. At the 20-second timeout, Herdr becomes ready only after bootstrap completes, even if first output or settlement is incomplete. <!-- @impl: host/src/server.ts::server.listen --> <!-- @test: host/__tests__/terminal-mode.test.js (REQ-AGENT-003 AC6 / REQ-TERM-035 AC2: Herdr timeout readiness requires bootstrap) -->
+7. At the 20-second timeout, classic becomes ready even without first output or settlement. <!-- @impl: host/src/server.ts::server.listen --> <!-- @test: host/__tests__/terminal-mode.test.js (REQ-AGENT-003 AC7: classic timeout readiness is unconditional) -->
 
 **Constraints:**
 
@@ -794,7 +795,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-TERM-035](terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace)
 
 **Verification:** Automated test
 
@@ -2291,7 +2292,7 @@ None.
 
 ---
 
-### REQ-AGENT-172: Environment update UI lockdown
+### REQ-AGENT-175: Environment update UI lockdown
 
 **Intent:** Environment updates remain visible and cannot be bypassed through another session-creation surface.
 
@@ -2299,9 +2300,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. During preseed sync or managed reconciliation, the dashboard and session menu disable New Session, display "Updating", and expose the accessible label "Updating session environment". <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (should disable new session button and show Updating during preseed upgrade) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (disables New Session while a managed release is updating) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-172 AC1: disables New Session button and shows Updating during preseed sync) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-172 AC1: disables New Session button and shows Updating during managed reconciliation) -->
-2. While managed reconciliation waits for an owning session to stop, both controls remain disabled, display "Update pending", and expose the accessible label "Session environment update pending until session stops". <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (disables New Session while a managed release is update_pending) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-172 AC2: disables New Session while a managed update waits for sessions to stop) -->
-3. During preseed sync, stopped session cards are visually de-emphasized and cannot be opened. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-AGENT-172 AC3: stopped card dimmed during preseed upgrade) -->
+1. During preseed sync or managed reconciliation, the dashboard and session menu disable New Session, display "Updating", and expose the accessible label "Updating session environment". <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (should disable new session button and show Updating during preseed upgrade) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (disables New Session while a managed release is updating) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-175 AC1: disables New Session button and shows Updating during preseed sync) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-175 AC1: disables New Session button and shows Updating during managed reconciliation) -->
+2. While managed reconciliation waits for an owning session to stop, both controls remain disabled, display "Update pending", and expose the accessible label "Session environment update pending until session stops". <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (disables New Session while a managed release is update_pending) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-175 AC2: disables New Session while a managed update waits for sessions to stop) -->
+3. During preseed sync, stopped session cards are visually de-emphasized and cannot be opened. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (REQ-AGENT-175 AC3: stopped card dimmed during preseed upgrade) -->
 
 **Constraints:** Update states reuse existing dashboard polling and add no independent poller.
 
@@ -4248,6 +4249,138 @@ None.
 
 ---
 
+### REQ-AGENT-172: Herdr preserves the Pi extension policy
+
+**Intent:** Pi sessions launched through Herdr retain Codeflare's image-owned extension policy rather than falling back to package defaults.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A Herdr-launched Pi session retains lite Caveman responses without the Caveman status display. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps Pi on its authoritative config root while Herdr uses private XDG state) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-155 AC2: overwrites Caveman with lite mode and no footer on every start) -->
+
+**Constraints:** Herdr state remains separate from Pi's image-owned extension configuration.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-155](#req-agent-155-image-owned-caveman-response-policy), [REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup)
+
+**Verification:** Automated launcher and startup-policy tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-173: Pi can orchestrate coding agents through Herdr
+
+**Intent:** Pi can use an existing Herdr session as a local agent-control plane without treating Herdr as mandatory in a plain Codeflare terminal.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Default and advanced Pi projections include one on-demand Herdr skill. <!-- @impl: preseed/agents/pi/manifest.json::skills/herdr/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-173: projects the Herdr orchestration skill) -->
+2. Outside a live Herdr pane, Pi continues normal terminal work without starting Herdr. <!-- @impl: preseed/agents/pi/SYSTEM.md::Herdr control --> <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Gate --> <!-- @manual: In a plain Codeflare terminal, request Herdr orchestration and confirm the failed gate leaves Pi doing normal terminal work without starting Herdr. -->
+3. Herdr orchestration begins only after Pi verifies that its current pane is live in Herdr. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Gate --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173 + REQ-AGENT-174: executes documented Herdr control flows) -->
+4. A separately named helper runs in a newly created unfocused pane. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Agent orchestration --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173 + REQ-AGENT-174: executes documented Herdr control flows) -->
+5. A settled helper receives a task under a bounded lifecycle wait. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Agent orchestration --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173 + REQ-AGENT-174: executes documented Herdr control flows) -->
+6. Working-agent steering is not reported complete without independent task evidence. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Agent orchestration --> <!-- @manual: In Herdr, steer a working helper and confirm Pi does not report completion until the helper provides task-specific evidence. -->
+7. Reading helper results leaves the current focus unchanged. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Agent orchestration --> <!-- @manual: In Herdr, read a helper's results and confirm the current focus remains unchanged. -->
+
+**Constraints:**
+
+- The skill uses Herdr's documented local CLI and never starts Herdr outside an existing Herdr pane.
+- A helper starts a separate agent session; the current Pi session file is never run concurrently.
+- Herdr waits are always bounded, and `unknown` never means success.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-172](#req-agent-172-herdr-preserves-the-pi-extension-policy), [REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup)
+
+**Verification:** Automated tests and manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-174: Pi safely controls Herdr topology
+
+**Intent:** Pi can fulfill direct Herdr tab and pane requests without relying on stale topology or closing active work unexpectedly.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Follow-up UI operations refresh current tab and pane state instead of reusing stale IDs. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Fast UI operations --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173 + REQ-AGENT-174: executes documented Herdr control flows) -->
+2. A visible tab number is focused only after resolving its current tab ID. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Tabs --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173 + REQ-AGENT-174: executes documented Herdr control flows) -->
+3. Side-by-side splits use the right direction, while stacked splits use the down direction. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Splits --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173 + REQ-AGENT-174: executes documented Herdr control flows) -->
+4. Pi distinguishes its calling pane from the pane currently focused in Herdr before choosing a split target. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Splits --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-173 + REQ-AGENT-174: executes documented Herdr control flows) -->
+5. Pi refuses to close its own pane. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Splits --> <!-- @test: host/__tests__/herdr-skill.test.js (REQ-AGENT-174: refuses to close the current Pi pane) -->
+6. Pi obtains user confirmation before closing a pane that may contain an active agent or process. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Splits --> <!-- @manual: In Herdr, ask Pi to close a pane running an agent or process and confirm it requests approval without closing the pane. -->
+7. A missing pane or tab ID causes one state refresh and resolved retry rather than guessed IDs or repeated command discovery. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Avoid command discovery loops --> <!-- @manual: Give Pi a stale pane or tab target and confirm it refreshes state once, retries a resolved ID once, and does not guess IDs or loop through help commands. -->
+
+**Constraints:** Every executable example resolves the configured Herdr binary within its own shell block.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-173](#req-agent-173-pi-can-orchestrate-coding-agents-through-herdr), [REQ-TERM-006](terminal.md#req-term-006-herdr-owns-in-session-terminal-topology)
+
+**Verification:** Executable skill contract tests and manual safety checks
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-176: Malformed review launches receive actionable feedback
+
+**Intent:** A malformed required reviewer or CI launch remains uncredited while telling the root exactly how to correct it.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. A malformed required reviewer or CI subagent call remains uncredited without ending the active round. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::settleRound --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-176/REQ-AGENT-177: leaves reviewer launches uncredited without an authoritative window) -->
+2. After that malformed call returns successfully, Pi emits one visible rejection naming every mismatched launch-contract field. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchRejectionFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) -->
+3. Repeated settlement does not repeat feedback for the same rejected call. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::settleRound --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) -->
+4. A corrected launch can complete the same round. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::settleRound --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) -->
+
+**Constraints:** Malformed launches never earn reviewer or CI completion credit.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-177](#req-agent-177-canonical-reviewer-launch-evidence)
+
+**Verification:** Automated Pi review-enforcement tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-177: Canonical reviewer launch evidence
+
+**Intent:** Reviewer completion consumes only launch evidence that matches the active review contract.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Pi reviewer completion requires exact standalone `scope=diff`, expected `review_range` or `review_base`, and lane-specific `output_file` assignments; prefixed or suffixed lookalikes earn no credit. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-177: counts full-PR reviewers only with exact scope, base, and output contract) -->
+2. A Pi reviewer launch without a complete authoritative review window earns no completion credit. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-176/REQ-AGENT-177: leaves reviewer launches uncredited without an authoritative window) -->
+3. Claude reviewer completion requires an assistant-originated background call through the canonical runner using only emitted head and boundary environment assignments. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::launches --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (rejects otherwise-complete rounds with noncanonical launch evidence) -->
+4. The Claude launch earns credit only after successful receipt with exact PR, lane, and range-or-base assignments. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::launches --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (rejects otherwise-complete rounds with noncanonical launch evidence) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (does not reuse completed lane launches after the exact PR head advances) -->
+
+**Constraints:** Reviewer launch evidence never substitutes values from outside the active review contract.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
+
+**Verification:** Automated Pi transcript and Claude hook tests
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-156: Bounded lossless Pi prompt
 
 **Intent:** Default and advanced Pi sessions retain Codeflare's behavioral and safety contract while Codeflare-controlled prompt content stays within 14,000 characters before provider invocation in an isolated working directory.
@@ -4586,17 +4719,19 @@ None.
 
 **Acceptance Criteria:**
 
-1. Triage waits for every required reviewer and a terminal success, failure, or timeout from the exact launched CI monitor for the same repository, PR, and head. Pi reviewer completion counts only a launch prompt carrying exact whitespace-delimited `scope=diff`, expected `review_range` or `review_base`, and lane-specific `output_file` assignment tokens; prefixed or suffixed lookalikes earn no credit. Claude reviewer completion requires an assistant-originated Bash background call using only the emitted head and boundary environment assignments, canonical runner, successful launch receipt, and exact PR, lane, and range-or-base assignments. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (treats every exact-head CI result as terminal and writes completion before FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (does not reuse completed lane launches after the exact PR head advances) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (rejects otherwise-complete rounds with noncanonical launch evidence) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-170: counts full-PR reviewers only with exact scope, base, and output contract) -->
+1. Triage waits for every required reviewer and terminal success, failure, or timeout from the exact launched CI monitor for the same repository, PR, and head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (treats every exact-head CI result as terminal and writes completion before FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
 2. CI failure or timeout requires a dedicated `Exact-head CI` triage row with the exact matching `CI_RESULT` token before acknowledgement; one outer Markdown code span does not change that token. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::triageTableIncludesRequiredCiResult --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-053/REQ-AGENT-074/REQ-AGENT-098: requires exact-head CI terminal evidence before joint triage) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (requires exact CI failure and timeout rows and accepts directive formatting) -->
 3. The triage turn makes no mutation and ends before acknowledgement delivers FIX. Its plan requires evidence and scope validation, separate judgment of findings and proposed fixes, rejection of unsupported or overengineered proposals, and the smallest correction reusing existing machinery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (automatically emits review and CI launch instructions after push, PR creation, and PR reopen) -->
 4. Every Pi review plan emits each lane's exact scope, range or base, and deterministic temporary output-path assignments as standalone copy-ready lines, with no punctuation or Markdown added to assignment values. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewerPromptContract --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (emits copy-ready standalone reviewer assignment contracts without punctuation) -->
 5. A clean successful CI round may use an empty triage table. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::triageTableIncludesRequiredCiResult --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-053/REQ-AGENT-074/REQ-AGENT-098: requires exact-head CI terminal evidence before joint triage) -->
+6. After terminal failed or timed-out CI evidence, a structurally valid table with a malformed CI row receives one correction follow-up and no acknowledgement or FIX. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendTriageCorrectionFollowUp --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (requests one canonical triage correction when a terminal CI failure row is malformed) -->
+7. A later canonical table completes the same review round. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (requests one canonical triage correction when a terminal CI failure row is malformed) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-053/REQ-AGENT-074/REQ-AGENT-098: requires exact-head CI terminal evidence before joint triage) -->
 
 **Constraints:** Reviewer and CI execution remain independent and concurrent.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
+**Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-177](#req-agent-177-canonical-reviewer-launch-evidence)
 
 **Verification:** Automated Pi transcript and Claude hook tests
 

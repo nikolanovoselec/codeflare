@@ -158,6 +158,27 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
       expect(body.sessions).toHaveLength(45);
     });
 
+    it('resolves missing and invalid historical terminal modes to classic', async () => {
+      const app = createCrudApp();
+      for (const [id, terminalMode] of [
+        ['missingmode12345', undefined],
+        ['invalidmode12345', 'future-mode'],
+      ] as const) {
+        mockKV._set(`session:test-bucket:${id}`, {
+          id,
+          name: id,
+          userId: 'test-bucket',
+          createdAt: '2024-01-15T09:00:00.000Z',
+          lastAccessedAt: '2024-01-15T09:30:00.000Z',
+          ...(terminalMode && { terminalMode }),
+        });
+      }
+
+      const res = await app.request('/sessions');
+      const body = await res.json() as { sessions: Session[] };
+      expect(body.sessions.map((session) => session.terminalMode)).toEqual(['classic', 'classic']);
+    });
+
     it('only returns sessions for the current user bucket', async () => {
       const app = createCrudApp('user-bucket');
       const mySession: Session = {
@@ -201,8 +222,32 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
       const body = await res.json() as { session: Session };
       expect(body.session.name).toBe('Terminal');
       expect(body.session.userId).toBeUndefined();
+      expect(body.session.terminalMode).toBe('classic');
       expect(body.session.id).toMatch(/^[a-f0-9]{24}$/);
       expect(mockKV.put).toHaveBeenCalled();
+    });
+
+    it('stamps Herdr only when the server preference is exactly true', async () => {
+      mockKV._set('user-prefs:test-bucket', { herdrEnabled: true });
+      const app = createCrudApp();
+      const res = await app.request('/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(201);
+      const body = await res.json() as { session: Session };
+      expect(body.session.terminalMode).toBe('herdr');
+    });
+
+    it('rejects client-selected terminal mode', async () => {
+      const app = createCrudApp();
+      const res = await app.request('/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ terminalMode: 'herdr' }),
+      });
+      expect(res.status).toBe(400);
     });
 
     it('creates a new session with custom name', async () => {
@@ -331,6 +376,25 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
   });
 
   describe('PATCH /sessions/:id', () => {
+    it('rejects terminal mode mutation', async () => {
+      const app = createCrudApp();
+      const session: Session = {
+        id: 'sessiontoupdate123',
+        name: 'Old Name',
+        userId: 'test-bucket',
+        terminalMode: 'classic',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      };
+      mockKV._set('session:test-bucket:sessiontoupdate123', session);
+      const res = await app.request('/sessions/sessiontoupdate123', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ terminalMode: 'herdr' }),
+      });
+      expect(res.status).toBe(400);
+    });
+
     it('updates session name', async () => {
       const app = createCrudApp();
       const session: Session = {
@@ -361,9 +425,9 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
         userId: 'test-bucket',
         createdAt: '2024-01-15T09:00:00.000Z',
         lastAccessedAt: '2024-01-15T09:30:00.000Z',
+        terminalMode: 'herdr',
         tabConfig: [
           { id: '1', command: 'claude --dangerously-skip-permissions', label: 'claude' },
-          { id: '2', command: 'yazi', label: 'yazi' },
         ],
       };
       mockKV._set('session:test-bucket:sessiontoupdate123', session);
@@ -373,9 +437,7 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tabConfig: [
-            { id: '1', command: 'claude --dangerously-skip-permissions', label: 'claude' },
-            { id: '2', command: 'lazygit', label: 'lazygit' },
-            { id: '3', command: 'yazi', label: 'yazi' },
+            { id: '1', command: 'pi', label: 'pi' },
           ],
         }),
       });
@@ -383,10 +445,34 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
       expect(res.status).toBe(200);
       const body = await res.json() as { session: Session };
       expect(body.session.tabConfig).toEqual([
-        { id: '1', command: 'claude --dangerously-skip-permissions', label: 'claude' },
-        { id: '2', command: 'lazygit', label: 'lazygit' },
-        { id: '3', command: 'yazi', label: 'yazi' },
+        { id: '1', command: 'pi', label: 'pi' },
       ]);
+    });
+
+    it('rejects extra terminal IDs in a Herdr session tab config', async () => {
+      const app = createCrudApp();
+      mockKV._set('session:test-bucket:sessiontoupdate123', {
+        id: 'sessiontoupdate123',
+        name: 'Herdr',
+        userId: 'test-bucket',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+        terminalMode: 'herdr',
+      });
+
+      const res = await app.request('/sessions/sessiontoupdate123', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tabConfig: [
+            { id: '1', command: 'pi', label: 'pi' },
+            { id: '2', command: '', label: 'Bash' },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ error: 'Herdr sessions require terminal ID 1 only' });
     });
 
     it('updates lastAccessedAt timestamp', async () => {

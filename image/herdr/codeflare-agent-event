@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[ "${HERDR_ENV:-}" = "1" ] || exit 0
+case "${1:-}" in
+    input-required|task-completed|task-failed) kind="$1" ;;
+    *) exit 2 ;;
+esac
+[ -n "${CONTAINER_AUTH_TOKEN:-}" ] || exit 1
+
+body=$(printf '{"kind":"%s","terminalId":"1"}' "$kind")
+curl --fail --silent --show-error \
+    --connect-timeout 1 --max-time 2 \
+    -H "Authorization: Bearer ${CONTAINER_AUTH_TOKEN}" \
+    -H 'Content-Type: application/json' \
+    --data-binary "$body" \
+    http://127.0.0.1:8080/internal/agent-events/enqueue \
+    >/dev/null

@@ -2,6 +2,7 @@ import { Component, Accessor, Show } from 'solid-js';
 import {
   mdiFastForward,
   mdiBellOutline,
+  mdiConsoleLine,
   mdiCloudSyncOutline,
   mdiContentPaste,
   mdiFileDocumentRefreshOutline,
@@ -23,6 +24,7 @@ interface SessionSectionProps {
   defaultWorkspace: Accessor<SessionWorkspace>;
   canUseAdvanced: Accessor<boolean>;
   fastStartEnabled: Accessor<boolean>;
+  herdrEnabled: Accessor<boolean>;
   workspaceSyncEnabled: Accessor<boolean>;
   clipboardAccess: Accessor<boolean>;
   notificationPermission: Accessor<AgentNotificationEnablement>;
@@ -40,6 +42,7 @@ interface SessionSectionProps {
   onSessionModeChange: (mode: 'default' | 'advanced') => void;
   onDefaultWorkspaceChange: (workspace: SessionWorkspace) => void;
   onFastStartToggle: () => void;
+  onHerdrToggle: () => void;
   onWorkspaceSyncToggle: () => void;
   onEnableAgentNotifications: () => void;
   onSleepAfterChange: (value: string) => void;
@@ -112,7 +115,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
       <Show when={props.enterpriseMode?.() || props.currentSessionMode() === 'advanced'}>
         <section class="settings-section">
           <div class="settings-section-header">
-            <Icon path={mdiFileTree} size={16} data-testid="default-workspace-icon" />
+            <Icon path={mdiFileTree} size={16} aria-hidden="true" data-testid="default-workspace-icon" />
             <h3 class="settings-section-title type-section-header">Default workspace</h3>
           </div>
           <div
@@ -155,6 +158,37 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
           </div>
         </section>
       </Show>
+
+      <section class="settings-section">
+        <div class="settings-section-header">
+          <Icon path={mdiConsoleLine} size={16} aria-hidden="true" data-testid="settings-herdr-icon" />
+          <h3 class="settings-section-title type-section-header">Terminal Experience</h3>
+        </div>
+        <div class="setting-row setting-row--clickable" onClick={(event) => {
+          if (!(event.target as HTMLElement).closest('.toggle')) props.onHerdrToggle();
+        }}>
+          <label class="type-label settings-label-with-badge" for="settings-herdr">
+            Use Herdr terminal
+            <span class="settings-beta-badge" data-testid="settings-herdr-beta">beta</span>
+          </label>
+          <button
+            type="button"
+            id="settings-herdr"
+            class={`toggle ${props.herdrEnabled() ? 'toggle-on' : ''}`}
+            onClick={props.onHerdrToggle}
+            role="switch"
+            aria-checked={props.herdrEnabled()}
+            data-testid="settings-herdr-toggle"
+          >
+            <span class="toggle-thumb" />
+          </button>
+        </div>
+        <div class="setting-row setting-row--column-gap">
+          <span class="settings-hint type-hint" data-testid="settings-herdr-hint">
+            Use Herdr for terminal workspaces, splits, panes, and built-in agent status. Leave off to use Codeflare’s standard terminal tabs and tiling. Applies to new sessions.
+          </span>
+        </div>
+      </section>
 
       {/* Agent Startup / Fast Start */}
       <section class="settings-section">

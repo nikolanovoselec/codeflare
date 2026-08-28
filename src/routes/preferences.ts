@@ -51,6 +51,7 @@ function isValidIanaTz(tz: string): boolean {
 
 const UpdatePreferencesBody = z.object({
   lastAgentType: AgentTypeSchema.optional(),
+  herdrEnabled: z.boolean().optional(),
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
@@ -65,6 +66,13 @@ function withoutLegacyPresetId(preferences: UserPreferences & { lastPresetId?: u
   return Object.fromEntries(
     Object.entries(preferences).filter(([key]) => key !== 'lastPresetId'),
   ) as UserPreferences;
+}
+
+function mergePreferences(
+  existing: UserPreferences,
+  update: object,
+): UserPreferences {
+  return { ...existing, ...update };
 }
 
 const preferencesPatchRateLimiter = createRateLimiter({
@@ -179,7 +187,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
     if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
   }
 
-  const updated: UserPreferences = { ...existing, ...body } as UserPreferences;
+  const updated = mergePreferences(existing, body);
 
   await c.env.KV.put(key, JSON.stringify(updated));
 

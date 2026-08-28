@@ -43,6 +43,11 @@ describe('AGENT_COMMANDS exhaustiveness / REQ-AGENT-001 AC1/AC2 (seven agent typ
 });
 
 describe('getDefaultTabConfig / REQ-AGENT-002 AC1/AC2/AC5 (POST /api/sessions accepts agentType field, validated against AgentTypeSchema, defaults to claude-code)', () => {
+  it('returns only the primary terminal for Herdr mode', () => {
+    expect(getDefaultTabConfig('pi', 'herdr')).toEqual([
+      { id: '1', command: 'pi', label: 'Terminal 1' },
+    ]);
+  });
   it('returns MAX_TABS tabs', () => {
     const tabs = getDefaultTabConfig('claude-code');
     expect(tabs).toHaveLength(MAX_TABS);

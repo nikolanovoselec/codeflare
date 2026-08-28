@@ -178,6 +178,13 @@ export interface AccessUser {
 /**
  * Session metadata stored in KV
  */
+const TerminalModeSchema = z.enum(['classic', 'herdr']);
+export type TerminalMode = z.infer<typeof TerminalModeSchema>;
+
+export function resolveTerminalMode(value: unknown): TerminalMode {
+  return value === 'herdr' ? 'herdr' : 'classic';
+}
+
 export interface Session {
   id: string;
   name: string;
@@ -190,6 +197,8 @@ export interface Session {
   lastActiveAt?: string;
   agentType?: AgentType;
   workspace?: SessionWorkspace;
+  /** Immutable terminal ownership stamped by the Worker at creation. */
+  terminalMode?: TerminalMode;
   /** Runtime Browser IDE readiness mirrored into KV list metadata. */
   editorReady?: boolean;
   /** Latest bounded Browser IDE warm-up exhausted; cleared on retry/readiness. */
@@ -285,7 +294,7 @@ export type UsageRecord = z.infer<typeof UsageRecordSchema>;
  * Configuration for a single terminal tab
  */
 export interface TabConfig {
-  id: string;        // "1" through "6"
+  id: string;        // internal outer terminal ID "1"
   command: string;   // Shell command or empty for bash
   label: string;     // Display label
 }
@@ -298,6 +307,8 @@ export const SleepAfterOptions: SleepAfterOption[] = ['15m', '30m', '1h', '2h', 
 
 export interface UserPreferences {
   lastAgentType?: AgentType;
+  /** Opt in future Terminal sessions to Herdr; absence is classic. */
+  herdrEnabled?: boolean;
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   sessionMode?: SessionMode;
@@ -411,6 +422,7 @@ export interface ContainerConfigPayload {
   scopedCreds: ScopedR2Creds;
   r2Config: R2ConnectionConfig;
   tabConfig: TabConfig[];
+  terminalMode: TerminalMode;
   workspaceSyncEnabled: boolean;
   fastStartEnabled: boolean;
   sessionMode: string;

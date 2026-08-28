@@ -381,6 +381,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       scopedCreds: { accessKeyId: 'ak', secretAccessKey: 'sk' },
       r2Config: { accountId: 'acct', endpoint: 'https://r2.example.com' },
       tabConfig: [{ id: '1', command: 'claude-code', label: 'Claude' }],
+      terminalMode: 'classic' as const,
       workspaceSyncEnabled: true,
       fastStartEnabled: false,
       sessionMode: 'default',

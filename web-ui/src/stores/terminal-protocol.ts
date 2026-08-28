@@ -76,7 +76,11 @@ export function parseControlMessage(messageData: string): ControlMessage {
     if (msg.type === 'restore') {
       return { kind: 'restore', state: msg.state };
     }
-    if (msg.type === 'process-name' && msg.processName) {
+    if (
+      msg.type === 'process-name'
+      && typeof msg.processName === 'string'
+      && msg.processName.length > 0
+    ) {
       return { kind: 'process-name', processName: msg.processName };
     }
     if (

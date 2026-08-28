@@ -54,7 +54,7 @@ describe('REQ-STOR-028 managed R2 policy', () => {
     expect((await buildManagedR2Policy(digest, release(), 'immutable')).digest).toBe(built.digest);
   });
 
-  it('AC2: exclusive roots derive segment-aware while sessions and root files remain outside', async () => {
+  it('REQ-STOR-032 AC1/AC2: exclusive roots derive segment-aware while sessions and root files remain outside', async () => {
     const built = await buildManagedR2Policy(digest, release(), 'exclusive');
 
     expect(built.value.resourceRoots).toEqual([
@@ -70,7 +70,7 @@ describe('REQ-STOR-028 managed R2 policy', () => {
     expect(canPrefixIntersectManagedPolicy(built.value, 'Vault/')).toBe(false);
   });
 
-  it('AC3: exclusive generation rejects a novel or later nested managed category', async () => {
+  it('REQ-STOR-032 AC3: exclusive generation rejects a novel or later nested managed category', async () => {
     for (const key of ['.claude/toolboxes/company/tool.md', '.claude/toolboxes/skills/tool.md']) {
       await expect(buildManagedR2Policy(digest, release({
         documents: [{ key, modes: ['default'] }],

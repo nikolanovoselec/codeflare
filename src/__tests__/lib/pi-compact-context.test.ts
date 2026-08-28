@@ -40,6 +40,7 @@ const EXPLICIT_ONLY_SKILLS = new Set([
   'doc-enforce-shape',
   'doc-enforce-truth',
   'git-review-pipeline',
+  'herdr',
   'review',
   'review-scope',
   'rpiv-ask-user-question',

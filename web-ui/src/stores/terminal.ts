@@ -49,14 +49,13 @@ import {
 
 const textDecoder = new TextDecoder();
 
-// Callback for process-name messages (avoids circular import with session store)
+// Callback keeps terminal transport independent from classic tab state.
 let onProcessName: ((sessionId: string, terminalId: string, processName: string) => void) | null = null;
 
-/** Register callback for process-name control messages (called by session store) */
 export function registerProcessNameCallback(
-  cb: (sessionId: string, terminalId: string, processName: string) => void
+  callback: (sessionId: string, terminalId: string, processName: string) => void,
 ): void {
-  onProcessName = cb;
+  onProcessName = callback;
 }
 
 export type { AgentEventControlMessage } from './terminal-protocol';
@@ -185,16 +184,17 @@ function getTerminal(sessionId: string, terminalId: string): Terminal | undefine
  * @param sessionId - The session ID to connect to
  * @param terminalId - The terminal tab ID within the session
  * @param terminal - The xterm.js Terminal instance
- * @param onError - Optional callback for error reporting
- * @param manual - Optional flag indicating user-created terminal tab (appends ?manual=1 to WS URL)
+ * @param _onError - Reserved callback for error reporting
+ * @param manual - User-created classic tab; skips shell autostart
  * @returns Cleanup function to cancel connection and dispose resources
  */
 function connect(
   sessionId: string,
   terminalId: string,
   terminal: Terminal,
-  onError?: (error: string) => void,
-  manual?: boolean
+  _onError?: (error: string) => void,
+  manual?: boolean,
+  processLabels = true,
 ): () => void {
   const key = makeKey(sessionId, terminalId);
 
@@ -370,8 +370,7 @@ function connect(
         return;
       }
       if (control.kind === 'process-name') {
-        logger.debug(`[Terminal ${key}] Process name: ${control.processName}`);
-        onProcessName?.(sessionId, terminalId, control.processName);
+        if (processLabels) onProcessName?.(sessionId, terminalId, control.processName);
         return;
       }
       if (control.kind === 'agent-event') {

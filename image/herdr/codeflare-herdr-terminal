@@ -1,0 +1,285 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HERDR_BIN="${HERDR_BIN:-/usr/local/bin/herdr}"
+CODEFLARE_RUNTIME_ROOT="${CODEFLARE_RUNTIME_ROOT:-/run/codeflare}"
+
+fail() {
+    printf 'codeflare-herdr: %s\n' "$1" >&2
+    exit 1
+}
+
+validate_session_id() {
+    [[ "${SESSION_ID:-}" =~ ^[a-z0-9]{8,24}$ ]] || fail "invalid SESSION_ID"
+}
+
+prepare_runtime() {
+    validate_session_id
+    HERDR_NAME="cf-${SESSION_ID}"
+    HERDR_RUNTIME_ROOT="${CODEFLARE_RUNTIME_ROOT}/herdr/${SESSION_ID}"
+    HERDR_PERSIST_ROOT="${CODEFLARE_HERDR_PERSIST_ROOT:-${HOME:-/home/user}/.codeflare}"
+    HERDR_CONFIG_LINK="${CODEFLARE_RUNTIME_ROOT}/herdr-config"
+    umask 077
+    mkdir -p "$HERDR_RUNTIME_ROOT/state" "$HERDR_PERSIST_ROOT"
+    chmod 0700 "$HERDR_RUNTIME_ROOT" "$HERDR_RUNTIME_ROOT/state"
+    if [ -L "$HERDR_CONFIG_LINK" ]; then
+        [ "$(readlink "$HERDR_CONFIG_LINK")" = "$HERDR_PERSIST_ROOT" ] \
+            || fail "Herdr config link points outside persistent state"
+    elif [ -e "$HERDR_CONFIG_LINK" ]; then
+        fail "Herdr config link path is not a symlink"
+    else
+        ln -s "$HERDR_PERSIST_ROOT" "$HERDR_CONFIG_LINK"
+    fi
+    export HERDR_SESSION="$HERDR_NAME"
+    export HERDR_CONFIG_PATH="/etc/codeflare/herdr/config.toml"
+    export HERDR_DISABLE_SOUND=1
+    # Herdr writes structural session.json below ~/.codeflare/herdr/sessions so
+    # normal home bisync carries it to R2. The short runtime symlink keeps Unix
+    # client sockets below Linux's 108-byte sun_path without syncing sockets.
+    export XDG_CONFIG_HOME="$HERDR_CONFIG_LINK"
+    export XDG_STATE_HOME="$HERDR_RUNTIME_ROOT/state"
+    export PI_CODING_AGENT_DIR="${HOME:-/home/user}/.pi/agent"
+    HERDR_SESSION_FILE="$XDG_CONFIG_HOME/herdr/sessions/$HERDR_NAME/session.json"
+    export TERMINAL_APP_STARTED=1
+}
+
+primary_command() {
+    local config="${TAB_CONFIG:-[]}" command
+    command=$(printf '%s' "$config" | jq -er '
+        if type != "array" then error("TAB_CONFIG must be an array") else . end
+        | [.[] | select(type == "object" and .id == "1")]
+        | if length == 0 then ""
+          elif length == 1 and (.[0].command | type) == "string" then .[0].command
+          else error("TAB_CONFIG must contain at most one valid primary entry") end
+    ') || fail "invalid TAB_CONFIG"
+    printf '%s' "$command"
+}
+
+wait_for_root_pane() {
+    local snapshot pane=""
+    for _ in $(seq 1 40); do
+        if snapshot=$("$HERDR_BIN" api snapshot 2>/dev/null); then
+            pane=$(printf '%s' "$snapshot" | jq -er '
+                .result.snapshot.focused_pane_id
+                // empty
+                | select(type == "string" and test("^[A-Za-z0-9._:-]{1,128}$"))
+            ' 2>/dev/null || true)
+            if [ -n "$pane" ]; then
+                printf '%s' "$pane"
+                return 0
+            fi
+        fi
+        sleep 0.25
+    done
+    fail "Herdr runtime did not expose an initial pane"
+}
+
+install_integration() {
+    local integration="$1"
+    if ! timeout 10 "$HERDR_BIN" integration install "$integration" >/dev/null; then
+        printf 'codeflare-herdr: integration install failed for %s; using process detection\n' "$integration" >&2
+    fi
+}
+
+wait_for_agent() {
+    local pane="$1" expected="$2" snapshot
+    for _ in $(seq 1 120); do
+        if snapshot=$("$HERDR_BIN" agent get "$pane" 2>/dev/null) \
+            && printf '%s' "$snapshot" | jq -e --arg expected "$expected" \
+                '.result.agent.agent == $expected' >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.25
+    done
+    fail "configured agent was not detected"
+}
+
+wait_for_process() {
+    local pane="$1" expected="$2" snapshot
+    for _ in $(seq 1 40); do
+        if snapshot=$("$HERDR_BIN" pane process-info --pane "$pane" 2>/dev/null) \
+            && printf '%s' "$snapshot" | jq -e --arg expected "$expected" \
+                '.result.process_info.foreground_processes[]? | select(.name == $expected or .argv0 == $expected)' >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.25
+    done
+    fail "configured process was not detected"
+}
+
+supports_pi_live_readiness() {
+    timeout 1 "$HERDR_BIN" --version 2>/dev/null | grep -Fxq 'herdr 0.8.2'
+}
+
+wait_for_live_pi() {
+    local max_wait_seconds="$1" snapshot deadline
+    deadline=$((SECONDS + max_wait_seconds))
+    # Pi reports full lifecycle authority after session_start, which follows
+    # fresh initialization or restored transcript loading.
+    while (( SECONDS < deadline )); do
+        if snapshot=$(timeout 1 "$HERDR_BIN" agent list 2>/dev/null) \
+            && printf '%s' "$snapshot" | jq -e '
+                [.result.agents[]? | select(.agent == "pi")] as $agents
+                | (($agents | length) > 0)
+                  and all($agents[]; .screen_detection_skipped == true)
+            ' >/dev/null 2>&1; then
+            return 0
+        fi
+        server_is_healthy || return 1
+        sleep 0.25
+    done
+    return 1
+}
+
+wait_for_restored_agent() {
+    local expected="$1" snapshot deadline
+    if [ "$expected" = "pi" ] && supports_pi_live_readiness; then
+        # Restored transcripts receive the longer bounded initialization budget.
+        wait_for_live_pi 90 && return 0
+    fi
+
+    # Preserve metadata detection for every agent and as the compatibility
+    # fallback if Pi's pinned integration signal is unavailable or times out.
+    deadline=$((SECONDS + 30))
+    while (( SECONDS < deadline )); do
+        if snapshot=$(timeout 1 "$HERDR_BIN" agent list 2>/dev/null) \
+            && printf '%s' "$snapshot" | jq -e --arg expected "$expected" \
+                '.result.agents[]? | select(.agent == $expected)' >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.25
+    done
+    return 1
+}
+
+run_agent() {
+    local pane="$1" command="$2" integration="$3" expected="$4"
+    install_integration "$integration"
+    if [ "${CODEFLARE_HERDR_RESTORING:-0}" = "1" ] \
+        && wait_for_restored_agent "$expected"; then
+        return 0
+    fi
+    timeout 10 "$HERDR_BIN" pane run "$pane" "$command" >/dev/null
+    wait_for_agent "$pane" "$expected"
+    if [ "$expected" = "pi" ] && supports_pi_live_readiness \
+        && ! wait_for_live_pi 10; then
+        printf 'codeflare-herdr: Pi live readiness unavailable; continuing after process detection\n' >&2
+    fi
+}
+
+run_process() {
+    local pane="$1" command="$2"
+    timeout 10 "$HERDR_BIN" pane run "$pane" "$command" >/dev/null
+    wait_for_process "$pane" "$command"
+}
+
+bootstrap() {
+    prepare_runtime
+    local done="$HERDR_RUNTIME_ROOT/bootstrap.done"
+    local lock="$HERDR_RUNTIME_ROOT/bootstrap.lock"
+    local generation_file="$HERDR_RUNTIME_ROOT/bootstrap.generation"
+    local generation lock_fd acquired=0
+    [ -f "$done" ] && return 0
+
+    # Older launchers used a directory lock. The runtime path is ephemeral and
+    # this version never creates a directory here, so it is always stale.
+    [ ! -d "$lock" ] || rm -rf "$lock"
+    exec {lock_fd}> "$lock"
+    for _ in $(seq 1 40); do
+        if flock -n "$lock_fd"; then
+            acquired=1
+            break
+        fi
+        [ -f "$done" ] && return 0
+        sleep 0.25
+    done
+    [ "$acquired" -eq 1 ] || fail "Herdr bootstrap remained locked"
+    if [ -f "$done" ]; then
+        flock -u "$lock_fd"
+        exec {lock_fd}>&-
+        return 0
+    fi
+    generation=$(cat "$generation_file" 2>/dev/null || true)
+
+    local pane command
+    pane=$(wait_for_root_pane)
+    command=$(primary_command)
+    case "$command" in
+        '') ;;
+        'claude'|'claude --dangerously-skip-permissions') run_agent "$pane" "$command" claude claude ;;
+        'codex') run_agent "$pane" "$command" codex codex ;;
+        'opencode') run_agent "$pane" "$command" opencode opencode ;;
+        'copilot'|'copilot --yolo') run_agent "$pane" "$command" copilot copilot ;;
+        'pi') run_agent "$pane" "$command" pi pi ;;
+        'agy'|'agy --dangerously-skip-permissions') run_agent "$pane" "$command" antigravity-cli agy ;;
+        'htop'|'yazi'|'lazygit') run_process "$pane" "$command" ;;
+        *) fail "unsupported terminal command" ;;
+    esac
+
+    if [ "$(cat "$generation_file" 2>/dev/null || true)" = "$generation" ]; then
+        : > "$done"
+        chmod 0600 "$done"
+    fi
+    flock -u "$lock_fd"
+    exec {lock_fd}>&-
+}
+
+server_is_healthy() {
+    for _ in $(seq 1 12); do
+        if timeout 1 "$HERDR_BIN" api snapshot >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.25
+    done
+    return 1
+}
+
+supervise_client() {
+    local bootstrap_pid="$1" client_status
+    while true; do
+        set +e
+        "$HERDR_BIN" --session "$HERDR_NAME"
+        client_status=$?
+        set -e
+
+        if [ -n "$bootstrap_pid" ]; then
+            wait "$bootstrap_pid" || exit $?
+            bootstrap_pid=
+        fi
+
+        if ! server_is_healthy; then
+            fail "Herdr server unavailable after client exit (client status $client_status)"
+        fi
+
+        printf '\r\nHerdr client detached; reattaching...\r\n' >&2
+        sleep 1
+    done
+}
+
+if [ "${1:-}" = "bootstrap" ]; then
+    bootstrap
+    exit 0
+fi
+
+if [ "${1:-}" = "stop" ]; then
+    prepare_runtime
+    if timeout 5 "$HERDR_BIN" session stop "$HERDR_NAME" --json >/dev/null 2>&1; then
+        generation_tmp="$HERDR_RUNTIME_ROOT/bootstrap.generation.$$"
+        printf '%s-%s\n' "$$" "$(date +%s%N)" > "$generation_tmp"
+        mv "$generation_tmp" "$HERDR_RUNTIME_ROOT/bootstrap.generation"
+        rm -f "$HERDR_RUNTIME_ROOT/bootstrap.done"
+        # Recover the directory lock used by older immutable images. Current
+        # launchers use kernel-released flock ownership on a regular file.
+        [ ! -d "$HERDR_RUNTIME_ROOT/bootstrap.lock" ] || rm -rf "$HERDR_RUNTIME_ROOT/bootstrap.lock"
+    fi
+    exit 0
+fi
+
+prepare_runtime
+if [ -f "$HERDR_SESSION_FILE" ]; then
+    export CODEFLARE_HERDR_RESTORING=1
+fi
+"$0" bootstrap &
+bootstrap_pid=$!
+
+supervise_client "$bootstrap_pid"

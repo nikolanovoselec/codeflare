@@ -95,6 +95,60 @@ describe('session-tabs store', () => {
 
       expect(state.terminalsPerSession['sess1'].tabs).toHaveLength(2);
     });
+
+    it('REQ-TERM-007 AC1: rejects invalid and duplicate persisted terminal IDs', () => {
+      localStorage.setItem('codeflare:terminalsPerSession', JSON.stringify({
+        sess1: {
+          tabs: [
+            { id: '2', createdAt: 'first' },
+            { id: '7', createdAt: 'invalid' },
+            { id: '../2', createdAt: 'invalid' },
+            { id: '2', createdAt: 'duplicate' },
+            { id: {}, createdAt: 'invalid' },
+          ],
+          activeTabId: '7',
+          tabOrder: ['7', '2', '../2', '2'],
+          tiling: { enabled: true, layout: '2-split' },
+        },
+      }));
+
+      initializeTerminalsForSession('sess1');
+
+      const terminals = state.terminalsPerSession['sess1'];
+      expect(terminals.tabs.map((tab: { id: string }) => tab.id)).toEqual(['1', '2']);
+      expect(terminals.tabOrder).toEqual(['1', '2']);
+      expect(terminals.activeTabId).toBe('1');
+    });
+
+    it('REQ-TERM-007 AC2: disables an invalid persisted tiling layout', () => {
+      localStorage.setItem('codeflare:terminalsPerSession', JSON.stringify({
+        sess1: {
+          tabs: [{ id: '1', createdAt: '' }, { id: '2', createdAt: '' }],
+          activeTabId: '1',
+          tabOrder: ['1', '2'],
+          tiling: { enabled: true, layout: 'unknown' },
+        },
+      }));
+
+      initializeTerminalsForSession('sess1');
+
+      expect(state.terminalsPerSession['sess1'].tiling).toEqual({ enabled: false, layout: 'tabbed' });
+    });
+
+    it('REQ-TERM-007 AC2: disables a persisted layout incompatible with validated tabs', () => {
+      localStorage.setItem('codeflare:terminalsPerSession', JSON.stringify({
+        sess1: {
+          tabs: [{ id: '1', createdAt: '' }, { id: '7', createdAt: '' }],
+          activeTabId: '1',
+          tabOrder: ['1', '7'],
+          tiling: { enabled: true, layout: '2-split' },
+        },
+      }));
+
+      initializeTerminalsForSession('sess1');
+
+      expect(state.terminalsPerSession['sess1'].tiling).toEqual({ enabled: false, layout: 'tabbed' });
+    });
   });
 
   describe('addTerminalTab', () => {

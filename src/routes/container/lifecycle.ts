@@ -5,7 +5,7 @@
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session, UserPreferences, LlmKeys, DeployKeys, ManagedResourcePolicy } from '../../types';
-import { resolveSessionWorkspace } from '../../types';
+import { resolveSessionWorkspace, resolveTerminalMode } from '../../types';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
 import { AuthVariables } from '../../middleware/auth';
@@ -358,9 +358,10 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     // Get container instance
     const container = getContainer(c.env.CONTAINER, containerId);
 
-    // Resolve tab config
+    // Resolve immutable terminal ownership and its outer tab configuration.
+    const terminalMode = resolveTerminalMode(sessionData.terminalMode);
     const tabConfig = sessionData.tabConfig
-      || getDefaultTabConfig(sessionData.agentType || 'claude-code');
+      || getDefaultTabConfig(sessionData.agentType || 'claude-code', terminalMode);
 
     // Enterprise-mode LLM routing (REQ-ENTERPRISE-004/005) needs NO per-session
     // injection here: the container DO wires outbound-HTTPS interception in
@@ -397,6 +398,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       scopedCreds,
       r2Config,
       tabConfig,
+      terminalMode,
       workspaceSyncEnabled,
       fastStartEnabled,
       sessionMode,

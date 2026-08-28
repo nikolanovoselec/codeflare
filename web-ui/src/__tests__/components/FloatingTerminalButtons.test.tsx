@@ -59,7 +59,8 @@ vi.mock('../../stores/terminal', () => ({
 vi.mock('../../stores/session', () => ({
   sessionStore: {
     activeSessionId: null,
-    getTerminalsForSession: vi.fn(() => null),
+    sessions: [],
+    getTerminalsForSession: vi.fn(() => ({ activeTabId: '1' })),
   },
 }));
 
@@ -99,7 +100,6 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
     cleanup();
     (sessionStore as any).activeSessionId = null;
     vi.mocked(terminalStore.getTerminal).mockReturnValue(undefined as any);
-    vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue(undefined as any);
     terminalStoreMock.authUrl = null;
     terminalStoreMock.normalUrl = null;
     workspaceMock.focusedPaneId = null;
@@ -210,7 +210,6 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
       const term = { input: vi.fn(), textarea: document.createElement('textarea') };
       setIframeInput(term as any, iframeInput);
       (sessionStore as any).activeSessionId = 'test-session';
-      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId: '1' } as any);
       vi.mocked(terminalStore.getTerminal).mockReturnValue(term as any);
       const { startListening } = await import('../../lib/speech-input');
 
@@ -277,7 +276,6 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
         textarea: document.createElement('textarea'),
       };
       (sessionStore as any).activeSessionId = 'test-session';
-      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId: '1' } as any);
       vi.mocked(terminalStore.getTerminal).mockReturnValue(term as any);
       return { term, bufferScrollLines, refresh };
     };
@@ -354,7 +352,6 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
         textarea: document.createElement('textarea'),
       };
       (sessionStore as any).activeSessionId = 'test-session';
-      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId: '1' } as any);
       vi.mocked(terminalStore.getTerminal).mockReturnValue(mockTerm as any);
 
       const readTextMock = vi.fn().mockResolvedValue('clipboard text');
@@ -399,7 +396,6 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
 
       // Configure session store to return an active session
       (sessionStore as any).activeSessionId = 'test-session';
-      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({ activeTabId: '1' } as any);
       vi.mocked(terminalStore.getTerminal).mockReturnValue({
         buffer: { active: mockBuffer },
         cols: 80,

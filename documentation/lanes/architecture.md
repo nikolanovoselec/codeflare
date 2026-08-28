@@ -63,6 +63,12 @@ graph TD
 
 The public Worker owns the edge boundary. Container credentials that must remain outside the workload are held or re-stamped at Worker-side interception boundaries. The container remains deliberately powerful inside its isolated workload and may change files or external systems permitted by its credentials and network policy.
 
+### Terminal topology ownership
+
+The Worker stamps each new Terminal session with immutable `classic` or `herdr` ownership from the authenticated user's server preference; absence resolves classic. Classic exposes up to six xterm.js surfaces with Codeflare tabs, labels, saved layouts, and tiling. Herdr exposes one outer surface at terminal ID `1`; its outer `node-pty` runs the official client through a fixed launcher, and one named server owns tabs, panes, splits, workspaces, shells, and agents inside that session. Live processes remain ephemeral, while Herdr's official structural `session.json` persists under `~/.codeflare` through normal R2 sync ([REQ-TERM-033](../../sdd/spec/terminal.md#req-term-033-durable-herdr-structural-session-recovery)). Both modes retain authenticated WebSocket transport, host `Session`, headless restore, resize authority, input classification, and prewarm adoption. Herdr-only browser adapters forward terminal-cell pointer reports and its standard `Ctrl+B` prefix; Herdr still interprets every following action key ([REQ-TERM-036](../../sdd/spec/terminal.md#req-term-036-browser-pointer-interaction-with-herdr), [REQ-TERM-037](../../sdd/spec/terminal.md#req-term-037-browser-keyboard-interaction-with-herdr)). Codeflare exposes no Herdr socket or private protocol ([AD146](../decisions/README.md#ad146-terminal-mode-is-an-immutable-per-session-choice)).
+
+MultiView remains a browser-owned cross-session workspace and may combine both modes: classic members use their active outer terminal, Herdr members use terminal `1`. Browser IDE remains a separate session service and starts no standalone Herdr runtime. See [AD146](../decisions/README.md#ad146-terminal-mode-is-an-immutable-per-session-choice).
+
 ### Deployment modes
 
 | Mode | Identity boundary | Public entry | Billing | Enterprise interception |

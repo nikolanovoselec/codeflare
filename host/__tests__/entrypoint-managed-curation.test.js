@@ -45,6 +45,7 @@ function fixture() {
   writeFileSync(join(bake, 'default/.claude/company.md'), 'baked');
   writeFileSync(join(home, '.pi/agent/extensions/codeflare.ts'), 'restored release');
   writeFileSync(join(warm, 'codeflare.ts'), 'baked image');
+  writeFileSync(join(warm, 'context-mode-runtime.ts'), 'image-owned runtime');
   return { root, home, bake, warm, runtimeRoot, events: join(root, 'events') };
 }
 
@@ -99,20 +100,23 @@ function runStartup(remoteCurationActive) {
     result,
     companyFile: join(f.home, '.claude/company.md'),
     extensionFile: join(f.home, '.pi/agent/extensions/codeflare.ts'),
+    contextModeRuntimeFile: join(f.home, '.pi/agent/extensions/context-mode-runtime.ts'),
   };
 }
 
 describe('managed curation entrypoint behavior', () => {
-  it('REQ-STOR-031 AC1/AC2: restores managed content before preparing the baseline filter', () => {
+  it('REQ-STOR-031 AC1/AC2/AC7: restores managed content and its image-owned runtime companion before baseline', () => {
     const run = runStartup(true);
 
     assert.equal(run.result.status, 0, run.result.stderr);
     assert.equal(existsSync(run.companyFile), false);
     assert.equal(readFileSync(run.extensionFile, 'utf8'), 'restored release');
+    assert.equal(readFileSync(run.contextModeRuntimeFile, 'utf8'), 'image-owned runtime');
     assert.deepEqual(readFileSync(run.events, 'utf8').trim().split('\n'), [
       'initial',
       'post-restore',
       'prepare-filter',
+      'relay',
       'cleanup',
       'baseline',
     ]);

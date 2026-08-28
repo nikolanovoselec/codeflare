@@ -169,6 +169,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   };
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled === true;
   const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;
+  const herdrEnabled = () => sessionStore.preferences.herdrEnabled === true;
   const currentSessionMode = () => sessionStore.preferences.sessionMode ?? 'default';
   const defaultWorkspace = () => sessionStore.preferences.defaultWorkspace ?? 'terminal';
   const isFreeUser = () => {
@@ -225,6 +226,10 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
   const handleFastStartToggle = () => {
     void sessionStore.updatePreferences({ fastStartEnabled: !fastStartEnabled() });
+  };
+
+  const handleHerdrToggle = () => {
+    void sessionStore.updatePreferences({ herdrEnabled: !herdrEnabled() });
   };
 
   // Implements REQ-AGENT-005
@@ -387,6 +392,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               defaultWorkspace={defaultWorkspace}
               canUseAdvanced={canUseAdvanced}
               fastStartEnabled={fastStartEnabled}
+              herdrEnabled={herdrEnabled}
               workspaceSyncEnabled={workspaceSyncEnabled}
               clipboardAccess={clipboardAccess}
               notificationPermission={notificationPermission}
@@ -404,6 +410,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               onSessionModeChange={handleSessionModeChange}
               onDefaultWorkspaceChange={handleDefaultWorkspaceChange}
               onFastStartToggle={handleFastStartToggle}
+              onHerdrToggle={handleHerdrToggle}
               onWorkspaceSyncToggle={handleWorkspaceSyncToggle}
               onEnableAgentNotifications={() => { void handleAgentNotificationsToggle(); }}
               onSleepAfterChange={handleSleepAfterChange}

@@ -101,6 +101,51 @@ describe('TerminalTabs Component', () => {
     });
   });
 
+  describe('Keyboard tab selection', () => {
+    it('REQ-TERM-007 AC1: exposes tab semantics and selects adjacent tabs with arrow keys', () => {
+      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({
+        tabs: [
+          { id: '1', createdAt: new Date().toISOString() },
+          { id: '2', createdAt: new Date().toISOString() },
+        ],
+        activeTabId: '1',
+        tabOrder: ['1', '2'],
+        tiling: { enabled: false, layout: 'tabbed' },
+      });
+
+      render(() => <TerminalTabs sessionId={mockSessionId} />);
+
+      expect(screen.getByRole('tablist')).toHaveAttribute('aria-label', 'Terminals');
+      const firstTab = screen.getByTestId('terminal-tab-1');
+      expect(firstTab).toHaveAttribute('role', 'tab');
+      expect(firstTab).toHaveAttribute('aria-selected', 'true');
+      expect(firstTab).toHaveAttribute('tabindex', '0');
+
+      fireEvent.keyDown(firstTab, { key: 'ArrowRight' });
+      expect(sessionStore.setActiveTerminalTab).toHaveBeenCalledWith(mockSessionId, '2');
+    });
+
+    it('REQ-TERM-007 AC1: selects a focused tab with Enter or Space', () => {
+      vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({
+        tabs: [
+          { id: '1', createdAt: new Date().toISOString() },
+          { id: '2', createdAt: new Date().toISOString() },
+        ],
+        activeTabId: '1',
+        tabOrder: ['1', '2'],
+        tiling: { enabled: false, layout: 'tabbed' },
+      });
+
+      render(() => <TerminalTabs sessionId={mockSessionId} />);
+      const secondTab = screen.getByTestId('terminal-tab-2');
+      fireEvent.keyDown(secondTab, { key: 'Enter' });
+      fireEvent.keyDown(secondTab, { key: ' ' });
+
+      expect(sessionStore.setActiveTerminalTab).toHaveBeenNthCalledWith(1, mockSessionId, '2');
+      expect(sessionStore.setActiveTerminalTab).toHaveBeenNthCalledWith(2, mockSessionId, '2');
+    });
+  });
+
   describe('Active Tab Styling', () => {
     it('should apply active class to active tab', () => {
       vi.mocked(sessionStore.getTerminalsForSession).mockReturnValue({

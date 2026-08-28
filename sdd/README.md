@@ -48,7 +48,7 @@ When a public behavior change affects one of these operator contracts, update bo
 |--------|-------------|----------|--------|
 | [Session Lifecycle](spec/session-lifecycle.md) | Container creation, idle detection, auto-sleep, restart | P0 | Active |
 | [Authentication](spec/authentication.md) | Dual auth (CF Access + GitHub OIDC), user provisioning | P0 | Active |
-| [Terminal](spec/terminal.md) | PTY, WebSocket, multi-tab, tiling, keyboard | P0 | Active |
+| [Terminal](spec/terminal.md) | PTY, WebSocket, classic/Herdr ownership, MultiView, keyboard | P0 | Active |
 | [Mobile](spec/mobile.md) | Touch input, virtual keyboard, scroll stability | P2 | Active |
 | [Storage](spec/storage.md) | R2 persistence, rclone bisync, quotas | P0 | Active |
 | [Subscription](spec/subscription.md) | Tiers, billing, usage tracking, quotas | P1 | Active |

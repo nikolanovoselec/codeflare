@@ -32,6 +32,7 @@ import {
   reviewTranscriptFacts,
   type ReviewBoundaryEvent,
   type ReviewLane,
+  type ReviewLaunchIssue,
 } from "./review-helpers";
 import { scopeContract } from "./review-scope";
 
@@ -469,6 +470,51 @@ function sendLaunchMessage(pi: ReviewPi, input: LaunchMessage): void {
   }, { deliverAs: "followUp", triggerTurn: true });
 }
 
+function sendTriageCorrectionFollowUp(
+  pi: ReviewPi,
+  round: ActiveRound,
+  ciResult: "failure" | "timeout",
+): void {
+  pi.sendMessage({
+    customType: "pr-boundary-triage-correction",
+    content: [
+      "## PR boundary — correct joint triage", "",
+      `Exact-head CI ended with \`${ciResult}\`, but the triage table did not include the required exact CI row.`, "",
+      REVIEW_TRIAGE_HEADER,
+      REVIEW_TRIAGE_DIVIDER,
+      `| Exact-head CI | Terminal exact-head ${ciResult} | \`CI_RESULT ${ciResult}\` | Required exact contract | Address exact-head CI before FIX |`, "",
+      "Republish the complete tool-free joint triage table with that exact FINDING and PROPOSED FIX. Make no file or Git changes. End the turn immediately.",
+    ].join("\n"),
+    display: true,
+    details: { head: round.identity.head, reviewRange: round.range, boundaryToolUseId: round.boundaryToolUseId, ciResult },
+  }, { deliverAs: "followUp", triggerTurn: true });
+}
+
+function sendLaunchRejectionFollowUp(
+  pi: ReviewPi,
+  round: ActiveRound,
+  issue: ReviewLaunchIssue,
+): void {
+  pi.sendMessage({
+    customType: "pr-boundary-launch-rejection",
+    content: [
+      "## PR boundary — rejected launch", "",
+      `The \`${issue.target}\` launch was not credited for head \`${round.identity.head}\`:`, "",
+      ...issue.problems.map((problem) => `- ${problem}`), "",
+      "Correct and relaunch only this rejected target. Review and CI completion remain pending.",
+    ].join("\n"),
+    display: true,
+    details: {
+      head: round.identity.head,
+      reviewRange: round.range,
+      boundaryToolUseId: round.boundaryToolUseId,
+      launchToolUseId: issue.toolUseId,
+      target: issue.target,
+      problems: issue.problems,
+    },
+  }, { deliverAs: "followUp", triggerTurn: true });
+}
+
 async function sendFixFollowUp(
   pi: ReviewPi,
   ctx: ReviewContext,
@@ -501,6 +547,8 @@ type ActiveRound = {
   reviewers: ReviewLane[];
   ciEvent?: ReviewBoundaryEvent;
   ignoreAgentEnds: number;
+  triageCorrectionDelivered: boolean;
+  launchRejectionsDelivered: Set<string>;
 };
 
 function liveEntries(ctx: ReviewContext): Record<string, any>[] | undefined {
@@ -615,6 +663,8 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       reviewers,
       ciEvent,
       ignoreAgentEnds: 1,
+      triageCorrectionDelivered: false,
+      launchRejectionsDelivered: new Set(),
     };
     sendLaunchMessage(pi, {
       repo: round.repo,
@@ -706,6 +756,15 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       return;
     }
     const facts = roundFacts(ctx, round);
+    const unresolvedLaunchIssues = facts.launchIssues.filter((issue) => issue.target === "ci-monitor"
+      ? !facts.ciLaunched
+      : facts.lanes[issue.target].state === "missing");
+    for (const issue of unresolvedLaunchIssues) {
+      if (round.launchRejectionsDelivered.has(issue.toolUseId)) continue;
+      round.launchRejectionsDelivered.add(issue.toolUseId);
+      sendLaunchRejectionFollowUp(pi, round, issue);
+    }
+    if (unresolvedLaunchIssues.length > 0) return;
     const laneStates = round.reviewers.map((lane) => facts.lanes[lane].state);
     if (laneStates.includes("in-flight")) return;
     if (laneStates.includes("missing") || (facts.ciRequired && !facts.ciLaunched)) {
@@ -713,7 +772,15 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       return;
     }
     if (facts.ciRequired && !facts.ciTerminal) return;
-    if (!facts.triageComplete) return;
+    if (!facts.triageComplete) {
+      if (facts.triagePresent
+        && !round.triageCorrectionDelivered
+        && (facts.ciResult === "failure" || facts.ciResult === "timeout")) {
+        round.triageCorrectionDelivered = true;
+        sendTriageCorrectionFollowUp(pi, round, facts.ciResult);
+      }
+      return;
+    }
     const refreshed = await currentReview(ctx, dependencies, round.repo);
     if (!refreshed || !sameIdentity(refreshed.identity, round.identity)) {
       await clearRound(ctx);

@@ -81,6 +81,8 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
   mkdirSync(join(fx, '.graphify'), { recursive: true });
   mkdirSync(join(fx, '.codeflare/review-state/v1/repo/branch'), { recursive: true });
   mkdirSync(join(fx, '.codeflare/review-state/v2/repo/branch'), { recursive: true });
+  mkdirSync(join(fx, '.codeflare/herdr/sessions/cf-abc12345'), { recursive: true });
+  mkdirSync(join(fx, '.codeflare/herdr/sessions/cf-other123'), { recursive: true });
   mkdirSync(join(fx, 'workspace/repo/graphify-out'), { recursive: true });
   mkdirSync(join(fx, '.cache/rclone'), { recursive: true });
   mkdirSync(join(fx, '.config/rclone'), { recursive: true });
@@ -105,6 +107,10 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
     '.codeflare/managed-paths.json': '{"schemaVersion":1}',
     '.codeflare/review-state/v1/repo/branch/pr-42-main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json': '{"version":1}',
     '.codeflare/review-state/v2/repo/branch/private.json': 'must stay local',
+    '.codeflare/herdr/sessions/cf-abc12345/session.json': '{"version":3,"workspaces":[]}',
+    '.codeflare/herdr/sessions/cf-abc12345/session-history.json': 'terminal output must stay local',
+    '.codeflare/herdr/sessions/cf-abc12345/herdr.sock': 'socket must stay local',
+    '.codeflare/herdr/sessions/cf-other123/session.json': '{"version":3,"workspaces":[]}',
     '.codeflare/private-runtime.json': 'must stay local',
     'workspace/repo/graphify-out/g.json': 'repo graph artifact',
     '.cache/rclone/junk': 'ephemeral cache',
@@ -127,6 +133,7 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
   const script = [
     'set -u',
     `SESSION_MODE="${sessionMode}"`,
+    'SESSION_ID="abc12345"',
     `SYNC_MODE="${syncMode}"`,
     filterSlice,
     // Vault inclusion tests use a default-deny tail to prove an explicit
@@ -239,6 +246,14 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
   //   EXCLUDED, so cross-session persistence is advanced-mode-only. The
   //   Uploads/Temporary trays still sync in both modes.
   // -------------------------------------------------------------------------
+  it('persists only Herdr structural session snapshots under .codeflare', () => {
+    const v = verdictUnder({ sessionMode: 'default' });
+    assert.equal(v['.codeflare/herdr/sessions/cf-abc12345/session.json'], 'INCLUDED');
+    assert.equal(v['.codeflare/herdr/sessions/cf-abc12345/session-history.json'], 'EXCLUDED');
+    assert.equal(v['.codeflare/herdr/sessions/cf-abc12345/herdr.sock'], 'EXCLUDED');
+    assert.equal(v['.codeflare/herdr/sessions/cf-other123/session.json'], 'EXCLUDED');
+  });
+
   it('default mode: positively excludes the entire vault tree (REQ-MEM-006 AC1)', () => {
     const v = verdictUnder({ sessionMode: 'default' });
     assert.equal(

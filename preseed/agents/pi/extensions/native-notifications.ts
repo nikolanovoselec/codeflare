@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
 const INPUT_NEEDED = '\u001b]777;notify;Pi;Agent needs your input\u0007';
@@ -20,6 +21,18 @@ export function isPiRpcMode(argv: readonly string[]): boolean {
 }
 
 function emit(sequence: string): void {
+  if (process.env.HERDR_ENV === '1') {
+    const kind = sequence === INPUT_NEEDED
+      ? 'input-required'
+      : sequence === TASK_FAILED
+        ? 'task-failed'
+        : 'task-completed';
+    const child = spawn('/usr/local/bin/codeflare-agent-event', [kind], {
+      stdio: 'ignore',
+    });
+    child.unref();
+    return;
+  }
   process.stdout.write(sequence);
 }
 
@@ -29,6 +42,12 @@ function emit(sequence: string): void {
 // on tool_call (a 2.x rename would silently kill the attention signal). It
 // also fires only when a questionnaire will actually open (post-validation).
 const ASK_USER_PROMPT_EVENT = 'rpiv:ask-user:prompt';
+const SUBAGENT_ACTIVE_EVENT = 'subagents:created';
+const SUBAGENT_TERMINAL_EVENTS = [
+  'subagents:completed',
+  'subagents:failed',
+  'subagents:resumed',
+] as const;
 
 export default function nativeNotifications(
   pi: ExtensionAPI,
@@ -40,6 +59,7 @@ export default function nativeNotifications(
   let run: RunState | undefined;
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let hasInteractiveLineage = false;
+  const activeSubagents = new Set<string>();
 
   const cancelIdleTimer = (clearLineage: boolean): void => {
     if (idleTimer !== undefined) clearTimeout(idleTimer);
@@ -52,11 +72,32 @@ export default function nativeNotifications(
     hasInteractiveLineage = true;
     idleTimer = setTimeout(() => {
       idleTimer = undefined;
+      if (run?.started === true || activeSubagents.size > 0) return;
       hasInteractiveLineage = false;
       emit(sequence);
     }, PI_IDLE_NOTIFICATION_DELAY_MS);
     (idleTimer as { unref?: () => void }).unref?.();
   };
+
+  const subagentId = (payload: unknown): string | undefined => {
+    if (typeof payload !== 'object' || payload === null) return undefined;
+    const id = (payload as { id?: unknown }).id;
+    return typeof id === 'string' && id.length > 0 ? id : undefined;
+  };
+
+  pi.events.on(SUBAGENT_ACTIVE_EVENT, (payload: unknown) => {
+    const id = subagentId(payload);
+    if (!id) return;
+    activeSubagents.add(id);
+    cancelIdleTimer(false);
+  });
+
+  for (const channel of SUBAGENT_TERMINAL_EVENTS) {
+    pi.events.on(channel, (payload: unknown) => {
+      const id = subagentId(payload);
+      if (id) activeSubagents.delete(id);
+    });
+  }
 
   pi.on('input', async (event) => {
     cancelIdleTimer(false);
@@ -143,6 +184,11 @@ export default function nativeNotifications(
     }
 
     if (!settledRun.interactiveInput && !hasInteractiveLineage) return;
+    if (activeSubagents.size > 0) {
+      hasInteractiveLineage = true;
+      cancelIdleTimer(false);
+      return;
+    }
     scheduleIdleNotification(
       settledRun.finalStopReason === 'error' ? TASK_FAILED : READY_FOR_INPUT,
     );

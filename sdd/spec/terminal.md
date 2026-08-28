@@ -1,6 +1,6 @@
 # Terminal
 
-PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiView workspaces, and process detection.
+PTY management, immutable classic or Herdr terminal ownership, WebSocket transport, MultiView workspaces, and browser terminal boundaries.
 
 **Domain owner:** Frontend (SolidJS + xterm.js) + Container (terminal server)
 
@@ -8,15 +8,17 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 - **PTY** -- Pseudo-terminal; the OS-level device that bridges a shell process to terminal I/O over the WebSocket.
 - **WebSocket** -- The bidirectional transport carrying raw terminal data and JSON control messages between browser and container.
-- **Terminal Tab** -- A single terminal instance within a session, identified by a compound key (`sessionId:terminalId`), each backed by its own PTY.
-- **Tiling Layout** -- An arrangement mode (tabbed, 2-split, 3-split, 4-grid) that displays multiple terminals simultaneously.
-- **MultiView** -- A virtual frontend workspace that displays multiple existing sessions at once without creating another backend session.
+- **Terminal Mode** -- The immutable `classic` or `herdr` ownership choice stamped when a session is created; missing or invalid historical values resolve to `classic`.
+- **Terminal Surface** -- One xterm.js and outer PTY. Classic sessions expose terminal IDs `1` through `6`; Herdr sessions expose only terminal ID `1`.
+- **Herdr Runtime** -- The named, container-local terminal multiplexer that owns tabs, panes, splits, workspaces, shells, and agents inside an opt-in Herdr session.
+- **MultiView** -- A virtual frontend workspace that displays one active surface from each of multiple existing backend sessions without creating another backend session.
 
 ### Out of Scope
 
 - Terminal recording and playback (session replay)
 - Collaborative terminal sharing (multi-user viewing or input on the same PTY)
 - Saved terminal command presets / header "bookmarks" (feature removed; see [changes.md](changes.md))
+- Running Codeflare and Herdr topology controls simultaneously inside one session
 
 ### Domain Dependencies
 
@@ -25,31 +27,58 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ---
 
-### REQ-TERM-001: Up to 6 terminal tabs per session
+### REQ-TERM-001: Terminal surface count follows session mode
 
-**Intent:** Each session supports multiple concurrent terminal instances (up to 6) so users can run an agent in one tab and auxiliary commands in others.
+**Intent:** Each Terminal session preserves its immutable ownership mode: classic exposes Codeflare tabs and tiling, while Herdr exposes one outer surface and owns inner topology.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The maximum terminal count per session is six, defined as a shared constant referenced by both frontend and backend so neither can drift. <!-- @impl: src/lib/constants.ts::MAX_TABS = 6 --> <!-- @test: src/__tests__/lib/cross-package-constants.test.ts (Cross-Package Constants / REQ-TERM-001 AC1 (MAX_TABS=6 enforced session-wide, shared backend<->frontend constant)) -->
-2. Each terminal tab is identified by a compound key built from the session ID and the per-tab terminal ID; the same identity travels through the WebSocket URL. <!-- @impl: src/routes/terminal.ts::validateWebSocketRoute --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (REQ-TERM-001 AC2: compound key {baseSession}-{terminalId} parsed from URL) -->
-3. The backend parses the compound ID, validates the base session, and forwards the full compound ID into the container. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (REQ-TERM-001 AC2: compound key {baseSession}-{terminalId} parsed from URL) -->
-4. The container's session manager handles each compound ID as a separate PTY process with independent state. <!-- @impl: host/src/session-manager.ts::SessionManager --> <!-- @test: host/__tests__/session-manager.test.js (SessionManager) -->
-5. The container's session cap check excludes pre-warmed PTYs from the active count so pre-warming does not consume a tab slot. <!-- @impl: host/src/session-manager.ts::SessionManager --> <!-- @test: host/__tests__/session-manager.test.js (SessionManager) -->
-6. Attempting to create a seventh terminal in a session is rejected. <!-- @impl: web-ui/src/stores/session-tabs.ts::addTerminalTab --> <!-- @test: web-ui/src/__tests__/stores/session-tabs.test.ts (returns null when max terminals reached) -->
+1. Classic single-session view supports terminal IDs `1` through `6`, tabs, labels, saved layouts, and tiling. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders classic tabs and tiling controls) -->
+2. Herdr view mounts one outer xterm.js surface at terminal ID `1` without classic topology controls. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders one Herdr surface without classic tabs or tiling controls) -->
+3. Dashboard view mounts no terminal surface. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-TERM-011: renders no terminal panes on Dashboard even when sessions are running) -->
+4. A VS Code workspace mounts no standalone terminal surface. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (does not give a VS Code active session terminal workspace or WebSocket ownership) -->
+5. MultiView resolves each member from its ownership mode. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::openMultiView --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (resolves mixed MultiView members by immutable terminal mode) -->
 
 **Constraints:**
 
-- The frontend's compound-key encoding and the backend's URL-path encoding must be reversible into the same logical identity; mismatched encodings would break tab adoption.
-- Terminal IDs are scoped within a session; they are not globally unique.
+- The stable WebSocket path remains `/api/terminal/{sessionId}-{terminalId}/ws`.
+- Previously deleted browser-local layouts cannot be recovered; absent classic layout state initializes defaults.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-TERM-034](#req-term-034-terminal-mode-assignment-is-immutable)
+
+**Verification:** Automated frontend and terminal-route tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-034: Terminal mode assignment is immutable
+
+**Intent:** Session ownership is selected only at creation, remains stable for the session lifetime, and defaults safely for historical records.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. New sessions use classic ownership by default and Herdr ownership only after the authenticated user opts in. <!-- @impl: src/routes/session/crud.ts::default --> <!-- @test: src/__tests__/routes/session.test.ts (creates a new session with default name) --> <!-- @test: src/__tests__/routes/session.test.ts (stamps Herdr only when the server preference is exactly true) -->
+2. Missing or invalid historical ownership resolves to classic. <!-- @impl: src/types.ts::resolveTerminalMode --> <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession --> <!-- @test: src/__tests__/routes/session.test.ts (resolves missing and invalid historical terminal modes to classic) -->
+3. Changing the preference never mutates an existing session's mode. <!-- @impl: src/routes/preferences.ts::mergePreferences --> <!-- @test: src/__tests__/routes/preferences.test.ts (persists Herdr preference independently of existing session records) -->
+4. Clients cannot choose or patch the authoritative stamp. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session.test.ts (rejects client-selected terminal mode) --> <!-- @test: src/__tests__/routes/session.test.ts (rejects terminal mode mutation) -->
+5. Settings presents Herdr as a beta option, contrasts its workspaces, splits, panes, and agent status with classic tabs and tiling, and states that the choice applies to new sessions. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-TERM-034 AC5: explains Herdr and marks the terminal experience as beta) -->
+
+**Constraints:**
+
+- The persisted session stamp, never current preference or browser input, governs routing, startup, resume, prewarm, cleanup, and rendering.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation)
 
-**Verification:** Automated test ([terminal-route-validate](../../src/__tests__/routes/terminal-route-validate.test.ts))
+**Verification:** Automated preference and session-route tests.
 
 **Status:** Implemented
 
@@ -57,16 +86,17 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ### REQ-TERM-002: WebSocket connection to container PTY
 
-**Intent:** Each terminal tab connects to its PTY process inside the container via a WebSocket, carrying raw terminal data bidirectionally.
+**Intent:** Each terminal surface connects to its outer PTY through the existing WebSocket; classic renders its shell or agent directly and Herdr renders the official client without a new browser protocol.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The WebSocket URL embeds the compound terminal identity (session ID and per-tab terminal ID) on a stable path under the terminal route. <!-- @impl: src/routes/terminal.ts::validateWebSocketRoute --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (REQ-TERM-002 AC1: WS URL pattern /api/terminal/{sessionId}-{terminalId}/ws) -->
-2. The Worker upgrades the HTTP request to a WebSocket and forwards it through the Container DO to the in-container terminal server. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal.test.ts (validateWebSocketRoute / REQ-TERM-002 (terminal WebSocket connection to container PTY)) -->
-3. The terminal server spawns a login shell PTY with full-color terminal emulation so interactive TUI applications render correctly. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-002 AC3: PTY spawned as a full-color login shell) -->
-4. Raw terminal data flows over the WebSocket without JSON wrapping so binary-clean PTY output is preserved. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-002 AC4: raw PTY output reaches clients without JSON wrapping) -->
+1. The stable WebSocket route accepts a backend session identity and terminal IDs `1` through `6`. <!-- @impl: src/routes/terminal.ts::validateWebSocketRoute --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (REQ-TERM-002 AC1: WS URL pattern /api/terminal/{sessionId}-{terminalId}/ws) -->
+2. Authenticated session lookup rejects IDs above `1` for Herdr while permitting valid classic IDs. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (mode-aware terminal authorization) -->
+3. The Worker upgrades the HTTP request to a WebSocket and forwards it through the Container DO to the in-container terminal server. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal.test.ts (validateWebSocketRoute / REQ-TERM-002 (terminal WebSocket connection to container PTY)) -->
+4. Each mode starts its owned terminal experience in a full-color PTY. <!-- @impl: host/src/server.ts::TERMINAL_MODE --> <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/terminal-mode.test.js (defaults missing and invalid values to classic login Bash) --> <!-- @test: host/__tests__/terminal-mode.test.js (selects the fixed Herdr launcher without shell arguments) -->
+5. Raw terminal data flows over the WebSocket without JSON wrapping so binary-clean PTY output is preserved. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-002 AC5: raw PTY output reaches clients without JSON wrapping) -->
 
 **Constraints:**
 
@@ -197,118 +227,182 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ---
 
-### REQ-TERM-005: Tab 1 auto-starts the configured agent
+### REQ-TERM-005: Herdr runtime and configured agent startup
 
-**Intent:** The first terminal tab in a session automatically launches the user's selected AI agent so they can start coding immediately without manual setup.
+**Intent:** An opt-in Herdr Terminal session starts one pinned runtime and bootstraps the configured command once; classic sessions retain direct shell startup.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The Container DO passes the per-tab agent configuration to the terminal server at container start so the server knows which agent to launch in tab 1. <!-- @impl: host/src/prewarm-config.ts::getPrewarmConfig --> <!-- @test: host/__tests__/prewarm-readiness.test.js (when tab 1 has a command / REQ-AGENT-003 (agent CLI auto-started in tab 1) / REQ-TERM-005 (pre-warm pty)) -->
-2. Tab 1 is pre-warmed at container start: the terminal server spawns a dedicated pre-warm PTY whose login shell reads the user's shell init. <!-- @impl: host/src/server.ts::prewarmSession --> <!-- @test: host/__tests__/prewarm-readiness.test.js (when tab 1 has a command / REQ-AGENT-003 (agent CLI auto-started in tab 1) / REQ-TERM-005 (pre-warm pty)) -->
-3. The shell init reads the per-tab configuration and launches the configured agent (Claude Code, Codex, Antigravity, OpenCode, Copilot CLI, or Pi), each in non-interactive sandboxed mode appropriate for its CLI, or a plain bash shell when the tab is configured with no agent. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC1 dynamic: TAB_CONFIG with id=1 command=lazygit emits the lazygit launch for tab 1 (overrides the default claude)) -->
-4. Pre-warm readiness is detected by the first PTY output; a bounded hard timeout acts as a safety net so a permanently silent agent does not stall startup. <!-- @impl: host/src/server.ts::prewarmReady --> <!-- @test: host/__tests__/prewarm-readiness.test.js (when tab 1 has a command / REQ-AGENT-003 (agent CLI auto-started in tab 1) / REQ-TERM-005 (pre-warm pty)) -->
-5. When the first WebSocket client connects for tab 1, the pre-warmed session is adopted (re-bound from the pre-warm identifier to the real terminal ID). If no client adopts it within a bounded window, the pre-warmed session is killed. <!-- @impl: host/src/session-manager.ts::SessionManager --> <!-- @test: host/__tests__/session-manager.test.js (SessionManager) -->
-6. The startup status stage progresses through a fixed pipeline: starting -> syncing -> verifying -> mounting (pre-warm in progress, terminal canvas hidden) -> ready (pre-warm complete, "Open" control appears). <!-- @impl: web-ui/src/lib/stages.ts::stageOrder --> <!-- @test: web-ui/src/__tests__/lib/stages.test.ts (orders stages in correct progression (creating < starting < syncing < ... < ready)) -->
+1. The built image provides one verified, attributed Herdr runtime with managed non-updating terminal settings. <!-- @impl: Dockerfile::HERDR_VERSION --> <!-- @impl: image/herdr/config.toml::version_check --> <!-- @manual: The container-image workflow verifies the installed Herdr version, managed configuration, executable mode, license, provenance, SBOM, and vulnerability scan. -->
+2. Each Herdr session starts or attaches to one deterministic private runtime, including at the maximum session-ID length. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (rejects malformed session identity before invoking Herdr) --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps the maximum-length session client socket within the Linux path limit) -->
+3. Classic sessions never start or stop Herdr. <!-- @impl: host/src/server.ts::TERMINAL_MODE --> <!-- @test: host/__tests__/terminal-mode.test.js (defaults missing and invalid values to classic login Bash) -->
+4. The launcher submits the reviewed configured command and publishes bootstrap readiness only after bounded expected-agent or process detection. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (submits fixed commands and waits for expected detection) -->
+5. Bash or empty configuration remains a plain shell. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (leaves Bash untouched and maps ordinary TUI commands without shell interpolation) -->
+6. Later Herdr tabs and panes open plain Bash instead of repeating Codeflare agent autostart. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @manual: In integration, start a configured agent, open a new Herdr tab and pane, and confirm each new shell is plain Bash. -->
 
 **Constraints:**
 
-- Fast Start is on by default and disables CLI auto-update checks for all supported agents so startup is not blocked on remote version lookups.
-- The pre-warm PTY uses a login shell so the shell-init agent-autostart logic runs.
-- Agent auto-start requests sandbox-mode permission bypass so the agent starts non-interactively without prompting the user inside the pre-warm window.
+- Herdr is pinned to v0.8.2, commit `9eb521456ac0d19d3ab3d9d7cea3cca10baa8a4c`, with Linux x86-64 SHA-256 `976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4` and Apache-2.0 attribution.
+- The launcher validates `SESSION_ID`, derives only `cf-<SESSION_ID>`, reads only `TAB_CONFIG` entry `1`, exports `TERMINAL_APP_STARTED=1`, and uses mode-0700 state under `/run/codeflare/herdr/<SESSION_ID>`.
+- Herdr live processes and runtime artifacts stay container-local; only the structural snapshot defined by [REQ-TERM-033](#req-term-033-durable-herdr-structural-session-recovery) enters R2. No Herdr socket, API, or private client protocol is exposed through Worker routes.
+- Startup maps reviewed values to fixed argv and never interpolates browser or `TAB_CONFIG` text into a shell command.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-SESSION-003](session-lifecycle.md#req-session-003-r2-bucket-mounted-and-synced-on-start), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated test ([Integration test](../../host/__tests__/prewarm-readiness.test.js))
+**Verification:** Automated launcher tests plus container-image and manual verification.
 
 **Status:** Implemented
 
 ---
 
-### REQ-TERM-006: User-created tabs start with plain bash
+### REQ-TERM-035: Terminal readiness follows mode and workspace
 
-**Intent:** Tabs created by the user (clicking "+") start a plain bash shell without auto-launching an agent, giving the user a general-purpose terminal.
+**Intent:** Prewarm settlement follows the immutable terminal mode while Browser IDE workspaces remain independent from the host terminal runtime.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Tabs created by the user are marked manual in the tab configuration so downstream components can branch on the distinction. <!-- @impl: web-ui/src/stores/session-tabs.ts::addTerminalTab --> <!-- @test: web-ui/src/__tests__/stores/session-tabs.test.ts (REQ-TERM-006 AC1: marks a user-created tab with the manual flag) -->
-2. The manual flag is propagated to the container via a query parameter on the WebSocket upgrade URL. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (REQ-TERM-006 AC2: connect() propagates the manual flag onto the WebSocket URL) -->
-3. The terminal server exposes the manual flag to the PTY environment so the shell init can read it. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-process-name.test.js (a manual session exposes MANUAL_TAB=1 in the PTY env) -->
-4. The shell init skips its agent-autostart block when the manual flag is set. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/session-process-name.test.js (Session PTY env / REQ-TERM-006 AC3 (MANUAL_TAB exposure)) -->
-5. The resulting PTY is a plain login shell with no agent running. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @manual -->
+1. Terminal prewarm preserves the existing outer Session and adoption flow. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @manual: In integration, confirm both stamped modes adopt the prewarmed outer Session. -->
+2. Herdr does not report readiness until configured-command bootstrap completes. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @impl: host/src/terminal-mode.ts::isPrewarmTimeoutReady --> <!-- @test: host/__tests__/terminal-mode.test.js (REQ-AGENT-003 AC6 / REQ-TERM-035 AC2: Herdr timeout readiness requires bootstrap) -->
+3. Classic retains first-output readiness and its bounded timeout fallback. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @manual: In integration, confirm classic settles from first PTY output and remains reachable after the timeout fallback. -->
+4. VS Code workspaces start no Herdr runtime and retain existing Browser IDE terminal profiles. <!-- @impl: host/src/server.ts::SESSION_WORKSPACE --> <!-- @test: host/__tests__/workspace-readiness.test.js (never constructs, inserts, or starts a host Session for VS Code) -->
+5. An expired Herdr prewarm without completed bootstrap terminates the terminal host for container recovery instead of remaining indefinitely in preparation. <!-- @impl: host/src/server.ts::server.listen --> <!-- @impl: host/src/prewarm-readiness.ts::handlePrewarmOrphanExpiry --> <!-- @test: host/__tests__/prewarm-orphan-expiry.test.js (REQ-TERM-035 AC5: orphan expiry terminates unbootstrapped Herdr after cleanup) -->
+6. Fresh Herdr Pi sessions do not report ready before Pi finishes initialization when supported readiness evidence is available. <!-- @impl: image/herdr/codeflare-herdr-terminal::run_agent --> <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_live_pi --> <!-- @test: host/__tests__/herdr-launcher.test.js (waits for live Pi integration on a fresh start) -->
+7. Unsupported or unavailable readiness evidence does not block access after normal fresh Pi startup. <!-- @impl: image/herdr/codeflare-herdr-terminal::supports_pi_live_readiness --> <!-- @impl: image/herdr/codeflare-herdr-terminal::run_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (uses regular fresh Pi startup when native readiness version changes) --> <!-- @test: host/__tests__/herdr-launcher.test.js (uses regular fresh Pi startup when the native readiness probe hangs) --> <!-- @test: host/__tests__/herdr-launcher.test.js (uses regular fresh Pi startup when pinned live readiness fails) -->
 
 **Constraints:**
 
-- The manual flag is a frontend-originated UX hint; the backend trusts it for tab-behavior selection but not for security decisions.
-- Manual tabs still have access to all installed CLI tools; the user can launch any agent from the shell.
+- Readiness uses the persisted session stamp rather than current preferences.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-TERM-001](#req-term-001-up-to-6-terminal-tabs-per-session)
+**Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-SESSION-015](session-lifecycle.md#req-session-015-pre-warmed-agent-startup)
 
-**Verification:** Automated test
-
-**Status:** Implemented
-
----
-
-### REQ-TERM-007: Tiling layouts (2-split, 3-split, 4-grid)
-
-**Intent:** Users can arrange terminal tabs in tiled layouts for simultaneous visibility of multiple terminals, in addition to the default tabbed view.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Four layout modes are supported: tabbed (single terminal visible), two-split (side by side), three-split (one left, two right), and four-grid (2x2). <!-- @impl: web-ui/src/stores/tiling.ts::LAYOUT_MIN_TABS --> <!-- @test: web-ui/src/__tests__/stores/tiling.test.ts (should define minimum tab counts for each layout) -->
-2. Each layout has a minimum tab count equal to the number of panes it shows. <!-- @impl: web-ui/src/stores/tiling.ts::isLayoutCompatible --> <!-- @test: web-ui/src/__tests__/stores/tiling.test.ts (Tiling Module - Pure Helpers / REQ-TERM-007 (tiling layout selection, compatibility check, best-fit-for-tab-count, setTilingLayout)) -->
-3. A compatibility check validates whether a session has enough tabs for the requested layout before applying it. <!-- @impl: web-ui/src/stores/tiling.ts::isLayoutCompatible --> <!-- @test: web-ui/src/__tests__/stores/tiling.test.ts (Tiling Module - Pure Helpers / REQ-TERM-007 (tiling layout selection, compatibility check, best-fit-for-tab-count, setTilingLayout)) -->
-4. Adding a tab beyond the current layout's pane count downgrades the layout to tabbed rather than auto-upgrading to a larger tiling layout. <!-- @impl: web-ui/src/stores/session-tabs.ts::addTerminalTab --> <!-- @test: web-ui/src/__tests__/stores/tiling.test.ts (Tiling Module - Pure Helpers / REQ-TERM-007 (tiling layout selection, compatibility check, best-fit-for-tab-count, setTilingLayout)) -->
-5. A best-layout helper resolves the highest layout compatible with a given tab count so the UI can land users on the most spacious view by default. <!-- @impl: web-ui/src/stores/tiling.ts::getBestLayoutForTabCount --> <!-- @test: web-ui/src/__tests__/stores/tiling.test.ts (Tiling Module - Pure Helpers / REQ-TERM-007 (tiling layout selection, compatibility check, best-fit-for-tab-count, setTilingLayout)) -->
-6. Layout state is persisted per session and restored on reconnection. <!-- @impl: web-ui/src/stores/tiling.ts::setTilingLayout --> <!-- @test: web-ui/src/__tests__/stores/tiling.test.ts (should return tiling state for initialized session) -->
-7. Applying an incompatible layout (insufficient tabs) or targeting a missing session fails cleanly rather than partially applying. <!-- @impl: web-ui/src/stores/tiling.ts::setTilingLayout --> <!-- @test: web-ui/src/__tests__/stores/tiling.test.ts (Tiling Module - Store Integration) -->
-
-**Constraints:**
-
-- The tiling store accesses the session store lazily to avoid a circular dependency between the two pieces of UI state.
-- Layout changes trigger terminal resize events so the rendering library reflows content.
-
-**Priority:** P2
-
-**Dependencies:** [REQ-TERM-001](#req-term-001-up-to-6-terminal-tabs-per-session)
-
-**Verification:** Automated test ([tiling](../../web-ui/src/__tests__/stores/tiling.test.ts))
+**Verification:** Automated workspace tests plus manual mode-specific readiness verification.
 
 **Status:** Implemented
 
 ---
 
-### REQ-TERM-030: Tiled pane focus lifecycle
+### REQ-TERM-006: Herdr owns in-session terminal topology
 
-**Intent:** Users can move focus among visible tiled terminals without interrupting any terminal session.
+**Intent:** In sessions stamped Herdr, users create tabs, Bash shells, panes, splits, and workspaces inside Herdr rather than through duplicate Codeflare controls.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Clicking a visible tile moves focus to that tile. <!-- @impl: web-ui/src/components/TiledTerminalContainer.tsx::TiledTerminalContainer --> <!-- @test: web-ui/src/__tests__/components/TiledTerminalContainer.test.tsx (REQ-TERM-030 AC1/AC2: clicking a tile changes focus without remounting terminal panes) -->
-2. Moving focus between visible tiles does not remount any terminal pane. <!-- @impl: web-ui/src/components/TiledTerminalContainer.tsx::orderedPanes --> <!-- @test: web-ui/src/__tests__/components/TiledTerminalContainer.test.tsx (REQ-TERM-030 AC1/AC2: clicking a tile changes focus without remounting terminal panes) -->
-3. Moving focus between visible connected panes does not reconnect their WebSockets. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal) -->
+1. Codeflare renders no per-session terminal tab bar or within-session tiling controls for a Herdr session. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders one Herdr surface without classic tabs or tiling controls) -->
+2. The official Herdr client receives keyboard, mouse, focus, and resize input through the existing terminal surface. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (resize handling) -->
+3. Herdr-created tabs and panes start plain Bash unless the user explicitly launches another command. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (leaves Bash untouched and maps ordinary TUI commands without shell interpolation) -->
+4. Browser disconnect preserves the outer PTY and named Herdr runtime while the container remains alive, and repeated client exits reattach while the server remains healthy. <!-- @impl: host/src/session.ts::Session --> <!-- @impl: image/herdr/codeflare-herdr-terminal::supervise_client --> <!-- @test: host/__tests__/herdr-launcher.test.js (reattaches after repeated client exits while the Herdr server remains healthy) --> <!-- @manual: In integration, disconnect and reconnect the browser while the container remains alive and confirm the same Herdr tabs, panes, and running processes remain. -->
+5. Terminal and container lifecycle shutdowns stop the named Herdr runtime without orphan descendants. <!-- @impl: host/src/session.ts::kill --> <!-- @impl: host/src/server.ts::stopTerminalRuntime --> <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/session-wire-protocol.test.js (kill() invokes the injected terminal-runtime cleanup exactly once) --> <!-- @test: host/__tests__/herdr-launcher.test.js (stops only the deterministic named runtime) --> <!-- @manual: In integration, stop and delete a Terminal session and confirm no named Herdr runtime or descendants remain. -->
 
 **Constraints:**
 
-- Focus changes preserve mounted pane identity; adding, removing, or reordering tab IDs may reconcile the affected pane subtree.
+- Classic is a complete independent terminal mode, not a second topology layer inside a Herdr session.
+- Codeflare adds no browser Herdr protocol.
+- Browser IDE integrated terminals remain outside this runtime.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-TERM-001](#req-term-001-terminal-surface-count-follows-session-mode), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
+
+**Verification:** Automated frontend, launcher, and host cleanup tests plus manual lifecycle verification.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-033: Durable Herdr structural session recovery
+
+**Intent:** A Herdr session can reconstruct its terminal topology after container replacement without persisting terminal output or pretending arbitrary processes survived.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Herdr writes its official structural session snapshot beneath the R2-synced `.codeflare` home directory while sockets, locks, logs, and other runtime state remain under the ephemeral runtime root. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps the maximum-length session client socket within the Linux path limit) -->
+2. Normal home restore makes the snapshot available before Herdr prewarm, and normal periodic, manual, and final sync carry later snapshots to R2 without a separate upload channel. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (persists only Herdr structural session snapshots under .codeflare) -->
+3. Restoring `session.json` may recover workspaces, tabs, panes, layout, cwd, focus, and supported native agent session references; it does not claim to preserve running shells, arbitrary processes, or terminal output. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_restored_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (falls back to persisted agent metadata when Pi lifecycle readiness is unavailable) --> <!-- @manual: Replace a stopped Herdr container after a successful sync and confirm structural topology restores without prior pane output. -->
+4. Pane history, client and API sockets, updater state, logs, and user-edited Herdr configuration remain excluded from R2. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (persists only Herdr structural session snapshots under .codeflare) -->
+5. With the pinned Pi integration, restored Pi panes delay readiness until every resumed Pi session has loaded its transcript and established live lifecycle authority. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_live_pi --> <!-- @test: host/__tests__/herdr-launcher.test.js (waits for live Pi integration before completing restored bootstrap) -->
+6. If the versioned Pi readiness signal is unavailable, restored metadata retains the compatibility path to readiness. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_restored_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (falls back to persisted agent metadata when Pi lifecycle readiness is unavailable) -->
+7. If live Pi readiness fails within its bounded wait, restored metadata retains the same compatibility path to readiness. <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_restored_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (falls back to persisted metadata when pinned Pi live readiness fails) -->
+
+**Constraints:**
+
+- Snapshot durability follows the existing 15-minute bisync cadence, explicit Sync trigger, and final-sync boundary; abrupt loss may discard changes newer than the last successful sync.
+- `session-history.json` remains excluded because terminal output may contain prompts, credentials, tokens, and command output.
+- Recovery uses Herdr v0.8.2's official snapshot format; Codeflare defines no parallel snapshot schema.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-STOR-002](storage.md#req-stor-002-file-persistence-across-sessions), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
+
+**Verification:** Automated launcher and rclone-filter tests plus manual replacement acceptance.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-007: Classic topology remains available
+
+**Intent:** Sessions stamped classic retain the proven Codeflare tab, process-label, saved-layout, and tiling experience.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Classic session state owns up to six canonical ordered tabs and active-tab identity. <!-- @impl: web-ui/src/stores/session-tabs.ts::initializeTerminalsForSession --> <!-- @impl: web-ui/src/stores/session-tabs.ts::reorderTerminalTabs --> <!-- @test: web-ui/src/__tests__/stores/session-tabs.test.ts (REQ-TERM-007 AC1: rejects invalid and duplicate persisted terminal IDs) -->
+2. On load, a supported saved layout compatible with the normalized tab count remains enabled; an unknown or incompatible layout resolves to disabled tabbed mode. <!-- @impl: web-ui/src/stores/session-tabs.ts::normalizeSessionTerminals --> <!-- @impl: web-ui/src/stores/tiling.ts::getTilingForSession --> <!-- @test: web-ui/src/__tests__/stores/session-tabs.test.ts (REQ-TERM-007 AC2: disables an invalid persisted tiling layout) --> <!-- @test: web-ui/src/__tests__/stores/session-tabs.test.ts (REQ-TERM-007 AC2: disables a persisted layout incompatible with validated tabs) --> <!-- @test: web-ui/src/__tests__/stores/tiling.test.ts (Tiling Module - Pure Helpers / REQ-TERM-007 (tiling layout selection, compatibility check, best-fit-for-tab-count, setTilingLayout)) -->
+3. Classic terminal view exposes the established tab bar, manual Bash-tab action, drag ordering, and tiling controls. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders classic tabs and tiling controls) -->
+4. Herdr terminal view suppresses Codeflare topology controls. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders one Herdr surface without classic tabs or tiling controls) -->
+5. Classic right-click paste preserves existing permission behavior. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (should read clipboard on right-click when clipboardAccess is enabled) -->
+6. Classic mobile gestures preserve buffer-authoritative scrolling and keyboard-open navigation. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (scrolls the buffer on vertical swipe when keyboard is closed) -->
+7. Valid process labels update only the targeted classic outer tab. <!-- @impl: web-ui/src/stores/session-tabs.ts::updateTerminalLabel --> <!-- @test: web-ui/src/__tests__/stores/update-terminal-label.test.ts (REQ-TERM-009 AC2: only mutates the targeted terminalId, leaves siblings untouched) -->
+
+**Constraints:**
+
+- The `codeflare:terminalsPerSession` state is retained for classic sessions; absent state initializes defaults.
+- Herdr sessions never read that state as topology authority.
 
 **Priority:** P2
 
-**Dependencies:** [REQ-TERM-007](#req-term-007-tiling-layouts-2-split-3-split-4-grid)
+**Dependencies:** [REQ-TERM-006](#req-term-006-herdr-owns-in-session-terminal-topology)
 
-**Verification:** Automated test ([tiled terminal container](../../web-ui/src/__tests__/components/TiledTerminalContainer.test.tsx))
+**Verification:** Automated single-surface behavior plus source and dependency review.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-030: Herdr owns inner pane focus lifecycle
+
+**Intent:** Focus changes inside an opt-in Herdr session belong to Herdr; classic retains Codeflare outer-pane focus, and MultiView coordinates focus among backend-session surfaces.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Codeflare has no inner pane focus model for a Herdr session. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders one Herdr surface without classic tabs or tiling controls) -->
+2. Classic focus remains attached to visible outer terminal tabs or tiles. <!-- @impl: web-ui/src/components/TerminalTabs.tsx::TerminalTabs --> <!-- @test: web-ui/src/__tests__/components/TerminalTabs.test.tsx (REQ-TERM-007 AC1: exposes tab semantics and selects adjacent tabs with arrow keys) -->
+3. MultiView focus moves among mounted backend-session surfaces without remounting or reconnecting them. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal) -->
+
+**Constraints:**
+
+None.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-TERM-006](#req-term-006-herdr-owns-in-session-terminal-topology), [REQ-TERM-012](#req-term-012-multiview-virtual-session-workspace)
+
+**Verification:** Automated TerminalArea and terminal focus tests.
 
 **Status:** Implemented
 
@@ -344,32 +438,29 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ---
 
-### REQ-TERM-009: Process name detection via control messages
+### REQ-TERM-009: Process-label ownership follows terminal mode
 
-**Intent:** The terminal server detects the foreground process running in each PTY and sends the process name to the frontend for display in tab labels and session cards.
+**Intent:** Classic keeps outer process labels, while Herdr sessions label the one outer surface by backend session identity and leave inner process and agent state to Herdr.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The terminal server emits process-name control messages over the WebSocket whenever the foreground process for a PTY changes. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-process-name.test.js (Session process-name emit / REQ-TERM-009 AC1 (emit only on change)) -->
-2. The frontend distinguishes control messages from raw terminal data using the message's leading type-discriminator field. <!-- @impl: web-ui/src/stores/terminal-protocol.ts::parseControlMessage --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (Terminal control-message handling) -->
-3. The frontend maps known foreground process names (supported agents plus common TUI tools and shells) to display icons via a static lookup. <!-- @impl: web-ui/src/lib/terminal-config.ts::getTabIcon --> <!-- @test: web-ui/src/__tests__/lib/terminal-config.test.ts (terminal-config / REQ-TERM-006 (per-tab agent autostart config) / REQ-TERM-009 (PROCESS_ICON_MAP renders icons per tab process kind)) -->
-4. An optional binary-name-to-display-name override table exists for cases where the executable name differs from the user-facing name; the override table is empty when no remap is needed. <!-- @impl: web-ui/src/lib/terminal-config.ts::getTabDisplayName --> <!-- @test: web-ui/src/__tests__/lib/terminal-config.test.ts (returns claude display name) -->
-5. The session card icon set covers each supported agent type so users can identify a session at a glance. <!-- @impl: web-ui/src/lib/terminal-config.ts::AGENT_ICON_MAP --> <!-- @test: web-ui/src/__tests__/lib/terminal-config.test.ts (terminal-config / REQ-TERM-006 (per-tab agent autostart config) / REQ-TERM-009 (PROCESS_ICON_MAP renders icons per tab process kind)) -->
-6. The session store registers a process-name callback against the terminal store so process updates propagate without creating a circular import between the two stores. <!-- @impl: web-ui/src/stores/terminal.ts::registerProcessNameCallback --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (REQ-TERM-009 AC6: registerProcessNameCallback routes process-name frames to the callback) -->
-7. Process name updates are reflected in tab headers and session status cards in real time. <!-- @impl: web-ui/src/stores/session-tabs.ts::updateTerminalLabel --> <!-- @test: web-ui/src/__tests__/stores/update-terminal-label.test.ts (REQ-TERM-009 AC7: updateTerminalLabel writes processName to the targeted tab) -->
+1. Herdr sessions do not present the outer client process as inner pane or agent state. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (REQ-TERM-009 AC1: suppresses process-name callbacks when outer labels are disabled) -->
+2. Classic sessions apply validated process identity updates only to the targeted outer tab. <!-- @impl: web-ui/src/stores/terminal-protocol.ts::parseControlMessage --> <!-- @impl: web-ui/src/stores/session-tabs.ts::updateTerminalLabel --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (REQ-TERM-009 AC2: routes a non-empty string process name to the process-name kind) --> <!-- @test: web-ui/src/__tests__/stores/update-terminal-label.test.ts (REQ-TERM-009 AC2: only mutates the targeted terminalId, leaves siblings untouched) -->
+3. Session cards retain their configured agent icon. <!-- @impl: web-ui/src/lib/terminal-config.ts::AGENT_ICON_MAP --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (renders agent icon) -->
+4. Classic terminal tabs expose outer process labels while the Herdr surface suppresses classic tabs. <!-- @impl: web-ui/src/components/TerminalTabs.tsx::resolveTabLabel --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders one Herdr surface without classic tabs or tiling controls) -->
+5. Unknown control messages and raw terminal bytes remain raw terminal data. <!-- @impl: web-ui/src/stores/terminal-protocol.ts::parseControlMessage --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (REQ-TERM-009 AC5: an unknown control type (e.g. pong) is treated as raw) --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (REQ-TERM-009 AC5: raw terminal output does not invoke the process-name callback) -->
 
 **Constraints:**
 
-- Control messages that fail to parse as JSON are treated as raw terminal data so an unexpected payload never blocks output.
-- Unknown control-message types are silently ignored so the protocol can evolve without breaking older clients.
+None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty)
+**Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-006](#req-term-006-herdr-owns-in-session-terminal-topology)
 
-**Verification:** Automated test
+**Verification:** Automated host and frontend protocol tests.
 
 **Status:** Implemented
 
@@ -384,7 +475,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Acceptance Criteria:**
 
 1. Dashboard view opens zero terminal WebSocket connections even when sessions are running or initializing. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::setDashboardWorkspace --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-TERM-011: renders no terminal panes on Dashboard even when sessions are running) -->
-2. Single-session view opens terminal WebSockets only for the visible session surface: one active tab in tabbed mode, or each visible tiled tab when tiling is enabled. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::setSingleSessionWorkspace --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (REQ-TERM-011: single-session workspace exposes exactly one visible pane) -->
+2. Single-session view opens exactly one terminal WebSocket for the visible backend session surface using internal terminal ID `1`. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::setSingleSessionWorkspace --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (REQ-TERM-011: single-session workspace exposes exactly one visible pane) -->
 3. Running sessions outside the visible workspace have no connected terminal side effects. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (TerminalArea) -->
 4. Workspace switches dispose local UI terminal resources for panes that leave the visible set without stopping the underlying PTY. <!-- @impl: web-ui/src/hooks/useTerminal.ts::canConnect --> <!-- @impl: web-ui/src/stores/terminal.ts::disposeLocalTerminal --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
 5. Session indicators distinguish container-running state from visible-terminal-connected state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::dotVariant --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (SessionStatCard) -->
@@ -415,7 +506,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 1. Exactly one virtual MultiView workspace can exist, and it is composed only from existing running or initializing sessions. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::MULTIVIEW_ID --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (terminalWorkspaceStore visible pane ownership) -->
 2. Desktop MultiView accepts two to four member sessions; tablet MultiView accepts exactly two; mobile cannot launch MultiView. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::getMultiViewCapacity --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (terminalWorkspaceStore visible pane ownership) -->
 3. MultiView never appears as a normal Dashboard session card; when saved panes exist, Dashboard exposes an icon-only MultiView action beside the new-session button. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (Dashboard / REQ-SUB-019 (session limit popup in frontend)) -->
-4. Opening MultiView renders connected terminal panes for the selected member sessions. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-TERM-012: renders one connected terminal pane for each visible MultiView member) -->
+4. Opening MultiView renders one connected internal terminal `1` surface for each selected backend session. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-TERM-012: renders one connected terminal pane for each visible MultiView member) -->
 5. Workspace switches preserve MultiView membership while reconciling connections to visible panes. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (terminalWorkspaceStore visible pane ownership) -->
 
 **Constraints:**
@@ -425,7 +516,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Priority:** P1
 
-**Dependencies:** [REQ-TERM-001](#req-term-001-up-to-6-terminal-tabs-per-session), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-007](#req-term-007-tiling-layouts-2-split-3-split-4-grid), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
+**Dependencies:** [REQ-TERM-001](#req-term-001-terminal-surface-count-follows-session-mode), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
 
 **Verification:** Automated test ([Workspace store tests](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts) + [TerminalArea tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx) + [TerminalGrid tests](../../web-ui/src/__tests__/components/TerminalGrid.test.tsx) + [Dashboard tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Floating button tests](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx))
 
@@ -589,7 +680,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Acceptance Criteria:**
 
 1. Browser visibility return reconnects only panes or tiled tabs that are visible in the current workspace. <!-- @impl: web-ui/src/components/Layout.tsx::visibleTerminalKeys --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-011: reconnects only visible tiled slots after visibility return) -->
-2. A focused visible terminal claims resize authority before sending dimensions, including retry reconnects that remain focused. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-011 / REQ-TERM-016 AC2: resends focused resize authority after a retry reconnect opens) -->
+2. A focused visible terminal claims resize authority before sending dimensions, including retry reconnects that remain focused; Herdr owns focus and resizing among inner panes. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::claimResizeAuthority --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-011 / REQ-TERM-030 AC3: changes focus without reconnecting the terminal) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-011 / REQ-TERM-016 AC2: resends focused resize authority after a retry reconnect opens) -->
 3. Cleanup from a stale connection owner cannot dispose the newer WebSocket or input handler for the same visible terminal. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-012: stale cleanup from an older connection cannot close a newer connection for the same terminal) -->
 4. A resize frame is emitted only for a visible, connected terminal, carrying its current fitted dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::resize --> <!-- @test: host/__tests__/session-resize-authority.test.js (REQ-TERM-016: accepts resize frames only from the foreground WebSocket owner) -->
 5. A pane that loses focus before its terminal connection opens does not claim resize authority when that connection later opens. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-016: clears a queued resize-authority claim when the pane loses focus) -->
@@ -662,6 +753,122 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 ---
 
+### REQ-TERM-031: Herdr notification compatibility boundary
+
+**Intent:** Herdr terminals preserve Codeflare's fixed attention-event trust model when inner terminal control bytes are unavailable to the outer surface.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Managed Pi and Claude producers preserve their fixed attention events inside Herdr, while non-Herdr terminals retain existing native behavior. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::emit --> <!-- @impl: entrypoint.sh::HERDR_NOTIFICATION_HOOKS --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (uses the fixed loopback helper instead of OSC bytes inside Herdr) --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (REQ-TERM-026 AC1: Claude keeps native Ghostty notifications and adds only the fixed Herdr permission hook) -->
+2. Only authenticated fixed-kind events from the primary runtime enter notification coordination; malformed, unknown, oversized, or non-primary events are rejected. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/request-router.test.js (rejects missing auth, unknown kinds, non-primary identity, extra and duplicate keys) --> <!-- @test: host/__tests__/request-router.test.js (rejects oversized bodies before enqueue) -->
+3. Accepted events retain existing suppression, grant, fallback, cancellation, expiry, and idle-isolation behavior without carrying display prose. <!-- @impl: host/src/session.ts::enqueueAgentEvent --> <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/request-router.test.js (accepts one fixed primary-runtime kind without recording arbitrary prose) --> <!-- @test: host/__tests__/agent-events.test.js (classified input cancels pending, eligible, and drained-unacknowledged events) -->
+
+**Constraints:**
+
+- Herdr mode is selected only by `HERDR_ENV=1`; managed producers invoke `/usr/local/bin/codeflare-agent-event` rather than inner OSC 777.
+- The helper accepts only `input-required`, `task-completed`, or `task-failed` and sends an enum-only request to the Bearer-protected loopback ingress for terminal ID `1`.
+- Prompts, output, paths, credentials, arbitrary display text, user activity, and terminal content never cross or are logged by ingress.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
+
+**Verification:** Automated producer, ingress, and queue tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-032: Herdr clipboard compatibility boundary
+
+**Intent:** The browser exposes only bounded Herdr clipboard writes under existing user permission.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The terminal clipboard parser accepts bounded standard-selector base64 containing valid UTF-8. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (decodes a bounded standard clipboard UTF-8 write) -->
+2. The parser rejects reads, malformed data, unsupported selectors, and invalid UTF-8. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (rejects query, selector, malformed, or invalid UTF-8 payload %s) -->
+3. The parser rejects decoded content above the fixed byte limit. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (rejects decoded content above the fixed byte limit) -->
+4. Herdr sessions register accepted clipboard writes only when the existing browser clipboard setting permits access. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send a valid clipboard write with access enabled and disabled and confirm only the enabled Herdr case updates the clipboard. -->
+5. Classic sessions do not install the Herdr clipboard-write handler. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send the same clipboard control sequence to classic and confirm no browser clipboard write occurs. -->
+
+**Constraints:**
+
+- OSC 52 accepts only the standard `c` selector, valid base64, valid UTF-8 text, and at most 64 KiB decoded content.
+- Clipboard read queries and clipboard content are never logged.
+- No second clipboard service is installed.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-019](#req-term-019-terminal-websocket-control-frames-and-protocol-guards)
+
+**Verification:** Automated parser tests plus manual browser permission verification.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-036: Browser pointer interaction with Herdr
+
+**Intent:** Browser-hosted Herdr controls remain usable with hardware mouse and touch while classic terminal input stays unchanged.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Herdr owns ordinary right-click, with its configured passthrough gesture preserved. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: image/herdr/config.toml::right_click_passthrough_modifier --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (leaves contextmenu ownership to Herdr) -->
+2. Classic retains Codeflare right-click paste. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (should read clipboard on right-click when clipboardAccess is enabled) -->
+3. Hardware mouse clicks operate the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes physical and synthesized left clicks as SGR terminal input) -->
+4. Held-button mouse movement operates the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes held-button movement and ignores movement without an active press) -->
+5. Mouse wheels navigate the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes wheel navigation and modifier-aware right clicks) -->
+6. Stationary touch taps operate the addressed Herdr control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (sends a stationary touch to the xterm screen only when enabled) -->
+7. Vertical touch swipes navigate Herdr application views. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes Herdr swipes as SGR wheel input without xterm mouse tracking) -->
+
+**Constraints:**
+
+- Herdr pointer events use terminal-cell SGR reports through the existing terminal transport without a second browser protocol.
+- The Herdr adapter does not alter classic mouse, wheel, selection, or paste behavior.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-019](#req-term-019-terminal-websocket-control-frames-and-protocol-guards), [REQ-MOB-017](mobile.md#req-mob-017-fullscreen-application-touch-scrolling)
+
+**Verification:** Automated pointer encoding and mode-isolation tests plus manual browser interaction verification.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-037: Browser keyboard interaction with Herdr
+
+**Intent:** Browser-hosted Herdr receives its standard prefix without browser chrome consuming it.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. In a Herdr session, `Ctrl+B` sends Herdr's canonical control prefix and suppresses the browser's conflicting bookmark action. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-037 AC1-AC2: sends the canonical Herdr prefix and leaves its action key to xterm) -->
+2. Herdr continues to own action interpretation after the prefix, including managed Help at `prefix+?` and Settings at `prefix+s`. <!-- @impl: image/herdr/config.toml::keys --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-037 AC1-AC2: sends the canonical Herdr prefix and leaves its action key to xterm) --> <!-- @manual: Container-image CI validates the managed bindings with the pinned Herdr binary. -->
+3. Classic sessions and unrelated modified keys retain existing xterm keyboard handling. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-037 AC3: preserves classic and unrelated modified key handling) -->
+
+**Constraints:**
+
+- Codeflare forwards only the canonical prefix byte; it does not duplicate Herdr's action map or add a second keyboard protocol.
+- Browser-delivered keys are supported; operating-system-reserved combinations remain outside browser control.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-019](#req-term-019-terminal-websocket-control-frames-and-protocol-guards), [REQ-TERM-006](#req-term-006-herdr-owns-in-session-terminal-topology)
+
+**Verification:** Automated mode-isolation and packaged-config checks plus manual browser shortcut verification.
+
+**Status:** Implemented
+
+---
+
 ### REQ-TERM-023: Away-only agent notification delivery
 
 **Intent:** Agent attention events are delivered only while every connected view of the originating terminal is away, without waking or extending the session container.
@@ -688,7 +895,7 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 
 **Priority:** P1
 
-**Dependencies:** [REQ-TERM-005](#req-term-005-tab-1-auto-starts-the-configured-agent), [REQ-SEC-023](security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
+**Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-SEC-023](security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
 **Verification:** Automated host, Worker, frontend, and service-worker tests plus deployed suppression, pickup, and no-wake checks.
 
@@ -838,6 +1045,58 @@ PTY management, WebSocket transport, multi-tab support, tiling layouts, MultiVie
 **Dependencies:** [REQ-TERM-024](#req-term-024-pi-native-terminal-notification-producer)
 
 **Verification:** Automated Pi extension timing tests plus deployed interactive-run verification.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-038: Pi completion follows the active work graph
+
+**Intent:** Pi completion and failure signals represent an inactive foreground with no unfinished background work.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A queued or running background subagent delays notification. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC1: blocks completion while a background task remains active) -->
+2. A foreground subagent does not retain the background-work gate after its parent turn settles. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC2: a foreground subagent does not hold the background gate) -->
+3. The inactivity interval starts only after every background subagent has terminated and the resulting parent follow-up has settled. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC3: waits for every background task and the parent follow-up) -->
+4. Failed, stopped, and aborted background subagents release their active-work gate. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC4: %s background tasks release the idle gate) -->
+5. A foreground Pi run never emits a completion or failure notification before that run settles and completes a fresh inactivity interval. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::scheduleIdleNotification --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC5: never emits while the foreground agent is active) -->
+
+**Constraints:** Input-required signals remain immediate, and no task payload content enters notification output.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-029](#req-term-029-pi-inactivity-gated-terminal-completion)
+
+**Verification:** Automated Pi lifecycle tests plus deployed foreground and background-work verification.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-039: Pi completion delivery is mode-correct and readiness-oriented
+
+**Intent:** Eligible Pi completion remains available in each terminal mode with copy that reflects Pi readiness.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. An eligible delayed Pi completion in Herdr produces no terminal-visible notification bytes and remains available to Codeflare notification delivery. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::emit --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-039 AC1: delivers delayed Pi completion through Herdr event transport) -->
+2. Local display labels Pi completion `Ready for input`. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-039 AC2: labels local Pi completion as ready for input) -->
+3. Push display labels Pi completion `Ready for input`. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-039 AC3: labels Pi Push completion as ready for input) -->
+4. Local display retains `Task completed` for Claude completion. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-039 AC4: keeps local Claude completion copy task-oriented) -->
+5. Push display retains `Task completed` for Claude completion. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-039 AC5: keeps Claude Push completion copy task-oriented) -->
+
+**Constraints:** Display reason text remains fixed and excludes provider, task, and tool content.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-031](#req-term-031-herdr-notification-compatibility-boundary), [REQ-TERM-038](#req-term-038-pi-completion-follows-the-active-work-graph)
+
+**Verification:** Automated Pi transport, local-display, and Push-display tests plus deployed Herdr and browser verification.
 
 **Status:** Implemented
 

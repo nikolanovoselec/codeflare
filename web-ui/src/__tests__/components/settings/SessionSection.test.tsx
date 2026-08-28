@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
-import { mdiFileTree } from '@mdi/js';
+import { mdiConsoleLine, mdiFileTree } from '@mdi/js';
 import SessionSection from '../../../components/settings/SessionSection';
 
 // isTouchDevice gates the desktop-only clipboard row; pin it to desktop so the
@@ -28,6 +28,8 @@ function renderSection(overrides: {
   canChangeSleepAfter?: boolean;
   onSessionModeChange?: ModeChange;
   onDefaultWorkspaceChange?: (workspace: 'terminal' | 'vscode') => void;
+  herdrEnabled?: boolean;
+  onHerdrToggle?: () => void;
 } = {}) {
   const props = {
     enterpriseMode: () => overrides.enterpriseMode ?? false,
@@ -36,6 +38,7 @@ function renderSection(overrides: {
     defaultWorkspace: () => overrides.defaultWorkspace ?? 'terminal',
     canUseAdvanced: () => overrides.canUseAdvanced ?? true,
     fastStartEnabled: () => true,
+    herdrEnabled: () => overrides.herdrEnabled ?? false,
     workspaceSyncEnabled: () => false,
     clipboardAccess: () => false,
     notificationPermission: () => 'default' as const,
@@ -52,6 +55,7 @@ function renderSection(overrides: {
     onSessionModeChange: overrides.onSessionModeChange ?? (() => {}),
     onDefaultWorkspaceChange: overrides.onDefaultWorkspaceChange ?? (() => {}),
     onFastStartToggle: () => {},
+    onHerdrToggle: overrides.onHerdrToggle ?? (() => {}),
     onWorkspaceSyncToggle: () => {},
     onEnableAgentNotifications: () => {},
     onSleepAfterChange: () => {},
@@ -62,6 +66,34 @@ function renderSection(overrides: {
   // Cast: the typed Accessor<...> props are satisfied by these zero-arg getters.
   render(() => <SessionSection {...(props as unknown as Parameters<typeof SessionSection>[0])} />);
 }
+
+describe('terminal experience preference', () => {
+  afterEach(() => cleanup());
+
+  it('defaults off and invokes the server-preference toggle', () => {
+    const onHerdrToggle = vi.fn();
+    renderSection({ onHerdrToggle });
+    const toggle = screen.getByTestId('settings-herdr-toggle');
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(toggle);
+    expect(onHerdrToggle).toHaveBeenCalledOnce();
+  });
+
+  it('reflects an enabled preference', () => {
+    renderSection({ herdrEnabled: true });
+    expect(screen.getByTestId('settings-herdr-toggle')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('REQ-TERM-034 AC5: explains Herdr and marks the terminal experience as beta', () => {
+    renderSection();
+
+    expect(screen.getByTestId('settings-herdr-icon').querySelector('path')).toHaveAttribute('d', mdiConsoleLine);
+    expect(screen.getByTestId('settings-herdr-beta')).toHaveTextContent('beta');
+    expect(screen.getByTestId('settings-herdr-hint')).toHaveTextContent(
+      'Use Herdr for terminal workspaces, splits, panes, and built-in agent status. Leave off to use Codeflare’s standard terminal tabs and tiling. Applies to new sessions.',
+    );
+  });
+});
 
 describe('REQ-AGENT-004 AC3: mode selection in Settings session-defaults', () => {
   afterEach(() => cleanup());

@@ -8,6 +8,7 @@ import type {
   TileLayout,
   VisibleTerminalPane,
 } from '../types';
+import { resolveTerminalMode } from '../types';
 
 const MULTIVIEW_STORAGE_KEY = 'codeflare:terminalMultiViewWorkspace';
 const MULTIVIEW_ID = 'multiview:1' as const;
@@ -187,7 +188,7 @@ function reconcileMultiView(sessions: SessionWithStatus[], viewport: TerminalVie
     setState('multiView', next);
     persistMultiView(next);
     if (state.mode === 'multiview') {
-      openMultiView();
+      openMultiView(sessions);
     }
   }
 
@@ -221,15 +222,28 @@ function createOrUpdateMultiView(
   return true;
 }
 
-function openMultiView(): boolean {
+function openMultiView(
+  sessions: SessionWithStatus[] = [],
+  activeTerminalId?: (sessionId: string) => string,
+): boolean {
   const workspace = state.multiView;
   if (!workspace || workspace.memberSessionIds.length < 2) return false;
 
-  const panes = workspace.memberSessionIds.map((sessionId) => paneForSession(sessionId, '1', 'multiview'));
+  const panes = workspace.memberSessionIds.map((sessionId) => {
+    const session = sessions.find((candidate) => candidate.id === sessionId);
+    const terminalId = resolveTerminalMode(session?.terminalMode) === 'herdr'
+      ? '1'
+      : activeTerminalId?.(sessionId)
+        ?? state.panes.find((pane) => pane.sessionId === sessionId)?.terminalId
+        ?? '1';
+    return paneForSession(sessionId, terminalId, 'multiview');
+  });
   const focusedSessionId = workspace.focusedSessionId && workspace.memberSessionIds.includes(workspace.focusedSessionId)
     ? workspace.focusedSessionId
     : workspace.memberSessionIds[0];
-  const focusedPaneId = paneId('multiview', focusedSessionId, '1');
+  const focusedPaneId = panes.find((pane) => pane.sessionId === focusedSessionId)?.id
+    ?? panes[0]?.id
+    ?? null;
 
   if (
     state.mode === 'multiview'

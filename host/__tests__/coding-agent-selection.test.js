@@ -10,6 +10,7 @@ import {
   activateExtensionWithVscode,
   createVscodeSmokeApi,
   verifyNodeTarRuntimes,
+  verifyPacoteRuntime,
   verifyOxlintRuntime,
   verifySelectedAgentLaunchers,
   verifySelectedAgentPackages,
@@ -116,6 +117,36 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
         verifyNodeTarRuntimes({ runtimePaths: [brokenRuntime], temporaryRoot: fixture }),
         /must load node-tar extract/,
       );
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken npm pacote overlay', async () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pacote-runtime-smoke-'));
+    try {
+      const runtimePath = join(fixture, 'pacote');
+      const brokenRuntime = join(fixture, 'broken-pacote');
+      for (const path of [runtimePath, brokenRuntime]) {
+        mkdirSync(path);
+        writeFileSync(
+          join(path, 'package.json'),
+          JSON.stringify({ name: 'pacote', version: '21.5.1', main: 'index.cjs' }),
+        );
+      }
+      writeFileSync(join(runtimePath, 'index.cjs'), 'exports.manifest = async () => ({});\n');
+      writeFileSync(join(brokenRuntime, 'index.cjs'), 'exports.tarball = async () => {};\n');
+      const wrongVersionRuntime = join(fixture, 'wrong-version-pacote');
+      mkdirSync(wrongVersionRuntime);
+      writeFileSync(
+        join(wrongVersionRuntime, 'package.json'),
+        JSON.stringify({ name: 'pacote', version: '21.5.0', main: 'index.cjs' }),
+      );
+      writeFileSync(join(wrongVersionRuntime, 'index.cjs'), 'exports.manifest = async () => ({});\n');
+
+      assert.equal(await verifyPacoteRuntime({ runtimePath }), runtimePath);
+      await assert.rejects(verifyPacoteRuntime({ runtimePath: brokenRuntime }), /must load pacote manifest/);
+      await assert.rejects(verifyPacoteRuntime({ runtimePath: wrongVersionRuntime }), /must contain pacote 21\.5\.1/);
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }

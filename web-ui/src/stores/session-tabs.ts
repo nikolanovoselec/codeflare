@@ -8,6 +8,7 @@ import {
 } from './tiling';
 
 const TERMINALS_STORAGE_KEY = 'codeflare:terminalsPerSession';
+const TERMINAL_ID_PATTERN = /^[1-6]$/;
 
 function createTabOne(): TerminalTab {
   return { id: '1', createdAt: new Date().toISOString() };
@@ -16,7 +17,7 @@ function createTabOne(): TerminalTab {
 function normalizeSessionTerminals(terminals: SessionTerminals): SessionTerminals {
   const tabMap = new Map<string, TerminalTab>();
   for (const tab of terminals.tabs || []) {
-    if (!tab?.id) continue;
+    if (typeof tab?.id !== 'string' || !TERMINAL_ID_PATTERN.test(tab.id)) continue;
     if (!tabMap.has(tab.id)) {
       tabMap.set(tab.id, tab);
     }
@@ -53,12 +54,19 @@ function normalizeSessionTerminals(terminals: SessionTerminals): SessionTerminal
   const normalizedActiveTabId = terminals.activeTabId && normalizedOrder.includes(terminals.activeTabId)
     ? terminals.activeTabId
     : '1';
+  const persistedLayout = terminals.tiling?.layout;
+  const normalizedTiling = terminals.tiling?.enabled === true
+    && typeof persistedLayout === 'string'
+    && Object.prototype.hasOwnProperty.call(LAYOUT_MIN_TABS, persistedLayout)
+    && isLayoutCompatible(persistedLayout as TileLayout, normalizedTabs.length)
+    ? { enabled: true, layout: persistedLayout as TileLayout }
+    : { enabled: false, layout: 'tabbed' as const };
 
   return {
     tabs: normalizedTabs,
     activeTabId: normalizedActiveTabId,
     tabOrder: normalizedOrder,
-    tiling: terminals.tiling || { enabled: false, layout: 'tabbed' },
+    tiling: normalizedTiling,
   };
 }
 

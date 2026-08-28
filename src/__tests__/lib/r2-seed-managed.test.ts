@@ -338,7 +338,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2.mock.calls.some(([, init]) => ['PUT', 'DELETE', 'POST'].includes(String(init?.method)))).toBe(false);
   });
 
-  it.each([null, 'invalid', '-1', '9007199254740992'])('REQ-STOR-029 AC4: invalid exact root size %s causes zero mutations', async (contentLength) => {
+  it.each([null, 'invalid', '-1', '9007199254740992'])('REQ-STOR-029 AC5: invalid exact root size %s causes zero mutations', async (contentLength) => {
     const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
     fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === 'HEAD'
       ? new Response(null, { status: 200, headers: contentLength === null ? {} : { 'content-length': contentLength } })
@@ -365,6 +365,7 @@ describe('managed release user-bucket reconciliation', () => {
       }
       if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT') policyBytes = init.body;
       if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'GET') return new Response(policyBytes, { status: 200 });
+      if (url.endsWith('?delete') && init?.method === 'POST') return new Response('<DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></DeleteResult>', { status: 200 });
       return new Response('', { status: 200 });
     });
 
@@ -384,7 +385,26 @@ describe('managed release user-bucket reconciliation', () => {
     expect(String(deleteBatches[0][1].body)).not.toContain('.claude/skills-other/personal.md');
   });
 
-  it('REQ-STOR-029 AC4: malformed exclusive listings cause zero mutations', async () => {
+  it('REQ-STOR-029 AC4: partial exclusive batch failures prevent policy identity from being committed', async () => {
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      if (init?.method === 'GET' && url.includes('list-type=2')) {
+        return new Response('<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>.claude/skills/personal/SKILL.md</Key><Size>10</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>', { status: 200 });
+      }
+      if (url.endsWith('?delete') && init?.method === 'POST') {
+        return new Response('<DeleteResult><Error><Key>.claude/skills/personal/SKILL.md</Key><Code>AccessDenied</Code><Message>Denied</Message></Error></DeleteResult>', { status: 200 });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true, cleanup: true, managedRelease, resourcePolicy: 'exclusive',
+    })).rejects.toThrow(/per-object errors/);
+    expect(fetchR2.mock.calls.some(([url, init]) => url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT')).toBe(false);
+  });
+
+  it('REQ-STOR-029 AC5: malformed exclusive listings cause zero mutations', async () => {
     const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
     fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === 'HEAD'
       ? new Response('', { status: 404 })
@@ -399,7 +419,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2.mock.calls.some(([, init]) => ['PUT', 'DELETE', 'POST'].includes(String(init?.method)))).toBe(false);
   });
 
-  it('REQ-STOR-028 AC6: exclusive generation fails before every R2 request', async () => {
+  it('REQ-STOR-032 AC3: exclusive generation fails before every R2 request', async () => {
     const unknown = await selection('e'.repeat(64), release(3, [document('.claude/toolboxes/company.md')]));
     await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
       overwrite: true,
@@ -410,7 +430,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2).not.toHaveBeenCalled();
   });
 
-  it('REQ-STOR-029 AC5: mutable transition removes stale canonical policy', async () => {
+  it('REQ-STOR-029 AC6: mutable transition removes stale canonical policy', async () => {
     await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
       overwrite: true,
       cleanup: true,
