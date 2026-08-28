@@ -107,14 +107,15 @@ wait_for_process() {
     fail "configured process was not detected"
 }
 
-supports_pi_resume_readiness() {
+supports_pi_live_readiness() {
     "$HERDR_BIN" --version 2>/dev/null | grep -Fxq 'herdr 0.8.2'
 }
 
-wait_for_live_restored_pi() {
-    local snapshot deadline=$((SECONDS + 300))
+wait_for_live_pi() {
+    local max_wait_seconds="$1" snapshot deadline
+    deadline=$((SECONDS + max_wait_seconds))
     # Pi reports full lifecycle authority after session_start, which follows
-    # transcript loading. Large transcripts can take minutes to initialize.
+    # fresh initialization or restored transcript loading.
     while (( SECONDS < deadline )); do
         if snapshot=$(timeout 1 "$HERDR_BIN" agent list 2>/dev/null) \
             && printf '%s' "$snapshot" | jq -e '
@@ -132,8 +133,9 @@ wait_for_live_restored_pi() {
 
 wait_for_restored_agent() {
     local expected="$1" snapshot deadline
-    if [ "$expected" = "pi" ] && supports_pi_resume_readiness; then
-        wait_for_live_restored_pi && return 0
+    if [ "$expected" = "pi" ] && supports_pi_live_readiness; then
+        # Restored transcripts receive the longer bounded initialization budget.
+        wait_for_live_pi 90 && return 0
     fi
 
     # Preserve metadata detection for every agent and as the compatibility
@@ -159,6 +161,10 @@ run_agent() {
     fi
     timeout 10 "$HERDR_BIN" pane run "$pane" "$command" >/dev/null
     wait_for_agent "$pane" "$expected"
+    if [ "$expected" = "pi" ] && supports_pi_live_readiness \
+        && ! wait_for_live_pi 10; then
+        printf 'codeflare-herdr: Pi live readiness unavailable; continuing after process detection\n' >&2
+    fi
 }
 
 run_process() {
