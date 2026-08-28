@@ -83,7 +83,7 @@ describe('terminal experience preference', () => {
     expect(screen.getByTestId('settings-herdr-toggle')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('explains Herdr and marks the terminal experience as beta', () => {
+  it('REQ-TERM-034 AC5: explains Herdr and marks the terminal experience as beta', () => {
     renderSection();
 
     expect(screen.getByTestId('settings-herdr-icon').querySelector('path')).toHaveAttribute('d', mdiConsoleLine);

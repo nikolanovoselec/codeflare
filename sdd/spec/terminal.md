@@ -68,6 +68,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 2. Missing or invalid historical ownership resolves to classic. <!-- @impl: src/types.ts::resolveTerminalMode --> <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession --> <!-- @test: src/__tests__/routes/session.test.ts (resolves missing and invalid historical terminal modes to classic) -->
 3. Changing the preference never mutates an existing session's mode. <!-- @impl: src/routes/preferences.ts::mergePreferences --> <!-- @test: src/__tests__/routes/preferences.test.ts (persists Herdr preference independently of existing session records) -->
 4. Clients cannot choose or patch the authoritative stamp. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session.test.ts (rejects client-selected terminal mode) --> <!-- @test: src/__tests__/routes/session.test.ts (rejects terminal mode mutation) -->
+5. Settings presents Herdr as a beta option, contrasts its workspaces, splits, panes, and agent status with classic tabs and tiling, and states that the choice applies to new sessions. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-TERM-034 AC5: explains Herdr and marks the terminal experience as beta) -->
 
 **Constraints:**
 
