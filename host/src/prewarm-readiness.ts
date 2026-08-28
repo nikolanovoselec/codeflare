@@ -4,10 +4,9 @@ export interface PrewarmOrphanActions {
   disposeDataListener(): void;
   clearReadinessPoll(): void;
   deleteSession(): void;
-  terminateHost(): void;
 }
 
-export type PrewarmOrphanOutcome = 'ready' | 'bootstrap_failed';
+export type PrewarmOrphanOutcome = 'ready';
 
 export function handlePrewarmOrphanExpiry(
   mode: HostTerminalMode,
@@ -18,8 +17,7 @@ export function handlePrewarmOrphanExpiry(
   actions.clearReadinessPoll();
   actions.deleteSession();
   if (!isPrewarmTimeoutReady(mode, herdrBootstrapDone)) {
-    actions.terminateHost();
-    return 'bootstrap_failed';
+    process.exit(1);
   }
   return 'ready';
 }
