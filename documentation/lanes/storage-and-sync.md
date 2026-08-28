@@ -82,8 +82,10 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 15 min
 
 ### Initial Sync on Startup
 
+[REQ-STOR-004](../../sdd/spec/storage.md#req-stor-004-initial-sync-restores-files-on-container-start) and [REQ-STOR-031](../../sdd/spec/storage.md#req-stor-031-managed-resource-container-sync) govern this startup order. <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
+
 1. One-way `rclone sync` from R2 to local (restore data) - blocking, container waits for completion (120s timeout)
-2. Managed configuration and tab autostart finish—including generated `.claude.json` and `.codex/version.json`—then `relay_managed_pi_extensions()` completes Pi extension ownership. Baked mode restores image bytes and removes retired managed files; remote curation preserves release-owned bytes while restoring the image-owned context-mode runtime they import.
+2. Managed configuration and tab autostart finish—including generated `.claude.json` and `.codex/version.json`—then `relay_managed_pi_extensions()` completes Pi extension ownership. Baked mode restores image bytes and removes retired managed files; remote curation preserves release-owned bytes while restoring the image-owned context-mode runtime they import. <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
 3. `rclone bisync --resync --ignore-checksum --max-delete 100 --check-sync=false --retries 3 --retries-sleep 10s` to establish baseline (non-blocking - runs in background), then start the 15-minute daemon (SIGUSR1-interruptible)
 
 The generated writes in step 2 settle before the baseline so they do not create immediate post-baseline hash/mtime mismatches.
@@ -310,15 +312,15 @@ Six startup costs and stale-state risks are controlled (REQ-STOR-017):
 - **Governed Mode delta initial sync (AD90, Governed Mode only).**
 
     The blocking `initial_sync_from_r2` normally re-downloads the whole agent seed (~627 files, ~9 MB) every boot because the container filesystem is ephemeral. In [Governed Mode](#governed-mode-r2-sse-c-disabled) the entrypoint lays the image-baked seed (see [Preseed](preseed.md)) into the user home first, then runs the initial sync with `--checksum` (usable MD5 ETags, available only when SSE-C is off), so the unchanged seed files are skipped and only user deltas transfer. Under SSE-C (the default) the path is unchanged: `--size-only`, no lay-down.
-- **Managed Pi extension relay (all modes).**
+- **Managed Pi extension relay (mode-specific ownership).**
 
-    Before the bisync `--resync` baseline, `entrypoint.sh` calls `relay_managed_pi_extensions()` to re-lay the image-baked managed Pi extension bytes over the post-sync `~/.pi/agent/extensions/` tree. This keeps the on-disk bytes equal to the build — the content precondition for the path-sensitive jiti prewarm cache (see [Container lane](container.md#pi-extension-jiti-transpile-cache-warm-up-ad79)) to hit at runtime. Without it, a stale bucket copy of a managed extension (faithfully restored by sync) hashes differently and costs ~2.4s of cold transpile every session. Only managed (codeflare-owned) filenames are overwritten; user-added extensions are preserved.
+    Without remote curation, `entrypoint.sh` calls `relay_managed_pi_extensions()` before the bisync `--resync` baseline to re-lay image-baked managed Pi extension bytes over the post-sync `~/.pi/agent/extensions/` tree. This keeps the on-disk bytes equal to the build — the content precondition for the path-sensitive jiti prewarm cache (see [Container lane](container.md#pi-extension-jiti-transpile-cache-warm-up-ad79)) to hit at runtime. Only managed Codeflare filenames are overwritten; user-added extensions are preserved. With remote curation, the relay preserves release-owned extension bytes and restores only the image-owned `context-mode-runtime.ts` companion required by the managed `/ctx` command. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
 - **Retired review paths are excluded from R2 (all modes).**
 
     The common rclone filter excludes the exact managed paths `.pi/agent/extensions/review-job-helpers.ts`, `review-jobs.ts`, and `review-lane-guards.ts`. Initial restore, the retrying baseline, and steady-state bisync all consume the common filter, so stale bucket objects cannot restore retired review machinery.
-- **Retired local copies are pruned before Pi loads (all modes).**
+- **Retired local copies are pruned before Pi loads (without remote curation).**
 
-    `relay_managed_pi_extensions()` removes those same three exact local files before laying down current managed bytes. The pruning list is exact: unrelated user-added extensions remain untouched.
+    In the baked relay path, `relay_managed_pi_extensions()` removes those same three exact local files before laying down current managed bytes. The pruning list is exact: unrelated user-added extensions remain untouched.
 - **Background init deprioritization (all modes).**
 
     The background subshell running the bisync `--resync` baseline, vault seed, and sync/vault daemons runs at `nice 19` / `ionice -c 3` (idle I/O class), yielding the single vCPU and disk to the concurrent pi PTY pre-warm — whose latency was dominated by contention with the baseline, not by the baseline's own work.
