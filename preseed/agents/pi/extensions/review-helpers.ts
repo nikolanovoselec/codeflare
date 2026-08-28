@@ -821,9 +821,9 @@ export function reviewTranscriptFacts(input: {
       const problems = [
         ...(call.arguments?.run_in_background === true ? [] : ["run_in_background must be true"]),
         ...(call.arguments?.inherit_context === false ? [] : ["inherit_context must be false"]),
-        ...(assignmentLines.has("scope=diff") ? [] : ["prompt must include exact scope=diff"]),
-        ...(!expectedScope || assignmentLines.has(expectedScope) ? [] : [`prompt must include exact ${expectedScope}`]),
-        ...(!expectedOutput || assignmentLines.has(expectedOutput) ? [] : [`prompt must include exact ${expectedOutput}`]),
+        ...(!window || assignmentLines.has("scope=diff") ? [] : ["prompt must include exact scope=diff"]),
+        ...(!window || !expectedScope || assignmentLines.has(expectedScope) ? [] : [`prompt must include exact ${expectedScope}`]),
+        ...(!window || !expectedOutput || assignmentLines.has(expectedOutput) ? [] : [`prompt must include exact ${expectedOutput}`]),
       ];
       if (problems.length > 0) {
         if (successfulSubagentToolIds.has(call.id)) launchIssues.push({ toolUseId: call.id, target: lane, problems });

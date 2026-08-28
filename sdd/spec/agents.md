@@ -4315,8 +4315,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. After a malformed required reviewer or CI subagent call returns successfully, Pi emits one visible rejection naming every mismatched launch-contract field and retains the active round without granting completion credit. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchRejectionFollowUp --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) -->
-2. Repeated settlement does not repeat feedback for the same rejected call, and a corrected launch can complete the same round. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::settleRound --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) -->
+1. A malformed required reviewer or CI subagent call remains uncredited without ending the active round. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::settleRound --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) -->
+2. After that malformed call returns successfully, Pi emits one visible rejection naming every mismatched launch-contract field. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchRejectionFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) -->
+3. Repeated settlement does not repeat feedback for the same rejected call. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::settleRound --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) -->
+4. A corrected launch can complete the same round. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::settleRound --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (reports malformed reviewer and CI launches once, then accepts corrected launches) -->
 
 **Constraints:** Malformed launches never earn reviewer or CI completion credit.
 

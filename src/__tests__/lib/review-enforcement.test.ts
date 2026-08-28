@@ -726,7 +726,9 @@ describe('Pi marker-or-dialog review ingress', () => {
     const app = await harness(input, []);
     await app.emit('tool_result', boundary('git push origin feature', 'push-rejected-launches'));
     await app.emit('agent_end');
-    const lane = (app.sent[0]!.details?.requiredLanes as ReviewLane[])[0]!;
+    const requiredLanes = app.sent[0]?.details?.requiredLanes;
+    expect(Array.isArray(requiredLanes)).toBe(true);
+    const lane = (requiredLanes as ReviewLane[])[0]!;
 
     append(input.sessionFile,
       toolCall('bad-review', 'subagent', {
