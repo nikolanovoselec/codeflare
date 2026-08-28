@@ -31,7 +31,8 @@ printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
 case "$*" in
   'pane current --current') printf '%s\\n' '{"result":{"pane":{"pane_id":"w1:p1"}}}' ;;
   'tab list') printf '%s\\n' '{"result":{"tabs":[{"number":2,"tab_id":"w1:t2"}]}}' ;;
-  'pane list') printf '%s\\n' "{\"result\":{\"panes\":[{\"pane_id\":\"\${HERDR_TEST_FOCUSED_PANE:-w1:p2}\",\"focused\":true}]}}" ;;
+  'pane list') printf '{"result":{"panes":[{"pane_id":"%s","focused":true}]}}\\n' "\${HERDR_TEST_FOCUSED_PANE:-w1:p2}" ;;
+  'agent list') printf '%s\\n' '{"result":{"agents":[{"name":"pi2"}]}}' ;;
   tab\\ create*) printf '%s\\n' '{"result":{"tab":{"tab_id":"w1:t2"},"root_pane":{"pane_id":"w9:p4"}}}' ;;
   agent\\ read*) printf '%s\\n' 'helper result' ;;
   *) printf '%s\\n' '{"result":{"agent":{"name":"helper"}}}' ;;
@@ -76,7 +77,7 @@ describe('Pi Herdr control skill', () => {
     };
     delete env.HERDR;
     runBlocks(bashBlocks('Gate'), env, dir);
-    runBlocks(bashBlocks('Fast UI operations'), env, dir);
+    runBlocks([bashBlocks('Fast UI operations')[0]], env, dir);
     runBlocks(bashBlocks('Tabs', 3), env, dir);
     runBlocks(bashBlocks('Splits', 3), env, dir);
     runBlocks(bashBlocks('Agent orchestration'), env, dir);
@@ -86,8 +87,9 @@ describe('Pi Herdr control skill', () => {
       'pane current --current',
       'tab list',
       'pane list',
+      'agent list',
       `tab create --cwd ${dir} --label pi`,
-      'agent start pi2 --kind pi --pane w9:p4 --timeout 60000',
+      'agent start pi3 --kind pi --pane w9:p4 --timeout 60000',
       'tab list',
       'tab focus w1:t2',
       `pane split --current --direction right --cwd ${dir} --focus`,
@@ -104,7 +106,7 @@ describe('Pi Herdr control skill', () => {
       'agent prompt helper Adjust current work using this new constraint',
       'agent read helper --source recent-unwrapped --lines 200',
     ]);
-    assert.doesNotMatch(calls[18], /--wait/);
+    assert.doesNotMatch(calls[19], /--wait/);
   });
 
   it('REQ-AGENT-174: refuses to close the current Pi pane', () => {

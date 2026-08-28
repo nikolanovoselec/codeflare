@@ -42,7 +42,7 @@ function emit(sequence: string): void {
 // on tool_call (a 2.x rename would silently kill the attention signal). It
 // also fires only when a questionnaire will actually open (post-validation).
 const ASK_USER_PROMPT_EVENT = 'rpiv:ask-user:prompt';
-const SUBAGENT_ACTIVE_EVENTS = ['subagents:created', 'subagents:started'] as const;
+const SUBAGENT_ACTIVE_EVENT = 'subagents:created';
 const SUBAGENT_TERMINAL_EVENTS = [
   'subagents:completed',
   'subagents:failed',
@@ -85,17 +85,15 @@ export default function nativeNotifications(
     return typeof id === 'string' && id.length > 0 ? id : undefined;
   };
 
-  for (const channel of SUBAGENT_ACTIVE_EVENTS) {
-    pi.events.on(channel, (payload) => {
-      const id = subagentId(payload);
-      if (!id) return;
-      activeSubagents.add(id);
-      cancelIdleTimer(false);
-    });
-  }
+  pi.events.on(SUBAGENT_ACTIVE_EVENT, (payload: unknown) => {
+    const id = subagentId(payload);
+    if (!id) return;
+    activeSubagents.add(id);
+    cancelIdleTimer(false);
+  });
 
   for (const channel of SUBAGENT_TERMINAL_EVENTS) {
-    pi.events.on(channel, (payload) => {
+    pi.events.on(channel, (payload: unknown) => {
       const id = subagentId(payload);
       if (id) activeSubagents.delete(id);
     });

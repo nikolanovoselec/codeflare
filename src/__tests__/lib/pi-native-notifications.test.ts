@@ -108,7 +108,7 @@ describe('Pi native terminal notifications / REQ-TERM-024', () => {
     );
   });
 
-  it('REQ-TERM-029 AC12: never emits while the foreground agent is active', async () => {
+  it('REQ-TERM-038 AC6: never emits while the foreground agent is active', async () => {
     vi.useFakeTimers();
     const runtime = notificationRuntime();
     await runtime.handlers.get('input')?.({ source: 'interactive' });
@@ -126,7 +126,18 @@ describe('Pi native terminal notifications / REQ-TERM-024', () => {
     expect(runtime.write).toHaveBeenCalledOnce();
   });
 
-  it('REQ-TERM-029 AC7: blocks completion while a background task remains active', async () => {
+  it('REQ-TERM-038 AC1: a foreground subagent does not hold the background gate', async () => {
+    vi.useFakeTimers();
+    const runtime = notificationRuntime();
+    await runtime.handlers.get('input')?.({ source: 'interactive' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    runtime.channels.get('subagents:started')?.({ id: 'foreground-task' });
+    await settle(runtime, 'stop');
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(runtime.write).toHaveBeenCalledOnce();
+  });
+
+  it('REQ-TERM-038 AC1: blocks completion while a background task remains active', async () => {
     vi.useFakeTimers();
     const runtime = notificationRuntime();
     await runtime.handlers.get('input')?.({ source: 'interactive' });
@@ -149,7 +160,7 @@ describe('Pi native terminal notifications / REQ-TERM-024', () => {
     expect(runtime.write).toHaveBeenCalledOnce();
   });
 
-  it('REQ-TERM-029 AC8: waits for every background task and the parent follow-up', async () => {
+  it('REQ-TERM-038 AC2: waits for every background task and the parent follow-up', async () => {
     vi.useFakeTimers();
     const runtime = notificationRuntime();
     await runtime.handlers.get('input')?.({ source: 'interactive' });
@@ -174,7 +185,7 @@ describe('Pi native terminal notifications / REQ-TERM-024', () => {
   });
 
   it.each(['failed', 'stopped', 'aborted'])(
-    'REQ-TERM-029 AC9: %s background tasks release the idle gate',
+    'REQ-TERM-038 AC3: %s background tasks release the idle gate',
     async (status) => {
       vi.useFakeTimers();
       const runtime = notificationRuntime();
@@ -192,7 +203,7 @@ describe('Pi native terminal notifications / REQ-TERM-024', () => {
     },
   );
 
-  it('REQ-TERM-029 AC10: delivers delayed Pi completion through Herdr event transport', async () => {
+  it('REQ-TERM-038 AC4: delivers delayed Pi completion through Herdr event transport', async () => {
     vi.useFakeTimers();
     process.env.HERDR_ENV = '1';
     const runtime = notificationRuntime();

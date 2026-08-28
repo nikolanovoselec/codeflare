@@ -39,9 +39,16 @@ Open tab and start Pi:
 
 ```bash
 HERDR="${HERDR_BIN_PATH:-herdr}"
+agents=$("$HERDR" agent list)
+index=2
+while [ "$index" -le 999 ] && printf '%s\n' "$agents" \
+  | jq -e --arg name "pi$index" '.result.agents[]? | select(.name == $name)' >/dev/null; do
+  index=$((index + 1))
+done
+test "$index" -le 999
+name="pi$index"
 created=$("$HERDR" tab create --cwd "$PWD" --label pi)
 pane=$(printf '%s\n' "$created" | jq -r '.result.root_pane.pane_id')
-name="pi2" # choose unique lowercase name after `agent list`
 "$HERDR" agent start "$name" --kind pi --pane "$pane" --timeout 60000
 ```
 
