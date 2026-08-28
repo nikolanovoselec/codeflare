@@ -4209,6 +4209,7 @@ None.
 5. Image construction includes Caveman in the warm path so new images load it without first-session compilation. <!-- @impl: Dockerfile::caveman_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131/REQ-AGENT-155: managed extension JITI warm-cache contract) -->
 6. Image construction fails when Caveman's expected compiled artifact is absent. <!-- @impl: Dockerfile::caveman_hit --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131/REQ-AGENT-155: managed extension JITI warm-cache contract) -->
 7. Weekly Pi-extension discovery includes Caveman and applies its candidate version to every source-owned runtime pin. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-AGENT-155 AC7: Caveman participates in coherent Pi extension shadow bumps) -->
+8. Herdr's private XDG configuration root does not redirect Pi from the authoritative Caveman configuration under `~/.pi/agent`. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps Pi on its authoritative config root while Herdr uses private XDG state) -->
 
 **Constraints:**
 

@@ -74,6 +74,43 @@ describe('Codeflare Herdr launcher', () => {
     assert.match(result.stderr, /invalid SESSION_ID/);
   });
 
+  it('keeps Pi on its authoritative config root while Herdr uses private XDG state', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-pi-config-'));
+    const bin = join(dir, 'bin');
+    const runtime = join(dir, 'runtime');
+    const persistent = join(dir, '.codeflare');
+    const home = join(dir, 'home');
+    const log = join(dir, 'herdr.log');
+    mkdirSync(bin, { recursive: true });
+    const fake = join(bin, 'herdr');
+    writeFileSync(fake, `#!/usr/bin/env bash
+set -eu
+printf 'pi-config=%s\\n' "$PI_CODING_AGENT_DIR" >> "$HERDR_TEST_LOG"
+if [ "$*" = "api snapshot" ]; then
+  printf '%s\\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
+fi
+`, { mode: 0o755 });
+
+    const result = spawnSync(launcher, ['bootstrap'], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        HOME: home,
+        PI_CODING_AGENT_DIR: join(dir, 'wrong-pi-config'),
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        HERDR_BIN: fake,
+        HERDR_TEST_LOG: log,
+        CODEFLARE_RUNTIME_ROOT: runtime,
+        CODEFLARE_HERDR_PERSIST_ROOT: persistent,
+        SESSION_ID: 'abc12345',
+        TAB_CONFIG: '[]',
+      },
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readFileSync(log, 'utf8').trim(), `pi-config=${join(home, '.pi/agent')}`);
+  });
+
   it('keeps the maximum-length session client socket within the Linux path limit', () => {
     const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-socket-path-'));
     const bin = join(dir, 'bin');
@@ -172,6 +209,7 @@ fi
     const persistent = join(dir, '.codeflare');
     const sessionDir = join(persistent, 'herdr/sessions/cf-abc12345');
     const log = join(dir, 'herdr.log');
+    const count = join(dir, 'agent-list-count');
     mkdirSync(bin, { recursive: true });
     mkdirSync(sessionDir, { recursive: true });
     writeFileSync(join(sessionDir, 'session.json'), '{"version":3,"workspaces":[]}');
@@ -185,8 +223,16 @@ elif [ "$*" = "api snapshot" ]; then
   [ ! -f "$HERDR_RESTORE_READY" ] || exit 1
   printf '%s\\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
 elif [ "$*" = "agent list" ]; then
-  printf '%s' ready > "$HERDR_RESTORE_READY"
-  printf '%s\\n' '{"result":{"agents":[{"agent":"pi"}]}}'
+  current=0
+  [ ! -f "$HERDR_AGENT_LIST_COUNT" ] || current=$(cat "$HERDR_AGENT_LIST_COUNT")
+  current=$((current + 1))
+  printf '%s' "$current" > "$HERDR_AGENT_LIST_COUNT"
+  if [ "$current" -eq 1 ]; then
+    exec sleep 60
+  else
+    printf '%s' ready > "$HERDR_RESTORE_READY"
+    printf '%s\\n' '{"result":{"agents":[{"agent":"pi"}]}}'
+  fi
 elif [ "\${1:-}" = "--session" ]; then
   sleep 0.2
 fi
@@ -201,6 +247,7 @@ fi
         HERDR_BIN: fake,
         HERDR_TEST_LOG: log,
         HERDR_RESTORE_READY: join(dir, 'restore-ready'),
+        HERDR_AGENT_LIST_COUNT: count,
         CODEFLARE_RUNTIME_ROOT: runtime,
         CODEFLARE_HERDR_PERSIST_ROOT: persistent,
         SESSION_ID: 'abc12345',
@@ -211,7 +258,7 @@ fi
     assert.equal(result.status, 1, result.stderr);
     const calls = readFileSync(log, 'utf8').trim().split('\n');
     assert.equal(calls.includes('agent list'), true);
-    assert.equal(calls.filter((call) => call === 'agent list').length, 1);
+    assert.equal(calls.filter((call) => call === 'agent list').length, 2);
     assert.equal(calls.some((call) => call.startsWith('pane run ')), false);
   });
 
@@ -240,14 +287,16 @@ elif [ "$*" = "agent list" ]; then
   [ ! -f "$HERDR_AGENT_LIST_COUNT" ] || current=$(cat "$HERDR_AGENT_LIST_COUNT")
   current=$((current + 1))
   printf '%s' "$current" > "$HERDR_AGENT_LIST_COUNT"
-  if [ "$current" -lt 3 ]; then
-    printf '%s\\n' '{"result":{"agents":[{"agent":"pi"}]}}'
+  if [ "$current" -eq 1 ]; then
+    exec sleep 60
+  elif [ "$current" -eq 2 ]; then
+    printf '%s\\n' '{"result":{"agents":[{"agent":"pi","screen_detection_skipped":true},{"agent":"pi"}]}}'
   else
     printf '%s' ready > "$HERDR_RESTORE_READY"
-    printf '%s\\n' '{"result":{"agents":[{"agent":"pi","screen_detection_skipped":true}]}}'
+    printf '%s\\n' '{"result":{"agents":[{"agent":"pi","screen_detection_skipped":true},{"agent":"pi","screen_detection_skipped":true}]}}'
   fi
 elif [ "\${1:-}" = "--session" ]; then
-  sleep 1
+  sleep 3
 fi
 `, { mode: 0o755 });
 
