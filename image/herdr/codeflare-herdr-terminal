@@ -59,9 +59,7 @@ wait_for_root_pane() {
     for _ in $(seq 1 40); do
         if snapshot=$("$HERDR_BIN" api snapshot 2>/dev/null); then
             pane=$(printf '%s' "$snapshot" | jq -er '
-                .result.focused_pane_id
-                // .result.focused_pane.pane_id
-                // .focused_pane_id
+                .result.snapshot.focused_pane_id
                 // empty
                 | select(type == "string" and test("^[A-Za-z0-9._:-]{1,128}$"))
             ' 2>/dev/null || true)

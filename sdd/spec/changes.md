@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-28
 
+- **Herdr bootstrap follows the pinned runtime's canonical snapshot envelope** ([REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup) corrected; remains Implemented). Integration stayed at “Preparing terminal” because the launcher looked for a focused pane directly under `result` while official Herdr v0.8.2 returns it under `result.snapshot`. Launcher fixtures now use the official response shape, and packaged-image verification asks the pinned binary to validate every managed configuration key before deployment.
+
 - **The immutable Node runtime overlays patched pacote before deployment scanning** ([REQ-OPS-046](operations.md#req-ops-046-fixable-dependencies-in-immutable-runtime-artifacts) amended; remains Implemented). The pinned Node image bundled pacote 21.5.0 after CVE-2026-9496 became fixable in 21.5.1, so the image now verifies and installs the exact fixed package artifact into npm, then loads and version-checks that runtime before the fail-closed Trivy gate.
 
 - **Herdr structural session state becomes durable through normal home sync** ([REQ-TERM-033](terminal.md#req-term-033-durable-herdr-structural-session-recovery) added as Implemented). Herdr's official `session.json` now lives under `~/.codeflare` and follows the existing initial restore, 15-minute bisync, explicit Sync, and final-sync boundaries. Workspaces, tabs, panes, layout, cwd, focus, and supported native agent references may recover after replacement; pane history, sockets, logs, user settings, and arbitrary running processes remain ephemeral.

@@ -493,17 +493,39 @@ jobs:
             test -s /usr/share/licenses/herdr/provenance.json
             test -f /etc/codeflare/herdr/config.toml
             HERDR_DISABLE_SOUND=1 /usr/local/bin/herdr --version | grep -F "0.8.2"
+            HERDR_CONFIG_PATH=/etc/codeflare/herdr/config.toml HERDR_DISABLE_SOUND=1 /usr/local/bin/herdr config check
             grep -Fx "onboarding = false" /etc/codeflare/herdr/config.toml
+            grep -Fx "default_shell = \"/bin/bash\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "shell_mode = \"login\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "new_cwd = \"/home/user/workspace\"" /etc/codeflare/herdr/config.toml
             grep -Fx "version_check = false" /etc/codeflare/herdr/config.toml
             grep -Fx "manifest_check = false" /etc/codeflare/herdr/config.toml
-            grep -Fx "pane_history = false" /etc/codeflare/herdr/config.toml
-            grep -Fx "kitty_graphics = false" /etc/codeflare/herdr/config.toml
+            grep -Fx "name = \"catppuccin\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "auto_switch = false" /etc/codeflare/herdr/config.toml
+            grep -Fx "accent = \"#d97706\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "panel_bg = \"#1a2332\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "sidebar_bg = \"#141b27\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "active_row_bg = \"#253247\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "selection_bg = \"#334155\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "text = \"#e4e4f0\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "subtext0 = \"#94a3b8\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "green = \"#22c55e\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "yellow = \"#eab308\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "red = \"#ef4444\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "blue = \"#3b82f6\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "teal = \"#06b6d4\"" /etc/codeflare/herdr/config.toml
             grep -Fx "mobile_width_threshold = 96" /etc/codeflare/herdr/config.toml
             grep -Fx "mouse_capture = true" /etc/codeflare/herdr/config.toml
             grep -Fx "copy_on_select = false" /etc/codeflare/herdr/config.toml
             grep -Fx "right_click_passthrough_modifier = \"ctrl\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "show_agent_labels_on_pane_borders = true" /etc/codeflare/herdr/config.toml
             grep -Fx "status_indicators = \"symbols\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "window_title = \"\"" /etc/codeflare/herdr/config.toml
+            grep -Fx "delivery = \"herdr\"" /etc/codeflare/herdr/config.toml
             grep -Fx "scrollback_limit_bytes = 10000000" /etc/codeflare/herdr/config.toml
+            grep -Fx "allow_nested = false" /etc/codeflare/herdr/config.toml
+            grep -Fx "kitty_graphics = false" /etc/codeflare/herdr/config.toml
+            grep -Fx "pane_history = false" /etc/codeflare/herdr/config.toml
           '
           printf 'herdr_version=0.8.2 config=managed attribution=present\n' \
             | tee -a /tmp/browser-ide-image-evidence.txt

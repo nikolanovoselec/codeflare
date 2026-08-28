@@ -22,7 +22,7 @@ function harness(command, tabConfig) {
 set -eu
 printf '%s\n' "$*" >> "$HERDR_TEST_LOG"
 if [ "$*" = "api snapshot" ]; then
-  printf '%s\n' '{"result":{"focused_pane_id":"w1:p1"}}'
+  printf '%s\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
 elif [ "$1 $2" = "agent get" ] && [ -n "\${HERDR_TEST_AGENT:-}" ]; then
   printf '{"result":{"agent":{"agent":"%s"}}}\n' "$HERDR_TEST_AGENT"
 elif [ "$1 $2" = "pane process-info" ] && [ -n "\${HERDR_TEST_PROCESS:-}" ]; then
@@ -90,7 +90,7 @@ if [ "$*" = "api snapshot" ]; then
   session_dir="$XDG_CONFIG_HOME/herdr/sessions/$HERDR_SESSION"
   mkdir -p "$session_dir"
   printf '%s\\n' '{"version":3}' > "$session_dir/session.json"
-  printf '%s\\n' '{"result":{"focused_pane_id":"w1:p1"}}'
+  printf '%s\\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
 fi
 `, { mode: 0o755 });
 
@@ -138,7 +138,7 @@ if [ "$*" = "api snapshot" ]; then
   current=0
   [ ! -f "$HERDR_CLIENT_COUNT" ] || current=$(cat "$HERDR_CLIENT_COUNT")
   [ "$current" -lt 3 ] || exit 1
-  printf '%s\\n' '{"result":{"focused_pane_id":"w1:p1"}}'
+  printf '%s\\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
 fi
 `, { mode: 0o755 });
 
@@ -181,7 +181,7 @@ set -eu
 printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
 if [ "$*" = "api snapshot" ]; then
   [ ! -f "$HERDR_RESTORE_READY" ] || exit 1
-  printf '%s\\n' '{"result":{"focused_pane_id":"w1:p1"}}'
+  printf '%s\\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
 elif [ "$*" = "agent list" ]; then
   printf '%s' ready > "$HERDR_RESTORE_READY"
   printf '%s\\n' '{"result":{"agents":[{"agent":"pi"}]}}'
@@ -262,7 +262,7 @@ fi
 set -eu
 printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
 if [ "$*" = "api snapshot" ]; then
-  printf '%s\\n' '{"result":{"focused_pane_id":"w1:p1"}}'
+  printf '%s\\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
 elif [ "$1 $2" = "pane run" ]; then
   : > "$HERDR_TEST_STARTED"
   while [ ! -f "$HERDR_TEST_RELEASE" ]; do sleep 0.02; done
@@ -320,7 +320,7 @@ fi
 set -eu
 printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
 if [ "$*" = "api snapshot" ]; then
-  printf '%s\\n' '{"result":{"focused_pane_id":"w1:p1"}}'
+  printf '%s\\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
 elif [ "\${HERDR_TEST_BLOCK:-}" = "1" ] && [ "$1 $2" = "pane run" ]; then
   : > "$HERDR_TEST_STARTED"
   while [ ! -f "$HERDR_TEST_RELEASE" ]; do sleep 0.02; done
