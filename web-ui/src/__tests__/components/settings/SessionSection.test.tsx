@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@solidjs/testing-library';
-import { mdiConsoleLine } from '@mdi/js';
+import { mdiConsoleLine, mdiFileTree } from '@mdi/js';
 import SessionSection from '../../../components/settings/SessionSection';
 
 // isTouchDevice gates the desktop-only clipboard row; pin it to desktop so the
@@ -152,6 +152,8 @@ describe('default workspace selection', () => {
   it('renders Terminal and VS Code controls for Advanced mode with Terminal selected by default', () => {
     renderSection({ currentSessionMode: 'advanced' });
 
+    const icon = screen.getByTestId('default-workspace-icon');
+    expect(icon.querySelector('path')).toHaveAttribute('d', mdiFileTree);
     const control = screen.getByTestId('default-workspace-control');
     expect(control).toHaveAttribute('role', 'radiogroup');
     expect(screen.getByTestId('default-workspace-terminal')).toBeChecked();

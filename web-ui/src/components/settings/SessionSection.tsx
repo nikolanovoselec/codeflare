@@ -6,6 +6,7 @@ import {
   mdiCloudSyncOutline,
   mdiContentPaste,
   mdiFileDocumentRefreshOutline,
+  mdiFileTree,
   mdiRobotOutline,
   mdiTimerSandComplete,
 } from '@mdi/js';
@@ -113,6 +114,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
       <Show when={props.enterpriseMode?.() || props.currentSessionMode() === 'advanced'}>
         <section class="settings-section">
           <div class="settings-section-header">
+            <Icon path={mdiFileTree} size={16} aria-hidden="true" data-testid="default-workspace-icon" />
             <h3 class="settings-section-title type-section-header">Default workspace</h3>
           </div>
           <div
