@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-28
 
+- **Default Workspace has a visible file-tree marker** ([REQ-IDE-048](browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions) AC7 added; remains Implemented). Advanced and enterprise users now see the same section-header visual treatment on the workspace selector as other settings groups, without changing workspace availability or preference behavior.
+
 - **Canonical reviewer launch evidence fails closed without an authoritative window** ([REQ-AGENT-177](agents.md#req-agent-177-canonical-reviewer-launch-evidence) added as Implemented; [REQ-AGENT-170](agents.md#req-agent-170-joint-review-and-ci-triage) AC1 narrowed; remains Implemented). Pi and Claude launch-credit rules moved from REQ-AGENT-170 AC1 to focused REQ-AGENT-177 AC1-AC4 without changing canonical launch values. Pi now leaves reviewer calls uncredited when the active scope and output contract cannot be resolved instead of waiving those checks.
 
 - **Malformed Pi review launches receive actionable feedback** ([REQ-AGENT-176](agents.md#req-agent-176-malformed-review-launches-receive-actionable-feedback) added as Implemented). Required reviewer or CI subagent calls that return successfully but violate the emitted launch contract remain uncredited and now receive one visible rejection naming each mismatched field. Repeated settlement does not repeat the warning, while corrected launches continue the same in-memory round.
