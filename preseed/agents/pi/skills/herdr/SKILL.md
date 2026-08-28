@@ -98,7 +98,10 @@ Close focused disposable split:
 ```bash
 HERDR="${HERDR_BIN_PATH:-herdr}"
 pane=$("$HERDR" pane list | jq -r '.result.panes[] | select(.focused == true) | .pane_id')
-test "$pane" != "$HERDR_PANE_ID"
+if [ "$pane" = "$HERDR_PANE_ID" ]; then
+  echo "refusing to close current Pi pane" >&2
+  exit 1
+fi
 "$HERDR" pane close "$pane"
 ```
 
