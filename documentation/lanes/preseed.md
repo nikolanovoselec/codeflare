@@ -420,14 +420,14 @@ Curated content is not copied into this public preseed, and a public baked-prese
 
 ### Image-owned managed-extension companions
 
-Managed Pi extensions normally publish their complete relative-import closure. Release construction rejects any same-mode dependency missing from managed documents. ([REQ-AGENT-178](../../sdd/spec/agents.md#req-agent-178-managed-pi-extension-import-closure)) <!-- @impl: scripts/agent-seed-release.mjs::validateManagedExtensionImportClosure -->
+Image-owned companion exceptions are explicit. Their declaration names each exact extension file, and startup restores only those companions. ([REQ-STOR-031 AC7](../../sdd/spec/storage.md#req-stor-031-managed-resource-container-sync)) <!-- @impl: entrypoint.sh::IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
 
 An image-owned exception requires every step below:
 
 1. Ship the companion in Codeflare's warm image before curated code imports it.
-2. Declare its exact release key, permitted importer, and modes in `IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS`. <!-- @impl: scripts/agent-seed-release.mjs::IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS -->
+2. Declare its exact filename in `IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS`. <!-- @impl: entrypoint.sh::IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS -->
 3. Relay only that file after R2 restore and before PTY release and bisync baseline. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
-4. Test import rejection, allowed closure, companion restoration, and preservation of release-owned bytes.
+4. Test companion restoration and preservation of release-owned bytes.
 5. Advance curation's exact Codeflare compiler pin before publishing the dependent release.
 
 Never replace this declaration with a generic “copy every missing extension” fallback. Exclusive cleanup must not expand image ownership implicitly.

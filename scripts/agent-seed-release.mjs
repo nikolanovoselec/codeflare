@@ -7,9 +7,7 @@ import {
   sign,
   verify,
 } from 'node:crypto';
-import { posix as pathPosix } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import * as ts from 'typescript';
 import { compileAgentSeed } from './agent-seed-core.mjs';
 import {
   MANAGED_RELEASE_CONTENT_TYPES,
@@ -27,25 +25,6 @@ const FULL_SHA = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const measuredExtensionRecords = new WeakSet();
 const SUPPORTED_CONTENT_TYPES = new Set(MANAGED_RELEASE_CONTENT_TYPES);
-const MANAGED_PI_EXTENSION_PREFIX = '.pi/agent/extensions/';
-const MANAGED_EXTENSION_SCRIPT_KINDS = new Map([
-  ['.cjs', ts.ScriptKind.JS],
-  ['.cts', ts.ScriptKind.TS],
-  ['.js', ts.ScriptKind.JS],
-  ['.jsx', ts.ScriptKind.JSX],
-  ['.mjs', ts.ScriptKind.JS],
-  ['.mts', ts.ScriptKind.TS],
-  ['.ts', ts.ScriptKind.TS],
-  ['.tsx', ts.ScriptKind.TSX],
-]);
-
-export const IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS = Object.freeze([
-  Object.freeze({
-    key: '.pi/agent/extensions/context-mode-runtime.ts',
-    importers: Object.freeze(['.pi/agent/extensions/ctx-command.ts']),
-    modes: Object.freeze(['advanced', 'default']),
-  }),
-]);
 
 function compareStrings(left, right) {
   if (left < right) return -1;
@@ -149,88 +128,6 @@ function normalizeDocuments(documents) {
     compareStrings(left.key, right.key)
     || compareStrings(left.modes.join(','), right.modes.join(','))
   ));
-}
-
-function relativeModuleSpecifiers(content, sourceKey, scriptKind) {
-  const sourceFile = ts.createSourceFile(
-    sourceKey,
-    content,
-    ts.ScriptTarget.Latest,
-    true,
-    scriptKind,
-  );
-  if (sourceFile.parseDiagnostics?.length > 0) {
-    throw new Error(`managed extension ${sourceKey} contains invalid TypeScript or JavaScript syntax`);
-  }
-
-  const specifiers = new Set();
-  const addLiteral = (node) => {
-    if (node && ts.isStringLiteralLike(node) && node.text.startsWith('.')) {
-      specifiers.add(node.text);
-    }
-  };
-  const visit = (node) => {
-    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
-      addLiteral(node.moduleSpecifier);
-    } else if (ts.isImportEqualsDeclaration(node)
-      && ts.isExternalModuleReference(node.moduleReference)) {
-      addLiteral(node.moduleReference.expression);
-    } else if (ts.isCallExpression(node)) {
-      const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
-      const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
-      if (isDynamicImport || isRequire) addLiteral(node.arguments[0]);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return [...specifiers].sort(compareStrings);
-}
-
-function relativeModuleCandidates(sourceKey, specifier) {
-  const resolved = pathPosix.normalize(pathPosix.join(pathPosix.dirname(sourceKey), specifier));
-  const extension = pathPosix.extname(resolved);
-  if (extension === '.js') return [resolved, `${resolved.slice(0, -3)}.ts`];
-  if (extension) return [resolved];
-  return [
-    resolved,
-    `${resolved}.ts`,
-    `${resolved}.js`,
-    `${resolved}.mjs`,
-    `${resolved}.cjs`,
-    `${resolved}/index.ts`,
-    `${resolved}/index.js`,
-  ];
-}
-
-function validateManagedExtensionImportClosure(documents) {
-  const documentsByKey = new Map();
-  for (const document of documents) {
-    const existing = documentsByKey.get(document.key) ?? [];
-    existing.push(document);
-    documentsByKey.set(document.key, existing);
-  }
-
-  for (const document of documents) {
-    if (!document.key.startsWith(MANAGED_PI_EXTENSION_PREFIX)) continue;
-    const scriptKind = MANAGED_EXTENSION_SCRIPT_KINDS.get(pathPosix.extname(document.key).toLowerCase());
-    if (scriptKind === undefined) continue;
-    for (const specifier of relativeModuleSpecifiers(document.content, document.key, scriptKind)) {
-      const candidates = relativeModuleCandidates(document.key, specifier);
-      for (const mode of document.modes) {
-        const releaseOwnsImport = candidates.some((candidate) => (
-          (documentsByKey.get(candidate) ?? []).some((dependency) => dependency.modes.includes(mode))
-        ));
-        const imageOwnsImport = IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS.some((companion) => (
-          candidates.includes(companion.key)
-          && companion.importers.includes(document.key)
-          && companion.modes.includes(mode)
-        ));
-        if (!releaseOwnsImport && !imageOwnsImport) {
-          throw new Error(`managed extension relative import ${specifier} from ${document.key} is not declared for ${mode} mode`);
-        }
-      }
-    }
-  }
 }
 
 function normalizeRetiredPaths(retiredKeys, livePaths) {
@@ -387,7 +284,6 @@ export async function buildAgentSeedRelease({
   }
 
   const documents = normalizeDocuments(compiled.documents);
-  validateManagedExtensionImportClosure(documents);
   const livePaths = new Set(documents.map((document) => document.key));
   const retiredPaths = normalizeRetiredPaths(compiled.retiredKeys, livePaths);
   const extensions = validateExtensions(managedExtensions);

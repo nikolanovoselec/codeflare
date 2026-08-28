@@ -4381,32 +4381,6 @@ None.
 
 ---
 
-### REQ-AGENT-178: Managed Pi extension import closure
-
-**Intent:** A managed release cannot publish a Pi extension whose relative module dependencies will be absent in any mode where that extension runs.
-
-**Applies To:** Admin
-
-**Acceptance Criteria:**
-
-1. Release construction parses managed TypeScript and JavaScript extensions and discovers static imports and exports, import-equals, literal `require`, and literal dynamic imports with options. <!-- @impl: scripts/agent-seed-release.mjs::relativeModuleSpecifiers --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-178 AC1-AC3: closes managed extension relative imports over release and declared image companions) -->
-2. Every discovered relative import resolves to a managed release document available in each mode where its importer is present. <!-- @impl: scripts/agent-seed-release.mjs::validateManagedExtensionImportClosure --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-178 AC1-AC3: closes managed extension relative imports over release and declared image companions) -->
-3. An image-owned dependency satisfies closure only for its exact declared release key, importer, and modes. <!-- @impl: scripts/agent-seed-release.mjs::IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS --> <!-- @impl: scripts/agent-seed-release.mjs::validateManagedExtensionImportClosure --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-178 AC1-AC3: closes managed extension relative imports over release and declared image companions) -->
-4. Post-restore startup restores every declared image companion while preserving release-owned extension bytes. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7 and REQ-AGENT-178 AC4: restores managed content and declared image companions before baseline) -->
-5. Import discovery ignores comments and string contents that resemble imports. <!-- @impl: scripts/agent-seed-release.mjs::relativeModuleSpecifiers --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-178 AC5: ignores comments and string contents that resemble imports) -->
-
-**Constraints:** Startup restores only declared image companions and never arbitrary missing extensions.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-STOR-031](storage.md#req-stor-031-managed-resource-container-sync)
-
-**Verification:** Automated release-construction and post-restore relay tests
-
-**Status:** Implemented
-
----
-
 ### REQ-AGENT-156: Bounded lossless Pi prompt
 
 **Intent:** Default and advanced Pi sessions retain Codeflare's behavioral and safety contract while Codeflare-controlled prompt content stays within 14,000 characters before provider invocation in an isolated working directory.
