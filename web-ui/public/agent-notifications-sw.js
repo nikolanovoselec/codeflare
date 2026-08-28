@@ -103,8 +103,11 @@ self.addEventListener('push', (event) => {
       notification?.data?.eventId === payload.eventId
     ));
     const sessionUrl = `${self.location.origin}${payload.sessionPath}`;
+    const body = payload.agent === 'Pi' && payload.kind === 'task-completed'
+      ? 'Ready for input'
+      : REASONS[payload.kind];
     await self.registration.showNotification(`${payload.agent} · ${payload.sessionName}`, {
-      body: REASONS[payload.kind],
+      body,
       tag: `codeflare-agent:${payload.sessionPath}`,
       renotify: !duplicate,
       data: {

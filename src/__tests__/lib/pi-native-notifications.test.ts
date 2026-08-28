@@ -108,6 +108,108 @@ describe('Pi native terminal notifications / REQ-TERM-024', () => {
     );
   });
 
+  it('REQ-TERM-029 AC12: never emits while the foreground agent is active', async () => {
+    vi.useFakeTimers();
+    const runtime = notificationRuntime();
+    await runtime.handlers.get('input')?.({ source: 'interactive' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    await settle(runtime, 'stop');
+    await vi.advanceTimersByTimeAsync(299_999);
+
+    await runtime.handlers.get('input')?.({ source: 'extension', streamingBehavior: 'followUp' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(runtime.write).not.toHaveBeenCalled();
+
+    await settle(runtime, 'stop');
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(runtime.write).toHaveBeenCalledOnce();
+  });
+
+  it('REQ-TERM-029 AC7: blocks completion while a background task remains active', async () => {
+    vi.useFakeTimers();
+    const runtime = notificationRuntime();
+    await runtime.handlers.get('input')?.({ source: 'interactive' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    runtime.channels.get('subagents:created')?.({ id: 'task-a', isBackground: true });
+    runtime.channels.get('subagents:started')?.({ id: 'task-a' });
+    await settle(runtime, 'stop');
+
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(runtime.write).not.toHaveBeenCalled();
+
+    runtime.channels.get('subagents:completed')?.({ id: 'task-a' });
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(runtime.write).not.toHaveBeenCalled();
+
+    await runtime.handlers.get('input')?.({ source: 'extension', streamingBehavior: 'followUp' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    await settle(runtime, 'stop');
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(runtime.write).toHaveBeenCalledOnce();
+  });
+
+  it('REQ-TERM-029 AC8: waits for every background task and the parent follow-up', async () => {
+    vi.useFakeTimers();
+    const runtime = notificationRuntime();
+    await runtime.handlers.get('input')?.({ source: 'interactive' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    runtime.channels.get('subagents:created')?.({ id: 'task-a', isBackground: true });
+    runtime.channels.get('subagents:created')?.({ id: 'task-b', isBackground: true });
+    await settle(runtime, 'stop');
+
+    runtime.channels.get('subagents:completed')?.({ id: 'task-a' });
+    await runtime.handlers.get('input')?.({ source: 'extension', streamingBehavior: 'followUp' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    await settle(runtime, 'stop');
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(runtime.write).not.toHaveBeenCalled();
+
+    runtime.channels.get('subagents:completed')?.({ id: 'task-b' });
+    await runtime.handlers.get('input')?.({ source: 'extension', streamingBehavior: 'followUp' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    await settle(runtime, 'stop');
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(runtime.write).toHaveBeenCalledOnce();
+  });
+
+  it.each(['failed', 'stopped', 'aborted'])(
+    'REQ-TERM-029 AC9: %s background tasks release the idle gate',
+    async (status) => {
+      vi.useFakeTimers();
+      const runtime = notificationRuntime();
+      await runtime.handlers.get('input')?.({ source: 'interactive' });
+      await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+      runtime.channels.get('subagents:created')?.({ id: 'task-a', isBackground: true });
+      await settle(runtime, 'stop');
+      runtime.channels.get('subagents:failed')?.({ id: 'task-a', status });
+
+      await runtime.handlers.get('input')?.({ source: 'extension', streamingBehavior: 'followUp' });
+      await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+      await settle(runtime, status === 'failed' ? 'error' : 'stop');
+      await vi.advanceTimersByTimeAsync(300_000);
+      expect(runtime.write).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('REQ-TERM-029 AC10: delivers delayed Pi completion through Herdr event transport', async () => {
+    vi.useFakeTimers();
+    process.env.HERDR_ENV = '1';
+    const runtime = notificationRuntime();
+    await runtime.handlers.get('input')?.({ source: 'interactive' });
+    await runtime.handlers.get('agent_start')?.({}, { signal: new AbortController().signal });
+    await settle(runtime, 'stop');
+    await vi.advanceTimersByTimeAsync(300_000);
+
+    expect(spawnMock).toHaveBeenCalledOnce();
+    expect(spawnMock).toHaveBeenCalledWith(
+      '/usr/local/bin/codeflare-agent-event',
+      ['task-completed'],
+      { stdio: 'ignore' },
+    );
+    expect(runtime.write).not.toHaveBeenCalled();
+  });
+
   it('REQ-TERM-029 AC2: delays structured failure until five idle minutes', async () => {
     vi.useFakeTimers();
     const runtime = notificationRuntime();

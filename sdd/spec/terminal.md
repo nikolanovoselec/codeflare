@@ -1032,6 +1032,12 @@ None.
 4. A cancelled input request emits no completion or failure. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC4: cancelled input emits no terminal signal) -->
 5. An aborted run emits no completion or failure. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC5: aborted run emits no terminal signal) -->
 6. A settled run without interactive lineage emits no completion or failure. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC6: absent interactive lineage emits no terminal signal) -->
+7. A queued or running background subagent prevents completion or failure notification. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC7: blocks completion while a background task remains active) -->
+8. The inactivity interval starts only after every background subagent has terminated and the resulting parent follow-up has settled. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC8: waits for every background task and the parent follow-up) -->
+9. Failed, stopped, and aborted background subagents release their active-work gate. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC9: %s background tasks release the idle gate) -->
+10. In Herdr mode, an eligible delayed Pi completion uses the existing local agent-event transport instead of terminal OSC bytes. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::emit --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC10: delivers delayed Pi completion through Herdr event transport) -->
+11. Local and Push displays label Pi success `Ready for input`, while Claude completion retains `Task completed`. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-023 AC3/AC5: granted local display) --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (labels Pi completion as readiness while preserving Claude task copy) -->
+12. A foreground Pi run never emits a completion or failure notification before that run settles and completes a fresh inactivity interval. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::scheduleIdleNotification --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC12: never emits while the foreground agent is active) -->
 
 **Notes:** Implemented after the [deployed Pi notification acceptance evidence](../../documentation/lanes/preseed.md#pi-notification-acceptance-evidence).
 
@@ -1039,7 +1045,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-TERM-024](#req-term-024-pi-native-terminal-notification-producer)
+**Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-024](#req-term-024-pi-native-terminal-notification-producer)
 
 **Verification:** Automated Pi extension timing tests plus deployed interactive-run verification.
 
