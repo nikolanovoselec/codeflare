@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-28
 
+- **Browser-hosted Herdr receives explicit SGR mouse input** ([REQ-TERM-032](terminal.md#req-term-032-herdr-clipboard-and-mouse-compatibility-boundary) and [REQ-MOB-017](mobile.md#req-mob-017-fullscreen-application-touch-scrolling) corrected; remain Implemented). Integration showed that xterm did not reliably encode Herdr's captured hardware or synthesized touch events, leaving tabs, settings, panes, and agents inaccessible by pointer. A Herdr-only browser adapter now maps terminal-cell clicks, drags, modifier-aware right clicks, and wheels directly to SGR reports while classic keeps its existing input path.
+
 - **Herdr bootstrap follows the pinned runtime's canonical snapshot envelope** ([REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup) corrected; remains Implemented). Integration stayed at “Preparing terminal” because the launcher looked for a focused pane directly under `result` while official Herdr v0.8.2 returns it under `result.snapshot`. Launcher fixtures now use the official response shape, and packaged-image verification asks the pinned binary to validate every managed configuration key before deployment.
 
 - **The immutable Node runtime overlays patched pacote before deployment scanning** ([REQ-OPS-046](operations.md#req-ops-046-fixable-dependencies-in-immutable-runtime-artifacts) amended; remains Implemented). The pinned Node image bundled pacote 21.5.0 after CVE-2026-9496 became fixable in 21.5.1, so the image now verifies and installs the exact fixed package artifact into npm, then loads and version-checks that runtime before the fail-closed Trivy gate.

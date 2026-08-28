@@ -26,6 +26,11 @@ const mockAgentEventDisposition = vi.hoisted(() => vi.fn(
   (_presence?: { activeSessionMatches: boolean }) => 'suppress' as 'suppress' | 'display-request',
 ));
 const mockShowGrantedAgentEvent = vi.hoisted(() => vi.fn(async () => true));
+const mockAttachHerdrMouseInput = vi.hoisted(() => vi.fn(() => vi.fn()));
+const mockXtermElement = document.createElement('div');
+const mockXtermScreen = document.createElement('div');
+mockXtermScreen.className = 'xterm-screen';
+mockXtermElement.appendChild(mockXtermScreen);
 
 const mockTerminalInstance = {
   loadAddon: mockLoadAddon,
@@ -46,6 +51,7 @@ const mockTerminalInstance = {
   rows: 24,
   options: { fontFamily: 'monospace', theme: {} },
   textarea: null,
+  element: mockXtermElement,
   scrollLines: vi.fn(),
   onScroll: vi.fn(() => ({ dispose: vi.fn() })),
   buffer: {
@@ -139,6 +145,11 @@ vi.mock('../../lib/mobile', () => ({
 
 vi.mock('../../lib/touch-gestures', () => ({
   attachSwipeGestures: vi.fn(() => vi.fn()),
+  sendTerminalKey: vi.fn(),
+}));
+
+vi.mock('../../lib/herdr-mouse', () => ({
+  attachHerdrMouseInput: mockAttachHerdrMouseInput,
 }));
 
 vi.mock('../../lib/terminal-link-provider', () => ({
@@ -764,6 +775,11 @@ describe('useTerminal hook', () => {
         return dispose;
       });
       expect(addEventSpy).not.toHaveBeenCalledWith('contextmenu', expect.any(Function));
+      expect(mockAttachHerdrMouseInput).toHaveBeenCalledWith(
+        mockXtermScreen,
+        expect.objectContaining({ cols: 80, rows: 24 }),
+        expect.any(Function),
+      );
       dispose();
     });
 

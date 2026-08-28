@@ -57,7 +57,7 @@ function scrollTouchLines(
   targetXtermScreen = false,
 ): void {
   const element = terminal.element;
-  if (!hasFullscreenWheelTracking(terminal) || !element) {
+  if (!element || (!targetXtermScreen && !hasFullscreenWheelTracking(terminal))) {
     // Buffer-authoritative scroll: the public scrollLines() resolves the
     // delta against DOM scroll state that can diverge from the buffer and
     // yank the viewport to the top of scrollback (see scrollBufferLines).

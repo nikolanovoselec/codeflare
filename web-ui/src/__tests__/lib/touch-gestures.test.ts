@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { attachSwipeGestures, sendTerminalKey } from '../../lib/touch-gestures';
+import { attachHerdrMouseInput } from '../../lib/herdr-mouse';
 import type { Terminal } from '@xterm/xterm';
 
 // Helper: create a mock Terminal with the internal triggerDataEvent path
@@ -307,36 +308,40 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
     });
 
     describe('alternate-screen application scrolling', () => {
-      it('REQ-MOB-017 AC1: routes keyboard-closed vertical swipes as wheel input', () => {
+      it('REQ-MOB-017 AC1-AC2: routes Herdr swipes as SGR wheel input without xterm mouse tracking', () => {
         (window as any).ontouchstart = null;
         const { terminal, triggerDataEvent, scrollLines, bufferScrollLines, element } = createMockTerminal({
           bufferType: 'alternate',
-          mouseTrackingMode: 'any',
+          mouseTrackingMode: 'none',
         });
-        const wheelEvents: WheelEvent[] = [];
         const screen = document.createElement('div');
         screen.className = 'xterm-screen';
+        vi.spyOn(screen, 'getBoundingClientRect').mockReturnValue({
+          left: 0,
+          top: 0,
+          width: 200,
+          height: 120,
+          right: 200,
+          bottom: 120,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        });
         element.appendChild(screen);
-        screen.addEventListener('wheel', (event) => wheelEvents.push(event as WheelEvent));
         container.appendChild(element);
+        const cleanupMouse = attachHerdrMouseInput(screen, terminal, (sequence) => sendTerminalKey(terminal, sequence));
         const cleanup = attachSwipeGestures(container, terminal, () => false, true)!;
 
         container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
         container.dispatchEvent(makeTouchEvent('touchmove', 100, 60));
 
-        expect(wheelEvents.map((event) => ({
-          deltaY: event.deltaY,
-          deltaMode: event.deltaMode,
-          clientX: event.clientX,
-          clientY: event.clientY,
-        }))).toEqual([
-          { deltaY: 1, deltaMode: WheelEvent.DOM_DELTA_LINE, clientX: 100, clientY: 60 },
-          { deltaY: 1, deltaMode: WheelEvent.DOM_DELTA_LINE, clientX: 100, clientY: 60 },
-        ]);
+        expect(triggerDataEvent).toHaveBeenCalledTimes(2);
+        expect(triggerDataEvent).toHaveBeenNthCalledWith(1, '\x1b[<65;41;13M', false);
+        expect(triggerDataEvent).toHaveBeenNthCalledWith(2, '\x1b[<65;41;13M', false);
         expect(scrollLines).not.toHaveBeenCalled();
         expect(bufferScrollLines).not.toHaveBeenCalled();
-        expect(triggerDataEvent).not.toHaveBeenCalled();
         cleanup();
+        cleanupMouse();
       });
 
       it('REQ-MOB-017 AC3: preserves classic fullscreen wheel forwarding', () => {
