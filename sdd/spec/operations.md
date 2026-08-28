@@ -197,7 +197,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. After Codeflare stops a Container and it sleeps, its vCPU, provisioned-memory, and local-disk metering stops. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @manual: Record the Container's vCPU, provisioned-memory, and local-disk usage in Cloudflare analytics; let Codeflare idle-stop it; confirm it is sleeping and all three usage totals stop increasing while it remains stopped. -->
 3. Local disk is ephemeral and restart restores durable files from R2. <!-- @manual -->
 4. Workers, Durable Objects, R2, requests, logs, storage, and network may still incur charges. <!-- @manual -->
-5. Using dated `2026-08-09` assumptions—one account, one 160-hour active session, 1 vCPU, 3 GiB memory, 6 GB disk, and 20% average CPU—the estimate is `$11.14`. The shared account-level `$5` Workers minimum and Container inclusions make this neither per-user nor complete platform cost. <!-- @manual: Recalculate against the dated assumptions and current Cloudflare pricing before using the example operationally. -->
+5. Under the documented dated workload assumptions, the estimate is `$11.14` and excludes shared account-level platform cost. <!-- @manual: Recalculate against the dated assumptions and current Cloudflare pricing before using the example operationally. -->
 
 **Constraints:**
 
@@ -410,7 +410,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 - Worker secrets are written after worker creation.
 - Absent service auth skips seeding; configured seeding fails closed.
-- Notification sender configuration is optional and all-or-none. When present, one repository-level identity is shared across deployment environments without same-name environment overrides.
+- Notification sender configuration is optional and all-or-none, with one repository-level identity shared across deployment environments.
 
 **Priority:** P0
 
@@ -485,7 +485,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The idle-detection layer fails safe toward preserving user work, not saving compute: when the configured idle timeout cannot be resolved (corrupt storage, a missing/garbage value, or a skipped pref-resolution path), it falls back to the maximum supported value (4h), never the minimum. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @impl: src/container/container-metrics.ts::SLEEP_AFTER_FALLBACK_MS = 14_400_000 --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
+1. An unresolved idle-timeout preference falls back to the maximum supported four hours, preserving user work. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @impl: src/container/container-metrics.ts::SLEEP_AFTER_FALLBACK_MS = 14_400_000 --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
 2. Every idle-check tick resolves the persisted preference afresh; a valid change takes effect within that cycle regardless of which code path wrote it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014: User-configurable auto-sleep timeout in Settings) -->
 3. In-memory copies of the preference do not outlive a single idle-check cycle. <!-- @impl: src/container/index.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (refreshes idleTimeoutPref from storage on every tick) -->
 4. On any missing, unsupported, malformed, or failed idle-timeout read, resolution substitutes the maximum supported value (4h), replaces stale cached state, and logs the fallback, never a shorter default — so a resolution failure can only lengthen, never shorten, the user's effective timeout. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
