@@ -185,6 +185,7 @@ export default function nativeNotifications(
 
     if (!settledRun.interactiveInput && !hasInteractiveLineage) return;
     if (activeSubagents.size > 0) {
+      hasInteractiveLineage = true;
       cancelIdleTimer(false);
       return;
     }

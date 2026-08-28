@@ -32,7 +32,13 @@ case "$*" in
   'pane current --current') printf '%s\\n' '{"result":{"pane":{"pane_id":"w1:p1"}}}' ;;
   'tab list') printf '%s\\n' '{"result":{"tabs":[{"number":2,"tab_id":"w1:t2"}]}}' ;;
   'pane list') printf '{"result":{"panes":[{"pane_id":"%s","focused":true}]}}\\n' "\${HERDR_TEST_FOCUSED_PANE:-w1:p2}" ;;
-  'agent list') printf '%s\\n' '{"result":{"agents":[{"name":"pi2"}]}}' ;;
+  'agent list')
+    if [ "\${HERDR_TEST_INVALID_AGENT_LIST:-}" = "1" ]; then
+      printf '%s\\n' 'not-json'
+    else
+      printf '%s\\n' '{"result":{"agents":[{"name":"pi2"}]}}'
+    fi
+    ;;
   tab\\ create*) printf '%s\\n' '{"result":{"tab":{"tab_id":"w1:t2"},"root_pane":{"pane_id":"w9:p4"}}}' ;;
   agent\\ read*) printf '%s\\n' 'helper result' ;;
   *) printf '%s\\n' '{"result":{"agent":{"name":"helper"}}}' ;;
@@ -107,6 +113,24 @@ describe('Pi Herdr control skill', () => {
       'agent read helper --source recent-unwrapped --lines 200',
     ]);
     assert.doesNotMatch(calls[19], /--wait/);
+  });
+
+  it('REQ-AGENT-174: rejects invalid agent inventory before creating a tab', () => {
+    const { dir, herdr, log } = fixture();
+    const env = {
+      ...process.env,
+      HERDR_ENV: '1',
+      HERDR_PANE_ID: 'w1:p1',
+      HERDR_SOCKET_PATH: join(dir, 'herdr.sock'),
+      HERDR_BIN_PATH: herdr,
+      HERDR_TEST_LOG: log,
+      HERDR_TEST_INVALID_AGENT_LIST: '1',
+      PWD: dir,
+    };
+    delete env.HERDR;
+    const result = run(bashBlocks('Tabs', 3)[0], env, dir);
+    assert.notEqual(result.status, 0);
+    assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n'), ['agent list']);
   });
 
   it('REQ-AGENT-174: refuses to close the current Pi pane', () => {

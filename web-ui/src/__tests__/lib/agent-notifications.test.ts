@@ -73,7 +73,6 @@ describe('REQ-TERM-023 AC2/AC3: away presence disposition', () => {
 describe('REQ-TERM-023 AC3/AC5: granted local display', () => {
   it.each([
     ['input-required', 'Needs your input'],
-    ['task-completed', 'Ready for input'],
     ['task-failed', 'Task failed'],
   ] as const)('maps %s to fixed text plus trusted store identity', async (kind, body) => {
     const env = browser();
@@ -97,7 +96,23 @@ describe('REQ-TERM-023 AC3/AC5: granted local display', () => {
     expect(env.requestPermission).not.toHaveBeenCalled();
   });
 
-  it('keeps Claude completion copy task-oriented', async () => {
+  it('REQ-TERM-039 AC2: labels local Pi completion as ready for input', async () => {
+    const env = browser();
+    await showGrantedAgentEvent({
+      eventId: 'event-a',
+      kind: 'task-completed',
+      agent: 'Pi',
+      sessionName: 'Pi #1',
+      sessionPath: '/app/session/abcdef0123456789',
+    }, env);
+
+    expect(env.showNotification).toHaveBeenCalledWith(
+      'Pi · Pi #1',
+      expect.objectContaining({ body: 'Ready for input' }),
+    );
+  });
+
+  it('REQ-TERM-039 AC4: keeps local Claude completion copy task-oriented', async () => {
     const env = browser();
     await showGrantedAgentEvent({
       eventId: 'event-a',

@@ -1055,20 +1055,45 @@ None.
 
 **Acceptance Criteria:**
 
-1. Only queued or running background subagents delay notification; foreground subagents complete within their parent turn without retaining the background gate. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC1: a foreground subagent does not hold the background gate) --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC1: blocks completion while a background task remains active) -->
-2. The inactivity interval starts only after every background subagent has terminated and the resulting parent follow-up has settled. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC2: waits for every background task and the parent follow-up) -->
-3. Failed, stopped, and aborted background subagents release their active-work gate. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC3: %s background tasks release the idle gate) -->
-4. An eligible delayed Pi completion in Herdr produces no terminal-visible notification bytes and remains available to Codeflare notification delivery. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::emit --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC4: delivers delayed Pi completion through Herdr event transport) -->
-5. Local and Push displays label Pi success `Ready for input`, while Claude completion retains `Task completed`. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-023 AC3/AC5: granted local display) --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (labels Pi completion as readiness while preserving Claude task copy) -->
-6. A foreground Pi run never emits a completion or failure notification before that run settles and completes a fresh inactivity interval. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::scheduleIdleNotification --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC6: never emits while the foreground agent is active) -->
+1. A queued or running background subagent delays notification. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC1: blocks completion while a background task remains active) -->
+2. A foreground subagent does not retain the background-work gate after its parent turn settles. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC2: a foreground subagent does not hold the background gate) -->
+3. The inactivity interval starts only after every background subagent has terminated and the resulting parent follow-up has settled. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC3: waits for every background task and the parent follow-up) -->
+4. Failed, stopped, and aborted background subagents release their active-work gate. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC4: %s background tasks release the idle gate) -->
+5. A foreground Pi run never emits a completion or failure notification before that run settles and completes a fresh inactivity interval. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::scheduleIdleNotification --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC5: never emits while the foreground agent is active) -->
 
 **Constraints:** Input-required signals remain immediate, and no task payload content enters notification output.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-029](#req-term-029-pi-inactivity-gated-terminal-completion), [REQ-TERM-031](#req-term-031-herdr-notification-compatibility-boundary)
+**Dependencies:** [REQ-TERM-029](#req-term-029-pi-inactivity-gated-terminal-completion)
 
-**Verification:** Automated Pi lifecycle, transport, and display tests plus deployed foreground and background-work verification.
+**Verification:** Automated Pi lifecycle tests plus deployed foreground and background-work verification.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-039: Pi completion delivery is mode-correct and readiness-oriented
+
+**Intent:** Eligible Pi completion remains available in each terminal mode with copy that reflects Pi readiness.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. An eligible delayed Pi completion in Herdr produces no terminal-visible notification bytes and remains available to Codeflare notification delivery. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::emit --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-039 AC1: delivers delayed Pi completion through Herdr event transport) -->
+2. Local display labels Pi completion `Ready for input`. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-039 AC2: labels local Pi completion as ready for input) -->
+3. Push display labels Pi completion `Ready for input`. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-039 AC3: labels Pi Push completion as ready for input) -->
+4. Local display retains `Task completed` for Claude completion. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-039 AC4: keeps local Claude completion copy task-oriented) -->
+5. Push display retains `Task completed` for Claude completion. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-039 AC5: keeps Claude Push completion copy task-oriented) -->
+
+**Constraints:** Display reason text remains fixed and excludes provider, task, and tool content.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-031](#req-term-031-herdr-notification-compatibility-boundary), [REQ-TERM-038](#req-term-038-pi-completion-follows-the-active-work-graph)
+
+**Verification:** Automated Pi transport, local-display, and Push-display tests plus deployed Herdr and browser verification.
 
 **Status:** Implemented
 

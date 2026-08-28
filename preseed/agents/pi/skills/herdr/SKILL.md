@@ -39,7 +39,13 @@ Open tab and start Pi:
 
 ```bash
 HERDR="${HERDR_BIN_PATH:-herdr}"
-agents=$("$HERDR" agent list)
+if ! agents=$("$HERDR" agent list); then
+  exit 1
+fi
+if ! printf '%s\n' "$agents" \
+  | jq -e '.result.agents | type == "array" and all(.[]; (.name == null) or ((.name | type) == "string"))' >/dev/null; then
+  exit 1
+fi
 index=2
 while [ "$index" -le 999 ] && printf '%s\n' "$agents" \
   | jq -e --arg name "pi$index" '.result.agents[]? | select(.name == $name)' >/dev/null; do
