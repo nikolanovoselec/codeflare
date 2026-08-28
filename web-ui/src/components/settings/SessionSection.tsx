@@ -5,6 +5,7 @@ import {
   mdiCloudSyncOutline,
   mdiContentPaste,
   mdiFileDocumentRefreshOutline,
+  mdiFileTree,
   mdiRobotOutline,
   mdiTimerSandComplete,
 } from '@mdi/js';
@@ -25,6 +26,7 @@ interface SessionSectionProps {
   workspaceSyncEnabled: Accessor<boolean>;
   clipboardAccess: Accessor<boolean>;
   notificationPermission: Accessor<AgentNotificationEnablement>;
+  notificationAvailable: Accessor<boolean>;
   notificationEnabled?: Accessor<boolean>;
   sleepAfter: Accessor<string>;
   canChangeSleepAfter: Accessor<boolean>;
@@ -110,6 +112,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
       <Show when={props.enterpriseMode?.() || props.currentSessionMode() === 'advanced'}>
         <section class="settings-section">
           <div class="settings-section-header">
+            <Icon path={mdiFileTree} size={16} data-testid="default-workspace-icon" />
             <h3 class="settings-section-title type-section-header">Default workspace</h3>
           </div>
           <div
@@ -183,44 +186,46 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
       </section>
 
       {/* Native agent notifications */}
-      <section class="settings-section">
-        <div class="settings-section-header">
-          <Icon path={mdiBellOutline} size={16} />
-          <h3 class="settings-section-title type-section-header">Agent Notifications</h3>
-        </div>
-        <div class="setting-row">
-          <label class="type-label" for="settings-agent-notifications">Notify this device</label>
-          <button
-            type="button"
-            id="settings-agent-notifications"
-            class={`toggle ${notificationEnabled() ? 'toggle-on' : ''}`}
-            onClick={props.onEnableAgentNotifications}
-            role="switch"
-            aria-checked={notificationEnabled()}
-            data-testid="settings-agent-notifications"
-          >
-            <span class="toggle-thumb" />
-          </button>
-        </div>
-        <div class="setting-row setting-row--column-gap">
-          <span
-            class="settings-hint type-hint"
-            data-testid="settings-agent-notifications-status"
-            data-guidance={props.notificationPermission() === 'unavailable'
-              && needsHomeScreenInstallForNotifications() ? 'ios-install' : undefined}
-          >
-            {notificationEnabled()
-              ? 'Enabled for this device'
-              : props.notificationPermission() === 'denied'
-                ? 'Blocked in browser site settings'
-                : props.notificationPermission() === 'unavailable'
-                  ? (needsHomeScreenInstallForNotifications()
-                    ? 'On iOS, add Codeflare to your Home Screen (Share → Add to Home Screen), then enable notifications here.'
-                    : 'Unavailable in this browser')
-                  : 'Notify when Pi or Claude is ready for input in terminal tab 1.'}
-          </span>
-        </div>
-      </section>
+      <Show when={props.notificationAvailable()}>
+        <section class="settings-section">
+          <div class="settings-section-header">
+            <Icon path={mdiBellOutline} size={16} />
+            <h3 class="settings-section-title type-section-header">Agent Notifications</h3>
+          </div>
+          <div class="setting-row">
+            <label class="type-label" for="settings-agent-notifications">Notify this device</label>
+            <button
+              type="button"
+              id="settings-agent-notifications"
+              class={`toggle ${notificationEnabled() ? 'toggle-on' : ''}`}
+              onClick={props.onEnableAgentNotifications}
+              role="switch"
+              aria-checked={notificationEnabled()}
+              data-testid="settings-agent-notifications"
+            >
+              <span class="toggle-thumb" />
+            </button>
+          </div>
+          <div class="setting-row setting-row--column-gap">
+            <span
+              class="settings-hint type-hint"
+              data-testid="settings-agent-notifications-status"
+              data-guidance={props.notificationPermission() === 'unavailable'
+                && needsHomeScreenInstallForNotifications() ? 'ios-install' : undefined}
+            >
+              {notificationEnabled()
+                ? 'Enabled for this device'
+                : props.notificationPermission() === 'denied'
+                  ? 'Blocked in browser site settings'
+                  : props.notificationPermission() === 'unavailable'
+                    ? (needsHomeScreenInstallForNotifications()
+                      ? 'On iOS, add Codeflare to your Home Screen (Share → Add to Home Screen), then enable notifications here.'
+                      : 'Unavailable in this browser')
+                    : 'Notify when Pi or Claude is ready for input in terminal tab 1.'}
+            </span>
+          </div>
+        </section>
+      </Show>
 
       {/* R2 Sync */}
       <section class="settings-section">

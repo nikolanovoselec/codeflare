@@ -425,13 +425,13 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Acceptance Criteria:**
 
-1. Notification enrollment and removal require authenticated user context. <!-- @impl: src/routes/notifications.ts::app --> <!-- @test: src/__tests__/routes/notifications.test.ts (REQ-TERM-025 AC1-AC5 / REQ-SEC-023 AC1-AC4/AC7: notification routes) -->
-2. One user cannot read or change another user's device capabilities. <!-- @impl: src/routes/notifications.ts::app --> <!-- @impl: src/lib/kv-keys.ts::getPushSubKey --> <!-- @test: src/__tests__/routes/notifications.test.ts (REQ-TERM-025 AC1-AC5 / REQ-SEC-023 AC1-AC4/AC7: notification routes) -->
+1. Notification enrollment and removal require authenticated user context. <!-- @impl: src/routes/notifications.ts::app --> <!-- @test: src/__tests__/routes/notifications.test.ts (REQ-TERM-025 AC1-AC6 / REQ-SEC-023 AC1-AC4/AC7: notification routes) -->
+2. One user cannot read or change another user's device capabilities. <!-- @impl: src/routes/notifications.ts::app --> <!-- @impl: src/lib/kv-keys.ts::getPushSubKey --> <!-- @test: src/__tests__/routes/notifications.test.ts (REQ-TERM-025 AC1-AC6 / REQ-SEC-023 AC1-AC4/AC7: notification routes) -->
 3. Malformed, oversized, insecure, or unsupported subscriptions are rejected before they can be stored or used for delivery. <!-- @impl: src/routes/notifications.ts::parsePushSubscription --> <!-- @test: src/__tests__/routes/notifications.test.ts (rejects unknown providers, insecure endpoints, malformed keys, extra fields, and oversized bodies) -->
 4. Application logs, analytics, responses, and route errors never contain Push endpoints or encryption keys. <!-- @impl: src/routes/notifications.ts::app --> <!-- @test: src/__tests__/routes/notifications.test.ts (does not log or return endpoint and key capability material on validation failure) -->
 5. User deletion removes all notification enrollments owned by that user. <!-- @impl: src/lib/user-cleanup.ts::deleteUserKvEntries --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (REQ-AUTH-018 AC3: follows paginated push-subscription cursors until complete) -->
 6. The VAPID private key exists only as a deployment secret. <!-- @impl: src/types.ts::Env --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (validates the subject and matching P-256 keypair before Worker promotion) -->
-7. The authenticated notification config route returns only the public key. <!-- @impl: src/routes/notifications.ts::app --> <!-- @test: src/__tests__/routes/notifications.test.ts (returns only the public VAPID key from authenticated config) -->
+7. The authenticated notification config route returns only the public key when all sender fields exist, and reports unavailable without exposing secret state when any field is absent. <!-- @impl: src/routes/notifications.ts::app --> <!-- @test: src/__tests__/routes/notifications.test.ts (returns only the public VAPID key from authenticated config) --> <!-- @test: src/__tests__/routes/notifications.test.ts (reports config unavailable when the private key is absent) -->
 
 **Notes:** Partial pending deployed subscription-isolation observations on desktop, Android-class, and installed iOS PWA devices.
 

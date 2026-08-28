@@ -364,7 +364,10 @@ describe('REQ-OPS-013 AC6-AC7: notification deployment configuration', () => {
     });
   }
 
-  it('validates the subject and matching P-256 keypair before Worker promotion', () => {
+  it('allows notifications to be omitted and validates a configured matching P-256 keypair before Worker promotion', () => {
+    const disabled = validate({});
+    assert.equal(disabled.status, 0, disabled.stderr);
+
     const pair = keyPair();
     const valid = validate({
       VAPID_SUBJECT: 'mailto:ops@codeflare.example',
@@ -412,10 +415,11 @@ describe('REQ-OPS-013 AC6-AC7: notification deployment configuration', () => {
     }
   });
 
-  it('rejects whitespace, bad subjects, malformed keys, and mismatched pairs without printing key values', () => {
+  it('rejects partial, whitespace, malformed, and mismatched configuration without printing key values', () => {
     const pair = keyPair();
     const other = keyPair();
     const invalid = [
+      ['partial configuration', { VAPID_PRIVATE_KEY: '' }],
       ['whitespace subject', { VAPID_SUBJECT: '   ' }],
       ['surrounding whitespace', { VAPID_SUBJECT: ' mailto:ops@codeflare.example' }],
       ['bad subject scheme', { VAPID_SUBJECT: 'ftp://codeflare.example' }],

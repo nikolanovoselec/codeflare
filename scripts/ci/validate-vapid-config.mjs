@@ -49,23 +49,30 @@ function decodeKey(name, value, length) {
 }
 
 try {
-  const subject = required('VAPID_SUBJECT');
-  const publicKey = decodeKey('VAPID_PUBLIC_KEY', required('VAPID_PUBLIC_KEY'), 65);
-  const privateKey = decodeKey('VAPID_PRIVATE_KEY', required('VAPID_PRIVATE_KEY'), 32);
+  const configuredFields = ['VAPID_SUBJECT', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY']
+    .filter((name) => Boolean(process.env[name]));
 
-  validateSubject(subject);
-  if (publicKey[0] !== 0x04) {
-    throw new Error('VAPID_PUBLIC_KEY must be an uncompressed P-256 point');
+  if (configuredFields.length === 0) {
+    process.stdout.write('VAPID configuration is absent; Push notifications are disabled\n');
+  } else {
+    const subject = required('VAPID_SUBJECT');
+    const publicKey = decodeKey('VAPID_PUBLIC_KEY', required('VAPID_PUBLIC_KEY'), 65);
+    const privateKey = decodeKey('VAPID_PRIVATE_KEY', required('VAPID_PRIVATE_KEY'), 32);
+
+    validateSubject(subject);
+    if (publicKey[0] !== 0x04) {
+      throw new Error('VAPID_PUBLIC_KEY must be an uncompressed P-256 point');
+    }
+
+    const ecdh = createECDH('prime256v1');
+    ecdh.setPrivateKey(privateKey);
+    const derivedPublicKey = ecdh.getPublicKey(undefined, 'uncompressed');
+    if (!timingSafeEqual(publicKey, derivedPublicKey)) {
+      throw new Error('VAPID public and private keys do not match');
+    }
+
+    process.stdout.write('VAPID configuration is valid\n');
   }
-
-  const ecdh = createECDH('prime256v1');
-  ecdh.setPrivateKey(privateKey);
-  const derivedPublicKey = ecdh.getPublicKey(undefined, 'uncompressed');
-  if (!timingSafeEqual(publicKey, derivedPublicKey)) {
-    throw new Error('VAPID public and private keys do not match');
-  }
-
-  process.stdout.write('VAPID configuration is valid\n');
 } catch (error) {
   const message = error instanceof Error ? error.message : 'invalid VAPID configuration';
   process.stderr.write(`VAPID configuration error: ${message}\n`);

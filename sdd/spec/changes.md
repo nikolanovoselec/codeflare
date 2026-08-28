@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-28
 
+- **Web Push is optional and absent configuration removes its Settings control** ([REQ-OPS-013](operations.md#req-ops-013-deploy-command-and-post-deploy-hooks) AC6-AC7, [REQ-TERM-025](terminal.md#req-term-025-per-device-notification-enrollment) AC6, and [REQ-SEC-023](security.md#req-sec-023-agent-notification-capability-boundaries) AC7 amended; all remain Partial). Deployments with no VAPID fields proceed without Web Push. Any partial or invalid sender identity still fails before promotion, configured values remain masked, and authenticated Settings renders notification enrollment only when the complete sender configuration is available.
+
 - **Managed reconciliation uses compact environment-update status copy** ([REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release) AC5 and [REQ-STOR-022](storage.md#req-stor-022-managed-reconciliation-admission) AC2 narrowed; [REQ-AGENT-172](agents.md#req-agent-172-environment-update-ui-lockdown) added; all Implemented). Dashboard and session-menu New Session controls now display "Updating" with an environment-specific accessible label during seed sync or managed reconciliation. A managed update waiting for an owning session to stop displays "Update pending" and blocks both entry points.
 
 ## 2026-08-27

@@ -213,6 +213,16 @@ async function removeLocalSubscription(
   }
 }
 
+export async function agentNotificationsAvailable(
+  browser: AgentNotificationBrowser = defaultBrowser,
+): Promise<boolean> {
+  try {
+    return Boolean(await browser.getVapidPublicKey?.());
+  } catch {
+    return false;
+  }
+}
+
 export async function agentNotificationsEnabled(browser: AgentNotificationBrowser = defaultBrowser): Promise<boolean> {
   try {
     if (browser.permission() !== 'granted' || !browser.currentSubscription) return false;

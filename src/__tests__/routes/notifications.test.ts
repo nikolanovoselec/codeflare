@@ -32,7 +32,12 @@ const VALID_KEYS = Object.freeze({
   auth: 'A'.repeat(22),
 });
 
-function createTestApp(kv: ReturnType<typeof createMockKV>, vapidPublicKey = 'public-vapid-key') {
+function createTestApp(
+  kv: ReturnType<typeof createMockKV>,
+  vapidPublicKey = 'public-vapid-key',
+  vapidSubject = 'mailto:ops@codeflare.example',
+  vapidPrivateKey = 'private-vapid-key',
+) {
   const app = new Hono<{ Bindings: Env }>();
   app.onError((error, c) => {
     if (error instanceof AppError) return c.json(error.toJSON(), error.statusCode as never);
@@ -41,7 +46,9 @@ function createTestApp(kv: ReturnType<typeof createMockKV>, vapidPublicKey = 'pu
   app.use('*', async (c, next) => {
     (c.env as Partial<Env>) = {
       KV: kv as unknown as KVNamespace,
+      VAPID_SUBJECT: vapidSubject,
       VAPID_PUBLIC_KEY: vapidPublicKey,
+      VAPID_PRIVATE_KEY: vapidPrivateKey,
     };
     return next();
   });
@@ -61,7 +68,7 @@ async function postSubscription(app: ReturnType<typeof createTestApp>, endpoint:
   });
 }
 
-describe('REQ-TERM-025 AC1-AC5 / REQ-SEC-023 AC1-AC4/AC7: notification routes', () => {
+describe('REQ-TERM-025 AC1-AC6 / REQ-SEC-023 AC1-AC4/AC7: notification routes', () => {
   let kv: ReturnType<typeof createMockKV>;
 
   beforeEach(() => {
@@ -102,8 +109,12 @@ describe('REQ-TERM-025 AC1-AC5 / REQ-SEC-023 AC1-AC4/AC7: notification routes', 
     expect(await response.json()).toEqual({ vapidPublicKey: 'configured-public-key' });
   });
 
-  it('fails config closed when the public key is absent', async () => {
-    const app = createTestApp(kv, '');
+  it.each([
+    ['subject', 'configured-public-key', '', 'configured-private-key'],
+    ['public key', '', 'mailto:ops@codeflare.example', 'configured-private-key'],
+    ['private key', 'configured-public-key', 'mailto:ops@codeflare.example', ''],
+  ])('reports config unavailable when the %s is absent', async (_field, publicKey, subject, privateKey) => {
+    const app = createTestApp(kv, publicKey, subject, privateKey);
     const response = await app.request('/api/notifications/config');
     expect(response.status).toBe(503);
     expect(JSON.stringify(await response.json())).not.toMatch(/private|secret/i);

@@ -130,7 +130,7 @@ Read [Security](documentation/lanes/security.md), [Authentication](documentation
 
 ### Before you begin
 
-Use a Cloudflare account that can run Workers and Containers, a GitHub fork with Actions enabled, and the maintained minimum-scope operator token from [Configuration](documentation/lanes/configuration.md#cloudflare-api-token-operator). Licensed operators should complete the private [deployment quick start](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/quickstarts.md) for their selected mode. Production promotion and recovery run through reviewed GitHub workflows rather than local Wrangler commands.
+Use a Cloudflare account that can run Workers and Containers, a GitHub fork with Actions enabled, and the maintained minimum-scope operator token from [Configuration](documentation/lanes/configuration.md#cloudflare-api-token-operator). Before deployment, licensed operators complete the private [deployment quick start](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/quickstarts.md) for their selected mode. Production promotion and recovery run through reviewed GitHub workflows rather than local Wrangler commands.
 
 ### Default self-operated deployment
 
