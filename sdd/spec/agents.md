@@ -4247,6 +4247,34 @@ None.
 
 ---
 
+### REQ-AGENT-173: Pi can orchestrate coding agents through Herdr
+
+**Intent:** Pi can use an existing Herdr session as a local agent-control plane without treating Herdr as mandatory in a plain Codeflare terminal.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Default and advanced Pi projections include one on-demand Herdr skill, while the always-loaded system instruction points to it only for Herdr orchestration. <!-- @impl: preseed/agents/pi/manifest.json::skills/herdr/SKILL.md --> <!-- @impl: preseed/agents/pi/SYSTEM.md --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-173: projects the conditional Herdr orchestration skill) -->
+2. The skill checks for a live Herdr pane before acting and continues as a normal Codeflare terminal agent when that check fails. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Gate --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-173: projects the conditional Herdr orchestration skill) -->
+3. The skill shows Pi how to create an unfocused agent pane, capture returned IDs, start and task a named agent, steer blocked or working state, wait with bounds, and read results. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md --> <!-- @test: src/__tests__/lib/agent-seed-multi-agent.test.ts (REQ-AGENT-173: projects the conditional Herdr orchestration skill) -->
+
+**Constraints:**
+
+- The skill uses Herdr's documented local CLI and never starts Herdr outside an existing Herdr pane.
+- A helper starts a separate agent session; the current Pi session file is never run concurrently.
+- Herdr waits are always bounded, and `unknown` never means success.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-172](#req-agent-172-herdr-preserves-the-pi-extension-policy), [REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup)
+
+**Verification:** Generated-seed contract tests
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-156: Bounded lossless Pi prompt
 
 **Intent:** Default and advanced Pi sessions retain Codeflare's behavioral and safety contract while Codeflare-controlled prompt content stays within 14,000 characters before provider invocation in an isolated working directory.

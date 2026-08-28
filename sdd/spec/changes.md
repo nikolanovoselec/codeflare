@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-28
 
+- **Pi can use Herdr as an agent-control plane** ([REQ-AGENT-173](agents.md#req-agent-173-pi-can-orchestrate-coding-agents-through-herdr) added as Implemented). Default and advanced Pi sessions now carry a short on-demand skill for creating Herdr tabs or splits, starting named agents, sending and steering tasks, waiting on lifecycle state, and reading terminal transcripts. The always-loaded system instruction spends one sentence on discovery; the skill first proves that Pi is inside a live Herdr pane and otherwise leaves plain Codeflare terminals alone.
+
 - **Herdr preserves Pi's image-owned Caveman policy** ([REQ-AGENT-172](agents.md#req-agent-172-herdr-preserves-the-pi-extension-policy) added as Implemented). Herdr's private XDG root previously redirected Caveman away from `~/.pi/agent/caveman.json`, causing the extension's full-mode, visible-status defaults to replace Codeflare's lite, status-hidden policy. Herdr now gives Pi its canonical configuration root explicitly while retaining private Herdr state.
 
 - **Restored Pi readiness follows live transcript initialization** ([REQ-TERM-033](terminal.md#req-term-033-durable-herdr-structural-session-recovery) AC5-AC7 added; remains Implemented). Herdr restores persisted agent metadata before it starts `pi --session`, so metadata alone can make Codeflare ready while Pi still loads its transcript. With pinned Herdr v0.8.2, bootstrap now waits for every restored Pi pane to establish official full-lifecycle authority after `session_start`; version drift or a bounded wait failure preserves existing metadata readiness as a compatibility fallback for Pi and every other agent.
