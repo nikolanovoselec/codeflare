@@ -981,6 +981,38 @@ describe('useTerminal hook', () => {
     });
   });
 
+  describe('font loading refit', () => {
+    it('REQ-MOB-001 AC5: skips the deferred font-ready refit when the container has zero visible height', async () => {
+      let resolveFonts!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        resolveFonts = resolve;
+      });
+      Object.defineProperty(document, 'fonts', {
+        value: { ready },
+        configurable: true,
+      });
+      Object.defineProperty(containerEl, 'clientHeight', { value: 0, configurable: true });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      mockFit.mockClear();
+      mockScrollToBottom.mockClear();
+      vi.mocked(terminalStore.resize).mockClear();
+      resolveFonts();
+      await ready;
+      await Promise.resolve();
+
+      expect(mockFit).not.toHaveBeenCalled();
+      expect(mockScrollToBottom).not.toHaveBeenCalled();
+      expect(terminalStore.resize).not.toHaveBeenCalled();
+      dispose();
+    });
+  });
+
   describe('keyboard height refit', () => {
     it('should scroll to bottom when keyboard opens (closed→open transition)', async () => {
       vi.useFakeTimers();
