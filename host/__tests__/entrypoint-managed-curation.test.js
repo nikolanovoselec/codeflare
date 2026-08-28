@@ -111,7 +111,7 @@ function runStartup(remoteCurationActive) {
 }
 
 describe('managed curation entrypoint behavior', () => {
-  it('REQ-STOR-031 AC1/AC2/AC7: restores managed content and its image-owned runtime companion before baseline', () => {
+  it('REQ-STOR-031 AC1/AC2/AC7 and REQ-AGENT-178 AC4: restores managed content and declared image companions before baseline', () => {
     const run = runStartup(true);
 
     assert.equal(run.result.status, 0, run.result.stderr);

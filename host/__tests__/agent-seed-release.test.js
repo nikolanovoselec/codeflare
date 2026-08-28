@@ -198,7 +198,7 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
     );
   });
 
-  it('REQ-AGENT-147 AC4: closes managed extension relative imports over release and declared image companions', async () => {
+  it('REQ-AGENT-178 AC1-AC3: closes managed extension relative imports over release and declared image companions', async () => {
     const { buildAgentSeedRelease } = await import(releaseUrl);
     const extension = (key, content, modes = ['advanced', 'default']) => ({
       key: `.pi/agent/extensions/${key}`,
@@ -210,7 +210,12 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
     await buildAgentSeedRelease(releaseOptions(compiledSeed({
       documents: [
         extension('ctx-command.ts', "import './context-mode-runtime';\n"),
-        extension('main.ts', "export { helper } from './helper.js';\n"),
+        extension('main.ts', [
+          "// import './comment-only';",
+          "const example = \"import './string-only'\";",
+          "export { helper } from './helper.js';",
+          "const loaded = require('./helper');",
+        ].join('\n')),
         extension('helper.ts', 'export const helper = true;\n'),
       ],
     })));
@@ -229,12 +234,18 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
     );
     await assert.rejects(
       buildAgentSeedRelease(releaseOptions(compiledSeed({
+        documents: [extension('main.ts', "void import('./dynamic-missing', { with: { type: 'json' } });\n")],
+      }))),
+      /relative import.*dynamic-missing.*not declared/i,
+    );
+    await assert.rejects(
+      buildAgentSeedRelease(releaseOptions(compiledSeed({
         documents: [
           extension('main.ts', "import './helper';\n"),
           extension('helper.ts', 'export const helper = true;\n', ['advanced']),
         ],
       }))),
-      /relative import.*\.\/helper.*default.*not declared/i,
+      /relative import.*\.\/helper.*not declared.*default/i,
     );
   });
 });

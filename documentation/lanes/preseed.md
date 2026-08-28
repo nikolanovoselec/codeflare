@@ -420,7 +420,7 @@ Curated content is not copied into this public preseed, and a public baked-prese
 
 ### Image-owned managed-extension companions
 
-Managed Pi extensions normally publish their complete relative-import closure. Release construction rejects any same-mode dependency missing from managed documents. ([REQ-AGENT-147 AC4](../../sdd/spec/agents.md#req-agent-147-signed-managed-agent-configuration-releases)) <!-- @impl: scripts/agent-seed-release.mjs::validateManagedExtensionImportClosure -->
+Managed Pi extensions normally publish their complete relative-import closure. Release construction rejects any same-mode dependency missing from managed documents. ([REQ-AGENT-178](../../sdd/spec/agents.md#req-agent-178-managed-pi-extension-import-closure)) <!-- @impl: scripts/agent-seed-release.mjs::validateManagedExtensionImportClosure -->
 
 An image-owned exception requires every step below:
 

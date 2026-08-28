@@ -9,6 +9,7 @@ import {
 } from 'node:crypto';
 import { posix as pathPosix } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import ts from 'typescript';
 import { compileAgentSeed } from './agent-seed-core.mjs';
 import {
   MANAGED_RELEASE_CONTENT_TYPES,
@@ -140,15 +141,38 @@ function normalizeDocuments(documents) {
   ));
 }
 
-function relativeModuleSpecifiers(content) {
-  const specifiers = new Set();
-  const patterns = [
-    /\b(?:import|export)\s+(?:type\s+)?(?:[^"'`;]*?\s+from\s+)?(["'])(\.[^"'\r\n]+)\1/g,
-    /\b(?:import|require)\s*\(\s*(["'])(\.[^"'\r\n]+)\1\s*\)/g,
-  ];
-  for (const pattern of patterns) {
-    for (const match of content.matchAll(pattern)) specifiers.add(match[2]);
+function relativeModuleSpecifiers(content, sourceKey) {
+  const sourceFile = ts.createSourceFile(
+    sourceKey,
+    content,
+    ts.ScriptTarget.Latest,
+    true,
+    sourceKey.endsWith('.js') ? ts.ScriptKind.JS : ts.ScriptKind.TS,
+  );
+  if (sourceFile.parseDiagnostics?.length > 0) {
+    throw new Error(`managed extension ${sourceKey} contains invalid TypeScript or JavaScript syntax`);
   }
+
+  const specifiers = new Set();
+  const addLiteral = (node) => {
+    if (node && ts.isStringLiteralLike(node) && node.text.startsWith('.')) {
+      specifiers.add(node.text);
+    }
+  };
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      addLiteral(node.moduleSpecifier);
+    } else if (ts.isImportEqualsDeclaration(node)
+      && ts.isExternalModuleReference(node.moduleReference)) {
+      addLiteral(node.moduleReference.expression);
+    } else if (ts.isCallExpression(node)) {
+      const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+      if (isDynamicImport || isRequire) addLiteral(node.arguments[0]);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
   return [...specifiers].sort(compareStrings);
 }
 
@@ -178,7 +202,7 @@ function validateManagedExtensionImportClosure(documents) {
 
   for (const document of documents) {
     if (!document.key.startsWith(MANAGED_PI_EXTENSION_PREFIX)) continue;
-    for (const specifier of relativeModuleSpecifiers(document.content)) {
+    for (const specifier of relativeModuleSpecifiers(document.content, document.key)) {
       const candidates = relativeModuleCandidates(document.key, specifier);
       for (const mode of document.modes) {
         const releaseOwnsImport = candidates.some((candidate) => (
