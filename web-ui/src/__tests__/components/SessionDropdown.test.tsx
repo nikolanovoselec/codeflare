@@ -36,13 +36,16 @@ vi.mock('../../components/CreateSessionDialog', () => ({
 
 vi.mock('../../stores/session', () => {
   let _preseedUpgrading = false;
+  let _managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null = null;
   return {
     sessionStore: {
       getMetricsForSession: vi.fn(() => null),
       getInitProgressForSession: vi.fn(() => null),
       sessions: [],
       get preseedUpgrading() { return _preseedUpgrading; },
+      get managedReleaseStatus() { return _managedReleaseStatus; },
       _setPreseedUpgrading: (v: boolean) => { _preseedUpgrading = v; },
+      _setManagedReleaseStatus: (v: 'current' | 'upgrading' | 'update_pending' | null) => { _managedReleaseStatus = v; },
     },
   };
 });
@@ -195,26 +198,35 @@ describe('SessionDropdown', () => {
     });
   });
 
-  describe('REQ-AGENT-049 AC5: preseed upgrade lockdown', () => {
+  describe('REQ-AGENT-049 AC5: environment update lockdown', () => {
     afterEach(() => {
       (sessionStore as any)._setPreseedUpgrading(false);
+      (sessionStore as any)._setManagedReleaseStatus(null);
     });
 
-    it('disables New Session button and shows Upgrading during preseed upgrade', () => {
+    it('disables New Session button and shows Updating during preseed sync', () => {
       (sessionStore as any)._setPreseedUpgrading(true);
       render(() => <SessionDropdown {...defaultProps} />);
       const btn = screen.getByTestId('session-dropdown-new');
       expect(btn).toBeDisabled();
-      expect(btn.textContent).toContain('Upgrading');
-      expect(btn.textContent).not.toContain('...');
+      expect(btn.textContent).toContain('Updating');
+      expect(btn).toHaveAttribute('aria-label', 'Updating session environment');
     });
 
-    it('enables New Session button when preseed upgrade is not running', () => {
-      (sessionStore as any)._setPreseedUpgrading(false);
+    it('REQ-STOR-022 AC2: disables New Session while a managed update waits for sessions to stop', () => {
+      (sessionStore as any)._setManagedReleaseStatus('update_pending');
+      render(() => <SessionDropdown {...defaultProps} />);
+      const btn = screen.getByTestId('session-dropdown-new');
+      expect(btn).toBeDisabled();
+      expect(btn.textContent).toContain('Update pending');
+      expect(btn).toHaveAttribute('aria-label', 'Session environment update pending until session stops');
+    });
+
+    it('enables New Session button when no environment update is running', () => {
       render(() => <SessionDropdown {...defaultProps} />);
       const btn = screen.getByTestId('session-dropdown-new');
       expect(btn).not.toBeDisabled();
-      expect(btn.textContent).not.toContain('Upgrading');
+      expect(btn.textContent).not.toContain('Updating');
     });
   });
 

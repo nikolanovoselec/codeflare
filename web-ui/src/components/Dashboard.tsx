@@ -401,7 +401,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   class={`dashboard-new-session-btn ${sessionStore.isAtSessionLimit() ? 'dashboard-new-session-btn--limited' : ''}`}
                   data-testid="dashboard-new-session"
                   disabled={!sessionStore.r2Ready || isAtUsageQuota() || sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' || sessionStore.managedReleaseStatus === 'update_pending' || sessionStore.bucketMigrating}
-                  aria-label={sessionStore.bucketMigrating ? 'Storage is migrating' : sessionStore.managedReleaseStatus === 'update_pending' ? 'Managed update pending' : sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' ? 'Upgrading agent skills' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'}
+                  aria-label={sessionStore.bucketMigrating ? 'Storage is migrating' : sessionStore.managedReleaseStatus === 'update_pending' ? 'Session environment update pending until session stops' : sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' ? 'Updating session environment' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'}
                   onClick={() => {
                     if (sessionStore.isAtSessionLimit()) {
                       setShowLimitPopup(!showLimitPopup());
@@ -414,7 +414,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     ? (sessionStore.bucketMigrationPercent != null ? `Migrating ${sessionStore.bucketMigrationPercent}%` : 'Migrating')
                     : sessionStore.managedReleaseStatus === 'update_pending'
                       ? 'Update pending'
-                      : sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' ? 'Upgrading' : '+ New Session'}
+                      : sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' ? 'Updating' : '+ New Session'}
                 </button>
                 <Show when={multiViewWorkspace()}>
                   <button
