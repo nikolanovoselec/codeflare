@@ -185,11 +185,16 @@ app.get('/batch-status', async (c) => {
     try {
       const active = await getActiveManagedRelease(c.env);
       const applied = prefs?.managedEnvironmentApplied;
+      const desiredPolicy = active?.resourcePolicy ?? 'mutable';
+      const appliedPolicy = applied?.resourcePolicy ?? 'mutable';
       const managedMismatch = active
         ? applied?.digest !== active.digest
           || applied.mode !== mode
           || applied.sequence !== active.pointer.sequence
           || !/^[0-9a-f]{64}$/.test(applied.managedExtensionsDigest ?? '')
+          || appliedPolicy !== desiredPolicy
+          || (desiredPolicy !== 'mutable' && !/^[0-9a-f]{64}$/.test(applied.managedPathsDigest ?? ''))
+          || (desiredPolicy === 'mutable' && applied.managedPathsDigest !== undefined)
         : applied !== undefined;
 
       if (active || applied) {

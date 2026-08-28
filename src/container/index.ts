@@ -27,7 +27,7 @@
  * pre-start).
  */
 import { Container } from '@cloudflare/containers';
-import type { Env, SessionWorkspace, TabConfig, TerminalMode } from '../types';
+import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
@@ -132,6 +132,8 @@ export class container extends Container<Env> implements ContainerEnvState {
   _remoteCurationActive: boolean = false;
   _remoteCurationReleaseDigest: string | null = null;
   _remoteCurationManifestDigest: string | null = null;
+  _managedResourcePolicy: ManagedResourcePolicy = 'mutable';
+  _managedResourcePathsDigest: string | null = null;
   _r2AccessKeyId: string | null = null;
   _r2SecretAccessKey: string | null = null;
   _workspaceSyncEnabled: boolean = false;

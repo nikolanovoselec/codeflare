@@ -20,7 +20,11 @@ import { handleConfigureTurnstile } from './turnstile';
 import handlers from './handlers';
 import { isOnboardingLandingPageActive, isSaasModeActive, isSessionOidcMode } from '../../lib/onboarding';
 import { isEnterpriseMode } from '../../lib/subscription';
-import { configureManagedEnvironment } from '../../lib/remote-curation';
+import {
+  configureManagedEnvironment,
+  readManagedEnvironmentSnapshot,
+  resolveManagedResourcePolicy,
+} from '../../lib/remote-curation';
 
 // Feature A/C: a Cloudflare Access group name or a gateway route name. Trimmed,
 // 1–256 chars, and MUST NOT contain comma or newline — those are the delimiters
@@ -116,6 +120,8 @@ const ConfigureBodySchema = z.object({
         (value) => value.trim() === '' || /^[0-9a-f]{64}$/.test(value.trim()),
         'Managed environment public key must be 64 lowercase hex characters',
       ),
+      immutableResources: z.boolean().optional(),
+      disableUserCreatedResources: z.boolean().optional(),
     }).strict(),
   ]).optional(),
   // REQ-ENTERPRISE-013 (enterprise-only): per-group routing. Keyed by Access group
@@ -226,6 +232,22 @@ app.post('/configure', async (c) => {
 
   const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, managedEnvironment, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled, activeAgents } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
+
+  if (managedEnvironment !== undefined) {
+    const snapshot = await readManagedEnvironmentSnapshot(c.env);
+    const currentPolicy = snapshot.config?.resourcePolicy ?? 'mutable';
+    const requestedPolicy = resolveManagedResourcePolicy(managedEnvironment, currentPolicy);
+    if (requestedPolicy !== 'mutable') {
+      if (!isEnterpriseMode(c.env)) {
+        throw new ValidationError('Immutable managed resources require Enterprise Mode');
+      }
+      const effectiveStrictEgress = strictGatewayEgress
+        ?? (await c.env.KV.get(SETUP_KEYS.STRICT_EGRESS)) === 'active';
+      if (!effectiveStrictEgress || !c.env.EGRESS) {
+        throw new ValidationError('Immutable managed resources require Strict Gateway Egress and the EGRESS VPC binding');
+      }
+    }
+  }
 
   if (isEnterpriseMode(c.env) && activeAgents?.some((agent) => !installedAgents(c.env).includes(agent))) {
     throw new ValidationError('Active coding agents must be installed in this deployment');

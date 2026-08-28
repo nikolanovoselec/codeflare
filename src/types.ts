@@ -224,6 +224,9 @@ export type AgentType = z.infer<typeof AgentTypeSchema>;
 export const SessionModeSchema = z.enum(['default', 'advanced']);
 export type SessionMode = z.infer<typeof SessionModeSchema>;
 
+export const ManagedResourcePolicySchema = z.enum(['mutable', 'immutable', 'exclusive']);
+export type ManagedResourcePolicy = z.infer<typeof ManagedResourcePolicySchema>;
+
 export const SessionWorkspaceSchema = z.enum(['terminal', 'vscode']);
 export type SessionWorkspace = z.infer<typeof SessionWorkspaceSchema>;
 
@@ -322,6 +325,8 @@ export interface UserPreferences {
     managedExtensionsDigest?: string;
     sequence: number;
     mode: SessionMode;
+    resourcePolicy?: ManagedResourcePolicy;
+    managedPathsDigest?: string;
     appliedAt: string;
   };
   /**
@@ -434,6 +439,10 @@ export interface ContainerConfigPayload {
   remoteCurationReleaseDigest?: string;
   /** SHA-256 of the exact managed-extensions.json bytes synthesized by the Worker. */
   remoteCurationManifestDigest?: string;
+  /** Worker-owned managed-resource persistence mode; always explicit across the internal boundary. */
+  managedResourcePolicy: ManagedResourcePolicy;
+  /** Applied canonical managed-path object digest required only for protected resource modes. */
+  managedResourcePathsDigest?: string;
   llmKeys?: LlmKeys;
   deployKeys?: DeployKeys;
   /** REQ-ENTERPRISE-004: the user's matched Access groups, one cf-aig-metadata tag per group. */

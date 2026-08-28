@@ -388,6 +388,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 4. Candidate failure preserves the prior selected configuration and active release. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
 5. Public-key replacement is selected only after its signed release verifies without rolling back or conflicting with the active sequence. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
 6. Disabling retains verified history and schedules baked convergence without invoking user offboarding or destructive cleanup. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-013 AC6: disabling curation does not offboard users or delete cache history) -->
+7. Public Setup payloads cannot write applied release, path-digest, mode, or interceptor state. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-013 AC7: rejects applied and interceptor state injection) -->
 
 **Constraints:**
 
@@ -399,7 +400,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-012](#req-setup-012-setup-wizard-step-sequence), [REQ-SETUP-014](#req-setup-014-managed-repository-credential-boundary), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-148](agents.md#req-agent-148-protected-managed-release-publication)
 
-**Verification:** Automated Setup-route and transactional trust tests
+**Verification:** Automated Setup-route, payload-boundary, and transactional trust tests
 
 **Status:** Implemented
 
@@ -431,6 +432,61 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
 **Verification:** Automated credential storage, prefill, host, redirect, diagnostic, storage, and container-boundary tests
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-015: Managed-resource persistence controls
+
+**Intent:** Enterprise Setup presents and normalizes managed-resource persistence controls without losing stored selection.
+
+**Applies To:** Enterprise
+
+**Acceptance Criteria:**
+
+1. Enterprise Setup exposes nested Immutable Resources and Disable User Created Resources controls. <!-- @impl: web-ui/src/components/setup/ManagedEnvironmentSection.tsx::ManagedEnvironmentSection --> <!-- @test: web-ui/src/__tests__/components/ManagedEnvironmentSection.test.tsx (REQ-SETUP-015 AC1: renders nested immutable resource controls) -->
+2. Explicit control values normalize to `mutable`, `immutable`, or `exclusive`. <!-- @impl: src/lib/remote-curation.ts::resolveManagedResourcePolicy --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-015 AC2: normalizes explicit managed resource controls) -->
+3. Clearing Immutable Resources also clears Disable User Created Resources. <!-- @impl: web-ui/src/stores/setup.ts::setManagedEnvironmentImmutableResources --> <!-- @test: web-ui/src/__tests__/stores/setup-managed-environment.test.ts (REQ-SETUP-015 AC3: clearing immutable resources clears exclusive mode) -->
+4. Omitted policy controls preserve the stored selection. <!-- @impl: src/lib/remote-curation.ts::resolveManagedResourcePolicy --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-015 AC4: omitted managed resource controls preserve stored policy) -->
+5. Omitted policy controls default to mutable when no prior configuration exists. <!-- @impl: src/lib/remote-curation.ts::resolveManagedResourcePolicy --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-015 AC5: omitted managed resource controls default to mutable) -->
+6. Setup describes selected-mode persistence and rolling activation in concise user terms. <!-- @impl: web-ui/src/components/setup/ManagedEnvironmentSection.tsx::ManagedEnvironmentSection --> <!-- @test: web-ui/src/__tests__/components/ManagedEnvironmentSection.test.tsx (REQ-SETUP-015 AC6: describes the selected managed-resource mode) -->
+
+**Constraints:** Public payloads cannot select applied or interceptor state.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SETUP-013](#req-setup-013-managed-environment-configuration)
+
+**Verification:** Automated Setup UI, normalization, parent-child, and stored-state tests
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-016: Managed-resource policy safety
+
+**Intent:** Enterprise policy selection validates prerequisites and rolls out safely per idle user bucket.
+
+**Applies To:** Enterprise
+
+**Acceptance Criteria:**
+
+1. Exclusive policy is rejected unless immutable policy is selected. <!-- @impl: src/lib/remote-curation.ts::resolveManagedResourcePolicy --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-SETUP-016 AC1: rejects exclusive policy without immutable policy) -->
+2. Protected policy is rejected unless Enterprise Strict Gateway Egress is available. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-016 AC2: rejects unavailable protected policy before streaming) -->
+3. Setup stores a changed desired policy without scanning or draining deployment-wide sessions. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-managed-environment.test.ts (REQ-SETUP-016 AC3: stores a rolling desired policy without scanning deployment-wide sessions) -->
+4. A running user session prevents reconciliation, retaining that user's applied policy. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (returns a typed 409 before bucket creation or R2 writes when any session is running) -->
+5. New starts wait on desired/applied policy mismatch until reconciliation completes. <!-- @impl: src/routes/container/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (blocks a desired and applied resource-policy mismatch before bucket work) -->
+6. Storage mutations wait on desired/applied policy mismatch until reconciliation completes. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation --> <!-- @test: src/__tests__/lib/managed-storage-guard.test.ts (fails update-pending before policy lookup on %s mismatch) -->
+7. Policy selection preserves repository, signing-key, release-cache, and sequence fingerprints. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (stores the PAT only as AES ciphertext and transactionally activates monotonic public-key replacement) -->
+
+**Constraints:** Policy safety checks run before configuration writes.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SETUP-015](#req-setup-015-managed-resource-persistence-controls), [REQ-ENTERPRISE-016](enterprise-mode.md#req-enterprise-016-strict-gateway-egress)
+
+**Verification:** Automated policy-shape, availability, rolling-activation, update-pending, reconciliation, and trust-fingerprint tests
 
 **Status:** Implemented
 

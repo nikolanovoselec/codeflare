@@ -4,6 +4,7 @@ import { createMockR2Config } from '../helpers/mock-factories';
 import { createTestApp } from '../helpers/test-app';
 
 const mockFetch = vi.fn();
+const managedState = vi.hoisted(() => ({ snapshot: { configured: false, enabled: false } as any }));
 
 vi.mock('../../lib/r2-client', () => ({
   createR2Client: vi.fn(() => ({ fetch: mockFetch })),
@@ -16,6 +17,10 @@ vi.mock('../../lib/r2-client', () => ({
 vi.mock('../../lib/r2-config', () => ({
   getR2Config: vi.fn().mockResolvedValue(createMockR2Config({ accountId: 'test' })),
 }));
+vi.mock('../../lib/remote-curation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/remote-curation')>()),
+  readManagedEnvironmentSnapshot: vi.fn(async () => managedState.snapshot),
+}));
 
 import uploadRoutes from '../../routes/storage/upload';
 
@@ -27,6 +32,7 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
   beforeEach(() => {
     mockKV = createMockKV();
     mockFetch.mockReset();
+    managedState.snapshot = { configured: false, enabled: false };
   });
 
   afterEach(() => {
@@ -43,6 +49,29 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
         R2_SECRET_ACCESS_KEY: 'test-secret',
       },
     });
+  }
+
+  async function configureProtectedPolicy() {
+    const releaseDigest = 'd'.repeat(64);
+    const policyValue = {
+      schemaVersion: 1, releaseDigest, resourcePolicy: 'immutable',
+      paths: ['.codeflare/managed-paths.json'], resourceRoots: [],
+    };
+    const policyBytes = new TextEncoder().encode(`${JSON.stringify(policyValue)}\n`);
+    const pathsDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', policyBytes)))
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    managedState.snapshot = {
+      configured: true, enabled: true,
+      config: { resourcePolicy: 'immutable' },
+      active: { digest: releaseDigest, sequence: 1 },
+    };
+    mockKV._set('user-prefs:test-bucket', {
+      managedEnvironmentApplied: {
+        digest: releaseDigest, sequence: 1, mode: 'default', managedExtensionsDigest: 'e'.repeat(64),
+        resourcePolicy: 'immutable', managedPathsDigest: pathsDigest, appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+    mockFetch.mockResolvedValue(new Response(policyBytes, { status: 200 }));
   }
 
   // ── Simple upload ──────────────────────────────────────────────────
@@ -69,6 +98,34 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
       const [url, opts] = mockFetch.mock.calls[0];
       expect(url).toContain('workspace/file.ts');
       expect(opts.method).toBe('PUT');
+    });
+
+    it('REQ-ENTERPRISE-030: denies protected upload before the user-object R2 request', async () => {
+      await configureProtectedPolicy();
+      const app = createApp();
+
+      const res = await app.request('/upload', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: '.codeflare/managed-paths.json', content: btoa('replacement') }),
+      });
+
+      expect(res.status).toBe(403);
+      expect(mockFetch.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
+    });
+
+    it.each([
+      ['/upload/initiate', { key: '.codeflare/managed-paths.json' }],
+      ['/upload/part', { key: '.codeflare/managed-paths.json', uploadId: 'u', partNumber: 1, content: btoa('part') }],
+      ['/upload/complete', { key: '.codeflare/managed-paths.json', uploadId: 'u', parts: [{ partNumber: 1, etag: 'abc' }] }],
+      ['/upload/abort', { key: '.codeflare/managed-paths.json', uploadId: 'u' }],
+    ])('REQ-ENTERPRISE-030: denies protected multipart mutation at %s before user R2', async (path, body) => {
+      await configureProtectedPolicy();
+      const app = createApp();
+      const res = await app.request(path, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(403);
+      expect(mockFetch.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
     });
 
     it('rejects key with path traversal (..)', async () => {
@@ -651,16 +708,15 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it('still allows an abort during migration (cleanup must not be blocked)', async () => {
+    it('blocks multipart abort during migration before user R2', async () => {
       const app = migratingApp();
-      mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
       const res = await app.request('/upload/abort', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'big.bin', uploadId: 'u1' }),
       });
-      expect(res.status).toBe(200);
-      expect(mockFetch).toHaveBeenCalledOnce(); // abort reached R2
+      expect(res.status).toBe(409);
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 });

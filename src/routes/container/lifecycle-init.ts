@@ -70,6 +70,8 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     remoteCurationActive: params.remoteCurationActive === true,
     remoteCurationReleaseDigest: params.remoteCurationReleaseDigest ?? null,
     remoteCurationManifestDigest: params.remoteCurationManifestDigest ?? null,
+    managedResourcePolicy: params.managedResourcePolicy,
+    managedResourcePathsDigest: params.managedResourcePathsDigest ?? null,
     sessionMode: params.sessionMode,
     sessionWorkspace: params.sessionWorkspace,
     sleepAfter: params.sleepAfter,

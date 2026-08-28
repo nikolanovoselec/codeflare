@@ -424,6 +424,9 @@ const ConfigureStep: Component = () => {
 
       <ManagedEnvironmentSection
         enabled={setupStore.managedEnvironmentEnabled}
+        enterpriseMode={setupStore.enterpriseMode}
+        immutableResources={setupStore.managedEnvironmentImmutableResources}
+        disableUserCreatedResources={setupStore.managedEnvironmentDisableUserCreatedResources}
         repository={setupStore.managedEnvironmentRepository}
         personalAccessToken={setupStore.managedEnvironmentPersonalAccessToken}
         personalAccessTokenSet={setupStore.managedEnvironmentPersonalAccessTokenSet}
@@ -437,6 +440,8 @@ const ConfigureStep: Component = () => {
         patExpiryState={setupStore.managedEnvironmentPatExpiryState}
         lastError={setupStore.managedEnvironmentLastError}
         onEnabledChange={(value) => setupStore.setManagedEnvironmentEnabled(value)}
+        onImmutableResourcesChange={(value) => setupStore.setManagedEnvironmentImmutableResources(value)}
+        onDisableUserCreatedResourcesChange={(value) => setupStore.setManagedEnvironmentDisableUserCreatedResources(value)}
         onRepositoryChange={(value) => setupStore.setManagedEnvironmentRepository(value)}
         onPersonalAccessTokenChange={(value) => setupStore.setManagedEnvironmentPersonalAccessToken(value)}
         onPublicKeyChange={(value) => setupStore.setManagedEnvironmentPublicKey(value)}
@@ -497,7 +502,8 @@ const ConfigureStep: Component = () => {
               !setupStore.managedEnvironmentRepository.trim() ||
               (!setupStore.managedEnvironmentPersonalAccessTokenSet && !setupStore.managedEnvironmentPersonalAccessToken.trim()) ||
               (!setupStore.managedEnvironmentPublicKeyFingerprint && !setupStore.managedEnvironmentPublicKey.trim()) ||
-              (Boolean(setupStore.managedEnvironmentPublicKey.trim()) && !/^[0-9a-f]{64}$/.test(setupStore.managedEnvironmentPublicKey.trim()))
+              (Boolean(setupStore.managedEnvironmentPublicKey.trim()) && !/^[0-9a-f]{64}$/.test(setupStore.managedEnvironmentPublicKey.trim())) ||
+              (setupStore.managedEnvironmentImmutableResources && !setupStore.strictGatewayEgress)
             ))
           }
         >

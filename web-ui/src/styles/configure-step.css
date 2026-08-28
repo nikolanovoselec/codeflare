@@ -61,6 +61,14 @@
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
         }
 
+        .setup-field--nested {
+          margin-left: 20px;
+        }
+
+        .setup-field--nested-deeper {
+          margin-left: 40px;
+        }
+
         .setup-field-label {
           font-size: 14px;
           font-weight: 600;

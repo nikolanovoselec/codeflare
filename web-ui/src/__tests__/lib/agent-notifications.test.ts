@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   agentEventDisposition,
+  agentNotificationsAvailable,
   agentNotificationsEnabled,
   setAgentNotificationsEnabled,
   showGrantedAgentEvent,
@@ -159,7 +160,14 @@ describe('REQ-TERM-023 AC3/AC5: granted local display', () => {
   });
 });
 
-describe('REQ-TERM-025 AC1-AC5: one per-device enrollment switch', () => {
+describe('REQ-TERM-025 AC1-AC6: one per-device enrollment switch', () => {
+  it('reports availability only when sender configuration can return a public key', async () => {
+    await expect(agentNotificationsAvailable(browser())).resolves.toBe(true);
+    await expect(agentNotificationsAvailable(browser({
+      getVapidPublicKey: vi.fn(async () => { throw new Error('unavailable'); }),
+    }))).resolves.toBe(false);
+  });
+
   it('reads on only when permission is granted and a valid subscription exists', async () => {
     await expect(agentNotificationsEnabled(browser())).resolves.toBe(true);
     await expect(agentNotificationsEnabled(browser({

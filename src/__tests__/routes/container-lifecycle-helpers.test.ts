@@ -387,6 +387,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       sessionMode: 'default',
       sessionWorkspace: 'terminal' as const,
       sleepAfter: '30m',
+      managedResourcePolicy: 'mutable' as const,
       logger: mockLogger as any,
     };
 

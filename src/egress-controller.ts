@@ -36,7 +36,7 @@
  * catch-all when strict is true, so this class is otherwise unreached.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import type { Env } from './types';
+import type { Env, ManagedResourcePolicy } from './types';
 import {
   controllerFetch,
   isAccountScopedDestination,
@@ -46,7 +46,14 @@ import {
   STRIPPED_REQUEST_HOP_BY_HOP,
   RESPONSE_HOP_BY_HOP,
 } from './lib/controller-egress';
-import { createR2Client } from './lib/r2-client';
+import { createR2Client, getR2Url } from './lib/r2-client';
+import { getR2Config } from './lib/r2-config';
+import { getSseHeaders } from './lib/r2-sse';
+import {
+  classifyManagedR2Request,
+  MANAGED_R2_POLICY_KEY,
+  readVerifiedManagedR2Policy,
+} from './lib/managed-r2-policy';
 import { createLogger } from './lib/logger';
 
 const logger = createLogger('egress-controller');
@@ -60,8 +67,20 @@ interface EgressProps {
   /** Bucket-scoped credentials held by the DO and passed only to this Worker entrypoint. */
   r2AccessKeyId?: string;
   r2SecretAccessKey?: string;
+  resourcePolicy?: ManagedResourcePolicy;
+  releaseDigest?: string;
+  pathsDigest?: string;
+  r2SseDisabled?: boolean;
   /** Strict Gateway egress toggle, read once at wiring (the DO only wires when true). */
   strict?: boolean;
+}
+
+function s3PolicyError(status: 403 | 503, code: string, requestId: string): Response {
+  const message = status === 403 ? 'Access Denied' : 'Managed resource policy is unavailable';
+  return new Response(`<?xml version="1.0" encoding="UTF-8"?><Error><Code>${code}</Code><Message>${message}</Message><RequestId>${requestId}</RequestId></Error>`, {
+    status,
+    headers: { 'Content-Type': 'application/xml', 'x-amz-request-id': requestId },
+  });
 }
 
 function requestedR2Bucket(url: URL, accountId: string | undefined): string | undefined {
@@ -72,6 +91,51 @@ function requestedR2Bucket(url: URL, accountId: string | undefined): string | un
   if (host === accountHost) return url.pathname.split('/')[1];
   const suffix = `.${accountHost}`;
   return host.endsWith(suffix) ? host.slice(0, -suffix.length) : undefined;
+}
+
+async function sha256Prefix(value: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
+  return Array.from(digest.slice(0, 6), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function managedR2Operation(request: Request, url: URL): string {
+  if (request.method === 'POST' && url.searchParams.has('delete')) return 'multi-delete';
+  if (request.headers.has('x-amz-copy-source')) return 'copy-object';
+  if (url.searchParams.has('tagging')) return `${request.method.toLowerCase()}-tagging`;
+  if (url.searchParams.has('uploads')) return 'initiate-multipart';
+  if (url.searchParams.has('uploadId')) {
+    if (request.method === 'PUT') return 'upload-part';
+    if (request.method === 'POST') return 'complete-multipart';
+    if (request.method === 'DELETE') return 'abort-multipart';
+    return 'multipart';
+  }
+  if (request.method === 'PUT') return 'put-object';
+  if (request.method === 'DELETE') return 'delete-object';
+  return request.method.toLowerCase();
+}
+
+async function managedR2AuditData(input: {
+  request: Request;
+  url: URL;
+  accountId: string;
+  bucket: string;
+  pathsDigest?: string;
+  requestId: string;
+  reason: string;
+}): Promise<Record<string, unknown>> {
+  const accountHost = `${input.accountId.toLowerCase()}.r2.cloudflarestorage.com`;
+  const host = input.url.hostname.toLowerCase().replace(/\.$/, '');
+  const path = host === accountHost
+    ? input.url.pathname.slice(`/${input.bucket}`.length).replace(/^\//, '')
+    : input.url.pathname.replace(/^\//, '');
+  return {
+    operation: managedR2Operation(input.request, input.url),
+    policyDigest: input.pathsDigest?.slice(0, 12) ?? 'missing',
+    pathHash: await sha256Prefix(path),
+    bucketHash: await sha256Prefix(input.bucket),
+    requestId: input.requestId,
+    reason: input.reason,
+  };
 }
 
 export class EgressController extends WorkerEntrypoint<Env> {
@@ -97,13 +161,64 @@ export class EgressController extends WorkerEntrypoint<Env> {
     const scopedR2Credentials = props.r2AccessKeyId && props.r2SecretAccessKey
       ? { accessKeyId: props.r2AccessKeyId, secretAccessKey: props.r2SecretAccessKey }
       : null;
+    let effectiveRequest = request;
     if (ownR2) {
       const requestedBucket = requestedR2Bucket(url, accountId);
       if (!props.bucket || requestedBucket !== props.bucket) {
         return jsonError(403, 'EGRESS_R2_BUCKET_FORBIDDEN', 'R2 bucket is not permitted');
       }
+      const boundBucket = props.bucket;
       if (!scopedR2Credentials) {
         return jsonError(503, 'EGRESS_R2_NOT_CONFIGURED', 'Scoped R2 credentials are unavailable');
+      }
+      const resourcePolicy = props.resourcePolicy ?? 'mutable';
+      if (resourcePolicy !== 'mutable') {
+        const requestId = crypto.randomUUID();
+        const auditInput = { request, url, accountId: accountId!, bucket: boundBucket, pathsDigest: props.pathsDigest, requestId };
+        if (!props.releaseDigest || !props.pathsDigest) {
+          logger.warn('Managed R2 policy decision', await managedR2AuditData({ ...auditInput, reason: 'policy-identity-missing' }));
+          return s3PolicyError(503, 'ServiceUnavailable', requestId);
+        }
+        try {
+          const config = await getR2Config(this.env);
+          if (config.accountId !== accountId) {
+            logger.warn('Managed R2 policy decision', await managedR2AuditData({ ...auditInput, reason: 'account-mismatch' }));
+            return s3PolicyError(503, 'ServiceUnavailable', requestId);
+          }
+          const policyClient = createR2Client({
+            R2_ACCESS_KEY_ID: scopedR2Credentials.accessKeyId,
+            R2_SECRET_ACCESS_KEY: scopedR2Credentials.secretAccessKey,
+          });
+          const policy = await readVerifiedManagedR2Policy({
+            fetchPolicyObject: () => policyClient.fetch(
+              getR2Url(config.endpoint, boundBucket, MANAGED_R2_POLICY_KEY),
+              { method: 'GET', headers: getSseHeaders(this.env, props.r2SseDisabled === true) },
+            ),
+            releaseDigest: props.releaseDigest,
+            pathsDigest: props.pathsDigest,
+            expectedPolicy: resourcePolicy,
+            bypassMemoryCache: false,
+          });
+          const classification = await classifyManagedR2Request({
+            request,
+            accountId: config.accountId,
+            boundBucket,
+            policy,
+          });
+          if (classification.action === 'deny') {
+            logger.warn('Managed R2 policy decision', await managedR2AuditData({
+              ...auditInput,
+              requestId: classification.requestId,
+              reason: 'access-denied',
+            }));
+            return s3PolicyError(classification.status, classification.code, classification.requestId);
+          }
+          logger.debug('Managed R2 policy decision', await managedR2AuditData({ ...auditInput, reason: 'allowed' }));
+          effectiveRequest = classification.request;
+        } catch {
+          logger.warn('Managed R2 policy decision', await managedR2AuditData({ ...auditInput, reason: 'policy-unavailable' }));
+          return s3PolicyError(503, 'ServiceUnavailable', requestId);
+        }
       }
     }
 
@@ -112,10 +227,10 @@ export class EgressController extends WorkerEntrypoint<Env> {
     // (api.cloudflare.com /browser-rendering/devtools/...) does NOT arrive here — it is claimed
     // by the per-host CloudflareBrowserInterceptor (REQ-BROWSER-008). Returning the upstream
     // response as-is does not hand the socket back to the container, so we accept+forward both ends.
-    if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
+    if (effectiveRequest.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
       const t0 = Date.now();
       try {
-        const upstream = await controllerFetch(this.env, request, accountId);
+        const upstream = await controllerFetch(this.env, effectiveRequest, accountId);
         const upstreamWs = (upstream as unknown as { webSocket?: WebSocket }).webSocket;
         if (!upstreamWs) {
           // Not a 101 (e.g. an error response) — surface it unchanged.
@@ -145,18 +260,18 @@ export class EgressController extends WorkerEntrypoint<Env> {
 
     // Rebuild the request: strip ONLY hop-by-hop headers + the recomputed
     // host/content-length. NEVER add identity headers for the transparent path.
-    const headers = new Headers(request.headers);
+    const headers = new Headers(effectiveRequest.headers);
     for (const h of STRIPPED_REQUEST_HOP_BY_HOP) headers.delete(h);
     headers.delete('host');
     headers.delete('content-length');
 
     // GET/HEAD carry no body; everything else streams through unbuffered. Do not
     // follow redirects to an arbitrary Location host — surface the 3xx to the caller.
-    const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+    const hasBody = effectiveRequest.method !== 'GET' && effectiveRequest.method !== 'HEAD';
     const forward = new Request(url.toString(), {
-      method: request.method,
+      method: effectiveRequest.method,
       headers,
-      body: hasBody ? request.body : undefined,
+      body: hasBody ? effectiveRequest.body : undefined,
       redirect: 'manual',
     });
 
@@ -196,7 +311,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
     // Diagnostic (REQ-016) at debug level — OFF by default (minLogLevel 'info'), enable
     // LOG_LEVEL=debug to attribute the per-op routing + worker-side latency so the R2-speed
     // lever can be chosen from data (compare fMs to $workers.wallTimeMs). Temporary.
-    logger.debug('egress', { h: url.hostname, sc: accountScoped, tx: accountScoped ? 'direct' : 'EGRESS', rs: resigned, fMs: Date.now() - t0 });
+    logger.debug('egress', { h: ownR2 ? 'own-r2' : url.hostname, sc: accountScoped, tx: accountScoped ? 'direct' : 'EGRESS', rs: resigned, fMs: Date.now() - t0 });
 
     // Stream the response back unread; strip ONLY hop-by-hop headers (preserve
     // set-cookie — transparent proxy).

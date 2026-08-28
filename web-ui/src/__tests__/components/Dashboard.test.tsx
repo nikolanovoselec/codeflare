@@ -1070,13 +1070,14 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
   });
 
   // REQ-AGENT-049: preseed upgrade UI lockdown
-  it('should disable new session button and show Upgrading during preseed upgrade', () => {
+  it('should disable new session button and show Updating during preseed upgrade', () => {
     (sessionStore as any)._setPreseedUpgrading(true);
     render(() => <Dashboard {...defaultProps} />);
 
     const btn = screen.getByTestId('dashboard-new-session');
     expect(btn).toBeDisabled();
-    expect(btn.textContent).toBe('Upgrading');
+    expect(btn.textContent).toBe('Updating');
+    expect(btn).toHaveAttribute('aria-label', 'Updating session environment');
 
     cleanup();
     (sessionStore as any)._setPreseedUpgrading(false);
@@ -1098,15 +1099,18 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
     const button = screen.getByTestId('dashboard-new-session');
     expect(button).toBeDisabled();
-    expect(button.textContent).toContain('Update pending');
+    expect(button.textContent).toBe('Update pending');
+    expect(button).toHaveAttribute('aria-label', 'Session environment update pending until session stops');
   });
 
-  it('disables New Session while a managed release is upgrading', () => {
+  it('disables New Session while a managed release is updating', () => {
     (sessionStore as any)._setManagedReleaseStatus('upgrading');
     render(() => <Dashboard {...defaultProps} />);
 
     const button = screen.getByTestId('dashboard-new-session');
     expect(button).toBeDisabled();
+    expect(button.textContent).toBe('Updating');
+    expect(button).toHaveAttribute('aria-label', 'Updating session environment');
   });
 
   // REQ-ENTERPRISE-021 AC3: Governed Mode migrating-button label

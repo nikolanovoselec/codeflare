@@ -25,8 +25,10 @@ const testState = vi.hoisted(() => ({
   } | null,
   createBucketResult: { success: true, created: false } as { success: boolean; error?: string; created?: boolean },
   seedResult: { written: [], skipped: [] } as { written: string[]; skipped: string[] },
-  activeManagedRelease: null as null | { digest: string; pointer: { sequence: number } },
+  activeManagedRelease: null as null | { digest: string; pointer: { sequence: number }; resourcePolicy: 'mutable' | 'immutable' | 'exclusive' },
   managedReleaseError: null as Error | null,
+  policyReadError: null as Error | null,
+  strictEgress: false,
   saasMode: false,
 }));
 
@@ -52,6 +54,22 @@ vi.mock('../../lib/r2-seed', () => ({
 vi.mock('../../lib/r2-config', () => ({
   getR2Config: vi.fn(async () => ({ accountId: 'test-account', endpoint: 'https://test.r2.cloudflarestorage.com' })),
 }));
+vi.mock('../../lib/r2-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/r2-client')>()),
+  createR2Client: () => ({ fetch: vi.fn(async () => new Response('{}', { status: 200 })) }),
+}));
+vi.mock('../../lib/managed-r2-policy', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/managed-r2-policy')>()),
+  readVerifiedManagedR2Policy: vi.fn(async (input: { fetchPolicyObject: () => Promise<Response> }) => {
+    if (testState.policyReadError) throw testState.policyReadError;
+    const response = await input.fetchPolicyObject();
+    if (!response.ok) throw new Error('policy unavailable');
+    return {};
+  }),
+}));
+vi.mock('../../lib/controller-egress', () => ({
+  hasStrictGatewayEgress: vi.fn(async () => testState.strictEgress),
+}));
 
 const passThroughCB = { execute: (fn: () => Promise<unknown>) => fn(), reset: vi.fn() };
 vi.mock('../../lib/circuit-breakers', () => ({
@@ -74,6 +92,7 @@ vi.mock('../../middleware/rate-limit', () => ({
 import lifecycleRoutes from '../../routes/container/lifecycle';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, reconcileAgentConfigs } from '../../lib/r2-seed';
+import { readVerifiedManagedR2Policy } from '../../lib/managed-r2-policy';
 
 describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
   let mockKV: ReturnType<typeof createMockKV>;
@@ -102,6 +121,8 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     testState.seedResult = { written: [], skipped: [] };
     testState.activeManagedRelease = null;
     testState.managedReleaseError = null;
+    testState.policyReadError = null;
+    testState.strictEgress = false;
     testState.saasMode = false;
     mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
       id: 'abcdef1234567890abcdef12',
@@ -157,6 +178,8 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
         remoteCurationActive: true,
         remoteCurationReleaseDigest: 'd'.repeat(64),
         remoteCurationManifestDigest: 'e'.repeat(64),
+        managedResourcePolicy: 'mutable',
+        managedResourcePathsDigest: null,
       }));
     });
 
@@ -178,7 +201,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
 
     it('blocks a downgraded SaaS user whose applied managed release still uses advanced mode', async () => {
       testState.saasMode = true;
-      testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
+      testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', {
         sessionMode: 'advanced',
         managedEnvironmentApplied: { digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'advanced', appliedAt: '2026-08-18T00:00:00.000Z' },
@@ -200,7 +223,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     });
 
     it('returns a typed 409 before user-bucket or container work when the active release is not applied', async () => {
-      testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
+      testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       const fetch = createApp();
 
       const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
@@ -209,6 +232,97 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       expect(response.status).toBe(409);
       expect(body.code).toBe('MANAGED_ENVIRONMENT_UPDATE_PENDING');
       expect(createBucketIfNotExists).not.toHaveBeenCalled();
+      expect(testState.container!.fetch).not.toHaveBeenCalled();
+    });
+
+    it('REQ-ENTERPRISE-027: blocks a desired and applied resource-policy mismatch before bucket work', async () => {
+      testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'exclusive' };
+      mockKV._set('user-prefs:test-bucket', {
+        managedEnvironmentApplied: {
+          digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'advanced',
+          resourcePolicy: 'immutable', managedPathsDigest: 'f'.repeat(64), appliedAt: '2026-08-18T00:00:00.000Z',
+        },
+      });
+      const fetch = createApp({ ENTERPRISE_MODE: 'active' });
+
+      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+
+      expect(response.status).toBe(409);
+      expect(createBucketIfNotExists).not.toHaveBeenCalled();
+      expect(readVerifiedManagedR2Policy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['Enterprise mode', {}, true],
+      ['Strict Gateway Egress', { ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher }, false],
+      ['EGRESS binding', { ENTERPRISE_MODE: 'active' }, true],
+    ])('REQ-ENTERPRISE-027: protected admission requires %s', async (_label, envOverrides, strictEgress) => {
+      testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'immutable' };
+      testState.strictEgress = strictEgress;
+      const expectedMode = (envOverrides as Partial<Env>).ENTERPRISE_MODE === 'active' ? 'advanced' : 'default';
+      mockKV._set('user-prefs:test-bucket', {
+        sessionMode: expectedMode,
+        managedEnvironmentApplied: {
+          digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: expectedMode,
+          resourcePolicy: 'immutable', managedPathsDigest: 'f'.repeat(64), appliedAt: '2026-08-18T00:00:00.000Z',
+        },
+      });
+      const fetch = createApp(envOverrides as Partial<Env>);
+
+      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+
+      expect(response.status).toBe(409);
+      expect(createBucketIfNotExists).not.toHaveBeenCalled();
+      expect(readVerifiedManagedR2Policy).not.toHaveBeenCalled();
+    });
+
+    it('REQ-ENTERPRISE-027: verifies protected bucket policy without cache and transports only its identity', async () => {
+      testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'exclusive' };
+      testState.strictEgress = true;
+      mockKV._set('user-prefs:test-bucket', {
+        sessionMode: 'advanced',
+        managedEnvironmentApplied: {
+          digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'advanced',
+          resourcePolicy: 'exclusive', managedPathsDigest: 'f'.repeat(64), appliedAt: '2026-08-18T00:00:00.000Z',
+        },
+      });
+      const fetch = createApp({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher });
+
+      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+
+      expect(response.status).toBe(200);
+      expect(readVerifiedManagedR2Policy).toHaveBeenCalledWith(expect.objectContaining({
+        releaseDigest: 'd'.repeat(64),
+        pathsDigest: 'f'.repeat(64),
+        expectedPolicy: 'exclusive',
+        bypassMemoryCache: true,
+      }));
+      const setBucketRequest = testState.container!.fetch.mock.calls
+        .map(([request]) => request as Request)
+        .find((request) => request.url.includes('/_internal/setBucketName'));
+      expect(await setBucketRequest?.clone().json()).toEqual(expect.objectContaining({
+        remoteCurationReleaseDigest: 'd'.repeat(64),
+        managedResourcePolicy: 'exclusive',
+        managedResourcePathsDigest: 'f'.repeat(64),
+      }));
+    });
+
+    it('REQ-ENTERPRISE-027: blocks corrupt protected policy before container work', async () => {
+      testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'immutable' };
+      testState.strictEgress = true;
+      testState.policyReadError = new Error('corrupt policy');
+      mockKV._set('user-prefs:test-bucket', {
+        sessionMode: 'advanced',
+        managedEnvironmentApplied: {
+          digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'advanced',
+          resourcePolicy: 'immutable', managedPathsDigest: 'f'.repeat(64), appliedAt: '2026-08-18T00:00:00.000Z',
+        },
+      });
+      const fetch = createApp({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher });
+
+      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+
+      expect(response.status).toBe(409);
       expect(testState.container!.fetch).not.toHaveBeenCalled();
     });
   });

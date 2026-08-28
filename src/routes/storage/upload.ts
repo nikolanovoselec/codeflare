@@ -15,6 +15,7 @@ import { validateKey, MAX_KEY_LENGTH } from './validation';
 import { parseJsonBody } from '../../lib/request-helpers';
 import { getSseHeaders } from '../../lib/r2-sse';
 import { isR2SseDisabledForBucket, isBucketMigrating } from '../../lib/r2-migration';
+import { guardManagedStorageMutation } from '../../lib/managed-storage-guard';
 
 const storageUploadRateLimiter = createRateLimiter({
   windowMs: 60_000,
@@ -67,6 +68,7 @@ app.post('/', async (c) => {
   // REQ-ENTERPRISE-020: block writes while the bucket's encryption regime is migrating so a
   // new object can't land in the wrong (pre-flip) regime. 409 BUCKET_MIGRATING until ready.
   if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
+  await guardManagedStorageMutation({ env: c.env, bucketName, user: c.get('user'), keys: [sanitizedKey] });
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
   // REQ-ENTERPRISE-018: SSE-C headers follow the bucket's regime marker (see download.ts).
@@ -113,6 +115,7 @@ app.post('/initiate', async (c) => {
   const bucketName = c.get('bucketName');
   // REQ-ENTERPRISE-020: block new multipart uploads during a regime migration (see simple upload).
   if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
+  await guardManagedStorageMutation({ env: c.env, bucketName, user: c.get('user'), keys: [sanitizedKey] });
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
   // REQ-ENTERPRISE-018: SSE-C headers follow the bucket's regime marker (see download.ts).
@@ -142,6 +145,7 @@ app.post('/part', async (c) => {
   const bucketName = c.get('bucketName');
   // REQ-ENTERPRISE-020: block part writes during a regime migration (see simple upload).
   if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
+  await guardManagedStorageMutation({ env: c.env, bucketName, user: c.get('user'), keys: [sanitizedKey] });
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
   // REQ-ENTERPRISE-018: SSE-C headers follow the bucket's regime marker (see download.ts).
@@ -182,6 +186,7 @@ app.post('/complete', async (c) => {
   // in the pre-flip regime and would assemble a stray object. (Guard only; SSE-C omission on
   // /complete per the S3 contract is unchanged.) In-flight uploads are aborted on drain.
   if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
+  await guardManagedStorageMutation({ env: c.env, bucketName, user: c.get('user'), keys: [sanitizedKey] });
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
 
@@ -220,6 +225,8 @@ app.post('/abort', async (c) => {
   const sanitizedKey = validateKey(body.key);
 
   const bucketName = c.get('bucketName');
+  if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
+  await guardManagedStorageMutation({ env: c.env, bucketName, user: c.get('user'), keys: [sanitizedKey] });
   const r2Client = createR2Client(c.env);
   const { endpoint } = await getR2Config(c.env);
 

@@ -21,6 +21,7 @@ For vulnerability reporting and supported versions, see [SECURITY.md](../../SECU
 - [Supply-chain Controls](#supply-chain-controls)
 - [Accepted Exceptions and Residual Risks](#accepted-exceptions-and-residual-risks)
 - [Verification and Source Map](#verification-and-source-map)
+- [Immutable Managed Resources](#immutable-managed-resources-req-enterprise-028)
 - [Related Documentation](#related-documentation)
 
 ## Security Posture
@@ -94,7 +95,7 @@ The host rejects missing/invalid credentials before route dispatch except for ex
 <a id="dual-r2-credential-architecture"></a>
 ### R2 authority separation
 
-The deployment token creates/manages resources but never enters containers. Containers receive only the user-scoped R2 credential needed by the sync runtime. Bucket selection is derived from verified user ownership. Exact creation and rotation procedures belong to Configuration/private operations.
+The deployment token creates/manages resources but never enters containers. Containers receive only the user-scoped R2 credential needed by the sync runtime. Bucket selection is derived from verified user ownership. Public permissions remain in [Configuration](configuration.md#cloudflare-api-token-operator); exact creation and rotation procedures belong to private [Shared settings](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md).
 
 <a id="credential-encryption-at-rest"></a>
 ### Encryption at rest and missing-key posture
@@ -109,7 +110,7 @@ Transparent reads migrate supported legacy plaintext KV entries after successful
 
 AD32 permits plaintext fallback for covered legacy values when the optional key is absent; current source emits a critical warning. Vault bootstrap requires the key and fails without it. Provider client-secret save paths that require encryption reject plaintext storage rather than silently widening exposure. Rotation changes derived Vault keys and can require explicit browser/store recovery.
 
-Generate a candidate 32-byte key with `openssl rand -base64 32`; the decoded value must be exactly 32 bytes. Secret placement and rotation execution remain Configuration/private-operations responsibilities.
+Generate a candidate 32-byte key with `openssl rand -base64 32`; the decoded value must be exactly 32 bytes. Public behavior remains in [Configuration](configuration.md); secret placement and rotation execution belong to private [Shared settings](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md).
 
 ## Network and Egress Controls
 
@@ -129,7 +130,7 @@ Gateway policy remains customer-owned. Codeflare does not create or weaken exter
 
 ### Startup availability exception
 
-Some strict-egress runtime configuration is read from eventually consistent KV during startup. The accepted availability trade-off is to avoid falsely bricking an already configured deployment on transient state uncertainty where the contract says so; this must not be generalized into credential or account-boundary fail-open behavior. Exact activation/rollback remains private operations material.
+Some strict-egress runtime configuration is read from eventually consistent KV during startup. The accepted availability trade-off is to avoid falsely bricking an already configured deployment on transient state uncertainty where the contract says so; this must not be generalized into credential or account-boundary fail-open behavior. Exact activation and rollback belong to the private [Strict Gateway Egress runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/strict-gateway-egress.md).
 
 <a id="view-only-storage-enterprise-anti-exfil"></a>
 ### View-only storage
@@ -329,6 +330,12 @@ Exhaustive SDD status remains in `sdd/spec/security.md` and related domains. Par
 <!-- @impl: src/routes/vscode.ts::handleVscodeRequest -->
 <!-- @test: host/__tests__/trivy-exception-gate.test.js (rejects p7zip RCE findings without a reviewed exception) -->
 <!-- @test: host/__tests__/trivy-exception-gate.test.js (rejects retired Pi findings after the runtime upgrade) -->
+
+## Immutable Managed Resources ([REQ-ENTERPRISE-028](../../sdd/spec/enterprise-mode.md#req-enterprise-028-managed-resource-request-classification))
+
+Enterprise protected modes enforce persistence at `EgressController`, immediately before the exact user-bucket request is signed with its scoped credential. The Worker verifies `.codeflare/managed-paths.json` against the applied release, mode, and SHA-256 digest; exact managed and retired paths are denied in `immutable`, and derived resource roots are additionally denied in `exclusive`. Storage API mutations use the same verified policy. Policy decision logs retain only operation class, digest and path/bucket hash prefixes, request ID, and reason; they exclude raw object keys, bucket names, credentials, and policy bytes. Container policy copies and rclone filters are liveness aids only and cannot authorize writes.
+
+[Managed-resource persistence modes](storage-and-sync.md#managed-resource-persistence-modes) owns the complete Mutable, Immutable, Exclusive, release-delta, retirement, and custom-file behavior. Admission and transport follow [REQ-ENTERPRISE-027](../../sdd/spec/enterprise-mode.md#req-enterprise-027-managed-resource-admission-and-transport), Egress follows [REQ-ENTERPRISE-029](../../sdd/spec/enterprise-mode.md#req-enterprise-029-managed-resource-egress-enforcement), and Storage follows [REQ-ENTERPRISE-030](../../sdd/spec/enterprise-mode.md#req-enterprise-030-managed-resource-storage-enforcement). See [AD147](../decisions/README.md#ad147-active-managed-resource-policy-supersedes-provenance-ownership).
 
 <a id="adding-a-new-rate-limiter"></a>
 <a id="admin-elevation-via-access-group-enterprise"></a>

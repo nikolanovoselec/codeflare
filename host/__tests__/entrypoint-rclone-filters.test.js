@@ -24,6 +24,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -85,6 +86,7 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
   mkdirSync(join(fx, 'workspace/repo/graphify-out'), { recursive: true });
   mkdirSync(join(fx, '.cache/rclone'), { recursive: true });
   mkdirSync(join(fx, '.config/rclone'), { recursive: true });
+  mkdirSync(join(fx, '.config/opencode/skills/personal'), { recursive: true });
   mkdirSync(join(fx, '.codex/plugins/cache/catalog'), { recursive: true });
   mkdirSync(join(fx, '.codex/cache'), { recursive: true });
   mkdirSync(join(fx, '.copilot'), { recursive: true });
@@ -102,6 +104,7 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
     '.codeflare/ide-ui-state.json': '{"version":1}',
     '.codeflare/ide-extensions.json': '{"version":1,"extensions":{},"settings":{}}',
     '.codeflare/managed-extensions.json': '{"schemaVersion":1,"extensions":[]}',
+    '.codeflare/managed-paths.json': '{"schemaVersion":1}',
     '.codeflare/review-state/v1/repo/branch/pr-42-main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json': '{"version":1}',
     '.codeflare/review-state/v2/repo/branch/private.json': 'must stay local',
     '.codeflare/herdr/sessions/cf-abc12345/session.json': '{"version":3,"workspaces":[]}',
@@ -112,6 +115,7 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
     'workspace/repo/graphify-out/g.json': 'repo graph artifact',
     '.cache/rclone/junk': 'ephemeral cache',
     '.config/rclone/rclone.conf': 'r2 secrets config',
+    '.config/opencode/skills/personal/SKILL.md': 'opencode personal resource',
     '.codex/plugins/cache/catalog/plugin.json': 'regenerable plugin catalog',
     '.codex/cache/index.json': 'regenerable codex cache',
     '.codex/logs_2.sqlite': 'regenerable codex log database',
@@ -281,13 +285,15 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     }
   });
 
-  it('REQ-IDE-002 AC6: syncs only bounded Browser IDE manifests', () => {
+  it('REQ-IDE-002 AC6 / REQ-STOR-031 AC1: syncs bounded Browser IDE manifests and managed policy', () => {
     for (const sessionMode of ['advanced', 'default']) {
       const v = verdictUnder({ sessionMode, defaultDeny: false });
       assert.equal(v['.codeflare/ide-ui-state.json'], 'INCLUDED');
       assert.equal(v['.codeflare/ide-extensions.json'], 'INCLUDED');
       assert.equal(v['.codeflare/managed-extensions.json'], 'INCLUDED');
+      assert.equal(v['.codeflare/managed-paths.json'], 'INCLUDED');
       assert.equal(v['.codeflare/private-runtime.json'], 'EXCLUDED');
+      assert.equal(v['.config/opencode/skills/personal/SKILL.md'], 'INCLUDED');
     }
   });
 
@@ -333,5 +339,98 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
         );
       }
     }
+  });
+});
+
+function extractManagedResourceFilterFunction() {
+  const src = readFileSync(ENTRYPOINT, 'utf8');
+  const start = src.indexOf('prepare_managed_resource_filter() {');
+  const end = src.indexOf('\n# Step 1: One-way sync FROM R2 TO local', start);
+  assert.ok(start >= 0 && end > start, 'managed-resource filter function missing');
+  return src.slice(start, end);
+}
+
+describe('REQ-STOR-031 managed-resource rclone filter', () => {
+  const functionSource = extractManagedResourceFilterFunction();
+
+  it('validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths', () => {
+    const fx = mkdtempSync(join(tmpdir(), 'managed-filter-'));
+    const runtime = join(fx, 'run');
+    const policyPath = join(fx, '.codeflare/managed-paths.json');
+    const filterPath = join(runtime, 'managed-resources.filter');
+    mkdirSync(dirname(policyPath), { recursive: true });
+    mkdirSync(runtime, { recursive: true });
+    mkdirSync(join(fx, '.claude/skills/personal'), { recursive: true });
+    mkdirSync(join(fx, '.claude/skills-other'), { recursive: true });
+    const releaseDigest = 'd'.repeat(64);
+    const policy = {
+      schemaVersion: 1,
+      releaseDigest,
+      resourcePolicy: 'exclusive',
+      paths: ['.claude/skills/company/SKILL.md', '.codeflare/managed-paths.json'],
+      resourceRoots: ['.claude/skills/'],
+    };
+    const bytes = Buffer.from(`${JSON.stringify(policy)}\n`);
+    writeFileSync(policyPath, bytes);
+    writeFileSync(join(fx, '.claude/skills/personal/SKILL.md'), 'personal');
+    writeFileSync(join(fx, '.claude/skills-other/personal.md'), 'adjacent');
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    const script = `${functionSource}\nprepare_managed_resource_filter`;
+    const prepared = spawnSync('bash', ['-c', script], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        USER_HOME: fx,
+        MANAGED_RESOURCE_FILTER_FILE: filterPath,
+        MANAGED_RESOURCE_POLICY: 'exclusive',
+        REMOTE_CURATION_RELEASE_DIGEST: releaseDigest,
+        MANAGED_RESOURCE_PATHS_DIGEST: digest,
+      },
+    });
+    assert.equal(prepared.status, 0, prepared.stderr);
+
+    const listed = spawnSync('rclone', ['lsf', '-R', '--files-only', '--filter-from', filterPath, fx], { encoding: 'utf8' });
+    assert.equal(listed.status, 0, listed.stderr);
+    assert.equal(listed.stdout.includes('.claude/skills/personal/SKILL.md'), false);
+    assert.equal(listed.stdout.includes('.codeflare/managed-paths.json'), false);
+    assert.equal(listed.stdout.includes('.claude/skills-other/personal.md'), true);
+  });
+
+  it('rejects an oversized policy before Node reads it', () => {
+    const fx = mkdtempSync(join(tmpdir(), 'managed-filter-oversized-'));
+    const runtime = join(fx, 'run');
+    const policyPath = join(fx, '.codeflare/managed-paths.json');
+    const filterPath = join(runtime, 'managed-resources.filter');
+    mkdirSync(dirname(policyPath), { recursive: true });
+    mkdirSync(runtime, { recursive: true });
+    writeFileSync(policyPath, Buffer.alloc(8 * 1024 * 1024 + 1));
+    const prepared = spawnSync('bash', ['-c', `${functionSource}\nprepare_managed_resource_filter`], {
+      encoding: 'utf8',
+      env: {
+        ...process.env, USER_HOME: fx, MANAGED_RESOURCE_FILTER_FILE: filterPath,
+        MANAGED_RESOURCE_POLICY: 'immutable', REMOTE_CURATION_RELEASE_DIGEST: 'd'.repeat(64),
+        MANAGED_RESOURCE_PATHS_DIGEST: 'e'.repeat(64),
+      },
+    });
+    assert.notEqual(prepared.status, 0);
+    assert.match(prepared.stderr, /exceeds 8 MiB/);
+  });
+
+  it('mutable reset removes stale policy and filter before baseline', () => {
+    const fx = mkdtempSync(join(tmpdir(), 'managed-filter-mutable-'));
+    const runtime = join(fx, 'run');
+    const policyPath = join(fx, '.codeflare/managed-paths.json');
+    const filterPath = join(runtime, 'managed-resources.filter');
+    mkdirSync(dirname(policyPath), { recursive: true });
+    mkdirSync(runtime, { recursive: true });
+    writeFileSync(policyPath, '{}');
+    writeFileSync(filterPath, '- /**\n');
+    const prepared = spawnSync('bash', ['-c', `${functionSource}\nprepare_managed_resource_filter`], {
+      encoding: 'utf8',
+      env: { ...process.env, USER_HOME: fx, MANAGED_RESOURCE_FILTER_FILE: filterPath, MANAGED_RESOURCE_POLICY: 'mutable' },
+    });
+    assert.equal(prepared.status, 0, prepared.stderr);
+    assert.equal(readFileSync(filterPath, 'utf8'), '');
+    assert.equal(spawnSync('test', ['!', '-e', policyPath]).status, 0);
   });
 });

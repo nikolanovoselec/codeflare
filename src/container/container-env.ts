@@ -4,7 +4,7 @@
  * Extracted from Container DO (index.ts) to reduce file size.
  * All functions receive explicit state/context parameters instead of `this`.
  */
-import type { Env, SessionWorkspace, TabConfig, TerminalMode } from '../types';
+import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import { TERMINAL_SERVER_PORT, ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER, ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
@@ -31,6 +31,8 @@ export interface ContainerEnvState {
   _remoteCurationActive?: boolean;
   _remoteCurationReleaseDigest?: string | null;
   _remoteCurationManifestDigest?: string | null;
+  _managedResourcePolicy?: ManagedResourcePolicy;
+  _managedResourcePathsDigest?: string | null;
   _workspaceSyncEnabled: boolean;
   _fastStartEnabled: boolean;
   _tabConfig: TabConfig[] | null;
@@ -88,6 +90,8 @@ interface RestartPrefsInput {
   remoteCurationActive?: boolean;
   remoteCurationReleaseDigest?: string | null;
   remoteCurationManifestDigest?: string | null;
+  managedResourcePolicy?: ManagedResourcePolicy;
+  managedResourcePathsDigest?: string | null;
   sessionMode?: string;
   sessionWorkspace?: SessionWorkspace;
   terminalMode?: TerminalMode;
@@ -120,6 +124,8 @@ export interface SetBucketNameCreds {
   remoteCurationActive?: boolean;
   remoteCurationReleaseDigest?: string | null;
   remoteCurationManifestDigest?: string | null;
+  managedResourcePolicy?: ManagedResourcePolicy;
+  managedResourcePathsDigest?: string | null;
   sessionMode?: string;
   sessionWorkspace?: SessionWorkspace;
   terminalMode?: TerminalMode;
@@ -211,6 +217,29 @@ function normalizeIanaTz(v: unknown): string | undefined {
   return /^[A-Za-z][A-Za-z0-9+_/-]{0,63}$/.test(trimmed) ? trimmed : undefined;
 }
 
+function setManagedResourceIdentity(
+  state: ContainerEnvState,
+  policy: ManagedResourcePolicy,
+  pathsDigest: string | null | undefined,
+): boolean {
+  const protectedResources = policy !== 'mutable';
+  if (protectedResources && (
+    !/^[0-9a-f]{64}$/.test(state._remoteCurationReleaseDigest ?? '')
+    || !/^[0-9a-f]{64}$/.test(pathsDigest ?? '')
+  )) {
+    throw new Error('Protected managed-resource identity is incomplete');
+  }
+  if (!protectedResources && pathsDigest != null) {
+    throw new Error('Mutable managed-resource identity must be empty');
+  }
+  const nextPathsDigest = protectedResources ? pathsDigest! : null;
+  const changed = policy !== (state._managedResourcePolicy ?? 'mutable')
+    || nextPathsDigest !== (state._managedResourcePathsDigest ?? null);
+  state._managedResourcePolicy = policy;
+  state._managedResourcePathsDigest = nextPathsDigest;
+  return changed;
+}
+
 // ---------------------------------------------------------------------------
 // Env-var construction
 // ---------------------------------------------------------------------------
@@ -295,6 +324,10 @@ export function buildEnvVars(
     }),
     ...(state._remoteCurationActive && state._remoteCurationManifestDigest && {
       REMOTE_CURATION_MANIFEST_DIGEST: state._remoteCurationManifestDigest,
+    }),
+    ...(state._managedResourcePolicy && state._managedResourcePolicy !== 'mutable' && {
+      MANAGED_RESOURCE_POLICY: state._managedResourcePolicy,
+      MANAGED_RESOURCE_PATHS_DIGEST: state._managedResourcePathsDigest!,
     }),
     // Deploy credentials (GitHub + Cloudflare for push & deploy).
     // REQ-GITHUB-003: in enterprise mode the real GitHub token must NEVER enter the
@@ -430,6 +463,11 @@ export async function applyBucketName(
     && /^[0-9a-f]{64}$/.test(remoteCurationManifestDigest)
     ? remoteCurationManifestDigest
     : null;
+  setManagedResourceIdentity(
+    state,
+    r2Creds?.managedResourcePolicy ?? 'mutable',
+    r2Creds?.managedResourcePathsDigest,
+  );
 
   // Store session mode in instance memory only (not persisted to DO storage; re-sent on each container start)
   if (r2Creds?.sessionMode) state._sessionMode = r2Creds.sessionMode;
@@ -607,6 +645,13 @@ export async function applyPrefsOnRestart(
       state._remoteCurationManifestDigest = digest;
       changed = true;
     }
+  }
+  if (input.managedResourcePolicy !== undefined) {
+    changed = setManagedResourceIdentity(
+      state,
+      input.managedResourcePolicy,
+      input.managedResourcePathsDigest,
+    ) || changed;
   }
   if (input.sessionMode) {
     state._sessionMode = input.sessionMode;

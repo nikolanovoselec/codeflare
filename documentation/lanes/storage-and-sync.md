@@ -16,6 +16,7 @@ R2 persistent storage, rclone bisync synchronization, sync modes, storage quotas
 - [Failure Diagnosis and Recovery](#failure-diagnosis-and-recovery)
 - [File Browser](#file-browser-req-stor-016)
 - [Requirement and Source Map](#requirement-and-source-map)
+- [Managed-Resource Sync Policy](#managed-resource-sync-policy-req-stor-031)
 - [Performance Characteristics](#performance-characteristics)
 - [Encryption-Regime Alias](#encryption-regime-alias)
 - [Related Documentation](#related-documentation)
@@ -47,7 +48,27 @@ Signed immutable assets are content-addressed under `releases/<bundle-sha256>/`.
 
 Under [REQ-STOR-024 AC5-AC7](../../sdd/spec/storage.md#req-stor-024-managed-release-application), user reconciliation reads only the current verified release from the disposable cache and never GitHub. Applying it without the previous bundle deletes exact-prior-digest paths that the current release excludes from the resolved mode; current signed retirements cover globally removed paths. Arbitrary prior paths absent from both sets cannot be discovered. A cacheless disable therefore fails before bucket mutation and retains applied state. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 
-A user's applied release digest, exact managed-extension-manifest digest, sequence, and mode live in preferences. The existing dashboard check reports upgrading or update pending. The existing agent-config route writes mode documents and `.codeflare/managed-extensions.json` with bounded R2 concurrency, deletes prior-owned obsolete paths only when provenance still matches, applies signed retirements only to objects that retain a Codeflare ownership marker, reconciles image-owned context-mode separately, and stamps applied state last. The company manifest remains separate from personal `ide-extensions.json`; normal user extension changes cannot alter its hash. No user bucket is mutated while any session for that user runs. Company VSIX bytes are downloaded only inside the session and never stored in R2. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::default -->
+A user's applied release digest, exact managed-extension-manifest digest, sequence, and mode live in preferences. The existing dashboard check reports upgrading or update pending. The existing agent-config route writes mode documents and `.codeflare/managed-extensions.json` with bounded R2 concurrency, deletes prior-owned obsolete paths only when provenance still matches, and reconciles image-owned context-mode separately. Signed retirements are marker-gated in Mutable mode and exact-path deletions in protected modes. The route stamps applied state last. The company manifest remains separate from personal `ide-extensions.json`; normal user extension changes cannot alter its hash. No user bucket is mutated while any session for that user runs. Company VSIX bytes are downloaded only inside the session and never stored in R2. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::default -->
+
+### Managed-resource persistence modes
+
+A managed path is an exact object key owned by the verified release inventory, a signed retirement tombstone, or one of Codeflare's synthetic policy files. Ordinary personal files do not become managed because they happen to sit in the same bucket. That distinction is what keeps a release update from turning into a bucket-wide cleanup.
+
+**Mutable** is the default when managed resources are enabled but both persistence controls are off. The release provisions its current files, while rclone may persist user edits and new files normally. A later release overwrites content at paths it still manages. If a user rewrites a managed object, the rclone upload drops its Codeflare provenance marker and transfers ownership to the user. A later retirement preserves that replacement. Mutable mode has no managed-path policy, generated exclusion filter, or Worker denial.
+
+**Immutable** applies when **Immutable Resources** is enabled and **Disable User Created Resources** is disabled. Current managed paths and signed retirement tombstones are exact protected paths. Personal files elsewhere continue to persist. Container filters keep routine bisync away from protected paths; if those filters are bypassed or damaged, the Worker rejects the protected R2 mutation with S3 `403`. A file at a path introduced by a later release is replaced by managed content and protected from then on.
+
+**Exclusive** applies when **Disable User Created Resources** is enabled. It retains Immutable's exact-path protection and adds governed resource roots such as agent `skills/`, `rules/`, and `plugins/` trees. Reconciliation removes personal objects inside those roots after bounded prevalidation, and later mutations there receive `403`. Files outside governed roots remain personal. Enabling this mode is intentionally destructive within those roots, which is why reconciliation waits until the user's sessions have stopped.
+
+#### Release changes and retirement
+
+Each user carries their own applied release digest. Reconciliation loads that retained release as the previous inventory and compares it with the currently active verified release, so a user may skip several releases without losing the deletion boundary. Only keys present in the user's previous inventory and absent from the current inventory become ordinary retirement candidates. The Worker deletes one only when its R2 provenance marker still matches the previous release digest. Unrelated custom keys never enter that candidate set.
+
+Routine retirement therefore needs no hand-maintained list: remove the file from the curation manifest and publish a new release. `preseed/retired-keys.json` serves a narrower purpose. It is the cumulative backlog of proven product-created objects that predate provenance markers, plus exceptional product-generated orphans that no release comparison can own safely. The shared compiler validates that list, rejects paths that are still live, and publishes it as sorted `retiredPaths` in `seed-v1`.
+
+Protected reconciliation deletes those signed retired paths by exact name, then keeps them in `.codeflare/managed-paths.json` as tombstones. Their filter entries do not claim the files still exist. They stop an old local copy, a damaged filter, or a direct R2 request from resurrecting retired managed behavior. Mutable reconciliation deletes a retired path only while Codeflare provenance remains, preserving a user-owned replacement.
+
+Reconciliation writes current managed content, performs scoped cleanup, writes and reads back the canonical protected policy when required, then records the applied release and policy identity. Local rclone filters prevent expected writes; the Worker interceptor remains the authority when traffic reaches R2. Operator rollout, destructive-mode acceptance, and recovery belong to the private [Managed Environment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/managed-environment.md). <!-- @impl: src/lib/r2-seed.ts::deletePriorManagedConfigs --> <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy --> <!-- @impl: entrypoint.sh::prepare_managed_resource_filter -->
 
 ### Why rclone bisync (Not s3fs)
 
@@ -271,6 +292,10 @@ return an error response (4xx) rather than any listing.
 | Encryption regime | Enterprise/Vault SDD | governed migration engine and R2 configuration | Mode/status evidence; private rollout values stay private |
 
 ---
+
+## Managed-Resource Sync Policy ([REQ-STOR-031](../../sdd/spec/storage.md#req-stor-031-managed-resource-container-sync))
+
+Protected managed environments restore one canonical `.codeflare/managed-paths.json` before baseline. The entrypoint verifies its exact digest, release, mode, schema, and canonical bytes, then excludes managed exact paths from every bisync. Exclusive mode also excludes each governed resource root. Mutable transition removes stale local policy/filter state before baseline. These filters keep normal bisync convergent; Worker-side mutation denial remains authoritative if root tampers with them. Exclusive enablement is destructive for personal objects inside governed roots and must reconcile only while the user's sessions are stopped.
 
 <a id="startup--steady-state-sync-performance"></a>
 ## Performance Characteristics

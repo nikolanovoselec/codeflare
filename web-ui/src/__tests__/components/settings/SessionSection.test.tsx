@@ -42,6 +42,7 @@ function renderSection(overrides: {
     workspaceSyncEnabled: () => false,
     clipboardAccess: () => false,
     notificationPermission: () => 'default' as const,
+    notificationAvailable: () => true,
     sleepAfter: () => '30m',
     canChangeSleepAfter: () => overrides.canChangeSleepAfter ?? true,
     isFreeUser: () => false,

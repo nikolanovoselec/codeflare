@@ -20,11 +20,11 @@ The specification (`sdd/`) defines required system behavior. This documentation 
 
 ## Public/private documentation boundary
 
-Public documentation owns default-mode setup, product behavior, architecture, and REQ/ADR backlinks. Exact non-default deployment secrets, variables, token scopes, GitHub Environments, and operator runbooks live in [private operations](https://github.com/nikolanovoselec/codeflare-private) (access required).
+Public documentation owns default-mode setup, product behavior, architecture, and REQ/ADR backlinks. Exact non-default deployment secrets, variables, operator token-permission matrices, GitHub Environments, and operator runbooks live in the [private operator library](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/README.md) (access required).
 
-When their public workflows or consumers change, update the private README in the same work. Public docs link there rather than duplicate the operational matrix.
+When public workflows or consumers change, update the owning document in the [private operator library](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/README.md) in the same work. Public docs link there rather than duplicate operational matrices or runbooks.
 
-**Agents:** to read or modify a non-default deployment secret, variable, or token scope, do it in [codeflare-private](https://github.com/nikolanovoselec/codeflare-private) — those values are not stored in this repository. Never write a real secret, a non-default deployment variable, or a token-scope value into this public repo (code, `sdd/`, or `documentation/`); reference the private repo instead.
+**Agents:** a task that reads or changes a non-default deployment secret, variable, operator token-permission matrix, GitHub Environment, customer-account prerequisite, provider registration, promotion check, migration procedure, or rollback runbook also owns an update in `codeflare-private`. If it is not already available, clone it with `gh repo clone nikolanovoselec/codeflare-private`. Read its [documentation contract](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/governance/documentation-contract.md), update the owning private document, and deliver that repository through its own review history. Never copy real credentials or customer identifiers into either repository. Never duplicate private operational values in public `code`, `sdd/`, or `documentation/`; keep public behavior and REQ/ADR backlinks here and link to the private owner.
 
 **Agents:** to add or change a deployment-managed skill, rule, hook, agent, script, plugin, or company extension requirement, clone [codeflare-curation](https://github.com/nikolanovoselec/codeflare-curation) and push the change there. That private repository is the runtime master for Managed Environment content; `preseed/agents/**` in this repository is only the image-baked fallback baseline, and editing it does not change what deployments with Managed Environment curation active receive. Edit the fallback here only when the task is explicitly about it. Compiler, transform, seed ABI, and Pi runtime-lock changes are the exception: they land in this repository first, and only then does the curation repo advance its compiler pin. See [Managed curation ownership](lanes/preseed.md#managed-curation-ownership).
 
@@ -32,7 +32,7 @@ When their public workflows or consumers change, update the private README in th
 
 | Audience | Start here |
 |----------|------------|
-| Operator | [Architecture](lanes/architecture.md), [Configuration](lanes/configuration.md), [Container](lanes/container.md), [Storage & Sync](lanes/storage-and-sync.md), [Troubleshooting](lanes/troubleshooting.md); use [private operations](https://github.com/nikolanovoselec/codeflare-private) for non-default deployment |
+| Operator | [Architecture](lanes/architecture.md), [Configuration](lanes/configuration.md), [Container](lanes/container.md), [Storage & Sync](lanes/storage-and-sync.md), [Troubleshooting](lanes/troubleshooting.md); use the [private operator library](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/README.md) for non-default deployment |
 | Developer | [Architecture](lanes/architecture.md), [API Reference](lanes/api-reference.md), [CI/CD](lanes/ci-cd.md), [Preseed System](lanes/preseed.md) |
 | Security | [Security](lanes/security.md), [Penetration Testing](lanes/pentest.md), [Authentication](lanes/authentication.md) |
 
@@ -81,6 +81,7 @@ When their public workflows or consumers change, update the private README in th
 | Package-only source composition or build | Owning package reference above | Canonical system lane only when the public contract changes |
 | Vulnerability reporting policy | [Security Policy](../SECURITY.md) | Technical controls remain in [Security](lanes/security.md) |
 | Required behavior or evidence | Owning file in [`sdd/spec/`](../sdd/README.md) | Canonical lane and changelog |
+| Non-default deployment value, provider registration, or operator runbook | [Private operator library](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/README.md) | Public behavior owner and REQ/ADR backlinks remain here |
 
 ## Architecture Decisions
 
@@ -91,7 +92,7 @@ All significant design choices are recorded as Architecture Decision Records (AD
 | Document | Location | Description |
 |----------|----------|-------------|
 | [README](../README.md) | Repo root | Product overview and default-mode setup |
-| [Private operations](https://github.com/nikolanovoselec/codeflare-private) | Private repository | Non-default deployment and operator configuration |
+| [Private operator library](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/README.md) | Private repository | Non-default deployment, integration, migration, verification, and rollback runbooks |
 | [Curated content](https://github.com/nikolanovoselec/codeflare-curation) | Private repository | Runtime master for Managed Environment content and company extension requirements |
 | [Contributing](../CONTRIBUTING.md) | Repo root | Development workflow and guidelines |
 | [Security Policy](../SECURITY.md) | Repo root | Vulnerability reporting |

@@ -4,7 +4,7 @@
  */
 import { Hono } from 'hono';
 import { getContainer } from '@cloudflare/containers';
-import type { Env, Session, UserPreferences, LlmKeys, DeployKeys } from '../../types';
+import type { Env, Session, UserPreferences, LlmKeys, DeployKeys, ManagedResourcePolicy } from '../../types';
 import { resolveSessionWorkspace, resolveTerminalMode } from '../../types';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { getContainerContext, getSessionIdFromQuery, getContainerId } from '../../lib/container-helpers';
@@ -12,7 +12,7 @@ import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { AppError, ContainerError, BucketMigratingError, ManagedEnvironmentUpdatePendingError, ValidationError, toError, toErrorMessage } from '../../lib/error-types';
 import { isBucketMigrating } from '../../lib/r2-migration';
-import { getEffectiveTier } from '../../lib/subscription';
+import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { CONTAINER_ID_DISPLAY_LENGTH, getMaxSessions } from '../../lib/constants';
 import { getSessionKey, getPreferencesKey, getLlmKeysKey, getDeployKeysKey, putSessionWithMetadata } from '../../lib/kv-keys';
 import { getDefaultTabConfig } from '../../lib/agent-config';
@@ -27,6 +27,10 @@ import { resolveSessionAccessGroup, loadEnterpriseRouteConfig } from '../../lib/
 import { applyEnterpriseBrowserToken } from '../../lib/browser-render-token';
 import { applyCloudflareOAuthToken } from '../../lib/cloudflare-token';
 import { getCachedActiveManagedRelease } from '../../lib/managed-release-active';
+import { hasStrictGatewayEgress } from '../../lib/controller-egress';
+import { createR2Client, getR2Url } from '../../lib/r2-client';
+import { getSseHeaders } from '../../lib/r2-sse';
+import { MANAGED_R2_POLICY_KEY, readVerifiedManagedR2Policy } from '../../lib/managed-r2-policy';
 
 // Re-exported so existing importers (and the spec-anchored unit tests that
 // import these from './lifecycle') keep resolving them after the CF-024b split
@@ -198,6 +202,8 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     let remoteCurationActive = false;
     let remoteCurationReleaseDigest: string | undefined;
     let remoteCurationManifestDigest: string | undefined;
+    let managedResourcePolicy: ManagedResourcePolicy = 'mutable';
+    let managedResourcePathsDigest: string | undefined;
     try {
       const activeManagedRelease = await runStartStage(
         reqLogger,
@@ -205,16 +211,23 @@ app.post('/start', containerStartRateLimiter, async (c) => {
         () => getCachedActiveManagedRelease(c.env),
       );
       const applied = preferences.managedEnvironmentApplied;
+      const desiredPolicy = activeManagedRelease?.resourcePolicy ?? 'mutable';
+      const appliedPolicy = applied?.resourcePolicy ?? 'mutable';
       const mismatch = activeManagedRelease
         ? applied?.digest !== activeManagedRelease.digest
           || applied.mode !== sessionMode
           || applied.sequence !== activeManagedRelease.pointer.sequence
           || !/^[0-9a-f]{64}$/.test(applied.managedExtensionsDigest ?? '')
+          || appliedPolicy !== desiredPolicy
+          || (desiredPolicy !== 'mutable' && !/^[0-9a-f]{64}$/.test(applied.managedPathsDigest ?? ''))
+          || (desiredPolicy === 'mutable' && applied.managedPathsDigest !== undefined)
         : applied !== undefined;
       if (mismatch) throw new ManagedEnvironmentUpdatePendingError();
       remoteCurationActive = activeManagedRelease !== null;
       remoteCurationReleaseDigest = activeManagedRelease?.digest;
       remoteCurationManifestDigest = applied?.managedExtensionsDigest;
+      managedResourcePolicy = desiredPolicy;
+      managedResourcePathsDigest = desiredPolicy === 'mutable' ? undefined : applied?.managedPathsDigest;
     } catch (error) {
       if (error instanceof ManagedEnvironmentUpdatePendingError) throw error;
       // A transient persisted-snapshot read failure may continue only from a
@@ -227,9 +240,18 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       ) {
         throw new ManagedEnvironmentUpdatePendingError();
       }
+      const fallbackPolicy = preferences.managedEnvironmentApplied.resourcePolicy ?? 'mutable';
+      if (fallbackPolicy !== 'mutable') throw new ManagedEnvironmentUpdatePendingError();
       remoteCurationActive = true;
       remoteCurationReleaseDigest = preferences.managedEnvironmentApplied.digest;
       remoteCurationManifestDigest = preferences.managedEnvironmentApplied.managedExtensionsDigest;
+    }
+
+    if (managedResourcePolicy !== 'mutable') {
+      const protectedAdmissionReady = isEnterpriseMode(c.env)
+        && c.env.EGRESS !== undefined
+        && await runStartStage(reqLogger, 'strict_egress_policy', () => hasStrictGatewayEgress(c.env));
+      if (!protectedAdmissionReady) throw new ManagedEnvironmentUpdatePendingError();
     }
 
     // REQ-ENTERPRISE-020: refuse to start a container while the bucket is migrating its
@@ -313,6 +335,26 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       () => setupR2Credentials(c.env, user.email, r2Config.accountId, bucketName, reqLogger, cryptoKey),
     );
 
+    if (managedResourcePolicy !== 'mutable') {
+      try {
+        await runStartStage(reqLogger, 'managed_resource_policy', () => readVerifiedManagedR2Policy({
+          fetchPolicyObject: () => createR2Client({
+            R2_ACCESS_KEY_ID: scopedCreds.accessKeyId,
+            R2_SECRET_ACCESS_KEY: scopedCreds.secretAccessKey,
+          }).fetch(getR2Url(r2Config.endpoint, bucketName, MANAGED_R2_POLICY_KEY), {
+            method: 'GET',
+            headers: getSseHeaders(c.env, r2SseDisabled),
+          }),
+          releaseDigest: remoteCurationReleaseDigest!,
+          pathsDigest: managedResourcePathsDigest!,
+          expectedPolicy: managedResourcePolicy,
+          bypassMemoryCache: true,
+        }));
+      } catch {
+        throw new ManagedEnvironmentUpdatePendingError();
+      }
+    }
+
     // Get container instance
     const container = getContainer(c.env.CONTAINER, containerId);
 
@@ -368,6 +410,8 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       remoteCurationActive,
       remoteCurationReleaseDigest,
       remoteCurationManifestDigest,
+      managedResourcePolicy,
+      managedResourcePathsDigest,
       llmKeys: llmKeys ?? undefined,
       deployKeys: effectiveDeployKeys ?? undefined,
       // REQ-MEM-001 AC4: forward the browser's IANA timezone (captured
