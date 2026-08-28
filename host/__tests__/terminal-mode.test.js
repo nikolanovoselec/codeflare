@@ -29,5 +29,6 @@ describe('host terminal mode', () => {
 
   it('REQ-AGENT-003 AC7: classic timeout readiness is unconditional', () => {
     assert.equal(isPrewarmTimeoutReady('classic', false), true);
+    assert.equal(isPrewarmTimeoutReady('classic', true), true);
   });
 });
