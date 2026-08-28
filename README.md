@@ -3,8 +3,6 @@
   Codeflare
 </h1>
 
-<p align="center"><strong>Engineering agents that can finish the job.</strong></p>
-
 <p align="center">Build and ship software. Investigate and operate infrastructure. Keep both inside the controls your organization already trusts.</p>
 
 <p align="center">
@@ -18,7 +16,9 @@
   <a href="#deploy-codeflare"><img src="https://img.shields.io/badge/deployment-self--operated-2563eb" alt="Self-operated deployment"></a>
   <a href="documentation/lanes/architecture.md"><img src="https://img.shields.io/badge/tenancy-single--tenant-7c3aed" alt="Single-tenant architecture"></a>
   <a href="documentation/lanes/architecture.md"><img src="https://img.shields.io/badge/runtime-Workers%20%2B%20Containers-F38020?logo=cloudflare&amp;logoColor=white" alt="Cloudflare Workers and Containers"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-59636e" alt="PolyForm Noncommercial license"></a>
+  <a href="sdd/README.md"><img src="https://img.shields.io/badge/delivery-spec--driven-059669" alt="Spec-driven delivery"></a>
+  <a href="documentation/lanes/security.md"><img src="https://img.shields.io/badge/security-Zero%20Trust-0891B2" alt="Zero Trust security"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-BE185D" alt="PolyForm Noncommercial license"></a>
 </p>
 
 <p align="center">
@@ -28,7 +28,7 @@
   <a href="SECURITY.md">Security</a>
 </p>
 
-![Codeflare, engineering agents that can finish the job](assets/documentation/og.png)
+![Codeflare product overview](assets/documentation/og.png)
 
 This page is the product synopsis and default deployment entry point. Exact contracts, limits, implementation mechanics, and operator recovery procedures belong to the linked documentation lanes.
 
@@ -68,8 +68,6 @@ The customer chooses the identity provider, GitHub organization, storage regime,
 ## Bring the agent and model strategy you already have
 
 Default, Onboarding, and SaaS deployments support Claude Code, Codex, GitHub Copilot, Pi, Google Antigravity, OpenCode, and Bash. Enterprise administrators choose from gateway-capable Pi and GitHub Copilot agents, with Bash always available.
-
-Enterprise sessions can send native notifications from validated lifecycle signals when no connected view is active ([REQ-TERM-023](sdd/spec/terminal.md#req-term-023-away-only-agent-notification-delivery)).
 
 Hosted model providers remain first-class. Supported enterprise traffic can be routed through Cloudflare AI Gateway in the customer's account, with route catalogs, model policy, context limits, and user attribution controlled there. [Codeflare Inference Mesh](https://github.com/nikolanovoselec/codeflare-inference-mesh) is an optional, separately deployed source for open models on customer-controlled GPU or CPU capacity.
 
