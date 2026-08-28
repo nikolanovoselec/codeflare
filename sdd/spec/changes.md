@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-28
 
+- **Remote curation restores its image-owned Pi runtime companion after R2 sync** ([REQ-STOR-031](storage.md#req-stor-031-managed-resource-container-sync) AC7 added; remains Implemented). Remote curation deliberately excludes image-owned context-mode runtime code while its managed `/ctx` command imports that companion. Initial R2 sync can remove the local image copy when the object is absent, especially after Exclusive cleanup; post-restore startup now restores only that image-owned dependency without replacing release-owned extension bytes.
+
 - **Default Workspace has a visible file-tree marker** ([REQ-IDE-048](browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions) AC7 added; remains Implemented). Advanced and enterprise users now see the same section-header visual treatment on the workspace selector as other settings groups, without changing workspace availability or preference behavior.
 
 - **Canonical reviewer launch evidence fails closed without an authoritative window** ([REQ-AGENT-177](agents.md#req-agent-177-canonical-reviewer-launch-evidence) added as Implemented; [REQ-AGENT-170](agents.md#req-agent-170-joint-review-and-ci-triage) AC1 narrowed; remains Implemented). Pi and Claude launch-credit rules moved from REQ-AGENT-170 AC1 to focused REQ-AGENT-177 AC1-AC4 without changing canonical launch values. Pi now leaves reviewer calls uncredited when the active scope and output contract cannot be resolved instead of waiving those checks.

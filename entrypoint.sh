@@ -807,22 +807,26 @@ lay_down_agent_seed_preseed() {
     echo "[entrypoint] Baked agent seed laid down" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
 }
 
-# REQ-STOR-017 / AD90: image-authoritative relay of the managed Pi extension CODE.
-# The jiti prewarm cache (Dockerfile warm-up) is keyed on abspath + source + version and is
-# baked at the exact .pi/agent/extensions runtime path — the bake fixes the PATH half of the
-# key; this relay fixes the CONTENT half. After the initial R2 sync restores user data, a
-# stale bucket copy of a managed extension (the sync faithfully restores older bytes) hashes
-# differently and defeats that cache — ~2.4s of cold transpile EVERY session.
-# Re-lay the image-baked managed extensions for the session mode so their bytes always equal
-# the build → the prewarm cache always hits, in ALL deployment modes (not just Governed).
-# Surgical: copies only the codeflare-owned .pi/agent/extensions tree and prunes explicitly
-# retired Codeflare review extensions, so user-ADDED extensions are preserved and
-# user-editable seed docs/rules are untouched. Uses cp -r (not -p) so the relaid files carry a current mtime —
-# the subsequent bisync then treats local as authoritative and self-heals R2 instead of
-# pulling the stale copy back. Idempotent and mode-aware.
+# REQ-STOR-017 / AD90: image-authoritative relay of Pi extension code.
+# Without remote curation, re-lay image-baked managed extensions so the jiti prewarm cache's
+# abspath + source + version key stays hot, while preserving user-added filenames. With remote
+# curation, preserve release-owned bytes and restore only their excluded image-owned runtime
+# companion. Uses cp without -p so relaid bytes receive fresh local mtimes. Idempotent and
+# mode-aware.
 relay_managed_pi_extensions() {
+    local warm_src="${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}"
+    local dest="$USER_HOME/.pi/agent/extensions"
     if [ "${REMOTE_CURATION_ACTIVE:-false}" = "true" ]; then
-        echo "[entrypoint] Managed release active: preserving R2-restored Pi extensions" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+        # Curation deliberately excludes context-mode runtime code because it is
+        # image-owned, while its managed /ctx command imports this companion.
+        # Initial rclone sync removes local files absent from R2, so restore this
+        # one image-owned dependency without overwriting release-owned extensions.
+        mkdir -p "$dest"
+        if [ -f "$warm_src/context-mode-runtime.ts" ] && cp "$warm_src/context-mode-runtime.ts" "$dest/context-mode-runtime.ts"; then
+            echo "[entrypoint] Managed release active: restored image-owned context-mode runtime" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+        else
+            echo "[entrypoint] WARNING: image-owned context-mode runtime restore failed" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+        fi
         return 0
     fi
     # Source = the EXACT dir the jiti prewarm cache was baked from (Dockerfile copies
@@ -833,8 +837,6 @@ relay_managed_pi_extensions() {
     # without adding mode-gated extensions to a session that should not have them. cp
     # (no -p) gives a fresh mtime so the --resync baseline treats local as truth.
     # User-added extensions (other filenames) are never matched, so they are preserved.
-    local warm_src="${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}"
-    local dest="$USER_HOME/.pi/agent/extensions"
     if [ ! -d "$warm_src" ]; then
         echo "[entrypoint] No image Pi extension source ($warm_src); skipping managed-extension relay" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
         return 0
@@ -3870,13 +3872,11 @@ complete_managed_curation_startup() {
     # before baseline keeps protected local edits from poisoning normal bisync.
     prepare_managed_resource_filter
 
-    # REQ-STOR-017 / AD90: make the image-baked managed Pi extensions authoritative BEFORE the
-    # bisync baseline so the jiti prewarm cache (keyed on abspath + source + version) always hits
-    # on its content half (all deployment modes). Synchronous and unconditional: even if sync/bisync
-    # are skipped or fail, the local managed extensions must equal the build. Placed before --resync
-    # so the baseline treats the relaid local copy as truth and pushes it back to R2 (self-heal)
-    # rather than the reverse. Best-effort under `set -e`: a copy failure must degrade to a ~2.4s
-    # cold transpile, never abort PID 1 (matches the renice/ionice convention below).
+    # REQ-STOR-017 / AD90: make image-baked Pi extension ownership authoritative BEFORE the
+    # bisync baseline. Baked seed restores matching extension bytes; remote curation preserves
+    # release-owned bytes while restoring their image-owned runtime companion. Placed before PTY
+    # release and --resync so Pi never loads a missing companion; protected filters keep the image
+    # file outside R2. Copy failure logs a warning without aborting PID 1.
     relay_managed_pi_extensions || true
 
     # The terminal server has been polling this flag before spawning tab 1. Prune
