@@ -113,11 +113,11 @@ Additional details:
 
 ### Secrets
 
-Default deployments use `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Non-default mode credentials are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
+Default deployments use `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Non-default credential placement is maintained in [Shared settings and Web Push identity](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md).
 
 Worker secrets lifecycle: deploy sets `CLOUDFLARE_API_TOKEN` and the repository's shared VAPID key pair through one temporary bulk secret file; setup writes `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`; Turnstile keys are stored in KV. The [deployment validator](../../scripts/ci/validate-vapid-config.mjs) fails before promotion when `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, or the secret-only `VAPID_PRIVATE_KEY` is missing ([REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks), [REQ-SEC-023](../../sdd/spec/security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-SEC-024](../../sdd/spec/security.md#req-sec-024-agent-notification-delivery-trust-boundaries)).
 
-Same-name environment secrets must remain absent so every target resolves the repository identity. Rotating the pair invalidates existing push subscriptions in every environment and requires user re-enrollment. The operator setup and rotation procedure is maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). **Worker-level R2 credentials are derived from the API token** for bucket administration. Per-user scoped R2 tokens are separate, created on first login, and revoked when the API token changes. If that token is rotated, setup must be re-run.
+Same-name environment secrets must remain absent so every target resolves the repository identity. Rotating the pair invalidates existing push subscriptions in every environment and requires user re-enrollment. The operator setup and rotation procedure is maintained in [Shared settings and Web Push identity](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md). **Worker-level R2 credentials are derived from the API token** for bucket administration. Per-user scoped R2 tokens are separate, created on first login, and revoked when the API token changes. If that token is rotated, setup must be re-run.
 
 ### CORS
 
@@ -235,7 +235,7 @@ The env-var pairs below are the fallback provider source when no Setup config ex
 
 **Container transport** ([REQ-GITHUB-006](../../sdd/spec/github.md#req-github-006-other-mode-container-transport)). In non-enterprise modes the real token flows to the container as `GH_TOKEN` via the existing deploy-keys path, unchanged. In enterprise mode the container instead receives the non-secret placeholder `GH_TOKEN` = `codeflare-enterprise` (the `ENTERPRISE_GH_TOKEN_PLACEHOLDER` code constant, **not** a configured value); the real token is injected at the container egress boundary (see the [security](security.md) and [architecture](architecture.md) lanes).
 
-**Provider registration permissions** (set at app registration, not via config). Every OAuth App connection tier includes `gist`; its remaining `scope` values are derived from the selected tier (default `repo gist read:org workflow`; see [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) and [REQ-GITHUB-013](../../sdd/spec/github.md#req-github-013-connected-github-tokens-grant-gist-access)). The enterprise GitHub App's registration permissions and internal-app requirement are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
+**Provider registration permissions** (set at app registration, not via config). Every OAuth App connection tier includes `gist`; its remaining `scope` values are derived from the selected tier (default `repo gist read:org workflow`; see [REQ-GITHUB-007](../../sdd/spec/github.md#req-github-007-broaden-the-panel-gate-beyond-enterprise) and [REQ-GITHUB-013](../../sdd/spec/github.md#req-github-013-connected-github-tokens-grant-gist-access)). GitHub OAuth App and GitHub App registration, including the internal-App requirement for EMU, are maintained in [GitHub Connect provider registration](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/integrations/github-provider.md).
 
 ## Onboarding mode
 
@@ -243,7 +243,7 @@ Onboarding mode (`ONBOARDING_LANDING_PAGE` = active) serves the public waitlist 
 
 ### Onboarding variables and secrets
 
-The activation flag, GitHub Actions secret inventory, email settings, and operator setup steps are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally retains behavior and REQ backlinks without duplicating non-default deployment configuration.
+The activation flag, GitHub Actions secret inventory, email settings, and operator setup steps are maintained in [Onboarding and SaaS modes](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/onboarding-and-saas.md). This public lane intentionally retains behavior and REQ backlinks without duplicating non-default deployment configuration.
 
 ### SEO / Discoverability
 
@@ -263,7 +263,7 @@ SaaS mode (`SAAS_MODE` = active) adds a custom login page, GitHub-OAuth auto-pro
 
 ### SaaS variables and secrets
 
-The activation flag, OAuth, billing, email, identity-provider, and environment configuration are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally does not duplicate the SaaS deployment matrix.
+The activation flag, OAuth, billing, email, identity-provider, and environment configuration are maintained in [Onboarding and SaaS modes](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/onboarding-and-saas.md). This public lane intentionally does not duplicate the SaaS deployment matrix.
 
 ## Enterprise mode
 
@@ -271,11 +271,11 @@ Enterprise mode (`ENTERPRISE_MODE` = active) forces all users to the unlimited t
 
 ### Enterprise mode variables
 
-The enterprise activation flag, GitHub Environment layout, worker naming, account overrides, and dynamic-route setup are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). Runtime behavior remains documented below and in the enterprise specification.
+The enterprise activation flag, GitHub Environment layout, worker naming, account overrides, and dynamic-route setup are maintained in the [Enterprise deployment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md). Runtime behavior remains documented below and in the enterprise specification.
 
 ### Enterprise Mode Secrets (optional)
 
-The AI Gateway fallback-secret inventory, required token permissions, and deployment procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally does not duplicate non-default deployment credentials.
+The AI Gateway fallback-secret inventory, required token permissions, and deployment procedure are maintained in the [Enterprise deployment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md). This public lane intentionally does not duplicate non-default deployment credentials.
 
 ### Enterprise Mode Runtime Configuration
 

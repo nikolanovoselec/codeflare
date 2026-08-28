@@ -102,7 +102,7 @@ Set `TAG` to the downloaded release tag, including its leading `v`. The signatur
 | `production` | `deploy.yml`, `pentest.yml` | Auto on push to `main`, or manual dispatch with `production` selected |
 | `integration` | `deploy.yml`, `stress-test.yml` | Manual dispatch with `integration` selected |
 
-The non-default enterprise environments, account overrides, and dispatch procedure are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private).
+The non-default enterprise environments, account overrides, and dispatch procedure are maintained in [Deployment modes and environments](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/modes-and-environments.md) and the [Enterprise deployment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md).
 
 `production` is restricted to `main` by a deployment branch policy, mirroring the in-workflow branch guard in `deploy.yml` so a dispatch from any other ref cannot reach it. It carries no required-reviewer rule: a green PR Checks run is the gate, and the reviewer approval it replaced was self-approval by the sole maintainer, which paused three separate jobs without adding assurance.
 
@@ -128,7 +128,7 @@ A default deployment requires only these repository secrets:
 | `CLOUDFLARE_API_TOKEN` | `deploy.yml`, `container-image.yml` | Wrangler authentication, resource setup, image push, and Worker deploy |
 | `CLOUDFLARE_ACCOUNT_ID` | `deploy.yml`, `container-image.yml` | Identifies the target Cloudflare account |
 
-Non-default mode credentials, optional deployment variables, environment overrides, fallback registries, and service credentials are maintained in [Codeflare private operations](https://github.com/nikolanovoselec/codeflare-private). This public lane intentionally does not duplicate that operational matrix.
+Non-default mode credentials, optional deployment variables, environment overrides, fallback registries, and service credentials are maintained in [Shared settings](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md) and [Deployment verification](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/verification/deployment-testing.md). This public lane intentionally does not duplicate that operational matrix.
 
 <a id="deploy-workflow-detail"></a>
 ## Deployment Pipeline Contract
