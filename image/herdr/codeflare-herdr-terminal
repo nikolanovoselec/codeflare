@@ -106,8 +106,37 @@ wait_for_process() {
     fail "configured process was not detected"
 }
 
+supports_pi_resume_readiness() {
+    "$HERDR_BIN" --version 2>/dev/null | grep -Fxq 'herdr 0.8.2'
+}
+
+wait_for_live_restored_pi() {
+    local snapshot
+    # Pi reports full lifecycle authority after session_start, which follows
+    # transcript loading. Large transcripts can take minutes to initialize.
+    for _ in $(seq 1 1200); do
+        if snapshot=$("$HERDR_BIN" agent list 2>/dev/null) \
+            && printf '%s' "$snapshot" | jq -e '
+                [.result.agents[]? | select(.agent == "pi")] as $agents
+                | (($agents | length) > 0)
+                  and all($agents[]; .screen_detection_skipped == true)
+            ' >/dev/null 2>&1; then
+            return 0
+        fi
+        server_is_healthy || return 1
+        sleep 0.25
+    done
+    return 1
+}
+
 wait_for_restored_agent() {
     local expected="$1" snapshot
+    if [ "$expected" = "pi" ] && supports_pi_resume_readiness; then
+        wait_for_live_restored_pi && return 0
+    fi
+
+    # Preserve metadata detection for every agent and as the compatibility
+    # fallback if Pi's pinned integration signal is unavailable or times out.
     for _ in $(seq 1 120); do
         if snapshot=$("$HERDR_BIN" agent list 2>/dev/null) \
             && printf '%s' "$snapshot" | jq -e --arg expected "$expected" \

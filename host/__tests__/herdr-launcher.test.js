@@ -165,7 +165,7 @@ fi
     assert.equal(clientStarts, 3);
   });
 
-  it('lets Herdr resume a persisted native agent instead of submitting the configured command again', () => {
+  it('falls back to persisted agent metadata when Pi lifecycle readiness is unavailable', () => {
     const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-restore-'));
     const bin = join(dir, 'bin');
     const runtime = join(dir, 'runtime');
@@ -179,7 +179,9 @@ fi
     writeFileSync(fake, `#!/usr/bin/env bash
 set -eu
 printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
-if [ "$*" = "api snapshot" ]; then
+if [ "$*" = "--version" ]; then
+  printf '%s\\n' 'herdr 0.8.3'
+elif [ "$*" = "api snapshot" ]; then
   [ ! -f "$HERDR_RESTORE_READY" ] || exit 1
   printf '%s\\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
 elif [ "$*" = "agent list" ]; then
@@ -209,6 +211,66 @@ fi
     assert.equal(result.status, 1, result.stderr);
     const calls = readFileSync(log, 'utf8').trim().split('\n');
     assert.equal(calls.includes('agent list'), true);
+    assert.equal(calls.filter((call) => call === 'agent list').length, 1);
+    assert.equal(calls.some((call) => call.startsWith('pane run ')), false);
+  });
+
+  it('waits for live Pi integration before completing restored bootstrap', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-pi-ready-'));
+    const bin = join(dir, 'bin');
+    const runtime = join(dir, 'runtime');
+    const persistent = join(dir, '.codeflare');
+    const sessionDir = join(persistent, 'herdr/sessions/cf-abc12345');
+    const log = join(dir, 'herdr.log');
+    const count = join(dir, 'agent-list-count');
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(sessionDir, { recursive: true });
+    writeFileSync(join(sessionDir, 'session.json'), '{"version":3,"workspaces":[]}');
+    const fake = join(bin, 'herdr');
+    writeFileSync(fake, `#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
+if [ "$*" = "--version" ]; then
+  printf '%s\\n' 'herdr 0.8.2'
+elif [ "$*" = "api snapshot" ]; then
+  [ ! -f "$HERDR_RESTORE_READY" ] || exit 1
+  printf '%s\\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
+elif [ "$*" = "agent list" ]; then
+  current=0
+  [ ! -f "$HERDR_AGENT_LIST_COUNT" ] || current=$(cat "$HERDR_AGENT_LIST_COUNT")
+  current=$((current + 1))
+  printf '%s' "$current" > "$HERDR_AGENT_LIST_COUNT"
+  if [ "$current" -lt 3 ]; then
+    printf '%s\\n' '{"result":{"agents":[{"agent":"pi"}]}}'
+  else
+    printf '%s' ready > "$HERDR_RESTORE_READY"
+    printf '%s\\n' '{"result":{"agents":[{"agent":"pi","screen_detection_skipped":true}]}}'
+  fi
+elif [ "\${1:-}" = "--session" ]; then
+  sleep 1
+fi
+`, { mode: 0o755 });
+
+    const result = spawnSync(launcher, [], {
+      encoding: 'utf8',
+      timeout: 10_000,
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        HERDR_BIN: fake,
+        HERDR_TEST_LOG: log,
+        HERDR_RESTORE_READY: join(dir, 'restore-ready'),
+        HERDR_AGENT_LIST_COUNT: count,
+        CODEFLARE_RUNTIME_ROOT: runtime,
+        CODEFLARE_HERDR_PERSIST_ROOT: persistent,
+        SESSION_ID: 'abc12345',
+        TAB_CONFIG: JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]),
+      },
+    });
+
+    assert.equal(result.status, 1, result.stderr);
+    const calls = readFileSync(log, 'utf8').trim().split('\n');
+    assert.equal(calls.filter((call) => call === 'agent list').length, 3);
     assert.equal(calls.some((call) => call.startsWith('pane run ')), false);
   });
 
