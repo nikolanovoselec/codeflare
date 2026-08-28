@@ -7,6 +7,7 @@ vi.mock('../../stores/terminal', () => ({
     triggerLayoutResize: vi.fn(),
   },
   sendInputToTerminal: vi.fn(() => false),
+  registerProcessNameCallback: vi.fn(),
 }));
 
 vi.mock('../../lib/constants', async (importOriginal) => {

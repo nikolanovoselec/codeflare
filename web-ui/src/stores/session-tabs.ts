@@ -54,12 +54,19 @@ function normalizeSessionTerminals(terminals: SessionTerminals): SessionTerminal
   const normalizedActiveTabId = terminals.activeTabId && normalizedOrder.includes(terminals.activeTabId)
     ? terminals.activeTabId
     : '1';
+  const persistedLayout = terminals.tiling?.layout;
+  const normalizedTiling = terminals.tiling?.enabled === true
+    && typeof persistedLayout === 'string'
+    && Object.prototype.hasOwnProperty.call(LAYOUT_MIN_TABS, persistedLayout)
+    && isLayoutCompatible(persistedLayout as TileLayout, normalizedTabs.length)
+    ? { enabled: true, layout: persistedLayout as TileLayout }
+    : { enabled: false, layout: 'tabbed' as const };
 
   return {
     tabs: normalizedTabs,
     activeTabId: normalizedActiveTabId,
     tabOrder: normalizedOrder,
-    tiling: terminals.tiling || { enabled: false, layout: 'tabbed' },
+    tiling: normalizedTiling,
   };
 }
 

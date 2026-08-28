@@ -4009,7 +4009,7 @@ After the root publishes canonical triage, FIX handling revalidates the exact id
 
 **Category:** Architecture, Build / Container, Terminal
 
-**Status:** Accepted (2026-08-27). Superseded by [AD146](#ad146-terminal-mode-is-an-immutable-per-session-choice).
+**Status:** Superseded (2026-08-28) by [AD146](#ad146-terminal-mode-is-an-immutable-per-session-choice).
 
 **Context:** Codeflare currently owns up to six outer PTYs plus a tab bar and fixed tiling layouts. Herdr already provides terminal-native tabs, panes, splits, workspaces, agent state, and detach or reattach semantics. Keeping both topology layers would duplicate controls and multiply detached server/client processes. Herdr 0.8.2 also shares focus and geometry between clients attached to one server, so exposing several simultaneous Codeflare clients for one runtime would create resize and focus contention.
 

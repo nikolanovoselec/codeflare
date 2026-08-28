@@ -119,6 +119,36 @@ describe('session-tabs store', () => {
       expect(terminals.tabOrder).toEqual(['1', '2']);
       expect(terminals.activeTabId).toBe('1');
     });
+
+    it('REQ-TERM-007 AC2: disables an invalid persisted tiling layout', () => {
+      localStorage.setItem('codeflare:terminalsPerSession', JSON.stringify({
+        sess1: {
+          tabs: [{ id: '1', createdAt: '' }, { id: '2', createdAt: '' }],
+          activeTabId: '1',
+          tabOrder: ['1', '2'],
+          tiling: { enabled: true, layout: 'unknown' },
+        },
+      }));
+
+      initializeTerminalsForSession('sess1');
+
+      expect(state.terminalsPerSession['sess1'].tiling).toEqual({ enabled: false, layout: 'tabbed' });
+    });
+
+    it('REQ-TERM-007 AC2: disables a persisted layout incompatible with validated tabs', () => {
+      localStorage.setItem('codeflare:terminalsPerSession', JSON.stringify({
+        sess1: {
+          tabs: [{ id: '1', createdAt: '' }, { id: '7', createdAt: '' }],
+          activeTabId: '1',
+          tabOrder: ['1', '7'],
+          tiling: { enabled: true, layout: '2-split' },
+        },
+      }));
+
+      initializeTerminalsForSession('sess1');
+
+      expect(state.terminalsPerSession['sess1'].tiling).toEqual({ enabled: false, layout: 'tabbed' });
+    });
   });
 
   describe('addTerminalTab', () => {

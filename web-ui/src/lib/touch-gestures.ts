@@ -359,6 +359,7 @@ export function attachSwipeGestures(
   function onTouchCancel() {
     cancelInertia();
     resetState();
+    cancelled = true;
   }
 
   // --- Attach listeners ---

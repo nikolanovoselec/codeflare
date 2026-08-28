@@ -2,8 +2,8 @@
  * Behavioral tests for `validateWebSocketRoute` — the WS-upgrade entry point.
  *
  * Replaces the text-matching audits in `host/__audits__/terminal-compound-key.audit.js`
- * for the parts that the Worker can exercise directly (REQ-TERM-001 AC2/3/6 routing,
- * REQ-TERM-002 AC1 URL pattern). Host-side PTY env wiring (REQ-TERM-002 AC3/AC4)
+ * for the parts that the Worker can exercise directly (REQ-TERM-002 AC1/AC2 routing).
+ * Host-side PTY env wiring (REQ-TERM-002 AC4/AC5)
  * lives inside the container process and is covered by container-process audits
  * separately; this file replaces the route-parsing portion with real Request calls.
  *
@@ -91,8 +91,8 @@ describe('mode-aware terminal authorization', () => {
   });
 });
 
-describe('REQ-TERM-001 AC3: baseSessionId is validated against SESSION_ID_PATTERN', () => {
-  it('REQ-TERM-001 AC3: returns 400 INVALID_SESSION when baseSessionId is uppercase', async () => {
+describe('REQ-TERM-002 AC1: baseSessionId is validated against SESSION_ID_PATTERN', () => {
+  it('REQ-TERM-002 AC1: returns 400 INVALID_SESSION when baseSessionId is uppercase', async () => {
     const result = validateWebSocketRoute(wsRequest('/api/terminal/ABCDEF12-1/ws'));
     expect(result.isWebSocketRoute).toBe(true);
     expect(result.errorResponse).toBeDefined();
@@ -101,33 +101,33 @@ describe('REQ-TERM-001 AC3: baseSessionId is validated against SESSION_ID_PATTER
     expect(body.code).toBe('INVALID_SESSION');
   });
 
-  it('REQ-TERM-001 AC3: returns 400 when baseSessionId is too short (<8 chars)', () => {
+  it('REQ-TERM-002 AC1: returns 400 when baseSessionId is too short (<8 chars)', () => {
     const result = validateWebSocketRoute(wsRequest('/api/terminal/short-1/ws'));
     expect(result.isWebSocketRoute).toBe(true);
     expect(result.errorResponse?.status).toBe(400);
   });
 
-  it('REQ-TERM-001 AC3: returns 400 when baseSessionId is too long (>24 chars)', () => {
+  it('REQ-TERM-002 AC1: returns 400 when baseSessionId is too long (>24 chars)', () => {
     const tooLong = 'a'.repeat(25);
     const result = validateWebSocketRoute(wsRequest(`/api/terminal/${tooLong}-1/ws`));
     expect(result.isWebSocketRoute).toBe(true);
     expect(result.errorResponse?.status).toBe(400);
   });
 
-  it('REQ-TERM-001 AC3: returns 400 when baseSessionId contains non-alphanumeric chars', () => {
+  it('REQ-TERM-002 AC1: returns 400 when baseSessionId contains non-alphanumeric chars', () => {
     const result = validateWebSocketRoute(wsRequest('/api/terminal/abc_def123-1/ws'));
     expect(result.isWebSocketRoute).toBe(true);
     expect(result.errorResponse?.status).toBe(400);
   });
 
-  it('REQ-TERM-001 AC3: accepts the minimum 8-char base sessionId', () => {
+  it('REQ-TERM-002 AC1: accepts the minimum 8-char base sessionId', () => {
     const result = validateWebSocketRoute(wsRequest('/api/terminal/abcdef12-1/ws'));
     expect(result.isWebSocketRoute).toBe(true);
     expect(result.errorResponse).toBeUndefined();
     expect(result.baseSessionId).toBe('abcdef12');
   });
 
-  it('REQ-TERM-001 AC3: accepts the maximum 24-char base sessionId', () => {
+  it('REQ-TERM-002 AC1: accepts the maximum 24-char base sessionId', () => {
     const max = 'a'.repeat(24);
     const result = validateWebSocketRoute(wsRequest(`/api/terminal/${max}-1/ws`));
     expect(result.isWebSocketRoute).toBe(true);

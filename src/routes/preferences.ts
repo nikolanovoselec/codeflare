@@ -70,7 +70,7 @@ function withoutLegacyPresetId(preferences: UserPreferences & { lastPresetId?: u
 
 function mergePreferences(
   existing: UserPreferences,
-  update: Partial<UserPreferences>,
+  update: object,
 ): UserPreferences {
   return { ...existing, ...update };
 }

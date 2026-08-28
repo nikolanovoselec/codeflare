@@ -449,6 +449,32 @@ describe('Session CRUD Routes / REQ-SESSION-001 (session creation with name + ag
       ]);
     });
 
+    it('rejects extra terminal IDs in a Herdr session tab config', async () => {
+      const app = createCrudApp();
+      mockKV._set('session:test-bucket:sessiontoupdate123', {
+        id: 'sessiontoupdate123',
+        name: 'Herdr',
+        userId: 'test-bucket',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+        terminalMode: 'herdr',
+      });
+
+      const res = await app.request('/sessions/sessiontoupdate123', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tabConfig: [
+            { id: '1', command: 'pi', label: 'pi' },
+            { id: '2', command: '', label: 'Bash' },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ error: 'Herdr sessions require terminal ID 1 only' });
+    });
+
     it('updates lastAccessedAt timestamp', async () => {
       const app = createCrudApp();
       const session: Session = {

@@ -339,6 +339,24 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         cleanup();
       });
 
+      it('REQ-MOB-017 AC3: preserves classic fullscreen wheel forwarding', () => {
+        (window as any).ontouchstart = null;
+        const { terminal, element } = createMockTerminal({
+          bufferType: 'alternate',
+          mouseTrackingMode: 'any',
+        });
+        const wheelEvents: WheelEvent[] = [];
+        element.addEventListener('wheel', (event) => wheelEvents.push(event as WheelEvent));
+        container.appendChild(element);
+        const cleanup = attachSwipeGestures(container, terminal, () => false, false)!;
+
+        container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
+        container.dispatchEvent(makeTouchEvent('touchmove', 100, 60));
+
+        expect(wheelEvents).toHaveLength(2);
+        cleanup();
+      });
+
       it('REQ-MOB-005 AC7: keyboard-open vertical swipes send arrow keys even under fullscreen wheel tracking', () => {
         (window as any).ontouchstart = null;
         const { terminal, triggerDataEvent, scrollLines, bufferScrollLines, element } = createMockTerminal({
@@ -561,6 +579,25 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
         container.dispatchEvent(makeTouchEvent('touchmove', 40, 80));
         container.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
+        expect(mouseDown).not.toHaveBeenCalled();
+        cleanup();
+      });
+
+      it('REQ-MOB-017 AC5: does not synthesize a click after cancellation', () => {
+        (window as any).ontouchstart = null;
+        const { terminal, element } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
+        const screenElement = document.createElement('div');
+        screenElement.className = 'xterm-screen';
+        element.appendChild(screenElement);
+        container.appendChild(element);
+        const mouseDown = vi.fn();
+        screenElement.addEventListener('mousedown', mouseDown);
+        const cleanup = attachSwipeGestures(container, terminal, () => false, true)!;
+
+        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        container.dispatchEvent(new TouchEvent('touchcancel', { touches: [], bubbles: true }));
+        container.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
+
         expect(mouseDown).not.toHaveBeenCalled();
         cleanup();
       });

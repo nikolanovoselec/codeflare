@@ -35,27 +35,49 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 **Acceptance Criteria:**
 
-1. New sessions use classic ownership by default and Herdr ownership only after the authenticated user opts in. <!-- @impl: src/routes/session/crud.ts::default --> <!-- @test: src/__tests__/routes/session.test.ts (creates a new session with default name) --> <!-- @test: src/__tests__/routes/session.test.ts (stamps Herdr only when the server preference is exactly true) -->
-2. Missing or invalid historical ownership resolves to classic. <!-- @impl: src/types.ts::resolveTerminalMode --> <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession --> <!-- @test: src/__tests__/routes/session.test.ts (resolves missing and invalid historical terminal modes to classic) -->
-3. Classic single-session view supports terminal IDs `1` through `6`, tabs, labels, saved layouts, and tiling. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders classic tabs and tiling controls) -->
-4. Herdr view mounts one outer xterm.js surface at terminal ID `1` without classic topology controls. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders one Herdr surface without classic tabs or tiling controls) -->
-5. Dashboard view mounts no terminal surface. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-TERM-011: renders no terminal panes on Dashboard even when sessions are running) -->
-6. A VS Code workspace mounts no standalone terminal surface. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (does not give a VS Code active session terminal workspace or WebSocket ownership) -->
-7. Changing the preference never mutates an existing session's mode. <!-- @impl: src/routes/preferences.ts::mergePreferences --> <!-- @test: src/__tests__/routes/preferences.test.ts (persists Herdr preference independently of session records) -->
-8. Clients cannot choose or patch the authoritative stamp. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session.test.ts (rejects client-selected terminal mode) --> <!-- @test: src/__tests__/routes/session.test.ts (rejects terminal mode mutation) -->
-9. MultiView resolves each member from its ownership mode. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::openMultiView --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (resolves mixed MultiView members by immutable terminal mode) -->
+1. Classic single-session view supports terminal IDs `1` through `6`, tabs, labels, saved layouts, and tiling. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders classic tabs and tiling controls) -->
+2. Herdr view mounts one outer xterm.js surface at terminal ID `1` without classic topology controls. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders one Herdr surface without classic tabs or tiling controls) -->
+3. Dashboard view mounts no terminal surface. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-TERM-011: renders no terminal panes on Dashboard even when sessions are running) -->
+4. A VS Code workspace mounts no standalone terminal surface. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (does not give a VS Code active session terminal workspace or WebSocket ownership) -->
+5. MultiView resolves each member from its ownership mode. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::openMultiView --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (resolves mixed MultiView members by immutable terminal mode) -->
 
 **Constraints:**
 
 - The stable WebSocket path remains `/api/terminal/{sessionId}-{terminalId}/ws`.
-- The persisted session stamp, never current preference or browser input, governs routing, startup, resume, prewarm, cleanup, and rendering.
 - Previously deleted browser-local layouts cannot be recovered; absent classic layout state initializes defaults.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-TERM-034](#req-term-034-terminal-mode-assignment-is-immutable)
+
+**Verification:** Automated frontend and terminal-route tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-034: Terminal mode assignment is immutable
+
+**Intent:** Session ownership is selected only at creation, remains stable for the session lifetime, and defaults safely for historical records.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. New sessions use classic ownership by default and Herdr ownership only after the authenticated user opts in. <!-- @impl: src/routes/session/crud.ts::default --> <!-- @test: src/__tests__/routes/session.test.ts (creates a new session with default name) --> <!-- @test: src/__tests__/routes/session.test.ts (stamps Herdr only when the server preference is exactly true) -->
+2. Missing or invalid historical ownership resolves to classic. <!-- @impl: src/types.ts::resolveTerminalMode --> <!-- @impl: src/routes/session/crud.ts::toWorkspaceApiSession --> <!-- @test: src/__tests__/routes/session.test.ts (resolves missing and invalid historical terminal modes to classic) -->
+3. Changing the preference never mutates an existing session's mode. <!-- @impl: src/routes/preferences.ts::mergePreferences --> <!-- @test: src/__tests__/routes/preferences.test.ts (persists Herdr preference independently of existing session records) -->
+4. Clients cannot choose or patch the authoritative stamp. <!-- @impl: src/routes/session/crud.ts::CreateSessionBody --> <!-- @test: src/__tests__/routes/session.test.ts (rejects client-selected terminal mode) --> <!-- @test: src/__tests__/routes/session.test.ts (rejects terminal mode mutation) -->
+
+**Constraints:**
+
+- The persisted session stamp, never current preference or browser input, governs routing, startup, resume, prewarm, cleanup, and rendering.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation)
 
-**Verification:** Automated frontend and terminal-route tests.
+**Verification:** Automated preference and session-route tests.
 
 **Status:** Implemented
 
@@ -206,7 +228,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 ### REQ-TERM-005: Herdr runtime and configured agent startup
 
-**Intent:** An opt-in Herdr Terminal session starts one pinned runtime and bootstraps the configured command once before its surface is reported ready; classic sessions retain direct shell startup.
+**Intent:** An opt-in Herdr Terminal session starts one pinned runtime and bootstraps the configured command once; classic sessions retain direct shell startup.
 
 **Applies To:** User
 
@@ -218,9 +240,6 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 4. The launcher submits the reviewed configured command and publishes bootstrap readiness only after bounded expected-agent or process detection. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (submits fixed commands and waits for expected detection) -->
 5. Bash or empty configuration remains a plain shell. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (leaves Bash untouched and maps ordinary TUI commands without shell interpolation) -->
 6. Later Herdr tabs and panes open plain Bash instead of repeating Codeflare agent autostart. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @manual: In integration, start a configured agent, open a new Herdr tab and pane, and confirm each new shell is plain Bash. -->
-7. Terminal prewarm preserves the existing outer Session and adoption flow. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @manual: In integration, confirm both stamped modes adopt the prewarmed outer Session. -->
-8. Herdr waits for configured-command bootstrap before settlement, while classic uses its established first-output readiness. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @manual: In integration, confirm Herdr does not settle before `bootstrap.done` and classic settles from first PTY output. -->
-9. VS Code workspaces start no Herdr runtime and retain existing Browser IDE terminal profiles. <!-- @impl: host/src/server.ts::SESSION_WORKSPACE --> <!-- @test: host/__tests__/workspace-readiness.test.js (never constructs, inserts, or starts a host Session for VS Code) -->
 
 **Constraints:**
 
@@ -233,7 +252,33 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-SESSION-003](session-lifecycle.md#req-session-003-r2-bucket-mounted-and-synced-on-start), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
-**Verification:** Automated launcher and workspace tests plus container-image and manual readiness verification.
+**Verification:** Automated launcher tests plus container-image and manual verification.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-035: Terminal readiness follows mode and workspace
+
+**Intent:** Prewarm settlement follows the immutable terminal mode while Browser IDE workspaces remain independent from the host terminal runtime.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Terminal prewarm preserves the existing outer Session and adoption flow. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @manual: In integration, confirm both stamped modes adopt the prewarmed outer Session. -->
+2. Herdr waits for configured-command bootstrap before settlement, while classic uses its established first-output readiness. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @manual: In integration, confirm Herdr does not settle before `bootstrap.done` and classic settles from first PTY output. -->
+3. VS Code workspaces start no Herdr runtime and retain existing Browser IDE terminal profiles. <!-- @impl: host/src/server.ts::SESSION_WORKSPACE --> <!-- @test: host/__tests__/workspace-readiness.test.js (never constructs, inserts, or starts a host Session for VS Code) -->
+
+**Constraints:**
+
+- Readiness uses the persisted session stamp rather than current preferences.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-SESSION-015](session-lifecycle.md#req-session-015-pre-warmed-agent-startup)
+
+**Verification:** Automated workspace tests plus manual mode-specific readiness verification.
 
 **Status:** Implemented
 
@@ -743,9 +788,6 @@ None.
 5. Classic sessions do not install the Herdr clipboard-write handler. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send the same clipboard control sequence to classic and confirm no browser clipboard write occurs. -->
 6. Herdr owns ordinary right-click, with its configured passthrough gesture preserved. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: image/herdr/config.toml::right_click_passthrough_modifier --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (leaves contextmenu ownership to Herdr) -->
 7. Classic retains Codeflare right-click paste. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (should read clipboard on right-click when clipboardAccess is enabled) -->
-8. Herdr forwards stationary touch taps through terminal mouse reporting. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (sends a stationary touch to the xterm screen only when enabled) -->
-9. Herdr forwards alternate-screen swipe and inertia wheels through terminal mouse reporting. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1: routes keyboard-closed vertical swipes as wheel input) -->
-10. Classic input behavior remains unchanged. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (scrolls the buffer on vertical swipe when keyboard is closed) -->
 
 **Constraints:**
 
@@ -755,7 +797,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-TERM-019](#req-term-019-terminal-websocket-control-frames-and-protocol-guards)
+**Dependencies:** [REQ-TERM-019](#req-term-019-terminal-websocket-control-frames-and-protocol-guards), [REQ-MOB-017](mobile.md#req-mob-017-fullscreen-application-touch-scrolling)
 
 **Verification:** Automated parser tests plus manual browser permission and context-menu verification.
 
