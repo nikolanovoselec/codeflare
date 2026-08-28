@@ -46,7 +46,7 @@ Exercise the changed user path after provider discovery returns the expected `{ 
 
 ## Enterprise Mode Secrets
 
-**Type:** Canonical private-operations alias.
+**Type:** Canonical private-runbook redirect.
 
 The enterprise GitHub Environment layout, activation variable, account overrides, AI Gateway fallback secrets, required token permissions, and deployment procedure are maintained in the [Enterprise deployment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md). This public lane intentionally does not duplicate non-default deployment credentials.
 
@@ -54,7 +54,7 @@ The enterprise GitHub Environment layout, activation variable, account overrides
 
 ## Strict Gateway Egress (Enterprise Mode)
 
-**Type:** Canonical private-operations alias.
+**Type:** Canonical private-runbook redirect.
 
 The enterprise-only binding procedure, Gateway policy preparation, verification steps, and rollback runbook are maintained in the [Strict Gateway Egress runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/strict-gateway-egress.md). The behavioral contract remains public in [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress).
 
@@ -151,7 +151,7 @@ Container resource usage scales per active session (each session is one containe
 
 ## Governed Mode migration (batch-status driven)
 
-**Type:** Canonical private-operations alias.
+**Type:** Canonical private-runbook redirect.
 
 The operator procedure, migration bounds, pause/resume behavior, verification, rollback, and recovery guidance are maintained in the [Governed Mode migration runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/governed-mode-migration.md). The public state-machine rationale remains in [AD91](../decisions/README.md#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile).
 

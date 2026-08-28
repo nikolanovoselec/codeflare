@@ -803,4 +803,4 @@ Exhaustive requirement status remains in the specialist SDD domains. Recipes car
 | Session/container | Session Lifecycle and Operations SDD | [Container](container.md), [Storage & Sync](storage-and-sync.md) |
 | Storage/Vault | Storage, Vault, Memory SDD | [Storage & Sync](storage-and-sync.md), [Vault](vault.md) |
 | Agents/review/CI | Agents and Operations SDD | [Preseed](preseed.md), [CI/CD](ci-cd.md) |
-| Enterprise/provider | Enterprise, GitHub, Browser Run SDD | [Security](security.md), private operations for non-public runbooks |
+| Enterprise/provider | Enterprise, GitHub, Browser Run SDD | [Security](security.md), private [Enterprise deployment](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md), and [integration runbooks](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/integrations/github-provider.md) |

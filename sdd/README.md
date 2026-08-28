@@ -25,6 +25,23 @@ Codeflare is the agentic engineering engine: it runs autonomous AI coding agents
 | User | A developer using Codeflare to run AI coding agents in browser-based sessions |
 | Admin | An operator who deployed Codeflare and manages users, tiers, and configuration |
 
+## Public/private ownership
+
+This specification remains authoritative for observable product behavior, security boundaries, and implementation contracts. Exact deployment values, credential placement, provider registration, customer preparation, migrations, verification, and rollback are private operator concerns. Follow the owning runbook instead of copying those values into a public requirement.
+
+| Operator concern | Private owner |
+|------------------|---------------|
+| Fork-to-deploy prerequisites by mode | [Deployment quick starts](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/quickstarts.md) |
+| Deployment modes and GitHub Environments | [Modes and environments](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/modes-and-environments.md) |
+| Shared secrets, optional variables, and Web Push identity | [Shared settings](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/reference/core-settings.md) |
+| Enterprise rollout, promotion, and rollback | [Enterprise deployment](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md) |
+| GitHub and user OAuth provider registration | [GitHub provider](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/integrations/github-provider.md) and [user OAuth](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/integrations/user-oauth.md) |
+| Managed Environment rollout and recovery | [Managed Environment](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/managed-environment.md) |
+| Strict egress or Governed Mode migration | [Strict Gateway Egress](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/strict-gateway-egress.md) and [Governed Mode migration](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/governed-mode-migration.md) |
+| Deployment acceptance evidence | [Deployment testing](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/verification/deployment-testing.md) |
+
+When a public behavior change affects one of these operator contracts, update both repositories in the same work. Keep the public REQ and its anchors here; keep operational values and procedures in the linked private owner.
+
 ## Domains
 
 | Domain | Description | Priority | Status |

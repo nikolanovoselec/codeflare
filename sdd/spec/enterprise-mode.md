@@ -61,7 +61,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 - The flag is read at deploy time from a Worker binding, not from request data, so it cannot be toggled per request.
 - When the flag is unset there is no new code path: every enterprise branch is gated behind the resolver returning false.
 - Successful enterprise upgrade stamps preserve the latest stored preference fields they do not own. <!-- @impl: src/routes/container/lifecycle-init.ts::ensureBucketAndSeed --> <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-ENTERPRISE-001 constraint: enterprise upgrade preserves preferences changed while reconciliation is running) --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (REQ-ENTERPRISE-001 constraint: enterprise reseed preserves preferences changed during reconciliation) -->
-- Enterprise deployment-variable values, rollout, and rollback procedures remain owned by the private operations repository; this public specification records only runtime behavior.
+- Enterprise deployment-variable values, rollout, and rollback procedures are owned by the private [Enterprise deployment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/enterprise.md); this public specification records only runtime behavior.
 
 **Priority:** P1
 
