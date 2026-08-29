@@ -49,7 +49,7 @@ Security records below state the protected asset, threat/failure, control, failu
 
 All protected application/API/setup surfaces use the configured Access or Worker-session path. Invalid credentials fail that branch and never fall through to a weaker user mechanism. JIT persistence requires verifier provenance. [Authentication](authentication.md#authentication-modes) owns mode selection and sessions. <!-- @impl: src/lib/access.ts::authenticateRequest -->
 
-In SaaS and onboarding modes, Codeflare's production application session is the `codeflare_session` cookie. Login and refresh set `HttpOnly; Secure; SameSite=Lax`; `HttpOnly` prevents page JavaScript from reading the credential ([REQ-AUTH-001](../../sdd/spec/authentication.md#req-auth-001-authentication-mode-mutual-exclusivity), [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008-session-cookie-auto-refresh)). Cloudflare Access sessions use the provider-managed credential instead. <!-- @impl: src/routes/github-auth.ts::Set-Cookie --> <!-- @impl: src/index.ts::default -->
+In SaaS and onboarding modes, Codeflare's production application session is the `codeflare_session` cookie. Login and refresh set `HttpOnly; Secure; SameSite=Lax`; `HttpOnly` prevents page JavaScript from reading the credential ([REQ-AUTH-001](../../sdd/spec/authentication.md#req-auth-001-two-authentication-modes), [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008-session-cookie-auto-refresh)). Cloudflare Access sessions use the provider-managed credential instead. <!-- @impl: src/routes/github-auth.ts::Set-Cookie --> <!-- @impl: src/index.ts::default -->
 
 ### Administrative elevation
 

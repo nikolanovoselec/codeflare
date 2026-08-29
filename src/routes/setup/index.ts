@@ -233,10 +233,12 @@ app.post('/configure', async (c) => {
   const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, managedEnvironment, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled, activeAgents } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
-  if (managedEnvironment !== undefined) {
+  if (managedEnvironment !== undefined || strictGatewayEgress === false) {
     const snapshot = await readManagedEnvironmentSnapshot(c.env);
     const currentPolicy = snapshot.config?.resourcePolicy ?? 'mutable';
-    const requestedPolicy = resolveManagedResourcePolicy(managedEnvironment, currentPolicy);
+    const requestedPolicy = managedEnvironment === undefined
+      ? currentPolicy
+      : resolveManagedResourcePolicy(managedEnvironment, currentPolicy);
     if (requestedPolicy !== 'mutable') {
       if (!isEnterpriseMode(c.env)) {
         throw new ValidationError('Immutable managed resources require Enterprise Mode');

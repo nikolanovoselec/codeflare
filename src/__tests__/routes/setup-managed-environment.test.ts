@@ -210,6 +210,26 @@ describe('REQ-SETUP-013 managed environment Setup boundary', () => {
     expect((await terminal(response)).success).toBe(true);
   });
 
+  it('REQ-SETUP-016 AC2: rejects disabling strict egress while stored policy remains protected', async () => {
+    kv._store.set(SETUP_KEYS.STRICT_EGRESS, 'active');
+    mocks.readManagedEnvironmentSnapshot.mockResolvedValue({
+      configured: true,
+      enabled: true,
+      config: { resourcePolicy: 'immutable' },
+    });
+
+    const response = await app({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher }).request('https://codeflare-test.example.com/api/setup/configure', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        customDomain: 'code.example.com', allowedUsers: ['admin@example.com'], adminUsers: ['admin@example.com'],
+        dynamicRoutes: ['development'], strictGatewayEgress: false,
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(kv._store.get(SETUP_KEYS.STRICT_EGRESS)).toBe('active');
+    expect(mocks.configureManagedEnvironment).not.toHaveBeenCalled();
+  });
+
   it('does not scan sessions when effective policy is unchanged', async () => {
     mocks.readManagedEnvironmentSnapshot.mockResolvedValue({
       configured: true,

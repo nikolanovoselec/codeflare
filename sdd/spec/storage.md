@@ -801,7 +801,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. Protected modes derive deterministic UTF-8 JSON from every verified release document, retired path, and Codeflare-owned synthetic managed path, independent of session mode. <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (deterministically protects both modes, retirements, and synthetic policy paths) -->
 2. Canonical policy paths are sorted and deduplicated. <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (deterministically protects both modes, retirements, and synthetic policy paths) -->
-3. SHA-256 identifies the exact canonical managed-policy document bytes. <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (deterministically protects both modes, retirements, and synthetic policy paths) -->
+3. Policy identity is stable for identical canonical bytes and changes whenever those bytes change. <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (deterministically protects both modes, retirements, and synthetic policy paths) -->
 
 **Constraints:** `.codeflare/managed-paths.json` is the only persisted runtime policy document. No policy KV store or cache object is introduced.
 
@@ -851,7 +851,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Policy loading accepts only bounded canonical bytes matching Worker-owned SHA-256, release digest, and resource mode. <!-- @impl: src/lib/managed-r2-policy.ts::readVerifiedManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (loader verifies exact digest, release, mode, and canonical bytes) -->
+1. Policy loading accepts only bounded canonical bytes matching the applied policy identity, release, and resource mode. <!-- @impl: src/lib/managed-r2-policy.ts::readVerifiedManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (loader verifies exact digest, release, mode, and canonical bytes) -->
 2. Reused policy results revalidate the caller's expected identity. <!-- @impl: src/lib/managed-r2-policy.ts::readVerifiedManagedR2Policy --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (cache hits still revalidate expected release and mode) -->
 3. Callers can require fresh policy verification without reusing an earlier result. <!-- @impl: src/lib/managed-r2-policy.ts::readVerifiedManagedR2Policy --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (verifies protected bucket policy without cache and transports only its identity) -->
 
