@@ -196,6 +196,7 @@ describe('useTerminal hook', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFit.mockImplementation(() => undefined);
     containerEl = document.createElement('div');
     // Give it dimensions so ResizeObserver has something to work with
     Object.defineProperty(containerEl, 'clientWidth', { value: 800, configurable: true });
@@ -225,6 +226,7 @@ describe('useTerminal hook', () => {
 
   afterEach(() => {
     document.body.removeChild(containerEl);
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -802,6 +804,31 @@ describe('useTerminal hook', () => {
 
       dispose();
     });
+
+    it('REQ-MOB-010 AC1: fits the visible container when a terminal becomes active', () => {
+      const [active, setActive] = createSignal(false);
+      let result!: ReturnType<typeof useTerminal>;
+      const dispose = createRoot((dispose) => {
+        result = useTerminal({ ...defaultProps, get active() { return active(); } });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      mockFit.mockClear();
+      vi.mocked(terminalStore.resize).mockClear();
+      mockFit.mockImplementation(() => {
+        const terminal = result.terminal() as any;
+        terminal.cols = 101;
+        terminal.rows = 31;
+      });
+
+      setActive(true);
+
+      expect(mockFit).toHaveBeenCalled();
+      expect(terminalStore.resize).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId, 101, 31);
+
+      dispose();
+    });
   });
 
   describe('Herdr keyboard prefix', () => {
@@ -1051,7 +1078,7 @@ describe('useTerminal hook', () => {
   });
 
   describe('keyboard height refit', () => {
-    it('should scroll to bottom when keyboard opens (closed→open transition)', async () => {
+    it('REQ-MOB-010 AC1: fits the visible container after keyboard geometry changes', async () => {
       vi.useFakeTimers();
 
       const isTouchDeviceMock = vi.mocked(isTouchDevice);
@@ -1065,14 +1092,21 @@ describe('useTerminal hook', () => {
       getKeyboardHeightMock.mockImplementation(() => kbHeight());
       isVirtualKeyboardOpenMock.mockImplementation(() => kbOpen());
 
+      let result!: ReturnType<typeof useTerminal>;
       const dispose = createRoot((dispose) => {
-        const result = useTerminal(defaultProps);
+        result = useTerminal(defaultProps);
         result.containerRef(containerEl);
         return dispose;
       });
 
       mockScrollToBottom.mockClear();
       mockFit.mockClear();
+      vi.mocked(terminalStore.resize).mockClear();
+      mockFit.mockImplementation(() => {
+        const terminal = result.terminal() as any;
+        terminal.cols = 103;
+        terminal.rows = 32;
+      });
 
       // Simulate keyboard opening (closed→open)
       setKbHeight(300);
@@ -1082,6 +1116,7 @@ describe('useTerminal hook', () => {
 
       expect(mockFit).toHaveBeenCalled();
       expect(mockScrollToBottom).toHaveBeenCalled();
+      expect(terminalStore.resize).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId, 103, 32);
 
       dispose();
       vi.useRealTimers();
@@ -1625,8 +1660,19 @@ describe('useTerminal hook', () => {
   });
 
   describe('kbDebounceTimer race fix (Fix 3)', () => {
-    it('should not block ResizeObserver after keyboard debounce timer cleanup', async () => {
+    it('REQ-MOB-010 AC1/AC2: fits after viewport resizing once keyboard refit finishes', async () => {
       vi.useFakeTimers();
+
+      let resizeObserverCallback: ResizeObserverCallback | undefined;
+      class CapturingResizeObserver {
+        constructor(callback: ResizeObserverCallback) {
+          resizeObserverCallback = callback;
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+      vi.stubGlobal('ResizeObserver', CapturingResizeObserver);
 
       const isTouchDeviceMock = vi.mocked(isTouchDevice);
       const getKeyboardHeightMock = vi.mocked(getKeyboardHeight);
@@ -1636,8 +1682,9 @@ describe('useTerminal hook', () => {
       const [kbHeight, setKbHeight] = createSignal(0);
       getKeyboardHeightMock.mockImplementation(() => kbHeight());
 
+      let result!: ReturnType<typeof useTerminal>;
       const dispose = createRoot((dispose) => {
-        const result = useTerminal(defaultProps);
+        result = useTerminal(defaultProps);
         result.containerRef(containerEl);
         return dispose;
       });
@@ -1648,17 +1695,19 @@ describe('useTerminal hook', () => {
       // Let debounce timer fire and complete
       await vi.advanceTimersByTimeAsync(KEYBOARD_REFIT_DEBOUNCE_MS + 50);
 
-      // Clear fit calls from above
       mockFit.mockClear();
+      vi.mocked(terminalStore.resize).mockClear();
+      mockFit.mockImplementation(() => {
+        const terminal = result.terminal() as any;
+        terminal.cols = 112;
+        terminal.rows = 34;
+      });
 
-      // Now trigger a ResizeObserver callback manually
-      // The ResizeObserver should NOT be blocked (kbDebounceTimer should be null)
-      const resizeObserverCallback = (globalThis as any).__lastResizeObserverCallback;
-      if (resizeObserverCallback) {
-        resizeObserverCallback([{ contentRect: { width: 900, height: 700 } }]);
-        // RAF should allow fit to be called
-        expect(mockFit).toHaveBeenCalled();
-      }
+      expect(resizeObserverCallback).toBeTypeOf('function');
+      resizeObserverCallback!([], {} as ResizeObserver);
+
+      expect(mockFit).toHaveBeenCalled();
+      expect(terminalStore.resize).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId, 112, 34);
 
       dispose();
       vi.useRealTimers();
