@@ -224,7 +224,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 - Tier limits are configurable per deployment via the admin Subscription Management panel.
 - The session-cap lookup respects an explicit zero value (a zero cap blocks starts observed after that value, not a fallthrough to default).
-- Best-effort enforcement is an explicit product decision recorded in [AD6](../../documentation/decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity). Atomic reservation is out of scope; [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) separately tracks a role-independent Enterprise limit.
+- Best-effort enforcement follows [AD6](../../documentation/decisions/README.md#ad6-kv-read-modify-write-races-and-collectmetrics-atomicity); atomic reservation is out of scope and [issue #880](https://github.com/nikolanovoselec/codeflare/issues/880) tracks an Enterprise limit.
 
 **Priority:** P1
 
@@ -507,15 +507,16 @@ None.
 
 1. The serving port binds within Cloudflare's container port-wait window even while initialization (R2 sync, MCP config merges) is still in progress. <!-- @impl: entrypoint.sh::TERMINAL_PID --> <!-- @manual: On a deployed cold start with delayed R2 initialization, confirm the serving port accepts health probes within the platform wait window. -->
 2. The entrypoint writes an init-complete signal only after initial sync, file modifications, and tab-autostart configuration have completed. <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (guarded warm-up calls from entrypoint.sh still reach the init-flag write when they fail) --> <!-- @manual -->
-3. Terminal pre-warm waits for the init-complete signal for up to 130 seconds, then starts the classic primary login shell or the sole outer Herdr client according to the immutable session stamp. If the signal is still absent, startup proceeds against image-default/degraded state rather than remaining permanently gated; `initFlagObserved` stays false for diagnostics. <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @manual: Hold back the init-complete signal and confirm pre-warm remains gated until the 130-second bound, then starts with `/health.initFlagObserved` still false. -->
+3. Terminal pre-warm waits up to 130 seconds for initialization, then starts the stamped Classic or Herdr surface; timeout proceeds in degraded state. <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @manual: Hold back the init-complete signal and confirm pre-warm remains gated until the 130-second bound, then starts with `/health.initFlagObserved` still false. -->
 4. The host rejects terminal WebSocket upgrades with retriable close code 1013 and a warming reason until pre-warm registers. Registration normally follows initialization; after the 130-second bound, degraded startup may register without requiring `initFlagObserved`. <!-- @impl: host/src/server.ts::terminalServiceReady --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (container-warming-up gate (PR #365) / REQ-SEC-020 AC2 (1013 close BEFORE WS rate-limit when terminalServiceReady=false; /health probe error falls through)) -->
 5. The image bakes a pre-transpiled cache for the full Pi extension set, with package extensions derived from the preseed manifest. <!-- @impl: Dockerfile::PI_WARM_PACKAGES --> <!-- @manual -->
 6. The image build fails if the transpile cache is empty or a required package extension is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @manual -->
 
 **Constraints:**
 
-- The container must not signal readiness until initial sync succeeds, reaches its own timeout, or the host's 130-second degraded-start bound expires. Herdr additionally requires configured bootstrap detection; classic retains first-output settlement.
-- Best-effort setup steps that run before the init-complete flag (agent npm warm-up, fast-start suppression) must be guarded so their failure cannot abort the entrypoint under `set -euo pipefail`; a degraded warm-up is preferable to PID 1 dying before the flag is written.
+- Container readiness waits for sync success, sync timeout, or the host's 130-second degraded-start bound.
+- Herdr also requires configured bootstrap detection, while Classic retains first-output settlement.
+- Best-effort setup failures before the init-complete flag cannot abort the entrypoint.
 
 **Priority:** P0
 
@@ -622,7 +623,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Every Durable-Object-side drain request to the final-sync endpoint authenticates with the container auth token, including requests that bypass the public proxy path; if no token is available, no request is issued and the audit records `missing-auth-token` within the teardown budget. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+1. Every drain request authenticates with the container token; missing credentials suppress the request and record a bounded teardown audit. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 
 **Constraints:** None.
 

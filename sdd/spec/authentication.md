@@ -262,7 +262,7 @@ None. Authentication is foundational; other domains depend on it.
 **Acceptance Criteria:**
 
 1. The frontend triggers logout via a single endpoint, irrespective of deployment mode. <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) --> <!-- @manual -->
-2. In any mode that issues the app's own GitHub-OIDC session (SaaS or onboarding), the backend redirects to the GitHub logout route, which clears the session credential and returns the user to the login page. It must not redirect to the CF Access logout endpoint. <!-- @impl: src/routes/auth-redirects.ts::app --> <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) -->
+2. GitHub-OIDC logout clears the app session and returns to login without using the Cloudflare Access logout endpoint. <!-- @impl: src/routes/auth-redirects.ts::app --> <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) -->
 3. In CF Access mode, the backend redirects through CF Access's system logout endpoint so CF Access clears its own credential. <!-- @impl: src/routes/auth-redirects.ts::app --> <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) -->
 4. The dispatch decision is made by the backend based on the current deployment configuration, not by the frontend. <!-- @test: src/__tests__/routes/auth-redirects.test.ts (onboarding mode with OAuth configured redirects to the GitHub logout route, not CF Access) --> <!-- @manual -->
 
@@ -539,7 +539,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. `GET /api/user` returns the authenticated user's identity and account status (email, role, access and subscription tier, bucket name, worker name, onboarding-active and SaaS-mode flags, onboarding-complete flag, has-subscribed flag, and subscribed session mode) read from the user's stored record, and creates no resources. <!-- @impl: src/routes/user-profile.ts::app --> <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) -->
+1. The authenticated user response returns persisted identity and account status without creating resources. <!-- @impl: src/routes/user-profile.ts::app --> <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) -->
 2. `POST /api/user/onboarding-complete` marks the user's stored record onboarding-complete so later logins skip the onboarding redirect, and is a no-op when the user has no stored record yet. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
 3. `GET /api/user/r2-status` reports whether a scoped R2 token already exists for the user. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->
 4. `POST /api/user/ensure-r2-token` creates the user's scoped R2 token when absent, returning ready on success, 503 when account setup is incomplete, and 500 on a provisioning failure. <!-- @test: src/__tests__/routes/user-profile.test.ts (User Profile Routes) --> <!-- @manual -->

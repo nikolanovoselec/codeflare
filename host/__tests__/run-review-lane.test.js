@@ -119,7 +119,7 @@ function runLane({ repo, home, hookScripts, binDir, lane, range, scopeArgs, env 
   });
 }
 
-// REQ-AGENT-102 AC3
+// REQ-AGENT-102 AC2
 describe('run-review-lane.sh — no-op short-circuit', () => {
   it('returns a no-op report without invoking a model when the lane owns nothing', () => {
     const { cwd, base, head } = makeRepo('sdd/spec/thing.md');
@@ -866,7 +866,7 @@ describe('run-review-lane.sh — model and effort passthrough', () => {
   });
 });
 
-// REQ-AGENT-102 AC4: absence of the supervisor must refuse the lane rather
+// REQ-AGENT-102 AC3: absence of the supervisor must refuse the lane rather
 // than silently launching an unbounded model process.
 describe('run-review-lane.sh — supervisor availability', () => {
   it('refuses to launch when timeout(1) is unavailable', () => {

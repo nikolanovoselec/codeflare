@@ -99,7 +99,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(AGENTS_SEEDED_CONFIGS.some((doc) => doc.key === '.pi/agent/caveman.json')).toBe(false);
   });
 
-  it('REQ-AGENT-080 AC3: seeds the boundary dispatcher in both modes but reviewers only in advanced', () => {
+  it('REQ-AGENT-006 AC2: seeds the boundary dispatcher in both modes but reviewers only in advanced', () => {
     for (const key of [
       '.pi/agent/extensions/active-repo-memory.ts',
       '.pi/agent/extensions/review-enforcement.ts',
