@@ -255,7 +255,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
                     ? (needsHomeScreenInstallForNotifications()
                       ? 'On iOS, add Codeflare to your Home Screen (Share → Add to Home Screen), then enable notifications here.'
                       : 'Unavailable in this browser')
-                    : 'Notify when Pi or Claude needs input or every Herdr agent stays ready for four minutes.'}
+                    : 'Notify when Pi or Claude needs input or every Herdr agent stays ready for ten minutes.'}
             </span>
           </div>
         </section>

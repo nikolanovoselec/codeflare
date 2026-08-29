@@ -1,6 +1,6 @@
 import net from 'node:net';
 
-export const HERDR_COMPLETION_DELAY_MS = 4 * 60_000;
+export const HERDR_COMPLETION_DELAY_MS = 10 * 60_000;
 const RECONNECT_DELAY_MS = 1_000;
 const SNAPSHOT_TIMEOUT_MS = 5_000;
 const MAX_BUFFER_BYTES = 1024 * 1024;

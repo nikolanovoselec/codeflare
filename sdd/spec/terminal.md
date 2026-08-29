@@ -1063,9 +1063,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. After at least one tracked Pi or Claude pane is `working`, all tracked panes becoming `idle` or `done` starts one four-minute completion timer. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to every Herdr agent and waits until all panes are ready) -->
-2. Changes between `idle` and `done` while every tracked pane remains ready preserve the existing timer. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (starts four minutes at working→idle/done and preserves idle↔done) -->
-3. Any tracked pane entering `working` cancels the timer; all panes must become ready again to receive a fresh four minutes. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (cancels on working snapshots and requires a fresh four idle minutes) --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to every Herdr agent and waits until all panes are ready) -->
+1. After at least one tracked Pi or Claude pane is `working`, all tracked panes becoming `idle` or `done` starts one ten-minute completion timer. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to every Herdr agent and waits until all panes are ready) -->
+2. Changes between `idle` and `done` while every tracked pane remains ready preserve the existing timer. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (starts ten minutes at working→idle/done and preserves idle↔done) -->
+3. Any tracked pane entering `working` cancels the timer; all panes must become ready again to receive a fresh ten minutes. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (cancels on working snapshots and requires a fresh ten idle minutes) --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to every Herdr agent and waits until all panes are ready) -->
 4. Timer expiry emits `task-completed` only while every tracked pane remains `idle` or `done`. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to every Herdr agent and waits until all panes are ready) -->
 5. An initial all-ready snapshot never starts completion timing. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (does not notify from an initial idle snapshot or while blocked/unknown) -->
 6. A snapshot with no recognized Pi or Claude panes never starts completion timing. <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (does not notify when the snapshot has no recognized agents) -->
@@ -1073,7 +1073,7 @@ None.
 
 **Constraints:**
 
-- The four-minute timer runs only in the container host and does not extend user activity or container lifetime.
+- The ten-minute timer runs only in the container host and does not extend user activity or container lifetime.
 - Validated input-required signals remain immediate under [REQ-TERM-024](#req-term-024-pi-native-terminal-notification-producer).
 - Classic mode has no completion producer under [REQ-TERM-024](#req-term-024-pi-native-terminal-notification-producer).
 

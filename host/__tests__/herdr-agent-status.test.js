@@ -145,7 +145,7 @@ describe('Herdr completion notification authority', () => {
     assert.deepEqual(cancellations, ['task-completed']);
   });
 
-  it('starts four minutes at working→idle/done and preserves idle↔done', () => {
+  it('starts ten minutes at working→idle/done and preserves idle↔done', () => {
     const scheduler = new ManualScheduler();
     let completions = 0;
     const delay = new HerdrCompletionDelay({
@@ -154,18 +154,18 @@ describe('Herdr completion notification authority', () => {
       clearTimeout: scheduler.clearTimeout,
     });
 
-    assert.equal(HERDR_COMPLETION_DELAY_MS, 240_000);
+    assert.equal(HERDR_COMPLETION_DELAY_MS, 600_000);
     delay.initialize('working');
     delay.update('idle');
-    scheduler.advanceBy(120_000);
+    scheduler.advanceBy(300_000);
     delay.update('done');
-    scheduler.advanceBy(119_999);
+    scheduler.advanceBy(299_999);
     assert.equal(completions, 0);
     scheduler.advanceBy(1);
     assert.equal(completions, 1);
   });
 
-  it('cancels on working snapshots and requires a fresh four idle minutes', () => {
+  it('cancels on working snapshots and requires a fresh ten idle minutes', () => {
     const scheduler = new ManualScheduler();
     let completions = 0;
     let workingTransitions = 0;
@@ -179,14 +179,14 @@ describe('Herdr completion notification authority', () => {
     delay.initialize('working');
     assert.equal(workingTransitions, 1);
     delay.update('idle');
-    scheduler.advanceBy(239_999);
+    scheduler.advanceBy(599_999);
     delay.update('working');
-    scheduler.advanceBy(240_000);
+    scheduler.advanceBy(600_000);
     assert.equal(completions, 0);
     assert.equal(workingTransitions, 2);
 
     delay.update('done');
-    scheduler.advanceBy(239_999);
+    scheduler.advanceBy(599_999);
     assert.equal(completions, 0);
     scheduler.advanceBy(1);
     assert.equal(completions, 1);
@@ -202,12 +202,12 @@ describe('Herdr completion notification authority', () => {
     });
 
     delay.initialize('idle');
-    scheduler.advanceBy(240_000);
+    scheduler.advanceBy(600_000);
     delay.update('blocked');
     delay.update('idle');
-    scheduler.advanceBy(240_000);
+    scheduler.advanceBy(600_000);
     delay.update('unknown');
-    scheduler.advanceBy(240_000);
+    scheduler.advanceBy(600_000);
     assert.equal(completions, 0);
   });
 
@@ -223,10 +223,10 @@ describe('Herdr completion notification authority', () => {
 
       delay.initialize('working');
       delay.update(interruption);
-      scheduler.advanceBy(240_000);
+      scheduler.advanceBy(600_000);
       assert.equal(completions, 0);
       delay.update('idle');
-      scheduler.advanceBy(239_999);
+      scheduler.advanceBy(599_999);
       assert.equal(completions, 0);
       scheduler.advanceBy(1);
       assert.equal(completions, 1);
