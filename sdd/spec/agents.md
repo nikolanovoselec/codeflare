@@ -3165,7 +3165,7 @@ None.
 - One resolver serves every runtime, under one bound; a transport may not change what it can deliver.
 - Resolution answers whether a name still names something, never which file it named.
 - Outside `package.json`, dependency manifests are tokenised; a manifest setting may resolve alongside a real package (rationale: `sdd/spec/changes.md`, 2026-07-27).
-- The resolver is seeded into every repository `/sdd` bootstraps, so nothing in it may assume the language the repository is written in or the package manager it uses; a stack it does not recognise indexes no declarations and reports a consistent tree as entirely stale.
+- Every bootstrapped repository receives the resolver, which assumes no language or package manager; unrecognized stacks index no declarations and report a consistent tree as stale.
 
 **Priority:** P1
 
@@ -3538,10 +3538,10 @@ None.
 
 **Constraints:**
 
-- The verdict is recognised by its stacked table header, divider, and data row in assistant text, even when tool calls share the message; quoting the header inline is not a verdict.
-- A terminal record can precede native notification delivery; the first Stop observation ends silently so queued reports reach the root before triage is demanded.
-- Result retrieval may use `Read` or `TaskOutput`; only the final verdict message is tool-free and ends the turn.
-- The acknowledgement's fix directive owns accepted-fix commit delivery and never orders the push; a successful fix push is still automatic review consent, not a new approval question.
+- A verdict requires the stacked table header, divider, and data row in assistant text; an inline quoted header is insufficient.
+- A terminal record may precede notification delivery; first Stop ends silently so queued reports reach root before triage.
+- Result retrieval may use `Read` or `TaskOutput`; only the final verdict is tool-free and ends the turn.
+- The fix directive owns accepted-fix delivery but never orders push; a successful fix push remains automatic review consent.
 - The verdict demand is counted and rate-limited on its own, never on the counter that limits lane demands.
 - Both runtimes recognise the same table shape, so a verdict is portable between them.
 - The mid-turn refusal never writes acknowledgement or counter state, reads the bypass sentinel without consuming it, and releases after five refused calls; a lane still in flight or ended without success never triggers it.
@@ -4533,7 +4533,7 @@ None.
 4. Exact-round deduplication is session-memory-only; failed, stopped, reloaded, or replaced work persists no partial coordination, and later exposures start fresh. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (clears stopped work without a recovery message or marker) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (clears stopped or failed work without missing-work output) -->
 5. Canonical triage plus required terminal reviewer and exact-head CI evidence writes completion immediately before FIX; drift, missing triage, or write failure writes nothing. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (treats every exact-head CI result as terminal and writes completion before FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
 6. Pi and Claude use the same host-aware exact identity, 30-day expiry, ten-marker repository-and-branch retention, ancestor selection, deterministic reviewer output, exact-head CI correlation, triage shape, and root-only marker ownership. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::writeCompletion --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::writeCompletion --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (user-scoped review completion state) --> <!-- @test: host/__tests__/review-completion-state.test.js (Claude review completion helper parity) -->
-7. No executable review source reads, migrates, deletes, or writes legacy `.git/sdd-review-*` state. Linked worktrees and separate clones use the user-scoped marker root instead. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::RANGE --> <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::completionPath --> <!-- @test: host/__tests__/run-review-lane.test.js (never reads clone-local legacy acknowledgement state) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (supports linked worktrees and writes outside clone-local Git metadata) -->
+7. No executable review source reads, migrates, deletes, or writes legacy `.git/sdd-review-*` state. Linked worktrees and separate clones use the user-scoped marker root instead. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::completionPath --> <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::completionPath --> <!-- @test: host/__tests__/run-review-lane.test.js (never reads clone-local legacy acknowledgement state) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (supports linked worktrees and writes outside clone-local Git metadata) -->
 
 **Constraints:** GitHub identity resolution fails closed. Marker synchronization is best effort after local acknowledgement and cannot create a false completion. Root alone may choose, launch, triage, mutate, and stamp completion.
 

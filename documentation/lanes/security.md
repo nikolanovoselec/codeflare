@@ -49,6 +49,8 @@ Security records below state the protected asset, threat/failure, control, failu
 
 All protected application/API/setup surfaces use the configured Access or Worker-session path. Invalid credentials fail that branch and never fall through to a weaker user mechanism. JIT persistence requires verifier provenance. [Authentication](authentication.md#authentication-modes) owns mode selection and sessions. <!-- @impl: src/lib/access.ts::authenticateRequest -->
 
+In SaaS and onboarding modes, Codeflare's production application session is the `codeflare_session` cookie. Login and refresh set `HttpOnly; Secure; SameSite=Lax`; `HttpOnly` prevents page JavaScript from reading the credential ([REQ-AUTH-001](../../sdd/spec/authentication.md#req-auth-001-authentication-mode-mutual-exclusivity), [REQ-AUTH-008](../../sdd/spec/authentication.md#req-auth-008-session-cookie-auto-refresh)). Cloudflare Access sessions use the provider-managed credential instead. <!-- @impl: src/routes/github-auth.ts::Set-Cookie --> <!-- @impl: src/index.ts::default -->
+
 ### Administrative elevation
 
 Durable admin role is authoritative outside request-local Enterprise elevation. The optional Enterprise admin-group lookup executes only for admin-gated routes and fails closed on missing/invalid Access evidence, unsafe Access domain, non-membership, or fetch error. Elevation writes no durable role and is revoked on the next request after group removal. <!-- @impl: src/middleware/auth.ts::requireAdmin -->

@@ -395,7 +395,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 - The size ceiling is a memory guard, not a latency one, and is overridable, so a graph that outgrows the default cannot silently disable injection.
 - An implausible override falls back to the default, so the guard cannot be present and inert. <!-- @test: host/__tests__/memory-context-inject.test.js (AC7: an out-of-range numeric ceiling falls back instead of voiding the guard) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: an injected ceiling is not outranked by the ambient environment) -->
 - The hook plugin is advanced-session-only by manifest declaration (`preseed/agents/claude/manifest.json`); standard sessions never receive the plugin.
-- The hook reads the graph JSON directly (no MCP round-trip).
+- The hook reads graph JSON directly.
 - Claude and Pi carry separate implementations for differing injection surfaces, while the keyword rule, ranking weights, node cap, rendered shape and sentinel semantics are the same in both.
 - The Pi side skips synthetic prompts, which the hook runtime never delivers.
 - The hook is fail-safe: any error exits silently with no output; A failed injection must never block the session.
@@ -429,7 +429,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Constraints:**
 
 - Only the narrative and decision sections are injected; the rest is reachable through the emitted source path.
-- The injected text is framed as a record, not instructions, so a prior session cannot direct a later one.
+- Injected text is a record, not instructions.
 - The hook plugin is advanced-session-only by manifest declaration; standard sessions never receive it.
 - A heading inside a fenced block is content, not a section heading.
 - The per-extract bound is a byte bound and is never exceeded; the truncation notice is spent from it and dropped when it cannot fit. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC4: holds the bound even when the cap cannot fit the marker) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC4: a nonsensical cap carries nothing rather than everything) -->

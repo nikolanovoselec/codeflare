@@ -172,11 +172,11 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Constraints:**
 
-- The IDE agent is available only in advanced sessions and only for exact Pi or Claude selections.
+- IDE agents require advanced sessions and exact Pi or Claude selection.
 - Selection does not execute or rewrite the terminal command; generic terminal-command behavior remains owned by [AD15](../../documentation/decisions/README.md#ad15-tabconfigschema-allows-arbitrary-command-strings).
 - code-server and embedded Code source remain unpatched under [AD119](../../documentation/decisions/README.md#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy); the SHA-256-verified archive's bundled GitHub Copilot extension is removed at image build.
 - The local Pi compatibility model is selectable and default for panel and editor Inline Chat, requires no authorization, reports tool calling for the pinned editor filter, and fails closed if any caller attempts generation.
-- VS Code Authentication is outside the Pi and Claude integration contracts; no Codeflare-owned path requests, bridges, exports, persists, or syncs generic Accounts credentials.
+- VS Code Authentication is outside these integrations; Codeflare never handles generic Accounts credentials.
 - The owner accepts bundling the exact unmodified official Anthropic VSIX from Open VSX despite its all-rights-reserved license notice; Codeflare neither patches nor serves the archive.
 - Official Claude remains request-lazy and separate from the persistent IDE-owned Pi runtime.
 

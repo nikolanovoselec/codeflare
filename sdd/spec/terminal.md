@@ -575,7 +575,7 @@ None.
 
 - The write buffer defers, drops oldest held data, or writes; it never scrolls the viewport.
 - Output-driven trimming stays delegated to xterm.
-- All scrollback navigation, bottom anchoring, and input re-anchoring scroll the buffer service directly with the paired repaint; `scrollOnUserInput` stays disabled; refits keeping a reader's position re-command the DOM scroll state ([AD105](../../documentation/decisions/README.md#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input), [AD110](../../documentation/decisions/README.md#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops)).
+- Navigation and anchoring scroll the buffer service with paired repaint; `scrollOnUserInput` stays disabled; refits retaining reader position re-command DOM scroll state ([AD105](../../documentation/decisions/README.md#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input), [AD110](../../documentation/decisions/README.md#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops)).
 - Held output caps at 2,000,000 characters (oldest whole chunks dropped past it); bottom-return release is bounded to 65,536 characters per tick, re-checking ownership between ticks.
 - Alternate-buffer output never defers — fullscreen applications own their history and have no scrollback to read.
 - A zero display offset during full-buffer trimming is valid xterm behavior, not evidence of a browser reset.
@@ -1110,7 +1110,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. In both Claude session modes, Claude alone emits its native permission notification; Codeflare adds no competing producer behavior. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (REQ-TERM-026 AC1: Claude keeps its native notification path without competing Codeflare behavior) -->
+1. In both Claude session modes, Claude alone emits its native permission notification; Codeflare adds no competing producer behavior. <!-- @impl: entrypoint.sh::SETTINGS_CONFIG --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (REQ-TERM-026 AC1: Claude keeps native Ghostty notifications and adds only the fixed Herdr permission hook) -->
 2. Only the exact reviewed Claude permission frame maps to `input-required`; every other Claude or near-match frame emits nothing. <!-- @impl: host/src/agent-events.ts::AGENT_EVENT_FRAMES --> <!-- @impl: host/src/agent-events.ts::OscAgentEventParser --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-026 AC2: maps only reviewed Pi and Claude frames and ignores every near-match) -->
 3. Claude notification handling preserves focus-in and focus-out bytes and never synthesizes focus-out on detach. <!-- @impl: host/src/session.ts::stripTerminalResponses --> <!-- @test: host/__tests__/session-wire-protocol.test.js (REQ-TERM-026 AC3: Claude notification focus independence) -->
 
