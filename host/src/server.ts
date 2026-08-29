@@ -35,7 +35,10 @@ import { AGENT_EVENT_LIMITS } from './agent-events.js';
 import { attachTerminalConnectionHandler } from './terminal-ws.js';
 import { createUpgradeDispatcher } from './upgrade-dispatcher.js';
 import { Session } from './session.js';
-import { HerdrAgentStatusMonitor } from './herdr-agent-status.js';
+import {
+  HerdrAgentStatusMonitor,
+  createHerdrAgentStatusCallbacks,
+} from './herdr-agent-status.js';
 import { queryHerdrScroll } from './herdr-scroll-query.js';
 import {
   EDITOR_WARMING_BUDGET_MS,
@@ -402,10 +405,7 @@ server.listen(PORT, '0.0.0.0', async () => {
   if (HERDR_SOCKET_PATH) {
     herdrAgentStatusMonitor = new HerdrAgentStatusMonitor({
       socketPath: HERDR_SOCKET_PATH,
-      onComplete: () => [...sessionManager.sessions.values()]
-        .find((session) => session.terminalId === '1')?.enqueueAgentEvent('task-completed'),
-      onWorking: () => [...sessionManager.sessions.values()]
-        .find((session) => session.terminalId === '1')?.cancelAgentEvents('task-completed'),
+      ...createHerdrAgentStatusCallbacks(() => sessionManager.sessions.values()),
     });
     herdrAgentStatusMonitor.start();
   }

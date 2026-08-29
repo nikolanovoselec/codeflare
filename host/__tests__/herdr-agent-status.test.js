@@ -9,6 +9,7 @@ import {
   HERDR_COMPLETION_DELAY_MS,
   HerdrCompletionDelay,
   HerdrAgentStatusMonitor,
+  createHerdrAgentStatusCallbacks,
 } from '../dist/herdr-agent-status.js';
 
 class ManualScheduler {
@@ -65,7 +66,13 @@ async function expectResnapshot(trigger, options = {}) {
         const request = JSON.parse(buffered.slice(0, newline));
         buffered = buffered.slice(newline + 1);
         if (request.method === 'session.snapshot') {
-          if (currentConnection === 1 && trigger === 'timeout') continue;
+          if (currentConnection === 1 && trigger === 'timeout') {
+            const noise = setInterval(() => {
+              socket.write(`${JSON.stringify({ id: 'unrelated', result: { type: 'events_subscribed' } })}\n`);
+            }, 5);
+            socket.once('close', () => clearInterval(noise));
+            continue;
+          }
           socket.write(`${JSON.stringify({
             id: request.id,
             result: {
@@ -87,6 +94,8 @@ async function expectResnapshot(trigger, options = {}) {
               event: 'pane.agent_status_changed',
               data: { pane_id: 'w1:p1', agent_status: 'bogus' },
             })}\n`);
+          } else if (trigger === 'disconnect') {
+            socket.destroy();
           } else {
             socket.write(`${JSON.stringify({ event: trigger, data: { pane_id: 'w1:p1' } })}\n`);
           }
@@ -117,6 +126,25 @@ async function expectResnapshot(trigger, options = {}) {
 }
 
 describe('Herdr completion notification authority', () => {
+  it('routes Herdr completion to primary session notification delivery', () => {
+    const events = [];
+    const cancellations = [];
+    const callbacks = createHerdrAgentStatusCallbacks(() => [
+      { terminalId: '2', enqueueAgentEvent: () => events.push('secondary'), cancelAgentEvents: () => {} },
+      {
+        terminalId: '1',
+        enqueueAgentEvent: (kind) => events.push(kind),
+        cancelAgentEvents: (kind) => cancellations.push(kind),
+      },
+    ]);
+
+    callbacks.onComplete();
+    callbacks.onWorking();
+
+    assert.deepEqual(events, ['task-completed']);
+    assert.deepEqual(cancellations, ['task-completed']);
+  });
+
   it('starts four minutes at working→idle/done and preserves idle↔done', () => {
     const scheduler = new ManualScheduler();
     let completions = 0;
@@ -196,8 +224,9 @@ describe('Herdr completion notification authority', () => {
     await expectResnapshot('pane.agent_detected');
   });
 
-  it('reconnects after a malformed subscribed status event', async () => {
+  it('reconnects after a malformed subscribed status event or disconnect', async () => {
     await expectResnapshot('malformed-status');
+    await expectResnapshot('disconnect');
   });
 
   it('subscribes to the primary Herdr agent and consumes status transitions', async () => {

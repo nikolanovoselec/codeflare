@@ -72,6 +72,24 @@ export class HerdrCompletionDelay {
   }
 }
 
+interface AgentStatusSession {
+  readonly terminalId: string;
+  enqueueAgentEvent(kind: 'task-completed'): unknown;
+  cancelAgentEvents(kind: 'task-completed'): unknown;
+}
+
+export function createHerdrAgentStatusCallbacks(sessions: () => Iterable<AgentStatusSession>): {
+  readonly onComplete: () => void;
+  readonly onWorking: () => void;
+} {
+  const primary = (): AgentStatusSession | undefined => [...sessions()]
+    .find((session) => session.terminalId === '1');
+  return Object.freeze({
+    onComplete: () => { primary()?.enqueueAgentEvent('task-completed'); },
+    onWorking: () => { primary()?.cancelAgentEvents('task-completed'); },
+  });
+}
+
 interface HerdrAgentStatusMonitorOptions {
   readonly socketPath: string;
   readonly onComplete: () => void;
@@ -121,6 +139,7 @@ export class HerdrAgentStatusMonitor {
   private readonly delay: HerdrCompletionDelay;
   private socket: net.Socket | undefined;
   private reconnectTimer: TimerHandle | undefined;
+  private snapshotTimer: TimerHandle | undefined;
   private buffer = Buffer.alloc(0);
   private paneId: string | undefined;
   private stopped = true;
@@ -145,7 +164,9 @@ export class HerdrAgentStatusMonitor {
   stop(): void {
     this.stopped = true;
     if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer);
+    if (this.snapshotTimer !== undefined) clearTimeout(this.snapshotTimer);
     this.reconnectTimer = undefined;
+    this.snapshotTimer = undefined;
     this.socket?.destroy();
     this.socket = undefined;
     this.delay.dispose();
@@ -160,7 +181,8 @@ export class HerdrAgentStatusMonitor {
     this.paneId = undefined;
     const socket = net.createConnection(this.socketPath);
     this.socket = socket;
-    socket.setTimeout(this.snapshotTimeoutMs, () => this.retry(socket));
+    this.snapshotTimer = setTimeout(() => this.retry(socket), this.snapshotTimeoutMs);
+    this.snapshotTimer.unref?.();
     socket.once('connect', () => {
       socket.write(`${JSON.stringify({
         id: 'codeflare-agent-status-snapshot', method: 'session.snapshot', params: {},
@@ -204,7 +226,8 @@ export class HerdrAgentStatusMonitor {
       }
       this.paneId = primary.paneId;
       this.delay.initialize(primary.status);
-      this.socket.setTimeout(0);
+      if (this.snapshotTimer !== undefined) clearTimeout(this.snapshotTimer);
+      this.snapshotTimer = undefined;
       this.socket.write(`${JSON.stringify({
         id: 'codeflare-agent-status-subscribe',
         method: 'events.subscribe',
@@ -242,6 +265,8 @@ export class HerdrAgentStatusMonitor {
     if (socket && this.socket !== socket) return;
     socket?.destroy();
     this.socket = undefined;
+    if (this.snapshotTimer !== undefined) clearTimeout(this.snapshotTimer);
+    this.snapshotTimer = undefined;
     this.delay.dispose();
     if (this.stopped || this.reconnectTimer !== undefined) return;
     this.reconnectTimer = setTimeout(() => {
