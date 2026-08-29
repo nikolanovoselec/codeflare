@@ -1067,13 +1067,15 @@ None.
 2. Changes between `idle` and `done` while every tracked pane remains ready preserve the existing timer. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (starts four minutes at working→idle/done and preserves idle↔done) -->
 3. Any tracked pane entering `working` cancels the timer; all panes must become ready again to receive a fresh four minutes. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (cancels on working snapshots and requires a fresh four idle minutes) --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to every Herdr agent and waits until all panes are ready) -->
 4. Timer expiry emits `task-completed` only while every tracked pane remains `idle` or `done`. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to every Herdr agent and waits until all panes are ready) -->
-5. An initial all-ready snapshot, no recognized panes, or any `blocked` or `unknown` pane never starts completion timing. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (does not notify from an initial idle snapshot or while blocked/unknown) -->
-6. Classic mode has no completion producer. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (registers no completion lifecycle producer in terminal mode) -->
+5. An initial all-ready snapshot never starts completion timing. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (does not notify from an initial idle snapshot or while blocked/unknown) -->
+6. A snapshot with no recognized Pi or Claude panes never starts completion timing. <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (does not notify when the snapshot has no recognized agents) -->
+7. Completion timing does not run while any tracked pane is `blocked` or `unknown`. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (preserves observed work through blocked and unknown until ready) -->
 
 **Constraints:**
 
 - The four-minute timer runs only in the container host and does not extend user activity or container lifetime.
 - Validated input-required signals remain immediate under [REQ-TERM-024](#req-term-024-pi-native-terminal-notification-producer).
+- Classic mode has no completion producer under [REQ-TERM-024](#req-term-024-pi-native-terminal-notification-producer).
 
 **Priority:** P1
 

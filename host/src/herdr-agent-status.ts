@@ -18,6 +18,7 @@ interface CompletionDelayOptions {
 
 export class HerdrCompletionDelay {
   private status: HerdrAgentStatus = 'unknown';
+  private workObserved = false;
   private timer: TimerHandle | undefined;
   private readonly onComplete: () => void;
   private readonly onWorking: () => void;
@@ -36,14 +37,15 @@ export class HerdrCompletionDelay {
   initialize(status: HerdrAgentStatus): void {
     this.clear();
     this.status = status;
+    this.workObserved = status === 'working';
     if (status === 'working') this.onWorking();
   }
 
   update(status: HerdrAgentStatus): void {
-    const previous = this.status;
     this.status = status;
 
     if (status === 'working') {
+      this.workObserved = true;
       this.clear();
       this.onWorking();
       return;
@@ -52,11 +54,14 @@ export class HerdrCompletionDelay {
       this.clear();
       return;
     }
-    if (previous !== 'working' || this.timer !== undefined) return;
+    if (!this.workObserved || this.timer !== undefined) return;
 
     this.timer = this.schedule(() => {
       this.timer = undefined;
-      if (this.status === 'idle' || this.status === 'done') this.onComplete();
+      if (this.status === 'idle' || this.status === 'done') {
+        this.workObserved = false;
+        this.onComplete();
+      }
     }, this.delayMs);
     (this.timer as TimerHandle & { unref?: () => void }).unref?.();
   }
@@ -64,6 +69,7 @@ export class HerdrCompletionDelay {
   dispose(): void {
     this.clear();
     this.status = 'unknown';
+    this.workObserved = false;
   }
 
   private clear(): void {
