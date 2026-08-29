@@ -4001,8 +4001,6 @@ After the root publishes canonical triage, FIX handling revalidates the exact id
 <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::writeCompletion -->
 <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement -->
 <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::writeCompletion -->
-<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh -->
-<!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh -->
 
 ---
 
