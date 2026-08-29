@@ -308,6 +308,42 @@ describe('useTerminal hook', () => {
     });
   });
 
+  describe('Herdr surface recovery', () => {
+    it('forces a repaint and same-size PTY resize when a hidden page becomes visible', () => {
+      const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+      let visibilityState: DocumentVisibilityState = 'hidden';
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => visibilityState,
+      });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      mockFit.mockClear();
+      mockRefresh.mockClear();
+      vi.mocked(terminalStore.resize).mockClear();
+
+      visibilityState = 'visible';
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(mockFit).toHaveBeenCalledOnce();
+      expect(mockRefresh).toHaveBeenCalledWith(0, mockTerminalInstance.rows - 1);
+      expect(terminalStore.resize).toHaveBeenCalledWith(
+        defaultProps.sessionId,
+        defaultProps.terminalId,
+        mockTerminalInstance.cols,
+        mockTerminalInstance.rows,
+      );
+
+      dispose();
+      if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility);
+      else Reflect.deleteProperty(document, 'visibilityState');
+    });
+  });
+
   describe('xterm constructor contract', () => {
     it('should disable xterm color-scheme reporting so no CSI ?997 report can reach the PTY', () => {
       // xterm >=6.1 answers CSI ?996n / DECSET 2031 with CSI ?997;x n by

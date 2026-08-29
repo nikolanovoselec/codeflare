@@ -30,7 +30,8 @@ function fakeSession(id, acceptedEventIds = new Set()) {
     attach(ws) { clients.add(ws); },
     detach(ws) { clients.delete(ws); },
     isPtyAlive() { return true; },
-    resize() {},
+    canResize(ws) { return clients.has(ws); },
+    resize(cols, rows) { calls.push({ type: 'resize', cols, rows }); return true; },
     claimResizeAuthority() {},
     write() {},
     kill() {},
@@ -45,7 +46,7 @@ function fakeSession(id, acceptedEventIds = new Set()) {
   };
 }
 
-function harness(sessions) {
+function harness(sessions, queryHerdrScroll) {
   const wss = new EventEmitter();
   const sessionManager = {
     sessions: new Map(Object.entries(sessions)),
@@ -59,6 +60,7 @@ function harness(sessions) {
     readiness: () => ({ initFlagObserved: true, terminalServiceReady: true }),
     keepalivePingMs: 60_000,
     maxControlMsgLength: 512,
+    queryHerdrScroll,
   });
   return { wss, sessionManager };
 }
@@ -68,6 +70,41 @@ function connect(wss, sessionId) {
   wss.emit('connection', ws, { url: `/?session=${encodeURIComponent(sessionId)}` });
   return ws;
 }
+
+describe('Herdr scroll probe protocol', () => {
+  it('returns focused scroll state and forces the requested same-size repaint', async (t) => {
+    const session = fakeSession('session-a-1');
+    const { wss } = harness({ 'session-a-1': session }, async () => true);
+    const ws = connect(wss, 'session-a-1');
+    t.after(() => ws.emit('close', 1000, Buffer.alloc(0)));
+
+    ws.emit('message', Buffer.from(JSON.stringify({
+      type: 'herdr-scroll-probe', requestId: 3, cols: 80, rows: 24,
+    })));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(session.calls, [{ type: 'resize', cols: 80, rows: 24 }]);
+    assert.deepEqual(JSON.parse(ws.sent.at(-1)), {
+      type: 'herdr-scroll-state', requestId: 3, available: true, aboveBottom: true,
+    });
+  });
+
+  it('fails open when the client cannot force the repaint', async (t) => {
+    const session = fakeSession('session-a-1');
+    session.canResize = () => false;
+    const { wss } = harness({ 'session-a-1': session }, async () => true);
+    const ws = connect(wss, 'session-a-1');
+    t.after(() => ws.emit('close', 1000, Buffer.alloc(0)));
+
+    ws.emit('message', Buffer.from(JSON.stringify({
+      type: 'herdr-scroll-probe', requestId: 4, cols: 80, rows: 24,
+    })));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(JSON.parse(ws.sent.at(-1)), {
+      type: 'herdr-scroll-state', requestId: 4, available: false, aboveBottom: false,
+    });
+  });
+});
 
 describe('REQ-TERM-023 AC2/AC3: terminal WS event coordination protocol', () => {
   it('routes a validated suppress disposition through the connection-bound Session', (t) => {

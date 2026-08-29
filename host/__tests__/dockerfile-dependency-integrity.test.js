@@ -23,6 +23,10 @@ const browserRunLock = readJson('preseed/agents/claude/browser-run-mcp/package-l
 const wranglerPackage = readJson('.github/npm-tools/wrangler/package.json');
 const wranglerLock = readJson('.github/npm-tools/wrangler/package-lock.json');
 const dependabot = parseYaml(readFileSync(join(repoRoot, '.github/dependabot.yml'), 'utf8'));
+const dockerfile = readFileSync(join(repoRoot, 'Dockerfile'), 'utf8');
+const herdrProvenance = readJson('image/herdr/provenance.json');
+const shadowPins = readFileSync(join(repoRoot, '.github/workflows/bump-shadow-pins.yml'), 'utf8');
+const containerImageWorkflow = readFileSync(join(repoRoot, '.github/workflows/container-image.yml'), 'utf8');
 
 const versionParts = (version) => version.split('.').map(Number);
 const atLeast = (actual, minimum) => {
@@ -121,6 +125,17 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     assert.equal(npmToolsPackage.dependencies.oxlint, undefined);
     assert.equal(piPackage.dependencies.oxlint, undefined);
     assert.equal(MANAGED_RUNTIME_LOCK_PATHS.includes('image/oxlint/package-lock.json'), false);
+  });
+
+  it('keeps Herdr under one shadow-pin owner with a packaged API gate', () => {
+    assert.equal(herdrProvenance.version, dockerfile.match(/HERDR_VERSION="([^"]+)"/)?.[1]);
+    assert.equal(herdrProvenance.commit, dockerfile.match(/HERDR_COMMIT="([0-9a-f]{40})"/)?.[1]);
+    assert.equal(herdrProvenance.sha256, dockerfile.match(/HERDR_SHA256="([0-9a-f]{64})"/)?.[1]);
+    assert.match(shadowPins, /^  herdr:\n/m);
+    assert.match(shadowPins, /image\/herdr\/provenance\.json/);
+    assert.match(shadowPins, /\.github\/workflows\/container-image\.yml/);
+    assert.match(containerImageWorkflow, /pane\.current/);
+    assert.match(containerImageWorkflow, /offset_from_bottom/);
   });
 
   it('image-owned Oxlint has dedicated weekly dependency automation', () => {

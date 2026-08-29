@@ -684,6 +684,7 @@ None.
 3. Cleanup from a stale connection owner cannot dispose the newer WebSocket or input handler for the same visible terminal. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-012: stale cleanup from an older connection cannot close a newer connection for the same terminal) -->
 4. A resize frame is emitted only for a visible, connected terminal, carrying its current fitted dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::resize --> <!-- @test: host/__tests__/session-resize-authority.test.js (REQ-TERM-016: accepts resize frames only from the foreground WebSocket owner) -->
 5. A pane that loses focus before its terminal connection opens does not claim resize authority when that connection later opens. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: web-ui/src/stores/terminal.ts::clearPendingResizeAuthority --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-016: clears a queued resize-authority claim when the pane loses focus) -->
+6. A visible Herdr surface returning from browser background refreshes its xterm canvas and sends its fitted dimensions again, forcing a full repaint even when dimensions did not change. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (forces a repaint and same-size PTY resize when a hidden page becomes visible) -->
 
 **Constraints:**
 
@@ -824,7 +825,7 @@ None.
 3. Hardware mouse clicks operate the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes physical and synthesized left clicks as SGR terminal input) -->
 4. Held-button mouse movement operates the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes held-button movement and ignores movement without an active press) -->
 5. Mouse wheels navigate the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes wheel navigation and modifier-aware right clicks) -->
-6. Stationary touch taps operate the addressed Herdr control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (sends a stationary touch to the xterm screen only when enabled) -->
+6. Stationary touch taps operate the addressed Herdr control exactly once through the browser's trusted compatibility sequence. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC4: preserves one trusted compatibility click without a duplicate synthetic sequence) -->
 7. Vertical touch swipes navigate Herdr application views. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes Herdr swipes as SGR wheel input without xterm mouse tracking) -->
 
 **Constraints:**
@@ -864,6 +865,36 @@ None.
 **Dependencies:** [REQ-TERM-019](#req-term-019-terminal-websocket-control-frames-and-protocol-guards), [REQ-TERM-006](#req-term-006-herdr-owns-in-session-terminal-topology)
 
 **Verification:** Automated mode-isolation and packaged-config checks plus manual browser shortcut verification.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-040: Stable Herdr pane scrollback
+
+**Intent:** Keep a Herdr pane visually stable while the user reads its scrollback, using the same bounded output hold as standard terminals.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. After Herdr viewport input, the host makes one bounded `pane.current` socket query and reports whether the focused pane is above bottom; malformed, unavailable, and stale results fail open. <!-- @impl: host/src/herdr-scroll-query.ts::queryHerdrScroll --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @test: host/__tests__/herdr-scroll-query.test.js (Herdr focused-pane scroll query) --> <!-- @test: host/__tests__/terminal-agent-events.test.js (Herdr scroll probe protocol) -->
+2. Above bottom, Codeflare publishes the full repaint forced by that query and then holds later atomic output through the existing bounded terminal buffer. <!-- @impl: web-ui/src/stores/terminal-output.ts::setHerdrScrollState --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-hold.test.ts (publishes one forced full frame, then holds unrelated output) -->
+3. Each later viewport action publishes one new full repaint; returning to bottom discards superseded held units, publishes the forced bottom repaint, and resumes live output. <!-- @impl: web-ui/src/stores/terminal-output.ts::setHerdrScrollState --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-hold.test.ts (publishes each requested viewport and resumes from a full bottom frame) -->
+4. Initial connection, Page Up or Down, pointer presses, and wheel reports trigger probes; response IDs prevent older queries from replacing newer state. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @impl: web-ui/src/stores/terminal-protocol.ts::isHerdrViewportIntent --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (Herdr scroll probes) -->
+5. Container CI rejects incompatible changes to the packaged Herdr `pane.current`, `PaneInfo.scroll`, or scroll-field schema, and the weekly shadow-pin job updates Herdr's coordinated release pins. <!-- @impl: .github/workflows/container-image.yml --> <!-- @impl: .github/workflows/bump-shadow-pins.yml --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (keeps Herdr under one shadow-pin owner with a packaged API gate) -->
+
+**Constraints:**
+
+- Herdr remains an unmodified release binary accessed only through its public socket API.
+- The browser receives only validated booleans and request IDs, never socket paths or pane identifiers.
+- Held output remains bounded by [REQ-TERM-014](#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-016](#req-term-016-terminal-pane-reconnect-and-resize-authority), [REQ-TERM-021](#req-term-021-synchronized-output-frame-atomicity)
+
+**Verification:** Automated host socket, WebSocket protocol, output hold, packaged-schema, and dependency ownership tests.
 
 **Status:** Implemented
 

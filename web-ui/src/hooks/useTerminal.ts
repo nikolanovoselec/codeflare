@@ -70,6 +70,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let notificationDisposable: { dispose: () => void } | undefined;
   let clipboardDisposable: { dispose: () => void } | undefined;
   let handleContextMenu: ((event: MouseEvent) => void) | undefined;
+  let handleVisibilityChange: (() => void) | undefined;
   let agentEventDisposable: (() => void) | undefined;
   let hasInitialScrolled = false;
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -278,6 +279,30 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
     if (isTouchDevice()) {
       setupMobileTerminal();
+    }
+
+    if (isHerdr()) {
+      handleVisibilityChange = () => {
+        if (document.visibilityState !== 'visible' || !isVisible()) return;
+        requestAnimationFrame(() => {
+          if (!isMounted()) return;
+          const mountedContainer = containerEl!;
+          const mountedFitAddon = fitAddon!;
+          const mountedTerm = term!;
+          if (mountedContainer.clientHeight === 0) return;
+          mountedFitAddon.fit();
+          mountedTerm.refresh(0, mountedTerm.rows - 1);
+          if (!canConnect()) return;
+          if (isFocused()) terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
+          terminalStore.resize(
+            props.sessionId,
+            props.terminalId,
+            mountedTerm.cols,
+            mountedTerm.rows,
+          );
+        });
+      };
+      document.addEventListener('visibilitychange', handleVisibilityChange);
     }
 
     // Scroll correction: detects and reverses browser focus-validation bugs that
@@ -615,6 +640,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         props.onError,
         !isHerdr() && tab?.manual === true,
         !isHerdr(),
+        isHerdr(),
       );
     }
   });
@@ -773,6 +799,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     agentEventDisposable?.();
     resizeObserver?.disconnect();
     if (handleContextMenu) mountedContainer?.removeEventListener('contextmenu', handleContextMenu);
+    if (handleVisibilityChange) document.removeEventListener('visibilitychange', handleVisibilityChange);
     terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
     term = undefined;
     fitAddon = undefined;

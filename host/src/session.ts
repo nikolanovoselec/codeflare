@@ -463,6 +463,11 @@ export class Session {
     }
   }
 
+  canResize(ws: WebSocket): boolean {
+    return this.clients.has(ws)
+      && (!this.resizeAuthorityClient || this.resizeAuthorityClient === ws);
+  }
+
   /**
    * Resize the PTY. When the caller supplies a WebSocket, only the current
    * foreground resize owner may apply dimensions; this prevents stale hidden
@@ -470,12 +475,8 @@ export class Session {
    */
   resize(cols: number, rows: number, ws?: WebSocket): boolean {
     if (ws) {
-      if (!this.resizeAuthorityClient && this.clients.has(ws)) {
-        this.resizeAuthorityClient = ws;
-      }
-      if (this.resizeAuthorityClient && this.resizeAuthorityClient !== ws) {
-        return false;
-      }
+      if (!this.canResize(ws)) return false;
+      if (!this.resizeAuthorityClient) this.resizeAuthorityClient = ws;
     }
 
     if (this.ptyProcess) {

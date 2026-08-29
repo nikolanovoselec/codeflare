@@ -35,6 +35,7 @@ import { AGENT_EVENT_LIMITS } from './agent-events.js';
 import { attachTerminalConnectionHandler } from './terminal-ws.js';
 import { createUpgradeDispatcher } from './upgrade-dispatcher.js';
 import { Session } from './session.js';
+import { queryHerdrScroll } from './herdr-scroll-query.js';
 import {
   EDITOR_WARMING_BUDGET_MS,
   resolveSessionWorkspace,
@@ -76,6 +77,9 @@ const TERMINAL_COMMAND = TERMINAL_CONFIG.command;
 const TERMINAL_ARGS = TERMINAL_CONFIG.args;
 const WORKSPACE_DEFAULT = process.env.WORKSPACE ?? '/home/user/workspace';
 const SESSION_WORKSPACE = resolveSessionWorkspace(process.env.CODEFLARE_SESSION_WORKSPACE);
+const HERDR_SOCKET_PATH = TERMINAL_MODE === 'herdr' && /^[a-z0-9]{8,24}$/.test(process.env.SESSION_ID ?? '')
+  ? `${process.env.CODEFLARE_RUNTIME_ROOT ?? '/run/codeflare'}/herdr-config/herdr/sessions/cf-${process.env.SESSION_ID}/herdr.sock`
+  : null;
 
 // PTY persistence settings - safety-net floor only. The authoritative idle
 // policy lives in collectMetrics (container DO) keyed off `lastInputAt`. This
@@ -290,6 +294,9 @@ attachTerminalConnectionHandler(wss, {
   readiness: () => ({ initFlagObserved, terminalServiceReady }),
   keepalivePingMs: WS_KEEPALIVE_PING_MS,
   maxControlMsgLength: MAX_CONTROL_MSG_LENGTH,
+  queryHerdrScroll: HERDR_SOCKET_PATH
+    ? () => queryHerdrScroll(HERDR_SOCKET_PATH)
+    : undefined,
 });
 
 const upgradeDispatcher = createUpgradeDispatcher({

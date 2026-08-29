@@ -546,30 +546,37 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
     });
 
     describe('Herdr mouse taps', () => {
-      it('sends a stationary touch to the xterm screen only when enabled', () => {
+      it('REQ-MOB-017 AC4: preserves one trusted compatibility click without a duplicate synthetic sequence', () => {
         (window as any).ontouchstart = null;
         const { terminal, element } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
         const screenElement = document.createElement('div');
         screenElement.className = 'xterm-screen';
         element.appendChild(screenElement);
         container.appendChild(element);
-        const mouseDown = vi.fn();
-        const mouseUp = vi.fn();
-        screenElement.addEventListener('mousedown', mouseDown);
-        screenElement.addEventListener('mouseup', mouseUp);
+        const send = vi.fn();
+        const click = vi.fn();
+        screenElement.addEventListener('click', click);
+        const cleanupMouse = attachHerdrMouseInput(screenElement, terminal, send);
+        const cleanupGestures = attachSwipeGestures(container, terminal, () => false, true)!;
 
-        const classicCleanup = attachSwipeGestures(container, terminal, () => false, false)!;
-        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
-        container.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
-        expect(mouseDown).not.toHaveBeenCalled();
-        classicCleanup();
+        screenElement.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        screenElement.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
+        expect(send).not.toHaveBeenCalled();
+        expect(click).not.toHaveBeenCalled();
 
-        const herdrCleanup = attachSwipeGestures(container, terminal, () => false, true)!;
-        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
-        container.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
-        expect(mouseDown).toHaveBeenCalledOnce();
-        expect(mouseUp).toHaveBeenCalledOnce();
-        herdrCleanup();
+        screenElement.dispatchEvent(new MouseEvent('mousedown', {
+          bubbles: true, clientX: 40, clientY: 50, button: 0, buttons: 1,
+        }));
+        screenElement.dispatchEvent(new MouseEvent('mouseup', {
+          bubbles: true, clientX: 40, clientY: 50, button: 0, buttons: 0,
+        }));
+        screenElement.dispatchEvent(new MouseEvent('click', {
+          bubbles: true, clientX: 40, clientY: 50, button: 0, buttons: 0,
+        }));
+        expect(send).toHaveBeenCalledTimes(2);
+        expect(click).toHaveBeenCalledOnce();
+        cleanupGestures();
+        cleanupMouse();
       });
 
       it('does not synthesize a click after movement', () => {

@@ -530,6 +530,29 @@ jobs:
             grep -Fx "kitty_graphics = false" /etc/codeflare/herdr/config.toml
             grep -Fx "pane_history = false" /etc/codeflare/herdr/config.toml
           '
+          docker run --rm -e HERDR_DISABLE_SOUND=1 --entrypoint /usr/local/bin/herdr "$IMAGE" api schema --json \
+            | jq -e '
+              .schemas as $s
+              | ($s.request.oneOf | any(
+                  .properties.method.const == "pane.current"
+                  and .properties.params."$ref" == "#/schemas/request/$defs/PaneCurrentParams"
+                ))
+              and (($s.request."$defs".PaneCurrentParams.required // []) | length == 0)
+              and ($s.success_response."$defs".ResponseResult.oneOf | any(
+                  .properties.type.const == "pane_current"
+                  and .properties.pane."$ref" == "#/schemas/success_response/$defs/PaneInfo"
+                  and (.required | index("type")) != null
+                  and (.required | index("pane")) != null
+                ))
+              and ($s.success_response."$defs".PaneInfo.properties.scroll.anyOf | any(
+                  ."$ref" == "#/schemas/success_response/$defs/PaneScrollInfo"
+                ))
+              and (["offset_from_bottom", "max_offset_from_bottom", "viewport_rows"] | all(
+                  . as $field
+                  | ($s.success_response."$defs".PaneScrollInfo.required | index($field))
+                  and $s.success_response."$defs".PaneScrollInfo.properties[$field].type == "integer"
+                ))
+            ' >/dev/null
           printf 'herdr_version=0.8.2 config=managed attribution=present\n' \
             | tee -a /tmp/browser-ide-image-evidence.txt
 

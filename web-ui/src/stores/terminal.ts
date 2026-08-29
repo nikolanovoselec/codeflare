@@ -14,6 +14,7 @@ import {
 import {
   parseControlMessage,
   reconnectBackoffMs,
+  isHerdrViewportIntent,
   type AgentEventControlMessage,
 } from './terminal-protocol';
 import {
@@ -22,6 +23,8 @@ import {
   releaseTrailingOutput,
   cleanupOutputByPrefix,
   clearAllOutput,
+  setHerdrScrollState,
+  afterNextSynchronizedFrame,
 } from './terminal-output';
 import { cleanupMapByPrefix } from '../lib/map-utils';
 
@@ -114,6 +117,7 @@ let nextConnectionOwner = 0;
 
 // Bug 1 fix: Store inputDisposable outside the connect function to properly clean up
 const inputDisposables = new Map<string, { dispose: () => void }>();
+const herdrKeys = new Set<string>();
 
 // L26: FitAddon management and layout resize delegated to terminal-layout.ts
 // Register layout module dependencies at module init
@@ -195,13 +199,17 @@ function connect(
   _onError?: (error: string) => void,
   manual?: boolean,
   processLabels = true,
+  herdr = false,
 ): () => void {
   const key = makeKey(sessionId, terminalId);
 
   // Close existing connection if any
   disconnect(sessionId, terminalId);
+  if (herdr) herdrKeys.add(key);
+  else herdrKeys.delete(key);
 
   const owner = ++nextConnectionOwner;
+  let latestHerdrProbe = 0;
   connectionOwners.set(key, owner);
   terminals.set(key, terminal);
 
@@ -226,6 +234,17 @@ function connect(
 
   // Attempt connection with retries
   const ownsConnection = () => connectionOwners.get(key) === owner;
+
+  function sendHerdrScrollProbe(ws: WebSocket): void {
+    if (!herdr || ws.readyState !== WebSocket.OPEN) return;
+    latestHerdrProbe += 1;
+    ws.send(JSON.stringify({
+      type: 'herdr-scroll-probe',
+      requestId: latestHerdrProbe,
+      cols: terminal.cols,
+      rows: terminal.rows,
+    }));
+  }
 
   function attemptConnection(attemptNumber: number): void {
     if (signal.aborted || !ownsConnection()) return;
@@ -295,6 +314,9 @@ function connect(
       // Send RAW data directly to PTY (no JSON wrapping)
       const inputDisposable = terminal.onData((data) => {
         if (ws.readyState === WebSocket.OPEN) {
+          if (herdr && isHerdrViewportIntent(data)) {
+            afterNextSynchronizedFrame(key, () => sendHerdrScrollProbe(ws));
+          }
           ws.send(data);  // Raw terminal input
         }
       });
@@ -317,6 +339,7 @@ function connect(
         ws.send(JSON.stringify({ type: 'resize', cols, rows }));
         logger.debug(`[Terminal ${key}] Sent initial resize: ${cols}x${rows}`);
       }
+      sendHerdrScrollProbe(ws);
 
     };
 
@@ -378,6 +401,12 @@ function connect(
           for (const callback of agentEventCallbacks.get(key) ?? []) {
             callback(control.message);
           }
+        }
+        return;
+      }
+      if (control.kind === 'herdr-scroll') {
+        if (control.message?.requestId === latestHerdrProbe) {
+          setHerdrScrollState(key, terminal, control.message.available, control.message.aboveBottom);
         }
         return;
       }
@@ -620,6 +649,7 @@ function isConnected(sessionId: string, terminalId: string): boolean {
 function disposeLocalTerminal(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
   disconnect(sessionId, terminalId);
+  herdrKeys.delete(key);
   clearPendingResizeAuthority(sessionId, terminalId);
   _unregisterFitAddon(sessionId, terminalId);
   const terminal = terminals.get(key);
@@ -640,6 +670,7 @@ function dispose(sessionId: string, terminalId: string): void {
   }
 
   disconnect(sessionId, terminalId);
+  herdrKeys.delete(key);
   clearPendingResizeAuthority(sessionId, terminalId);
   const terminal = terminals.get(key);
   if (terminal) {
@@ -666,6 +697,9 @@ function disposeSession(sessionId: string): void {
   cleanupMapByPrefix(abortControllers, prefix, (controller) => controller.abort());
   cleanupMapByPrefix(inputDisposables, prefix, (disposable) => disposable.dispose());
   cleanupOutputByPrefix(prefix);
+  for (const key of [...herdrKeys]) {
+    if (key.startsWith(prefix)) herdrKeys.delete(key);
+  }
   for (const key of [...pendingFocusClaims]) {
     if (key.startsWith(prefix)) pendingFocusClaims.delete(key);
   }
@@ -698,6 +732,7 @@ function disposeAll(): void {
     terminal.dispose();
   }
   terminals.clear();
+  herdrKeys.clear();
 
   // Clear auxiliary Maps that live outside the reactive store
   for (const disposable of inputDisposables.values()) {
@@ -742,8 +777,9 @@ function reconnect(sessionId: string, terminalId: string, onError?: (error: stri
   }
 
   // Close existing connection and reconnect
+  const herdr = herdrKeys.has(key);
   disconnect(sessionId, terminalId);
-  return connect(sessionId, terminalId, terminal, onError);
+  return connect(sessionId, terminalId, terminal, onError, undefined, !herdr, herdr);
 }
 
 // Send input text to a terminal's WebSocket connection

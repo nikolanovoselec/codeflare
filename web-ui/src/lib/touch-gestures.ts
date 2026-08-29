@@ -101,7 +101,6 @@ export function attachSwipeGestures(
 
   let startX = 0;
   let startY = 0;
-  let maxTouchDistance = 0;
   let lockedDirection: Direction | null = null;
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   let repeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -171,7 +170,6 @@ export function attachSwipeGestures(
     scrollMode = false;
     lastScrollY = 0;
     scrollAccumulator = 0;
-    maxTouchDistance = 0;
     velocitySamples = [];
   }
 
@@ -238,7 +236,6 @@ export function attachSwipeGestures(
     const touch = e.touches[0];
     const dx = touch.clientX - startX;
     const dy = touch.clientY - startY;
-    maxTouchDistance = Math.max(maxTouchDistance, Math.hypot(dx, dy));
 
     // Already in scroll mode — accumulate delta and scroll terminal buffer
     if (scrollMode) {
@@ -312,28 +309,10 @@ export function attachSwipeGestures(
   }
 
   function onTouchEnd() {
-    const shouldForwardTap = forwardMouseTap
-      && !cancelled
-      && !scrollMode
-      && lockedDirection === null
-      && maxTouchDistance < SWIPE_THRESHOLD;
-
-    if (shouldForwardTap) {
-      const target = terminal.element?.querySelector<HTMLElement>('.xterm-screen');
-      if (target) {
-        const eventInit: MouseEventInit = {
-          bubbles: true,
-          cancelable: true,
-          clientX: startX,
-          clientY: startY,
-          button: 0,
-          buttons: 1,
-        };
-        target.dispatchEvent(new MouseEvent('mousedown', eventInit));
-        target.dispatchEvent(new MouseEvent('mouseup', { ...eventInit, buttons: 0 }));
-        target.dispatchEvent(new MouseEvent('click', { ...eventInit, buttons: 0 }));
-      }
-    }
+    // Stationary taps deliberately rely on the browser's trusted compatibility
+    // mouse/click sequence. Synthesizing another sequence here double-activated
+    // Herdr controls on touch devices (menus opened, then immediately closed)
+    // and a synthetic click cannot reliably open the mobile keyboard.
 
     // Start inertia scrolling if we were in scroll mode with enough velocity
     if (scrollMode && velocitySamples.length >= 2) {
