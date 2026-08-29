@@ -53,7 +53,6 @@ import {
   commitVaultManifestTo,
   promoteVaultManifest,
   readVaultManifest,
-  vaultManifestContentHash,
   writeVaultManifest,
 } from "./vault-manifest-fs";
 
@@ -429,16 +428,7 @@ function refreshPendingVaultRequest(
     successQualifies: () => vaultSuccessQualifies(paths, active.request),
   });
   if (facts.giveup) {
-    const current = collectVaultFileHashes(paths.vaultRoot);
-    if (vaultManifestContentHash(current) === active.request.stagedManifestHash) return;
-    const changedFiles = absoluteChangedFiles(paths, current);
-    if (changedFiles.length === 0) {
-      cleanupVaultRequest(paths, active, true);
-      return;
-    }
-    const replacementId = dependencies.randomUUID();
-    stageVaultRequest(paths, current, changedFiles, replacementId, true, session, dependencies.now());
-    cleanupVaultRequest(paths, active, false);
+    cleanupVaultRequest(paths, active, true);
     return;
   }
   if (facts.attemptCount === 0) {

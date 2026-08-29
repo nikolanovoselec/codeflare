@@ -9,7 +9,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, existsSync, readFileSync, copyFileSync, chmodSync } from 'node:fs';
+import {
+  mkdirSync, writeFileSync, existsSync, readFileSync, copyFileSync, chmodSync, symlinkSync, unlinkSync,
+} from 'node:fs';
 import { tempDir } from './helpers/temp-dirs.js';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -223,15 +225,15 @@ describe('memory-capture.sh - user-message counting', () => {
     assert.equal(r.status, 0);
     assert.equal(existsSync(join(fx.counterDir, 'sess-vault-100.vars')), false);
     assert.equal(existsSync(join(fx.home, '.cache', 'codeflare-hooks', 'vault-extract.vars')), true);
+    assert.equal(readFileSync(join(fx.counterDir, 'sess-vault-100.vault-count'), 'utf-8'), '100\n');
   });
 
-  it('retries the Vault hash check on the next prompt after a scanner failure', () => {
+  it('retries the Vault hash check on the next prompt after a partial file-read failure', () => {
     const fx = makeFixture();
     installVaultManifest(fx);
-    const manifestScript = join(fx.home, '.claude', 'plugins', 'codeflare-vault', 'scripts', 'vault-manifest.py');
-    const validScript = readFileSync(manifestScript, 'utf-8');
-    writeFileSync(manifestScript, '#!/usr/bin/env python3\nraise SystemExit(1)\n');
     writeFileSync(join(fx.home, 'Vault', 'Notes', 'retry.md'), 'changed\n');
+    const unreadable = join(fx.home, 'Vault', 'Notes', 'vanished.md');
+    symlinkSync('missing-target.md', unreadable);
     writeFileSync(join(fx.counterDir, 'sess-vault-retry'), '99\n1\n');
     const vaultCounter = join(fx.counterDir, 'sess-vault-retry.vault-count');
     writeFileSync(vaultCounter, '0\n');
@@ -243,10 +245,10 @@ describe('memory-capture.sh - user-message counting', () => {
     const failed = runHook(fx, { transcriptPath: t, sessionId: 'sess-vault-retry' });
     assert.equal(failed.status, 0, 'a failed background hash check must not block the prompt');
     assert.equal(readFileSync(vaultCounter, 'utf-8'), '0\n',
-      'a failed scan must leave the previous successful epoch eligible');
+      'a partial scan must leave the previous successful epoch eligible');
     assert.equal(existsSync(join(fx.home, '.cache', 'codeflare-hooks', 'vault-extract.vars')), false);
 
-    writeFileSync(manifestScript, validScript);
+    unlinkSync(unreadable);
     const retried = runHook(fx, { transcriptPath: t, sessionId: 'sess-vault-retry' });
     assert.equal(retried.status, 0);
     assert.equal(readFileSync(vaultCounter, 'utf-8'), '100\n');

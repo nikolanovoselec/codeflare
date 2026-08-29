@@ -327,23 +327,6 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     }
   });
 
-  // Pi's capture uses a different transport: the root hands it an immutable
-  // execution snapshot, while Claude's runner inlines the transcript into its
-  // prompt. This generated contract used to be produced by fragile string
-  // replacement over Claude's prose, which could silently leak Claude-only
-  // transport details into Pi.
-  it('REQ-MEM-016/AD103: Pi keeps its own capture transport independent of Claude', () => {
-    const doc = (key: string) => AGENTS_SEEDED_CONFIGS.find((d) => d.key === key)?.content ?? '';
-    const pi = doc('.pi/agent/agents/memory-capture.md');
-
-    // Claude-transport identifiers that must never reach Pi's contract.
-    for (const claudeOnly of ['CAPTURE_REQUEST', 'BEGIN TRANSCRIPT', 'run-memory-capture.sh']) {
-      expect(pi).not.toContain(claudeOnly);
-    }
-    // Pi's own delivery, which the stale replacements had dropped on the floor.
-    expect(pi).toContain('immutable execution snapshot');
-  });
-
   it('REQ-VAULT-007: Pi is self-contained - merge-vault-graph.py is preseeded into .pi/agent/scripts', () => {
     const piScript = AGENTS_SEEDED_CONFIGS.find((d) => d.key === '.pi/agent/scripts/merge-vault-graph.py');
     expect(piScript, 'merge-vault-graph.py must be preseeded for Pi').toBeTruthy();

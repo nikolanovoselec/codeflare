@@ -985,6 +985,21 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     expect(existsSync(vaultPointerPath(harness))).toBe(true);
   });
 
+  it('rediscovers exhausted Vault work only at the next eligible cadence', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    const changed = join(harness.paths.vaultRoot, 'Notes', 'exhausted.md');
+    writeFileSync(changed, 'changed\n', 'utf8');
+    await triggerVaultCheck(harness);
+    await failExactAttempts(harness, 'vault-extract');
+
+    await appendPrompt(harness, 101);
+    expect(existsSync(vaultPointerPath(harness))).toBe(false);
+
+    await triggerVaultCheck(harness);
+    expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
+  });
+
   it('requires a post-commit chunk before native completion can promote the manifest', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');

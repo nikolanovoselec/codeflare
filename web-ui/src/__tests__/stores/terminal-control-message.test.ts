@@ -176,9 +176,10 @@ describe('Terminal control-message handling', () => {
         expect(ws.created[0].send.mock.calls[0][0]).toBe('\x1b[<64;10;5M');
 
         ws.created[0].emitMessage('\x1b[?2026hcurrent\x1b[?2026l');
-        expect(ws.created[0].send.mock.calls[1][0]).toContain('"type":"herdr-scroll-probe"');
+        const probe = JSON.parse(String(ws.created[0].send.mock.calls[1][0]));
+        expect(probe.type).toBe('herdr-scroll-probe');
         ws.created[0].emitMessage(JSON.stringify({
-          type: 'herdr-scroll-state', requestId: 1, available: true, aboveBottom: true,
+          type: 'herdr-scroll-state', requestId: probe.requestId, available: true, aboveBottom: true,
         }));
         ws.created[0].emitMessage('\x1b[?2026hdesktop viewport\x1b[?2026l');
         await vi.advanceTimersByTimeAsync(40);

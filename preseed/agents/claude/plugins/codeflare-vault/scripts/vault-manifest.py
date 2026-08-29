@@ -23,7 +23,7 @@ Usage:
       Write the manifest = current {relpath: sha256} for every non-excluded file
       (atomic tmp+rename). This is the "advance the high-water mark" step.
 
-Stdlib only (no graphify/networkx), so it is cheap to spawn from the 60s daemon.
+Stdlib only (no graphify/networkx), so prompt-cadenced checks stay cheap.
 """
 
 import hashlib
@@ -78,11 +78,10 @@ def collect(vault_root):
             rel = _rel(vault_root, abspath)
             if _excluded(rel):
                 continue
-            try:
-                out[rel] = _sha256(abspath)
-            except OSError:
-                # Unreadable (permission/vanished): skip; next tick retries.
-                continue
+            # Fail the complete scan when any eligible file cannot be read.
+            # The caller advances its cadence counter only on exit 0, so a
+            # transient permission or vanished-file race retries next prompt.
+            out[rel] = _sha256(abspath)
     return out
 
 
