@@ -12,6 +12,7 @@ function createMockTerminal(options: {
   const scrollLines = vi.fn();
   const bufferScrollLines = vi.fn();
   const refresh = vi.fn();
+  const focus = vi.fn();
   const element = document.createElement('div');
   const terminal = {
     _core: {
@@ -30,6 +31,7 @@ function createMockTerminal(options: {
     rows: 24,
     scrollLines,
     refresh,
+    focus,
   } as unknown as Terminal;
   return { terminal, triggerDataEvent, scrollLines, bufferScrollLines, refresh, element };
 }
@@ -546,11 +548,22 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
     });
 
     describe('Herdr mouse taps', () => {
-      it('REQ-MOB-017 AC4: preserves one trusted compatibility click without a duplicate synthetic sequence', () => {
+      it('REQ-MOB-020 AC1: preserves one trusted compatibility click without a duplicate synthetic sequence', () => {
         (window as any).ontouchstart = null;
         const { terminal, element } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
         const screenElement = document.createElement('div');
         screenElement.className = 'xterm-screen';
+        vi.spyOn(screenElement, 'getBoundingClientRect').mockReturnValue({
+          left: 0,
+          top: 0,
+          width: 800,
+          height: 240,
+          right: 800,
+          bottom: 240,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        });
         element.appendChild(screenElement);
         container.appendChild(element);
         const send = vi.fn();
@@ -579,7 +592,7 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         cleanupMouse();
       });
 
-      it('REQ-MOB-017 AC7: preserves the Classic stationary tap path without a synthetic mouse sequence', () => {
+      it('REQ-MOB-020 AC4: preserves the Classic stationary tap path without a synthetic mouse sequence', () => {
         (window as any).ontouchstart = null;
         const { terminal } = createMockTerminal();
         const mouseDown = vi.fn();
@@ -600,7 +613,7 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         cleanup();
       });
 
-      it('does not synthesize a click after movement', () => {
+      it('REQ-MOB-020 AC2: does not synthesize a click after movement', () => {
         (window as any).ontouchstart = null;
         const { terminal, element } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
         const screenElement = document.createElement('div');
@@ -617,7 +630,7 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         cleanup();
       });
 
-      it('REQ-MOB-017 AC6: does not synthesize a click after cancellation', () => {
+      it('REQ-MOB-020 AC3: does not synthesize a click after cancellation', () => {
         (window as any).ontouchstart = null;
         const { terminal, element } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
         const screenElement = document.createElement('div');

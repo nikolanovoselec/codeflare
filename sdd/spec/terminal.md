@@ -825,7 +825,7 @@ None.
 3. Hardware mouse clicks operate the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes physical and synthesized left clicks as SGR terminal input) -->
 4. Held-button mouse movement operates the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes held-button movement and ignores movement without an active press) -->
 5. Mouse wheels navigate the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes wheel navigation and modifier-aware right clicks) -->
-6. A stationary touch tap operates the addressed Herdr control exactly once. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC4: preserves one trusted compatibility click without a duplicate synthetic sequence) --> <!-- @manual: On Samsung Internet, tap a closed Herdr menu once and confirm it opens and remains open. -->
+6. A stationary touch tap operates the addressed Herdr control exactly once. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC1: preserves one trusted compatibility click without a duplicate synthetic sequence) --> <!-- @manual: On Samsung Internet, tap a closed Herdr menu once and confirm it opens and remains open. -->
 7. Vertical touch swipes navigate Herdr application views. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes Herdr swipes as SGR wheel input without xterm mouse tracking) -->
 
 **Constraints:**
@@ -835,7 +835,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-TERM-019](#req-term-019-terminal-websocket-control-frames-and-protocol-guards), [REQ-MOB-017](mobile.md#req-mob-017-fullscreen-application-touch-scrolling)
+**Dependencies:** [REQ-TERM-019](#req-term-019-terminal-websocket-control-frames-and-protocol-guards), [REQ-MOB-017](mobile.md#req-mob-017-fullscreen-application-touch-scrolling), [REQ-MOB-020](mobile.md#req-mob-020-terminal-touch-activation)
 
 **Verification:** Automated pointer encoding and mode-isolation tests plus manual browser interaction verification.
 

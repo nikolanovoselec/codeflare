@@ -574,7 +574,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. Zoxide, yazi, and lazygit each have a parallel release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::zoxide --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::yazi --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @manual -->
 2. Actionlint and Antigravity each have a dedicated release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::antigravity-cli --> <!-- @manual -->
-3. The official Claude extension, supported agent CLIs, and Herdr each have a dedicated bump job whose compatibility PR runs the owned verification path; a Herdr bump advances its version, commit, checksum, provenance, launcher pin, and packaged API check together. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::claude-vscode-extension --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::herdr --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: .github/dependabot.yml::updates --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (keeps Herdr under one shadow-pin owner with a packaged API gate) --> <!-- @manual -->
+3. The official Claude extension and supported agent CLIs each have a dedicated bump job whose compatibility PR runs the owned verification path. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::claude-vscode-extension --> <!-- @impl: .github/dependabot.yml::updates --> <!-- @manual -->
 4. A binary bump without an authoritative upstream checksum invalidates its pinned artifact checksum for operator verification. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @manual -->
 5. Actionlint resolves its release-manifest checksum and re-verifies the artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @manual -->
 6. A bump branch is skipped when that tool and version already have one. <!-- @manual -->
@@ -588,7 +588,31 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Automated Herdr workflow-wiring and packaged-runtime checks; manual release-job verification.
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-055: Herdr release integration
+
+**Intent:** Herdr release updates preserve one coherent binary identity and fail before deployment when the packaged API is incompatible.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Herdr has one weekly release-check job that skips an existing bump branch for the same release. <!-- @impl: .github/workflows/bump-shadow-pins.yml::herdr --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (keeps current Herdr pins coherent and wires release and packaged-runtime jobs) --> <!-- @manual -->
+2. A Herdr bump advances its version, commit, checksum, provenance, launcher pin, and packaged API check in one pull request. <!-- @impl: .github/workflows/bump-shadow-pins.yml::herdr --> <!-- @manual: Review the files changed by a generated Herdr bump pull request. -->
+3. Packaged-image CI rejects a Herdr release whose consumed pane-scroll API is incompatible. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Container-image CI executes the pinned Herdr binary's schema command and enforces the consumed fields. -->
+
+**Constraints:** Herdr remains a coordinated GitHub release binary outside Dependabot ownership.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation)
+
+**Verification:** Current pin-coherence and structured workflow-wiring tests; packaged-image CI; manual generated-bump review.
 
 **Status:** Implemented
 

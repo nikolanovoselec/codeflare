@@ -51,7 +51,7 @@ The `overlaysContent` flag must be managed carefully throughout the terminal lif
 
 #### Multi-pane focus handoff
 
-The virtual-keyboard signals (`vkOpen`, `keyboardHeight`) and `overlaysContent` are a single shared resource for the whole window, owned by the focused Codeflare terminal surface. When several backend-session surfaces are visible in tablet MultiView and focus moves while the keyboard is open, the keyboard stays open and the newly focused surface keeps keyboard mode. Classic retains the established tap, right-click, and buffer-authoritative gesture behavior. Herdr sessions translate hardware mouse clicks, drags, and wheels on xterm's actual `.xterm-screen` into SGR terminal input. For a stationary touch, Codeflare leaves the browser's compatibility mouse and click sequence intact instead of dispatching a second sequence. Movement, long press, multi-touch, or cancellation changes the gesture and does not activate the addressed control. Vertical touch swipes become wheel navigation. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> See [REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling) and [REQ-TERM-036](../../sdd/spec/terminal.md#req-term-036-browser-pointer-interaction-with-herdr).
+The virtual-keyboard signals (`vkOpen`, `keyboardHeight`) and `overlaysContent` are a single shared resource for the whole window, owned by the focused Codeflare terminal surface. When several backend-session surfaces are visible in tablet MultiView and focus moves while the keyboard is open, the keyboard stays open and the newly focused surface keeps keyboard mode. Classic retains the established tap, right-click, and buffer-authoritative gesture behavior. Herdr sessions translate hardware mouse clicks, drags, and wheels on xterm's actual `.xterm-screen` into SGR terminal input. For a stationary touch, Codeflare leaves the browser's compatibility mouse and click sequence intact instead of dispatching a second sequence. Movement, long press, multi-touch, or cancellation changes the gesture and does not activate the addressed control. Vertical touch swipes become wheel navigation. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> See [REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling), [REQ-MOB-020](../../sdd/spec/mobile.md#req-mob-020-terminal-touch-activation), and [REQ-TERM-036](../../sdd/spec/terminal.md#req-term-036-browser-pointer-interaction-with-herdr).
 
 `web-ui/src/lib/mobile.ts::isFocusOnTerminalInput` is the single discriminator: it reports whether `document.activeElement` is a terminal input iframe (class `terminal-input-iframe`). The three per-pane focus-loss teardown sites gate on it so a handoff does not tear the shared keyboard down:
 
@@ -139,7 +139,7 @@ The 50ms delay gives SolidJS time to process the null state and run cleanup effe
 
 #### FitAddon Management
 
-Four code paths can trigger `fitAddon.fit()` (git: Fix 3):
+Four mobile coordination paths discussed here can trigger `fitAddon.fit()` (git: Fix 3):
 1. **Keyboard refit** (debounced 150ms)
 2. **Active-state effect** (immediate `requestAnimationFrame`)
 3. **ResizeObserver** (immediate `requestAnimationFrame`)
@@ -147,7 +147,7 @@ Four code paths can trigger `fitAddon.fit()` (git: Fix 3):
 
 In `web-ui/src/hooks/useTerminal.ts`, a `kbDebounceTimer` variable (timer ID, not boolean) gates the ResizeObserver. When the keyboard refit starts its debounce timer, `kbDebounceTimer` is set to the timer ID. The ResizeObserver checks `kbDebounceTimer !== null` and skips `fit()` when active. The timer callback sets it back to `null`. Using the timer ID instead of a boolean prevents timer cancellation from leaving the ResizeObserver gate set.
 
-**Scroll preservation after `fit()`:** Every `fit()` call site must preserve or restore scroll position, because `fit()` recalculates terminal dimensions and can reset the viewport to the top. The rules are:
+**Scroll preservation after `fit()`:** Scroll-owning refit paths preserve or restore position because `fit()` recalculates terminal dimensions and can reset the viewport to the top. The rules are:
 
 - **Mobile with keyboard open:** Always anchor to the bottom after `fit()` via `scrollBufferToBottom()` (buffer-authoritative — the public `scrollToBottom()` resolves relative to clamp-vulnerable DOM scroll state, [AD110](../decisions/README.md#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops)).
 - The user expects to see the prompt whenever the keyboard is open.
@@ -155,7 +155,7 @@ In `web-ui/src/hooks/useTerminal.ts`, a `kbDebounceTimer` variable (timer ID, no
 - **Mounted and visible guard:** Every fit path requires a mounted terminal and prevents `fit()` from running while the container height is zero. The Herdr visibility-return path also requires the document to be visible. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
     - Inactive terminals have `height: 0` via CSS; calling `fit()` on a zero-height container calculates `rows = 0`, which clamps `viewportY` and corrupts scroll state when the terminal re-expands.
 
-`resyncViewportScrollState()` re-commands the DOM scroll state from the buffer instead of letting it drift toward the next divergence jump. This applies to all four `fit()` paths above, plus the init-overlay refit and keyboard lifecycle refit.
+`resyncViewportScrollState()` re-commands the DOM scroll state from the buffer instead of letting it drift toward the next divergence jump. It applies to the keyboard, active-state, ResizeObserver, init-overlay, and keyboard-lifecycle refits. Visibility return instead performs a full refresh and repaint request after fitting.
 
 ### Touch Input
 

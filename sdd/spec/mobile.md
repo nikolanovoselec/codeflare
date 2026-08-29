@@ -212,16 +212,36 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 1. With the keyboard closed, vertical swipes navigate a fullscreen application's alternate-buffer history. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes Herdr swipes as SGR wheel input without xterm mouse tracking) -->
 2. With the keyboard closed, vertical swipes navigate Herdr application views. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes Herdr swipes as SGR wheel input without xterm mouse tracking) -->
 3. Classic preserves its existing fullscreen wheel forwarding. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC3: preserves classic fullscreen wheel forwarding) -->
-4. A stationary single-finger Herdr tap activates the addressed control exactly once. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC4: preserves one trusted compatibility click without a duplicate synthetic sequence) --> <!-- @manual: On Samsung Internet, tap a closed Herdr menu once and confirm it opens and remains open. -->
-5. A touch that becomes a movement gesture does not activate a control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (does not synthesize a click after movement) -->
-6. A cancelled touch does not activate a control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC6: does not synthesize a click after cancellation) -->
-7. Classic stationary tap behavior remains unchanged. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC7: preserves the Classic stationary tap path without a synthetic mouse sequence) -->
 
 **Constraints:**
 
 - Normal scrollback remains owned by [REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll).
 - While the keyboard is open, vertical swipes remain terminal input ([REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) AC7); wheel routing never applies.
-- Long press and multi-touch do not activate the addressed control.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
+
+**Verification:** Automated gesture routing tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-020: Terminal touch activation
+
+**Intent:** A mobile tap activates one terminal control without duplicate activation or changes to Classic tap behavior.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A stationary single-finger Herdr tap activates the addressed control exactly once. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC1: preserves one trusted compatibility click without a duplicate synthetic sequence) --> <!-- @manual: On Samsung Internet, tap a closed Herdr menu once and confirm it opens and remains open. -->
+2. A touch that becomes a movement gesture does not activate a control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC2: does not synthesize a click after movement) -->
+3. A cancelled touch does not activate a control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC3: does not synthesize a click after cancellation) -->
+4. Classic stationary tap behavior remains unchanged. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC4: preserves the Classic stationary tap path without a synthetic mouse sequence) -->
+
+**Constraints:** Long press and multi-touch do not activate the addressed control.
 
 **Priority:** P1
 
@@ -385,12 +405,13 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. Four code paths can trigger a terminal-fit recalculation: keyboard refit (debounced ~150ms), active-state effect (immediate next frame), viewport resize observer (immediate next frame), and Herdr visibility return (immediate next frame). <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (forces a repaint and same-size PTY resize when a hidden page becomes visible) -->
+1. Three code paths can trigger a terminal-fit recalculation: keyboard refit (debounced ~150ms), active-state effect (immediate next frame), and viewport resize observer (immediate next frame). <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/mobile-ac-coverage.test.ts (REQ-MOB-010 AC1 (three fit() trigger paths)) -->
 2. While a keyboard refit is in flight, the viewport resize observer is suppressed so the two paths do not contend. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-010 AC2: suppresses competing fits while a keyboard refit is pending) -->
 3. With the keyboard open on mobile, the buffer scrolls to the bottom after every refit so new output remains visible. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (keyboard height refit) -->
 4. Without the keyboard open (desktop or mobile), scroll-to-bottom only runs when the user was already at the bottom; scrollback position is preserved otherwise. <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal hook) -->
 5. While the keyboard is open, the resize observer does not force scroll-to-bottom; the keyboard-height-change handler owns that. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal hook) -->
 6. A refit that produces unchanged dimensions does not send a resize message to the container. <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported --> <!-- @test: web-ui/src/__tests__/stores/terminal-layout.test.ts (REQ-MOB-010 AC6: unchanged-dimensions skip resize message) -->
+7. A visible Herdr terminal refits, refreshes, and requests a repaint when the document returns from hidden state. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (forces a repaint and same-size PTY resize when a hidden page becomes visible) -->
 
 **Constraints:**
 

@@ -127,7 +127,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     assert.equal(MANAGED_RUNTIME_LOCK_PATHS.includes('image/oxlint/package-lock.json'), false);
   });
 
-  it('keeps Herdr under one shadow-pin owner with a packaged API gate', () => {
+  it('keeps current Herdr pins coherent and wires release and packaged-runtime jobs', () => {
     assert.equal(herdrProvenance.version, dockerfile.match(/HERDR_VERSION="([^"]+)"/)?.[1]);
     assert.equal(herdrProvenance.commit, dockerfile.match(/HERDR_COMMIT="([0-9a-f]{40})"/)?.[1]);
     assert.equal(herdrProvenance.sha256, dockerfile.match(/HERDR_SHA256="([0-9a-f]{64})"/)?.[1]);
