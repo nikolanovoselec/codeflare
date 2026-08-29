@@ -21,11 +21,20 @@ function validBucketNameBody(): Record<string, unknown> {
     fastStartEnabled: false,
     sessionMode: 'pro',
     sessionWorkspace: 'terminal',
+    terminalMode: 'classic',
     sleepAfter: '30m',
+    managedResourcePolicy: 'mutable',
+    managedResourcePathsDigest: null,
   };
 }
 
 describe('CF-046: SetBucketNameBodySchema', () => {
+  it('accepts classic and Herdr terminal modes but rejects unknown values', () => {
+    expect(SetBucketNameBodySchema.safeParse({ ...validBucketNameBody(), terminalMode: 'classic' }).success).toBe(true);
+    expect(SetBucketNameBodySchema.safeParse({ ...validBucketNameBody(), terminalMode: 'herdr' }).success).toBe(true);
+    expect(SetBucketNameBodySchema.safeParse({ ...validBucketNameBody(), terminalMode: 'other' }).success).toBe(false);
+  });
+
   // CF-006: shared transport schema for /_internal/setBucketName
   describe('valid payloads', () => {
     it('accepts a fully-populated valid body', () => {
@@ -125,6 +134,52 @@ describe('CF-046: SetBucketNameBodySchema', () => {
         remoteCurationActive: false,
         remoteCurationReleaseDigest: 'd'.repeat(64),
         remoteCurationManifestDigest: 'e'.repeat(64),
+      }).success).toBe(false);
+    });
+  });
+
+  describe('REQ-ENTERPRISE-027 managed-resource identity transport', () => {
+    it('accepts mutable only with a null managed path identity', () => {
+      expect(SetBucketNameBodySchema.safeParse(validBucketNameBody()).success).toBe(true);
+      expect(SetBucketNameBodySchema.safeParse({
+        ...validBucketNameBody(),
+        managedResourcePathsDigest: 'e'.repeat(64),
+      }).success).toBe(false);
+    });
+
+    it('requires the curation release and managed path digests for both protected modes', () => {
+      for (const managedResourcePolicy of ['immutable', 'exclusive']) {
+        expect(SetBucketNameBodySchema.safeParse({
+          ...validBucketNameBody(),
+          remoteCurationActive: true,
+          remoteCurationReleaseDigest: 'd'.repeat(64),
+          remoteCurationManifestDigest: 'f'.repeat(64),
+          managedResourcePolicy,
+          managedResourcePathsDigest: 'e'.repeat(64),
+        }).success).toBe(true);
+        expect(SetBucketNameBodySchema.safeParse({
+          ...validBucketNameBody(),
+          remoteCurationActive: true,
+          remoteCurationReleaseDigest: 'd'.repeat(64),
+          remoteCurationManifestDigest: 'f'.repeat(64),
+          managedResourcePolicy,
+          managedResourcePathsDigest: null,
+        }).success).toBe(false);
+        expect(SetBucketNameBodySchema.safeParse({
+          ...validBucketNameBody(),
+          remoteCurationActive: true,
+          remoteCurationReleaseDigest: null,
+          remoteCurationManifestDigest: 'f'.repeat(64),
+          managedResourcePolicy,
+          managedResourcePathsDigest: 'e'.repeat(64),
+        }).success).toBe(false);
+      }
+    });
+
+    it('rejects unknown policy modes', () => {
+      expect(SetBucketNameBodySchema.safeParse({
+        ...validBucketNameBody(),
+        managedResourcePolicy: 'locked',
       }).success).toBe(false);
     });
   });

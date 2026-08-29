@@ -40,6 +40,7 @@ function baseState(): ContainerEnvState {
     _encryptionKey: null,
     _sessionMode: 'default',
     _sessionWorkspace: 'terminal',
+    _terminalMode: 'classic',
     _containerAuthToken: 'tok',
     _sessionId: 'oldsession12345678',
     _userEmail: 'user@example.com',

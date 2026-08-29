@@ -598,7 +598,7 @@ jobs:
             [ -n "$VAR_SAAS_EXTRA_IDPS" ] && args+=(--var "SAAS_EXTRA_IDPS:${VAR_SAAS_EXTRA_IDPS}")
             [ -n "$VAR_ENTERPRISE_MODE" ] && args+=(--var "ENTERPRISE_MODE:${VAR_ENTERPRISE_MODE}")
             args+=(--var "CODING_AGENTS:${VAR_CODING_AGENTS}")
-            args+=(--var "VAPID_SUBJECT:${VAR_VAPID_SUBJECT}")
+            [ -n "$VAR_VAPID_SUBJECT" ] && args+=(--var "VAPID_SUBJECT:${VAR_VAPID_SUBJECT}")
             [ -n "$VAR_OAUTH_CLIENT_ID" ] && args+=(--var "OAUTH_CLIENT_ID:${VAR_OAUTH_CLIENT_ID}")
             npx wrangler deploy --name "${WORKER_NAME}" "${args[@]}"
           }
@@ -674,10 +674,14 @@ jobs:
           if [ -n "$AIG_GATEWAY_URL" ]; then add AIG_GATEWAY_URL "$AIG_GATEWAY_URL"; else echo "No AIG_GATEWAY_URL — enterprise LLM routing disabled"; fi
           if [ -n "$AIG_TOKEN" ]; then add AIG_TOKEN "$AIG_TOKEN"; fi
 
-          # Upload both keys through the temporary bulk file so Wrangler never
-          # prints key values as plaintext variable bindings during deploy.
-          add VAPID_PUBLIC_KEY "$VAPID_PUBLIC_KEY"
-          add VAPID_PRIVATE_KEY "$VAPID_PRIVATE_KEY"
+          # Upload a configured pair through the temporary bulk file so Wrangler
+          # never prints key values as plaintext variable bindings during deploy.
+          if [ -n "$VAPID_PUBLIC_KEY" ]; then
+            add VAPID_PUBLIC_KEY "$VAPID_PUBLIC_KEY"
+            add VAPID_PRIVATE_KEY "$VAPID_PRIVATE_KEY"
+          else
+            echo "No VAPID keypair — Push notifications disabled"
+          fi
 
           printf '%s' "$SECRETS" > "$FILE"
           echo "Uploading secrets: $(printf '%s' "$SECRETS" | jq -r 'keys | join(", ")')"

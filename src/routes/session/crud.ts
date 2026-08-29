@@ -5,7 +5,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { getContainer } from '@cloudflare/containers';
-import { AgentTypeSchema, resolveSessionWorkspace, type Env, type Session, type UserPreferences } from '../../types';
+import { AgentTypeSchema, resolveSessionWorkspace, resolveTerminalMode, type Env, type Session, type TerminalMode, type UserPreferences } from '../../types';
 import { getPreferencesKey, getSessionKey, getSessionPrefix, generateSessionId, getSessionOrThrow, listAllKvKeys, sanitizeSessionName, putSessionWithMetadata } from '../../lib/kv-keys';
 import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
@@ -21,10 +21,24 @@ import { toApiSession } from '../../lib/session-helpers';
 import { TabConfigSchema } from '../../lib/schemas';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 
+const SubmittedTabConfig = z.array(TabConfigSchema).min(1).max(MAX_TABS);
+
+function validateTabConfigForMode(entries: Session['tabConfig'], terminalMode: TerminalMode): void {
+  if (!entries) return;
+  const expectedLength = terminalMode === 'herdr' ? 1 : MAX_TABS;
+  const valid = entries.length === expectedLength
+    && entries.every((entry, index) => entry.id === String(index + 1));
+  if (!valid) {
+    throw new ValidationError(terminalMode === 'herdr'
+      ? 'Herdr sessions require terminal ID 1 only'
+      : `Classic sessions require terminal IDs 1 through ${MAX_TABS}`);
+  }
+}
+
 const CreateSessionBody = z.object({
   name: z.string().trim().min(1, 'Session name cannot be blank').max(MAX_SESSION_NAME_LENGTH).optional(),
   agentType: AgentTypeSchema.optional(),
-  tabConfig: z.array(TabConfigSchema).min(1).max(MAX_TABS).optional(),
+  tabConfig: SubmittedTabConfig.optional(),
   // REQ-GITHUB-004: optional GitHub repo to clone at container start. The repo
   // shape is owner/name; ref is an optional branch/tag. Cloning is best-effort
   // in entrypoint.sh and uses the container's existing git credential helper.
@@ -35,7 +49,7 @@ const CreateSessionBody = z.object({
 
 const UpdateSessionBody = z.object({
   name: z.string().trim().min(1, 'Session name cannot be blank').max(MAX_SESSION_NAME_LENGTH).optional(),
-  tabConfig: z.array(TabConfigSchema).min(1).max(MAX_TABS).optional(),
+  tabConfig: SubmittedTabConfig.optional(),
 }).strict();
 
 const logger = createLogger('session-crud');
@@ -44,6 +58,7 @@ function toWorkspaceApiSession(session: Session) {
   return {
     ...toApiSession(session),
     workspace: resolveSessionWorkspace(session.workspace),
+    terminalMode: resolveTerminalMode(session.terminalMode),
   };
 }
 
@@ -122,6 +137,8 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
   const workspace = preferences?.defaultWorkspace === 'vscode' && effectiveSessionMode === 'advanced'
     ? 'vscode'
     : 'terminal';
+  const terminalMode: TerminalMode = preferences?.herdrEnabled === true ? 'herdr' : 'classic';
+  validateTabConfigForMode(body.tabConfig, terminalMode);
 
   // Enterprise deploys restrict the selectable agent set to the wizard-chosen
   // active agents (REQ-ENTERPRISE-003). Outside enterprise mode allowedAgents()
@@ -174,6 +191,7 @@ app.post('/', sessionCreateRateLimiter, async (c) => {
     lastAccessedAt: now,
     ...(agentType && { agentType }),
     ...(workspace === 'vscode' && { workspace }),
+    terminalMode,
     ...(body.tabConfig && { tabConfig: body.tabConfig }),
     ...(body.clone && { clone: body.clone }),
   };
@@ -215,6 +233,7 @@ app.patch('/:id', async (c) => {
   const session = await getSessionOrThrow(c.env.KV, key);
 
   const body = await parseJsonBody(c, UpdateSessionBody);
+  validateTabConfigForMode(body.tabConfig, resolveTerminalMode(session.terminalMode));
 
   // Update fields (immutable)
   const updated = {

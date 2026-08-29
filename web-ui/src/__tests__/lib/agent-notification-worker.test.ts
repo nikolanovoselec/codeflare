@@ -60,6 +60,29 @@ describe('REQ-TERM-027 AC1-AC2 / REQ-SEC-024 AC4: agent notification service wor
     });
   });
 
+  it('REQ-TERM-039 AC3: labels Pi Push completion as ready for input', async () => {
+    const pi = loadWorker();
+    await dispatchPush(pi.listeners.get('push'), { ...VALID_PUSH, kind: 'task-completed' });
+    expect(pi.registration.showNotification).toHaveBeenCalledWith(
+      'Pi · Pi #1',
+      expect.objectContaining({ body: 'Ready for input' }),
+    );
+  });
+
+  it('REQ-TERM-039 AC5: keeps Claude Push completion copy task-oriented', async () => {
+    const claude = loadWorker();
+    await dispatchPush(claude.listeners.get('push'), {
+      ...VALID_PUSH,
+      kind: 'task-completed',
+      agent: 'Claude Code',
+      sessionName: 'Claude #1',
+    });
+    expect(claude.registration.showNotification).toHaveBeenCalledWith(
+      'Claude Code · Claude #1',
+      expect.objectContaining({ body: 'Task completed' }),
+    );
+  });
+
   it('re-shows an at-least-once duplicate visibly with renotify:false', async () => {
     const { listeners, registration } = loadWorker([], [{ data: { eventId: 'event-a' } }]);
     await dispatchPush(listeners.get('push'), VALID_PUSH);

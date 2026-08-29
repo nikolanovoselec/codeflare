@@ -7,6 +7,7 @@
  * enforces the strict shape; this schema only guards the transport layer.
  */
 import { z } from 'zod';
+import { ManagedResourcePolicySchema } from '../types';
 
 export const SetBucketNameBodySchema = z.object({
   bucketName: z.string(),
@@ -17,6 +18,7 @@ export const SetBucketNameBodySchema = z.object({
   r2AccountId: z.string(),
   r2Endpoint: z.string(),
   tabConfig: z.array(z.object({}).passthrough()),
+  terminalMode: z.enum(['classic', 'herdr']),
   workspaceSyncEnabled: z.boolean(),
   fastStartEnabled: z.boolean(),
   openaiApiKey: z.string().optional(),
@@ -33,6 +35,8 @@ export const SetBucketNameBodySchema = z.object({
   remoteCurationActive: z.boolean().optional(),
   remoteCurationReleaseDigest: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
   remoteCurationManifestDigest: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
+  managedResourcePolicy: ManagedResourcePolicySchema,
+  managedResourcePathsDigest: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
   sessionMode: z.string(),
   sessionWorkspace: z.enum(['terminal', 'vscode']),
   sleepAfter: z.string(),
@@ -61,6 +65,16 @@ export const SetBucketNameBodySchema = z.object({
   }
   if (value.remoteCurationActive !== true && value.remoteCurationManifestDigest != null) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['remoteCurationManifestDigest'], message: 'inactive remote curation cannot transport a managed extension manifest digest' });
+  }
+  const protectedResources = value.managedResourcePolicy !== 'mutable';
+  if (protectedResources && !value.remoteCurationReleaseDigest) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['remoteCurationReleaseDigest'], message: 'protected managed resources require the applied curation release digest' });
+  }
+  if (protectedResources && !value.managedResourcePathsDigest) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['managedResourcePathsDigest'], message: 'protected managed resources require an applied path digest' });
+  }
+  if (!protectedResources && value.managedResourcePathsDigest !== null) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['managedResourcePathsDigest'], message: 'mutable managed resources require a null path digest' });
   }
 });
 

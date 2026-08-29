@@ -6,7 +6,8 @@ import { terminalStore } from '../stores/terminal';
 import { sessionStore } from '../stores/session';
 import { logger } from '../lib/logger';
 import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight, enableVirtualKeyboardOverlay, disableVirtualKeyboardOverlay, resetKeyboardStateIfStale, forceResetKeyboardState, isFocusOnTerminalInput, isSamsungBrowser } from '../lib/mobile';
-import { attachSwipeGestures } from '../lib/touch-gestures';
+import { attachSwipeGestures, sendTerminalKey } from '../lib/touch-gestures';
+import { attachHerdrMouseInput } from '../lib/herdr-mouse';
 import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { isSpeechSupported, isListening, startListening, stopListening } from '../lib/speech-input';
 import { setupMobileInput } from '../lib/terminal-mobile-input';
@@ -15,6 +16,8 @@ import { getIframeInput, scrollBufferToBottom, resyncViewportScrollState } from 
 import { attachWheelScrolling } from '../lib/terminal-wheel';
 import { useScrollCorrection } from './useScrollCorrection';
 import { agentEventDisposition, showGrantedAgentEvent } from '../lib/agent-notifications';
+import { parseOsc52ClipboardWrite } from '../lib/osc52';
+import { resolveTerminalMode, type TerminalMode } from '../types';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
 export const DECTCEM_CURSOR_PARAM = 25;
@@ -26,6 +29,7 @@ export interface UseTerminalOptions {
   sessionId: string;
   terminalId: string;
   sessionName?: string;
+  terminalMode?: TerminalMode;
   active: boolean;
   visible?: boolean;
   focused?: boolean;
@@ -58,15 +62,17 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let resizeObserver: ResizeObserver | undefined;
   let cleanupGestures: (() => void) | undefined;
   let cleanupWheel: (() => void) | undefined;
+  let cleanupHerdrMouse: (() => void) | undefined;
   let dataDisposable: { dispose: () => void } | undefined;
   let bufferChangeDisposable: { dispose: () => void } | undefined;
   let cursorHideDisposable: { dispose: () => void } | undefined;
   let cursorShowDisposable: { dispose: () => void } | undefined;
   let notificationDisposable: { dispose: () => void } | undefined;
+  let clipboardDisposable: { dispose: () => void } | undefined;
+  let handleContextMenu: ((event: MouseEvent) => void) | undefined;
   let agentEventDisposable: (() => void) | undefined;
   let hasInitialScrolled = false;
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  let handleContextMenu: ((e: MouseEvent) => void) | undefined;
   let disposed = false;
   const cancelledAgentEventIds = new Set<string>();
   const MAX_CANCELLED_AGENT_EVENT_IDS = 16;
@@ -81,6 +87,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   const isVisible = () => props.visible ?? props.active;
   const isFocused = () => props.focused ?? props.active;
   const canConnect = () => props.connect ?? isVisible();
+  const isHerdr = () => resolveTerminalMode(props.terminalMode) === 'herdr';
   const isMounted = () => !disposed && !!term && !!fitAddon && !!containerEl;
 
   function setContainerRef(el: HTMLDivElement) {
@@ -184,9 +191,16 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       textarea.setAttribute('data-enable-grammarly', 'false');
     }
 
-    // Custom key handler: Shift+Enter (CSI u for Claude Code), Ctrl+C (copy), Ctrl+V (paste)
+    // Custom key handler: Herdr prefix, Shift+Enter (CSI u for Claude Code), Ctrl+C (copy), Ctrl+V (paste)
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true;
+      // Browsers reserve Ctrl+B for bookmarks. Herdr uses its canonical control
+      // byte as a prefix, then receives the following action key normally.
+      if (isHerdr() && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'b') {
+        event.preventDefault();
+        sendTerminalKey(term!, '\x02');
+        return false;
+      }
       // Shift+Enter → send CSI u encoded sequence so Claude Code can distinguish
       // it from plain Enter and insert a newline instead of submitting.
       // Without this, xterm.js sends \r for both Enter and Shift+Enter.
@@ -218,25 +232,17 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       return true;
     });
 
-    // Right-click to paste (like a real terminal).
-    // MUST use bubbling phase (not capture) and MUST NOT stopPropagation —
-    // xterm.js needs its own contextmenu handler to run first to manage
-    // internal textarea focus. Without that, Chrome's clipboard readText()
-    // silently fails on subsequent calls (document focus state broken).
-    handleContextMenu = (e: MouseEvent) => {
-      e.preventDefault();
-      if (!term) return;
-      if (loadSettings().clipboardAccess !== true) return;
-      term.focus();
-      navigator.clipboard.readText().then((text) => {
-        if (text && term) {
-          term.paste(text);
-        }
-      }).catch(() => {
-        // Permission denied or not available
-      });
-    };
-    container.addEventListener('contextmenu', handleContextMenu);
+    if (!isHerdr()) {
+      handleContextMenu = (event: MouseEvent) => {
+        event.preventDefault();
+        if (!term || loadSettings().clipboardAccess !== true) return;
+        term.focus();
+        void navigator.clipboard.readText().then((text) => {
+          if (text && term) term.paste(text);
+        }).catch(() => {});
+      };
+      container.addEventListener('contextmenu', handleContextMenu);
+    }
 
     return { termBg };
   }
@@ -263,6 +269,13 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     const t = term!;
     const fa = fitAddon!;
 
+    if (isHerdr()) {
+      const screen = t.element?.querySelector<HTMLElement>('.xterm-screen');
+      if (screen) {
+        cleanupHerdrMouse = attachHerdrMouseInput(screen, t, (sequence) => sendTerminalKey(t, sequence));
+      }
+    }
+
     if (isTouchDevice()) {
       setupMobileTerminal();
     }
@@ -277,7 +290,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     // Wheel scrollback navigation goes through the BufferService, mirroring
     // the touch-gesture path — the viewport's DOM-relative wheel handling can
     // resolve a diverged scroll state into a jump to the top of scrollback.
-    cleanupWheel = attachWheelScrolling(containerEl, t);
+    if (!isHerdr()) cleanupWheel = attachWheelScrolling(containerEl, t);
 
     // Replaces xterm's scrollOnUserInput (disabled in the options above):
     // any user input while reading scrollback re-anchors to the live bottom
@@ -390,6 +403,14 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     // OSC 777 is consumed as terminal control output only. Browser notification
     // delivery is driven exclusively by validated host agent-event controls.
     notificationDisposable = t.parser.registerOscHandler(777, () => true);
+    if (isHerdr()) {
+      clipboardDisposable = t.parser.registerOscHandler(52, (data) => {
+        const text = parseOsc52ClipboardWrite(data);
+        if (text === null || loadSettings().clipboardAccess !== true) return true;
+        void navigator.clipboard.writeText(text).catch(() => {});
+        return true;
+      });
+    }
 
     const currentAgentEventDisposition = () => {
       const sessionExists = sessionStore.sessions?.some(
@@ -476,13 +497,13 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       },
     );
 
-    cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen);
+    cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen, isHerdr());
 
     // Font loading fix
     if (document.fonts) {
       const currentFont = t.options.fontFamily;
       document.fonts.ready.then(() => {
-        if (isMounted() && term?.element && currentFont) {
+        if (isMounted() && containerEl!.clientHeight > 0 && term?.element && currentFont) {
           const wasBottom = isAtBottom(term);
           term.options.fontFamily = currentFont;
           fitAddon?.fit();
@@ -586,8 +607,15 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (canConnect() && shouldConnect && term && !cleanup) {
       logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Connecting WebSocket (stage: ${stage || 'running'})`);
       const terminals = sessionStore.getTerminalsForSession(props.sessionId);
-      const tab = terminals?.tabs.find(t => t.id === props.terminalId);
-      cleanup = terminalStore.connect(props.sessionId, props.terminalId, term, props.onError, tab?.manual);
+      const tab = terminals?.tabs.find((candidate) => candidate.id === props.terminalId);
+      cleanup = terminalStore.connect(
+        props.sessionId,
+        props.terminalId,
+        term,
+        props.onError,
+        !isHerdr() && tab?.manual === true,
+        !isHerdr(),
+      );
     }
   });
 
@@ -735,15 +763,17 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     cleanup?.();
     cleanupGestures?.();
     cleanupWheel?.();
+    cleanupHerdrMouse?.();
     dataDisposable?.dispose();
     bufferChangeDisposable?.dispose();
     cursorHideDisposable?.dispose();
     cursorShowDisposable?.dispose();
     notificationDisposable?.dispose();
+    clipboardDisposable?.dispose();
     agentEventDisposable?.();
     resizeObserver?.disconnect();
-    terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
     if (handleContextMenu) mountedContainer?.removeEventListener('contextmenu', handleContextMenu);
+    terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
     term = undefined;
     fitAddon = undefined;
     containerEl = undefined;

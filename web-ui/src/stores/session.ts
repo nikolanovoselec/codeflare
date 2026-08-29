@@ -361,7 +361,10 @@ async function loadSessions(): Promise<void> {
 
 async function createSession(name: string, agentType?: AgentType, tabConfig?: TabConfig[], clone?: api.CreateSessionClone): Promise<SessionWithStatus | null> {
   try {
-    const session = await api.createSession(name, agentType, tabConfig, clone);
+    const submittedTabConfig = state.preferences.herdrEnabled === true
+      ? tabConfig?.slice(0, 1)
+      : tabConfig;
+    const session = await api.createSession(name, agentType, submittedTabConfig, clone);
     const sessionWithStatus: SessionWithStatus = {
       ...session,
       status: 'stopped',

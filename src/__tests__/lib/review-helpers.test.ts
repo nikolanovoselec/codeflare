@@ -33,8 +33,10 @@ type TranscriptFacts = {
   ciRequired: boolean;
   ciTerminal: boolean;
   ciResult?: 'success' | 'failure' | 'timeout';
+  triagePresent: boolean;
   triageComplete: boolean;
   lanes: Record<ReviewLane, { state: 'missing' | 'in-flight' | 'terminal'; toolUseId?: string }>;
+  launchIssues: Array<{ toolUseId: string; target: ReviewLane | 'ci-monitor'; problems: string[] }>;
 };
 type PlannedReviewHelpers = {
   classifyReviewBoundaryCommand(command: string): BoundarySurfaces;
@@ -535,14 +537,23 @@ describe('Pi round-limit no-op', () => {
 describe('native Pi transcript review facts', () => {
   it('REQ-AGENT-055/REQ-AGENT-063: keeps ordinary GitHub activity inside the active delivery window', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const reviewRange = `${'a'.repeat(40)}..${head}`;
     const sessionFile = writeSession([
       assistantTool('push-old', 'bash', { command: 'git push origin pi' }, '2026-07-12T12:00:00.000Z'),
       toolResult('push-old', 'bash'),
-      assistantTool('code-old', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false }, '2026-07-12T12:01:00.000Z'),
+      reviewReminder(head, reviewRange, 'main', 'push-old'),
+      assistantTool('code-old', 'subagent', {
+        subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt('code-reviewer', head, `review_range=${reviewRange}`),
+      }, '2026-07-12T12:01:00.000Z'),
       notification('code-old'),
       assistantTool('push-new', 'bash', { command: 'gh pr update-branch 42' }, '2026-07-12T12:05:00.000Z'),
       toolResult('push-new', 'bash'),
-      assistantTool('doc-new', 'subagent', { subagent_type: 'doc-updater', run_in_background: true, inherit_context: false }, '2026-07-12T12:06:00.000Z'),
+      assistantTool('doc-new', 'subagent', {
+        subagent_type: 'doc-updater', run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt('doc-updater', head, `review_range=${reviewRange}`),
+      }, '2026-07-12T12:06:00.000Z'),
     ]);
 
     const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
@@ -571,16 +582,50 @@ describe('native Pi transcript review facts', () => {
     expect(Object.values(facts.lanes).every((lane) => lane.state === 'missing')).toBe(true);
   });
 
+  it('REQ-AGENT-176/REQ-AGENT-177: leaves reviewer launches uncredited without an authoritative window', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const sessionFile = writeSession([
+      assistantTool('push-no-window', 'bash', { command: 'git push origin pi' }),
+      toolResult('push-no-window', 'bash'),
+      assistantTool('code-no-window', 'subagent', {
+        subagent_type: 'code-reviewer',
+        run_in_background: true,
+        inherit_context: false,
+        prompt: reviewerPrompt('code-reviewer', head, `review_range=${'a'.repeat(40)}..${head}`),
+      }),
+      toolResult('code-no-window'),
+      notification('code-no-window'),
+    ]);
+
+    const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ['code-reviewer'] });
+    expect(facts.lanes['code-reviewer']).toEqual({ state: 'missing' });
+    expect(facts.launchIssues).toEqual([{
+      toolUseId: 'code-no-window',
+      target: 'code-reviewer',
+      problems: ['authoritative review window is unavailable'],
+    }]);
+  });
+
   it('REQ-AGENT-053/REQ-AGENT-059: correlates successful native notifications by XML tool-use-id', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const reviewRange = `${'a'.repeat(40)}..${head}`;
     const sessionFile = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
       toolResult('push-1', 'bash'),
-      assistantTool('code-1', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false }),
+      reviewReminder(head, reviewRange),
+      assistantTool('code-1', 'subagent', {
+        subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt('code-reviewer', head, `review_range=${reviewRange}`),
+      }),
       toolResult('code-1'),
       sessionEntry('custom', { customType: 'subagents:completed', data: { toolCallId: 'code-1' } }),
       notification('different-id'),
-      assistantTool('spec-1', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false }),
+      assistantTool('spec-1', 'subagent', {
+        subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt('spec-reviewer', head, `review_range=${reviewRange}`),
+      }),
       notification('spec-1', 'Error'),
     ]);
 
@@ -594,14 +639,23 @@ describe('native Pi transcript review facts', () => {
 
   it('REQ-AGENT-098: recognizes structural triage only after all reviewer notifications', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const reviewRange = `${'a'.repeat(40)}..${head}`;
     const calls = [
-      assistantTool('code-1', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false }),
-      assistantTool('spec-1', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false }),
-      assistantTool('doc-1', 'subagent', { subagent_type: 'doc-updater', run_in_background: true, inherit_context: false }),
-    ];
+      { lane: 'code-reviewer' as const, id: 'code-1' },
+      { lane: 'spec-reviewer' as const, id: 'spec-1' },
+      { lane: 'doc-updater' as const, id: 'doc-1' },
+    ].map(({ lane, id }) => assistantTool(id, 'subagent', {
+      subagent_type: lane,
+      run_in_background: true,
+      inherit_context: false,
+      prompt: reviewerPrompt(lane, head, `review_range=${reviewRange}`),
+    }));
+    const window = reviewReminder(head, reviewRange);
     const beforeFinalNotification = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
       toolResult('push-1', 'bash'),
+      window,
       ...calls,
       notification('code-1'),
       notification('spec-1'),
@@ -611,6 +665,7 @@ describe('native Pi transcript review facts', () => {
     const afterFinalHeaderOnly = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
       toolResult('push-1', 'bash'),
+      window,
       ...calls,
       notification('code-1'),
       notification('spec-1'),
@@ -620,6 +675,7 @@ describe('native Pi transcript review facts', () => {
     const afterFinalNotification = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
       toolResult('push-1', 'bash'),
+      window,
       ...calls,
       notification('code-1'),
       notification('spec-1'),
@@ -629,6 +685,7 @@ describe('native Pi transcript review facts', () => {
     const afterDuplicateNotification = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
       toolResult('push-1', 'bash'),
+      window,
       ...calls,
       notification('code-1'),
       notification('spec-1'),
@@ -637,6 +694,7 @@ describe('native Pi transcript review facts', () => {
       notification('code-1'),
       assistantTool('code-2', 'subagent', {
         subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt('code-reviewer', head, `review_range=${reviewRange}`),
       }),
       notification('code-2'),
     ]);
@@ -649,6 +707,8 @@ describe('native Pi transcript review facts', () => {
 
   it('REQ-AGENT-098: first public reviewer result keeps triage complete after later terminal evidence', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const reviewRange = `${'a'.repeat(40)}..${head}`;
     const lanes: Array<{ lane: ReviewLane; callId: string; agentId: string; resultId: string }> = [
       { lane: 'code-reviewer', callId: 'code-1', agentId: 'agent-code', resultId: 'result-code' },
       { lane: 'spec-reviewer', callId: 'spec-1', agentId: 'agent-spec', resultId: 'result-spec' },
@@ -657,8 +717,14 @@ describe('native Pi transcript review facts', () => {
     const sessionFile = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
       toolResult('push-1', 'bash'),
+      reviewReminder(head, reviewRange),
       ...lanes.flatMap(({ lane, callId, agentId, resultId }) => [
-        assistantTool(callId, 'subagent', { subagent_type: lane, run_in_background: true, inherit_context: false }),
+        assistantTool(callId, 'subagent', {
+          subagent_type: lane,
+          run_in_background: true,
+          inherit_context: false,
+          prompt: reviewerPrompt(lane, head, `review_range=${reviewRange}`),
+        }),
         toolResult(callId, 'subagent', false, {
           details: { agentId, subagentType: lane },
           text: `Agent started in background.\nAgent ID: ${agentId}\nType: ${lane}`,
@@ -687,13 +753,25 @@ describe('native Pi transcript review facts', () => {
 
   it('REQ-AGENT-071/REQ-AGENT-074: keeps unmatched reviewer calls in flight until native terminal notification', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const reviewRange = `${'a'.repeat(40)}..${head}`;
     const sessionFile = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }, '2026-07-12T12:00:00.000Z'),
       toolResult('push-1', 'bash'),
-      assistantTool('code-long', 'subagent', { subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false }, '2026-07-12T12:00:30.000Z'),
-      assistantTool('spec-done', 'subagent', { subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false }, '2026-07-12T12:09:30.000Z'),
+      reviewReminder(head, reviewRange),
+      assistantTool('code-long', 'subagent', {
+        subagent_type: 'code-reviewer', run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt('code-reviewer', head, `review_range=${reviewRange}`),
+      }, '2026-07-12T12:00:30.000Z'),
+      assistantTool('spec-done', 'subagent', {
+        subagent_type: 'spec-reviewer', run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt('spec-reviewer', head, `review_range=${reviewRange}`),
+      }, '2026-07-12T12:09:30.000Z'),
       notification('spec-done'),
-      assistantTool('doc-queued', 'subagent', { subagent_type: 'doc-updater', run_in_background: true, inherit_context: false }, '2026-07-12T12:09:45.000Z'),
+      assistantTool('doc-queued', 'subagent', {
+        subagent_type: 'doc-updater', run_in_background: true, inherit_context: false,
+        prompt: reviewerPrompt('doc-updater', head, `review_range=${reviewRange}`),
+      }, '2026-07-12T12:09:45.000Z'),
     ]);
 
     const facts = reviewTranscriptFacts({ sessionFile, requiredLanes: ALL_LANES });
@@ -734,7 +812,7 @@ describe('native Pi transcript review facts', () => {
     expect(facts.lanes['spec-reviewer']).toEqual({ state: 'missing' });
   });
 
-  it('REQ-AGENT-170: counts full-PR reviewers only with exact scope, base, and output contract', async () => {
+  it('REQ-AGENT-177: counts full-PR reviewers only with exact scope, base, and output contract', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
     const head = 'b'.repeat(40);
     const common = [
@@ -869,6 +947,7 @@ describe('native Pi transcript review facts', () => {
       });
       expect(afterFacts.ciTerminal).toBe(true);
       expect(afterFacts.ciResult).toBe(result);
+      expect(afterFacts.triagePresent).toBe(true);
       expect(afterFacts.triageComplete).toBe(result === 'success');
 
       if (result !== 'success') {
@@ -882,11 +961,13 @@ describe('native Pi transcript review facts', () => {
             ciNotification('ci-current', result, head),
             assistantText('| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n|---|---|---|---|---|\n' + misleadingRow),
           ]);
-          expect(reviewTranscriptFacts({
+          const misleadingFacts = reviewTranscriptFacts({
             sessionFile: misleading,
             requiredLanes: ALL_LANES,
             ci: { repository: 'owner/repo', repo: '/repo with spaces', prNumber: 42, head },
-          }).triageComplete).toBe(false);
+          });
+          expect(misleadingFacts.triagePresent).toBe(true);
+          expect(misleadingFacts.triageComplete).toBe(false);
         }
 
         for (const proposedFix of [`CI_RESULT ${result}`, `\`CI_RESULT ${result}\``]) {
@@ -935,15 +1016,20 @@ describe('native Pi transcript review facts', () => {
 
   it('REQ-AGENT-071: rejects reviewer calls that inherit or omit parent context isolation', async () => {
     const { reviewTranscriptFacts } = await plannedHelpers();
+    const head = 'b'.repeat(40);
+    const reviewRange = `${'a'.repeat(40)}..${head}`;
     const sessionFile = writeSession([
       assistantTool('push-1', 'bash', { command: 'git push origin pi' }),
       toolResult('push-1', 'bash'),
+      reviewReminder(head, reviewRange),
       assistantTool('code-inherited', 'subagent', {
         subagent_type: 'code-reviewer', run_in_background: true, inherit_context: true,
+        prompt: reviewerPrompt('code-reviewer', head, `review_range=${reviewRange}`),
       }),
       notification('code-inherited'),
       assistantTool('spec-unspecified', 'subagent', {
         subagent_type: 'spec-reviewer', run_in_background: true,
+        prompt: reviewerPrompt('spec-reviewer', head, `review_range=${reviewRange}`),
       }),
       notification('spec-unspecified'),
     ]);

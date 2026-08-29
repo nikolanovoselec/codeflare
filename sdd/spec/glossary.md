@@ -9,10 +9,12 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Bucket | A per-user R2 storage bucket (`codeflare-{bucketName}`) holding all persistent files. |
 | Agent | An AI coding CLI tool (Claude Code, Codex, Antigravity, Copilot, OpenCode, Pi, or plain bash). |
 | Browser IDE | A per-session code-server editor served from the session container, isolated by session and available to advanced running sessions. |
-| IDE agent | The editor-native integration matching terminal tab 1: Codeflare in native Chat for Pi sessions, Anthropic's official Claude panel, or no extension for unsupported selections. Its conversation and process remain separate from terminal tab 1. |
+| IDE agent | The editor-native integration matching the session's configured terminal agent: Codeflare in native Chat for Pi sessions, Anthropic's official Claude panel, or no extension for unsupported selections. Its conversation and process remain separate from the standalone Herdr runtime. |
 | Editor activity | Any message sent from the Browser IDE to its session; each message refreshes the input-based idle timer without inspecting its content. |
 | Session Mode | Standard (default) or Pro (advanced). Controls which preseed configs are deployed. |
 | Preseed | Pre-configured rules, skills, agents, commands, and plugins deployed to a container on start. |
+| Managed Resource Policy | Enterprise persistence mode for verified managed releases: `mutable`, `immutable` (exact managed/retired paths protected while personal resources persist), or `exclusive` (governed resource roots additionally reject personal persistence). |
+| Managed Path Policy | Canonical `.codeflare/managed-paths.json` in the exact user bucket, derived and stamped by trusted reconciliation. Its digest/release/mode identity authorizes Worker enforcement; a container copy is non-authoritative filter input. |
 | Tier | Subscription level (blocked, pending, free, trial, standard, advanced, max, unlimited/Custom). |
 | Durable Object (DO) | Cloudflare's stateful compute primitive. Container DO manages per-session state; Timekeeper DO tracks per-user usage. |
 | KV | Cloudflare Workers KV - globally distributed key-value store for session metadata, user records, and preferences. |
@@ -29,8 +31,11 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Admin Access Group | An enterprise Setup-configured Cloudflare Access group (`SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP`) whose members are granted admin (= Setup / user-administration) access, parallel to the email-based Admin Users list. Resolved live per-request in `requireAdmin` (never the hot auth path); elevation lives only on the request context. Distinct from the user-access groups — admin groups never participate in per-group routing ([REQ-ENTERPRISE-014](enterprise-mode.md#req-enterprise-014-admin-access-via-cloudflare-access-groups)). |
 | Bisync | rclone's bidirectional sync mode - keeps container local files and R2 bucket in sync. |
 | sleepAfter | Configurable idle timeout (15m-4h) before a container is stopped. Input-based detection. |
-| PTY | Pseudo-terminal - the terminal server multiplexes up to 6 PTY sessions per container. |
-| Tiling | Multi-terminal layout modes: tabbed (default), 2-split, 3-split, 4-grid. |
+| PTY | Pseudo-terminal - classic sessions use up to six outer PTYs; Herdr sessions use one outer client PTY and Herdr-owned inner PTYs. |
+| Terminal Surface | The single xterm.js and outer PTY exposed by Codeflare for one backend Terminal session, using internal terminal ID `1`. |
+| Terminal Mode | Immutable `classic` or `herdr` ownership stamped by the Worker when a session is created; missing or invalid historical values resolve to classic. |
+| Herdr Runtime | The named in-container terminal multiplexer that owns tabs, panes, splits, workspaces, shells, and agents inside an opt-in Herdr Terminal session. Live processes are ephemeral; its official structural `session.json` snapshot persists under `.codeflare` for bounded recovery. |
+| MultiView Layout | Codeflare's 2-split, 3-split, or 4-grid arrangement of terminal surfaces from distinct backend sessions. |
 | CF Access | Cloudflare Access - external auth service used in default/onboarding modes. |
 | Direct GitHub OAuth | Worker-managed GitHub OAuth flow used in SaaS mode when OAUTH_CLIENT_ID is configured. Completely separate from CF Access. |
 | Timekeeper | Durable Object that tracks per-user compute usage for quota enforcement. |
@@ -43,7 +48,7 @@ Canonical definitions for domain concepts. Use these terms consistently across a
 | Effective Tier | The billing-resolved subscription tier after applying grace periods and expiry rules |
 | Fast Start | Container optimization that disables agent CLI auto-updaters to reduce startup time |
 | Bisync Baseline | Initial rclone --resync state that establishes bidirectional sync tracking |
-| Pre-warm | Pre-spawning tab 1 PTY during container startup before the terminal server is ready |
+| Pre-warm | Pre-spawning a Terminal session's classic primary login shell or sole outer Herdr client before the terminal service is ready |
 | Reconcile | Process of syncing preseed configs to match the current session mode (overwrite + cleanup) |
 | BillingStatus | Subscription state: active, trialing, past_due, or canceled |
 | Anti-flapping | 3-minute startup guard preventing stale KV data from toggling session status |

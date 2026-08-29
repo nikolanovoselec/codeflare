@@ -20,6 +20,7 @@ import LlmKeysSection from './settings/LlmKeysSection';
 import AdminActionButton from './settings/AdminActionButton';
 import {
   agentNotificationPermission,
+  agentNotificationsAvailable,
   agentNotificationsEnabled,
   setAgentNotificationsEnabled,
 } from '../lib/agent-notifications';
@@ -124,6 +125,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [recreateAgentError, setRecreateAgentError] = createSignal<string | null>(null);
   const [openGroup, setOpenGroup] = createSignal<AccordionGroup>('appearance');
   const [notificationPermission, setNotificationPermission] = createSignal<AgentNotificationEnablement>('default');
+  const [notificationAvailable, setNotificationAvailable] = createSignal(false);
   const [notificationEnabled, setNotificationEnabled] = createSignal(false);
   let notificationRevision = 0;
 
@@ -167,6 +169,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   };
   const workspaceSyncEnabled = () => sessionStore.preferences.workspaceSyncEnabled === true;
   const fastStartEnabled = () => sessionStore.preferences.fastStartEnabled !== false;
+  const herdrEnabled = () => sessionStore.preferences.herdrEnabled === true;
   const currentSessionMode = () => sessionStore.preferences.sessionMode ?? 'default';
   const defaultWorkspace = () => sessionStore.preferences.defaultWorkspace ?? 'terminal';
   const isFreeUser = () => {
@@ -189,7 +192,11 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     setAccentHexInput(loaded.accentColor || '');
     setNotificationPermission(agentNotificationPermission());
     const revision = notificationRevision;
-    void agentNotificationsEnabled().then((enabled) => {
+    void agentNotificationsAvailable().then(async (available) => {
+      if (notificationRevision !== revision) return;
+      setNotificationAvailable(available);
+      if (!available) return;
+      const enabled = await agentNotificationsEnabled();
       if (notificationRevision === revision) setNotificationEnabled(enabled);
     });
   });
@@ -219,6 +226,10 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
   const handleFastStartToggle = () => {
     void sessionStore.updatePreferences({ fastStartEnabled: !fastStartEnabled() });
+  };
+
+  const handleHerdrToggle = () => {
+    void sessionStore.updatePreferences({ herdrEnabled: !herdrEnabled() });
   };
 
   // Implements REQ-AGENT-005
@@ -381,9 +392,11 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               defaultWorkspace={defaultWorkspace}
               canUseAdvanced={canUseAdvanced}
               fastStartEnabled={fastStartEnabled}
+              herdrEnabled={herdrEnabled}
               workspaceSyncEnabled={workspaceSyncEnabled}
               clipboardAccess={clipboardAccess}
               notificationPermission={notificationPermission}
+              notificationAvailable={notificationAvailable}
               notificationEnabled={notificationEnabled}
               sleepAfter={sleepAfter}
               canChangeSleepAfter={canChangeSleepAfter}
@@ -397,6 +410,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               onSessionModeChange={handleSessionModeChange}
               onDefaultWorkspaceChange={handleDefaultWorkspaceChange}
               onFastStartToggle={handleFastStartToggle}
+              onHerdrToggle={handleHerdrToggle}
               onWorkspaceSyncToggle={handleWorkspaceSyncToggle}
               onEnableAgentNotifications={() => { void handleAgentNotificationsToggle(); }}
               onSleepAfterChange={handleSleepAfterChange}

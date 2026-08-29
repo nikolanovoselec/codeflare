@@ -1,0 +1,53 @@
+onboarding = false
+
+[terminal]
+default_shell = "/bin/bash"
+shell_mode = "login"
+new_cwd = "/home/user/workspace"
+
+[keys]
+prefix = "ctrl+b"
+help = "prefix+?"
+settings = "prefix+s"
+
+[update]
+version_check = false
+manifest_check = false
+
+[theme]
+name = "catppuccin"
+auto_switch = false
+
+[theme.custom]
+accent = "#d97706"
+panel_bg = "#1a2332"
+sidebar_bg = "#141b27"
+active_row_bg = "#253247"
+selection_bg = "#334155"
+text = "#e4e4f0"
+subtext0 = "#94a3b8"
+green = "#22c55e"
+yellow = "#eab308"
+red = "#ef4444"
+blue = "#3b82f6"
+teal = "#06b6d4"
+
+[ui]
+mobile_width_threshold = 96
+mouse_capture = true
+copy_on_select = false
+right_click_passthrough_modifier = "ctrl"
+show_agent_labels_on_pane_borders = true
+status_indicators = "symbols"
+window_title = ""
+
+[ui.toast]
+delivery = "herdr"
+
+[advanced]
+scrollback_limit_bytes = 10000000
+
+[experimental]
+allow_nested = false
+kitty_graphics = false
+pane_history = false

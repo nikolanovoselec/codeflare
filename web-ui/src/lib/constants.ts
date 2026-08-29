@@ -17,6 +17,9 @@ export const MAX_STARTUP_POLL_ERRORS = 10;
 // Terminal Connection
 // =============================================================================
 
+/** Session IDs accepted by terminal and session API routes. */
+export const SESSION_ID_RE = /^[a-z0-9]{8,24}$/;
+
 /** WebSocket reconnect backoff: base delay for attempt 1 (ms). */
 export const WS_RECONNECT_BASE_MS = 500;
 
@@ -29,6 +32,9 @@ export const WS_RECONNECT_MAX_MS = 15_000;
  *  no close/error event and would otherwise strand the terminal on "Connecting"
  *  (REQ-TERM-020 AC2). */
 export const WS_CONNECT_TIMEOUT_MS = 10_000;
+
+/** Maximum outer terminals for a classic session; Herdr authorizes only ID 1. */
+export const MAX_TERMINALS_PER_SESSION = 6;
 
 // =============================================================================
 // UI Timing
@@ -58,9 +64,6 @@ export const WS_CONTAINER_STOPPED_CODE = 4503;
 // =============================================================================
 // Session
 // =============================================================================
-
-/** Maximum terminals per session. Keep in sync with src/lib/constants.ts:MAX_TABS (backend equivalent) */
-export const MAX_TERMINALS_PER_SESSION = 6;
 
 /** Interval for polling the session list to keep the dashboard up to date (ms) */
 export const SESSION_LIST_POLL_INTERVAL_MS = 5_000;

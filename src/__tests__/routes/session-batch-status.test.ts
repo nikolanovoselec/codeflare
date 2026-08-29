@@ -56,7 +56,7 @@ vi.mock('../../lib/migration-containers', () => ({
   drainContainers: vi.fn(async () => {}),
 }));
 const managedReleaseState = vi.hoisted(() => ({
-  active: null as null | { digest: string; pointer: { sequence: number } },
+  active: null as null | { digest: string; pointer: { sequence: number }; resourcePolicy: 'mutable' | 'immutable' | 'exclusive' },
   error: null as Error | null,
 }));
 vi.mock('../../lib/managed-release-active', () => ({
@@ -455,7 +455,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
 
     it('REQ-STOR-023 AC1+AC2: initial status compares descriptor and mode without payload bytes', async () => {
-      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
       const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
       const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
@@ -464,7 +464,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
 
     it('REQ-STOR-022 AC1+AC2: a running session defers mutation and reports pending status', async () => {
-      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       const running = makeSession('aabbccdd11223344', 'running');
       mockKV._set('session:test-bucket:aabbccdd11223344', running, buildSessionMetadata(running));
       const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
@@ -474,7 +474,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
 
     it('REQ-STOR-022 AC1+AC2: initializing metadata also defers reconciliation', async () => {
-      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       const session = makeSession('aabbccdd11223344', 'stopped');
       mockKV._set('session:test-bucket:aabbccdd11223344', session, {
         ...buildSessionMetadata(session),
@@ -521,7 +521,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
 
     it('reports upgrading when a downgraded SaaS user has advanced managed content applied', async () => {
       vi.mocked(isSaasModeActive).mockReturnValue(true);
-      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', {
         sessionMode: 'advanced',
         managedEnvironmentApplied: { digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z' },
@@ -539,7 +539,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
 
     it('REQ-STOR-023 AC1: a pre-upgrade applied stamp without a manifest digest requires reconciliation', async () => {
-      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', {
         sessionMode: 'default',
         managedEnvironmentApplied: { digest: 'd'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-01-01T00:00:00.000Z' },
@@ -550,11 +550,35 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(true);
     });
 
-    it('reports current only when the active release, manifest digest, and resolved mode match applied state', async () => {
-      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 } };
+    it.each([
+      ['policy changed', 'immutable', undefined],
+      ['protected path identity missing', 'exclusive', 'exclusive'],
+    ] as const)('REQ-STOR-023 AC1: reports upgrading when managed resource %s', async (_case, desiredPolicy, appliedPolicy) => {
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: desiredPolicy };
       mockKV._set('user-prefs:test-bucket', {
         sessionMode: 'advanced',
-        managedEnvironmentApplied: { digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z' },
+        managedEnvironmentApplied: {
+          digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'advanced',
+          ...(appliedPolicy ? { resourcePolicy: appliedPolicy } : {}),
+          appliedAt: '2026-01-01T00:00:00.000Z',
+        },
+      });
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+
+      expect(body.managedReleaseStatus).toBe('upgrading');
+      expect(body.preseedNeedsUpgrade).toBe(true);
+    });
+
+    it('reports current only when the active release, manifest digest, resolved mode, and resource policy match applied state', async () => {
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'immutable' };
+      mockKV._set('user-prefs:test-bucket', {
+        sessionMode: 'advanced',
+        managedEnvironmentApplied: {
+          digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'advanced',
+          resourcePolicy: 'immutable', managedPathsDigest: 'f'.repeat(64), appliedAt: '2026-01-01T00:00:00.000Z',
+        },
       });
       const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
       const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };

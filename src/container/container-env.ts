@@ -4,7 +4,7 @@
  * Extracted from Container DO (index.ts) to reduce file size.
  * All functions receive explicit state/context parameters instead of `this`.
  */
-import type { Env, SessionWorkspace, TabConfig } from '../types';
+import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import { TERMINAL_SERVER_PORT, ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER, ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
 import { toErrorMessage } from '../lib/error-types';
@@ -31,6 +31,8 @@ export interface ContainerEnvState {
   _remoteCurationActive?: boolean;
   _remoteCurationReleaseDigest?: string | null;
   _remoteCurationManifestDigest?: string | null;
+  _managedResourcePolicy?: ManagedResourcePolicy;
+  _managedResourcePathsDigest?: string | null;
   _workspaceSyncEnabled: boolean;
   _fastStartEnabled: boolean;
   _tabConfig: TabConfig[] | null;
@@ -42,6 +44,7 @@ export interface ContainerEnvState {
   _encryptionKey: string | null;
   _sessionMode: string;
   _sessionWorkspace: SessionWorkspace;
+  _terminalMode: TerminalMode;
   _containerAuthToken: string | null;
   _sessionId: string | null;
   _userEmail: string | null;
@@ -87,8 +90,11 @@ interface RestartPrefsInput {
   remoteCurationActive?: boolean;
   remoteCurationReleaseDigest?: string | null;
   remoteCurationManifestDigest?: string | null;
+  managedResourcePolicy?: ManagedResourcePolicy;
+  managedResourcePathsDigest?: string | null;
   sessionMode?: string;
   sessionWorkspace?: SessionWorkspace;
+  terminalMode?: TerminalMode;
   /** REQ-MEM-001 AC4: user's IANA timezone. Updated on subsequent DO wakes
    * when preferences.userTimezone changes between sessions. */
   userTimezone?: string;
@@ -118,8 +124,11 @@ export interface SetBucketNameCreds {
   remoteCurationActive?: boolean;
   remoteCurationReleaseDigest?: string | null;
   remoteCurationManifestDigest?: string | null;
+  managedResourcePolicy?: ManagedResourcePolicy;
+  managedResourcePathsDigest?: string | null;
   sessionMode?: string;
   sessionWorkspace?: SessionWorkspace;
+  terminalMode?: TerminalMode;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded from /start. */
   userTimezone?: string;
   /** REQ-GITHUB-004: GitHub repo (owner/name) to clone at container start. */
@@ -146,8 +155,9 @@ export function validateBucketNameInput(input: {
   fastStartEnabled?: unknown;
   sessionMode?: unknown;
   sessionWorkspace?: unknown;
+  terminalMode?: unknown;
 }): string | null {
-  const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace } = input;
+  const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode } = input;
 
   if (typeof bucketName !== 'string' || bucketName.trim() === '') {
     return 'bucketName must be a non-empty string';
@@ -172,6 +182,9 @@ export function validateBucketNameInput(input: {
   }
   if (sessionWorkspace !== undefined && sessionWorkspace !== 'terminal' && sessionWorkspace !== 'vscode') {
     return 'sessionWorkspace must be terminal or vscode when provided';
+  }
+  if (terminalMode !== undefined && terminalMode !== 'classic' && terminalMode !== 'herdr') {
+    return 'terminalMode must be classic or herdr when provided';
   }
   if (r2AccountId !== undefined && (typeof r2AccountId !== 'string' || r2AccountId.trim() === '')) {
     return 'r2AccountId must be a non-empty string when provided';
@@ -202,6 +215,29 @@ function normalizeIanaTz(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined;
   const trimmed = v.trim();
   return /^[A-Za-z][A-Za-z0-9+_/-]{0,63}$/.test(trimmed) ? trimmed : undefined;
+}
+
+function setManagedResourceIdentity(
+  state: ContainerEnvState,
+  policy: ManagedResourcePolicy,
+  pathsDigest: string | null | undefined,
+): boolean {
+  const protectedResources = policy !== 'mutable';
+  if (protectedResources && (
+    !/^[0-9a-f]{64}$/.test(state._remoteCurationReleaseDigest ?? '')
+    || !/^[0-9a-f]{64}$/.test(pathsDigest ?? '')
+  )) {
+    throw new Error('Protected managed-resource identity is incomplete');
+  }
+  if (!protectedResources && pathsDigest != null) {
+    throw new Error('Mutable managed-resource identity must be empty');
+  }
+  const nextPathsDigest = protectedResources ? pathsDigest! : null;
+  const changed = policy !== (state._managedResourcePolicy ?? 'mutable')
+    || nextPathsDigest !== (state._managedResourcePathsDigest ?? null);
+  state._managedResourcePolicy = policy;
+  state._managedResourcePathsDigest = nextPathsDigest;
+  return changed;
 }
 
 // ---------------------------------------------------------------------------
@@ -289,6 +325,10 @@ export function buildEnvVars(
     ...(state._remoteCurationActive && state._remoteCurationManifestDigest && {
       REMOTE_CURATION_MANIFEST_DIGEST: state._remoteCurationManifestDigest,
     }),
+    ...(state._managedResourcePolicy && state._managedResourcePolicy !== 'mutable' && {
+      MANAGED_RESOURCE_POLICY: state._managedResourcePolicy,
+      MANAGED_RESOURCE_PATHS_DIGEST: state._managedResourcePathsDigest!,
+    }),
     // Deploy credentials (GitHub + Cloudflare for push & deploy).
     // REQ-GITHUB-003: in enterprise mode the real GitHub token must NEVER enter the
     // container — emit a non-secret placeholder so git/`gh` (and Copilot's GitHub
@@ -327,6 +367,7 @@ export function buildEnvVars(
     // Session mode (controls memory persistence in entrypoint.sh)
     SESSION_MODE: state._sessionMode,
     CODEFLARE_SESSION_WORKSPACE: state._sessionWorkspace,
+    CODEFLARE_TERMINAL_MODE: state._terminalMode,
     // REQ-MEM-001 AC4: user's IANA timezone. The capture haiku resolves
     // wall-clock time as TZ="$USER_TIMEZONE" date '+%Y-%m-%dT...'; only
     // emit when set so the entrypoint's existing fallback chain ($TZ ->
@@ -422,6 +463,11 @@ export async function applyBucketName(
     && /^[0-9a-f]{64}$/.test(remoteCurationManifestDigest)
     ? remoteCurationManifestDigest
     : null;
+  setManagedResourceIdentity(
+    state,
+    r2Creds?.managedResourcePolicy ?? 'mutable',
+    r2Creds?.managedResourcePathsDigest,
+  );
 
   // Store session mode in instance memory only (not persisted to DO storage; re-sent on each container start)
   if (r2Creds?.sessionMode) state._sessionMode = r2Creds.sessionMode;
@@ -429,6 +475,10 @@ export async function applyBucketName(
   if (r2Creds?.sessionWorkspace) {
     await storage.put('sessionWorkspace', r2Creds.sessionWorkspace);
     state._sessionWorkspace = r2Creds.sessionWorkspace;
+  }
+  if (r2Creds?.terminalMode) {
+    await storage.put('terminalMode', r2Creds.terminalMode);
+    state._terminalMode = r2Creds.terminalMode;
   }
 
   // REQ-MEM-001 AC4: persist userTimezone so the capture pipeline sees
@@ -596,6 +646,13 @@ export async function applyPrefsOnRestart(
       changed = true;
     }
   }
+  if (input.managedResourcePolicy !== undefined) {
+    changed = setManagedResourceIdentity(
+      state,
+      input.managedResourcePolicy,
+      input.managedResourcePathsDigest,
+    ) || changed;
+  }
   if (input.sessionMode) {
     state._sessionMode = input.sessionMode;
     changed = true;
@@ -603,6 +660,11 @@ export async function applyPrefsOnRestart(
   if (input.sessionWorkspace && input.sessionWorkspace !== state._sessionWorkspace) {
     await storage.put('sessionWorkspace', input.sessionWorkspace);
     state._sessionWorkspace = input.sessionWorkspace;
+    changed = true;
+  }
+  if (input.terminalMode && input.terminalMode !== state._terminalMode) {
+    await storage.put('terminalMode', input.terminalMode);
+    state._terminalMode = input.terminalMode;
     changed = true;
   }
 

@@ -70,19 +70,21 @@ describe('Preferences Routes', () => {
       expect(body).toEqual({});
     });
 
-    it('returns stored preferences including workspaceSyncEnabled', async () => {
+    it('returns stored preferences including workspaceSyncEnabled and Herdr choice', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
         lastAgentType: 'codex',
         workspaceSyncEnabled: true,
+        herdrEnabled: true,
       });
       const app = createTestApp();
 
       const res = await app.request('/preferences');
 
       expect(res.status).toBe(200);
-      const body = await res.json() as { lastAgentType?: string; workspaceSyncEnabled?: boolean };
+      const body = await res.json() as { lastAgentType?: string; workspaceSyncEnabled?: boolean; herdrEnabled?: boolean };
       expect(body.lastAgentType).toBe('codex');
       expect(body.workspaceSyncEnabled).toBe(true);
+      expect(body.herdrEnabled).toBe(true);
     });
 
     it('omits the removed preset preference from legacy stored records', async () => {
@@ -117,6 +119,50 @@ describe('Preferences Routes', () => {
       const body = await res.json() as { lastAgentType?: string; workspaceSyncEnabled?: boolean };
       expect(body.lastAgentType).toBe('antigravity');
       expect(body.workspaceSyncEnabled).toBe(true);
+    });
+
+    it('persists the Herdr preference without changing unrelated fields', async () => {
+      mockKV._set('user-prefs:codeflare-test-user', { lastAgentType: 'pi' });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ herdrEnabled: true }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ lastAgentType: 'pi', herdrEnabled: true });
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toEqual({
+        lastAgentType: 'pi',
+        herdrEnabled: true,
+      });
+    });
+
+    it('persists Herdr preference independently of existing session records', async () => {
+      const sessionKey = 'session:codeflare-test-user:session12345678';
+      const existingSession = { id: 'session12345678', terminalMode: 'classic' };
+      mockKV._set(sessionKey, existingSession);
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ herdrEnabled: true }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(await mockKV.get(sessionKey, 'json')).toEqual(existingSession);
+    });
+
+    it('rejects a non-boolean Herdr preference', async () => {
+      const app = createTestApp();
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ herdrEnabled: 'yes' }),
+      });
+      expect(res.status).toBe(400);
     });
 
     it('accepts workspaceSyncEnabled false', async () => {

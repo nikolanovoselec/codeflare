@@ -61,11 +61,12 @@ export CODEFLARE_RUNTIME_ROOT="/run/codeflare"
 SYNC_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/sync"
 SERVICES_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/services"
 OPENVSCODE_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/openvscode"
+HERDR_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/herdr"
 LOCKS_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/locks"
 MARKERS_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/markers"
-mkdir -p "$SYNC_RUNTIME_DIR/rclone" "$SERVICES_RUNTIME_DIR" "$OPENVSCODE_RUNTIME_DIR" "$LOCKS_RUNTIME_DIR" "$MARKERS_RUNTIME_DIR"
+mkdir -p "$SYNC_RUNTIME_DIR/rclone" "$SERVICES_RUNTIME_DIR" "$OPENVSCODE_RUNTIME_DIR" "$HERDR_RUNTIME_DIR" "$LOCKS_RUNTIME_DIR" "$MARKERS_RUNTIME_DIR"
 chmod 0700 "$CODEFLARE_RUNTIME_ROOT" "$SYNC_RUNTIME_DIR" "$SYNC_RUNTIME_DIR/rclone" \
-    "$SERVICES_RUNTIME_DIR" "$OPENVSCODE_RUNTIME_DIR" "$LOCKS_RUNTIME_DIR" "$MARKERS_RUNTIME_DIR"
+    "$SERVICES_RUNTIME_DIR" "$OPENVSCODE_RUNTIME_DIR" "$HERDR_RUNTIME_DIR" "$LOCKS_RUNTIME_DIR" "$MARKERS_RUNTIME_DIR"
 export CODEFLARE_SYNC_DAEMON_PIDFILE="$SYNC_RUNTIME_DIR/sync-daemon.pid"
 export CODEFLARE_OPENVSCODE_EXTENSIONS_DIR="$OPENVSCODE_RUNTIME_DIR/data/extensions"
 export CODEFLARE_GRAPH_LOCK="$LOCKS_RUNTIME_DIR/graphify-global.lock"
@@ -390,6 +391,15 @@ RCLONE_FILTERS_COMMON=(
     --filter "+ .codeflare/ide-ui-state.json"
     --filter "+ .codeflare/ide-extensions.json"
     --filter "+ .codeflare/managed-extensions.json"
+    # Herdr's structural snapshot restores workspaces, tabs, panes, layout,
+    # cwd, focus, and native agent session references. Pane history and every
+    # runtime artifact remain excluded because terminal output may hold secrets.
+    --filter "+ .codeflare/herdr/"
+    --filter "+ .codeflare/herdr/sessions/"
+    --filter "+ .codeflare/herdr/sessions/cf-${SESSION_ID:-unknown}/"
+    --filter "+ .codeflare/herdr/sessions/cf-${SESSION_ID:-unknown}/session.json"
+    --filter "- .codeflare/herdr/**"
+    --filter "+ .codeflare/managed-paths.json"
     --filter "+ .codeflare/review-state/"
     --filter "+ .codeflare/review-state/v1/"
     --filter "+ .codeflare/review-state/v1/**"
@@ -546,6 +556,12 @@ RCLONE_FILTERS_COMMON=(
     # rule below).
     --filter "- .wrangler/**"
 
+    # OpenCode is a governed managed-resource home. Restore/sync it like the
+    # other agent homes; the generated policy filter (ordered first) removes
+    # protected exact paths or exclusive roots without swallowing adjacent user files.
+    --filter "+ .config/opencode/"
+    --filter "+ .config/opencode/**"
+
     # ~/.config/** - tool configs that all regenerate on first use:
     # configstore (npm), fish (shell), opencode, uv (Python tooling),
     # wrangler (XDG location), rclone (R2 secrets).
@@ -646,6 +662,62 @@ recover_vanished_files() {
 
 init_recovery_filters
 
+MANAGED_RESOURCE_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/managed-resources.filter"
+: > "$MANAGED_RESOURCE_FILTER_FILE"
+RCLONE_FILTERS=(--filter-from "$MANAGED_RESOURCE_FILTER_FILE" "${RCLONE_FILTERS[@]}")
+
+prepare_managed_resource_filter() {
+    local policy="${MANAGED_RESOURCE_POLICY:-mutable}"
+    local policy_file="$USER_HOME/.codeflare/managed-paths.json"
+    if [ "$policy" = "mutable" ]; then
+        rm -f "$policy_file"
+        : > "$MANAGED_RESOURCE_FILTER_FILE"
+        return 0
+    fi
+    if [ "$policy" != "immutable" ] && [ "$policy" != "exclusive" ]; then
+        echo "[entrypoint] ERROR: invalid managed resource policy" >&2
+        return 1
+    fi
+    if [ ! -f "$policy_file" ]; then
+        echo "[entrypoint] ERROR: protected managed resource policy was not restored" >&2
+        return 1
+    fi
+    local policy_size
+    policy_size="$(stat -c %s "$policy_file")" || return 1
+    if [ "$policy_size" -gt $((8 * 1024 * 1024)) ]; then
+        echo "[entrypoint] ERROR: managed resource policy exceeds 8 MiB" >&2
+        return 1
+    fi
+    node - "$policy_file" "$policy" "${REMOTE_CURATION_RELEASE_DIGEST:-}" "${MANAGED_RESOURCE_PATHS_DIGEST:-}" "$MANAGED_RESOURCE_FILTER_FILE" <<'NODE'
+const fs = require('node:fs');
+const crypto = require('node:crypto');
+const [file, expectedPolicy, releaseDigest, pathsDigest, filterFile] = process.argv.slice(2);
+const bytes = fs.readFileSync(file);
+if (bytes.length > 8 * 1024 * 1024) throw new Error('managed policy exceeds 8 MiB');
+if (!/^[0-9a-f]{64}$/.test(releaseDigest) || !/^[0-9a-f]{64}$/.test(pathsDigest)) throw new Error('managed policy identity is invalid');
+if (crypto.createHash('sha256').update(bytes).digest('hex') !== pathsDigest) throw new Error('managed policy digest mismatch');
+const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+if (!value || value.schemaVersion !== 1 || value.releaseDigest !== releaseDigest || value.resourcePolicy !== expectedPolicy
+  || !Array.isArray(value.paths) || !Array.isArray(value.resourceRoots)
+  || Object.keys(value).sort().join(',') !== 'paths,releaseDigest,resourcePolicy,resourceRoots,schemaVersion') throw new Error('managed policy schema mismatch');
+const canonical = Buffer.from(`${JSON.stringify(value)}\n`);
+if (!canonical.equals(bytes)) throw new Error('managed policy is not canonical');
+const sortedUnique = values => values.every((entry, index) => typeof entry === 'string' && entry.length > 0 && (index === 0 || values[index - 1] < entry));
+if (!sortedUnique(value.paths) || !sortedUnique(value.resourceRoots)) throw new Error('managed policy paths are not sorted and unique');
+if (expectedPolicy === 'immutable' && value.resourceRoots.length !== 0) throw new Error('immutable policy has resource roots');
+const escapeFilter = path => path.replace(/[\\*?\[\]{}]/g, character => `\\${character}`);
+const rules = value.paths.map(path => `- /${escapeFilter(path)}`);
+if (expectedPolicy === 'exclusive') {
+  for (const root of value.resourceRoots) {
+    if (!root.endsWith('/')) throw new Error('managed resource root is invalid');
+    rules.push(`- /${escapeFilter(root.slice(0, -1))}`);
+    rules.push(`- /${escapeFilter(root)}**`);
+  }
+}
+fs.writeFileSync(filterFile, `${rules.join('\n')}\n`, { mode: 0o600 });
+NODE
+}
+
 # Step 1: One-way sync FROM R2 TO local (restore user data)
 # This ensures existing credentials, plugins, etc. are restored BEFORE anything else runs
 # Workspace sync controlled by SYNC_MODE (none, full, or metadata-only)
@@ -735,22 +807,30 @@ lay_down_agent_seed_preseed() {
     echo "[entrypoint] Baked agent seed laid down" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
 }
 
-# REQ-STOR-017 / AD90: image-authoritative relay of the managed Pi extension CODE.
-# The jiti prewarm cache (Dockerfile warm-up) is keyed on abspath + source + version and is
-# baked at the exact .pi/agent/extensions runtime path — the bake fixes the PATH half of the
-# key; this relay fixes the CONTENT half. After the initial R2 sync restores user data, a
-# stale bucket copy of a managed extension (the sync faithfully restores older bytes) hashes
-# differently and defeats that cache — ~2.4s of cold transpile EVERY session.
-# Re-lay the image-baked managed extensions for the session mode so their bytes always equal
-# the build → the prewarm cache always hits, in ALL deployment modes (not just Governed).
-# Surgical: copies only the codeflare-owned .pi/agent/extensions tree and prunes explicitly
-# retired Codeflare review extensions, so user-ADDED extensions are preserved and
-# user-editable seed docs/rules are untouched. Uses cp -r (not -p) so the relaid files carry a current mtime —
-# the subsequent bisync then treats local as authoritative and self-heals R2 instead of
-# pulling the stale copy back. Idempotent and mode-aware.
+# REQ-STOR-017 / AD90: image-authoritative relay of Pi extension code.
+# Without remote curation, re-lay image-baked managed extensions so the jiti prewarm cache's
+# abspath + source + version key stays hot, while preserving user-added filenames. With remote
+# curation, preserve release-owned bytes and restore only their excluded image-owned runtime
+# companion. Uses cp without -p so relaid bytes receive fresh local mtimes. Idempotent and
+# mode-aware.
+readonly -a IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS=(context-mode-runtime.ts)
 relay_managed_pi_extensions() {
+    local warm_src="${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}"
+    local dest="$USER_HOME/.pi/agent/extensions"
     if [ "${REMOTE_CURATION_ACTIVE:-false}" = "true" ]; then
-        echo "[entrypoint] Managed release active: preserving R2-restored Pi extensions" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+        # Curation deliberately excludes context-mode runtime code because it is
+        # image-owned, while its managed /ctx command imports this companion.
+        # Initial rclone sync removes local files absent from R2, so restore this
+        # declared image-owned dependencies without overwriting release-owned extensions.
+        mkdir -p "$dest"
+        local companion
+        for companion in "${IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS[@]}"; do
+            if [ -f "$warm_src/$companion" ] && cp "$warm_src/$companion" "$dest/$companion"; then
+                echo "[entrypoint] Managed release active: restored image-owned $companion" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+            else
+                echo "[entrypoint] WARNING: image-owned $companion restore failed" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+            fi
+        done
         return 0
     fi
     # Source = the EXACT dir the jiti prewarm cache was baked from (Dockerfile copies
@@ -761,8 +841,6 @@ relay_managed_pi_extensions() {
     # without adding mode-gated extensions to a session that should not have them. cp
     # (no -p) gives a fresh mtime so the --resync baseline treats local as truth.
     # User-added extensions (other filenames) are never matched, so they are preserved.
-    local warm_src="${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}"
-    local dest="$USER_HOME/.pi/agent/extensions"
     if [ ! -d "$warm_src" ]; then
         echo "[entrypoint] No image Pi extension source ($warm_src); skipping managed-extension relay" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
         return 0
@@ -1694,6 +1772,12 @@ shutdown_handler() {
     # budget. Killing it first closes the window rather than racing it.
     if [ -n "${BISYNC_INIT_PID:-}" ]; then
         walk_kill TERM "$BISYNC_INIT_PID"
+    fi
+
+    if [ "${CODEFLARE_TERMINAL_MODE:-classic}" = "herdr" ] \
+        && [ -x /usr/local/bin/codeflare-herdr-terminal ] \
+        && [ -n "${SESSION_ID:-}" ]; then
+        /usr/local/bin/codeflare-herdr-terminal stop || true
     fi
 
     kill_pidfile_subtree $CODEFLARE_RUNTIME_ROOT/sync/sync-daemon.pid
@@ -3601,6 +3685,21 @@ else
     echo "[entrypoint] Default mode: configuring settings.json without hooks"
 fi
 
+# Herdr consumes Claude's inner OSC notifications. Add one fixed permission
+# hook whose helper is inert outside a managed Herdr pane.
+HERDR_NOTIFICATION_HOOKS=$(jq -n '{
+  Notification: [
+    {matcher:"permission_prompt",hooks:[{type:"command",command:"/usr/local/bin/codeflare-agent-event input-required"}]}
+  ]
+}')
+SETTINGS_CONFIG=$(printf '%s' "$SETTINGS_CONFIG" | jq --argjson notify "$HERDR_NOTIFICATION_HOOKS" '
+  .hooks as $hooks | .hooks = (
+    (($hooks // {}) | keys) + ($notify | keys) | unique |
+    map(. as $key | {key: $key, value: ((($hooks // {})[$key] // []) + ($notify[$key] // []))}) |
+    from_entries
+  )
+')
+
 SETTINGS_FILE="$USER_CLAUDE_DIR/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
     TMP_SETTINGS=$(mktemp)
@@ -3637,7 +3736,7 @@ if [ -f "$SETTINGS_FILE" ]; then
             [($existArr[] | .matcher // ""), ($cfgArr[] | .matcher // "")] | unique |
             map(. as $m |
               [$existArr[] | select((.matcher // "") == $m) | (.hooks // [])[] |
-                select((.command // "") | test("plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/|enforce-ctx-mode\\.sh|context-mode-cache-heal\\.mjs|(^context-mode |(bunx|npx) (-y )?context-mode@.* hook claude-code)") | not)
+                select((.command // "") | test("plugins/(codeflare-(hooks|memory|vault)|graphify)/scripts/|/usr/local/bin/codeflare-agent-event|enforce-ctx-mode\\.sh|context-mode-cache-heal\\.mjs|(^context-mode |(bunx|npx) (-y )?context-mode@.* hook claude-code)") | not)
               ] as $user |
               [$cfgArr[] | select((.matcher // "") == $m) | (.hooks // [])[]] as $mgr |
               {matcher: $m, hooks: ($user + $mgr)}
@@ -3773,13 +3872,15 @@ configure_tab_autostart
 }
 
 complete_managed_curation_startup() {
-    # REQ-STOR-017 / AD90: make the image-baked managed Pi extensions authoritative BEFORE the
-    # bisync baseline so the jiti prewarm cache (keyed on abspath + source + version) always hits
-    # on its content half (all deployment modes). Synchronous and unconditional: even if sync/bisync
-    # are skipped or fail, the local managed extensions must equal the build. Placed before --resync
-    # so the baseline treats the relaid local copy as truth and pushes it back to R2 (self-heal)
-    # rather than the reverse. Best-effort under `set -e`: a copy failure must degrade to a ~2.4s
-    # cold transpile, never abort PID 1 (matches the renice/ionice convention below).
+    # The restored policy is non-authoritative container input, but validating it
+    # before baseline keeps protected local edits from poisoning normal bisync.
+    prepare_managed_resource_filter
+
+    # REQ-STOR-017 / AD90: make image-baked Pi extension ownership authoritative BEFORE the
+    # bisync baseline. Baked seed restores matching extension bytes; remote curation preserves
+    # release-owned bytes while restoring their image-owned runtime companion. Placed before PTY
+    # release and --resync so Pi never loads a missing companion; protected filters keep the image
+    # file outside R2. Copy failure logs a warning without aborting PID 1.
     relay_managed_pi_extensions || true
 
     # The terminal server has been polling this flag before spawning tab 1. Prune

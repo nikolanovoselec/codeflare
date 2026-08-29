@@ -16,8 +16,9 @@ const state = vi.hoisted(() => ({
   active: null as ActiveVerifiedManagedRelease | null,
   activeError: null as Error | null,
   cached: null as VerifiedManagedReleaseContent | null,
+  resourcePolicy: 'mutable' as 'mutable' | 'immutable' | 'exclusive',
 }));
-const reconcile = vi.hoisted(() => vi.fn(async () => ({ written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [] })));
+const reconcile = vi.hoisted(() => vi.fn(async () => ({ written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined as string | undefined })));
 const reseedContext = vi.hoisted(() => vi.fn(async () => ({ written: [], skipped: [] })));
 const createBucket = vi.hoisted(() => vi.fn(async () => ({ success: true, created: false })));
 const fetchR2 = vi.hoisted(() => vi.fn(async () => new Response('', { status: 200 })));
@@ -28,6 +29,10 @@ vi.mock('../../lib/managed-release-active', () => ({
     return state.active;
   }),
   getCachedManagedReleaseByDigest: vi.fn(async () => state.cached),
+}));
+vi.mock('../../lib/remote-curation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/remote-curation')>()),
+  getManagedEnvironmentConfig: vi.fn(async () => ({ resourcePolicy: state.resourcePolicy })),
 }));
 vi.mock('../../lib/r2-seed', async () => {
   const actual = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
@@ -105,6 +110,7 @@ describe('managed storage reconcile', () => {
     };
     state.activeError = null;
     state.cached = null;
+    state.resourcePolicy = 'mutable';
     fetchR2.mockClear();
   });
 
@@ -165,6 +171,37 @@ describe('managed storage reconcile', () => {
     expect(Date.parse(applied.managedEnvironmentApplied.appliedAt)).not.toBeNaN();
     const finalPut = kv.put.mock.calls.at(-1)!;
     expect(finalPut[0]).toBe('user-prefs:user-bucket');
+  });
+
+  it('REQ-STOR-029 AC7: transports configured policy and stamps verified identity last', async () => {
+    state.resourcePolicy = 'exclusive';
+    reconcile.mockResolvedValueOnce({
+      written: ['.claude/company.md'],
+      skipped: [],
+      deleted: [],
+      warnings: [],
+      managedPathsDigest: '9'.repeat(64),
+    });
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+
+    const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
+
+    expect(response.status).toBe(200);
+    expect(reconcile).toHaveBeenCalledWith(
+      expect.anything(),
+      'user-bucket',
+      'https://r2.example.com',
+      'advanced',
+      expect.objectContaining({ resourcePolicy: 'exclusive' }),
+    );
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentApplied).toMatchObject({
+      digest: 'd'.repeat(64),
+      resourcePolicy: 'exclusive',
+      managedPathsDigest: '9'.repeat(64),
+    });
+    expect(kv.put.mock.calls.at(-1)?.[0]).toBe('user-prefs:user-bucket');
   });
 
   it('reconciles and stamps the entitlement-clamped mode for a downgraded SaaS user', async () => {

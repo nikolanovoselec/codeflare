@@ -8,7 +8,7 @@ import {
   validateManagedRetiredPath,
 } from '../../scripts/agent-seed-release-limits.mjs';
 import { PRESEED_RUNTIME_DEPENDENCY_HASH } from './agent-seed.generated';
-import type { Env } from '../types';
+import { ManagedResourcePolicySchema, type Env, type ManagedResourcePolicy } from '../types';
 import { readBoundedResponse, readBoundedStream } from './bounded-stream';
 import { ValidationError } from './error-types';
 import { decryptFromKV, getOrImportKey, encryptAndStore } from './kv-crypto';
@@ -139,6 +139,7 @@ const ManagedEnvironmentConfigSchema = z.object({
   publicKeyFingerprint: z.string().regex(/^[0-9a-f]{16}$/),
   configFingerprint: Hex64,
   cacheBucketName: z.string().min(1).max(63),
+  resourcePolicy: ManagedResourcePolicySchema.default('mutable'),
 }).strict();
 
 export type ManagedEnvironmentConfig = z.infer<typeof ManagedEnvironmentConfigSchema>;
@@ -167,6 +168,8 @@ export interface ManagedEnvironmentPrefill {
   lastCheckedAt?: string;
   patExpiryState: ManagedEnvironmentPatExpiryState;
   lastError?: string;
+  immutableResources: boolean;
+  disableUserCreatedResources: boolean;
 }
 
 export interface ConfigureManagedEnvironmentRequest {
@@ -174,6 +177,23 @@ export interface ConfigureManagedEnvironmentRequest {
   repository?: string;
   personalAccessToken?: string;
   publicKey?: string;
+  immutableResources?: boolean;
+  disableUserCreatedResources?: boolean;
+}
+
+export function resolveManagedResourcePolicy(
+  request: Pick<ConfigureManagedEnvironmentRequest, 'enabled' | 'immutableResources' | 'disableUserCreatedResources'>,
+  storedPolicy: ManagedResourcePolicy = 'mutable',
+): ManagedResourcePolicy {
+  if (!request.enabled) return 'mutable';
+  const immutableResources = request.immutableResources
+    ?? (storedPolicy === 'immutable' || storedPolicy === 'exclusive');
+  const disableUserCreatedResources = request.disableUserCreatedResources
+    ?? storedPolicy === 'exclusive';
+  if (disableUserCreatedResources && !immutableResources) {
+    throw new ValidationError('Disable User Created Resources requires Immutable Resources');
+  }
+  return disableUserCreatedResources ? 'exclusive' : immutableResources ? 'immutable' : 'mutable';
 }
 
 interface DeferredManagedReleaseActivation {
@@ -991,6 +1011,12 @@ async function loadManagedEnvironmentConfig(
   }
 }
 
+export async function getManagedEnvironmentConfig(
+  kv: KVNamespace,
+): Promise<ManagedEnvironmentConfig | undefined> {
+  return loadManagedEnvironmentConfig(kv, true);
+}
+
 async function readEncryptedManagedPat(
   kv: KVNamespace,
   configFingerprint: string,
@@ -1123,7 +1149,11 @@ export async function configureManagedEnvironment(input: {
   let existing = await loadManagedEnvironmentConfig(input.env.KV, input.request.enabled);
   if (!input.request.enabled) {
     if (existing?.enabled) {
-      await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, JSON.stringify({ ...existing, enabled: false }));
+      await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, JSON.stringify({
+        ...existing,
+        enabled: false,
+        resourcePolicy: 'mutable',
+      }));
     } else if (!existing && await input.env.KV.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) !== null) {
       // Explicit disable is the recovery boundary for malformed selected state.
       // Retained PAT, status, and immutable cache history remain untouched.
@@ -1230,6 +1260,7 @@ export async function configureManagedEnvironment(input: {
     await activateCachedManagedRelease(cache, prepared);
   }
 
+  const resourcePolicy = resolveManagedResourcePolicy(input.request, existing?.resourcePolicy);
   const candidate: ManagedEnvironmentConfig = {
     schemaVersion: 1,
     enabled: true,
@@ -1239,6 +1270,7 @@ export async function configureManagedEnvironment(input: {
     publicKeyFingerprint,
     configFingerprint,
     cacheBucketName,
+    resourcePolicy,
   };
   if (selectedLegacyBucket && !storedMigration) {
     await input.env.KV.put(SETUP_KEYS.MANAGED_ENVIRONMENT_CACHE_MIGRATION, JSON.stringify({
@@ -1528,6 +1560,8 @@ export async function getManagedEnvironmentPrefill(
       repository: '',
       personalAccessTokenSet: false,
       publicKeyFingerprint: '',
+      immutableResources: false,
+      disableUserCreatedResources: false,
       freshness: 'unconfigured',
       patExpiryState: 'unknown',
     };
@@ -1551,6 +1585,8 @@ export async function getManagedEnvironmentPrefill(
     repository: config.repository,
     personalAccessTokenSet: typeof pat === 'string' && pat.startsWith('v1:'),
     publicKeyFingerprint: config.publicKeyFingerprint,
+    immutableResources: config.resourcePolicy === 'immutable' || config.resourcePolicy === 'exclusive',
+    disableUserCreatedResources: config.resourcePolicy === 'exclusive',
     ...(active ? {
       activeReleaseTag: active.releaseTag,
       activeSequence: active.sequence,

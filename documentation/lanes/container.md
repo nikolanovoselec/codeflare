@@ -32,6 +32,7 @@ Container image contents, startup sequence, AI tool integration, auto-sleep conf
 | Network | curl, openssh-client |
 | Process | procps (ps, pgrep) |
 | Utilities | jq, python3 plus `python` alias, ripgrep, fd, tree, htop, tmux, yazi, fzf, zoxide, bat |
+| Terminal runtime | Herdr v0.8.2, checksum-pinned official Linux x86-64 binary with image-owned config and Apache-2.0 attribution |
 
 ### Lock-backed NPM Tools
 
@@ -42,6 +43,10 @@ The shared npm-tool set—agent CLIs, Bun, context-mode, `consult-llm-mcp`, and 
 The environment-scoped GitHub variable `CODING_AGENTS` may narrow shared launchers to any non-empty subset of `claude-code,codex,copilot,antigravity,opencode,pi`; unset preserves all six. The build canonicalizes and hashes the set, prunes omitted npm agents in the install layer, and skips Antigravity's checksum-backed installer when omitted. Bash and shared non-agent tools remain. Native Pi/Claude IDE inventories and Pi's separate prewarm/Jiti layout are intentionally unaffected ([REQ-OPS-038](../../sdd/spec/operations.md#req-ops-038-build-selected-coding-agent-clis), [REQ-OPS-040](../../sdd/spec/operations.md#req-ops-040-selected-coding-agent-packaging), [REQ-OPS-039](../../sdd/spec/operations.md#req-ops-039-reduced-image-capability-preservation)).
 
 Antigravity remains a checksum-verified installer outside npm when selected. Browser Run MCP uses its own committed package lock. Weekly Shadow Pins updates each owning manifest and lock after the supply-chain cooldown.
+
+**Terminal runtimes:** `CODEFLARE_TERMINAL_MODE` is copied from the persisted session stamp. Classic starts `/bin/bash -l` and retains up to six outer `node-pty` sessions. Herdr starts one fixed launcher, which attaches the official client to `cf-<SESSION_ID>` under mode-0700 `/run/codeflare/herdr/<SESSION_ID>`. Managed browser-oriented configuration sets a 96-column mobile layout threshold, mouse capture, browser-owned clipboard policy, explicit 10 MB pane scrollback, Codeflare palette, labels, and static status symbols; updater checks, remote manifest checks, sound, pane history, nested launches, and Kitty graphics remain disabled. Live process state, pane history, sockets, logs, and user-edited settings stay ephemeral. Herdr's official structural `session.json` is the sole durable runtime artifact and follows normal `~/.codeflare` R2 sync ([REQ-TERM-033](../../sdd/spec/terminal.md#req-term-033-durable-herdr-structural-session-recovery)). Browser IDE workspaces start no Herdr runtime.
+
+For pinned Herdr, fresh Pi bootstrap waits for live lifecycle authority. Version drift, an unavailable probe, or a bounded native-signal failure falls back to regular process detection so startup remains reachable ([REQ-TERM-035](../../sdd/spec/terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace) AC6-AC7). <!-- @impl: image/herdr/codeflare-herdr-terminal::run_agent --> <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_live_pi --> See [AD146](../decisions/README.md#ad146-terminal-mode-is-an-immutable-per-session-choice).
 
 **Known trade-off:** Long-lived sessions keep the image version they started with while a later reviewed image may carry newer CLIs. Version changes remain a compatibility risk, but they now pass PR checks and image smoke instead of entering an arbitrary deploy through mutable resolution.
 
@@ -344,7 +349,7 @@ When `claude-code` is build-selected, terminal tab 1 runs the official global `@
 
 **Global (Dockerfile ENV):** `NPM_CONFIG_UPDATE_NOTIFIER=false`, `IS_SANDBOX=1`, `DISABLE_INSTALLATION_CHECKS=1`, `DISABLE_AUTOUPDATER=1`, `NODE_COMPILE_CACHE=/root/.cache/node-compile-cache`, `BROWSER=/usr/local/bin/open-url`, and canonical `CODEFLARE_CODING_AGENTS` build evidence.
 
-**Prewarm readiness:** Detected by first PTY output -- as soon as the agent produces any terminal output, pre-warm is considered ready. The 20s hard timeout in `server.ts` remains as a safety net.
+**Prewarm readiness:** Classic settles after first PTY output and retains the 20-second timeout safety net. Herdr also requires its configured-command bootstrap marker. An expired Herdr prewarm without the marker logs an error and terminates the terminal host for container recovery. See [REQ-TERM-035](../../sdd/spec/terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace).
 
 **Auto-start flags (.bashrc):** `--dangerously-skip-permissions`
 
@@ -451,6 +456,7 @@ Optional feature that lets users connect GitHub and Cloudflare accounts once in 
 | Finalization/teardown | REQ-OPS-010, REQ-SESSION-008/009/011 | `Container.destroy()` lifecycle and entrypoint backstop | Final drain result and authoritative persisted state |
 | Browser IDE runtime | REQ-IDE-006/007/008/021/022 | host, OpenVSCode package, agent-sidebar extension | Shared IDE conversation and bounded approval/process behavior |
 | Enterprise interception | [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering) | Worker container-start composition | Interceptor installation before `container.start()` |
+| Managed-resource persistence | [REQ-ENTERPRISE-027](../../sdd/spec/enterprise-mode.md#req-enterprise-027-managed-resource-admission-and-transport), [REQ-ENTERPRISE-028](../../sdd/spec/enterprise-mode.md#req-enterprise-028-managed-resource-request-classification), [REQ-ENTERPRISE-029](../../sdd/spec/enterprise-mode.md#req-enterprise-029-managed-resource-egress-enforcement) | lifecycle admission, DO security props, `EgressController` | Exact policy verification before start/signing; container receives only non-authoritative identity |
 
 ---
 

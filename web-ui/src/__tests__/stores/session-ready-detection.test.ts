@@ -64,7 +64,7 @@ describe('Session Ready Detection', () => {
     sessionStore.stopAllPolling();
   });
 
-  it('should mark session as running and initialize terminals when batch status reports running', async () => {
+  it('marks an unstamped running session as classic and initializes its topology state', async () => {
     const session = {
       id: 'session-1',
       name: 'Test',
@@ -84,9 +84,14 @@ describe('Session Ready Detection', () => {
     const loaded = sessionStore.sessions.find(s => s.id === 'session-1');
     expect(loaded?.status).toBe('running');
 
-    const terminals = sessionStore.getTerminalsForSession('session-1');
-    expect(terminals).not.toBeNull();
-    expect(terminals!.tabs.length).toBeGreaterThan(0);
+    expect(JSON.parse(localStorage.getItem('codeflare:terminalsPerSession')!)).toMatchObject({
+      'session-1': {
+        tabs: [{ id: '1' }],
+        activeTabId: '1',
+        tabOrder: ['1'],
+        tiling: { enabled: false, layout: 'tabbed' },
+      },
+    });
   });
 
   it('should keep session as stopped when batch status reports stopped', async () => {

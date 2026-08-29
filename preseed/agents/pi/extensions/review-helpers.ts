@@ -19,6 +19,11 @@ type BoundarySurfaces = {
   kind?: ReviewExposureKind;
 };
 type LaneFact = { state: "missing" | "in-flight" | "terminal"; toolUseId?: string };
+export type ReviewLaunchIssue = {
+  toolUseId: string;
+  target: ReviewLane | "ci-monitor";
+  problems: string[];
+};
 type TranscriptBoundary = {
   toolUseId: string;
   command: string;
@@ -42,10 +47,12 @@ export type TranscriptFacts = {
   ciRequired: boolean;
   ciTerminal: boolean;
   ciResult?: "success" | "failure" | "timeout";
+  triagePresent: boolean;
   triageComplete: boolean;
   fixDelivered: boolean;
   closedNotified: boolean;
   lanes: Record<ReviewLane, LaneFact>;
+  launchIssues: ReviewLaunchIssue[];
 };
 
 type Heredoc = { delimiter: string; stripTabs: boolean };
@@ -591,6 +598,12 @@ function ciTerminalResult(
     : undefined;
 }
 
+function triageTablePresent(text: string): boolean {
+  const lines = text.split("\n").map((line) => line.trim());
+  return lines.some((line, index) => line === REVIEW_TRIAGE_HEADER
+    && lines[index + 1] === REVIEW_TRIAGE_DIVIDER);
+}
+
 function triageTableIncludesRequiredCiResult(text: string, result: CiTerminalResult | undefined): boolean {
   const lines = text.split("\n").map((line) => line.trim());
   for (let index = 0; index < lines.length; index += 1) {
@@ -746,12 +759,15 @@ export function reviewTranscriptFacts(input: {
     ciLaunched: false,
     ciRequired: false,
     ciTerminal: false,
+    triagePresent: false,
     triageComplete: false,
     fixDelivered: false,
     closedNotified: false,
     lanes,
+    launchIssues: [],
   };
   const later = entries.slice(boundaryIndex + 1);
+  const launchIssues: ReviewLaunchIssue[] = [];
   const terminalIndexes = new Map<ReviewLane, number>();
   const resultRequests = new Map<string, string>();
   for (const entry of later) {
@@ -801,10 +817,28 @@ export function reviewTranscriptFacts(input: {
         ? `output_file=/tmp/codeflare-pr-${window.prNumber}-${window.head.slice(0, 12)}-${lane}.md`
         : undefined;
       const assignmentLines = new Set(prompt.split(/\r?\n/).map((line: string) => line.trim()).filter(Boolean));
-      const wrongContract = Boolean(window && (!assignmentLines.has("scope=diff")
-        || (expectedScope && !assignmentLines.has(expectedScope))
-        || (expectedOutput && !assignmentLines.has(expectedOutput))));
-      if (call.name !== "subagent" || call.arguments?.run_in_background !== true || call.arguments?.inherit_context !== false || !input.requiredLanes.includes(lane) || wrongContract) continue;
+      if (call.name !== "subagent" || !input.requiredLanes.includes(lane)) continue;
+      if (!window || !expectedScope || !expectedOutput) {
+        if (successfulSubagentToolIds.has(call.id)) {
+          launchIssues.push({
+            toolUseId: call.id,
+            target: lane,
+            problems: ["authoritative review window is unavailable"],
+          });
+        }
+        continue;
+      }
+      const problems = [
+        ...(call.arguments?.run_in_background === true ? [] : ["run_in_background must be true"]),
+        ...(call.arguments?.inherit_context === false ? [] : ["inherit_context must be false"]),
+        ...(assignmentLines.has("scope=diff") ? [] : ["prompt must include exact scope=diff"]),
+        ...(assignmentLines.has(expectedScope) ? [] : [`prompt must include exact ${expectedScope}`]),
+        ...(assignmentLines.has(expectedOutput) ? [] : [`prompt must include exact ${expectedOutput}`]),
+      ];
+      if (problems.length > 0) {
+        if (successfulSubagentToolIds.has(call.id)) launchIssues.push({ toolUseId: call.id, target: lane, problems });
+        continue;
+      }
       const notifications = later.slice(entryIndex + 1)
         .map((candidate, offset) => ({ value: nativeNotification(candidate), index: entryIndex + offset + 1 }))
         .filter((candidate) => candidate.value?.toolUseId === call.id);
@@ -845,22 +879,31 @@ export function reviewTranscriptFacts(input: {
   if (ci) {
     later.forEach((entry, entryIndex) => {
       for (const call of toolCalls(entry)) {
-        if (call.name !== "subagent"
-          || call.arguments?.subagent_type !== "ci-monitor"
-          || call.arguments?.run_in_background !== true
-          || call.arguments?.inherit_context !== false
-          || !successfulSubagentToolIds.has(call.id)
-          || typeof call.arguments?.prompt !== "string") continue;
-        let request: Record<string, unknown>;
-        try {
-          request = JSON.parse(call.arguments.prompt);
-        } catch {
+        if (call.name !== "subagent" || call.arguments?.subagent_type !== "ci-monitor") continue;
+        let request: Record<string, unknown> | undefined;
+        if (typeof call.arguments?.prompt === "string") {
+          try {
+            request = JSON.parse(call.arguments.prompt);
+          } catch {
+            // Report the malformed resolver payload below.
+          }
+        }
+        const problems = [
+          ...(call.arguments?.run_in_background === true ? [] : ["run_in_background must be true"]),
+          ...(call.arguments?.inherit_context === false ? [] : ["inherit_context must be false"]),
+          ...(request ? [] : ["prompt must be exact resolver JSON"]),
+          ...(!request || request.repo === ci.repository ? [] : [`prompt repo must equal ${ci.repository}`]),
+          ...(!request || request.pr === ci.prNumber ? [] : [`prompt pr must equal ${ci.prNumber}`]),
+          ...(!request || request.head === ci.head ? [] : [`prompt head must equal ${ci.head}`]),
+          ...(!request || request.cwd === ci.repo ? [] : [`prompt cwd must equal ${ci.repo}`]),
+        ];
+        if (problems.length > 0) {
+          if (ciRequired && successfulSubagentToolIds.has(call.id)) {
+            launchIssues.push({ toolUseId: call.id, target: "ci-monitor", problems });
+          }
           continue;
         }
-        if (request.repo !== ci.repository
-          || request.pr !== ci.prNumber
-          || request.head !== ci.head
-          || request.cwd !== ci.repo) continue;
+        if (!successfulSubagentToolIds.has(call.id)) continue;
         ciLaunched = true;
 
         const nativeTerminal = later.slice(entryIndex + 1)
@@ -914,6 +957,11 @@ export function reviewTranscriptFacts(input: {
     || (ciRequired && ciTerminalIndex === undefined)
     ? undefined
     : Math.max(latestRequiredTerminalIndex, ciTerminalIndex ?? -1);
+  const triagePresent = completionIndex !== undefined && later.some((entry, index) =>
+    index > completionIndex
+    && toolCalls(entry).length === 0
+    && triageTablePresent(messageText(entry, "assistant")),
+  );
   const triageComplete = completionIndex !== undefined && later.some((entry, index) =>
     index > completionIndex
     && toolCalls(entry).length === 0
@@ -944,10 +992,12 @@ export function reviewTranscriptFacts(input: {
     ciRequired,
     ciTerminal: ciTerminalIndex !== undefined,
     ciResult,
+    triagePresent,
     triageComplete,
     fixDelivered,
     closedNotified,
     lanes,
+    launchIssues,
   };
 }
 

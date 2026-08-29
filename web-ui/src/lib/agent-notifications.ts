@@ -213,6 +213,16 @@ async function removeLocalSubscription(
   }
 }
 
+export async function agentNotificationsAvailable(
+  browser: AgentNotificationBrowser = defaultBrowser,
+): Promise<boolean> {
+  try {
+    return Boolean(await browser.getVapidPublicKey?.());
+  } catch {
+    return false;
+  }
+}
+
 export async function agentNotificationsEnabled(browser: AgentNotificationBrowser = defaultBrowser): Promise<boolean> {
   try {
     if (browser.permission() !== 'granted' || !browser.currentSubscription) return false;
@@ -300,7 +310,9 @@ export async function showGrantedAgentEvent(
     'task-completed': 'Task completed',
     'task-failed': 'Task failed',
   });
-  const body = bodies[event.kind];
+  const body = event.agent === 'Pi' && event.kind === 'task-completed'
+    ? 'Ready for input'
+    : bodies[event.kind];
   const title = `${event.agent} · ${event.sessionName}`;
   if (
     browser.permission() !== 'granted'

@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import { AgentTypeSchema, SessionModeSchema, SessionWorkspaceSchema } from './lib/schemas';
+import { AgentTypeSchema, SessionModeSchema, SessionWorkspaceSchema, TerminalModeSchema } from './lib/schemas';
 
 /** Supported agent types for multi-agent sessions */
 export type AgentType = z.infer<typeof AgentTypeSchema>;
 
 /** Configuration for a single terminal tab */
 export interface TabConfig {
-  id: string;        // "1" through "6"
+  id: string;        // internal outer terminal ID "1"
   command: string;   // Shell command or empty for bash
   label: string;     // Display label
 }
@@ -14,11 +14,17 @@ export interface TabConfig {
 /** User preferences persisted across sessions */
 export type SessionMode = z.infer<typeof SessionModeSchema>;
 export type SessionWorkspace = z.infer<typeof SessionWorkspaceSchema>;
+export type TerminalMode = z.infer<typeof TerminalModeSchema>;
+
+export function resolveTerminalMode(value: unknown): TerminalMode {
+  return value === 'herdr' ? 'herdr' : 'classic';
+}
 
 export type SleepAfterOption = '15m' | '30m' | '1h' | '2h' | '4h';
 
 export interface UserPreferences {
   lastAgentType?: AgentType;
+  herdrEnabled?: boolean;
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   sessionMode?: SessionMode;
@@ -46,6 +52,7 @@ export interface Session {
   status?: 'stopped' | 'running';
   agentType?: AgentType;
   workspace?: SessionWorkspace;
+  terminalMode?: TerminalMode;
   editorReady?: boolean;
   editorReadyError?: boolean;
   tabConfig?: TabConfig[];
@@ -174,12 +181,12 @@ export type TerminalConnectionState =
   | 'connecting'
   | 'connected';
 
-// Terminal tab within a session (multiple terminals per container)
+// Terminal tab within a classic session
 export interface TerminalTab {
-  id: string;        // "1", "2", "3", "4"
+  id: string;
   createdAt: string;
-  processName?: string;  // Live process name from server (e.g., "claude", "htop")
-  manual?: boolean;      // true when tab was created by user clicking "+", skips .bashrc autostart
+  processName?: string;
+  manual?: boolean;
 }
 
 // Tiling layout types
@@ -199,6 +206,18 @@ export interface VisibleTerminalPane {
   source: 'session' | 'multiview';
 }
 
+export interface TilingState {
+  enabled: boolean;
+  layout: TileLayout;
+}
+
+export interface SessionTerminals {
+  tabs: TerminalTab[];
+  activeTabId: string | null;
+  tabOrder: string[];
+  tiling: TilingState;
+}
+
 export interface MultiViewWorkspace {
   id: 'multiview:1';
   name: 'MultiView #1';
@@ -216,17 +235,4 @@ export interface TerminalWorkspaceState {
   focusedPaneId: string | null;
   layout: TileLayout;
   multiView: MultiViewWorkspace | null;
-}
-
-export interface TilingState {
-  enabled: boolean;
-  layout: TileLayout;
-}
-
-// Track terminals per session
-export interface SessionTerminals {
-  tabs: TerminalTab[];
-  activeTabId: string | null;
-  tabOrder: string[];     // Display order (tab "1" always first)
-  tiling: TilingState;    // Tiling configuration
 }

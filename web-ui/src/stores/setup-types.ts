@@ -99,6 +99,8 @@ export interface SetupState {
   managedEnvironmentEnabled: boolean;
   managedEnvironmentConfigured: boolean;
   managedEnvironmentTouched: boolean;
+  managedEnvironmentImmutableResources: boolean;
+  managedEnvironmentDisableUserCreatedResources: boolean;
   managedEnvironmentRepository: string;
   managedEnvironmentPersonalAccessToken: string;
   managedEnvironmentPersonalAccessTokenSet: boolean;

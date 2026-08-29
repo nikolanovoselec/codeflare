@@ -1,6 +1,6 @@
 import type { Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, AuthStatus, AuthProvider } from '../types';
 import { logger } from '../lib/logger';
-import { STARTUP_POLL_INTERVAL_MS, SESSION_ID_DISPLAY_LENGTH, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION } from '../lib/constants';
+import { STARTUP_POLL_INTERVAL_MS, SESSION_ID_DISPLAY_LENGTH, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, SESSION_ID_RE } from '../lib/constants';
 import { z } from 'zod';
 import {
   UserResponseSchema,
@@ -531,25 +531,18 @@ export async function deleteUser(email: string): Promise<{ success: boolean; ema
   }, z.object({ success: z.boolean(), email: z.string() }));
 }
 
-// Session ID format: 8-24 lowercase alphanumeric characters (matches backend SESSION_ID_PATTERN)
-const SESSION_ID_RE = /^[a-z0-9]{8,24}$/;
-
-// WebSocket URL helper - uses compound session ID for multiple terminals per session
+// Compound route supports the classic range; Worker authorizes Herdr ID 1 after session lookup.
 export function getTerminalWebSocketUrl(sessionId: string, terminalId: string = '1', manual?: boolean): string {
   if (!SESSION_ID_RE.test(sessionId)) {
     throw new Error(`Invalid sessionId "${sessionId}": must be 8-24 lowercase alphanumeric characters`);
   }
-  const id = parseInt(terminalId, 10);
-  if (isNaN(id) || id < 1 || id > MAX_TERMINALS_PER_SESSION) {
+  const id = Number.parseInt(terminalId, 10);
+  if (!Number.isInteger(id) || String(id) !== terminalId || id < 1 || id > MAX_TERMINALS_PER_SESSION) {
     throw new Error(`Invalid terminalId "${terminalId}": must be between 1 and ${MAX_TERMINALS_PER_SESSION}`);
   }
-  // Compound session ID: sessionId-terminalId (e.g., "abc123-1", "abc123-2")
-  // Backend treats each as a unique PTY session within the same container
   const compoundSessionId = `${sessionId}-${terminalId}`;
   const wsUrl = new URL(`/api/terminal/${compoundSessionId}/ws`, window.location.href);
   wsUrl.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  if (manual) {
-    wsUrl.searchParams.set('manual', '1');
-  }
+  if (manual) wsUrl.searchParams.set('manual', '1');
   return wsUrl.toString();
 }

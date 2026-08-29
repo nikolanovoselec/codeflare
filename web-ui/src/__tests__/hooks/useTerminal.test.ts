@@ -6,7 +6,7 @@ const mockFit = vi.fn();
 const mockTerminalOpen = vi.fn();
 const mockTerminalDispose = vi.fn();
 const mockLoadAddon = vi.fn();
-const mockAttachCustomKeyEventHandler = vi.fn();
+const mockAttachCustomKeyEventHandler = vi.fn<(handler: (event: KeyboardEvent) => boolean) => void>();
 const mockScrollToBottom = vi.fn();
 const mockRefresh = vi.fn();
 const mockFocus = vi.fn();
@@ -26,6 +26,11 @@ const mockAgentEventDisposition = vi.hoisted(() => vi.fn(
   (_presence?: { activeSessionMatches: boolean }) => 'suppress' as 'suppress' | 'display-request',
 ));
 const mockShowGrantedAgentEvent = vi.hoisted(() => vi.fn(async () => true));
+const mockAttachHerdrMouseInput = vi.hoisted(() => vi.fn(() => vi.fn()));
+const mockXtermElement = document.createElement('div');
+const mockXtermScreen = document.createElement('div');
+mockXtermScreen.className = 'xterm-screen';
+mockXtermElement.appendChild(mockXtermScreen);
 
 const mockTerminalInstance = {
   loadAddon: mockLoadAddon,
@@ -46,6 +51,7 @@ const mockTerminalInstance = {
   rows: 24,
   options: { fontFamily: 'monospace', theme: {} },
   textarea: null,
+  element: mockXtermElement,
   scrollLines: vi.fn(),
   onScroll: vi.fn(() => ({ dispose: vi.fn() })),
   buffer: {
@@ -139,6 +145,11 @@ vi.mock('../../lib/mobile', () => ({
 
 vi.mock('../../lib/touch-gestures', () => ({
   attachSwipeGestures: vi.fn(() => vi.fn()),
+  sendTerminalKey: vi.fn(),
+}));
+
+vi.mock('../../lib/herdr-mouse', () => ({
+  attachHerdrMouseInput: mockAttachHerdrMouseInput,
 }));
 
 vi.mock('../../lib/terminal-link-provider', () => ({
@@ -164,6 +175,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
 import { isTouchDevice, getKeyboardHeight, isVirtualKeyboardOpen, forceResetKeyboardState, disableVirtualKeyboardOverlay } from '../../lib/mobile';
+import { sendTerminalKey } from '../../lib/touch-gestures';
 import * as mobileModule from '../../lib/mobile';
 import { loadSettings } from '../../lib/settings';
 import { showAgentNotification, showGrantedAgentEvent } from '../../lib/agent-notifications';
@@ -591,6 +603,7 @@ describe('useTerminal hook', () => {
         expect.anything(),
         undefined,
         false,
+        true,
       );
 
       dispose();
@@ -754,7 +767,70 @@ describe('useTerminal hook', () => {
     });
   });
 
+  describe('Herdr keyboard prefix', () => {
+    function mountAndGetKeyHandler(terminalMode?: 'classic' | 'herdr') {
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      const handler = mockAttachCustomKeyEventHandler.mock.calls[0]?.[0] as
+        | ((event: KeyboardEvent) => boolean)
+        | undefined;
+      expect(handler).toBeDefined();
+      return { dispose, handler: handler! };
+    }
+
+    it('REQ-TERM-037 AC1-AC2: sends the canonical Herdr prefix and leaves its action key to xterm', () => {
+      const { dispose, handler } = mountAndGetKeyHandler('herdr');
+
+      const prefixEvent = new KeyboardEvent('keydown', {
+        key: 'b',
+        ctrlKey: true,
+        cancelable: true,
+      });
+      expect(handler(prefixEvent)).toBe(false);
+      expect(prefixEvent.defaultPrevented).toBe(true);
+      expect(sendTerminalKey).toHaveBeenCalledWith(expect.anything(), '\x02');
+
+      vi.mocked(sendTerminalKey).mockClear();
+      expect(handler(new KeyboardEvent('keydown', { key: 's' }))).toBe(true);
+      expect(sendTerminalKey).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('REQ-TERM-037 AC3: preserves classic and unrelated modified key handling', () => {
+      const classic = mountAndGetKeyHandler('classic');
+      expect(classic.handler(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true }))).toBe(true);
+      expect(sendTerminalKey).not.toHaveBeenCalled();
+      classic.dispose();
+
+      vi.clearAllMocks();
+      const herdr = mountAndGetKeyHandler('herdr');
+      expect(herdr.handler(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, shiftKey: true }))).toBe(true);
+      expect(sendTerminalKey).not.toHaveBeenCalled();
+      herdr.dispose();
+    });
+  });
+
   describe('right-click to paste', () => {
+    it('leaves contextmenu ownership to Herdr', () => {
+      const addEventSpy = vi.spyOn(containerEl, 'addEventListener');
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      expect(addEventSpy).not.toHaveBeenCalledWith('contextmenu', expect.any(Function));
+      expect(mockAttachHerdrMouseInput).toHaveBeenCalledWith(
+        mockXtermScreen,
+        expect.objectContaining({ cols: 80, rows: 24 }),
+        expect.any(Function),
+      );
+      dispose();
+    });
+
     it('should add contextmenu listener to container on mount', () => {
       const addEventSpy = vi.spyOn(containerEl, 'addEventListener');
 
@@ -901,6 +977,38 @@ describe('useTerminal hook', () => {
         expect(navigator.clipboard.readText).toHaveBeenCalled();
       });
 
+      dispose();
+    });
+  });
+
+  describe('font loading refit', () => {
+    it('REQ-MOB-001 AC5: skips the deferred font-ready refit when the container has zero visible height', async () => {
+      let resolveFonts!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        resolveFonts = resolve;
+      });
+      Object.defineProperty(document, 'fonts', {
+        value: { ready },
+        configurable: true,
+      });
+      Object.defineProperty(containerEl, 'clientHeight', { value: 0, configurable: true });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      mockFit.mockClear();
+      mockScrollToBottom.mockClear();
+      vi.mocked(terminalStore.resize).mockClear();
+      resolveFonts();
+      await ready;
+      await Promise.resolve();
+
+      expect(mockFit).not.toHaveBeenCalled();
+      expect(mockScrollToBottom).not.toHaveBeenCalled();
+      expect(terminalStore.resize).not.toHaveBeenCalled();
       dispose();
     });
   });

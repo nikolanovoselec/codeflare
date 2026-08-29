@@ -114,7 +114,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 4. When the delta reaches 15, the capture subagent is triggered. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::DELTA --> <!-- @test: host/__tests__/memory-capture-hook.test.js (triggers capture when 15+ NEW real prompts since last_count) -->
 5. After a Pi memory request reaches GIVEUP, fifteen later real-user prompts re-arm capture without allowing generated extraction follow-ups to advance the cadence. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isSyntheticPrompt --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC5: re-arms only after fifteen later real prompts) -->
 6. Only the Pi root advances the prompt counter, after an exact correlated successful result and post-commit capture note/chunk; failed, late, incomplete, or superseded results cannot advance the counter or clear replacement work. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memorySuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (requires the post-commit note and chunk before exact success advances the frozen counter) -->
-7. When the hook fires with no counter file and the transcript already contains more than one real-user prompt (CURRENT_COUNT > 1), it treats the session as resumed: it force-fires a capture covering the transcript from line 1 and re-emits the graph-query directive ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing) AC3). <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::FORCE_RESUME --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
+7. A missing counter with multiple real-user prompts triggers resumed-session capture from transcript start and re-emits graph-query guidance ([REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing)). <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::FORCE_RESUME --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
 
 **Notes:** Pi delivery ownership and retry rationale are documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional); request bounds and uncaptured-window compaction are in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
 
@@ -395,7 +395,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 - The size ceiling is a memory guard, not a latency one, and is overridable, so a graph that outgrows the default cannot silently disable injection.
 - An implausible override falls back to the default, so the guard cannot be present and inert. <!-- @test: host/__tests__/memory-context-inject.test.js (AC7: an out-of-range numeric ceiling falls back instead of voiding the guard) --> <!-- @test: src/__tests__/lib/pi-memory-inject.test.ts (AC5: an injected ceiling is not outranked by the ambient environment) -->
 - The hook plugin is advanced-session-only by manifest declaration (`preseed/agents/claude/manifest.json`); standard sessions never receive the plugin.
-- The hook reads the graph JSON directly (no MCP round-trip).
+- The hook reads graph JSON directly.
 - Claude and Pi carry separate implementations for differing injection surfaces, while the keyword rule, ranking weights, node cap, rendered shape and sentinel semantics are the same in both.
 - The Pi side skips synthetic prompts, which the hook runtime never delivers.
 - The hook is fail-safe: any error exits silently with no output; A failed injection must never block the session.
@@ -429,7 +429,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Constraints:**
 
 - Only the narrative and decision sections are injected; the rest is reachable through the emitted source path.
-- The injected text is framed as a record, not instructions, so a prior session cannot direct a later one.
+- Injected text is a record, not instructions.
 - The hook plugin is advanced-session-only by manifest declaration; standard sessions never receive it.
 - A heading inside a fenced block is content, not a section heading.
 - The per-extract bound is a byte bound and is never exceeded; the truncation notice is spent from it and dropped when it cannot fit. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC4: holds the bound even when the cap cannot fit the marker) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC4: a nonsensical cap carries nothing rather than everything) -->

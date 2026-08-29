@@ -64,7 +64,7 @@ describe('REQ-TERM-009 AC7: updateTerminalLabel writes processName to the target
     expect(tab?.processName).toBe('claude');
   });
 
-  it('REQ-TERM-009 AC7: only mutates the targeted terminalId, leaves siblings untouched', () => {
+  it('REQ-TERM-009 AC2: only mutates the targeted terminalId, leaves siblings untouched', () => {
     updateTerminalLabel('sess-abc12345', '2', 'codex');
     const tab1 = state.terminalsPerSession['sess-abc12345'].tabs.find((t) => t.id === '1');
     const tab2 = state.terminalsPerSession['sess-abc12345'].tabs.find((t) => t.id === '2');

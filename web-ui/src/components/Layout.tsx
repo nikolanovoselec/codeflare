@@ -12,7 +12,7 @@ import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import { forceResetKeyboardState, enableVirtualKeyboardOverlay, isSamsungBrowser, cleanupDebugOverlay } from '../lib/mobile';
 import { logger } from '../lib/logger';
 import { loadSettings, applyAccentColor } from '../lib/settings';
-import type { TileLayout, AgentType, TabConfig } from '../types';
+import { resolveTerminalMode, type TileLayout, type AgentType, type TabConfig, type SessionWithStatus } from '../types';
 import { VIEW_TRANSITION_DURATION_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS } from '../lib/constants';
 import { startVaultReadinessProbe, probeVaultReady } from '../lib/vault-readiness';
 import { DEFAULT_VAULT_PREWARM_TIMEOUT_MS, startVaultPrewarm, type VaultPrewarmStatus } from '../lib/vault-prewarm';
@@ -399,12 +399,18 @@ const Layout: Component<LayoutProps> = (props) => {
     return layout === '2-split' ? 2 : 1;
   };
 
+  const terminalIdForSession = (session: Pick<SessionWithStatus, 'id' | 'terminalMode'>) =>
+    resolveTerminalMode(session.terminalMode) === 'herdr'
+      ? '1'
+      : sessionStore.getTerminalsForSession(session.id)?.activeTabId || '1';
+
   const visibleTerminalKeys = createMemo(() => {
     const activeWorkspace = terminalWorkspaceStore.getActiveWorkspace();
     const sessionId = activeWorkspace && activeWorkspace.kind === 'session' ? activeWorkspace.sessionId : null;
+    const session = sessionId ? sessionStore.sessions.find((candidate) => candidate.id === sessionId) : null;
     const terminals = sessionId ? sessionStore.getTerminalsForSession(sessionId) : null;
     const tiling = sessionId ? sessionStore.getTilingForSession(sessionId) : null;
-    if (sessionId && terminals && tiling && tiling.enabled) {
+    if (sessionId && resolveTerminalMode(session?.terminalMode) === 'classic' && terminals && tiling && tiling.enabled) {
       const activeSessionId = sessionId;
       const layout = tiling.layout;
       const tabOrder = sessionStore.getTabOrder(activeSessionId) ?? [];
@@ -561,7 +567,7 @@ const Layout: Component<LayoutProps> = (props) => {
       return;
     }
 
-    const terminalId = shouldStart ? '1' : sessionStore.getTerminalsForSession(id)?.activeTabId || '1';
+    const terminalId = shouldStart ? '1' : terminalIdForSession(session);
     sessionStore.setActiveSession(id);
     terminalWorkspaceStore.setSingleSessionWorkspace(id, terminalId, session);
     enterTerminalView();
@@ -592,7 +598,7 @@ const Layout: Component<LayoutProps> = (props) => {
       keepDashboardOwnership('push');
     } else {
       sessionStore.setActiveSession(id);
-      terminalWorkspaceStore.setSingleSessionWorkspace(id, sessionStore.getTerminalsForSession(id)?.activeTabId || '1', session);
+      terminalWorkspaceStore.setSingleSessionWorkspace(id, terminalIdForSession(session), session);
       enterTerminalView();
       writeSessionHistoryPath(id, 'push');
     }
@@ -619,7 +625,7 @@ const Layout: Component<LayoutProps> = (props) => {
       keepDashboardOwnership('push');
     } else {
       sessionStore.setActiveSession(session.id);
-      terminalWorkspaceStore.setSingleSessionWorkspace(session.id, '1', session);
+      terminalWorkspaceStore.setSingleSessionWorkspace(session.id, terminalIdForSession(session), session);
       enterTerminalView();
       writeSessionHistoryPath(session.id, 'push');
     }
@@ -631,7 +637,10 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const handleOpenMultiView = () => {
-    if (!terminalWorkspaceStore.openMultiView()) return;
+    if (!terminalWorkspaceStore.openMultiView(
+      sessionStore.sessions,
+      (sessionId) => sessionStore.getTerminalsForSession(sessionId)?.activeTabId || '1',
+    )) return;
     setShowTilingOverlay(false);
     sessionStore.setActiveSession(null);
     enterTerminalView();
@@ -685,7 +694,7 @@ const Layout: Component<LayoutProps> = (props) => {
         sessionStore.setActiveSession(requestedSessionId);
         terminalWorkspaceStore.setSingleSessionWorkspace(
           requestedSessionId,
-          sessionStore.getTerminalsForSession(requestedSessionId)?.activeTabId || '1',
+          terminalIdForSession(requestedSession),
           requestedSession,
         );
         setViewState('dashboard');

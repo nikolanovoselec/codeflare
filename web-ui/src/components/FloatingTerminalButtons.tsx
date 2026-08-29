@@ -12,6 +12,7 @@ import { loadSettings } from '../lib/settings';
 import { BUTTON_LABEL_VISIBLE_DURATION_MS } from '../lib/constants';
 import { getIframeInput, scrollBufferLines } from '../lib/xterm-internals';
 import { isSpeechSupported, isListening, startListening, stopListening, getMicPermissionState } from '../lib/speech-input';
+import { resolveTerminalMode } from '../types';
 import '../styles/floating-terminal-buttons.css';
 
 interface FloatingTerminalButtonsProps {
@@ -41,8 +42,10 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
   const getActiveTerminalTarget = () => {
     const sessionId = sessionStore.activeSessionId;
     if (sessionId) {
-      const terminals = sessionStore.getTerminalsForSession(sessionId);
-      const terminalId = terminals?.activeTabId || '1';
+      const session = sessionStore.sessions.find((candidate) => candidate.id === sessionId);
+      const terminalId = resolveTerminalMode(session?.terminalMode) === 'herdr'
+        ? '1'
+        : sessionStore.getTerminalsForSession(sessionId)?.activeTabId || '1';
       return { sessionId, terminalId, term: terminalStore.getTerminal(sessionId, terminalId) };
     }
     const focusedPaneId = terminalWorkspaceStore.getFocusedPaneId();

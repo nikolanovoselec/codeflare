@@ -18,6 +18,7 @@ export const TabConfigSchema = z.object({
 // Session mode and startup workspace enums
 export const SessionModeSchema = z.enum(['default', 'advanced']);
 export const SessionWorkspaceSchema = z.enum(['terminal', 'vscode']);
+export const TerminalModeSchema = z.enum(['classic', 'herdr']);
 
 export const AccessTierSchema = z.enum(['pending', 'standard', 'advanced', 'blocked']);
 export const SubscriptionTierSchema = z.enum([
@@ -55,6 +56,7 @@ export const AuthProvidersResponseSchema = z.object({
 // User preferences schema
 export const UserPreferencesSchema = z.object({
   lastAgentType: AgentTypeSchema.optional(),
+  herdrEnabled: z.boolean().optional(),
   workspaceSyncEnabled: z.boolean().optional(),
   fastStartEnabled: z.boolean().optional(),
   sessionMode: SessionModeSchema.optional(),
@@ -79,6 +81,7 @@ export const SessionSchema = z.object({
   status: z.enum(['stopped', 'running']).optional(),
   agentType: AgentTypeSchema.optional(),
   workspace: SessionWorkspaceSchema.default('terminal'),
+  terminalMode: TerminalModeSchema.default('classic'),
   editorReady: z.boolean().optional(),
   editorReadyError: z.boolean().optional(),
   tabConfig: z.array(TabConfigSchema).optional(),
@@ -245,6 +248,8 @@ export const SetupPrefillResponseSchema = z.object({
     repository: z.string(),
     personalAccessTokenSet: z.boolean(),
     publicKeyFingerprint: z.string(),
+    immutableResources: z.boolean().default(false),
+    disableUserCreatedResources: z.boolean().default(false),
     activeReleaseTag: z.string().optional(),
     activeSequence: z.number().int().positive().optional(),
     activeDigestPrefix: z.string().optional(),
@@ -258,6 +263,8 @@ export const SetupPrefillResponseSchema = z.object({
     repository: '',
     personalAccessTokenSet: false,
     publicKeyFingerprint: '',
+    immutableResources: false,
+    disableUserCreatedResources: false,
     freshness: 'unconfigured',
     patExpiryState: 'unknown',
   }),

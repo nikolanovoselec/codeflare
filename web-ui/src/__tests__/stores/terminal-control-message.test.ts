@@ -154,10 +154,18 @@ describe('Terminal control-message handling', () => {
 
   // ── REQ-TERM-009 AC2: type-discriminator routing of control vs raw frames ───
   describe('REQ-TERM-009 AC2: parseControlMessage discriminates frames by leading type field', () => {
-    it('REQ-TERM-009 AC2: routes a process-name frame to the process-name kind', () => {
+    it('REQ-TERM-009 AC2: routes a non-empty string process name to the process-name kind', () => {
       const result = parseControlMessage(JSON.stringify({ type: 'process-name', processName: 'claude' }));
       expect(result).toEqual({ kind: 'process-name', processName: 'claude' });
     });
+
+    it.each([{}, [], '', 0, true, null])(
+      'REQ-TERM-009 AC2: treats invalid process-name payload %j as raw',
+      (processName) => {
+        const result = parseControlMessage(JSON.stringify({ type: 'process-name', processName }));
+        expect(result).toEqual({ kind: 'raw' });
+      },
+    );
 
     it('REQ-TERM-009 AC2: routes a restore frame (with state) to the restore kind', () => {
       const result = parseControlMessage(JSON.stringify({ type: 'restore', state: 'htop output' }));
@@ -180,7 +188,7 @@ describe('Terminal control-message handling', () => {
       expect(result).toEqual({ kind: 'raw' });
     });
 
-    it('REQ-TERM-009 AC2: an unknown control type (e.g. pong) is treated as raw', () => {
+    it('REQ-TERM-009 AC5: an unknown control type (e.g. pong) is treated as raw', () => {
       const result = parseControlMessage(JSON.stringify({ type: 'pong' }));
       expect(result).toEqual({ kind: 'raw' });
     });
@@ -192,8 +200,8 @@ describe('Terminal control-message handling', () => {
   });
 
   // ── REQ-TERM-009 AC6: registered callback is invoked on a process-name frame ─
-  describe('REQ-TERM-009 AC6: registerProcessNameCallback routes process-name frames to the callback', () => {
-    it('REQ-TERM-009 AC6: a dispatched process-name frame invokes the registered callback with the parsed name', async () => {
+  describe('REQ-TERM-009 AC2: registerProcessNameCallback routes process-name frames to the callback', () => {
+    it('REQ-TERM-009 AC2: a dispatched process-name frame invokes the registered callback with the parsed name', async () => {
       const callback = vi.fn();
       registerProcessNameCallback(callback);
 
@@ -211,7 +219,21 @@ describe('Terminal control-message handling', () => {
       }
     });
 
-    it('REQ-TERM-009 AC6: raw terminal output does not invoke the process-name callback', async () => {
+    it('REQ-TERM-009 AC1: suppresses process-name callbacks when outer labels are disabled', async () => {
+      const callback = vi.fn();
+      registerProcessNameCallback(callback);
+      const ws = installCapturingWebSocket();
+      try {
+        terminalStore.connect(SESSION_ID, TERMINAL_ID, createMockTerminal(), undefined, false, false);
+        await vi.advanceTimersByTimeAsync(0);
+        ws.created[0].emitMessage(JSON.stringify({ type: 'process-name', processName: 'herdr' }));
+        expect(callback).not.toHaveBeenCalled();
+      } finally {
+        ws.restore();
+      }
+    });
+
+    it('REQ-TERM-009 AC5: raw terminal output does not invoke the process-name callback', async () => {
       const callback = vi.fn();
       registerProcessNameCallback(callback);
 

@@ -144,7 +144,11 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authMiddleware);
 
 app.get('/config', (c) => {
-  if (!c.env.VAPID_PUBLIC_KEY?.trim()) {
+  if (
+    !c.env.VAPID_SUBJECT?.trim()
+    || !c.env.VAPID_PUBLIC_KEY?.trim()
+    || !c.env.VAPID_PRIVATE_KEY?.trim()
+  ) {
     return c.json({ error: 'Notification service unavailable' }, 503);
   }
   return c.json({ vapidPublicKey: c.env.VAPID_PUBLIC_KEY });

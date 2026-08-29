@@ -107,7 +107,7 @@ Two classes of path are hidden from the SilverBullet client listing/sync ([REQ-V
 
 On Claude, the `memory-capture.sh` UserPromptSubmit hook fires every 15 user messages, writes a `.vars` carrier naming the window and the capture file, and launches `run-memory-capture.sh` detached. The main session spends nothing: it does not dispatch a subagent, wait, or read the result. The runner prefilters the transcript slice, builds one self-contained request, and runs the capture as a headless `claude -p` bounded to six turns, with fidelity selected by `CODEFLARE_MEMORY_MODEL` (default `sonnet`) per [AD58](../decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) and [AD124](../decisions/README.md#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block). That capture runs `memory-agent-prompt.md` end to end:
 
-1. Receives the transcript inline in its prompt (`CAPTURE_REQUEST`), framed by a per-run marker; there is no carrier, transcript path, or chunk directory for it to open. Handing it a path instead put an 83KB retrieval on the tool-result channel, which truncates and persists, and the capture spent its whole budget paging its own input back in.
+1. Receives the marker-framed transcript inline in `CAPTURE_REQUEST`; no carrier, transcript path, or chunk directory must be opened. This avoids truncated persistent tool results and repeated input paging.
 2. Processes that inline transcript once.
 3. Identifies decisions, observations, references, and a short topic phrase.
 4. Writes `/home/user/Vault/Raw/Sessions/{ISO_TS}-{SID_SHORT}.md` using the YAML-frontmatter template (session id, captured-at, captured-from-range, then Context / Decisions / Observations / References sections).

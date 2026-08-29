@@ -65,6 +65,8 @@ const initialState: SetupState = {
   managedEnvironmentEnabled: false,
   managedEnvironmentConfigured: false,
   managedEnvironmentTouched: false,
+  managedEnvironmentImmutableResources: false,
+  managedEnvironmentDisableUserCreatedResources: false,
   managedEnvironmentRepository: '',
   managedEnvironmentPersonalAccessToken: '',
   managedEnvironmentPersonalAccessTokenSet: false,
@@ -211,7 +213,28 @@ function setCloudflareOauthClientSecret(v: string): void { setState('cloudflareO
 
 // ─── Managed environment (all deployment modes) ──────────────────────
 function setManagedEnvironmentEnabled(v: boolean): void {
-  setState({ managedEnvironmentEnabled: v, managedEnvironmentTouched: true });
+  setState({
+    managedEnvironmentEnabled: v,
+    managedEnvironmentTouched: true,
+    ...(!v ? {
+      managedEnvironmentImmutableResources: false,
+      managedEnvironmentDisableUserCreatedResources: false,
+    } : {}),
+  });
+}
+function setManagedEnvironmentImmutableResources(v: boolean): void {
+  setState({
+    managedEnvironmentImmutableResources: v,
+    managedEnvironmentTouched: true,
+    ...(!v ? { managedEnvironmentDisableUserCreatedResources: false } : {}),
+  });
+}
+function setManagedEnvironmentDisableUserCreatedResources(v: boolean): void {
+  setState({
+    managedEnvironmentImmutableResources: v ? true : state.managedEnvironmentImmutableResources,
+    managedEnvironmentDisableUserCreatedResources: v,
+    managedEnvironmentTouched: true,
+  });
 }
 function setManagedEnvironmentRepository(v: string): void { setState('managedEnvironmentRepository', v); }
 function setManagedEnvironmentPersonalAccessToken(v: string): void { setState('managedEnvironmentPersonalAccessToken', v); }
@@ -625,6 +648,8 @@ export const setupStore = {
   get managedEnvironmentEnabled() { return state.managedEnvironmentEnabled; },
   get managedEnvironmentConfigured() { return state.managedEnvironmentConfigured; },
   get managedEnvironmentTouched() { return state.managedEnvironmentTouched; },
+  get managedEnvironmentImmutableResources() { return state.managedEnvironmentImmutableResources; },
+  get managedEnvironmentDisableUserCreatedResources() { return state.managedEnvironmentDisableUserCreatedResources; },
   get managedEnvironmentRepository() { return state.managedEnvironmentRepository; },
   get managedEnvironmentPersonalAccessToken() { return state.managedEnvironmentPersonalAccessToken; },
   get managedEnvironmentPersonalAccessTokenSet() { return state.managedEnvironmentPersonalAccessTokenSet; },
@@ -673,6 +698,8 @@ export const setupStore = {
   setCloudflareOauthClientId,
   setCloudflareOauthClientSecret,
   setManagedEnvironmentEnabled,
+  setManagedEnvironmentImmutableResources,
+  setManagedEnvironmentDisableUserCreatedResources,
   setManagedEnvironmentRepository,
   setManagedEnvironmentPersonalAccessToken,
   setManagedEnvironmentPublicKey,

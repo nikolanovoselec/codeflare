@@ -178,8 +178,8 @@ describe('listAllKvKeys', () => {
     expect(callCount).toBe(2);
   });
 
-  it('respects MAX_KV_LIST_ITERATIONS to prevent infinite loops', async () => {
-    // Return an infinite paginated response - should stop after 100 iterations
+  it('fails closed at MAX_KV_LIST_ITERATIONS instead of returning a partial scan', async () => {
+    // Return an infinite paginated response - the partial key set is not authoritative.
     let callCount = 0;
     mockKV.list.mockImplementation(async () => {
       callCount++;
@@ -190,10 +190,9 @@ describe('listAllKvKeys', () => {
       };
     });
 
-    const keys = await listAllKvKeys(mockKV as unknown as KVNamespace, 'key:');
-    // Should stop at 100 iterations (MAX_KV_LIST_ITERATIONS)
+    await expect(listAllKvKeys(mockKV as unknown as KVNamespace, 'key:'))
+      .rejects.toThrow('KV pagination exceeded 100 pages');
     expect(callCount).toBe(100);
-    expect(keys).toHaveLength(100);
   });
 });
 

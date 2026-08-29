@@ -8,6 +8,7 @@ import {
   gzipBytes,
   readManagedEnvironmentSnapshot,
   resolveManagedEnvironment,
+  resolveManagedResourcePolicy,
   resolveManagedEnvironmentRelease,
   streamManagedReleaseDocuments,
   verifyManagedReleaseStream as verifyManagedRelease,
@@ -28,6 +29,33 @@ vi.mock('../../lib/r2-admin', () => ({
   createBucketIfNotExists: bucketMocks.create,
   deleteR2BucketIfExists: bucketMocks.remove,
 }));
+
+describe('managed resource policy selection', () => {
+  it('REQ-SETUP-015 AC2: normalizes explicit managed resource controls', () => {
+    expect(resolveManagedResourcePolicy({ enabled: true, immutableResources: false, disableUserCreatedResources: false }, 'exclusive')).toBe('mutable');
+    expect(resolveManagedResourcePolicy({ enabled: true, immutableResources: true, disableUserCreatedResources: false }, 'exclusive')).toBe('immutable');
+    expect(resolveManagedResourcePolicy({ enabled: true, immutableResources: true, disableUserCreatedResources: true }, 'mutable')).toBe('exclusive');
+    expect(resolveManagedResourcePolicy({ enabled: false }, 'exclusive')).toBe('mutable');
+  });
+
+  it('REQ-SETUP-015 AC4: omitted managed resource controls preserve stored policy', () => {
+    expect(resolveManagedResourcePolicy({ enabled: true }, 'exclusive')).toBe('exclusive');
+    expect(resolveManagedResourcePolicy({ enabled: true, immutableResources: true }, 'exclusive')).toBe('exclusive');
+  });
+
+  it('REQ-SETUP-015 AC5: omitted managed resource controls default to mutable', () => {
+    expect(resolveManagedResourcePolicy({ enabled: true }, undefined)).toBe('mutable');
+  });
+
+  it('REQ-SETUP-016 AC1: rejects exclusive policy without immutable policy', () => {
+    expect(() => resolveManagedResourcePolicy({
+      enabled: true,
+      immutableResources: false,
+      disableUserCreatedResources: true,
+    }, 'mutable')).toThrow(/requires Immutable Resources/);
+  });
+
+});
 
 const encoder = new TextEncoder();
 const hex = (bytes: ArrayBuffer): string =>
@@ -655,6 +683,7 @@ describe('managed release resolver', () => {
       publicKeyFingerprint: '1'.repeat(16),
       configFingerprint: 'f'.repeat(64),
       cacheBucketName: 'managed-cache',
+      resourcePolicy: 'mutable' as const,
     };
     const kv = createMockKV();
     kv._store.set(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG, JSON.stringify(config));
@@ -1130,8 +1159,25 @@ describe('managed release resolver', () => {
         publicKey: firstFixture.publicKeyHex,
       },
     });
-    const firstConfig = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}') as { configFingerprint: string; cacheBucketName: string };
+    const firstConfig = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}') as { configFingerprint: string; cacheBucketName: string; resourcePolicy: string };
+    expect(firstConfig.resourcePolicy).toBe('mutable');
     expect(bucketMocks.create).toHaveBeenCalledWith('account-1', 'cloudflare-token', firstConfig.cacheBucketName);
+
+    await configureManagedEnvironment({
+      ...base,
+      request: { enabled: true, immutableResources: true, disableUserCreatedResources: false },
+    });
+    const immutableConfig = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}') as { configFingerprint: string; resourcePolicy: string };
+    expect(immutableConfig.resourcePolicy).toBe('immutable');
+    expect(immutableConfig.configFingerprint).toBe(firstConfig.configFingerprint);
+
+    await configureManagedEnvironment({
+      ...base,
+      request: { enabled: true, immutableResources: true, disableUserCreatedResources: true },
+    });
+    const exclusiveConfig = JSON.parse(kv._store.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG) ?? '{}') as { configFingerprint: string; resourcePolicy: string };
+    expect(exclusiveConfig.resourcePolicy).toBe('exclusive');
+    expect(exclusiveConfig.configFingerprint).toBe(firstConfig.configFingerprint);
     const patKey = getManagedEnvironmentPatKey(firstConfig.configFingerprint);
     expect(kv._store.get(patKey)).toMatch(/^v1:/);
     expect(kv._store.get(patKey)).not.toContain('github_pat_first');

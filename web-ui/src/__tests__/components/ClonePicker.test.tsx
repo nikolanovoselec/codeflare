@@ -77,7 +77,7 @@ describe('ClonePicker', () => {
     cleanup();
   });
 
-  it('renders the running group BEFORE the new-session group with a separator between', () => {
+  it('renders the running group before the new-session group through shared option rows', () => {
     sessionStoreState.sessions = [
       { id: 's1', name: 'Pi #1', status: 'running' },
       { id: 's2', name: 'Claude #1', status: 'running' },
@@ -100,8 +100,14 @@ describe('ClonePicker', () => {
     // The separator is exposed as a real separator role.
     expect(separator.getAttribute('role')).toBe('separator');
 
-    // One running row per running session.
-    expect(screen.getAllByTestId('clone-picker-session-row')).toHaveLength(2);
+    // One running row per running session, using the same option-row layout as new-session agents.
+    const runningRows = screen.getAllByTestId('clone-picker-session-row');
+    const newRows = newGroup.querySelectorAll('.clone-picker-option-btn');
+    expect(runningRows).toHaveLength(2);
+    expect(newRows.length).toBeGreaterThan(0);
+    expect(runningRows[0].className).toBe(newRows[0].className);
+    expect(runningRows[0].querySelector('.clone-picker-option-info')?.className)
+      .toBe(newRows[0].querySelector('.clone-picker-option-info')?.className);
   });
 
   it('lists only running sessions (filters out stopped/initializing)', () => {

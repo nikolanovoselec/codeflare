@@ -17,6 +17,7 @@ import {
   type AgentEventAction,
   type AgentEventDisposition,
   type AgentEventDrainResult,
+  type AgentEventKind,
 } from './agent-events.js';
 
 import type {
@@ -129,6 +130,7 @@ export class Session {
   private readonly _logWsEvent: WsEventLogger;
   private readonly _activityTracker: ActivityTracker | null;
   private readonly _ptyKeepaliveMs: number;
+  private readonly _stopTerminalRuntime: (() => void) | null;
 
   constructor(id: string, name = 'Terminal', manual = false, options: SessionOptions = {}) {
     this.id = id;
@@ -159,6 +161,7 @@ export class Session {
     this._logWsEvent = options.logWsEvent ?? (() => {});
     this._activityTracker = options.activityTracker ?? null;
     this._ptyKeepaliveMs = options.ptyKeepaliveMs ?? 14400000;
+    this._stopTerminalRuntime = options.stopTerminalRuntime ?? null;
   }
 
   /**
@@ -409,6 +412,11 @@ export class Session {
     return result.accepted;
   }
 
+  enqueueAgentEvent(kind: AgentEventKind): void {
+    const clients = [...this.clients].filter((client) => client.readyState === WebSocket.OPEN);
+    this.applyAgentEventActions(this.agentEventQueue.enqueue(kind, clients).actions);
+  }
+
   drainAgentEvents(request: { readonly ackEventIds: readonly string[]; readonly final?: true }): AgentEventDrainResult {
     return this.agentEventQueue.drain(request);
   }
@@ -491,6 +499,10 @@ export class Session {
       this.processNameInterval = null;
     }
     this.lastProcessName = null;
+
+    if (this._stopTerminalRuntime) {
+      this._stopTerminalRuntime();
+    }
 
     if (this.ptyProcess) {
       this.ptyProcess.kill();

@@ -112,6 +112,16 @@ describe('REQ-TERM-002 AC3: PTY spawned as a full-color login shell', () => {
     session.kill();
   });
 
+  it('kill() invokes the injected terminal-runtime cleanup exactly once', () => {
+    let stops = 0;
+    const session = new Session('sess-herdr', 'Terminal', false, {
+      stopTerminalRuntime: () => { stops += 1; },
+    });
+    session.start();
+    session.kill();
+    assert.equal(stops, 1);
+  });
+
   it('start() forwards an explicitly configured terminalArgs string as argv', () => {
     spawnMock.mock.resetCalls();
     // A non-default args value proves args are split + forwarded, not hardcoded.
@@ -143,7 +153,7 @@ describe('REQ-TERM-026 AC3: Claude notification focus independence', () => {
 
 // ── REQ-TERM-002 AC4: raw PTY data flows unwrapped ──────────────────────────
 
-describe('REQ-TERM-002 AC4: raw PTY output reaches clients without JSON wrapping', () => {
+describe('REQ-TERM-002 AC5: raw PTY output reaches clients without JSON wrapping', () => {
   it('forwards a PTY data frame byte-for-byte to an attached OPEN client', () => {
     const session = new Session('sess-5', 'Terminal');
     const ws = createWs();

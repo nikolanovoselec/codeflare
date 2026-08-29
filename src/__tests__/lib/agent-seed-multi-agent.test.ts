@@ -99,7 +99,7 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     expect(AGENTS_SEEDED_CONFIGS.some((doc) => doc.key === '.pi/agent/caveman.json')).toBe(false);
   });
 
-  it('REQ-AGENT-080 AC3: seeds the boundary dispatcher in both modes but reviewers only in advanced', () => {
+  it('REQ-AGENT-006 AC2: seeds the boundary dispatcher in both modes but reviewers only in advanced', () => {
     for (const key of [
       '.pi/agent/extensions/active-repo-memory.ts',
       '.pi/agent/extensions/review-enforcement.ts',
@@ -373,6 +373,13 @@ describe('multi-agent documents / REQ-MEM-008 (memory plugin: advanced-only, fou
     // agent reaches for the cheap read surface before the expensive interactive one.
     expect(claudeRun!.content).toContain('Decision order');
     expect(piRun!.content).toContain('Decision order');
+  });
+
+  it('REQ-AGENT-173: projects the Herdr orchestration skill', () => {
+    const herdrSkill = AGENTS_SEEDED_CONFIGS.find(
+      (doc) => doc.key === '.pi/agent/skills/herdr/SKILL.md',
+    );
+    expect(herdrSkill?.modes).toEqual(['default', 'advanced']);
   });
 
   it('REQ-AGENT-021: Pi has skills, native runtime extensions, and subagent definitions', () => {
