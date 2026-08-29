@@ -49,6 +49,73 @@ async function withSocket(handler, test) {
   }
 }
 
+async function expectResnapshot(trigger, options = {}) {
+  let connection = 0;
+  let resolveResnapshot;
+  const resnapshot = new Promise((resolve) => { resolveResnapshot = resolve; });
+
+  await withSocket((socket) => {
+    connection += 1;
+    const currentConnection = connection;
+    let buffered = '';
+    socket.on('data', (chunk) => {
+      buffered += chunk.toString('utf8');
+      while (buffered.includes('\n')) {
+        const newline = buffered.indexOf('\n');
+        const request = JSON.parse(buffered.slice(0, newline));
+        buffered = buffered.slice(newline + 1);
+        if (request.method === 'session.snapshot') {
+          if (currentConnection === 1 && trigger === 'timeout') continue;
+          socket.write(`${JSON.stringify({
+            id: request.id,
+            result: {
+              type: 'session_snapshot',
+              snapshot: { agents: [{
+                pane_id: `w1:p${currentConnection}`,
+                name: null,
+                agent: 'pi',
+                agent_status: 'working',
+                focused: true,
+              }] },
+            },
+          })}\n`);
+        } else if (request.method === 'events.subscribe') {
+          if (currentConnection > 1) {
+            resolveResnapshot();
+          } else if (trigger === 'malformed-status') {
+            socket.write(`${JSON.stringify({
+              event: 'pane.agent_status_changed',
+              data: { pane_id: 'w1:p1', agent_status: 'bogus' },
+            })}\n`);
+          } else {
+            socket.write(`${JSON.stringify({ event: trigger, data: { pane_id: 'w1:p1' } })}\n`);
+          }
+        }
+      }
+    });
+  }, async (socketPath) => {
+    const monitor = new HerdrAgentStatusMonitor({
+      socketPath,
+      onComplete: () => {},
+      reconnectDelayMs: 0,
+      ...options,
+    });
+    monitor.start();
+    let timeout;
+    try {
+      await Promise.race([
+        resnapshot,
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('resnapshot timed out')), 1_000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeout);
+      monitor.stop();
+    }
+  });
+}
+
 describe('Herdr completion notification authority', () => {
   it('starts four minutes at working→idle/done and preserves idle↔done', () => {
     const scheduler = new ManualScheduler();
@@ -70,7 +137,7 @@ describe('Herdr completion notification authority', () => {
     assert.equal(completions, 1);
   });
 
-  it('cancels on working and requires a fresh four idle minutes', () => {
+  it('cancels on working snapshots and requires a fresh four idle minutes', () => {
     const scheduler = new ManualScheduler();
     let completions = 0;
     let workingTransitions = 0;
@@ -82,12 +149,13 @@ describe('Herdr completion notification authority', () => {
     });
 
     delay.initialize('working');
+    assert.equal(workingTransitions, 1);
     delay.update('idle');
     scheduler.advanceBy(239_999);
     delay.update('working');
     scheduler.advanceBy(240_000);
     assert.equal(completions, 0);
-    assert.equal(workingTransitions, 1);
+    assert.equal(workingTransitions, 2);
 
     delay.update('done');
     scheduler.advanceBy(239_999);
@@ -113,6 +181,23 @@ describe('Herdr completion notification authority', () => {
     delay.update('unknown');
     scheduler.advanceBy(240_000);
     assert.equal(completions, 0);
+  });
+
+  it('reconnects after a bounded unanswered snapshot', async () => {
+    await expectResnapshot('timeout', { snapshotTimeoutMs: 10 });
+  });
+
+  it('resnapshots after tracked-pane lifecycle events', async () => {
+    let workingSnapshots = 0;
+    await expectResnapshot('pane.closed', {
+      onWorking: () => { workingSnapshots += 1; },
+    });
+    assert.equal(workingSnapshots, 2);
+    await expectResnapshot('pane.agent_detected');
+  });
+
+  it('reconnects after a malformed subscribed status event', async () => {
+    await expectResnapshot('malformed-status');
   });
 
   it('subscribes to the primary Herdr agent and consumes status transitions', async () => {

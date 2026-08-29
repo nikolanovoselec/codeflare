@@ -1041,7 +1041,7 @@ None.
 2. One foreground run emits at most one input-required signal. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (emits at most one needs-input event per foreground run) -->
 3. Pi registers no notification behavior and writes no terminal bytes in RPC mode. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC3: registers nothing and writes no bytes in RPC mode) -->
 
-**Notes:** Herdr semantic status, not Pi lifecycle inference, owns completion under [REQ-TERM-029](#req-term-029-herdr-status-gated-terminal-completion).
+**Notes:** Herdr completion authority is documented at [Container Image](../../documentation/lanes/container.md#container-image).
 
 **Constraints:** Prompts, model output, tool data, commands, file content, and credentials never enter producer payloads.
 
@@ -1065,7 +1065,7 @@ None.
 
 1. A `working` to `idle` or `done` transition starts one four-minute completion timer. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (starts four minutes at working→idle/done and preserves idle↔done) -->
 2. An `idle` to `done` or `done` to `idle` presentation change preserves the existing timer. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (starts four minutes at working→idle/done and preserves idle↔done) -->
-3. A return to `working` cancels the timer; the next transition to `idle` or `done` receives a fresh four minutes. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (cancels on working and requires a fresh four idle minutes) -->
+3. A return to `working` cancels the timer; the next transition to `idle` or `done` receives a fresh four minutes. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (cancels on working snapshots and requires a fresh four idle minutes) -->
 4. Timer expiry emits `task-completed` only while status remains `idle` or `done`. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (does not notify from an initial idle snapshot or while blocked/unknown) -->
 5. Initial `idle` or `done`, plus `blocked` and `unknown`, never starts completion timing. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (does not notify from an initial idle snapshot or while blocked/unknown) -->
 6. Classic mode has no completion producer. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (registers no completion lifecycle producer in terminal mode) -->
@@ -1096,7 +1096,7 @@ None.
 1. Herdr mode snapshots the primary recognized Pi or Claude agent. <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to the primary Herdr agent and consumes status transitions) -->
 2. The host subscribes to that pane's public `pane.agent_status_changed` event. <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to the primary Herdr agent and consumes status transitions) -->
 3. The initial status establishes a baseline and never produces completion by itself. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (does not notify from an initial idle snapshot or while blocked/unknown) -->
-4. A `working` status cancels queued completion events without cancelling input-required events. <!-- @impl: host/src/session.ts::Session --> <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/agent-events.test.js (working status cancels queued completion without cancelling needs-input) -->
+4. A `working` status cancels queued completion events without cancelling input-required events. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @impl: host/src/session.ts::Session --> <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/herdr-agent-status.test.js (cancels on working snapshots and requires a fresh four idle minutes) --> <!-- @test: host/__tests__/agent-events.test.js (working status cancels queued completion without cancelling needs-input) -->
 
 **Constraints:**
 
@@ -1122,7 +1122,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. An eligible delayed Herdr completion routes through Codeflare's host event queue instead of terminal notification bytes. <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @impl: host/src/server.ts --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to the primary Herdr agent and consumes status transitions) -->
+1. An eligible delayed Herdr completion remains available to normal notification delivery without writing terminal-visible bytes. <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @impl: host/src/server.ts --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to the primary Herdr agent and consumes status transitions) --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (registers no completion lifecycle producer in terminal mode) -->
 2. Local display labels Pi completion `Ready for input`. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-039 AC2: labels local Pi completion as ready for input) -->
 3. Push display labels Pi completion `Ready for input`. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-039 AC3: labels Pi Push completion as ready for input) -->
 4. Local display retains `Task completed` for Claude completion. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-039 AC4: keeps local Claude completion copy task-oriented) -->

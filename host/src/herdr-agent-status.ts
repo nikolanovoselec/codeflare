@@ -2,6 +2,7 @@ import net from 'node:net';
 
 export const HERDR_COMPLETION_DELAY_MS = 4 * 60_000;
 const RECONNECT_DELAY_MS = 1_000;
+const SNAPSHOT_TIMEOUT_MS = 5_000;
 const MAX_BUFFER_BYTES = 1024 * 1024;
 
 type HerdrAgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown';
@@ -35,6 +36,7 @@ export class HerdrCompletionDelay {
   initialize(status: HerdrAgentStatus): void {
     this.clear();
     this.status = status;
+    if (status === 'working') this.onWorking();
   }
 
   update(status: HerdrAgentStatus): void {
@@ -76,6 +78,7 @@ interface HerdrAgentStatusMonitorOptions {
   readonly onWorking?: () => void;
   readonly delayMs?: number;
   readonly reconnectDelayMs?: number;
+  readonly snapshotTimeoutMs?: number;
 }
 
 function agentStatus(value: unknown): HerdrAgentStatus | undefined {
@@ -114,6 +117,7 @@ function primaryAgent(snapshot: unknown): { paneId: string; status: HerdrAgentSt
 export class HerdrAgentStatusMonitor {
   private readonly socketPath: string;
   private readonly reconnectDelayMs: number;
+  private readonly snapshotTimeoutMs: number;
   private readonly delay: HerdrCompletionDelay;
   private socket: net.Socket | undefined;
   private reconnectTimer: TimerHandle | undefined;
@@ -124,6 +128,7 @@ export class HerdrAgentStatusMonitor {
   constructor(options: HerdrAgentStatusMonitorOptions) {
     this.socketPath = options.socketPath;
     this.reconnectDelayMs = options.reconnectDelayMs ?? RECONNECT_DELAY_MS;
+    this.snapshotTimeoutMs = options.snapshotTimeoutMs ?? SNAPSHOT_TIMEOUT_MS;
     this.delay = new HerdrCompletionDelay({
       onComplete: options.onComplete,
       onWorking: options.onWorking,
@@ -155,6 +160,7 @@ export class HerdrAgentStatusMonitor {
     this.paneId = undefined;
     const socket = net.createConnection(this.socketPath);
     this.socket = socket;
+    socket.setTimeout(this.snapshotTimeoutMs, () => this.retry(socket));
     socket.once('connect', () => {
       socket.write(`${JSON.stringify({
         id: 'codeflare-agent-status-snapshot', method: 'session.snapshot', params: {},
@@ -198,6 +204,7 @@ export class HerdrAgentStatusMonitor {
       }
       this.paneId = primary.paneId;
       this.delay.initialize(primary.status);
+      this.socket.setTimeout(0);
       this.socket.write(`${JSON.stringify({
         id: 'codeflare-agent-status-subscribe',
         method: 'events.subscribe',
@@ -213,13 +220,19 @@ export class HerdrAgentStatusMonitor {
     }
 
     if (value.event === 'pane.agent_status_changed') {
-      const data = value.data as Record<string, unknown> | undefined;
+      const data = typeof value.data === 'object' && value.data !== null
+        ? value.data as Record<string, unknown>
+        : undefined;
       const status = agentStatus(data?.agent_status);
-      if (data?.pane_id === this.paneId && status) this.delay.update(status);
+      if (data?.pane_id !== this.paneId || !status) {
+        this.retry(this.socket);
+        return;
+      }
+      this.delay.update(status);
       return;
     }
 
-    if (value.event === 'pane_closed' || value.event === 'pane_agent_detected') {
+    if (value.event === 'pane.closed' || value.event === 'pane.agent_detected') {
       const data = value.data as Record<string, unknown> | undefined;
       if (data?.pane_id === this.paneId) this.retry(this.socket);
     }
