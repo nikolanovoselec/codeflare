@@ -269,7 +269,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 1. The hook tolerates tilde-prefixed transcript paths. <!-- @test: host/__tests__/memory-capture-hook.test.js (expands ~ in transcript_path to $HOME) --> <!-- @manual -->
 2. Variables shared between the hook and the capture subagent are passed via a small carrier file rather than inline context. <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)) --> <!-- @manual -->
-3. On the first message of a new or resumed container session, the hook injects graph-query guidance before the agent responds. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::MEMORY_SCAN --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 - missing counter + transcript with >1 prompt force-fires capture from line 1) -->
+3. On the first message of a new container session, the hook injects graph-query guidance before the agent responds. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::MEMORY_SCAN --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
 4. The hook resolves the capture timezone from the user preference ([REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)), falling back to the container default and finally to UTC. <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) --> <!-- @manual -->
 5. The capture timestamp is validated against the current wall clock and rejected if fabricated, missing a timezone offset, or mismatching the resolved timezone. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh::RESOLVED --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (assert-iso-ts.sh / REQ-MEM-010 AC5+AC6+AC7) -->
 6. A timestamp whose offset does not match the resolved timezone is rejected; this catches dropped-timezone-wrapper bugs without false-positiving legitimately-UTC hosts. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/assert-iso-ts.sh::RESOLVED --> <!-- @test: host/__tests__/memory-prompt-iso-ts-assertions.test.js (AC6 #416 regression: Europe/Zurich + ISO_TS ending in +0000 rejected) -->
@@ -285,6 +285,30 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-SESSION-016](session-lifecycle.md#req-session-016-user-timezone-propagated-from-preferences-to-container-env)
 
 **Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-022: Resumed sessions re-emit memory graph guidance
+
+**Intent:** A resumed conversation must consult durable graph context after its in-memory orientation was lost with the previous container.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. On the first message of a resumed container session, the hook injects graph-query guidance before the agent responds. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::MEMORY_SCAN --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 - missing counter + transcript with >1 prompt force-fires capture from line 1) -->
+
+**Constraints:**
+
+- Guidance reuses the existing first-message hook output; no separate retrieval service or launch is added.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing)
+
+**Verification:** Automated test ([Claude memory hook tests](../../host/__tests__/memory-capture-hook.test.js))
 
 **Status:** Implemented
 

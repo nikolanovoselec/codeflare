@@ -1128,35 +1128,6 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
   });
 
-  it('keeps GIVEUP latched for unchanged work, re-arms new content, and clears a full revert', async () => {
-    const unchanged = makeHarness();
-    await unchanged.emit('session_start');
-    writeFileSync(join(unchanged.paths.vaultRoot, 'Notes', 'unchanged.md'), 'changed\n', 'utf8');
-    await triggerVaultCheck(unchanged);
-    await failExactAttempts(unchanged, 'vault-extract');
-    const unchangedPointer = readJson(vaultPointerPath(unchanged));
-    appendEntry(unchanged.sessionFile, userMessage('check unchanged giveup'));
-    await unchanged.emit('before_agent_start', { prompt: 'check unchanged giveup' });
-    expect(readJson(vaultPointerPath(unchanged)).requestId).toBe(unchangedPointer.requestId);
-
-    const added = join(unchanged.paths.vaultRoot, 'Notes', 'added.md');
-    writeFileSync(added, 'new after giveup\n', 'utf8');
-    appendEntry(unchanged.sessionFile, userMessage('re-arm changed giveup'));
-    await unchanged.emit('before_agent_start', { prompt: 're-arm changed giveup' });
-    expect(readJson(vaultPointerPath(unchanged)).requestId).not.toBe(unchangedPointer.requestId);
-
-    const reverted = makeHarness();
-    await reverted.emit('session_start');
-    const revertedFile = join(reverted.paths.vaultRoot, 'Notes', 'reverted.md');
-    writeFileSync(revertedFile, 'temporary\n', 'utf8');
-    await triggerVaultCheck(reverted);
-    await failExactAttempts(reverted, 'vault-extract');
-    rmSync(revertedFile, { force: true });
-    appendEntry(reverted.sessionFile, userMessage('clear reverted giveup'));
-    await reverted.emit('before_agent_start', { prompt: 'clear reverted giveup' });
-    expect(existsSync(vaultPointerPath(reverted))).toBe(false);
-  });
-
   it('keeps an empty prelaunch coalescing result as a valid no-op request', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');

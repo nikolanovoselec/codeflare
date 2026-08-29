@@ -228,6 +228,29 @@ describe('memory-capture.sh - user-message counting', () => {
     assert.equal(readFileSync(join(fx.counterDir, 'sess-vault-100.vault-count'), 'utf-8'), '100\n');
   });
 
+  it('advances the Vault check counter when a successful scan finds no changes', () => {
+    const fx = makeFixture();
+    installVaultManifest(fx);
+    const manifestScript = join(fx.home, '.claude', 'plugins', 'codeflare-vault', 'scripts', 'vault-manifest.py');
+    const manifest = join(fx.home, 'Vault', 'graphify-out', 'vault-extract-manifest.json');
+    writeFileSync(join(fx.home, 'Vault', 'Notes', 'stable.md'), 'unchanged\n');
+    const committed = spawnSync('python3', [manifestScript, 'commit', join(fx.home, 'Vault'), manifest]);
+    assert.equal(committed.status, 0);
+    writeFileSync(join(fx.counterDir, 'sess-vault-unchanged'), '99\n1\n');
+    const vaultCounter = join(fx.counterDir, 'sess-vault-unchanged.vault-count');
+    writeFileSync(vaultCounter, '0\n');
+    const t = writeTranscript(
+      fx.home,
+      Array.from({ length: 100 }, (_, index) => realUserLine(`prompt ${index + 1}`)),
+    );
+
+    const result = runHook(fx, { transcriptPath: t, sessionId: 'sess-vault-unchanged' });
+
+    assert.equal(result.status, 0);
+    assert.equal(readFileSync(vaultCounter, 'utf-8'), '100\n');
+    assert.equal(existsSync(join(fx.home, '.cache', 'codeflare-hooks', 'vault-extract.vars')), false);
+  });
+
   it('retries the Vault hash check on the next prompt after a partial file-read failure', () => {
     const fx = makeFixture();
     installVaultManifest(fx);
