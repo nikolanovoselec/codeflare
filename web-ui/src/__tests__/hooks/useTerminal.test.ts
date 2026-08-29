@@ -182,6 +182,7 @@ import { showAgentNotification, showGrantedAgentEvent } from '../../lib/agent-no
 
 // REQ-TERM-016: Terminal Pane Reconnect and Resize Authority
 // REQ-MOB-010: FitAddon fit calls are coordinated
+// REQ-MOB-021: Terminal follows visible container changes
 // REQ-TERM-019: Terminal WebSocket Control Frames and Protocol Guards
 
 describe('useTerminal hook', () => {
@@ -226,7 +227,6 @@ describe('useTerminal hook', () => {
 
   afterEach(() => {
     document.body.removeChild(containerEl);
-    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -805,7 +805,7 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
-    it('REQ-MOB-010 AC1: fits the visible container when a terminal becomes active', () => {
+    it('REQ-MOB-021 AC1: fits the visible container when a terminal becomes active', () => {
       const [active, setActive] = createSignal(false);
       let result!: ReturnType<typeof useTerminal>;
       const dispose = createRoot((dispose) => {
@@ -1078,7 +1078,7 @@ describe('useTerminal hook', () => {
   });
 
   describe('keyboard height refit', () => {
-    it('REQ-MOB-010 AC1: fits the visible container after keyboard geometry changes', async () => {
+    it('REQ-MOB-021 AC2: fits the visible container after keyboard geometry changes', async () => {
       vi.useFakeTimers();
 
       const isTouchDeviceMock = vi.mocked(isTouchDevice);
@@ -1663,16 +1663,10 @@ describe('useTerminal hook', () => {
     it('REQ-MOB-010 AC1/AC2: fits after viewport resizing once keyboard refit finishes', async () => {
       vi.useFakeTimers();
 
-      let resizeObserverCallback: ResizeObserverCallback | undefined;
-      class CapturingResizeObserver {
-        constructor(callback: ResizeObserverCallback) {
-          resizeObserverCallback = callback;
-        }
-        observe() {}
-        unobserve() {}
-        disconnect() {}
-      }
-      vi.stubGlobal('ResizeObserver', CapturingResizeObserver);
+      let resizeObserver: (ResizeObserver & { callback: ResizeObserverCallback }) | undefined;
+      vi.spyOn(ResizeObserver.prototype, 'observe').mockImplementation(function (this: ResizeObserver) {
+        resizeObserver = this as ResizeObserver & { callback: ResizeObserverCallback };
+      });
 
       const isTouchDeviceMock = vi.mocked(isTouchDevice);
       const getKeyboardHeightMock = vi.mocked(getKeyboardHeight);
@@ -1703,8 +1697,8 @@ describe('useTerminal hook', () => {
         terminal.rows = 34;
       });
 
-      expect(resizeObserverCallback).toBeTypeOf('function');
-      resizeObserverCallback!([], {} as ResizeObserver);
+      expect(resizeObserver?.callback).toBeTypeOf('function');
+      resizeObserver!.callback([], resizeObserver!);
 
       expect(mockFit).toHaveBeenCalled();
       expect(terminalStore.resize).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId, 112, 34);
