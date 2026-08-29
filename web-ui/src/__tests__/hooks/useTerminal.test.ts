@@ -640,6 +640,7 @@ describe('useTerminal hook', () => {
         undefined,
         false,
         true,
+        false,
       );
 
       dispose();

@@ -612,7 +612,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation)
 
-**Verification:** Current pin-coherence and structured workflow-wiring tests; packaged-image CI; manual generated-bump review.
+**Verification:** Manual check
 
 **Status:** Implemented
 

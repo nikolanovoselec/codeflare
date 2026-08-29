@@ -1353,6 +1353,8 @@ Pi registers SessionStart plus supported shell-result exposures. Claude register
 
 A selected Claude round runs headless lanes through `run-review-lane.sh`. Its caller-supplied `--range` or `--base` is authoritative; runner never reads completion state. Stop handling inspects only transcript bytes after the current SessionStart offset. A failed or stopped lane advances that offset and emits nothing. The next supported exposure should ask again.
 
+The CI monitor does not return on the first failed row. Pi waits for every observed exact-head check, and Claude waits for every observed exact-head workflow, then requires the complete terminal fingerprint to remain stable across two polls. Failure evidence lists every failed or cancelled row together so triage sees the whole run.
+
 If terminal evidence exists but FIX does not appear, confirm canonical triage followed every required reviewer and exact-head CI result. CI failure or timeout needs a row with FINDING `Exact-head CI` and PROPOSED FIX `CI_RESULT failure` or `CI_RESULT timeout`; Pi issues one correction follow-up when a table is present but that row is malformed. Head drift and marker-write failure intentionally suppress FIX.
 
 Marker writes acknowledge locally before R2 convergence. The helper reads `CODEFLARE_SYNC_DAEMON_PIDFILE`, defaults to `/run/codeflare/sync/sync-daemon.pid`, and sends `SIGUSR1`. A signal warning does not revoke local completion. Another clone or device may ask again until bisync converges; that duplicate prompt is safer than claiming review completion that never reached storage.

@@ -17,6 +17,6 @@ Launch a monitor when an automatic delivery directive or selected non-delivery r
 }
 ```
 
-Use repository, PR, head, and cwd values from boundary directive unchanged. Dedicated agent runs seeded monitor script once with Bash timeout 600000 milliseconds; script's eight-minute deadline leaves margin for terminal output. Native completion begins with exactly one of `CI_RESULT success`, `CI_RESULT failure`, or `CI_RESULT timeout`, followed by `pr`, `head`, and `repo` correlation values.
+Use repository, PR, head, and cwd values from boundary directive unchanged. Dedicated agent runs seeded monitor script once with Bash timeout 600000 milliseconds; script's eight-minute deadline leaves margin for terminal output. It waits until every observed exact-head workflow is terminal and the complete fingerprint is stable across two polls. Failure output includes every failed or cancelled workflow together. Native completion begins with exactly one of `CI_RESULT success`, `CI_RESULT failure`, or `CI_RESULT timeout`, followed by `pr`, `head`, and `repo` correlation values.
 
 Use only the hook-emitted exact plan; never independently infer identity from Git text. Successful checked-out-branch push, PR creation, and PR reopen automatically plan review plus CI. Do not detach a shell monitor, poll in root session, or duplicate an in-flight Agent. Main session owns triage and fixes; monitor only reports.

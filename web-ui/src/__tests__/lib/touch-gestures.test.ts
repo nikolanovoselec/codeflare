@@ -621,12 +621,15 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         element.appendChild(screenElement);
         container.appendChild(element);
         const mouseDown = vi.fn();
+        const click = vi.fn();
         screenElement.addEventListener('mousedown', mouseDown);
+        screenElement.addEventListener('click', click);
         const cleanup = attachSwipeGestures(container, terminal, () => false, true)!;
-        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
-        container.dispatchEvent(makeTouchEvent('touchmove', 40, 80));
-        container.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
+        screenElement.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        screenElement.dispatchEvent(makeTouchEvent('touchmove', 40, 80));
+        screenElement.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
         expect(mouseDown).not.toHaveBeenCalled();
+        expect(click).not.toHaveBeenCalled();
         cleanup();
       });
 
@@ -638,14 +641,17 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         element.appendChild(screenElement);
         container.appendChild(element);
         const mouseDown = vi.fn();
+        const click = vi.fn();
         screenElement.addEventListener('mousedown', mouseDown);
+        screenElement.addEventListener('click', click);
         const cleanup = attachSwipeGestures(container, terminal, () => false, true)!;
 
-        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
-        container.dispatchEvent(new TouchEvent('touchcancel', { touches: [], bubbles: true }));
-        container.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
+        screenElement.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        screenElement.dispatchEvent(new TouchEvent('touchcancel', { touches: [], bubbles: true }));
+        screenElement.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
 
         expect(mouseDown).not.toHaveBeenCalled();
+        expect(click).not.toHaveBeenCalled();
         cleanup();
       });
     });

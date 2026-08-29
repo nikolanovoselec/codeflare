@@ -60,14 +60,20 @@ export async function monitorCi({ repo, pr, head, runner = runCommand, cwd, cloc
       return summary('timeout', { repo, pr, head, reason: 'no_checks_registered' });
     }
     if (rows?.length) {
-      const failed = rows.filter((row) => row.status === 'completed' && !TERMINAL_OK.has(row.conclusion));
-      if (failed.length) return summary('failure', { repo, pr, head, rows: failed });
-      const terminal = rows.every((row) => row.status === 'completed' && TERMINAL_OK.has(row.conclusion));
+      const terminal = rows.every((row) => row.status === 'completed');
       if (terminal) {
-        const next = rows.map((row) => `${row.databaseId}:${row.workflowName}:${row.event}`).sort().join('|');
+        const next = rows
+          .map((row) => `${row.databaseId}:${row.workflowName}:${row.event}:${row.conclusion}`)
+          .sort()
+          .join('|');
         stablePolls = next === fingerprint ? stablePolls + 1 : 1;
         fingerprint = next;
-        if (stablePolls >= 2) return summary('success', { repo, pr, head, rows: rows.slice(0, 6) });
+        if (stablePolls >= 2) {
+          const failed = rows.filter((row) => !TERMINAL_OK.has(row.conclusion));
+          return failed.length
+            ? summary('failure', { repo, pr, head, rows: failed })
+            : summary('success', { repo, pr, head, rows: rows.slice(0, 6) });
+        }
       } else {
         fingerprint = '';
         stablePolls = 0;

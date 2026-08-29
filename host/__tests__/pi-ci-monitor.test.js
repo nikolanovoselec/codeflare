@@ -354,25 +354,30 @@ test('REQ-AGENT-068 AC3: a changed terminal fingerprint resets the stability req
   assert.equal(github.checkCalls(), 3);
 });
 
-test('REQ-AGENT-125 AC1: a failed check with an empty workflow reports immediately', async () => {
+test('REQ-AGENT-125 AC1: a failed check waits for all checks and a stable terminal fingerprint', async () => {
   const failed = check('CodeQL', 'fail', { workflow: '', state: 'FAILURE' });
-  const { output, github, time } = await runMonitor({ checks: [[failed]] });
+  const pending = check('frontend shard', 'pending');
+  const terminal = [failed, check('frontend shard', 'pass')];
+  const { output, github, time } = await runMonitor({
+    checks: [[failed, pending], terminal, [...terminal].reverse()],
+  });
 
   assertResult(output, 'failure');
-  assert.equal(github.checkCalls(), 1);
-  assert.equal(time.sleeps.length, 0);
+  assert.equal(github.checkCalls(), 3);
+  assert.equal(time.sleeps.length, 2);
   assert.match(output, /name=CodeQL/);
   assert.match(output, /workflow= state=FAILURE/);
 });
 
-test('REQ-AGENT-125 AC1: failed and cancelled arbitrary providers report failure with links', async () => {
+test('REQ-AGENT-125 AC1: all failed and cancelled arbitrary providers report together with links', async () => {
   const failed = check('Vendor A / shard 9', 'fail', { workflow: 'Provider Alpha', state: 'FAILURE' });
   const cancelled = check('queue-check', 'cancel', { workflow: 'Provider Beta', state: 'CANCELLED' });
-  const { output, github } = await runMonitor({ checks: [[failed, cancelled]] });
+  const terminal = [failed, cancelled];
+  const { output, github } = await runMonitor({ checks: [terminal, [...terminal].reverse()] });
 
   assertResult(output, 'failure');
-  assert.equal(github.checkCalls(), 1);
-  for (const row of [failed, cancelled]) {
+  assert.equal(github.checkCalls(), 2);
+  for (const row of terminal) {
     assert.match(output, new RegExp(`name=${row.name.replace('/', '\\/')}`));
     assert.match(output, new RegExp(`workflow=${row.workflow}`));
     assert.match(output, new RegExp(`state=${row.state}`));
