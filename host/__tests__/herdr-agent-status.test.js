@@ -252,6 +252,8 @@ describe('Herdr completion notification authority', () => {
   });
 
   it('does not notify when the snapshot has no recognized agents', async () => {
+    let resolveSubscribed;
+    const subscribed = new Promise((resolve) => { resolveSubscribed = resolve; });
     await withSocket((socket) => {
       let buffered = '';
       socket.on('data', (chunk) => {
@@ -270,22 +272,32 @@ describe('Herdr completion notification authority', () => {
               { type: 'pane.closed' },
               { type: 'pane.agent_detected' },
             ]);
+            resolveSubscribed();
           }
         }
       });
     }, async (socketPath) => {
-      await new Promise((resolve, reject) => {
-        const monitor = new HerdrAgentStatusMonitor({
-          socketPath,
-          delayMs: 0,
-          onComplete: () => reject(new Error('completion fired without an agent')),
-        });
-        monitor.start();
-        setTimeout(() => {
-          monitor.stop();
-          resolve();
-        }, 30);
+      let completions = 0;
+      const monitor = new HerdrAgentStatusMonitor({
+        socketPath,
+        delayMs: 0,
+        onComplete: () => { completions += 1; },
       });
+      monitor.start();
+      let timeout;
+      try {
+        await Promise.race([
+          subscribed,
+          new Promise((_, reject) => {
+            timeout = setTimeout(() => reject(new Error('empty snapshot timed out')), 1_000);
+          }),
+        ]);
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(completions, 0);
+      } finally {
+        clearTimeout(timeout);
+        monitor.stop();
+      }
     });
   });
 
