@@ -3,7 +3,7 @@ set -euo pipefail
 
 [ "${HERDR_ENV:-}" = "1" ] || exit 0
 case "${1:-}" in
-    input-required|task-completed|task-failed) kind="$1" ;;
+    input-required) kind="$1" ;;
     *) exit 2 ;;
 esac
 [ -n "${CONTAINER_AUTH_TOKEN:-}" ] || exit 1

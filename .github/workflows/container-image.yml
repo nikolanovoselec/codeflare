@@ -552,6 +552,33 @@ jobs:
                   | ($s.success_response."$defs".PaneScrollInfo.required | index($field))
                   and $s.success_response."$defs".PaneScrollInfo.properties[$field].type == "integer"
                 ))
+              and ($s.request.oneOf | any(
+                  .properties.method.const == "session.snapshot"
+                  and .properties.params."$ref" == "#/schemas/request/$defs/EmptyParams"
+                ))
+              and ($s.success_response."$defs".ResponseResult.oneOf | any(
+                  .properties.type.const == "session_snapshot"
+                  and .properties.snapshot."$ref" == "#/schemas/success_response/$defs/SessionSnapshot"
+                ))
+              and ($s.success_response."$defs".SessionSnapshot.properties.agents.items."$ref"
+                == "#/schemas/success_response/$defs/AgentInfo")
+              and (["pane_id", "agent", "agent_status", "focused"] | all(
+                  . as $field
+                  | ($s.success_response."$defs".AgentInfo.properties | has($field))
+                ))
+              and ($s.request.oneOf | any(
+                  .properties.method.const == "events.subscribe"
+                  and .properties.params."$ref" == "#/schemas/request/$defs/EventsSubscribeParams"
+                ))
+              and ($s.request."$defs".Subscription.oneOf | any(
+                  .properties.type.const == "pane.agent_status_changed"
+                  and (.required | index("pane_id")) != null
+                ))
+              and (($s.subscription_event."$defs".SubscriptionEventKind.enum | index("pane.agent_status_changed")) != null)
+              and (["idle", "working", "blocked", "done", "unknown"] | all(
+                  . as $status
+                  | ($s.subscription_event."$defs".AgentStatus.enum | index($status)) != null
+                ))
             ' >/dev/null
           printf 'herdr_version=0.8.2 config=managed attribution=present\n' \
             | tee -a /tmp/browser-ide-image-evidence.txt

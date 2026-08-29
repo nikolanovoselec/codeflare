@@ -1,0 +1,178 @@
+import assert from 'node:assert/strict';
+import { createServer } from 'node:net';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, it } from 'node:test';
+
+import {
+  HERDR_COMPLETION_DELAY_MS,
+  HerdrCompletionDelay,
+  HerdrAgentStatusMonitor,
+} from '../dist/herdr-agent-status.js';
+
+class ManualScheduler {
+  now = 0;
+  nextId = 1;
+  timers = new Map();
+
+  setTimeout = (callback, delay) => {
+    const id = this.nextId++;
+    this.timers.set(id, { at: this.now + delay, callback });
+    return id;
+  };
+
+  clearTimeout = (id) => {
+    this.timers.delete(id);
+  };
+
+  advanceBy(ms) {
+    this.now += ms;
+    for (const [id, timer] of [...this.timers]) {
+      if (timer.at > this.now) continue;
+      this.timers.delete(id);
+      timer.callback();
+    }
+  }
+}
+
+async function withSocket(handler, test) {
+  const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-status-'));
+  const socketPath = join(dir, 'herdr.sock');
+  const server = createServer(handler);
+  await new Promise((resolve) => server.listen(socketPath, resolve));
+  try {
+    await test(socketPath);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+describe('Herdr completion notification authority', () => {
+  it('starts four minutes at working→idle/done and preserves idle↔done', () => {
+    const scheduler = new ManualScheduler();
+    let completions = 0;
+    const delay = new HerdrCompletionDelay({
+      onComplete: () => { completions += 1; },
+      setTimeout: scheduler.setTimeout,
+      clearTimeout: scheduler.clearTimeout,
+    });
+
+    assert.equal(HERDR_COMPLETION_DELAY_MS, 240_000);
+    delay.initialize('working');
+    delay.update('idle');
+    scheduler.advanceBy(120_000);
+    delay.update('done');
+    scheduler.advanceBy(119_999);
+    assert.equal(completions, 0);
+    scheduler.advanceBy(1);
+    assert.equal(completions, 1);
+  });
+
+  it('cancels on working and requires a fresh four idle minutes', () => {
+    const scheduler = new ManualScheduler();
+    let completions = 0;
+    let workingTransitions = 0;
+    const delay = new HerdrCompletionDelay({
+      onComplete: () => { completions += 1; },
+      onWorking: () => { workingTransitions += 1; },
+      setTimeout: scheduler.setTimeout,
+      clearTimeout: scheduler.clearTimeout,
+    });
+
+    delay.initialize('working');
+    delay.update('idle');
+    scheduler.advanceBy(239_999);
+    delay.update('working');
+    scheduler.advanceBy(240_000);
+    assert.equal(completions, 0);
+    assert.equal(workingTransitions, 1);
+
+    delay.update('done');
+    scheduler.advanceBy(239_999);
+    assert.equal(completions, 0);
+    scheduler.advanceBy(1);
+    assert.equal(completions, 1);
+  });
+
+  it('does not notify from an initial idle snapshot or while blocked/unknown', () => {
+    const scheduler = new ManualScheduler();
+    let completions = 0;
+    const delay = new HerdrCompletionDelay({
+      onComplete: () => { completions += 1; },
+      setTimeout: scheduler.setTimeout,
+      clearTimeout: scheduler.clearTimeout,
+    });
+
+    delay.initialize('idle');
+    scheduler.advanceBy(240_000);
+    delay.update('blocked');
+    delay.update('idle');
+    scheduler.advanceBy(240_000);
+    delay.update('unknown');
+    scheduler.advanceBy(240_000);
+    assert.equal(completions, 0);
+  });
+
+  it('subscribes to the primary Herdr agent and consumes status transitions', async () => {
+    await withSocket((socket) => {
+      let buffered = '';
+      socket.on('data', (chunk) => {
+        buffered += chunk.toString('utf8');
+        while (buffered.includes('\n')) {
+          const newline = buffered.indexOf('\n');
+          const request = JSON.parse(buffered.slice(0, newline));
+          buffered = buffered.slice(newline + 1);
+          if (request.method === 'session.snapshot') {
+            socket.write(`${JSON.stringify({
+              id: request.id,
+              result: {
+                type: 'session_snapshot',
+                snapshot: {
+                  agents: [{
+                    pane_id: 'w1:p1', workspace_id: 'w1', tab_id: 'w1:t1',
+                    name: null, agent: 'pi', agent_status: 'working', focused: true,
+                  }],
+                },
+              },
+            })}\n`);
+          } else if (request.method === 'events.subscribe') {
+            assert.deepEqual(request.params.subscriptions, [
+              { type: 'pane.agent_status_changed', pane_id: 'w1:p1', agent_status: 'idle' },
+              { type: 'pane.agent_status_changed', pane_id: 'w1:p1', agent_status: 'working' },
+              { type: 'pane.agent_status_changed', pane_id: 'w1:p1', agent_status: 'blocked' },
+              { type: 'pane.agent_status_changed', pane_id: 'w1:p1', agent_status: 'done' },
+              { type: 'pane.agent_status_changed', pane_id: 'w1:p1', agent_status: 'unknown' },
+              { type: 'pane.closed' },
+              { type: 'pane.agent_detected' },
+            ]);
+            socket.write(`${JSON.stringify({ id: request.id, result: { type: 'events_subscribed' } })}\n`);
+            socket.write(`${JSON.stringify({
+              event: 'pane.agent_status_changed',
+              data: { pane_id: 'w1:p1', workspace_id: 'w1', agent_status: 'idle', agent: 'pi' },
+            })}\n`);
+          }
+        }
+      });
+    }, async (socketPath) => {
+      await new Promise((resolve, reject) => {
+        let monitor;
+        const timeout = setTimeout(() => {
+          monitor?.stop();
+          reject(new Error('status completion timed out'));
+        }, 1_000);
+        monitor = new HerdrAgentStatusMonitor({
+          socketPath,
+          delayMs: 0,
+          onComplete: () => {
+            clearTimeout(timeout);
+            monitor.stop();
+            resolve();
+          },
+        });
+        monitor.start();
+      });
+    });
+  });
+});

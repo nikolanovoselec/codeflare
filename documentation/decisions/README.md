@@ -167,6 +167,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD146](#ad146-terminal-mode-is-an-immutable-per-session-choice) | Make terminal ownership an immutable per-session choice | Classic remains the default full Codeflare terminal; opt-in Herdr sessions expose one surface and persist only Herdr's official structural snapshot. | Architecture, Build / Container, Terminal | Active |
 | [AD147](#ad147-active-managed-resource-policy-supersedes-provenance-ownership) | Enforce active managed-resource policy before scoped R2 signing | Canonical release-derived paths remain immutable at the Worker boundary; provenance ownership still governs paths outside the active policy. | Architecture, Security, Storage | Active |
 | [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) | Schedule memory and Vault work from successful prompt high-water marks | Memory captures every 50 real prompts; Vault checks resume tails and crossed 100-prompt epochs without polling or consuming failed scans. | Agents, Memory, Storage | Active |
+| [AD149](#ad149-herdr-semantic-status-owns-completion-notification-timing) | Let Herdr status own completion notification timing | A four-minute timer follows primary-pane `working` to `idle` or `done`; renewed work cancels both timing and queued completion. | Architecture, Agents | Active |
 ---
 
 ## Decisions
@@ -4079,5 +4080,26 @@ Herdr live processes, pane history, sockets, logs, plugins, updater state, and u
 **Consequences:** Memory GIVEUP replacement re-arms after 50 later real prompts. Claude memory retains its six-turn worker budget, while Pi's public request object enforces seven turns. Vault extraction remains eventual: exhausted work clears on the next root turn and its unchanged manifest makes it eligible at the next scheduled hash check ([REQ-VAULT-031](../../sdd/spec/vault.md#req-vault-031-vault-hash-checks-follow-successful-prompt-cadence)). It reuses existing manifests, snapshots, workers, graph publication, and locks; no timer, service, queue, or distributed coordinator is added. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::refreshPendingVaultRequest -->
 
 **Related REQs:** [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile), [REQ-VAULT-003](../../sdd/spec/vault.md#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s), [REQ-VAULT-031](../../sdd/spec/vault.md#req-vault-031-vault-hash-checks-follow-successful-prompt-cadence).
+
+---
+
+### AD149: Herdr semantic status owns completion notification timing
+
+**Category:** Architecture, Agents
+
+**Status:** Accepted (2026-08-29)
+
+**Context:** Pi's five-minute settled-turn timer tried to reconstruct work that Herdr already understands. Once the timer produced a host event, a later follow-up could start while that old event waited for Push delivery. The result was a `Ready for input` notification over an agent visibly marked `working`. More subagent bookkeeping would only make two state machines disagree in greater detail.
+
+**Decision:** Keep the validated input-required signal immediate. In Herdr mode, read the primary recognized Pi or Claude agent through the pinned public socket API and subscribe to `pane.agent_status_changed`. A real `working` to `idle` or `done` transition starts four minutes. `idle` and `done` changes keep that timer, while any return to `working` cancels it and any queued completion event. Timer expiry emits one fixed completion only if Herdr still reports `idle` or `done`.
+
+Pi no longer infers completion from `agent_settled`, stop reasons, interactive lineage, or subagent events. Classic has no semantic Herdr authority, so it emits no completion notification rather than keeping the faulty timer as a second implementation.
+
+**Consequences:** Pi and Claude can share one Herdr completion authority. Herdr status does not distinguish successful and failed turns, so the event means only that the configured agent is ready again. Socket failure drops completion safely and reconnects; it never exposes the socket or pane identity to the browser. Input-required delivery, away-only suppression, and bounded Push fallback stay unchanged.
+
+**Related REQs:** [REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-pi-native-terminal-notification-producer), [REQ-TERM-029](../../sdd/spec/terminal.md#req-term-029-herdr-status-gated-terminal-completion), [REQ-TERM-038](../../sdd/spec/terminal.md#req-term-038-herdr-semantic-status-owns-completion-readiness), [REQ-TERM-039](../../sdd/spec/terminal.md#req-term-039-herdr-completion-delivery-is-readiness-oriented).
+
+<!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor -->
+<!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay -->
 
 ---

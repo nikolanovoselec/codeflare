@@ -417,6 +417,10 @@ export class Session {
     this.applyAgentEventActions(this.agentEventQueue.enqueue(kind, clients).actions);
   }
 
+  cancelAgentEvents(kind: AgentEventKind): void {
+    this.applyAgentEventActions(this.agentEventQueue.cancelKind(kind).actions);
+  }
+
   drainAgentEvents(request: { readonly ackEventIds: readonly string[]; readonly final?: true }): AgentEventDrainResult {
     return this.agentEventQueue.drain(request);
   }

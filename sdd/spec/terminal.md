@@ -1031,17 +1031,17 @@ None.
 
 ### REQ-TERM-024: Pi native terminal notification producer
 
-**Intent:** Pi emits only fixed inert attention signals and does not interfere with RPC transport.
+**Intent:** Pi emits only its fixed, immediate input-required signal and does not infer completion or interfere with RPC transport.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. Pi emits one fixed `input-required` signal for the validated ask-user event and ignores question content. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC1: emits one fixed input-required frame without question content) -->
-2. Completion and failure frames contain only their fixed constants and exclude provider prose. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::READY_FOR_INPUT --> <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::TASK_FAILED --> <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC2: completion and failure frames are fixed and inert) -->
+2. One foreground run emits at most one input-required signal. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (emits at most one needs-input event per foreground run) -->
 3. Pi registers no notification behavior and writes no terminal bytes in RPC mode. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-024 AC3: registers nothing and writes no bytes in RPC mode) -->
 
-**Notes:** Implemented after the [deployed Pi notification acceptance evidence](../../documentation/lanes/preseed.md#pi-notification-acceptance-evidence).
+**Notes:** Herdr semantic status, not Pi lifecycle inference, owns completion under [REQ-TERM-029](#req-term-029-herdr-status-gated-terminal-completion).
 
 **Constraints:** Prompts, model output, tool data, commands, file content, and credentials never enter producer payloads.
 
@@ -1055,70 +1055,74 @@ None.
 
 ---
 
-### REQ-TERM-029: Pi inactivity-gated terminal completion
+### REQ-TERM-029: Herdr status-gated terminal completion
 
-**Intent:** Pi emits completion or failure only after the interactive root has remained inactive.
+**Intent:** Completion notifications must follow Herdr's semantic agent status after a sustained idle period, not inferred Pi lifecycle timing.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Completion requires interactive lineage, a settled structured success, and five uninterrupted minutes without new input or agent activity. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::PI_IDLE_NOTIFICATION_DELAY_MS = 5 * 60_000 --> <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC1: emits completion only after five idle minutes) -->
-2. Failure requires interactive lineage and a settled structured error, then waits for the same uninterrupted interval. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC2: delays structured failure until five idle minutes) -->
-3. New input or agent activity restarts the five-minute inactivity interval after the continuation settles. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::PI_IDLE_NOTIFICATION_DELAY_MS = 5 * 60_000 --> <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC3: reactivation restarts five idle minutes after settlement) -->
-4. A cancelled input request emits no completion or failure. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC4: cancelled input emits no terminal signal) -->
-5. An aborted run emits no completion or failure. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC5: aborted run emits no terminal signal) -->
-6. A settled run without interactive lineage emits no completion or failure. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-029 AC6: absent interactive lineage emits no terminal signal) -->
+1. A `working` to `idle` or `done` transition starts one four-minute completion timer. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (starts four minutes at working→idle/done and preserves idle↔done) -->
+2. An `idle` to `done` or `done` to `idle` presentation change preserves the existing timer. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (starts four minutes at working→idle/done and preserves idle↔done) -->
+3. A return to `working` cancels the timer; the next transition to `idle` or `done` receives a fresh four minutes. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (cancels on working and requires a fresh four idle minutes) -->
+4. Timer expiry emits `task-completed` only while status remains `idle` or `done`. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (does not notify from an initial idle snapshot or while blocked/unknown) -->
+5. Initial `idle` or `done`, plus `blocked` and `unknown`, never starts completion timing. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (does not notify from an initial idle snapshot or while blocked/unknown) -->
+6. Classic mode has no completion producer. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (registers no completion lifecycle producer in terminal mode) -->
 
-**Notes:** Implemented after the [deployed Pi notification acceptance evidence](../../documentation/lanes/preseed.md#pi-notification-acceptance-evidence).
+**Constraints:**
 
-**Constraints:** Input-required signals remain immediate under [REQ-TERM-024](#req-term-024-pi-native-terminal-notification-producer).
+- The four-minute timer runs only in the container host and does not extend user activity or container lifetime.
+- Validated input-required signals remain immediate under [REQ-TERM-024](#req-term-024-pi-native-terminal-notification-producer).
 
 **Priority:** P1
 
-**Dependencies:** [REQ-TERM-024](#req-term-024-pi-native-terminal-notification-producer)
+**Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-024](#req-term-024-pi-native-terminal-notification-producer)
 
-**Verification:** Automated Pi extension timing tests plus deployed interactive-run verification.
+**Verification:** Automated Herdr status, host queue, and Pi extension tests.
 
 **Status:** Implemented
 
 ---
 
-### REQ-TERM-038: Pi completion follows the active work graph
+### REQ-TERM-038: Herdr semantic status owns completion readiness
 
-**Intent:** Pi completion and failure signals represent an inactive foreground with no unfinished background work.
+**Intent:** Codeflare must consume the same semantic status that Herdr renders instead of reconstructing foreground and background activity.
 
-**Applies To:** User
+**Applies To:** System
 
 **Acceptance Criteria:**
 
-1. A queued or running background subagent delays notification. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC1: blocks completion while a background task remains active) -->
-2. A foreground subagent does not retain the background-work gate after its parent turn settles. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC2: a foreground subagent does not hold the background gate) -->
-3. The inactivity interval starts only after every background subagent has terminated and the resulting parent follow-up has settled. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC3: waits for every background task and the parent follow-up) -->
-4. Failed, stopped, and aborted background subagents release their active-work gate. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC4: %s background tasks release the idle gate) -->
-5. A foreground Pi run never emits a completion or failure notification before that run settles and completes a fresh inactivity interval. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::scheduleIdleNotification --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-038 AC5: never emits while the foreground agent is active) -->
+1. Herdr mode snapshots the primary recognized Pi or Claude agent. <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to the primary Herdr agent and consumes status transitions) -->
+2. The host subscribes to that pane's public `pane.agent_status_changed` event. <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to the primary Herdr agent and consumes status transitions) -->
+3. The initial status establishes a baseline and never produces completion by itself. <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay --> <!-- @test: host/__tests__/herdr-agent-status.test.js (does not notify from an initial idle snapshot or while blocked/unknown) -->
+4. A `working` status cancels queued completion events without cancelling input-required events. <!-- @impl: host/src/session.ts::Session --> <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/agent-events.test.js (working status cancels queued completion without cancelling needs-input) -->
 
-**Constraints:** Input-required signals remain immediate, and no task payload content enters notification output.
+**Constraints:**
+
+- Herdr remains an unmodified pinned binary; only its packaged public socket schema is consumed.
+- Malformed, oversized, unavailable, or interrupted API streams fail closed and reconnect.
+- Browser messages never expose the Herdr socket path or pane identifier.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-TERM-029](#req-term-029-pi-inactivity-gated-terminal-completion)
+**Dependencies:** [REQ-TERM-029](#req-term-029-herdr-status-gated-terminal-completion), [REQ-OPS-055](operations.md#req-ops-055-herdr-release-integration)
 
-**Verification:** Automated Pi lifecycle tests plus deployed foreground and background-work verification.
+**Verification:** Automated socket, timer, queue, and packaged-schema tests.
 
 **Status:** Implemented
 
 ---
 
-### REQ-TERM-039: Pi completion delivery is mode-correct and readiness-oriented
+### REQ-TERM-039: Herdr completion delivery is readiness-oriented
 
-**Intent:** Eligible Pi completion remains available in each terminal mode with copy that reflects Pi readiness.
+**Intent:** Eligible Herdr completion uses fixed copy that reflects configured-agent readiness.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. An eligible delayed Pi completion in Herdr produces no terminal-visible notification bytes and remains available to Codeflare notification delivery. <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::emit --> <!-- @test: src/__tests__/lib/pi-native-notifications.test.ts (REQ-TERM-039 AC1: delivers delayed Pi completion through Herdr event transport) -->
+1. An eligible delayed Herdr completion routes through Codeflare's host event queue instead of terminal notification bytes. <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @impl: host/src/server.ts --> <!-- @test: host/__tests__/herdr-agent-status.test.js (subscribes to the primary Herdr agent and consumes status transitions) -->
 2. Local display labels Pi completion `Ready for input`. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-039 AC2: labels local Pi completion as ready for input) -->
 3. Push display labels Pi completion `Ready for input`. <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (REQ-TERM-039 AC3: labels Pi Push completion as ready for input) -->
 4. Local display retains `Task completed` for Claude completion. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-039 AC4: keeps local Claude completion copy task-oriented) -->
@@ -1128,9 +1132,9 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-031](#req-term-031-herdr-notification-compatibility-boundary), [REQ-TERM-038](#req-term-038-pi-completion-follows-the-active-work-graph)
+**Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-TERM-031](#req-term-031-herdr-notification-compatibility-boundary), [REQ-TERM-038](#req-term-038-herdr-semantic-status-owns-completion-readiness)
 
-**Verification:** Automated Pi transport, local-display, and Push-display tests plus deployed Herdr and browser verification.
+**Verification:** Automated Herdr status transport, local-display, and Push-display tests plus deployed browser verification.
 
 **Status:** Implemented
 

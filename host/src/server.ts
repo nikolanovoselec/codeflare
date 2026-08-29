@@ -35,6 +35,7 @@ import { AGENT_EVENT_LIMITS } from './agent-events.js';
 import { attachTerminalConnectionHandler } from './terminal-ws.js';
 import { createUpgradeDispatcher } from './upgrade-dispatcher.js';
 import { Session } from './session.js';
+import { HerdrAgentStatusMonitor } from './herdr-agent-status.js';
 import { queryHerdrScroll } from './herdr-scroll-query.js';
 import {
   EDITOR_WARMING_BUDGET_MS,
@@ -250,6 +251,7 @@ let terminalServiceReady = false;
 // eager editor answers its private loopback health probe.
 let editorReady = false;
 let editorReadyTimedOut = false;
+let herdrAgentStatusMonitor: HerdrAgentStatusMonitor | null = null;
 
 // Create HTTP server; all plain-HTTP branches live in request-router.ts.
 const server = http.createServer(createRequestHandler({
@@ -397,6 +399,16 @@ server.listen(PORT, '0.0.0.0', async () => {
   // (non-tab-1) sessions created from here on also read the final .bashrc
   // because waitForInitFlag has already resolved.
   terminalServiceReady = true;
+  if (HERDR_SOCKET_PATH) {
+    herdrAgentStatusMonitor = new HerdrAgentStatusMonitor({
+      socketPath: HERDR_SOCKET_PATH,
+      onComplete: () => [...sessionManager.sessions.values()]
+        .find((session) => session.terminalId === '1')?.enqueueAgentEvent('task-completed'),
+      onWorking: () => [...sessionManager.sessions.values()]
+        .find((session) => session.terminalId === '1')?.cancelAgentEvents('task-completed'),
+    });
+    herdrAgentStatusMonitor.start();
+  }
   prewarmStartTime = Date.now();
   log('info', 'Pre-warming tab 1 PTY', { command: prewarmConfig.command, ptyAlive: prewarmSession.ptyProcess !== null, ptyPid: prewarmSession.ptyProcess?.pid ?? null });
 
@@ -502,6 +514,8 @@ server.listen(PORT, '0.0.0.0', async () => {
 // Graceful shutdown helper
 function shutdown(signal: string): void {
   log('info', `Received ${signal}, shutting down`);
+  herdrAgentStatusMonitor?.stop();
+  herdrAgentStatusMonitor = null;
   // M2: Kill all active sessions before exit to avoid orphaned PTY processes
   sessionManager.killAll();
   sessionManager.stopCleanup();
