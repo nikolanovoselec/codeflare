@@ -52,6 +52,12 @@ describe('REQ-STOR-028 managed R2 policy', () => {
     expect(new TextDecoder().decode(built.bytes)).toBe(`${JSON.stringify(built.value)}\n`);
     expect(built.digest).toMatch(/^[0-9a-f]{64}$/);
     expect((await buildManagedR2Policy(digest, release(), 'immutable')).digest).toBe(built.digest);
+
+    const changed = await buildManagedR2Policy(digest, release({
+      retiredPaths: ['.codex/rules/retired.md', '.pi/agent/extensions/retired.ts'],
+    }), 'immutable');
+    expect(changed.bytes).not.toEqual(built.bytes);
+    expect(changed.digest).not.toBe(built.digest);
   });
 
   it('REQ-STOR-032 AC1/AC2: exclusive roots derive segment-aware while sessions and root files remain outside', async () => {
@@ -91,6 +97,15 @@ describe('REQ-STOR-028 managed R2 policy', () => {
     });
     expect(verified.paths).toEqual(built.value.paths);
     expect(fetchPolicyObject).toHaveBeenCalledTimes(1);
+
+    const mismatchedDigest = `${built.digest[0] === '0' ? '1' : '0'}${built.digest.slice(1)}`;
+    await expect(readVerifiedManagedR2Policy({
+      fetchPolicyObject,
+      releaseDigest: digest,
+      pathsDigest: mismatchedDigest,
+      expectedPolicy: 'immutable',
+      bypassMemoryCache: true,
+    })).rejects.toThrow(/digest does not match applied state/);
 
     const noncanonicalBytes = new TextEncoder().encode(JSON.stringify(built.value, null, 2));
     const noncanonicalDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', noncanonicalBytes)))

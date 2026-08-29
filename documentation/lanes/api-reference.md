@@ -344,13 +344,14 @@ Content-Type: application/json
 }
 ```
 
-Validation rules (enforced by Zod before streaming starts):
+Validation rules (enforced before streaming starts; field shapes use Zod):
 
 - `customDomain` -- non-empty string matching a valid domain pattern.
 - `allowedUsers` -- non-empty array of valid email addresses.
 - `adminUsers` -- non-empty array of valid emails; every admin must also appear in `allowedUsers`.
 - `allowedOrigins` -- optional array of domain suffix patterns (each must start with `.`).
 - `managedEnvironment` -- optional strict object. Disabled form is `{ "enabled": false }`. Enabled form requires `owner/name`, a repository-scoped read PAT, and a raw lowercase 64-hex Ed25519 public key.
+- `strictGatewayEgress` -- optional boolean. Enabling requires Enterprise and the `EGRESS` binding. Disabling while effective managed-resource policy remains protected returns HTTP 400 before streaming; the same request may transition that policy to mutable ([REQ-SETUP-016](../../sdd/spec/setup.md#req-setup-016-managed-resource-policy-safety)).
 
 The PAT and public key are required on first configuration. Blank values preserve the selected encrypted boundary during reconfiguration. A replacement public key is selected only after the latest immutable release verifies with it without rolling back the active sequence. <!-- @impl: src/lib/remote-curation.ts::configureManagedEnvironment -->
 
@@ -433,7 +434,7 @@ Each runs only when its field is present in the request body, so unrelated recon
 - `configure_model_routing` — persists the dynamic-route catalog, default route, per-route context windows, and per-group routing (JSON; empty maps cleared). [REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-022](../../sdd/spec/enterprise-mode.md#req-enterprise-022-per-route-context-windows-for-dynamic-routes)
 - `configure_ai_gateway` — persists the AI Gateway URL (plain) and token (encrypted at rest, no-clobber on blank). [REQ-ENTERPRISE-017](../../sdd/spec/enterprise-mode.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard)
 - `configure_browser_rendering` — persists the admin Browser Rendering account id and token (encrypted when `ENCRYPTION_KEY` is configured, AD32 plaintext fallback otherwise; presence-only prefill and no-clobber on blank, with no masked-save sentinel). [REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)
-- `configure_strict_egress` — writes `setup:strict_egress` as `'active'`/`'inactive'`. [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress)
+- `configure_strict_egress` — writes `setup:strict_egress` as `'active'`/`'inactive'` after the pre-stream protected-policy check. [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress), [REQ-SETUP-016](../../sdd/spec/setup.md#req-setup-016-managed-resource-policy-safety)
 - `configure_r2_sse` — writes `setup:r2_sse_disabled` as `'active'`/`'inactive'`. [REQ-ENTERPRISE-018](../../sdd/spec/enterprise-mode.md#req-enterprise-018-governed-mode-toggle-and-configuration-surface)
 - `configure_downloads_disabled` — writes `setup:downloads_disabled` as `'active'`/`'inactive'`. [REQ-ENTERPRISE-019](../../sdd/spec/enterprise-mode.md#req-enterprise-019-view-only-storage-download-disable)
 - `configure_active_agents` — validates the selection against build-installed, gateway-capable coding agents (rejects empty, non-capable, or omitted CLIs) and writes `setup:active_agents` as a JSON array. [REQ-ENTERPRISE-025](../../sdd/spec/enterprise-mode.md#req-enterprise-025-active-coding-agents-configured-in-the-setup-wizard), [REQ-AGENT-123](../../sdd/spec/agents.md#req-agent-123-installed-agent-runtime-availability)
