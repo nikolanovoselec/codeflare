@@ -106,30 +106,29 @@ function agentStatus(value: unknown): HerdrAgentStatus | undefined {
     : undefined;
 }
 
-function primaryAgent(snapshot: unknown): { paneId: string; status: HerdrAgentStatus } | undefined {
+function snapshotAgentStatuses(snapshot: unknown): ReadonlyMap<string, HerdrAgentStatus> | undefined {
   if (typeof snapshot !== 'object' || snapshot === null) return undefined;
   const agents = (snapshot as { agents?: unknown }).agents;
   if (!Array.isArray(agents)) return undefined;
-  const candidates = agents.flatMap((value) => {
-    if (typeof value !== 'object' || value === null) return [];
+  const statuses = new Map<string, HerdrAgentStatus>();
+  for (const value of agents) {
+    if (typeof value !== 'object' || value === null) continue;
     const agent = value as Record<string, unknown>;
     const status = agentStatus(agent.agent_status);
-    return typeof agent.pane_id === 'string'
-      && agent.pane_id.length > 0
-      && (agent.agent === 'pi' || agent.agent === 'claude')
-      && status
-      ? [{
-          paneId: agent.pane_id,
-          status,
-          unnamed: agent.name === null || agent.name === undefined,
-          focused: agent.focused === true,
-        }]
-      : [];
-  });
-  const selected = candidates.find((candidate) => candidate.unnamed)
-    ?? candidates.find((candidate) => candidate.focused)
-    ?? candidates[0];
-  return selected ? { paneId: selected.paneId, status: selected.status } : undefined;
+    if (typeof agent.pane_id === 'string'
+        && agent.pane_id.length > 0
+        && (agent.agent === 'pi' || agent.agent === 'claude')
+        && status) statuses.set(agent.pane_id, status);
+  }
+  return statuses;
+}
+
+function aggregateAgentStatus(statuses: Iterable<HerdrAgentStatus>): HerdrAgentStatus {
+  const values = [...statuses];
+  if (values.includes('working')) return 'working';
+  if (values.includes('blocked')) return 'blocked';
+  if (values.includes('unknown') || values.length === 0) return 'unknown';
+  return values.every((status) => status === 'done') ? 'done' : 'idle';
 }
 
 export class HerdrAgentStatusMonitor {
@@ -141,7 +140,7 @@ export class HerdrAgentStatusMonitor {
   private reconnectTimer: TimerHandle | undefined;
   private snapshotTimer: TimerHandle | undefined;
   private buffer = Buffer.alloc(0);
-  private paneId: string | undefined;
+  private paneStatuses: ReadonlyMap<string, HerdrAgentStatus> = new Map();
   private stopped = true;
 
   constructor(options: HerdrAgentStatusMonitorOptions) {
@@ -178,7 +177,7 @@ export class HerdrAgentStatusMonitor {
         || this.socketPath.includes('\0')
         || Buffer.byteLength(this.socketPath) > 107) return;
     this.buffer = Buffer.alloc(0);
-    this.paneId = undefined;
+    this.paneStatuses = new Map();
     const socket = net.createConnection(this.socketPath);
     this.socket = socket;
     this.snapshotTimer = setTimeout(() => this.retry(socket), this.snapshotTimeoutMs);
@@ -219,22 +218,26 @@ export class HerdrAgentStatusMonitor {
 
     if (value.id === 'codeflare-agent-status-snapshot') {
       const result = value.result as Record<string, unknown> | undefined;
-      const primary = result?.type === 'session_snapshot' ? primaryAgent(result.snapshot) : undefined;
-      if (!primary || !this.socket) {
+      const statuses = result?.type === 'session_snapshot'
+        ? snapshotAgentStatuses(result.snapshot)
+        : undefined;
+      if (!statuses || !this.socket) {
         this.retry(this.socket);
         return;
       }
-      this.paneId = primary.paneId;
-      this.delay.initialize(primary.status);
+      this.paneStatuses = statuses;
+      this.delay.initialize(aggregateAgentStatus(statuses.values()));
       if (this.snapshotTimer !== undefined) clearTimeout(this.snapshotTimer);
       this.snapshotTimer = undefined;
       this.socket.write(`${JSON.stringify({
         id: 'codeflare-agent-status-subscribe',
         method: 'events.subscribe',
         params: { subscriptions: [
-          ...(['idle', 'working', 'blocked', 'done', 'unknown'] as const).map((status) => ({
-            type: 'pane.agent_status_changed', pane_id: primary.paneId, agent_status: status,
-          })),
+          ...[...statuses.keys()].flatMap((paneId) => (
+            ['idle', 'working', 'blocked', 'done', 'unknown'] as const
+          ).map((status) => ({
+            type: 'pane.agent_status_changed', pane_id: paneId, agent_status: status,
+          }))),
           { type: 'pane.closed' },
           { type: 'pane.agent_detected' },
         ] },
@@ -247,17 +250,23 @@ export class HerdrAgentStatusMonitor {
         ? value.data as Record<string, unknown>
         : undefined;
       const status = agentStatus(data?.agent_status);
-      if (data?.pane_id !== this.paneId || !status) {
+      if (typeof data?.pane_id !== 'string' || !this.paneStatuses.has(data.pane_id) || !status) {
         this.retry(this.socket);
         return;
       }
-      this.delay.update(status);
+      const statuses = new Map(this.paneStatuses);
+      statuses.set(data.pane_id, status);
+      this.paneStatuses = statuses;
+      this.delay.update(aggregateAgentStatus(statuses.values()));
       return;
     }
 
     if (value.event === 'pane.closed' || value.event === 'pane.agent_detected') {
       const data = value.data as Record<string, unknown> | undefined;
-      if (data?.pane_id === this.paneId) this.retry(this.socket);
+      if (value.event === 'pane.agent_detected'
+          || (typeof data?.pane_id === 'string' && this.paneStatuses.has(data.pane_id))) {
+        this.retry(this.socket);
+      }
     }
   }
 

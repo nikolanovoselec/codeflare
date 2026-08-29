@@ -229,7 +229,8 @@ describe('Herdr completion notification authority', () => {
     await expectResnapshot('disconnect');
   });
 
-  it('subscribes to the primary Herdr agent and consumes status transitions', async () => {
+  it('subscribes to every Herdr agent and waits until all panes are ready', async () => {
+    let allReady = false;
     await withSocket((socket) => {
       let buffered = '';
       socket.on('data', (chunk) => {
@@ -244,10 +245,16 @@ describe('Herdr completion notification authority', () => {
               result: {
                 type: 'session_snapshot',
                 snapshot: {
-                  agents: [{
-                    pane_id: 'w1:p1', workspace_id: 'w1', tab_id: 'w1:t1',
-                    name: null, agent: 'pi', agent_status: 'working', focused: true,
-                  }],
+                  agents: [
+                    {
+                      pane_id: 'w1:p1', workspace_id: 'w1', tab_id: 'w1:t1',
+                      name: null, agent: 'pi', agent_status: 'idle', focused: false,
+                    },
+                    {
+                      pane_id: 'w1:p2', workspace_id: 'w1', tab_id: 'w1:t2',
+                      name: null, agent: 'pi', agent_status: 'working', focused: true,
+                    },
+                  ],
                 },
               },
             })}\n`);
@@ -258,14 +265,30 @@ describe('Herdr completion notification authority', () => {
               { type: 'pane.agent_status_changed', pane_id: 'w1:p1', agent_status: 'blocked' },
               { type: 'pane.agent_status_changed', pane_id: 'w1:p1', agent_status: 'done' },
               { type: 'pane.agent_status_changed', pane_id: 'w1:p1', agent_status: 'unknown' },
+              { type: 'pane.agent_status_changed', pane_id: 'w1:p2', agent_status: 'idle' },
+              { type: 'pane.agent_status_changed', pane_id: 'w1:p2', agent_status: 'working' },
+              { type: 'pane.agent_status_changed', pane_id: 'w1:p2', agent_status: 'blocked' },
+              { type: 'pane.agent_status_changed', pane_id: 'w1:p2', agent_status: 'done' },
+              { type: 'pane.agent_status_changed', pane_id: 'w1:p2', agent_status: 'unknown' },
               { type: 'pane.closed' },
               { type: 'pane.agent_detected' },
             ]);
             socket.write(`${JSON.stringify({ id: request.id, result: { type: 'events_subscribed' } })}\n`);
             socket.write(`${JSON.stringify({
               event: 'pane.agent_status_changed',
+              data: { pane_id: 'w1:p1', workspace_id: 'w1', agent_status: 'working', agent: 'pi' },
+            })}\n`);
+            socket.write(`${JSON.stringify({
+              event: 'pane.agent_status_changed',
               data: { pane_id: 'w1:p1', workspace_id: 'w1', agent_status: 'idle', agent: 'pi' },
             })}\n`);
+            setTimeout(() => {
+              allReady = true;
+              socket.write(`${JSON.stringify({
+                event: 'pane.agent_status_changed',
+                data: { pane_id: 'w1:p2', workspace_id: 'w1', agent_status: 'idle', agent: 'pi' },
+              })}\n`);
+            }, 20);
           }
         }
       });
@@ -282,6 +305,10 @@ describe('Herdr completion notification authority', () => {
           onComplete: () => {
             clearTimeout(timeout);
             monitor.stop();
+            if (!allReady) {
+              reject(new Error('completion fired while another pane was working'));
+              return;
+            }
             resolve();
           },
         });
