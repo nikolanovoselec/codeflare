@@ -1699,6 +1699,7 @@ describe('useTerminal hook', () => {
 
       expect(resizeObserver?.callback).toBeTypeOf('function');
       resizeObserver!.callback([], resizeObserver!);
+      await vi.advanceTimersByTimeAsync(20);
 
       expect(mockFit).toHaveBeenCalled();
       expect(terminalStore.resize).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId, 112, 34);

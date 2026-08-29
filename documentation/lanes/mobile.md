@@ -141,7 +141,7 @@ The 50ms delay gives SolidJS time to process the null state and run cleanup effe
 
 #### FitAddon Management
 
-Four mobile coordination paths discussed here can trigger `fitAddon.fit()` (git: Fix 3):
+Four mobile coordination paths discussed here can trigger `fitAddon.fit()` ([REQ-MOB-010](../../sdd/spec/mobile.md#req-mob-010-fitaddon-fit-calls-are-coordinated), [REQ-MOB-021](../../sdd/spec/mobile.md#req-mob-021-terminal-follows-visible-container-changes)):
 1. **Keyboard refit** (debounced 150ms)
 2. **Active-state effect** (immediate `requestAnimationFrame`)
 3. **ResizeObserver** (immediate `requestAnimationFrame`)
