@@ -306,7 +306,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Priority:** P0
 
-**Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing)
+**Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume), [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing)
 
 **Verification:** Automated test ([Claude memory hook tests](../../host/__tests__/memory-capture-hook.test.js))
 
