@@ -19,6 +19,10 @@ const HOOK = resolve(
   __dirname,
   '../../preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh',
 );
+const VAULT_MANIFEST = resolve(
+  __dirname,
+  '../../preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py',
+);
 
 function makeFixture() {
   const home = tempDir('memcap-home-');
@@ -59,6 +63,14 @@ function commandWrapperLine(tag) {
   });
 }
 
+function installVaultManifest(fx) {
+  const scripts = join(fx.home, '.claude', 'plugins', 'codeflare-vault', 'scripts');
+  mkdirSync(scripts, { recursive: true });
+  copyFileSync(VAULT_MANIFEST, join(scripts, 'vault-manifest.py'));
+  mkdirSync(join(fx.home, 'Vault', 'Notes'), { recursive: true });
+  mkdirSync(join(fx.home, 'Vault', 'graphify-out'), { recursive: true });
+}
+
 function runHook({ home, counterDir }, { transcriptPath, sessionId = 'sess-1' }) {
   return spawnSync('bash', [HOOK], {
     input: JSON.stringify({
@@ -71,7 +83,7 @@ function runHook({ home, counterDir }, { transcriptPath, sessionId = 'sess-1' })
 }
 
 // REQ-MEM-002 (input gating: safety guards for missing inputs/files)
-describe('memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 15 user messages)', () => {
+describe('memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 50 user messages)', () => {
   it('exits 0 silently when transcript_path is missing', () => {
     const { home, counterDir } = makeFixture();
     const r = spawnSync('bash', [HOOK], {
@@ -141,7 +153,7 @@ describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-01
     const r = runHook(fx, { transcriptPath: t, sessionId: 'sess-resume' });
     assert.equal(r.status, 0);
     const out = JSON.parse(r.stdout);
-    // AC7 first contract: capture fires despite delta < 15
+    // AC7 first contract: capture fires despite delta < 50
     const vars = join(fx.counterDir, 'sess-resume.vars');
     assert.equal(existsSync(vars), true, 'AC7: resumed session must force-fire capture');
     const v = JSON.parse(readFileSync(vars, 'utf-8'));
@@ -164,6 +176,18 @@ describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-01
       'AC7: arming must not commit the window; publish-memory-capture.sh does that');
   });
 
+  it('resume hash-checks Vault and arms extraction only when content changed', () => {
+    const fx = makeFixture();
+    installVaultManifest(fx);
+    writeFileSync(join(fx.home, 'Vault', 'Notes', 'resume.md'), 'changed while away\n');
+    const t = writeTranscript(fx.home, [realUserLine('prior'), realUserLine('resumed')]);
+
+    const r = runHook(fx, { transcriptPath: t, sessionId: 'sess-resume-vault' });
+
+    assert.equal(r.status, 0);
+    assert.equal(existsSync(join(fx.home, '.cache', 'codeflare-hooks', 'vault-extract.vars')), true);
+  });
+
   // REQ-MEM-002 AC7 boundary: counter absent but transcript has exactly 1 prompt
   // is the brand-new-session case, NOT a resume - must not force-fire.
   it('AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)', () => {
@@ -183,8 +207,24 @@ describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-01
   });
 });
 
-// REQ-MEM-002 AC3/AC4/AC5 (delta logic: <15 silent, >=15 fires, counter advances)
+// REQ-MEM-002 AC3/AC4/AC5 (delta logic: <50 silent, >=50 fires, counter advances)
 describe('memory-capture.sh - user-message counting', () => {
+  it('hash-checks Vault at prompt 100 without starting memory capture early', () => {
+    const fx = makeFixture();
+    installVaultManifest(fx);
+    writeFileSync(join(fx.home, 'Vault', 'Notes', 'prompt-100.md'), 'changed\n');
+    writeFileSync(join(fx.counterDir, 'sess-vault-100'), '99\n1\n');
+    writeFileSync(join(fx.counterDir, 'sess-vault-100.vault-count'), '0\n');
+    const lines = Array.from({ length: 100 }, (_, index) => realUserLine(`prompt ${index + 1}`));
+    const t = writeTranscript(fx.home, lines);
+
+    const r = runHook(fx, { transcriptPath: t, sessionId: 'sess-vault-100' });
+
+    assert.equal(r.status, 0);
+    assert.equal(existsSync(join(fx.counterDir, 'sess-vault-100.vars')), false);
+    assert.equal(existsSync(join(fx.home, '.cache', 'codeflare-hooks', 'vault-extract.vars')), true);
+  });
+
   // REQ-MEM-001 AC2: two-layer grep filter excludes tool-result wrappers (array content)
   // and synthetic messages (content starts with `<`); only real user prompts are counted.
   it('counts only real user prompts, excluding tool_results and command wrappers', () => {
@@ -205,15 +245,15 @@ describe('memory-capture.sh - user-message counting', () => {
     const r = runHook(fx, { transcriptPath: t, sessionId: 'sess-c' });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '',
-      'delta < 15 with existing counter must produce no output');
+      'delta < 50 with existing counter must produce no output');
   });
 
-  // REQ-MEM-002 AC4: delta>=15 -> write .vars + emit additionalContext mentioning vars path
-  it('triggers capture when 15+ NEW real prompts since last_count', () => {
+  // REQ-MEM-002 AC4: delta>=50 -> write .vars + emit additionalContext mentioning vars path
+  it('triggers capture when 50+ NEW real prompts since last_count', () => {
     const fx = makeFixture();
     writeFileSync(join(fx.counterDir, 'sess-t'), '0\n0\n');
     const lines = [];
-    for (let i = 0; i < 15; i++) lines.push(realUserLine(`prompt ${i}`));
+    for (let i = 0; i < 50; i++) lines.push(realUserLine(`prompt ${i}`));
     for (let i = 0; i < 10; i++) lines.push(toolResultLine());
     for (let i = 0; i < 5; i++) lines.push(commandWrapperLine('command-name'));
     const t = writeTranscript(fx.home, lines);
@@ -227,19 +267,19 @@ describe('memory-capture.sh - user-message counting', () => {
     assert.equal(existsSync(vars), true,
       'capture path must write the .vars file');
     const v = JSON.parse(readFileSync(vars, 'utf-8'));
-    assert.equal(v.current_count, '15');
+    assert.equal(v.current_count, '50');
   });
 
-  // REQ-MEM-002 AC3: boundary - 14 real prompts is < 15 threshold -> silent, no .vars
-  it('does NOT trigger when 14 new real prompts (boundary, delta < 15)', () => {
+  // REQ-MEM-002 AC3: boundary - 49 real prompts is < 50 threshold -> silent, no .vars
+  it('does NOT trigger when 49 new real prompts (boundary, delta < 50)', () => {
     const fx = makeFixture();
     writeFileSync(join(fx.counterDir, 'sess-b'), '0\n0\n');
     const lines = [];
-    for (let i = 0; i < 14; i++) lines.push(realUserLine(`p ${i}`));
+    for (let i = 0; i < 49; i++) lines.push(realUserLine(`p ${i}`));
     const t = writeTranscript(fx.home, lines);
     const r = runHook(fx, { transcriptPath: t, sessionId: 'sess-b' });
     assert.equal(r.status, 0);
-    assert.equal(r.stdout, '', '14 prompts must not trigger capture');
+    assert.equal(r.stdout, '', '49 prompts must not trigger capture');
     assert.equal(
       existsSync(join(fx.counterDir, 'sess-b.vars')),
       false,
@@ -253,7 +293,7 @@ describe('memory-capture.sh - user-message counting', () => {
     const fx = makeFixture();
     writeFileSync(join(fx.counterDir, 'sess-x'), '0\n0\n');
     const lines = [];
-    for (let i = 0; i < 16; i++) lines.push(realUserLine(`p ${i}`));
+    for (let i = 0; i < 51; i++) lines.push(realUserLine(`p ${i}`));
     const t = writeTranscript(fx.home, lines);
     runHook(fx, { transcriptPath: t, sessionId: 'sess-x' });
     const first = JSON.parse(readFileSync(join(fx.counterDir, 'sess-x.vars'), 'utf-8'));
@@ -309,7 +349,7 @@ describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () 
     // every emission, which would mask what these tests are asserting.
     writeFileSync(join(fx.counterDir, sessionId), '0\n1\n');
     const lines = [];
-    for (let i = 0; i < 16; i++) lines.push(realUserLine(`prompt ${i}`));
+    for (let i = 0; i < 51; i++) lines.push(realUserLine(`prompt ${i}`));
     const t = writeTranscript(fx.home, lines);
     const first = runHook(fx, { transcriptPath: t, sessionId });
     return { transcriptPath: t, sessionId, first };
@@ -349,7 +389,7 @@ describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () 
     );
     writeFileSync(join(fx.counterDir, 'sess-stub'), '0\n1\n');
     const lines = [];
-    for (let i = 0; i < 16; i++) lines.push(realUserLine(`p ${i}`));
+    for (let i = 0; i < 51; i++) lines.push(realUserLine(`p ${i}`));
     const t = writeTranscript(fx.home, lines);
     const res = spawnSync('bash', [join(shadowDir, 'memory-capture.sh')], {
       input: JSON.stringify({ transcript_path: t, session_id: 'sess-stub' }),
@@ -371,7 +411,7 @@ describe('memory-capture.sh - bounded re-delivery and giveup / REQ-MEM-020', () 
     const fx = makeFixture();
     writeFileSync(join(fx.counterDir, 'sess-bad'), '0\n1\n');
     const lines = [];
-    for (let i = 0; i < 16; i++) lines.push(realUserLine(`p ${i}`));
+    for (let i = 0; i < 51; i++) lines.push(realUserLine(`p ${i}`));
     const t = writeTranscript(fx.home, lines);
     const res = spawnSync('bash', [HOOK], {
       input: JSON.stringify({ transcript_path: t, session_id: 'sess-bad' }),
@@ -614,7 +654,7 @@ describe('memory-capture.sh - user-visible capture notice', () => {
     // does not ride along on the graph-scan context that used to gate it.
     writeFileSync(join(fx.counterDir, sessionId), '0\n1\n');
     const lines = [];
-    for (let i = 0; i < 16; i++) lines.push(realUserLine(`prompt ${i}`));
+    for (let i = 0; i < 51; i++) lines.push(realUserLine(`prompt ${i}`));
     return writeTranscript(fx.home, lines);
   }
 

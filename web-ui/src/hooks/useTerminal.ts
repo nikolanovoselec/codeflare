@@ -209,16 +209,21 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         term!.input('\x1b[13;2u', false);
         return false;
       }
-      if (event.ctrlKey && event.key === 'c') {
+      const primaryModifier = event.ctrlKey || event.metaKey;
+      if (primaryModifier && event.key.toLowerCase() === 'c') {
         const selection = term!.getSelection();
         if (selection) {
-          navigator.clipboard.writeText(selection);
-          term!.clearSelection();
+          event.preventDefault();
+          void navigator.clipboard.writeText(selection).then(() => term?.clearSelection()).catch(() => {});
           return false;
         }
         return true;
       }
-      if (event.ctrlKey && event.key === 'v') {
+      if (primaryModifier && event.key.toLowerCase() === 'v') {
+        event.preventDefault();
+        void navigator.clipboard.readText().then((text) => {
+          if (text && term) term.paste(text);
+        }).catch(() => {});
         return false;
       }
       // Ctrl+Space → toggle voice input via Web Speech API
@@ -431,7 +436,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (isHerdr()) {
       clipboardDisposable = t.parser.registerOscHandler(52, (data) => {
         const text = parseOsc52ClipboardWrite(data);
-        if (text === null || loadSettings().clipboardAccess !== true) return true;
+        if (text === null) return true;
         void navigator.clipboard.writeText(text).catch(() => {});
         return true;
       });

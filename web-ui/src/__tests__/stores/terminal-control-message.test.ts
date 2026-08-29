@@ -155,7 +155,7 @@ describe('Terminal control-message handling', () => {
   });
 
   describe('Herdr scroll probes', () => {
-    it('probes on connect and after forwarding viewport input', async () => {
+    it('REQ-TERM-040: desktop wheel input probes and holds output above bottom', async () => {
       let onData: ((data: string) => void) | undefined;
       const terminal = {
         ...createMockTerminal(),
@@ -180,8 +180,14 @@ describe('Terminal control-message handling', () => {
         ws.created[0].emitMessage(JSON.stringify({
           type: 'herdr-scroll-state', requestId: 1, available: true, aboveBottom: true,
         }));
+        ws.created[0].emitMessage('\x1b[?2026hdesktop viewport\x1b[?2026l');
         await vi.advanceTimersByTimeAsync(40);
-        expect(terminal.write).toHaveBeenCalledWith('\x1b[?2026hcurrent\x1b[?2026l');
+        expect(terminal.write).toHaveBeenCalledWith('\x1b[?2026hdesktop viewport\x1b[?2026l');
+
+        vi.mocked(terminal.write).mockClear();
+        ws.created[0].emitMessage('incoming agent output');
+        await vi.advanceTimersByTimeAsync(40);
+        expect(terminal.write).not.toHaveBeenCalled();
       } finally {
         ws.restore();
       }

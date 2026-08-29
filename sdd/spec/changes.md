@@ -2,6 +2,12 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-08-29
+
+- **Memory and Vault extraction use prompt cadence instead of continuous Vault polling** ([REQ-MEM-002](memory.md#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume) and [REQ-VAULT-003](vault.md#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s) amended; remain Implemented). Memory capture now runs every 50 real prompts and immediately captures only the durable uncaptured tail on the first prompt after resume. Every resumed-tail capture hash-checks Vault; regular Vault checks occur at crossed 100-prompt epochs and no-op without changed content. The 60-second extraction daemon no longer starts. Pi requests allow seven bounded turns so larger intervals can page tool output without an open-ended worker.
+
+- **Herdr clipboard actions bridge browser copy and paste directly** ([REQ-TERM-032](terminal.md#req-term-032-herdr-clipboard-compatibility-boundary) amended; remains Implemented). Bounded Herdr OSC 52 copy writes are no longer blocked by the unrelated desktop right-click-paste toggle, and `Ctrl+V`/`Cmd+V` reads clipboard text during the key gesture before passing it through xterm. Stable Herdr scrollback coverage now explicitly includes desktop wheel input.
+
 ## 2026-08-28
 
 - **CI failure monitoring waits for the complete exact-head result** ([REQ-AGENT-068](agents.md#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-070](agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy), and [REQ-AGENT-125](agents.md#req-agent-125-pi-ci-result-and-launch-checkpoint) amended; remain Implemented). Pi no longer returns when the first check fails, and Claude no longer returns when the first workflow fails. Each monitor waits until every observed row is terminal and the full fingerprint remains stable across two polls, then reports every failed or cancelled row together for one triage and fix round.

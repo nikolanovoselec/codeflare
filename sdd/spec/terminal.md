@@ -784,7 +784,7 @@ None.
 
 ### REQ-TERM-032: Herdr clipboard compatibility boundary
 
-**Intent:** The browser exposes only bounded Herdr clipboard writes under existing user permission.
+**Intent:** Explicit Herdr copy and paste actions bridge the browser clipboard while retaining bounded OSC 52 parsing and browser permission authority.
 
 **Applies To:** User
 
@@ -793,8 +793,9 @@ None.
 1. The terminal clipboard parser accepts bounded standard-selector base64 containing valid UTF-8. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (decodes a bounded standard clipboard UTF-8 write) -->
 2. The parser rejects reads, malformed data, unsupported selectors, and invalid UTF-8. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (rejects query, selector, malformed, or invalid UTF-8 payload %s) -->
 3. The parser rejects decoded content above the fixed byte limit. <!-- @impl: web-ui/src/lib/osc52.ts::parseOsc52ClipboardWrite --> <!-- @test: web-ui/src/__tests__/lib/osc52.test.ts (rejects decoded content above the fixed byte limit) -->
-4. Herdr sessions register accepted clipboard writes only when the existing browser clipboard setting permits access. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send a valid clipboard write with access enabled and disabled and confirm only the enabled Herdr case updates the clipboard. -->
+4. Herdr sessions forward accepted OSC 52 writes to the browser clipboard even when the separate desktop right-click paste setting is disabled, because Herdr copy is an explicit user action. Browser clipboard permission remains authoritative. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-032: writes Herdr OSC 52 copy output even when desktop paste access is disabled) -->
 5. Classic sessions do not install the Herdr clipboard-write handler. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send the same clipboard control sequence to classic and confirm no browser clipboard write occurs. -->
+6. `Ctrl+V` or `Cmd+V` reads clipboard text during the browser key gesture and pastes it through xterm into the active terminal. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (pastes browser clipboard text through xterm on Ctrl+V) -->
 
 **Constraints:**
 
@@ -882,7 +883,7 @@ None.
 2. While the pane is above bottom, Codeflare shows one complete viewport update before holding later atomic output in the existing bounded buffer. <!-- @impl: web-ui/src/stores/terminal-output.ts::setHerdrScrollState --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-hold.test.ts (publishes one forced full frame, then holds unrelated output) -->
 3. Each later viewport action shows one complete updated view without releasing unrelated held output. <!-- @impl: web-ui/src/stores/terminal-output.ts::setHerdrScrollState --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-hold.test.ts (publishes each requested viewport and resumes from a full bottom frame) -->
 4. Returning to bottom discards superseded held output, shows the current pane, and resumes live output. <!-- @impl: web-ui/src/stores/terminal-output.ts::setHerdrScrollState --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-hold.test.ts (publishes each requested viewport and resumes from a full bottom frame) -->
-5. Initial connection, Page Up or Down, pointer presses, and wheel actions request a current viewport update. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @impl: web-ui/src/stores/terminal-protocol.ts::isHerdrViewportIntent --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (Herdr scroll probes) -->
+5. Initial connection, Page Up or Down, pointer presses, and touch or desktop wheel actions request a current viewport update. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @impl: web-ui/src/stores/terminal-protocol.ts::isHerdrViewportIntent --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (REQ-TERM-040: desktop wheel input probes and holds output above bottom) -->
 6. An older viewport result cannot replace a newer requested view. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (REQ-TERM-040 AC6: ignores an older viewport result after a newer probe) -->
 
 **Constraints:**

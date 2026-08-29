@@ -637,7 +637,7 @@ One emitted request remains pending until an exact public `subagent` call appear
 
 **Fix:** Correlate the visible “Extraction jobs ready” summary, its pretty-printed `<extraction-items-json>`, the exact public call, and `subagent-notification` by tool-use ID. Memory requires `/home/user/Vault/Raw/Sessions/<captureFilename>` plus its request chunk after graph publication; Vault requires its post-commit chunk and staged manifest hash. Do not delete counters or manifests manually.
 
-Current workers expose only Bash, use medium reasoning, stop after four turns, and cap noncritical visualization at 15 seconds. `VARS_FILE.transcript` is memory capture's complete input; `invalid INPUT_FILE: missing` identifies a stale mirror.
+Current workers expose only Bash, use medium reasoning, stop after seven turns, and cap noncritical visualization at 15 seconds. `VARS_FILE.transcript` is memory capture's complete input; `invalid INPUT_FILE: missing` identifies a stale mirror.
 
 A memory result reporting `VARS_FILE` missing while the root can see the file under `/tmp/.memory-counter` identifies the legacy temp-backed snapshot visibility race. Reload a seed with the [home-backed extraction data flow](architecture.md#pi-memory-and-vault-extraction-data-flow); the root migrates an active legacy snapshot before retry.
 

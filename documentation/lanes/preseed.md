@@ -725,7 +725,7 @@ Pi extraction is driven by `prompts/memory-agent-prompt.md` and `prompts/vault-e
 
 Each launch shows a job/delivery summary followed by pretty-printed `<extraction-items-json>` whose request items exactly match durable details metadata. Standard JSON `\n` escapes inside `prompt` decode to line breaks when the public call is submitted; terminal wrapping does not alter the value.
 
-Generated agents and emitted requests use provider-neutral medium reasoning, Bash-only evidence, and four turns ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)).
+Generated agents and emitted requests use provider-neutral medium reasoning, Bash-only evidence, and seven turns ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)).
 
 `memory-vault.ts` owns delivery and high-water state. `/tmp/.memory-counter/<sessionId>.vars` and `vault-extract.pi.vars` are active request-ID pointers for reload discovery.
 
@@ -981,7 +981,7 @@ is done via `settings.json` (see above).
 keywords, queries the unified graphify graph, and injects matched nodes as
 additionalContext before the agent responds
 ([REQ-MEM-013](../../sdd/spec/memory.md#req-mem-013-proactive-memory-injection-on-first-prompt)).
-`memory-capture.sh` handles the ongoing 15-prompt capture cadence.
+`memory-capture.sh` handles the ongoing 50-prompt capture cadence, immediate resumed-tail capture, and the resumed/100-prompt Vault hash checks.
 
 `post-compaction-recall.sh` is registered on SessionStart under matcher
 `compact` and injects the Context and Decisions sections of the five most recent

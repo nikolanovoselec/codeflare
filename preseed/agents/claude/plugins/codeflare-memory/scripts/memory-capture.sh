@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# UserPromptSubmit hook — triggers main agent to capture conversation into the vault.
-# Injects additionalContext when 15+ new user messages since last capture.
+# UserPromptSubmit hook — triggers detached conversation capture and bounded Vault checks.
+# Captures every 50 real user prompts; Vault hash-checks every 100 prompts and on resume.
 # The main agent spawns a background Task agent to do the actual work.
 set -e
 
@@ -86,9 +86,32 @@ LATCH_FILE="$COUNTER_DIR/${SESSION_ID}.latched"
 # a directive the agent skips comes back next prompt instead of freezing the
 # session, so an ignored capture can no longer vanish silently.
 MAX_ATTEMPTS=6
-REARM_AFTER=15
+REARM_AFTER=50
+MEMORY_EVERY=50
+VAULT_EVERY=100
+VAULT_COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}.vault-count"
 MEMORY_SCAN=""
 FORCE_RESUME=""
+RESUME_VAULT_CHECK=""
+
+arm_vault_check() {
+    local manifest_script="$USER_HOME/.claude/plugins/codeflare-vault/scripts/vault-manifest.py"
+    local manifest="$USER_HOME/Vault/graphify-out/vault-extract-manifest.json"
+    local marker="$USER_HOME/.cache/codeflare-hooks/vault-extract.vars"
+    [[ -f "$manifest_script" && -d "$USER_HOME/Vault" ]] || return 0
+    [[ ! -f "$marker" ]] || return 0
+    local changed
+    changed=$(python3 "$manifest_script" changed "$USER_HOME/Vault" "$manifest" 2>/dev/null | head -n 50 || true)
+    [[ -n "$changed" ]] || return 0
+    mkdir -p "${marker%/*}"
+    local tmp="${marker}.tmp.$$"
+    {
+        printf 'VAULT_ROOT=%s\n' "$USER_HOME/Vault"
+        printf 'TRIGGERED_AT=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+        printf 'CHANGED_FILES<<EOF\n%s\nEOF\n' "$changed"
+    } > "$tmp"
+    mv -f "$tmp" "$marker"
+}
 
 # $1 is for the model, $2 for the user, and they are independent: a capture
 # launches in the background with nothing asked of the agent, so the turns that
@@ -135,7 +158,7 @@ launch_capture() {
     setsid bash "$HOOK_DIR/run-memory-capture.sh" --vars "$1" >/dev/null 2>&1 &
 }
 if [[ -f "$COUNTER_FILE" ]]; then
-    # Mid-session: counter present, normal 15-prompt cadence.
+    # Mid-session: counter present, normal 50-prompt cadence.
     last_count=$(head -1 "$COUNTER_FILE" 2>/dev/null) || last_count=0
     last_line=$(tail -1 "$COUNTER_FILE" 2>/dev/null) || last_line=1
     [[ "$last_count" =~ ^[0-9]+$ ]] || last_count=0
@@ -157,19 +180,44 @@ else
     #   (b) Resumed session: the container was recycled but the transcript
     #       persisted (claude --resume restores it), so CURRENT_COUNT > 1.
     #       Force-fire a capture from the start of the transcript to flush
-    #       any tail from the prior session that never reached the 15-prompt
+    #       any tail from the prior session that never reached the 50-prompt
     #       boundary, AND re-emit the graph-query directive because the
     #       agent's in-context recall of prior decisions is gone.
     MEMORY_SCAN="BEFORE responding, query the unified graph for context. Use mcp__graphify__query_graph (or mcp__graphify__get_node for a known concept) with terms from the user's message to surface prior decisions, vault notes, and per-repo references."
     if [[ $CURRENT_COUNT -gt 1 ]]; then
         last_count=0
-        last_line=1
+        session_notes="$USER_HOME/Vault/Raw/Sessions"
+        if [[ -d "$session_notes" ]]; then
+            for note in "$session_notes"/*.md; do
+                [[ -f "$note" ]] || continue
+                captured_session=$(sed -n 's/^session_id:[[:space:]]*//p' "$note" | head -n 1)
+                [[ "$captured_session" == "$SESSION_ID" ]] || continue
+                captured_count=$(sed -n 's/^captured_prompt_count:[[:space:]]*//p' "$note" | head -n 1)
+                [[ "$captured_count" =~ ^[0-9]+$ ]] || continue
+                (( captured_count > last_count )) && last_count=$captured_count
+            done
+        fi
+        if [[ $last_count -gt 0 ]]; then
+            last_line=$(grep -n '"role":"user","content":"[^<]' "$TRANSCRIPT" | sed -n "${last_count}p" | cut -d: -f1)
+            [[ "$last_line" =~ ^[0-9]+$ ]] || last_line=1
+        else
+            last_line=1
+        fi
         FORCE_RESUME=1
+        [[ ! -f "$VAULT_COUNTER_FILE" ]] && RESUME_VAULT_CHECK=1
     else
         last_count=$CURRENT_COUNT
         last_line=$(wc -l < "$TRANSCRIPT")
         printf '%s\n%s\n' "$last_count" "$last_line" > "$COUNTER_FILE"
+        printf '0\n' > "$VAULT_COUNTER_FILE"
     fi
+fi
+
+vault_last=$(head -1 "$VAULT_COUNTER_FILE" 2>/dev/null || echo 0)
+[[ "$vault_last" =~ ^[0-9]+$ ]] || vault_last=0
+if [[ -n "$RESUME_VAULT_CHECK" ]] || (( CURRENT_COUNT / VAULT_EVERY > vault_last / VAULT_EVERY )); then
+    arm_vault_check
+    printf '%s\n' "$CURRENT_COUNT" > "$VAULT_COUNTER_FILE"
 fi
 
 # An outstanding request owns the session until it is published or latched.
@@ -248,7 +296,7 @@ if [[ -f "$VARS_FILE" ]]; then
 fi
 
 DELTA=$((CURRENT_COUNT - last_count))
-if [[ $DELTA -lt 15 ]] && [[ -z "$FORCE_RESUME" ]]; then
+if [[ $DELTA -lt $MEMORY_EVERY ]] && [[ -z "$FORCE_RESUME" ]]; then
     emit_context "$MEMORY_SCAN"
 fi
 

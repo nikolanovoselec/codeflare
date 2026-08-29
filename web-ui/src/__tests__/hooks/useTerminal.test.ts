@@ -999,6 +999,61 @@ describe('useTerminal hook', () => {
     });
   });
 
+  describe('Herdr clipboard bridging', () => {
+    beforeEach(() => {
+      Object.assign(navigator, {
+        clipboard: {
+          readText: vi.fn().mockResolvedValue('pasted into Herdr'),
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+    });
+
+    it('REQ-TERM-032: writes Herdr OSC 52 copy output even when desktop paste access is disabled', async () => {
+      vi.mocked(loadSettings).mockReturnValue({ clipboardAccess: false });
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      const call = mockRegisterOscHandler.mock.calls.find(([identifier]) => identifier === 52);
+      expect(call).toBeDefined();
+
+      expect(call![1]('c;Y29waWVkIGZyb20gSGVyZHI=')).toBe(true);
+
+      await vi.waitFor(() => {
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith('copied from Herdr');
+      });
+      dispose();
+    });
+
+    it('pastes browser clipboard text through xterm on Ctrl+V', async () => {
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      const handler = mockAttachCustomKeyEventHandler.mock.calls[0]?.[0];
+      const preventDefault = vi.fn();
+
+      expect(handler?.({
+        type: 'keydown',
+        key: 'v',
+        ctrlKey: true,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+        preventDefault,
+      } as unknown as KeyboardEvent)).toBe(false);
+
+      expect(preventDefault).toHaveBeenCalledOnce();
+      await vi.waitFor(() => {
+        expect(mockTerminalInstance.paste).toHaveBeenCalledWith('pasted into Herdr');
+      });
+      dispose();
+    });
+  });
+
   describe('clipboard access setting', () => {
     beforeEach(() => {
       Object.assign(navigator, {
