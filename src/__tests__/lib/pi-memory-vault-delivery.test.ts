@@ -889,6 +889,26 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     expect(latestLaunch(harness.pi, 'vault-extract').reminder).toBe(0);
   });
 
+  it('replaces a stale Vault request owned by another root session', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'stale-owner.md'), 'changed\n', 'utf8');
+    await triggerVaultCheck(harness);
+    const stale = readJson(activeExecutionPath(harness, 'vault-extract'));
+    writeFileSync(activeExecutionPath(harness, 'vault-extract'), JSON.stringify({
+      ...stale,
+      ownerSessionId: 'foreign-session',
+      createdAt: 0,
+    }), 'utf8');
+
+    await triggerVaultCheck(harness);
+
+    const replacement = readJson(activeExecutionPath(harness, 'vault-extract'));
+    expect(replacement.requestId).not.toBe(stale.requestId);
+    expect(replacement.ownerSessionId).toBe('session-1');
+    expect(replacement.createdAt).toBe(NOW);
+  });
+
   it('REQ-VAULT-027 AC2: reconstructs Vault retry state from root JSONL after reload', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');

@@ -166,6 +166,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | ~~[AD145](#ad145-herdr-owns-topology-inside-one-codeflare-terminal-surface)~~ | ~~Give Herdr one Codeflare terminal surface~~ | [AD146](#ad146-terminal-mode-is-an-immutable-per-session-choice) restores classic as default while retaining single-surface ownership for opt-in Herdr sessions. | Architecture, Build / Container, Terminal | Superseded |
 | [AD146](#ad146-terminal-mode-is-an-immutable-per-session-choice) | Make terminal ownership an immutable per-session choice | Classic remains the default full Codeflare terminal; opt-in Herdr sessions expose one surface and persist only Herdr's official structural snapshot. | Architecture, Build / Container, Terminal | Active |
 | [AD147](#ad147-active-managed-resource-policy-supersedes-provenance-ownership) | Enforce active managed-resource policy before scoped R2 signing | Canonical release-derived paths remain immutable at the Worker boundary; provenance ownership still governs paths outside the active policy. | Architecture, Security, Storage | Active |
+| [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) | Schedule memory and Vault work from successful prompt high-water marks | Memory captures every 50 real prompts; Vault checks resume tails and crossed 100-prompt epochs without polling or consuming failed scans. | Agents, Memory, Storage | Active |
 ---
 
 ## Decisions
@@ -3061,7 +3062,7 @@ Vault promotion validates staged bytes, prelaunch edits coalesce, and during-run
 
 **Category:** Agents, Memory, Performance
 
-**Status:** Accepted (2026-07-14)
+**Status:** Accepted (2026-07-14); cadence and turn-budget consequences partially superseded by [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) (2026-08-29).
 
 **Context:** The first post-reload transactional Vault smoke contained one frozen 51 KB markdown file. The Pi `vault-extract` worker inherited the foreground reasoning level and broad read/search/context tools. It reread policy and input repeatedly, reaching 84.2k tokens, 12 tool calls, and 336 seconds without committing a chunk. The prior legacy Vault task took 762.9 seconds and 130.6k tokens.
 
@@ -3609,7 +3610,7 @@ Anyone weakening the Claude directive must move the instruction, not merely rest
 
 ### AD124: Bounded re-delivery replaces the memory-capture hard block
 
-**Status:** Accepted (2026-08-11)
+**Status:** Accepted (2026-08-11); the fifteen-prompt replacement cadence and Pi four-turn comparison are partially superseded by [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) (2026-08-29).
 
 **Context:** Claude's capture directive was advisory, and REQ-MEM-012 (since removed from the spec, superseded by [REQ-MEM-020](../../sdd/spec/memory.md#req-mem-020-capture-requests-are-re-delivered-under-a-bound)) closed that gap with a PreToolUse hook that blocked every tool call except the capture spawn itself. The gap was real: a directive nobody acts on leaves the carrier undrained, and the threshold only re-fires on a crossing, so a long session could pass with zero captures.
 
@@ -4062,5 +4063,21 @@ Herdr live processes, pane history, sockets, logs, plugins, updater state, and u
 <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy -->
 <!-- @impl: src/egress-controller.ts::EgressController -->
 <!-- @impl: entrypoint.sh::prepare_managed_resource_filter -->
+
+---
+
+### AD148: Memory and Vault capture follow successful prompt cadence
+
+**Category:** Agents, Memory, Storage
+
+**Status:** Accepted (2026-08-29). Partially supersedes the cadence and Pi turn-budget consequences in [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) and [AD124](#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block).
+
+**Context:** Fifteen-prompt memory windows and continuous Vault polling launched noncritical extraction too often. Four Pi turns were also insufficient when a bounded snapshot needed pagination after tool-output truncation. Memory freshness and Vault freshness have different costs, while both runtimes already retain durable counters, content-hash manifests, immutable request snapshots, bounded delivery, and transactional publication.
+
+**Decision:** Capture memory every 50 real-user prompts and capture the durable uncaptured tail on the first prompt after resume. Check Vault content hashes with that resumed-tail capture and at each crossed 100-real-user-prompt epoch; unchanged content is a no-op and no polling extraction daemon runs. Pi memory and Vault requests receive seven bounded turns so truncated input can be paged without creating open-ended workers. Failed Vault scans do not advance the successful-check counter and retry on the next real-user prompt.
+
+**Consequences:** Memory GIVEUP replacement re-arms after 50 later real prompts. Claude memory retains its six-turn worker budget, while Pi's public request object enforces seven turns. Vault extraction remains eventual and reuses existing manifests, snapshots, workers, graph publication, and locks; no timer, service, queue, or distributed coordinator is added.
+
+**Related REQs:** [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile), [REQ-VAULT-003](../../sdd/spec/vault.md#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s), [REQ-VAULT-031](../../sdd/spec/vault.md#req-vault-031-vault-hash-checks-follow-successful-prompt-cadence).
 
 ---

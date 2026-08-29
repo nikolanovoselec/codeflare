@@ -34,10 +34,10 @@ The vault lives at `/home/user/Vault/` inside every advanced-mode session contai
 
 Two parties write to the vault:
 
-- The **capture agent** (sonnet) appends a markdown file to `Raw/Sessions/` every 15 user prompts (replaces the old MCP-memory write path).
+- The **capture agent** appends a markdown file to `Raw/Sessions/` every 50 real user prompts and captures any durable uncaptured tail on the first prompt after resume.
 - **The user** edits notes via SilverBullet or any tool that writes under `Notes/`, `References/`, `Inbox/`, or `Journal/`. Attachments land next to the referencing note; `Raw/Pasted/` remains an optional hand-organised archive.
 
-A single 60s daemon polls for user edits and signals a background sonnet agent to ingest them into the unified graphify graph. Future agents query that graph via `mcp__graphify__*` and see captures + user notes + every active repo's code, merged.
+Vault content hashes are checked on resumed-tail capture and at each crossed 100-real-user-prompt epoch. Changed content signals one bounded background extraction; unchanged content is a no-op, and no polling extraction daemon runs. Future agents query the unified Graphify graph via `mcp__graphify__*` and see captures, user notes, and every active repository's code merged.
 
 ### Uploads and Temporary folders
 
@@ -573,7 +573,7 @@ captured ISO_TS string is the single source of truth for the filename and
 
 Pi reads real-user messages from the durable root session and snapshots only prompts after the successful counter at the 50-prompt boundary or after the durable resumed-session high-water, bounded by the shared 200,000-byte total and 10,000-character per-turn limits. It writes request-specific execution JSON before publishing `<sessionId>.vars` as the active request-ID pointer.
 
-Under [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile), launches are medium-reasoning, four-turn public background requests with inherited context disabled. Root JSONL determines missing/running/failed/success state and reminders zero through five. The worker exposes note/chunk only after graph publication; GIVEUP remains latched until fifteen later real prompts produce a replacement request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionDue -->
+Under [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile), launches are medium-reasoning, seven-turn public background requests with inherited context disabled. Root JSONL determines missing/running/failed/success state and reminders zero through five. The worker exposes note/chunk only after graph publication; GIVEUP remains latched until fifty later real prompts produce a replacement request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionDue -->
 
 The memory agent writes the note and invokes `scripts/build-memory-graph.py` to derive a deterministic graph from the H1 title and canonical concept IDs. It performs the required locked merge/publication but never changes counters or delivery files. Claude's corresponding publication helper keeps merge, global publication, and success-only carrier removal inside one locked command.
 

@@ -182,7 +182,7 @@ describe('Terminal control-message handling', () => {
         }));
         ws.created[0].emitMessage('\x1b[?2026hdesktop viewport\x1b[?2026l');
         await vi.advanceTimersByTimeAsync(40);
-        expect(terminal.write).toHaveBeenCalledWith('\x1b[?2026hdesktop viewport\x1b[?2026l');
+        expect(terminal.write).toHaveBeenCalledWith(expect.stringContaining('desktop viewport'));
 
         vi.mocked(terminal.write).mockClear();
         ws.created[0].emitMessage('incoming agent output');

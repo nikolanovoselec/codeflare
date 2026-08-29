@@ -225,6 +225,34 @@ describe('memory-capture.sh - user-message counting', () => {
     assert.equal(existsSync(join(fx.home, '.cache', 'codeflare-hooks', 'vault-extract.vars')), true);
   });
 
+  it('retries the Vault hash check on the next prompt after a scanner failure', () => {
+    const fx = makeFixture();
+    installVaultManifest(fx);
+    const manifestScript = join(fx.home, '.claude', 'plugins', 'codeflare-vault', 'scripts', 'vault-manifest.py');
+    const validScript = readFileSync(manifestScript, 'utf-8');
+    writeFileSync(manifestScript, '#!/usr/bin/env python3\nraise SystemExit(1)\n');
+    writeFileSync(join(fx.home, 'Vault', 'Notes', 'retry.md'), 'changed\n');
+    writeFileSync(join(fx.counterDir, 'sess-vault-retry'), '99\n1\n');
+    const vaultCounter = join(fx.counterDir, 'sess-vault-retry.vault-count');
+    writeFileSync(vaultCounter, '0\n');
+    const t = writeTranscript(
+      fx.home,
+      Array.from({ length: 100 }, (_, index) => realUserLine(`prompt ${index + 1}`)),
+    );
+
+    const failed = runHook(fx, { transcriptPath: t, sessionId: 'sess-vault-retry' });
+    assert.equal(failed.status, 0, 'a failed background hash check must not block the prompt');
+    assert.equal(readFileSync(vaultCounter, 'utf-8'), '0\n',
+      'a failed scan must leave the previous successful epoch eligible');
+    assert.equal(existsSync(join(fx.home, '.cache', 'codeflare-hooks', 'vault-extract.vars')), false);
+
+    writeFileSync(manifestScript, validScript);
+    const retried = runHook(fx, { transcriptPath: t, sessionId: 'sess-vault-retry' });
+    assert.equal(retried.status, 0);
+    assert.equal(readFileSync(vaultCounter, 'utf-8'), '100\n');
+    assert.equal(existsSync(join(fx.home, '.cache', 'codeflare-hooks', 'vault-extract.vars')), true);
+  });
+
   // REQ-MEM-001 AC2: two-layer grep filter excludes tool-result wrappers (array content)
   // and synthetic messages (content starts with `<`); only real user prompts are counted.
   it('counts only real user prompts, excluding tool_results and command wrappers', () => {

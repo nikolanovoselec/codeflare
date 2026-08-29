@@ -100,10 +100,15 @@ arm_vault_check() {
     local marker="$USER_HOME/.cache/codeflare-hooks/vault-extract.vars"
     [[ -f "$manifest_script" && -d "$USER_HOME/Vault" ]] || return 0
     [[ ! -f "$marker" ]] || return 0
-    local changed
-    changed=$(python3 "$manifest_script" changed "$USER_HOME/Vault" "$manifest" 2>/dev/null | head -n 50 || true)
-    [[ -n "$changed" ]] || return 0
+    local changed scan_file="${marker}.scan.$$"
     mkdir -p "${marker%/*}"
+    if ! python3 "$manifest_script" changed "$USER_HOME/Vault" "$manifest" > "$scan_file" 2>/dev/null; then
+        rm -f "$scan_file"
+        return 1
+    fi
+    changed=$(head -n 50 "$scan_file")
+    rm -f "$scan_file"
+    [[ -n "$changed" ]] || return 0
     local tmp="${marker}.tmp.$$"
     {
         printf 'VAULT_ROOT=%s\n' "$USER_HOME/Vault"
@@ -216,8 +221,9 @@ fi
 vault_last=$(head -1 "$VAULT_COUNTER_FILE" 2>/dev/null || echo 0)
 [[ "$vault_last" =~ ^[0-9]+$ ]] || vault_last=0
 if [[ -n "$RESUME_VAULT_CHECK" ]] || (( CURRENT_COUNT / VAULT_EVERY > vault_last / VAULT_EVERY )); then
-    arm_vault_check
-    printf '%s\n' "$CURRENT_COUNT" > "$VAULT_COUNTER_FILE"
+    if arm_vault_check; then
+        printf '%s\n' "$CURRENT_COUNT" > "$VAULT_COUNTER_FILE"
+    fi
 fi
 
 # An outstanding request owns the session until it is published or latched.
