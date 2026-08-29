@@ -186,6 +186,37 @@ describe('Terminal control-message handling', () => {
         ws.restore();
       }
     });
+
+    it('REQ-TERM-040 AC6: ignores an older viewport result after a newer probe', async () => {
+      let onData: ((data: string) => void) | undefined;
+      const terminal = {
+        ...createMockTerminal(),
+        onData: vi.fn((callback: (data: string) => void) => {
+          onData = callback;
+          return { dispose: vi.fn() };
+        }),
+      } as unknown as Terminal;
+      const ws = installCapturingWebSocket();
+      try {
+        terminalStore.connect(SESSION_ID, TERMINAL_ID, terminal, undefined, false, false, true);
+        await vi.advanceTimersByTimeAsync(0);
+
+        onData?.('\x1b[<64;10;5M');
+        ws.created[0].emitMessage('\x1b[?2026hviewport\x1b[?2026l');
+        await vi.advanceTimersByTimeAsync(40);
+        vi.mocked(terminal.write).mockClear();
+
+        ws.created[0].emitMessage(JSON.stringify({
+          type: 'herdr-scroll-state', requestId: 1, available: true, aboveBottom: true,
+        }));
+        ws.created[0].emitMessage('later output');
+        await vi.advanceTimersByTimeAsync(40);
+
+        expect(terminal.write).toHaveBeenCalledWith('later output');
+      } finally {
+        ws.restore();
+      }
+    });
   });
 
   // ── REQ-TERM-009 AC2: type-discriminator routing of control vs raw frames ───

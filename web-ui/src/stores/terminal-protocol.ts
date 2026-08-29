@@ -128,7 +128,9 @@ export function parseControlMessage(messageData: string): ControlMessage {
  */
 export function isHerdrViewportIntent(data: string): boolean {
   if (data.includes('\x1b[5~') || data.includes('\x1b[6~')) return true;
-  for (const match of data.matchAll(/\x1b\[<(\d+);\d+;\d+([Mm])/g)) {
+  for (const report of data.split('\x1b[<').slice(1)) {
+    const match = /^(\d+);\d+;\d+([Mm])/.exec(report);
+    if (!match) continue;
     const button = Number(match[1]);
     if (match[2] === 'm') return true;
     if ((button & 32) === 0 && ((button & 64) !== 0 || (button & 3) !== 3)) return true;

@@ -574,7 +574,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. Zoxide, yazi, and lazygit each have a parallel release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::zoxide --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::yazi --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @manual -->
 2. Actionlint and Antigravity each have a dedicated release-check job. <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::antigravity-cli --> <!-- @manual -->
-3. The official Claude extension and supported agent CLIs each have a dedicated bump job whose compatibility PR runs the owned verification path. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::claude-vscode-extension --> <!-- @impl: .github/dependabot.yml::updates --> <!-- @manual -->
+3. The official Claude extension, supported agent CLIs, and Herdr each have a dedicated bump job whose compatibility PR runs the owned verification path; a Herdr bump advances its version, commit, checksum, provenance, launcher pin, and packaged API check together. <!-- @impl: .github/workflows/bump-shadow-pins.yml::agent-clis --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::claude-vscode-extension --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::herdr --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: .github/dependabot.yml::updates --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (keeps Herdr under one shadow-pin owner with a packaged API gate) --> <!-- @manual -->
 4. A binary bump without an authoritative upstream checksum invalidates its pinned artifact checksum for operator verification. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @manual -->
 5. Actionlint resolves its release-manifest checksum and re-verifies the artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @manual -->
 6. A bump branch is skipped when that tool and version already have one. <!-- @manual -->
@@ -588,7 +588,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** None.
 
-**Verification:** Manual check
+**Verification:** Automated Herdr workflow-wiring and packaged-runtime checks; manual release-job verification.
 
 **Status:** Implemented
 

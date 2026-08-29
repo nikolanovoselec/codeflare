@@ -25,8 +25,8 @@ const wranglerLock = readJson('.github/npm-tools/wrangler/package-lock.json');
 const dependabot = parseYaml(readFileSync(join(repoRoot, '.github/dependabot.yml'), 'utf8'));
 const dockerfile = readFileSync(join(repoRoot, 'Dockerfile'), 'utf8');
 const herdrProvenance = readJson('image/herdr/provenance.json');
-const shadowPins = readFileSync(join(repoRoot, '.github/workflows/bump-shadow-pins.yml'), 'utf8');
-const containerImageWorkflow = readFileSync(join(repoRoot, '.github/workflows/container-image.yml'), 'utf8');
+const shadowPins = parseYaml(readFileSync(join(repoRoot, '.github/workflows/bump-shadow-pins.yml'), 'utf8'));
+const containerImageWorkflow = parseYaml(readFileSync(join(repoRoot, '.github/workflows/container-image.yml'), 'utf8'));
 
 const versionParts = (version) => version.split('.').map(Number);
 const atLeast = (actual, minimum) => {
@@ -131,11 +131,26 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     assert.equal(herdrProvenance.version, dockerfile.match(/HERDR_VERSION="([^"]+)"/)?.[1]);
     assert.equal(herdrProvenance.commit, dockerfile.match(/HERDR_COMMIT="([0-9a-f]{40})"/)?.[1]);
     assert.equal(herdrProvenance.sha256, dockerfile.match(/HERDR_SHA256="([0-9a-f]{64})"/)?.[1]);
-    assert.match(shadowPins, /^  herdr:\n/m);
-    assert.match(shadowPins, /image\/herdr\/provenance\.json/);
-    assert.match(shadowPins, /\.github\/workflows\/container-image\.yml/);
-    assert.match(containerImageWorkflow, /pane\.current/);
-    assert.match(containerImageWorkflow, /offset_from_bottom/);
+
+    const herdrJob = shadowPins.jobs.herdr;
+    assert.ok(herdrJob);
+    assert.equal(herdrJob.permissions.contents, 'write');
+    assert.equal(herdrJob.permissions['pull-requests'], 'write');
+    const herdrStepNames = new Set(herdrJob.steps.map((step) => step.name).filter(Boolean));
+    for (const expected of [
+      'Compare Herdr pin against latest release',
+      'Skip existing Herdr bump branch',
+      'Update all Herdr pins',
+      'Open Herdr bump PR',
+    ]) {
+      assert.ok(herdrStepNames.has(expected), `missing Herdr workflow step: ${expected}`);
+    }
+
+    const packagedHerdrStep = containerImageWorkflow.jobs.image.steps.find(
+      (step) => step.name === 'Verify packaged Herdr runtime',
+    );
+    assert.ok(packagedHerdrStep);
+    assert.equal(packagedHerdrStep.if, "steps.reuse.outputs.reused != 'true'");
   });
 
   it('image-owned Oxlint has dedicated weekly dependency automation', () => {

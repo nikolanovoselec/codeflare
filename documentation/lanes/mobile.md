@@ -51,7 +51,7 @@ The `overlaysContent` flag must be managed carefully throughout the terminal lif
 
 #### Multi-pane focus handoff
 
-The virtual-keyboard signals (`vkOpen`, `keyboardHeight`) and `overlaysContent` are a single shared resource for the whole window, owned by the focused Codeflare terminal surface. When several backend-session surfaces are visible in tablet MultiView and focus moves while the keyboard is open, the keyboard stays open and the newly focused surface keeps keyboard mode. Classic retains the established tap, right-click, and buffer-authoritative gesture behavior. Herdr sessions translate hardware mouse clicks, drags, and wheels on xterm's actual `.xterm-screen` into SGR terminal input. Stationary touch taps become clicks, while vertical touch swipes become wheel navigation. Touch movement reaching 20 pixels, long press, multi-touch, or cancellation prevents touch-click synthesis. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> See [REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling) and [REQ-TERM-036](../../sdd/spec/terminal.md#req-term-036-browser-pointer-interaction-with-herdr).
+The virtual-keyboard signals (`vkOpen`, `keyboardHeight`) and `overlaysContent` are a single shared resource for the whole window, owned by the focused Codeflare terminal surface. When several backend-session surfaces are visible in tablet MultiView and focus moves while the keyboard is open, the keyboard stays open and the newly focused surface keeps keyboard mode. Classic retains the established tap, right-click, and buffer-authoritative gesture behavior. Herdr sessions translate hardware mouse clicks, drags, and wheels on xterm's actual `.xterm-screen` into SGR terminal input. For a stationary touch, Codeflare leaves the browser's compatibility mouse and click sequence intact instead of dispatching a second sequence. Movement, long press, multi-touch, or cancellation changes the gesture and does not activate the addressed control. Vertical touch swipes become wheel navigation. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> See [REQ-MOB-017](../../sdd/spec/mobile.md#req-mob-017-fullscreen-application-touch-scrolling) and [REQ-TERM-036](../../sdd/spec/terminal.md#req-term-036-browser-pointer-interaction-with-herdr).
 
 `web-ui/src/lib/mobile.ts::isFocusOnTerminalInput` is the single discriminator: it reports whether `document.activeElement` is a terminal input iframe (class `terminal-input-iframe`). The three per-pane focus-loss teardown sites gate on it so a handoff does not tear the shared keyboard down:
 
@@ -139,10 +139,11 @@ The 50ms delay gives SolidJS time to process the null state and run cleanup effe
 
 #### FitAddon Management
 
-Three code paths can trigger `fitAddon.fit()` (git: Fix 3):
+Four code paths can trigger `fitAddon.fit()` (git: Fix 3):
 1. **Keyboard refit** (debounced 150ms)
 2. **Active-state effect** (immediate `requestAnimationFrame`)
 3. **ResizeObserver** (immediate `requestAnimationFrame`)
+4. **Herdr visibility return** (next `requestAnimationFrame`, followed by a full xterm refresh and same-size resize so the focused client requests a complete repaint)
 
 In `web-ui/src/hooks/useTerminal.ts`, a `kbDebounceTimer` variable (timer ID, not boolean) gates the ResizeObserver. When the keyboard refit starts its debounce timer, `kbDebounceTimer` is set to the timer ID. The ResizeObserver checks `kbDebounceTimer !== null` and skips `fit()` when active. The timer callback sets it back to `null`. Using the timer ID instead of a boolean prevents timer cancellation from leaving the ResizeObserver gate set.
 
@@ -151,10 +152,10 @@ In `web-ui/src/hooks/useTerminal.ts`, a `kbDebounceTimer` variable (timer ID, no
 - **Mobile with keyboard open:** Always anchor to the bottom after `fit()` via `scrollBufferToBottom()` (buffer-authoritative — the public `scrollToBottom()` resolves relative to clamp-vulnerable DOM scroll state, [AD110](../decisions/README.md#ad110-terminal-scrolling-is-buffer-authoritative-on-every-route-held-output-ring-drops)).
 - The user expects to see the prompt whenever the keyboard is open.
 - **Desktop / mobile without keyboard:** Check `isAtBottom()` *before* `fit()`. If the user was following output (viewport at bottom), call `scrollBufferToBottom()` after `fit()`; if they had scrolled up into scrollback, preserve their position and call `resyncViewportScrollState()`.
-- **Zero-height guard:** Every fit path prevents `fit()` from running while the container height is zero. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
+- **Mounted and visible guard:** Every fit path requires a mounted terminal and prevents `fit()` from running while the container height is zero. The Herdr visibility-return path also requires the document to be visible. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
     - Inactive terminals have `height: 0` via CSS; calling `fit()` on a zero-height container calculates `rows = 0`, which clamps `viewportY` and corrupts scroll state when the terminal re-expands.
 
-`resyncViewportScrollState()` re-commands the DOM scroll state from the buffer instead of letting it drift toward the next divergence jump. This applies to all three `fit()` paths above, plus the init-overlay refit and keyboard lifecycle refit.
+`resyncViewportScrollState()` re-commands the DOM scroll state from the buffer instead of letting it drift toward the next divergence jump. This applies to all four `fit()` paths above, plus the init-overlay refit and keyboard lifecycle refit.
 
 ### Touch Input
 
@@ -250,7 +251,7 @@ Generic correction stays inactive while the keyboard is open, and vertical swipe
 **Additional hardening:**
 - Every fit path prevents `fit()` while the container height is zero, avoiding zero-row dimension calculations during CSS visibility transitions (inactive terminals have `height: 0`). <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal -->
 - All `scrollToBottom()` call sites check `viewportY >= baseY` before scrolling to preserve manual scrollback position.
-- `flushWriteBuffer()` either defers the batch (owned viewport) or passes it to xterm unchanged; it never inspects or alters viewport position after a write.
+- In Classic mode, `flushWriteBuffer()` either defers the batch (owned viewport) or passes it to xterm unchanged; it never inspects or alters viewport position after a write.
 - `refitAllTerminals()` skips the resize WS message if dimensions didn't change.
 
 ### Persistent Manual Ownership
@@ -265,7 +266,13 @@ When the scrollback (capped at 5,000 lines) is full, xterm 6.1 decrements `viewp
 
 Codeflare therefore stops trimming under a reader entirely: while manual ownership is active in the normal buffer, `flushWriteBuffer()` defers streamed output (data keeps accumulating in the per-terminal write buffer, re-checked every 33ms tick) instead of writing it. The frozen buffer means no trims, no `onScroll` churn, and a perfectly stable reading position. Returning the viewport to the live bottom — swipe down, floating page-down button, or the keyboard-open bottom anchor — uses a 65,536-character release target per tick while preserving whole held units; one unit may exceed the target. It rechecks ownership before each later slice.
 
-A 2,000,000-character cap bounds held memory. Overflow drops the oldest whole held units with ring-buffer semantics; it never writes through beneath the reader. Alternate-buffer output is never deferred: fullscreen applications own their history and have no scrollback to read. `useScrollCorrection()` retains manual ownership throughout so a post-cap zero offset cannot be reclassified as bottom-following or pulled toward the live prompt.
+A 2,000,000-character cap bounds held memory. Overflow drops the oldest whole held units with ring-buffer semantics; it never writes through beneath the reader. In Classic mode, alternate-buffer output is never deferred because the fullscreen application owns its history. `useScrollCorrection()` retains manual ownership throughout so a post-cap zero offset cannot be reclassified as bottom-following or pulled toward the live prompt.
+
+### Herdr Viewport Ownership
+
+Herdr owns history inside its alternate-buffer application, but its viewport still needs stable browser presentation. After a Page Up or Down, pointer press, wheel action, or initial connection, the browser asks the host for the focused pane's current scroll state. The host validates one bounded public Herdr API response and returns only a request ID plus two booleans. Socket paths and pane identity never enter the browser protocol.
+
+When the pane is above bottom, Codeflare shows the next complete synchronized Herdr frame, then holds later atomic output in the same bounded buffer used for Classic scrollback. Another viewport action discards the superseded held units and shows its complete frame. Returning to bottom shows the current complete frame and resumes live output. Invalid, unavailable, denied, or stale state checks fail open instead of leaving the pane frozen. This path implements [REQ-TERM-040](../../sdd/spec/terminal.md#req-term-040-stable-herdr-pane-scrollback). <!-- @impl: web-ui/src/stores/terminal-output.ts::setHerdrScrollState --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler -->
 
 ### Viewport DOM Desync (instant yank to top)
 

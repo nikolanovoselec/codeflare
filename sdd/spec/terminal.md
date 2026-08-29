@@ -825,7 +825,7 @@ None.
 3. Hardware mouse clicks operate the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes physical and synthesized left clicks as SGR terminal input) -->
 4. Held-button mouse movement operates the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes held-button movement and ignores movement without an active press) -->
 5. Mouse wheels navigate the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes wheel navigation and modifier-aware right clicks) -->
-6. Stationary touch taps operate the addressed Herdr control exactly once through the browser's trusted compatibility sequence. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC4: preserves one trusted compatibility click without a duplicate synthetic sequence) -->
+6. A stationary touch tap operates the addressed Herdr control exactly once. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC4: preserves one trusted compatibility click without a duplicate synthetic sequence) --> <!-- @manual: On Samsung Internet, tap a closed Herdr menu once and confirm it opens and remains open. -->
 7. Vertical touch swipes navigate Herdr application views. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes Herdr swipes as SGR wheel input without xterm mouse tracking) -->
 
 **Constraints:**
@@ -878,11 +878,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. After Herdr viewport input, the host makes one bounded `pane.current` socket query and reports whether the focused pane is above bottom; malformed, unavailable, and stale results fail open. <!-- @impl: host/src/herdr-scroll-query.ts::queryHerdrScroll --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @test: host/__tests__/herdr-scroll-query.test.js (Herdr focused-pane scroll query) --> <!-- @test: host/__tests__/terminal-agent-events.test.js (Herdr scroll probe protocol) -->
-2. Above bottom, Codeflare publishes the full repaint forced by that query and then holds later atomic output through the existing bounded terminal buffer. <!-- @impl: web-ui/src/stores/terminal-output.ts::setHerdrScrollState --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-hold.test.ts (publishes one forced full frame, then holds unrelated output) -->
-3. Each later viewport action publishes one new full repaint; returning to bottom discards superseded held units, publishes the forced bottom repaint, and resumes live output. <!-- @impl: web-ui/src/stores/terminal-output.ts::setHerdrScrollState --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-hold.test.ts (publishes each requested viewport and resumes from a full bottom frame) -->
-4. Initial connection, Page Up or Down, pointer presses, and wheel reports trigger probes; response IDs prevent older queries from replacing newer state. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @impl: web-ui/src/stores/terminal-protocol.ts::isHerdrViewportIntent --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (Herdr scroll probes) -->
-5. Container CI rejects incompatible changes to the packaged Herdr `pane.current`, `PaneInfo.scroll`, or scroll-field schema, and the weekly shadow-pin job updates Herdr's coordinated release pins. <!-- @impl: .github/workflows/container-image.yml --> <!-- @impl: .github/workflows/bump-shadow-pins.yml --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (keeps Herdr under one shadow-pin owner with a packaged API gate) -->
+1. Herdr viewport input updates the pane to the requested scroll position; an unavailable or invalid state check resumes live output instead of leaving the view frozen. <!-- @impl: host/src/herdr-scroll-query.ts::queryHerdrScroll --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @test: host/__tests__/herdr-scroll-query.test.js (Herdr focused-pane scroll query) --> <!-- @test: host/__tests__/terminal-agent-events.test.js (Herdr scroll probe protocol) -->
+2. While the pane is above bottom, Codeflare shows one complete viewport update before holding later atomic output in the existing bounded buffer. <!-- @impl: web-ui/src/stores/terminal-output.ts::setHerdrScrollState --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-hold.test.ts (publishes one forced full frame, then holds unrelated output) -->
+3. Each later viewport action shows one complete updated view without releasing unrelated held output. <!-- @impl: web-ui/src/stores/terminal-output.ts::setHerdrScrollState --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-hold.test.ts (publishes each requested viewport and resumes from a full bottom frame) -->
+4. Returning to bottom discards superseded held output, shows the current pane, and resumes live output. <!-- @impl: web-ui/src/stores/terminal-output.ts::setHerdrScrollState --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-hold.test.ts (publishes each requested viewport and resumes from a full bottom frame) -->
+5. Initial connection, Page Up or Down, pointer presses, and wheel actions request a current viewport update. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @impl: web-ui/src/stores/terminal-protocol.ts::isHerdrViewportIntent --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (Herdr scroll probes) -->
+6. An older viewport result cannot replace a newer requested view. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (REQ-TERM-040 AC6: ignores an older viewport result after a newer probe) -->
 
 **Constraints:**
 
@@ -894,7 +895,7 @@ None.
 
 **Dependencies:** [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-016](#req-term-016-terminal-pane-reconnect-and-resize-authority), [REQ-TERM-021](#req-term-021-synchronized-output-frame-atomicity)
 
-**Verification:** Automated host socket, WebSocket protocol, output hold, packaged-schema, and dependency ownership tests.
+**Verification:** Automated host state, WebSocket protocol, and output-hold tests.
 
 **Status:** Implemented
 

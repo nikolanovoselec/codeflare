@@ -579,6 +579,27 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         cleanupMouse();
       });
 
+      it('REQ-MOB-017 AC7: preserves the Classic stationary tap path without a synthetic mouse sequence', () => {
+        (window as any).ontouchstart = null;
+        const { terminal } = createMockTerminal();
+        const mouseDown = vi.fn();
+        const click = vi.fn();
+        container.addEventListener('mousedown', mouseDown);
+        container.addEventListener('click', click);
+        const cleanup = attachSwipeGestures(container, terminal, () => false, false)!;
+        const touchStart = makeTouchEvent('touchstart', 40, 50);
+        const touchEnd = makeTouchEvent('touchend', 40, 50);
+
+        container.dispatchEvent(touchStart);
+        container.dispatchEvent(touchEnd);
+
+        expect(touchStart.defaultPrevented).toBe(false);
+        expect(touchEnd.defaultPrevented).toBe(false);
+        expect(mouseDown).not.toHaveBeenCalled();
+        expect(click).not.toHaveBeenCalled();
+        cleanup();
+      });
+
       it('does not synthesize a click after movement', () => {
         (window as any).ontouchstart = null;
         const { terminal, element } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
