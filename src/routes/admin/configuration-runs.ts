@@ -11,7 +11,6 @@ import {
   resolveAdministrationMode,
   validateConfigurationValues,
   type ConfigurationSection,
-  type ConfigurationValues,
 } from '../../lib/admin-configuration';
 import {
   ADMIN_CONFIGURATION_KEYS,
@@ -177,7 +176,9 @@ app.get('/', requireAdmin, async (c) => {
 });
 
 app.get('/:runId', requireAdmin, async (c) => {
-  const run = parseObject<ConfigurationRun>(await c.env.KV.get(getAdminConfigurationRunKey(c.req.param('runId'))));
+  const runId = c.req.param('runId');
+  if (!runId) return c.json({ error: 'Configuration run not found', code: 'not_found' }, 404);
+  const run = parseObject<ConfigurationRun>(await c.env.KV.get(getAdminConfigurationRunKey(runId)));
   if (!run) return c.json({ error: 'Configuration run not found', code: 'not_found' }, 404);
   return c.json(run);
 });

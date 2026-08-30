@@ -534,7 +534,10 @@ describe('Setup AC Coverage', () => {
       //   - user-prefs:      per-user preferences (onboarded during setup)
       //   - preferences:     legacy per-user prefs key
       //   - setup-configure: rate-limit middleware bookkeeping (separate domain)
-      const NON_SETUP_PREFIXES = ['user:', 'user-prefs:', 'preferences:', 'setup-configure:'];
+      //   - admin:configuration:revision: administration state initialized on first success
+      const NON_SETUP_PREFIXES = [
+        'user:', 'user-prefs:', 'preferences:', 'setup-configure:', 'admin:configuration:revision',
+      ];
       const kvPutCalls = mockKV.put.mock.calls as [string, string][];
       const setupPuts = kvPutCalls.filter(([key]) =>
         !NON_SETUP_PREFIXES.some((p) => key.startsWith(p))
