@@ -20,9 +20,6 @@ const ARROW: Record<string, string> = {
   up: '\x1b[A',
   down: '\x1b[B',
 };
-const PAGE_UP = '\x1b[5~';
-const PAGE_DOWN = '\x1b[6~';
-
 type Direction = 'left' | 'right' | 'up' | 'down';
 
 /**
@@ -87,8 +84,8 @@ function scrollTouchLines(
  * Attach touch gestures to a terminal container.
  * Horizontal swipes (left/right) always map to arrow left/right.
  * Vertical swipes map to arrow up/down while the keyboard is open. With the
- * keyboard closed they scroll normal terminal scrollback, route Classic
- * fullscreen applications to wheel input, or page through Herdr.
+ * keyboard closed they scroll normal terminal scrollback or route fullscreen
+ * applications to wheel input.
  * Returns a cleanup function, or undefined if touch is not supported.
  */
 export function attachSwipeGestures(
@@ -229,9 +226,9 @@ export function attachSwipeGestures(
 
     const kbOpen = isKeyboardOpen?.() ?? false;
 
-    // Preserve browser compatibility clicks through tap-sized keyboard-open
-    // jitter. Once a swipe locks, own later movement as terminal input.
-    if (kbOpen && lockedDirection !== null) e.preventDefault();
+    // Preserve Herdr compatibility clicks through tap-sized keyboard-open
+    // jitter. Classic retains its established touch suppression.
+    if (kbOpen && (!forwardMouseTap || lockedDirection !== null)) e.preventDefault();
 
     const touch = e.touches[0];
     const dx = touch.clientX - startX;
@@ -278,7 +275,13 @@ export function attachSwipeGestures(
           longPressTimer = null;
         }
         if (forwardMouseTap) {
-          sendTerminalKey(terminal, dy > 0 ? PAGE_UP : PAGE_DOWN);
+          scrollTouchLines(
+            terminal,
+            Math.sign(scrollAccumulator),
+            touch.clientX,
+            touch.clientY,
+            true,
+          );
           e.preventDefault();
           return;
         }

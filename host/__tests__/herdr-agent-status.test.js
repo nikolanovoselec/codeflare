@@ -70,7 +70,9 @@ async function expectResnapshot(trigger, options = {}) {
             const noise = setInterval(() => {
               socket.write(`${JSON.stringify({ id: 'unrelated', result: { type: 'events_subscribed' } })}\n`);
             }, 5);
-            socket.once('close', () => clearInterval(noise));
+            const stopNoise = () => clearInterval(noise);
+            socket.once('error', stopNoise);
+            socket.once('close', stopNoise);
             continue;
           }
           socket.write(`${JSON.stringify({

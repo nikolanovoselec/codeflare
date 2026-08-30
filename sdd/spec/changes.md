@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-30
 
-- **Herdr mobile gestures use stable page navigation and preserve keyboard-open taps** ([REQ-MOB-017](mobile.md#req-mob-017-fullscreen-application-touch-scrolling), [REQ-MOB-020](mobile.md#req-mob-020-terminal-touch-activation), and [REQ-TERM-036](terminal.md#req-term-036-browser-pointer-interaction-with-herdr) amended; remain Implemented). A Herdr vertical swipe now sends one PageUp or PageDown input instead of a burst of wheel redraws, matching the stable floating controls. Tap-sized movement no longer suppresses the browser compatibility click while the virtual keyboard is open.
+- **Herdr mobile gestures use bounded wheel navigation and preserve keyboard-open taps** ([REQ-MOB-017](mobile.md#req-mob-017-fullscreen-application-touch-scrolling), [REQ-MOB-020](mobile.md#req-mob-020-terminal-touch-activation), and [REQ-TERM-036](terminal.md#req-term-036-browser-pointer-interaction-with-herdr) amended; remain Implemented). A Herdr vertical swipe now sends one wheel step instead of a continuous stream of wheel redraws and inertia. Tap-sized movement no longer suppresses the browser compatibility click while the virtual keyboard is open, while Classic keeps its existing suppression.
 
 ## 2026-08-29
 

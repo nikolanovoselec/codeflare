@@ -189,7 +189,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Constraints:**
 
 - Normal scrollback uses xterm's buffer service directly ([REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)).
-- Classic alternate-screen scrolling uses xterm's public DOM wheel pipeline; Herdr uses one PageUp/PageDown input per gesture.
+- Classic alternate-screen scrolling uses xterm's public DOM wheel pipeline; Herdr uses one wheel step per gesture.
 
 **Priority:** P1
 
@@ -209,8 +209,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. With the keyboard closed, vertical swipes navigate a fullscreen application's alternate-buffer history. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes one Herdr swipe through stable page navigation) --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC3: preserves classic fullscreen wheel forwarding) -->
-2. One keyboard-closed Herdr swipe sends one PageUp or PageDown input. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes one Herdr swipe through stable page navigation) -->
+1. With the keyboard closed, vertical swipes navigate a fullscreen application's alternate-buffer history. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes one wheel step per Herdr swipe) --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC3: preserves classic fullscreen wheel forwarding) -->
+2. One keyboard-closed Herdr swipe sends one wheel step. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes one wheel step per Herdr swipe) -->
 3. Classic preserves its existing fullscreen wheel forwarding. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC3: preserves classic fullscreen wheel forwarding) -->
 
 **Constraints:**

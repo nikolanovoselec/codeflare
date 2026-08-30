@@ -311,12 +311,15 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
     });
 
     describe('alternate-screen application scrolling', () => {
-      it('REQ-MOB-017 AC1-AC2: routes one Herdr swipe through stable page navigation', () => {
+      it('REQ-MOB-017 AC1-AC2: routes one wheel step per Herdr swipe', () => {
         (window as any).ontouchstart = null;
-        const { terminal, triggerDataEvent, scrollLines, bufferScrollLines } = createMockTerminal({
+        const { terminal, triggerDataEvent, scrollLines, bufferScrollLines, element } = createMockTerminal({
           bufferType: 'alternate',
           mouseTrackingMode: 'none',
         });
+        const wheelEvents: WheelEvent[] = [];
+        element.addEventListener('wheel', (event) => wheelEvents.push(event as WheelEvent));
+        container.appendChild(element);
         const cleanup = attachSwipeGestures(container, terminal, () => false, true)!;
 
         container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
@@ -327,9 +330,10 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         container.dispatchEvent(makeTouchEvent('touchmove', 100, 140));
         container.dispatchEvent(makeTouchEvent('touchend', 100, 140));
 
-        expect(triggerDataEvent).toHaveBeenCalledTimes(2);
-        expect(triggerDataEvent).toHaveBeenNthCalledWith(1, '\x1b[6~', false);
-        expect(triggerDataEvent).toHaveBeenNthCalledWith(2, '\x1b[5~', false);
+        expect(wheelEvents).toHaveLength(2);
+        expect(wheelEvents[0].deltaY).toBe(1);
+        expect(wheelEvents[1].deltaY).toBe(-1);
+        expect(triggerDataEvent).not.toHaveBeenCalled();
         expect(scrollLines).not.toHaveBeenCalled();
         expect(bufferScrollLines).not.toHaveBeenCalled();
         cleanup();
@@ -613,6 +617,19 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         expect(touchEnd.defaultPrevented).toBe(false);
         expect(mouseDown).not.toHaveBeenCalled();
         expect(click).not.toHaveBeenCalled();
+        cleanup();
+      });
+
+      it('REQ-MOB-020 AC4: preserves Classic keyboard-open touch suppression', () => {
+        (window as any).ontouchstart = null;
+        const { terminal } = createMockTerminal();
+        const cleanup = attachSwipeGestures(container, terminal, () => true, false)!;
+
+        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        const jitter = makeTouchEvent('touchmove', 42, 53, { cancelable: true });
+        container.dispatchEvent(jitter);
+
+        expect(jitter.defaultPrevented).toBe(true);
         cleanup();
       });
 
