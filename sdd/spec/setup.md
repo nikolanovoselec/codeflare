@@ -555,11 +555,11 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. The shell exposes `/admin`, `/admin/environment`, `/admin/analytics`, `/admin/reports`, and `/admin/activity`; no user-facing `/admin/configuration` route exists.
-2. Default and Onboarding add Users; SaaS adds Users and Subscription Tiers; Enterprise exposes neither.
-3. Existing Users and Subscription components and APIs are embedded without changing their mutations.
-4. User-facing routine copy says Environment; Configuration remains internal API and storage vocabulary.
-5. Loading, empty, failure, conflict, reconnect, and responsive states follow the approved Administration and Analytics design contract.
+1. The shell exposes `/admin`, `/admin/environment`, `/admin/analytics`, `/admin/reports`, and `/admin/activity`; no user-facing `/admin/configuration` route exists. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout -->
+2. Default and Onboarding add Users; SaaS adds Users and Subscription Tiers; Enterprise exposes neither. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout -->
+3. Existing Users and Subscription components and APIs are embedded without changing their mutations. <!-- @impl: web-ui/src/App.tsx::AdministrationUsers --> <!-- @impl: web-ui/src/App.tsx::AdministrationSubscriptions -->
+4. User-facing routine copy says Environment; Configuration remains internal API and storage vocabulary. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentIndex --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel -->
+5. Loading, empty, failure, conflict, reconnect, and responsive states follow the approved Administration and Analytics design contract. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/styles/administration.css::.admin-shell --> <!-- @manual -->
 
 **Constraints:** One authoritative response owns mode gating. No UI framework, chart package, icon package, or duplicate mode logic is added.
 

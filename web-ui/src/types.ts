@@ -16,6 +16,30 @@ export type SessionMode = z.infer<typeof SessionModeSchema>;
 export type SessionWorkspace = z.infer<typeof SessionWorkspaceSchema>;
 export type TerminalMode = z.infer<typeof TerminalModeSchema>;
 
+export type AdministrationMode = 'default' | 'onboarding' | 'saas' | 'enterprise';
+
+export type ConfigurationSection =
+  | 'access'
+  | 'domain'
+  | 'aiRouting'
+  | 'codingAgents'
+  | 'browserRendering'
+  | 'securityEgress'
+  | 'dataGovernance'
+  | 'managedEnvironment'
+  | 'github'
+  | 'cloudflareConnection'
+  | 'usageReports';
+
+export interface AdminConfigurationResponse {
+  mode: AdministrationMode;
+  revision: number;
+  applicableSections: ConfigurationSection[];
+  sections: Partial<Record<ConfigurationSection, unknown>>;
+  activeRunId: string | null;
+  latest: Partial<Record<ConfigurationSection, Record<string, unknown>>>;
+}
+
 export function resolveTerminalMode(value: unknown): TerminalMode {
   return value === 'herdr' ? 'herdr' : 'classic';
 }

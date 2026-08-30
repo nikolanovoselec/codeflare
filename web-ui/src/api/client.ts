@@ -1,4 +1,4 @@
-import type { Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, AuthStatus, AuthProvider } from '../types';
+import type { Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, AuthStatus, AuthProvider, AdminConfigurationResponse } from '../types';
 import { logger } from '../lib/logger';
 import { STARTUP_POLL_INTERVAL_MS, SESSION_ID_DISPLAY_LENGTH, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, SESSION_ID_RE } from '../lib/constants';
 import { z } from 'zod';
@@ -43,6 +43,24 @@ async function fetchApi<T>(
 // User API
 export async function getUser(): Promise<UserInfo> {
   return fetchApi('/user', {}, UserResponseSchema);
+}
+
+const ConfigurationSectionSchema = z.enum([
+  'access', 'domain', 'aiRouting', 'codingAgents', 'browserRendering', 'securityEgress',
+  'dataGovernance', 'managedEnvironment', 'github', 'cloudflareConnection', 'usageReports',
+]);
+
+const AdminConfigurationResponseSchema: z.ZodType<AdminConfigurationResponse> = z.object({
+  mode: z.enum(['default', 'onboarding', 'saas', 'enterprise']),
+  revision: z.number().int().nonnegative(),
+  applicableSections: z.array(ConfigurationSectionSchema),
+  sections: z.record(z.string(), z.unknown()),
+  activeRunId: z.string().nullable(),
+  latest: z.record(z.string(), z.record(z.string(), z.unknown())),
+});
+
+export async function getAdminConfiguration(): Promise<AdminConfigurationResponse> {
+  return fetchApi('/admin/configuration', {}, AdminConfigurationResponseSchema);
 }
 
 // Per-device agent notification enrollment (REQ-TERM-025 AC1-AC5)

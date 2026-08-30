@@ -5,6 +5,7 @@ import {
   mdiChevronDown,
   mdiWrenchOutline,
   mdiAccountGroupOutline,
+  mdiViewDashboardOutline,
 } from '@mdi/js';
 import Icon from './Icon';
 import { loadSettings, saveSettings, defaultSettings } from '../lib/settings';
@@ -460,13 +461,19 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               <section class="settings-section">
                 <div class="settings-section-header">
                   <Icon path={mdiCogOutline} size={16} />
-                  <h3 class="settings-section-title type-section-header">Setup & Users</h3>
+                  <h3 class="settings-section-title type-section-header">Administration &amp; Analytics</h3>
                 </div>
                 <p class="settings-hint type-hint" style={{ "margin-bottom": "var(--space-2)" }}>
-                  Configure custom domain and admin users in the Setup Wizard.
-                  Manage user roles and access tiers in User Management.
+                  Inspect routine Environment settings and organization data in Administration.
+                  Keep the Setup Wizard for full provisioning.
                 </p>
                 <div class="settings-admin-actions">
+                  <AdminActionButton
+                    tone="--color-accent"
+                    icon={mdiViewDashboardOutline}
+                    label="Open Administration"
+                    onClick={() => { window.location.href = '/admin'; }}
+                  />
                   <AdminActionButton
                     tone="--color-action-setup"
                     icon={mdiWrenchOutline}

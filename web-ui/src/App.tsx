@@ -20,6 +20,11 @@ const UserManagement = lazy(() => import('./components/admin/UserManagement'));
 const OnboardingPage = lazy(() => import('./components/OnboardingPage'));
 const UsagePage = lazy(() => import('./components/UsagePage'));
 const AdminSubscriptionManagement = lazy(() => import('./components/admin/SubscriptionManagement'));
+const AdministrationLayout = lazy(() => import('./components/admin/AdministrationLayout'));
+const AdministrationOverview = lazy(() => import('./components/admin/AdministrationOverview'));
+const EnvironmentIndex = lazy(() => import('./components/admin/EnvironmentIndex'));
+const EnvironmentAreaDetail = lazy(async () => ({ default: (await import('./components/admin/EnvironmentIndex')).EnvironmentAreaDetail }));
+const AdministrationPendingPage = lazy(() => import('./components/admin/AdministrationPendingPage'));
 
 // Check setup status from API.
 // Returns null when status cannot be determined (e.g. Access redirect/network error).
@@ -333,6 +338,30 @@ export const SubscribeGuard: Component = () => {
   );
 };
 
+const AdministrationShell: Component = () => (
+  <SetupGuard><AdministrationLayout /></SetupGuard>
+);
+
+const AdministrationUsers: Component = () => (
+  <UserManagement onBack={() => { window.location.href = '/admin'; }} />
+);
+
+const AdministrationSubscriptions: Component = () => (
+  <AdminSubscriptionManagement onBack={() => { window.location.href = '/admin'; }} />
+);
+
+const AdministrationAnalytics: Component = () => (
+  <AdministrationPendingPage title="Analytics" description="Organization runtime and distinct-session history in UTC." />
+);
+
+const AdministrationReports: Component = () => (
+  <AdministrationPendingPage title="Reports" description="Monthly usage schedules and per-recipient delivery history." />
+);
+
+const AdministrationActivity: Component = () => (
+  <AdministrationPendingPage title="Activity" description="Settings changes retained for 90 days." />
+);
+
 const App: Component = () => {
   return (
     <ErrorBoundary
@@ -354,16 +383,16 @@ const App: Component = () => {
       <Route path="/app/subscribe" component={SubscribeGuard} />
       <Route path="/app/onboarding" component={OnboardingPage} />
       <Route path="/app/usage" component={UsagePage} />
-      <Route path="/admin/users" component={() => (
-        <SetupGuard>
-          <UserManagement onBack={() => { window.location.href = '/app/'; }} />
-        </SetupGuard>
-      )} />
-      <Route path="/admin/subscriptions" component={() => (
-        <SetupGuard>
-          <AdminSubscriptionManagement onBack={() => { window.location.href = '/app/'; }} />
-        </SetupGuard>
-      )} />
+      <Route path="/admin" component={AdministrationShell}>
+        <Route path="/" component={AdministrationOverview} />
+        <Route path="/environment" component={EnvironmentIndex} />
+        <Route path="/environment/:section" component={EnvironmentAreaDetail} />
+        <Route path="/users" component={AdministrationUsers} />
+        <Route path="/subscriptions" component={AdministrationSubscriptions} />
+        <Route path="/analytics" component={AdministrationAnalytics} />
+        <Route path="/reports" component={AdministrationReports} />
+        <Route path="/activity" component={AdministrationActivity} />
+      </Route>
       <Route
         path="/*"
         component={() => (
