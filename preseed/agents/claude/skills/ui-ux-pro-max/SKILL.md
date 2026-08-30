@@ -1,17 +1,17 @@
 ---
 name: ui-ux-pro-max
-description: "UI/UX design intelligence for web and mobile. Searchable local database with 84 styles, 192 color palettes, 74 font pairings, 192 product types, 98 UX guidelines, 104 icon entries, 16 GSAP motion presets, and 25 chart types across 22 stacks (React, Next.js, Vue, Nuxt, Svelte, Astro, SwiftUI, React Native, Flutter, Tailwind, shadcn/ui, Jetpack Compose, Angular, Laravel, JavaFX, WPF, WinUI, Avalonia, Uno Platform, UWP, Three.js, and HTML/CSS). Use when designing, building, or reviewing UI: pages, components, color schemes, typography, layout, accessibility, animation, or data visualization."
+description: "Query local UI/UX evidence: product patterns, palettes, type pairings, accessibility guidance, motion, charts, and stack-specific implementation notes. Use for explicit design research, evidence lookup, or when another design skill requests supporting heuristics. Recommendations advise the selected visual thesis; this skill does not own frontend art direction."
 ---
 
 # UI/UX Pro Max - Design Intelligence
 
 Searchable database of UI/UX design rules with priority-based recommendations: 84 styles, 192 color palettes, 74 font pairings, 192 product types with reasoning rules, 98 UX guidelines, 104 icon entries, 16 GSAP motion presets, and 25 chart types across 22 technology stacks.
 
-## When to Apply
+## Authority boundary
 
-Use this Skill when the task involves **UI structure, visual design decisions, interaction patterns, or user experience quality control**: designing new pages, creating/refactoring UI components, choosing color/typography/spacing/layout systems, reviewing UI for UX/accessibility/consistency, implementing navigation/animation/responsive behavior, or improving perceived quality and usability.
+Use the local database for evidence and implementation constraints after the product context and visual owner are known. A generated recommendation is advisory. It does not replace project inspection, user direction, incumbent tokens, or the visual thesis owned by `frontend-design`.
 
-Skip it for pure backend logic, API/database design, non-visual performance work, infrastructure/DevOps, or non-visual scripts — unless the task changes how something **looks, feels, moves, or is interacted with**.
+Apply it for explicit research, palette or typography evidence, accessibility and UX lookup, chart selection, or stack-specific guidance. Do not run it automatically for every design task.
 
 ## Rule Categories by Priority
 
@@ -54,9 +54,9 @@ Extract from the user request:
 - **Style keywords**: playful, vibrant, minimal, dark mode, content-first, immersive, etc.
 - **Stack**: detect from the project — check `package.json` deps (react/next/vue/svelte/nuxt/@angular), `pubspec.yaml` (Flutter), `*.xcodeproj`/`Package.swift` (SwiftUI), `composer.json` (Laravel), or React Native markers (`app.json` + `react-native` dep). If nothing is detectable, ask the user or default to `html-tailwind`. **Never assume a stack** — a hardcoded default silently misroutes every recommendation.
 
-### Step 2: Generate Design System (REQUIRED for new pages/projects)
+### Step 2: Generate an advisory design-system recommendation when useful
 
-Always start with `--design-system` to get comprehensive recommendations with reasoning:
+Use `--design-system` when a generated evidence packet will improve the selected workflow:
 
 ```bash
 python ~/.claude/skills/ui-ux-pro-max/scripts/search.py "<product_type> <industry> <keywords>" --design-system [-p "Project Name"]

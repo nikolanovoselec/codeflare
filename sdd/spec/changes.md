@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-08-30
+
+- **Portable frontend design has one lazy-loaded art-direction authority** ([REQ-AGENT-179](agents.md#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](agents.md#req-agent-180-portable-frontend-design-authority), and [REQ-AGENT-181](agents.md#req-agent-181-design-specialist-compatibility) added as Implemented; [REQ-AGENT-134](agents.md#req-agent-134-advanced-design-skill-suite), [REQ-AGENT-135](agents.md#req-agent-135-ui-ux-pro-max-query-and-generation), [REQ-AGENT-136](agents.md#req-agent-136-ui-ux-pro-max-persistence), and [REQ-AGENT-137](agents.md#req-agent-137-ui-ux-pro-max-data-validation) completed as Implemented). Advanced Pi spends one short always-active sentence on visual-work discovery, then the compact `design` router selects only the relevant specialist. `frontend-design` owns tool-neutral frontend art direction with focused references for new work, redesign, assets and motion, visual QA, and conditional Astro/Cloudflare use. The 87 KB taste manual becomes a compatibility redirect; UI UX Pro Max becomes advisory research; Impeccable discovery narrows to critique and finishing while every explicit command remains available.
+
 ## 2026-08-28
 
 - **Remote curation restores and declares its image-owned Pi runtime companion** ([REQ-STOR-031](storage.md#req-stor-031-managed-resource-container-sync) AC7 added; remains Implemented). Remote curation deliberately excludes image-owned context-mode runtime code while its managed `/ctx` command imports that companion. Initial R2 sync can remove the local image copy when the object is absent, especially after Exclusive cleanup; post-restore startup now restores only the explicitly declared image dependency without replacing release-owned extension bytes. Behavioral coverage couples every declaration to restoration before PTY release and the bisync baseline.

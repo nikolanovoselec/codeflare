@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, it } from 'node:test';
+import { applyCodeflareRoutingBoundary } from '../../scripts/update-impeccable-skill.mjs';
 
 const skillScripts = fileURLToPath(new URL('../../preseed/agents/claude/skills/ui-ux-pro-max/scripts/', import.meta.url));
 const temporaryDirectories = [];
@@ -141,6 +142,36 @@ describe('UI UX Pro Max runtime contract', () => {
       assert.notEqual(generated.status, 0, `${testCase.name} must fail closed`);
       assert.equal(readFileSync(outsideFile, 'utf8'), 'outside\n');
     }
+  });
+
+  it('REQ-AGENT-181: adapts upstream Impeccable routing without changing explicit commands', () => {
+    const expectedDescription = 'Critique, audit, harden, adapt, animate, or apply bounded polish to an existing frontend whose direction remains intact. Use for accessibility, responsive behavior, performance, UX copy, interaction detail, visual finishing, and explicit impeccable commands. For greenfield creation or any change to the visual thesis, frontend-design owns art direction; use Impeccable afterward for critique or finishing. Not for backend-only or non-UI tasks.';
+    const upstream = `---
+name: impeccable
+description: Upstream design authority.
+version: 4.1.1
+---
+
+# Impeccable
+
+| \`shape [feature]\` | Discover work |
+| \`polish [target]\` | Refine work |
+| \`live\` | Inspect a live interface |
+`;
+    const transformed = applyCodeflareRoutingBoundary(upstream);
+
+    assert.equal(
+      transformed.split('\n').find((line) => line.startsWith('description: ')),
+      `description: ${expectedDescription}`,
+    );
+    assert.ok(transformed.includes('## Codeflare routing boundary'));
+    assert.ok(transformed.includes('general/new-work path applies only after explicit Impeccable invocation'));
+    assert.ok(transformed.endsWith(upstream.slice(upstream.indexOf('# Impeccable'))));
+    assert.throws(
+      () => applyCodeflareRoutingBoundary('description: malformed'),
+      /malformed frontmatter/,
+    );
+
   });
 
   it('REQ-AGENT-137: reports duplicate identifiers and malformed JSON rule values', () => {

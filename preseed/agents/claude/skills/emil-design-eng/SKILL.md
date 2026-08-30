@@ -1,9 +1,13 @@
 ---
 name: emil-design-eng
-description: This skill encodes Emil Kowalski's philosophy on UI polish, component design, animation decisions, and the invisible details that make software feel great.
+description: Refine interaction details, component feel, and purposeful animation after a frontend visual direction exists. Use for explicit motion questions or a focused interaction-polish pass. Do not use as the primary art-direction workflow or for unrelated frontend engineering.
 ---
 
 # Design Engineering
+
+## Authority boundary
+
+Use this specialist after frontend art direction exists. It owns focused interaction and animation craft, not the primary art-direction workflow.
 
 ## Initial Response
 

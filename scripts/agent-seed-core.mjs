@@ -101,9 +101,7 @@ const PI_SKILL_DESCRIPTION_OVERRIDES = new Map([
   ['database-migrations', 'Plan database migrations, rollbacks, data changes, and zero-downtime rollout.'],
   ['deploy-credentials', 'Use GitHub and Cloudflare credentials safely for Git, Wrangler, and deploys.'],
   ['deployment-patterns', 'Design deployment and CI/CD workflows, health checks, rollbacks, and containers.'],
-  ['design-taste-frontend', 'Design distinctive frontend landing pages, portfolios, and redesigns.'],
   ['durable-objects', 'Build Cloudflare Durable Objects with RPC, SQLite, alarms, and WebSockets.'],
-  ['emil-design-eng', "Apply Emil Kowalski's UI polish, component, interaction, and animation."],
   ['frontend-patterns', 'Apply React and Next.js patterns for state, performance, and architecture.'],
   ['iterative-retrieval', 'Refine retrieval iteratively to give a subagent only the context it needs.'],
   ['sandbox-stable', 'Build Cloudflare Sandbox apps against the current stable package.'],
@@ -568,9 +566,13 @@ function renderInstructionsFile(ruleFiles, agentId) {
   const sections = ruleFiles
     .sort((a, b) => a.withinClaude.localeCompare(b.withinClaude))
     .map((f) => agentId === 'pi'
-      ? adaptPiRuntimeNames(adaptPaths(f.content.trim(), agentId))
+      ? adaptPiInstructionLinks(adaptPiRuntimeNames(adaptPaths(f.content.trim(), agentId)))
       : adaptPaths(f.content.trim(), agentId));
   return sections.join('\n\n---\n\n') + '\n';
+}
+
+function adaptPiInstructionLinks(content) {
+  return content.replaceAll('](../skills/', '](skills/');
 }
 
 function hasPathsFrontmatter(content) {
