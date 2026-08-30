@@ -213,6 +213,15 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     expect(missing.kv.put).not.toHaveBeenCalled();
   });
 
+  it('rejects unsafe strict-egress transitions before writes', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
+    const response = await post(app, {
+      section: 'securityEgress', baseRevision: 0, values: { strictGatewayEgress: true },
+    });
+    expect(response.status).toBe(400);
+    expect(kv.put).not.toHaveBeenCalled();
+  });
+
   it('keeps Browser Run optional but rejects incomplete effective pairs', async () => {
     const empty = createApp({ ENTERPRISE_MODE: 'active' });
     expect((await post(empty.app, {

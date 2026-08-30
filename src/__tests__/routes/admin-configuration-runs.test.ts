@@ -146,10 +146,41 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(await kv.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN)).toBeNull();
 
     const runId = events[0].run.runId as string;
+    expect(kv.put).toHaveBeenCalledWith(
+      `${ADMIN_CONFIGURATION_KEYS.RUN_PREFIX}${runId}`,
+      expect.any(String),
+      expect.objectContaining({ expirationTtl: 90 * 24 * 60 * 60 }),
+    );
+    expect(kv.put).toHaveBeenCalledWith(
+      ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN,
+      expect.any(String),
+      expect.objectContaining({ expirationTtl: 15 * 60 }),
+    );
     const persisted = await kv.get(`${ADMIN_CONFIGURATION_KEYS.RUN_PREFIX}${runId}`) as string;
     expect(persisted).not.toContain(secretMarker);
     expect(JSON.parse(persisted)).toEqual(events.at(-1).run);
     expect(JSON.parse(await kv.get(`admin:configuration:latest:github`) as string)).toMatchObject({ runId, state: 'succeeded' });
+  });
+
+  it('rechecks revision after admission and fails before external work when the race is lost', async () => {
+    const { app, kv } = createApp();
+    let revisionReads = 0;
+    vi.mocked(kv.get).mockImplementation(async (key, type) => {
+      if (key === ADMIN_CONFIGURATION_KEYS.REVISION) return revisionReads++ === 0 ? null : '1';
+      const raw = kv._store.get(key) ?? null;
+      if (type === 'json' && raw) return JSON.parse(raw);
+      return raw;
+    });
+
+    const response = await post(app, { section: 'github', baseRevision: 0, values: githubValues });
+    expect(response.status).toBe(200);
+    const terminal = snapshots(await response.text()).at(-1).run;
+    expect(terminal).toMatchObject({
+      state: 'failed',
+      error: { code: 'configuration_revision_conflict' },
+      tasks: [{ id: 'configure_github', state: 'skipped' }],
+    });
+    expect(await kv.get(SETUP_KEYS.GITHUB_PROVIDER_TYPE)).toBeNull();
   });
 
   it('reconnects to the same run shape and lists Activity newest-first with a stable cursor', async () => {
