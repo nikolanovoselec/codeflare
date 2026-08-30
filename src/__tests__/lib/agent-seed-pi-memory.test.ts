@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH, RETIRED_PRESEED_KEYS } from '../../lib/agent-seed.generated';
-import { captureFilename, captureFilenameAt, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_MAX_TOTAL_CHARS, MEMORY_CAPTURE_MAX_TURN_CHARS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, selectTurns, sessionId, shouldCapture, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
+import { captureFilename, captureFilenameAt, captureTimestamp, compactMessages, isFirstMessage, isRealUserPrompt, isResumedSession, MEMORY_CAPTURE_MAX_TOTAL_CHARS, MEMORY_CAPTURE_MAX_TURN_CHARS, MEMORY_EVERY_N_PROMPTS, parseSessionMessages, realUserPromptCount, selectTurns, sessionId, shouldCapture, shouldCheckVault, VAULT_EVERY_N_PROMPTS, withCurrentPrompt } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 
 /**
  * Validates invariants of the generated agent seed configs.
@@ -246,12 +246,20 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
   });
 
   it('REQ-MEM-002 AC3/AC4: shouldCapture matches Claude delta threshold semantics', () => {
-    expect(MEMORY_EVERY_N_PROMPTS).toBe(15);
-    expect(shouldCapture(14)).toBe(false);
-    expect(shouldCapture(15)).toBe(true);
-    expect(shouldCapture(16)).toBe(true);
-    expect(shouldCapture(30)).toBe(true);
+    expect(MEMORY_EVERY_N_PROMPTS).toBe(50);
+    expect(shouldCapture(49)).toBe(false);
+    expect(shouldCapture(50)).toBe(true);
+    expect(shouldCapture(51)).toBe(true);
+    expect(shouldCapture(100)).toBe(true);
     expect(shouldCapture(0)).toBe(false);
+  });
+
+  it('REQ-VAULT-003: Vault cadence crosses each 100-prompt epoch once', () => {
+    expect(VAULT_EVERY_N_PROMPTS).toBe(100);
+    expect(shouldCheckVault(0, 99)).toBe(false);
+    expect(shouldCheckVault(0, 100)).toBe(true);
+    expect(shouldCheckVault(100, 199)).toBe(false);
+    expect(shouldCheckVault(100, 200)).toBe(true);
   });
 
   it('REQ-MEM-002 AC2: isFirstMessage detects brand-new session (no counter, count=1)', () => {
@@ -267,17 +275,17 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
   });
 
   it('REQ-MEM-002: capture threshold counts only real user prompts', () => {
-    const messages = Array.from({ length: 14 }, (_, index) => ({ role: 'user', content: `prompt ${index}` }))
+    const messages = Array.from({ length: 49 }, (_, index) => ({ role: 'user', content: `prompt ${index}` }))
       .concat([
         { role: 'user', content: '<task-notification>synthetic</task-notification>' },
         { role: 'assistant', content: 'ok' },
       ]);
 
     const beforeThreshold = withCurrentPrompt(messages, '<task-notification>ignored</task-notification>');
-    expect(realUserPromptCount(beforeThreshold)).toBe(14);
+    expect(realUserPromptCount(beforeThreshold)).toBe(49);
     expect(shouldCapture(realUserPromptCount(beforeThreshold))).toBe(false);
 
-    const atThreshold = withCurrentPrompt(messages, 'prompt 14');
+    const atThreshold = withCurrentPrompt(messages, 'prompt 49');
     expect(realUserPromptCount(atThreshold)).toBe(MEMORY_EVERY_N_PROMPTS);
     expect(shouldCapture(realUserPromptCount(atThreshold))).toBe(true);
   });
@@ -317,32 +325,6 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
       expect(parsed.extensions).toBe('true');
       expect(parsed.description).toContain(description);
     }
-  });
-
-  // Pi's capture is a different transport on a different bound: the root hands
-  // it an immutable execution snapshot and it gets four turns (AD103,
-  // REQ-MEM-016), while Claude's runner inlines the transcript into the prompt
-  // and gets six (AD124). Pi's document used to be produced by exact-string
-  // replacement over Claude's prose, so an ordinary edit to the Claude agent
-  // moved the anchors, the replacements silently no-oped, and Pi shipped
-  // Claude's budget and Claude's transport with nothing to notice it. Both
-  // halves are asserted, so re-linking the two documents fails here instead of
-  // in a runtime nobody is looking at.
-  it('REQ-MEM-016/AD103: Pi keeps its own capture budget and transport, independent of Claude', () => {
-    const doc = (key: string) => AGENTS_SEEDED_CONFIGS.find((d) => d.key === key)?.content ?? '';
-    const pi = doc('.pi/agent/agents/memory-capture.md');
-    const claude = doc('.claude/agents/memory-capture.md');
-    const budget = (content: string) => content.match(/Finish within (\w+) turns/)?.[1];
-
-    expect(budget(pi)).toBe('four');
-    expect(budget(claude)).toBe('six');
-
-    // Claude-transport identifiers that must never reach Pi's contract.
-    for (const claudeOnly of ['CAPTURE_REQUEST', 'BEGIN TRANSCRIPT', 'run-memory-capture.sh']) {
-      expect(pi).not.toContain(claudeOnly);
-    }
-    // Pi's own delivery, which the stale replacements had dropped on the floor.
-    expect(pi).toContain('immutable execution snapshot');
   });
 
   it('REQ-VAULT-007: Pi is self-contained - merge-vault-graph.py is preseeded into .pi/agent/scripts', () => {

@@ -34,6 +34,9 @@ describe('Session resize authority / REQ-TERM-016 visible resize ownership', () 
     session.attach(first);
     session.attach(second);
 
+    assert.equal(session.canResize(first), true);
+    assert.equal(session.canResize(second), false);
+    assert.equal(session.canResize(createWs()), false, 'detached clients have no resize authority');
     assert.equal(session.resize(120, 40, second), false, 'background client cannot resize the PTY');
     assert.deepEqual(resizeCalls, [], 'ignored resize sends no PTY or headless resize');
 

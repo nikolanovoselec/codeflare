@@ -77,7 +77,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD55](#ad55-codeflare-brands-the-vault-editor-via-preseed-managed-stylesmd) | Manage Vault styling through preseed | Codeflare overwrites Vault `STYLES.md` from preseed on boot, binding SilverBullet theme variables to product tokens at the cost of in-editor theme customization. | Architecture | Active |
 | [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) | Run bisync every 15 minutes with explicit triggers | The bisync daemon uses a 15-minute cadence plus manual and final-sync triggers, cutting idle R2 operations while accepting wider ungraceful-loss and convergence windows. | Storage | Active |
 | [AD57](#ad57-135-second-shutdown-budget-for-final-bisync) | Drain final bisync before container stop | Container teardown awaits an authenticated `/internal/final-sync` drain within 120 seconds and a 135-second hard cap, preserving recent writes before stop when possible. | Storage | Active |
-| [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) | Use higher-fidelity, prefiltered memory capture | Memory capture filters raw transcript tool noise, processes bounded chunks, and uses Sonnet-tier synthesis to reduce recency bias and fabricated citations. | Memory | Active |
+| [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad) | Use higher-fidelity, prefiltered memory capture | Capture fidelity remains; [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) replaces the fifteen-prompt cadence. | Memory | Partially superseded |
 | [AD59](#ad59-zero-ui-vault-encryption-with-per-session-do-storage-key) | Encrypt Vault browser storage without a passphrase | Each session DO supplies a persisted random key to SilverBullet for encrypted IndexedDB, protecting offline browser profiles while accepting authenticated-page access. | Security | Active |
 | [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter) | Reuse the memory-capture contract on Pi | Pi reads durable transcripts through the AD58 prefilter and shared prompt contracts, preserving citation discipline while AD103 bounds extraction to one pass. | Memory | Active |
 | [AD61](#ad61-pi-review-ships-as-a-dedicated-native-skill) | Ship review as a native Pi skill | Pi deploys `/review` as a native 11-phase skill with report-only agents and root-owned persistence, because Claude slash commands do not transform into Pi workflows. | Architecture | Active |
@@ -113,7 +113,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD91](#ad91-governed-mode-migration-is-a-verified-gated-chunked-state-machine-replace-copy-not-a-boolean-marker-lazy-reconcile) | Run R2 regime migration as a verified chunked state machine | The R2 regime driver uses leased chunks, REPLACE self-copies, writer gates, verification, and dual-regime reads so policy flips remain resumable and readable. | Storage | Active |
 | [AD92](#ad92-bundle-the-official-cloudflare-skills-into-the-advanced-seed-slimmed-references-webfetch-retrieval) | Seed slim official Cloudflare skills in advanced mode | The advanced agent seed bundles 11 official skills and two commands but omits bulky references and MCP configuration to stay within Worker limits. | Agents | Active |
 | [AD93](#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor) | Refresh Cloudflare OAuth tokens at the API egress boundary | The container interceptor replaces an OAuth placeholder with a fresh token on each api.cloudflare.com request, keeping real tokens out of live containers. | Architecture, Security | Active |
-| [AD94](#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore) | Track Vault extraction changes with a SHA-256 manifest | Vault extraction compares persisted path-to-SHA-256 entries instead of restored mtimes, preventing unchanged notes from being reprocessed after restart. | Storage | Active |
+| [AD94](#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore) | Track Vault extraction changes with a SHA-256 manifest | Content-hash detection remains; [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) replaces continuous polling with prompt-cadenced checks. | Storage | Partially superseded |
 | [AD95](#ad95-browser-ide-is-session-isolated-the-deliberate-opposite-of-the-bucket-stable-vault) | Keep Browser IDE runtime state session-isolated | The Browser IDE stays on a session-keyed route with ephemeral live state, preventing one session's workspace and editor state from bleeding into another. | Architecture, Security | Active |
 | [AD96](#ad96-deactivate-codexcopilot-v8-warm-up-and-opencode-db-pre-init-image-size) | Disable low-value CLI warm-ups to shrink the image | The Dockerfile skips Codex and Copilot V8 warming plus OpenCode database pre-init, saving about 147 MB while shifting cost to first launch. | Build / Container | Active |
 | ~~[AD97](#ad97-keep-openvscode-upstream-clean-and-accept-known-vulnerability-risk)~~ | ~~Retire the OpenVSCode vulnerability-risk acceptance~~ | [AD119](#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy) replaces the pinned OpenVSCode runtime, removing the accepted upstream vulnerability posture and its scanner suppressions. | Security, Build / Container | Superseded |
@@ -121,8 +121,8 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD99](#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent) | Monitor Pi CI with one attached native subagent | One attached exact-head CI monitor remains; [AD144](#ad144-user-scoped-review-completion-uses-marker-or-dialog-ingress) replaces durable launch checkpoints and settled recovery. | Agents | Partially superseded |
 | [AD100](#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) | Use upstream rpiv-todo 2.0.0 session isolation | The Pi seed pins rpiv-todo 2.0.0's session-keyed store and removes the temporary source override, so child lifecycle events cannot erase foreground tasks. | Agents | Active |
 | [AD101](#ad101-context-mode-is-foreground-owned-in-pi-in-process-subagents-use-native-transports) | Give the foreground Pi session sole context-mode ownership | A managed process-global claim gives the root Pi session the only context-mode bridge, while in-process subagents use native or Bash transports to prevent helper leaks. | Agents, Architecture | Active |
-| [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | Make Pi extraction root-owned and transactional | The root Pi session launches visible request-scoped extraction jobs and advances memory or Vault state only after validated artifacts and graph publication succeed. | Agents, Architecture | Active |
-| [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) | Bound Pi extraction to medium reasoning and one-pass inputs | Pi memory and Vault workers receive frozen inputs, Bash-only tools, medium reasoning, and four turns, bounding cost while preserving transactional graph publication. | Agents, Memory, Performance | Active |
+| [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | Make Pi extraction root-owned and transactional | Transactional root ownership remains; [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) replaces immediate during-run follow-up scheduling. | Agents, Architecture | Partially superseded |
+| [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) | Bound Pi extraction to medium reasoning and one-pass inputs | Frozen inputs, Bash-only tools, and medium reasoning remain; [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) replaces the cadence and turn-budget consequences. | Agents, Memory, Performance | Partially superseded |
 | ~~[AD104](#ad104-terminal-viewport-ownership-is-mode-based-xterm-owns-manual-scrollback-trimming)~~ | ~~Retire xterm-owned trimming during manual scrollback~~ | [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) retains mode ownership but replaces reader trimming and keyboard-open wheel routing after both failed in the field. | Architecture, Mobile | Superseded |
 | [AD105](#ad105-streamed-output-defers-while-the-user-reads-scrollback-keyboard-open-swipes-are-always-terminal-input) | Defer terminal output while users read scrollback | The terminal freezes normal-buffer writes during manual scrollback and routes navigation through buffer state, preventing trims and DOM drift from yanking the viewport. | Architecture, Mobile | Active |
 | [AD106](#ad106-sdd-enforcement-policy-is-one-canonical-cross-agent-contract-with-per-ac-manual-verification) | Use one cross-agent SDD enforcement contract | Claude's canonical enforcement skills are transformed for Pi, and per-AC manual markers replace REQ-wide exemptions so both runtimes apply the same checks. | Process, Agents | Active |
@@ -143,7 +143,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | ~~[AD121](#ad121-a-review-boundary-is-a-delivery-subcommand-not-any-git-invocation)~~ | ~~Anchor review coverage on delivery subcommands~~ | [AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint) replaces broad Git/GitHub candidacy and merge delivery with automatic push/PR-create ingress plus clone-only consent. | Architecture, Build / Container | Superseded |
 | [AD122](#ad122-the-ci-monitor-observes-and-reports-it-does-not-cancel-runs-or-chase-the-remote) | Keep the CI monitor observational | The CI monitor reports GitHub's terminal result with its head SHA and leaves cancellation to workflow concurrency, avoiding ambiguous branch-based remote control. | Architecture, Build / Container | Active |
 | [AD123](#ad123-the-claude-fix-directive-owns-delivery-pi-leaves-it-to-standing-rules) | Let Claude's FIX directive own conditional delivery | Claude's FIX directive commits, handles any terminal CI result, and then pushes, while Pi keeps standing-rule delivery because its follow-up has different precedence. | Architecture, Cost | Active |
-| [AD124](#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block) | Redeliver memory capture requests within a fixed bound | Claude persists and reissues a capture request up to six times instead of blocking tools, preventing review-gate deadlocks while retrying failed publication. | Architecture, Cost, Agents | Active |
+| [AD124](#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block) | Redeliver memory capture requests within a fixed bound | Bounded non-blocking redelivery remains; [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) replaces the fifteen-prompt cadence and Pi four-turn comparison. | Architecture, Cost, Agents | Partially superseded |
 | [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery) | Rebuild bisync baseline after bounded recovery fails | The sync daemon tries resilient recovery and vanished-file repair before rebuilding its baseline after three failures, restoring persistence with bounded deletion risk. | Storage | Active |
 | [AD126](#ad126-vault-browser-realm-scripts-are-authored-source-never-serialized-worker-functions) | Author Vault browser-realm scripts as explicit source | Vault bootstrap scripts cross the Worker-to-browser boundary as self-contained source with JSON-encoded inputs, avoiding bundler helpers leaked by function serialization. | Architecture, Security, Storage | Active |
 | [AD127](#ad127-native-inline-chat-uses-proposal-only-pi-turns-and-host-owned-text-edits) | Use proposal-only Pi turns for native Inline edits | Host-validated text edits remain active; [AD128](#ad128-inline-review-lifecycle-belongs-to-the-pinned-controller) replaces review ownership and [AD135](#ad135-inline-chat-requires-one-host-correlated-result) replaces the edit-only model envelope. | Architecture, Security | Partially superseded |
@@ -166,6 +166,8 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | ~~[AD145](#ad145-herdr-owns-topology-inside-one-codeflare-terminal-surface)~~ | ~~Give Herdr one Codeflare terminal surface~~ | [AD146](#ad146-terminal-mode-is-an-immutable-per-session-choice) restores classic as default while retaining single-surface ownership for opt-in Herdr sessions. | Architecture, Build / Container, Terminal | Superseded |
 | [AD146](#ad146-terminal-mode-is-an-immutable-per-session-choice) | Make terminal ownership an immutable per-session choice | Classic remains the default full Codeflare terminal; opt-in Herdr sessions expose one surface and persist only Herdr's official structural snapshot. | Architecture, Build / Container, Terminal | Active |
 | [AD147](#ad147-active-managed-resource-policy-supersedes-provenance-ownership) | Enforce active managed-resource policy before scoped R2 signing | Canonical release-derived paths remain immutable at the Worker boundary; provenance ownership still governs paths outside the active policy. | Architecture, Security, Storage | Active |
+| [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) | Schedule memory and Vault work from successful prompt high-water marks | Memory captures every 50 real prompts; Vault checks resume tails and crossed 100-prompt epochs without polling or consuming failed scans. | Agents, Memory, Storage | Active |
+| [AD149](#ad149-herdr-semantic-status-owns-completion-notification-timing) | Let Herdr status own completion notification timing | A ten-minute timer starts when every tracked agent pane becomes ready; renewed work cancels timing and queued completion. | Architecture, Agents | Active |
 ---
 
 ## Decisions
@@ -1623,7 +1625,7 @@ Two related shutdown-correctness fixes in the same function: `TERMINAL_PID` init
 
 **Category:** Memory
 
-**Status:** Accepted (2026-05-18)
+**Status:** Accepted (2026-05-18); the fifteen-prompt cadence consequence is partially superseded by [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) (2026-08-29).
 
 **Context:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault)'s capture pipeline ran haiku as the background subagent and read raw transcript JSONL directly. Two problems emerged in production:
 
@@ -1741,8 +1743,8 @@ Two full contracts are deployed as Pi-native preseed assets: `preseed/agents/pi/
 - The prefilter reads the durable `/resume` session transcript via `ctx.sessionManager.getSessionFile()` and `parseSessionMessages`, not the original volatile in-memory message buffer.
 
 That buffer was empty immediately after a Pi reload/resume, so the first capture-boundary prompt produced a hollow "no substantive content" note even though the full session JSONL was on disk; reading the persisted file fixed it, and a skip-empty guard now suppresses the capture rather than writing a placeholder note.
-- Later refinement ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), 2026-06-19): Pi treats the `.vars` carrier as the pending-capture lock and advances the prompt counter only after the capture note is written.
-- Capture retry impact ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC5-AC6): a stopped capture keeps the prior counter and retries after the stale pending marker clears.
+- Later refinement ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume), 2026-06-19): Pi treats the `.vars` carrier as the pending-capture lock and advances the prompt counter only after the capture note is written.
+- Capture retry impact ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume) AC5-AC6): a stopped capture keeps the prior counter and retries after the stale pending marker clears.
 
 <!-- @impl: preseed/agents/pi/prompts/memory-agent-prompt.md::Pi Memory Capture Contract -->
 <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md::Pi Vault Extraction Contract -->
@@ -2853,7 +2855,7 @@ Wiring (the `cloudflareOauthApi` interception-registry entry in `container-inter
 
 **Category:** Storage
 
-**Status:** Accepted (2026-07-05).
+**Status:** Accepted (2026-07-05); the polling cadence and 60-second cost consequence are partially superseded by [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) (2026-08-29).
 
 **Context:** vault-extract detected user edits by **file mtime**: `vault-extract.last` (a marker in ephemeral `~/.cache/codeflare-hooks/`) plus a `find -newer` scan (Claude daemon + contract) / `statSync().mtimeMs > since` walk (Pi). The boot R2 restore is `rclone sync` **without** `--use-server-modtime` (only the later bisync baseline uses it), and it rewrites **every** vault file's mtime to download-time — measured live on a real vault: a May-authored note comes back stamped that day's date, all 31 files clustered at one instant. `~/.cache/**` is excluded from R2 sync ([entrypoint.sh](../../entrypoint.sh) filters), so the marker is re-seeded fresh each boot.
 
@@ -2873,7 +2875,7 @@ The manifest is baselined from current content **only when absent** (the first s
 
 **Revision (2026-08-10):** `graphify-out/vault-extract-initialized` now records that the first durable initialization has occurred and is R2-allow-listed beside the manifest. Only a newly created vault with neither that marker nor prior vault state receives a current-content baseline. An existing or restored vault that predates the marker follows a migration path: init records the marker without baselining. If the manifest is missing during migration, or goes missing after initialization, all eligible content remains full-delta eligible. This narrows the historical "only when absent" wording above: manifest absence by itself no longer proves a first session.
 
-**Related:** [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-VAULT-003](../../sdd/spec/vault.md#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s), [REQ-VAULT-001](../../sdd/spec/vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions), [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads), [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad).
+**Related:** [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-VAULT-003](../../sdd/spec/vault.md#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion), [REQ-VAULT-001](../../sdd/spec/vault.md#req-vault-001-persistent-vault-directory-survives-across-sessions), [AD88](#ad88-bisync-compares-via-server-modtime-from-fast-list-not-per-object-mtime-heads), [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad).
 
 ---
 
@@ -3039,7 +3041,7 @@ AD144 removes the durable CI-head checkpoint and settled recovery. Current round
 
 **Category:** Agents, Architecture
 
-**Status:** Accepted (2026-07-14)
+**Status:** Accepted (2026-07-14); immediate during-run follow-up scheduling is partially superseded by [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) (2026-08-29).
 
 **Context:** Pi memory and Vault extraction privately invoked the subagents service, hid launches from the root transcript, and treated mtimes/sentinels as delivery truth. Memory agents advanced counters before required graph publication, while Vault detection advanced the committed manifest before extraction; shared chunk paths and separate merge/publication locks allowed late or interleaved work to consume the wrong state. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault -->
 
@@ -3053,7 +3055,7 @@ Vault promotion validates staged bytes, prelaunch edits coalesce, and during-run
 
 **Consequences:** Extraction launches and bounded retries are visible in the root transcript and survive reload without a separate service. Failed, timed-out, corrupt, late, or superseded work cannot consume newer prompts/Vault edits. Orphan request snapshots are harmless and excluded from extraction; root cleanup is idempotent after a rename-before-cleanup crash. Memory and Vault remain separate agents and share only the existing graph commit boundary.
 
-**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-014](../../sdd/spec/memory.md#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever), [REQ-MEM-015](../../sdd/spec/memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard), [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional), [REQ-VAULT-028](../../sdd/spec/vault.md#req-vault-028-vault-edits-remain-isolated-after-extraction-starts).
+**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume), [REQ-MEM-014](../../sdd/spec/memory.md#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever), [REQ-MEM-015](../../sdd/spec/memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard), [REQ-VAULT-026](../../sdd/spec/vault.md#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional), [REQ-VAULT-028](../../sdd/spec/vault.md#req-vault-028-vault-edits-remain-isolated-after-extraction-starts).
 
 ---
 
@@ -3061,13 +3063,13 @@ Vault promotion validates staged bytes, prelaunch edits coalesce, and during-run
 
 **Category:** Agents, Memory, Performance
 
-**Status:** Accepted (2026-07-14)
+**Status:** Accepted (2026-07-14); cadence and turn-budget consequences partially superseded by [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) (2026-08-29).
 
 **Context:** The first post-reload transactional Vault smoke contained one frozen 51 KB markdown file. The Pi `vault-extract` worker inherited the foreground reasoning level and broad read/search/context tools. It reread policy and input repeatedly, reaching 84.2k tokens, 12 tool calls, and 336 seconds without committing a chunk. The prior legacy Vault task took 762.9 seconds and 130.6k tokens.
 
 Pi session capture also replayed up to 200 historical turns at 8000 characters and imposed Claude's multi-pass scratchpad after root prefiltering. The first bounded live capture produced a strong note in two tool calls, but model-authored graph JSON used noncanonical concept IDs, duplicated edges, and labeled the document from its filename rather than H1.
 
-**Decision:** Pi's `memory-capture` and `vault-extract` workers are finite extraction jobs, not open-ended research agents. Generated frontmatter and every public request use provider-neutral medium reasoning; requests stop after four agent turns; generated workers expose only Bash.
+**Decision:** Pi's `memory-capture` and `vault-extract` workers are finite extraction jobs, not open-ended research agents. Generated frontmatter and every public request use provider-neutral medium reasoning; requests stop after seven agent turns so bounded larger inputs can page under tool-output limits; generated workers expose only Bash.
 <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter -->
 <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest -->
 
@@ -3085,7 +3087,7 @@ Required graph publication remains unchanged. Each worker writes its graph to `<
 
 **Alternatives considered:** Keep broad tools and rely on stronger prose; retain 200-turn replay and merely lower reasoning; move extraction into a new service/queue; or add a separate success receipt. Prompt-only restraint did not stop the live worker, lowering reasoning alone would leave repeated input cost, a service/queue is disproportionate, and the canonical request chunk already provides a post-commit qualification artifact.
 
-**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-014](../../sdd/spec/memory.md#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever), [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile), [REQ-MEM-018](../../sdd/spec/memory.md#req-mem-018-pi-extraction-agent-definitions-have-a-bounded-profile), [REQ-MEM-017](../../sdd/spec/memory.md#req-mem-017-session-memory-graph-identity-is-deterministic), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional), [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter), [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional).
+**Related REQ:** [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume), [REQ-MEM-014](../../sdd/spec/memory.md#req-mem-014-pi-capture-contract-transcript-prefilter-and-model-fidelity-lever), [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile), [REQ-MEM-018](../../sdd/spec/memory.md#req-mem-018-pi-extraction-agent-definitions-have-a-bounded-profile), [REQ-MEM-017](../../sdd/spec/memory.md#req-mem-017-session-memory-graph-identity-is-deterministic), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional), [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), [AD60](#ad60-pi-memory-capture-reuses-the-ad58-contract-and-transcript-prefilter), [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional).
 
 ---
 
@@ -3609,7 +3611,7 @@ Anyone weakening the Claude directive must move the instruction, not merely rest
 
 ### AD124: Bounded re-delivery replaces the memory-capture hard block
 
-**Status:** Accepted (2026-08-11)
+**Status:** Accepted (2026-08-11); the fifteen-prompt replacement cadence and Pi four-turn comparison are partially superseded by [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) (2026-08-29).
 
 **Context:** Claude's capture directive was advisory, and REQ-MEM-012 (since removed from the spec, superseded by [REQ-MEM-020](../../sdd/spec/memory.md#req-mem-020-capture-requests-are-re-delivered-under-a-bound)) closed that gap with a PreToolUse hook that blocked every tool call except the capture spawn itself. The gap was real: a directive nobody acts on leaves the carrier undrained, and the threshold only re-fires on a crossing, so a long session could pass with zero captures.
 
@@ -4062,5 +4064,39 @@ Herdr live processes, pane history, sockets, logs, plugins, updater state, and u
 <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy -->
 <!-- @impl: src/egress-controller.ts::EgressController -->
 <!-- @impl: entrypoint.sh::prepare_managed_resource_filter -->
+
+---
+
+### AD148: Memory and Vault capture follow successful prompt cadence
+
+**Category:** Agents, Memory, Storage
+
+**Status:** Accepted (2026-08-29). Partially supersedes the fifteen-prompt cadence in [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), polling cadence in [AD94](#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore), immediate during-run follow-up scheduling in [AD102](#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), and the cadence and Pi turn-budget consequences in [AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) and [AD124](#ad124-bounded-re-delivery-replaces-the-memory-capture-hard-block).
+
+**Context:** Fifteen-prompt memory windows and continuous Vault polling launched noncritical extraction too often. Four Pi turns were also insufficient when a bounded snapshot needed pagination after tool-output truncation. Memory freshness and Vault freshness have different costs, while both runtimes already retain durable counters, content-hash manifests, immutable request snapshots, bounded delivery, and transactional publication.
+
+**Decision:** Capture memory every 50 real-user prompts and capture the durable uncaptured tail on the first prompt after resume. Check Vault content hashes with that resumed-tail capture and at each crossed 100-real-user-prompt epoch; unchanged content is a no-op and no polling extraction daemon runs. Pi memory and Vault requests receive seven bounded turns so truncated input can be paged without creating open-ended workers. Failed Vault scans do not advance the successful-check counter and retry on the next real-user prompt.
+
+**Consequences:** Memory GIVEUP replacement re-arms after 50 later real prompts. Claude memory retains its six-turn worker budget, while Pi's public request object enforces seven turns. Vault extraction remains eventual: exhausted work clears on the next root turn and its unchanged manifest makes it eligible at the next scheduled hash check ([REQ-VAULT-031](../../sdd/spec/vault.md#req-vault-031-vault-hash-checks-follow-successful-prompt-cadence)). It reuses existing manifests, snapshots, workers, graph publication, and locks; no timer, service, queue, or distributed coordinator is added. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::refreshPendingVaultRequest -->
+
+**Related REQs:** [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume), [REQ-MEM-016](../../sdd/spec/memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile), [REQ-VAULT-003](../../sdd/spec/vault.md#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion), [REQ-VAULT-031](../../sdd/spec/vault.md#req-vault-031-vault-hash-checks-follow-successful-prompt-cadence).
+
+---
+
+### AD149: Herdr semantic status owns completion notification timing
+
+**Category:** Architecture, Agents
+
+**Status:** Accepted (2026-08-29)
+
+**Context:** The [2026-08-28 design](../../sdd/spec/changes.md#2026-08-28) put a five-minute settled-turn timer in Pi. Herdr already publishes the semantic status that its UI renders, so retaining the Pi timer would leave two authorities for the same readiness decision ([REQ-TERM-038](../../sdd/spec/terminal.md#req-term-038-herdr-semantic-status-owns-completion-readiness)).
+
+**Decision:** Keep the validated input-required signal immediate. In Herdr mode, read every recognized Pi or Claude pane across tabs and splits through the pinned public socket API. Subscribe to each pane's `pane.agent_status_changed` event. After at least one pane was `working`, all panes becoming `idle` or `done` starts ten minutes. Any `working`, `blocked`, or `unknown` pane prevents completion; renewed work also cancels queued completion. Expiry emits one fixed completion only while every tracked pane remains ready ([REQ-TERM-029](../../sdd/spec/terminal.md#req-term-029-herdr-status-gated-terminal-completion)). <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor --> <!-- @impl: host/src/herdr-agent-status.ts::HerdrCompletionDelay -->
+
+Pi no longer infers completion from `agent_settled`, stop reasons, interactive lineage, or subagent events. Classic has no semantic Herdr authority, so it emits no completion notification ([REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-pi-native-terminal-notification-producer)). <!-- @impl: preseed/agents/pi/extensions/native-notifications.ts::nativeNotifications -->
+
+**Consequences:** Pi and Claude share one Herdr completion authority. Herdr status does not distinguish successful and failed turns, so completion means only that the configured agent is ready again ([REQ-TERM-039](../../sdd/spec/terminal.md#req-term-039-herdr-completion-delivery-is-readiness-oriented)). Socket failure drops pending completion and reconnects without exposing the socket or pane identity to the browser. Input-required delivery and away-only suppression stay unchanged ([REQ-TERM-038](../../sdd/spec/terminal.md#req-term-038-herdr-semantic-status-owns-completion-readiness)). <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor -->
+
+**Related REQs:** [REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-pi-native-terminal-notification-producer), [REQ-TERM-029](../../sdd/spec/terminal.md#req-term-029-herdr-status-gated-terminal-completion), [REQ-TERM-038](../../sdd/spec/terminal.md#req-term-038-herdr-semantic-status-owns-completion-readiness), [REQ-TERM-039](../../sdd/spec/terminal.md#req-term-039-herdr-completion-delivery-is-readiness-oriented).
 
 ---

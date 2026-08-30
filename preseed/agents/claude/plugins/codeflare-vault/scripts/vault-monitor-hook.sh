@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # UserPromptSubmit hook (REQ-MEMORY-102).
 #
-# Picks up the marker file written by the vault-monitor daemon
-# (entrypoint.sh:start_vault_monitor_daemon) and signals the main agent
+# Picks up the marker written by memory-capture.sh when a resumed-session or
+# 100-prompt content-hash check finds Vault changes, then signals the main agent
 # to spawn a background sonnet that runs vault-extract-prompt.md.
 #
 # Zero-cost on idle prompts: if the marker is missing (the common case,
@@ -11,9 +11,8 @@
 #
 # Concurrency: the spawned sonnet deletes the marker as its first step
 # (vault-extract-prompt.md Step 1) so a subsequent prompt arriving while
-# extraction is in flight does not re-trigger. If the sonnet crashes
-# before deleting, the next daemon tick (60s) will re-detect the same
-# changes and rewrite the marker - eventual consistency, no work lost.
+# extraction is in flight does not re-trigger. Failed work leaves the durable
+# manifest unchanged and a later eligible hash check rediscovers it.
 set -e
 
 USER_HOME="${HOME:-/home/user}"
@@ -28,15 +27,10 @@ cat >/dev/null 2>&1 || true
 # Fast path: no marker, nothing to do.
 [ -f "$VARS_FILE" ] || exit 0
 
-# Stale-marker guard. The daemon ticks every 60s; an extraction run
-# typically takes 30-60s on sonnet. The overlap window can still occur:
-# during a run the daemon's `[ -f VARS_FILE ]` check sees the file
-# deleted (sonnet step 1) and `find -newer LAST_MARKER` still returns
-# the original files (sonnet hasn't touched LAST_MARKER yet), so the
-# daemon writes a fresh VARS_FILE. When the sonnet eventually finishes
-# and touches LAST_MARKER, that VARS_FILE is left behind - older than
-# LAST_MARKER - and would trigger a spurious additional sonnet on the
-# next user prompt with nothing new to extract.
+# Stale-marker guard. A later eligible prompt can hash-check while extraction
+# is finishing and write a marker for bytes the successful manifest already
+# covers. Once the agent advances LAST_MARKER, that older marker must not
+# dispatch another no-op extraction.
 #
 # Invariant: VARS_FILE is only valid if it is newer than LAST_MARKER.
 # When it is not, the work is already done; delete the stale marker and
@@ -47,13 +41,10 @@ cat >/dev/null 2>&1 || true
 #     `[ -f "$LAST_MARKER" ]` skips this guard so the first real trigger
 #     still fires.
 #   - Mtime equality (same filesystem-second): `-nt` is strict newer-than,
-#     so VARS_FILE touched in the same second as LAST_MARKER is treated
-#     as stale. Worst case is one missed extraction tick; the daemon will
-#     re-discover the same files on the next 60s tick and rewrite the
-#     marker with a fresh mtime. No data loss.
-#   - Daemon atomicity: the daemon writes VARS_FILE via a tempfile + `mv`
-#     in entrypoint.sh:start_vault_monitor_daemon, so the hook never sees
-#     a partially-written marker.
+#     so VARS_FILE touched in the same second as LAST_MARKER is stale. A later
+#     eligible content-hash check rediscovers any uncommitted bytes.
+#   - Producer atomicity: memory-capture.sh writes via a tempfile + `mv`, so
+#     the hook never sees a partially-written marker.
 if [ -f "$LAST_MARKER" ] && [ ! "$VARS_FILE" -nt "$LAST_MARKER" ]; then
     rm -f "$VARS_FILE" 2>/dev/null || true
     exit 0

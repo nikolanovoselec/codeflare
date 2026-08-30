@@ -70,12 +70,29 @@ test('REQ-AGENT-070 AC3/AC4: Claude attached CI monitor returns correlated succe
   assertIdentity(monitored.output, 'success');
 });
 
-test('REQ-AGENT-070 AC5: Claude attached CI monitor reports failed workflow rows', async () => {
-  const monitored = await drive([[run('failure')]]);
+test('REQ-AGENT-070 AC5: Claude waits for all workflows and reports every failed row together', async () => {
+  const firstFailure = run('failure');
+  const secondFailure = run('cancelled', {
+    databaseId: 2,
+    workflowName: 'Container Image',
+    url: 'https://github.test/owner/repo/actions/runs/2',
+  });
+  const pending = run(null, {
+    databaseId: 2,
+    workflowName: 'Container Image',
+    url: 'https://github.test/owner/repo/actions/runs/2',
+  });
+  const terminal = [firstFailure, secondFailure];
+  const monitored = await drive([
+    [firstFailure, pending],
+    terminal,
+    [...terminal].reverse(),
+  ]);
 
-  assert.equal(monitored.calls, 1);
+  assert.equal(monitored.calls, 3);
   assertIdentity(monitored.output, 'failure');
   assert.match(monitored.output, /link=https:\/\/github\.test\/owner\/repo\/actions\/runs\/1/);
+  assert.match(monitored.output, /link=https:\/\/github\.test\/owner\/repo\/actions\/runs\/2/);
 });
 
 test('REQ-AGENT-070 AC6: Claude attached CI monitor reports unavailable GitHub access as timeout', async () => {

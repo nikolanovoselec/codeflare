@@ -44,6 +44,11 @@
       "advanced"
     ]
   },
+  "rules/design-routing.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/capability.ts": {
     "modes": [
       "default",

@@ -25,6 +25,20 @@ function sgrMouse(code: number, column: number, row: number, release = false): s
   return `\x1b[<${code};${column};${row}${release ? 'm' : 'M'}`;
 }
 
+/** Send one touch tap using one geometry snapshot for both mouse reports. */
+export function sendHerdrTap(
+  screen: HTMLElement,
+  terminal: Terminal,
+  send: TerminalInputSender,
+  clientX: number,
+  clientY: number,
+): void {
+  const cell = terminalCell(screen, terminal, clientX, clientY);
+  if (!cell) return;
+  send(sgrMouse(0, cell.column, cell.row));
+  send(sgrMouse(0, cell.column, cell.row, true));
+}
+
 /**
  * Send Herdr browser pointer input directly as SGR mouse reports.
  *

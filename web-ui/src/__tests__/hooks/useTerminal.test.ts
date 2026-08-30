@@ -150,15 +150,21 @@ vi.mock('../../lib/touch-gestures', () => ({
 
 vi.mock('../../lib/herdr-mouse', () => ({
   attachHerdrMouseInput: mockAttachHerdrMouseInput,
+  sendHerdrTap: vi.fn(),
 }));
 
 vi.mock('../../lib/terminal-link-provider', () => ({
   registerMultiLineLinkProvider: vi.fn(),
 }));
 
-vi.mock('../../lib/terminal-mobile-input', () => ({
-  setupMobileInput: vi.fn(() => vi.fn()),
-}));
+vi.mock('../../lib/terminal-mobile-input', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/terminal-mobile-input')>();
+  return {
+    ...actual,
+    focusMobileTerminal: vi.fn(),
+    setupMobileInput: vi.fn(() => vi.fn()),
+  };
+});
 
 vi.mock('../../lib/settings', () => ({
   loadSettings: vi.fn(() => ({ clipboardAccess: true })),
@@ -182,6 +188,7 @@ import { showAgentNotification, showGrantedAgentEvent } from '../../lib/agent-no
 
 // REQ-TERM-016: Terminal Pane Reconnect and Resize Authority
 // REQ-MOB-010: FitAddon fit calls are coordinated
+// REQ-MOB-021: Terminal follows visible container changes
 // REQ-TERM-019: Terminal WebSocket Control Frames and Protocol Guards
 
 describe('useTerminal hook', () => {
@@ -196,6 +203,7 @@ describe('useTerminal hook', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFit.mockImplementation(() => undefined);
     containerEl = document.createElement('div');
     // Give it dimensions so ResizeObserver has something to work with
     Object.defineProperty(containerEl, 'clientWidth', { value: 800, configurable: true });
@@ -305,6 +313,42 @@ describe('useTerminal hook', () => {
         defaultProps.sessionId,
         defaultProps.terminalId
       );
+    });
+  });
+
+  describe('Herdr surface recovery', () => {
+    it('forces a repaint and same-size PTY resize when a hidden page becomes visible', () => {
+      const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+      let visibilityState: DocumentVisibilityState = 'hidden';
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => visibilityState,
+      });
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      mockFit.mockClear();
+      mockRefresh.mockClear();
+      vi.mocked(terminalStore.resize).mockClear();
+
+      visibilityState = 'visible';
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(mockFit).toHaveBeenCalledOnce();
+      expect(mockRefresh).toHaveBeenCalledWith(0, mockTerminalInstance.rows - 1);
+      expect(terminalStore.resize).toHaveBeenCalledWith(
+        defaultProps.sessionId,
+        defaultProps.terminalId,
+        mockTerminalInstance.cols,
+        mockTerminalInstance.rows,
+      );
+
+      dispose();
+      if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility);
+      else Reflect.deleteProperty(document, 'visibilityState');
     });
   });
 
@@ -604,6 +648,7 @@ describe('useTerminal hook', () => {
         undefined,
         false,
         true,
+        false,
       );
 
       dispose();
@@ -762,6 +807,31 @@ describe('useTerminal hook', () => {
         defaultProps.terminalId,
         expect.objectContaining({ fit: expect.any(Function) })
       );
+
+      dispose();
+    });
+
+    it('REQ-MOB-021 AC1: fits the visible container when a terminal becomes active', () => {
+      const [active, setActive] = createSignal(false);
+      let result!: ReturnType<typeof useTerminal>;
+      const dispose = createRoot((dispose) => {
+        result = useTerminal({ ...defaultProps, get active() { return active(); } });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      mockFit.mockClear();
+      vi.mocked(terminalStore.resize).mockClear();
+      mockFit.mockImplementation(() => {
+        const terminal = result.terminal() as any;
+        terminal.cols = 101;
+        terminal.rows = 31;
+      });
+
+      setActive(true);
+
+      expect(mockFit).toHaveBeenCalled();
+      expect(terminalStore.resize).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId, 101, 31);
 
       dispose();
     });
@@ -935,6 +1005,175 @@ describe('useTerminal hook', () => {
     });
   });
 
+  describe('Herdr deterministic touch taps', () => {
+    it('REQ-MOB-022 AC1/AC3: snaps Pi fullscreen history to bottom before opening mobile input', async () => {
+      const { attachSwipeGestures } = await import('../../lib/touch-gestures');
+      const { sendHerdrTap } = await import('../../lib/herdr-mouse');
+      const { focusMobileTerminal } = await import('../../lib/terminal-mobile-input');
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      const gestureCalls = vi.mocked(attachSwipeGestures).mock.calls;
+      const tap = gestureCalls[gestureCalls.length - 1]?.[4];
+      expect(tap).toBeTypeOf('function');
+
+      tap?.(42, 57);
+
+      expect(sendHerdrTap).toHaveBeenCalledWith(
+        mockXtermScreen,
+        expect.anything(),
+        expect.any(Function),
+        42,
+        57,
+      );
+      expect(sendTerminalKey).toHaveBeenCalledWith(expect.anything(), '\x1b[F');
+      expect(focusMobileTerminal).toHaveBeenCalled();
+      const tapOrder = vi.mocked(sendHerdrTap).mock.invocationCallOrder;
+      const endOrder = vi.mocked(sendTerminalKey).mock.invocationCallOrder;
+      const focusOrder = vi.mocked(focusMobileTerminal).mock.invocationCallOrder;
+      expect(tapOrder[tapOrder.length - 1]!).toBeLessThan(endOrder[endOrder.length - 1]!);
+      expect(endOrder[endOrder.length - 1]!).toBeLessThan(focusOrder[focusOrder.length - 1]!);
+      dispose();
+    });
+
+    it('REQ-MOB-022 AC4: does not reset Pi fullscreen history when mobile input is already open', async () => {
+      vi.mocked(isVirtualKeyboardOpen).mockReturnValue(true);
+      const { attachSwipeGestures } = await import('../../lib/touch-gestures');
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      const gestureCalls = vi.mocked(attachSwipeGestures).mock.calls;
+      const tap = gestureCalls[gestureCalls.length - 1]?.[4];
+      vi.mocked(sendTerminalKey).mockClear();
+
+      tap?.(42, 57);
+
+      expect(sendTerminalKey).not.toHaveBeenCalled();
+      dispose();
+    });
+  });
+
+  describe('Herdr clipboard bridging', () => {
+    beforeEach(() => {
+      Object.assign(navigator, {
+        clipboard: {
+          readText: vi.fn().mockResolvedValue('pasted into Herdr'),
+          writeText: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+    });
+
+    it('REQ-TERM-032: writes Herdr OSC 52 copy output even when desktop paste access is disabled', async () => {
+      vi.mocked(loadSettings).mockReturnValue({ clipboardAccess: false });
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      const call = mockRegisterOscHandler.mock.calls.find(([identifier]) => identifier === 52);
+      expect(call).toBeDefined();
+
+      expect(call![1]('c;Y29waWVkIGZyb20gSGVyZHI=')).toBe(true);
+
+      await vi.waitFor(() => {
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith('copied from Herdr');
+      });
+      dispose();
+    });
+
+    it('retains a rejected OSC 52 write for the next Ctrl+V', async () => {
+      vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'));
+      vi.mocked(navigator.clipboard.readText).mockRejectedValueOnce(new Error('denied'));
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      const osc = mockRegisterOscHandler.mock.calls.find(([identifier]) => identifier === 52)?.[1];
+      expect(osc?.('c;cmV0YWluZWQgc2VsZWN0aW9u')).toBe(true);
+      await vi.waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const handler = mockAttachCustomKeyEventHandler.mock.calls[0]?.[0];
+      expect(handler?.({
+        type: 'keydown', key: 'v', ctrlKey: true, metaKey: false,
+        altKey: false, shiftKey: false, preventDefault: vi.fn(),
+      } as unknown as KeyboardEvent)).toBe(false);
+
+      expect(mockTerminalInstance.paste).toHaveBeenCalledWith('retained selection');
+      expect(navigator.clipboard.readText).not.toHaveBeenCalled();
+      dispose();
+    });
+
+    it('does not retain an older failed write after a newer write succeeds', async () => {
+      let rejectFirst!: (reason?: unknown) => void;
+      let resolveSecond!: () => void;
+      const first = new Promise<void>((_resolve, reject) => { rejectFirst = reject; });
+      const second = new Promise<void>((resolve) => { resolveSecond = resolve; });
+      vi.mocked(navigator.clipboard.writeText)
+        .mockImplementationOnce(() => first)
+        .mockImplementationOnce(() => second);
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      const osc = mockRegisterOscHandler.mock.calls.find(([identifier]) => identifier === 52)?.[1];
+      expect(osc?.('c;Zmlyc3Q=')).toBe(true);
+      expect(osc?.('c;c2Vjb25k')).toBe(true);
+
+      resolveSecond();
+      await second;
+      rejectFirst(new Error('older denied'));
+      await first.catch(() => undefined);
+      await Promise.resolve();
+
+      const handler = mockAttachCustomKeyEventHandler.mock.calls[0]?.[0];
+      expect(handler?.({
+        type: 'keydown', key: 'v', ctrlKey: true, metaKey: false,
+        altKey: false, shiftKey: false, preventDefault: vi.fn(),
+      } as unknown as KeyboardEvent)).toBe(false);
+
+      await vi.waitFor(() => {
+        expect(navigator.clipboard.readText).toHaveBeenCalledOnce();
+        expect(mockTerminalInstance.paste).toHaveBeenCalledWith('pasted into Herdr');
+      });
+      expect(mockTerminalInstance.paste).not.toHaveBeenCalledWith('first');
+      dispose();
+    });
+
+    it('pastes browser clipboard text through xterm on Ctrl+V', async () => {
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      const handler = mockAttachCustomKeyEventHandler.mock.calls[0]?.[0];
+      const preventDefault = vi.fn();
+
+      expect(handler?.({
+        type: 'keydown',
+        key: 'v',
+        ctrlKey: true,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+        preventDefault,
+      } as unknown as KeyboardEvent)).toBe(false);
+
+      expect(preventDefault).toHaveBeenCalledOnce();
+      await vi.waitFor(() => {
+        expect(mockTerminalInstance.paste).toHaveBeenCalledWith('pasted into Herdr');
+      });
+      dispose();
+    });
+  });
+
   describe('clipboard access setting', () => {
     beforeEach(() => {
       Object.assign(navigator, {
@@ -1014,7 +1253,7 @@ describe('useTerminal hook', () => {
   });
 
   describe('keyboard height refit', () => {
-    it('should scroll to bottom when keyboard opens (closed→open transition)', async () => {
+    it('REQ-MOB-021 AC2: fits the visible container after keyboard geometry changes', async () => {
       vi.useFakeTimers();
 
       const isTouchDeviceMock = vi.mocked(isTouchDevice);
@@ -1028,14 +1267,21 @@ describe('useTerminal hook', () => {
       getKeyboardHeightMock.mockImplementation(() => kbHeight());
       isVirtualKeyboardOpenMock.mockImplementation(() => kbOpen());
 
+      let result!: ReturnType<typeof useTerminal>;
       const dispose = createRoot((dispose) => {
-        const result = useTerminal(defaultProps);
+        result = useTerminal(defaultProps);
         result.containerRef(containerEl);
         return dispose;
       });
 
       mockScrollToBottom.mockClear();
       mockFit.mockClear();
+      vi.mocked(terminalStore.resize).mockClear();
+      mockFit.mockImplementation(() => {
+        const terminal = result.terminal() as any;
+        terminal.cols = 103;
+        terminal.rows = 32;
+      });
 
       // Simulate keyboard opening (closed→open)
       setKbHeight(300);
@@ -1045,6 +1291,7 @@ describe('useTerminal hook', () => {
 
       expect(mockFit).toHaveBeenCalled();
       expect(mockScrollToBottom).toHaveBeenCalled();
+      expect(terminalStore.resize).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId, 103, 32);
 
       dispose();
       vi.useRealTimers();
@@ -1588,8 +1835,13 @@ describe('useTerminal hook', () => {
   });
 
   describe('kbDebounceTimer race fix (Fix 3)', () => {
-    it('should not block ResizeObserver after keyboard debounce timer cleanup', async () => {
+    it('REQ-MOB-010 AC1/AC2: fits after viewport resizing once keyboard refit finishes', async () => {
       vi.useFakeTimers();
+
+      let resizeObserver: (ResizeObserver & { callback: ResizeObserverCallback }) | undefined;
+      vi.spyOn(ResizeObserver.prototype, 'observe').mockImplementation(function (this: ResizeObserver) {
+        resizeObserver = this as ResizeObserver & { callback: ResizeObserverCallback };
+      });
 
       const isTouchDeviceMock = vi.mocked(isTouchDevice);
       const getKeyboardHeightMock = vi.mocked(getKeyboardHeight);
@@ -1599,8 +1851,9 @@ describe('useTerminal hook', () => {
       const [kbHeight, setKbHeight] = createSignal(0);
       getKeyboardHeightMock.mockImplementation(() => kbHeight());
 
+      let result!: ReturnType<typeof useTerminal>;
       const dispose = createRoot((dispose) => {
-        const result = useTerminal(defaultProps);
+        result = useTerminal(defaultProps);
         result.containerRef(containerEl);
         return dispose;
       });
@@ -1611,17 +1864,20 @@ describe('useTerminal hook', () => {
       // Let debounce timer fire and complete
       await vi.advanceTimersByTimeAsync(KEYBOARD_REFIT_DEBOUNCE_MS + 50);
 
-      // Clear fit calls from above
       mockFit.mockClear();
+      vi.mocked(terminalStore.resize).mockClear();
+      mockFit.mockImplementation(() => {
+        const terminal = result.terminal() as any;
+        terminal.cols = 112;
+        terminal.rows = 34;
+      });
 
-      // Now trigger a ResizeObserver callback manually
-      // The ResizeObserver should NOT be blocked (kbDebounceTimer should be null)
-      const resizeObserverCallback = (globalThis as any).__lastResizeObserverCallback;
-      if (resizeObserverCallback) {
-        resizeObserverCallback([{ contentRect: { width: 900, height: 700 } }]);
-        // RAF should allow fit to be called
-        expect(mockFit).toHaveBeenCalled();
-      }
+      expect(resizeObserver?.callback).toBeTypeOf('function');
+      resizeObserver!.callback([], resizeObserver!);
+      await vi.advanceTimersByTimeAsync(20);
+
+      expect(mockFit).toHaveBeenCalled();
+      expect(terminalStore.resize).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId, 112, 34);
 
       dispose();
       vi.useRealTimers();

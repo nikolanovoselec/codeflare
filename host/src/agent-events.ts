@@ -47,15 +47,11 @@ export const AGENT_EVENT_LIMITS = Object.freeze({
 
 export const AGENT_EVENT_FRAMES = Object.freeze({
   piInputRequired: '\x1b]777;notify;Pi;Agent needs your input\x07',
-  piTaskCompleted: '\x1b]777;notify;Pi;Ready for input\x07',
-  piTaskFailed: '\x1b]777;notify;Pi;Task failed\x07',
   claudeInputRequired: '\x1b]777;notify;Claude Code;Claude needs your permission\x07',
 });
 
 const AGENT_EVENT_KINDS_BY_FRAME = new Map<string, AgentEventKind>([
   [AGENT_EVENT_FRAMES.piInputRequired, 'input-required'],
-  [AGENT_EVENT_FRAMES.piTaskCompleted, 'task-completed'],
-  [AGENT_EVENT_FRAMES.piTaskFailed, 'task-failed'],
   [AGENT_EVENT_FRAMES.claudeInputRequired, 'input-required'],
 ]);
 
@@ -320,11 +316,25 @@ export class AgentEventQueue {
   }
 
   cancelForPresence(): { readonly cancelledCount: number; readonly actions: readonly AgentEventAction[] } {
+    return this.cancelMatching(() => true);
+  }
+
+  cancelKind(kind: AgentEventKind): {
+    readonly cancelledCount: number;
+    readonly actions: readonly AgentEventAction[];
+  } {
+    return this.cancelMatching((event) => event.kind === kind);
+  }
+
+  private cancelMatching(matches: (event: QueuedAgentEvent) => boolean): {
+    readonly cancelledCount: number;
+    readonly actions: readonly AgentEventAction[];
+  } {
     const actions = [...this.advance(this.now())];
     let cancelledCount = 0;
 
     for (const record of this.events.values()) {
-      if (record.event.state === 'cancelled') continue;
+      if (record.event.state === 'cancelled' || !matches(record.event)) continue;
       record.event.state = 'cancelled';
       cancelledCount += 1;
       const cancellation = this.cancelAction(record);

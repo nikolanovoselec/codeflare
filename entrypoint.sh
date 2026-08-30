@@ -3924,11 +3924,11 @@ complete_managed_curation_startup() {
             # Each daemon has its own retry + recovery; a dead daemon means
             # zero sync (or zero vault ingestion) for the entire session.
             start_sync_daemon
-            # Vault monitor and SilverBullet are advanced-mode-only
-            # (REQ-MEM-006 AC1, REQ-AGENT-005 AC2). VS Code workspaces already
+            # SilverBullet is advanced-mode-only (REQ-MEM-006 AC1,
+            # REQ-AGENT-005 AC2). Vault extraction is prompt-cadenced by the
+            # memory hooks; no polling daemon runs. VS Code workspaces already
             # armed Browser IDE above; this gate retains lazy Terminal startup.
             if [ "${SESSION_MODE:-default}" = "advanced" ]; then
-                start_vault_monitor_daemon
                 start_silverbullet_supervisor
                 if [ "${CODEFLARE_SESSION_WORKSPACE:-terminal}" != "vscode" ]; then
                     start_openvscode_supervisor

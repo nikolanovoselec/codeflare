@@ -5,7 +5,8 @@ import Terminal from '../../components/Terminal';
 import { terminalStore } from '../../stores/terminal';
 import { sessionStore } from '../../stores/session';
 import type { TerminalConnectionState } from '../../types';
-import { isTouchDevice, enableVirtualKeyboardOverlay } from '../../lib/mobile';
+import { isTouchDevice } from '../../lib/mobile';
+import { focusMobileTerminal } from '../../lib/terminal-mobile-input';
 
 // Mock xterm.js and addons
 const mockTerminalInstance = {
@@ -135,6 +136,7 @@ vi.mock('../../lib/touch-gestures', () => ({
 }));
 
 vi.mock('../../lib/terminal-mobile-input', () => ({
+  focusMobileTerminal: vi.fn(),
   setupMobileInput: vi.fn(() => vi.fn()),
 }));
 
@@ -380,25 +382,23 @@ describe('Terminal Component', () => {
       vi.mocked(isTouchDevice).mockReturnValue(false);
     });
 
-    it('should NOT call enableVirtualKeyboardOverlay on pointerdown', () => {
+    it('should not focus mobile input on pointerdown', () => {
       render(() => <Terminal {...defaultProps} />);
-
-      // Clear any calls from useTerminal's createEffect (keyboard lifecycle on mount)
-      vi.mocked(enableVirtualKeyboardOverlay).mockClear();
+      vi.mocked(focusMobileTerminal).mockClear();
 
       const container = document.querySelector('.terminal-container')!;
       container.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
 
-      expect(enableVirtualKeyboardOverlay).not.toHaveBeenCalled();
+      expect(focusMobileTerminal).not.toHaveBeenCalled();
     });
 
-    it('should call enableVirtualKeyboardOverlay on click (tap)', () => {
+    it('focuses mobile input on click', () => {
       render(() => <Terminal {...defaultProps} />);
 
       const container = document.querySelector('.terminal-container')!;
       container.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-      expect(enableVirtualKeyboardOverlay).toHaveBeenCalled();
+      expect(focusMobileTerminal).toHaveBeenCalledWith(mockTerminalInstance);
     });
 
     it('should set user-select: none on terminal container for mobile', () => {

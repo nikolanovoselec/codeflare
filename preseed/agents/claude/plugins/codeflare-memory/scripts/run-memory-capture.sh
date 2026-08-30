@@ -258,7 +258,7 @@ case "$CAPTURE_TURNS" in ''|*[!0-9]*|0) CAPTURE_TURNS=6 ;; esac
 # embeds verbatim REQ IDs, ADR numbers and commit SHAs that later sessions cite,
 # and the smallest models confabulated adjacent IDs in benchmarking (AD58). It
 # is also the most frequent agent in the system, so the tier above is not worth
-# paying on every fifteenth prompt. Both stay overridable.
+# paying on every fiftieth prompt. Both stay overridable.
 set -- \
   -p \
   --output-format json \

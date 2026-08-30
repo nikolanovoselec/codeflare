@@ -189,7 +189,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Constraints:**
 
 - Normal scrollback uses xterm's buffer service directly ([REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)).
-- Alternate-screen application scrolling uses xterm's public DOM wheel pipeline so mouse-protocol encoding remains owned by xterm.
+- Classic alternate-screen scrolling uses xterm's public DOM wheel pipeline with inertia; Herdr uses proportional wheel steps without inertia.
 
 **Priority:** P1
 
@@ -209,25 +209,96 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. With the keyboard closed, vertical swipes navigate a fullscreen application's alternate-buffer history. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes Herdr swipes as SGR wheel input without xterm mouse tracking) -->
-2. With the keyboard closed, vertical swipes navigate Herdr application views. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes Herdr swipes as SGR wheel input without xterm mouse tracking) -->
+1. With the keyboard closed, vertical swipes navigate a fullscreen application's alternate-buffer history. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes proportional Herdr wheel steps without inertia) --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC3: preserves classic fullscreen wheel forwarding) -->
+2. A keyboard-closed Herdr swipe emits proportional wheel steps from accumulated finger distance and stops when the finger lifts. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes proportional Herdr wheel steps without inertia) -->
 3. Classic preserves its existing fullscreen wheel forwarding. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC3: preserves classic fullscreen wheel forwarding) -->
-4. A stationary single-finger Herdr tap activates the addressed Herdr control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (sends a stationary touch to the xterm screen only when enabled) --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes physical and synthesized left clicks as SGR terminal input) -->
-5. Movement prevents terminal mouse click synthesis. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (does not synthesize a click after movement) -->
-6. Cancellation prevents terminal mouse click synthesis. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC6: does not synthesize a click after cancellation) -->
-7. Classic stationary taps do not synthesize terminal mouse clicks. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (sends a stationary touch to the xterm screen only when enabled) -->
 
 **Constraints:**
 
 - Normal scrollback remains owned by [REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll).
 - While the keyboard is open, vertical swipes remain terminal input ([REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll) AC7); wheel routing never applies.
-- Long press and multi-touch cancel click synthesis.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
 
-**Verification:** Automated test ([touch-gestures](../../web-ui/src/__tests__/lib/touch-gestures.test.ts))
+**Verification:** Automated gesture routing tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-020: Terminal touch activation
+
+**Intent:** A mobile tap activates one terminal control without duplicate activation or changes to Classic tap behavior.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A stationary single-finger Herdr tap activates the control at the touched location exactly once. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::sendHerdrTap --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC1: forwards one deterministic tap and suppresses compatibility mouse events) --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (sends a touch tap as one press/release pair at one computed cell) -->
+2. A touch that becomes a movement gesture does not activate a control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC2: suppresses every touch-derived mouse event after movement) -->
+3. A cancelled touch does not activate a control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC3: does not activate a tap after cancellation) -->
+4. Classic stationary tap behavior remains unchanged. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC4: preserves the Classic stationary tap path without a synthetic mouse sequence) -->
+
+**Constraints:** Long press and multi-touch do not activate the addressed control.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
+
+**Verification:** Automated gesture and duplicate-suppression tests plus manual Samsung Internet tap verification.
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-022: Herdr mobile input focus and viewport
+
+**Intent:** Trusted Herdr taps coordinate mobile input focus with application-owned fullscreen history.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A stationary Herdr tap opens mobile input when the keyboard is closed. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::focusMobileTerminal --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-022 AC1/AC3: snaps Pi fullscreen history to bottom before opening mobile input) --> <!-- @manual: On Samsung Internet with the keyboard closed, tap Pi input and confirm the keyboard opens. -->
+2. A stationary Herdr tap remains usable while the keyboard is open. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-022 AC2: forwards a keyboard-open tap through sub-threshold jitter) --> <!-- @manual: On Samsung Internet with the keyboard open, tap Pi input and Herdr controls and confirm each activates once without selection. -->
+3. Opening mobile input from a trusted Herdr tap resets application-owned fullscreen history to the live bottom. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-022 AC1/AC3: snaps Pi fullscreen history to bottom before opening mobile input) --> <!-- @manual: In Samsung Internet, scroll Pi history up with the keyboard closed, tap to open the keyboard, and confirm the latest output and prompt become visible. -->
+4. Tapping Herdr while mobile input is already open does not reset the application-owned viewport. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-022 AC4: does not reset Pi fullscreen history when mobile input is already open) --> <!-- @manual: With the keyboard open and Pi history scrolled up, tap a control and confirm the viewport stays fixed. -->
+5. A confirmed Herdr scroll releases stale mobile-input focus so the keyboard remains closed. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-022 AC5: releases stale Herdr input focus when scrolling without changing Classic) --> <!-- @manual: In Samsung Internet with the keyboard closed, scroll Herdr and confirm the keyboard remains closed after release. -->
+
+**Constraints:** Classic terminal focus and viewport behavior remain unchanged.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-MOB-017](#req-mob-017-fullscreen-application-touch-scrolling), [REQ-MOB-020](#req-mob-020-terminal-touch-activation)
+
+**Verification:** Manual check.
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-023: Opt-in mobile input diagnostics
+
+**Intent:** A user can capture bounded mobile browser input evidence without exposing terminal content.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Explicitly opting into mobile input diagnostics displays the input and viewport diagnostic overlay. <!-- @manual: Open a terminal URL with `debug=1` and confirm the diagnostic overlay appears. -->
+2. The input trace retains at most the twelve newest event records. <!-- @impl: web-ui/src/lib/touch-event-debug.ts::attachTouchEventDebug --> <!-- @test: web-ui/src/__tests__/lib/touch-event-debug.test.ts (REQ-MOB-023 AC2-AC4: bounds content-free input metadata and move counts) -->
+3. The overlay reports input ordering, final cancellation, touch origin, target, focus, move count, and keyboard geometry. <!-- @impl: web-ui/src/lib/touch-event-debug.ts::attachTouchEventDebug --> <!-- @manual: Reproduce a terminal touch and confirm the overlay reports input events and viewport state. -->
+4. The input trace does not record terminal text. <!-- @impl: web-ui/src/lib/touch-event-debug.ts::attachTouchEventDebug --> <!-- @test: web-ui/src/__tests__/lib/touch-event-debug.test.ts (REQ-MOB-023 AC2-AC4: bounds content-free input metadata and move counts) -->
+
+**Constraints:** Diagnostics activate only through the explicit query parameter and retain no server-side state.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-MOB-003](#req-mob-003-samsung-internet-keyboard-viewport-state), [REQ-MOB-020](#req-mob-020-terminal-touch-activation)
+
+**Verification:** Automated trace tests for AC2 and AC4; manual deployed overlay checks for AC1 and AC3.
 
 **Status:** Implemented
 
@@ -385,12 +456,13 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. Three code paths can trigger a terminal-fit recalculation: keyboard refit (debounced ~150ms), active-state effect (immediate next frame), and viewport resize observer (immediate next frame). <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal hook) -->
+1. After a completed keyboard refit, viewport resizing fits the terminal to its visible container. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-010 AC1/AC2: fits after viewport resizing once keyboard refit finishes) -->
 2. While a keyboard refit is in flight, the viewport resize observer is suppressed so the two paths do not contend. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-010 AC2: suppresses competing fits while a keyboard refit is pending) -->
 3. With the keyboard open on mobile, the buffer scrolls to the bottom after every refit so new output remains visible. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (keyboard height refit) -->
 4. Without the keyboard open (desktop or mobile), scroll-to-bottom only runs when the user was already at the bottom; scrollback position is preserved otherwise. <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal hook) -->
 5. While the keyboard is open, the resize observer does not force scroll-to-bottom; the keyboard-height-change handler owns that. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (useTerminal hook) -->
 6. A refit that produces unchanged dimensions does not send a resize message to the container. <!-- @impl: web-ui/src/stores/terminal-layout.ts::refitAllTerminalsExported --> <!-- @test: web-ui/src/__tests__/stores/terminal-layout.test.ts (REQ-MOB-010 AC6: unchanged-dimensions skip resize message) -->
+7. A visible Herdr terminal restores a current fitted surface when the document returns from hidden state. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (forces a repaint and same-size PTY resize when a hidden page becomes visible) -->
 
 **Constraints:**
 
@@ -400,6 +472,29 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Priority:** P1
 
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-TERM-008](terminal.md#req-term-008-write-batching-at-30fps)
+
+**Verification:** Automated test ([useTerminal](../../web-ui/src/__tests__/hooks/useTerminal.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-021: Terminal follows visible container changes
+
+**Intent:** Terminal activation and mobile keyboard geometry changes keep the rendered terminal aligned with its visible container.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Activating a terminal fits it to the visible container before publishing its PTY dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-021 AC1: fits the visible container when a terminal becomes active) -->
+2. A mobile keyboard geometry change refits the visible terminal before publishing its PTY dimensions. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-021 AC2: fits the visible container after keyboard geometry changes) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MOB-010](#req-mob-010-fitaddon-fit-calls-are-coordinated)
 
 **Verification:** Automated test ([useTerminal](../../web-ui/src/__tests__/hooks/useTerminal.test.ts))
 
@@ -445,7 +540,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Acceptance Criteria:**
 
 1. Batched output delegates every output-driven scrollback shift to xterm and performs no write-side correction. <!-- @impl: web-ui/src/stores/terminal-output.ts::flushWriteBuffer --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-014 AC3: writes batched output without viewport correction when $name) -->
-2. Opening the touch keyboard performs the established fit-and-bottom transition. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (should scroll to bottom when keyboard opens (closed→open transition)) -->
+2. Opening the touch keyboard performs the established fit-and-bottom transition. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-021 AC2: fits the visible container after keyboard geometry changes) -->
 3. Generic viewport correction remains inactive while the touch keyboard is open. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC3: freezes correction-owned viewport movement while the touch keyboard is open) -->
 4. Closing the touch keyboard hands viewport correction back to bottom-following mode. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC4: keyboard close hands viewport ownership back to bottom following) -->
 5. After keyboard control ends, manual scroll ownership persists until the viewport returns to bottom. <!-- @impl: web-ui/src/hooks/useScrollCorrection.ts::useScrollCorrection --> <!-- @test: web-ui/src/__tests__/hooks/useScrollCorrection.test.ts (REQ-MOB-012 AC5: keyboard transition preserves later manual viewport ownership) -->

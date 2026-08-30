@@ -160,7 +160,7 @@ paste <(jq -r '[.role, (.text | length)] | @tsv' < "$OUT/turns.ndjson") "$OUT/tu
   ' > "$OUT/clean.ndjson"
 
 # 3. Chunk and render. split -a 2 gives chunk-aa, chunk-ab, ... chunk-zz
-#    (676 chunks max - more than any sane 15-prompt window will produce).
+#    (676 chunks max - more than any sane 50-prompt window will produce).
 ( cd "$OUT" && rm -f chunk-* && split -l "$CHUNK_SIZE" -a 2 clean.ndjson chunk- )
 
 # 4. Render each chunk to Markdown for the capture agent. ### headings

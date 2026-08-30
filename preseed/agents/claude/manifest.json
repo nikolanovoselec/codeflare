@@ -1812,7 +1812,67 @@
       "advanced"
     ]
   },
+  "skills/design/references/external-dependencies.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/frontend-design/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/art-direction.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/assets-and-motion.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/astro-cloudflare.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/component-systems.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/complex-motion.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/new-work.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/operate-and-dashboards.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/redesign.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/visual-qa.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/native-mobile-design/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/native-mobile-design/references/platform-behavior.md": {
     "modes": [
       "advanced"
     ]

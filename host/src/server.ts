@@ -36,6 +36,10 @@ import { attachTerminalConnectionHandler } from './terminal-ws.js';
 import { createUpgradeDispatcher } from './upgrade-dispatcher.js';
 import { Session } from './session.js';
 import {
+  HerdrAgentStatusMonitor,
+  createHerdrAgentStatusCallbacks,
+} from './herdr-agent-status.js';
+import {
   EDITOR_WARMING_BUDGET_MS,
   resolveSessionWorkspace,
   startWorkspaceServices,
@@ -76,6 +80,9 @@ const TERMINAL_COMMAND = TERMINAL_CONFIG.command;
 const TERMINAL_ARGS = TERMINAL_CONFIG.args;
 const WORKSPACE_DEFAULT = process.env.WORKSPACE ?? '/home/user/workspace';
 const SESSION_WORKSPACE = resolveSessionWorkspace(process.env.CODEFLARE_SESSION_WORKSPACE);
+const HERDR_SOCKET_PATH = TERMINAL_MODE === 'herdr' && /^[a-z0-9]{8,24}$/.test(process.env.SESSION_ID ?? '')
+  ? `${process.env.CODEFLARE_RUNTIME_ROOT ?? '/run/codeflare'}/herdr-config/herdr/sessions/cf-${process.env.SESSION_ID}/herdr.sock`
+  : null;
 
 // PTY persistence settings - safety-net floor only. The authoritative idle
 // policy lives in collectMetrics (container DO) keyed off `lastInputAt`. This
@@ -246,6 +253,7 @@ let terminalServiceReady = false;
 // eager editor answers its private loopback health probe.
 let editorReady = false;
 let editorReadyTimedOut = false;
+let herdrAgentStatusMonitor: HerdrAgentStatusMonitor | null = null;
 
 // Create HTTP server; all plain-HTTP branches live in request-router.ts.
 const server = http.createServer(createRequestHandler({
@@ -390,6 +398,13 @@ server.listen(PORT, '0.0.0.0', async () => {
   // (non-tab-1) sessions created from here on also read the final .bashrc
   // because waitForInitFlag has already resolved.
   terminalServiceReady = true;
+  if (HERDR_SOCKET_PATH) {
+    herdrAgentStatusMonitor = new HerdrAgentStatusMonitor({
+      socketPath: HERDR_SOCKET_PATH,
+      ...createHerdrAgentStatusCallbacks(() => sessionManager.sessions.values()),
+    });
+    herdrAgentStatusMonitor.start();
+  }
   prewarmStartTime = Date.now();
   log('info', 'Pre-warming tab 1 PTY', { command: prewarmConfig.command, ptyAlive: prewarmSession.ptyProcess !== null, ptyPid: prewarmSession.ptyProcess?.pid ?? null });
 
@@ -495,6 +510,8 @@ server.listen(PORT, '0.0.0.0', async () => {
 // Graceful shutdown helper
 function shutdown(signal: string): void {
   log('info', `Received ${signal}, shutting down`);
+  herdrAgentStatusMonitor?.stop();
+  herdrAgentStatusMonitor = null;
   // M2: Kill all active sessions before exit to avoid orphaned PTY processes
   sessionManager.killAll();
   sessionManager.stopCleanup();

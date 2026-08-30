@@ -46,7 +46,7 @@ export const FINAL_SYNC_INTERNAL_TIMEOUT_MS = 125_000;
 const FINAL_SYNC_POLL_MS = 500;
 const AGENT_EVENT_DRAIN_BODY_MAX_BYTES = 4 * 1024;
 const AGENT_EVENT_INGRESS_BODY_MAX_BYTES = 256;
-const AGENT_EVENT_KINDS = new Set<AgentEventKind>(['input-required', 'task-completed', 'task-failed']);
+const AGENT_EVENT_KINDS = new Set<AgentEventKind>(['input-required']);
 const AGENT_EVENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 export interface AgentEventDrainRequest {

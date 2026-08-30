@@ -354,18 +354,6 @@ describe('REQ-MOB-004: scroll-drop defenses', () => {
 // ============================================================================
 
 describe('REQ-MOB-010: FitAddon fit calls are coordinated', () => {
-  // REQ-MOB-010 AC1 (three fit() trigger paths) is covered by GENUINE
-  // behavioral tests that mount the hook and drive each path in
-  // web-ui/src/__tests__/hooks/useTerminal.test.ts:
-  //   - keyboard refit path: "keyboard height refit" describe (fit() fires on
-  //     keyboard open/close transitions).
-  //   - active-state path: lifecycle tests mount the hook and fit() runs in the
-  //     active-state effect's requestAnimationFrame.
-  //   - ResizeObserver path: "kbDebounceTimer race fix" exercises the observer
-  //     callback calling fit().
-  // The previous source-string-matching assertion was theater and has been
-  // removed.
-
   // REQ-MOB-010 AC2 (kbDebounceTimer gate short-circuits the ResizeObserver),
   // AC3 (scrollToBottom after fit() when the keyboard is open), and AC4
   // (isAtBottom gate before scrollToBottom on the no-keyboard path) are covered

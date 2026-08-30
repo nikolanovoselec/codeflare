@@ -1,74 +1,69 @@
 ---
 name: frontend-design
-description: "Create distinctive, brief-specific frontend visual direction and carry it through accessible, responsive implementation. Use for new pages, landing pages, app shells, and substantial interface redesigns."
+description: "Own web frontend art direction for responsive content and web products across marketing, operational, reading, and immersive interfaces. Use for greenfield work, redesign, and thesis-changing polish or critique. Exclude native mobile, desktop-native, static art, prose, bounded finishing, and non-visual engineering."
 ---
 
 # Frontend Design
 
-This is a Codeflare-owned, independently authored skill. It turns a product brief into a recognizable visual system and working frontend without relying on generic design defaults.
+Own one coherent visual thesis from product discovery through implementation and critique. Make the result specific enough that another product could not wear it unchanged.
 
-## Start with the product truth
+## Start with evidence
 
-Before styling, identify:
+Before proposing direction, inspect available implementation, routes, content, assets, tokens, components, typography, configuration, screenshots, references, stack, deployment, and current changes. Establish product, audience, job, objective, action, hierarchy, brand, emotional target, constraints, and what must not change.
 
-- the specific product or subject;
-- the people using it and their situation;
-- the page's one primary job;
-- the real content and actions that prove that job;
-- fixed brand, stack, accessibility, and performance constraints.
+Do not ask the user for facts the project already answers. Do not invent metrics, customers, quotes, certifications, features, or legal claims.
 
-If essential facts are missing and materially change the result, ask. Otherwise make a concrete, stated assumption. Draw the visual language from the subject's own materials, tools, vocabulary, environment, and history rather than from a fashionable page template.
+## Choose the interview mode
 
-## Define one direction
+After inspection, use one mode:
 
-Create a compact direction before implementation:
+1. **Requirements sufficient:** state material assumptions and proceed.
+2. **Material gaps:** ask one focused batch of high-impact questions. Explain what each answer changes. Do not impose a one-question limit.
+3. **Creative direction unresolved:** present two or three materially different directions and ask the user to choose or react.
+4. **Direction delegated:** make reasoned assumptions, state them, and continue autonomously.
 
-1. **Concept:** one sentence connecting the subject to the visual treatment.
-2. **Hierarchy:** what dominates, what supports it, and what remains quiet.
-3. **Palette:** a small set of named color roles with accessible text/background pairs.
-4. **Typography:** distinct display, reading, and utility roles; choose every role for a reason.
-5. **Layout:** explain the organizing geometry and sketch difficult structure with a small ASCII wireframe when useful.
-6. **Signature:** one memorable element or interaction tied directly to the subject.
-7. **Restraint:** name what the design deliberately avoids.
+Ask only about decisions that change the result: audience, job, content, identity, emotional target, references, priorities, creative risk, or non-negotiable constraints. Resolve low-impact details professionally. Do not begin major implementation while a foundational decision remains ambiguous unless the user delegated it.
 
-Test the direction with one question: could the same plan be pasted onto an unrelated product with only the nouns changed? If yes, replace the generic choices before coding.
+## Select the workflow
 
-## Build the direction, not a collage
+Classify the work as greenfield, full redesign, incremental redesign, polish, or critique. Confirm the delivery platform is responsive web content or a web product; native iOS, Android, and cross-platform native work belongs to `native-mobile-design`. Classify the purpose as Persuade, Operate, Read, or Experience.
 
-- Encode palette, type, spacing, radius, elevation, and motion as shared tokens.
-- Make components reusable without erasing the page's identity.
-- Let structure carry meaning. Labels, rules, numbers, cards, and grids should clarify real relationships rather than decorate empty space.
-- Use authentic content. Placeholder slogans and vague benefit cards make even polished layouts feel synthetic.
-- Spend visual intensity on the signature. Keep surrounding elements disciplined.
-- Match implementation complexity to the idea. A quiet design needs exact spacing and typography; an expressive design needs enough technical depth to make its central gesture convincing.
-- Preserve the project's framework and conventions unless the user asks for a change.
+Read only the references the task needs:
 
-## Interaction and copy
+- [references/new-work.md](references/new-work.md) for greenfield work or full redesign.
+- [references/redesign.md](references/redesign.md) for incremental redesign or incumbent-system work; use its bounded-polish path only after explicit invocation or when acting as the audit fallback.
+- [references/art-direction.md](references/art-direction.md) when establishing or materially changing frontend visual direction.
+- [references/assets-and-motion.md](references/assets-and-motion.md) when imagery, illustration, video, animation, canvas, WebGL, generated assets, or external references materially support the concept.
+- [references/visual-qa.md](references/visual-qa.md) before final review of work owned here, or when acting as the audit fallback.
+- [references/operate-and-dashboards.md](references/operate-and-dashboards.md) for Operate surfaces; establish decisions and information architecture before selecting components.
+- [references/component-systems.md](references/component-systems.md) when reusing, adapting, importing, generating, or creating component-system material.
+- [references/complex-motion.md](references/complex-motion.md) only when the selected motion language may require coordinated or specialist choreography.
+- [references/astro-cloudflare.md](references/astro-cloudflare.md) only when the repository already uses Astro or the task explicitly considers Astro for a new Cloudflare-targeted frontend.
 
-Motion should explain state, continuity, hierarchy, or cause and effect. Prefer one coordinated moment over unrelated animation on every element. Respect reduced-motion preferences and never make motion necessary to understand or operate the interface.
+## Commit to one direction
 
-Write interface text from the user's side of the screen. Use concrete nouns and verbs, consistent action names, visible labels, actionable errors, and empty states that explain the next step. Avoid internal architecture vocabulary and promotional filler inside product controls.
+Before implementation, define one contract: thesis; hierarchy and action; palette and type; geometry and rhythm; material, imagery, and motion; product-derived signature; restraint.
 
-## Quality floor
+For greenfield work or substantial redesign, directions must differ in composition, hierarchy, typography, palette logic, imagery, material, rhythm, and interaction, not merely accent color. Once the user selects or delegates a direction, stop mixing alternatives.
 
-Every delivered frontend must:
+Apply the substitution test: if another company's name, logo, and copy could replace this product without the design feeling wrong, the direction is still generic.
 
-- work from narrow mobile viewports through wide desktop layouts;
-- preserve visible keyboard focus and logical tab order;
-- use semantic structure and labels;
-- meet appropriate contrast and target-size expectations;
-- avoid horizontal overflow and accidental layout shift;
-- handle loading, empty, error, long-content, and disabled states relevant to the brief;
-- avoid selector collisions and one-off overrides that undermine the token system.
+## Implement inside the real system
 
-## Critique twice
+Preserve the incumbent framework, build system, routes, semantics, content, data flow, behavior, tokens, component conventions, icon system, and dependencies unless change is authorized. Make the smallest architectural change that enables the design.
 
-Critique once before implementation and once after. In the final pass:
+Use authentic content and working controls. Cover relevant states, long content, localization, and asset failure. Accessibility belongs to composition and interaction, not cleanup.
 
-1. compare the result to the original brief rather than to generic taste;
-2. inspect hierarchy, alignment, spacing rhythm, type, contrast, and content density;
-3. inspect mobile behavior, focus, reduced motion, and important edge states;
-4. remove an unnecessary effect or ornamental element before adding anything new;
-5. refine the weakest existing decision until the page reads as one authored system.
+For component work, inspect incumbent components, tokens, and registries first. Establish required behavior, accessibility, information architecture, and the visual thesis before choosing implementation material. Reuse or adapt compatible components; create new ones only when the incumbent system cannot cleanly express required behavior. A component source never chooses the thesis.
 
-When browser or screenshot tools are available, use visual evidence for the final critique. Otherwise inspect the rendered structure and styles directly and clearly state the verification limit.
+Keep simple transitions in CSS or the incumbent framework. Delegate only when the selected motion language requires complexity the existing system cannot express. An animation specialist implements that language and cannot invent it.
+
+Choose techniques from the concept and repository, never habit. Do not mandate a framework, library, component registry, palette, icon set, font source, asset workflow, motion runtime, or rendering technique.
+
+## Inspect, critique, revise
+
+When browser, preview, screenshot, or rendering capability is available, render representative viewport sizes, inspect the actual interface, exercise important interaction and keyboard paths, and revise observed weaknesses. When visual inspection is unavailable, inspect structure and styles, run available non-visual checks, state the limitation, and do not claim visual validation.
+
+Use a bounded loop: implement, inspect once, fix findings as one coherent pass, then confirm. Measure performance against stated budgets where measurement exists. Never translate “make it fast” into a fabricated score.
+
+Finish only when the result preserves product truth, expresses the selected thesis, works at required sizes, handles relevant states, and reports validation evidence honestly.

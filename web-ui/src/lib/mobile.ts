@@ -1,5 +1,6 @@
 import { createSignal, type Accessor } from 'solid-js';
 import { loadSettings } from './settings';
+import { attachTouchEventDebug } from './touch-event-debug';
 
 /** Navigator with non-standard properties used for mobile keyboard detection. */
 interface ExtendedNavigator extends Navigator {
@@ -351,6 +352,7 @@ if (typeof window !== 'undefined' && isSamsungBrowser) {
 
 // Debug overlay interval handle — stored so it can be cleaned up.
 let debugIntervalId: ReturnType<typeof setInterval> | null = null;
+let debugTraceCleanup: (() => void) | null = null;
 
 /**
  * Clean up the debug overlay interval to prevent memory leaks.
@@ -361,6 +363,8 @@ export function cleanupDebugOverlay(): void {
     clearInterval(debugIntervalId);
     debugIntervalId = null;
   }
+  debugTraceCleanup?.();
+  debugTraceCleanup = null;
 }
 
 // On-screen debug overlay for viewport/keyboard diagnostics.
@@ -386,6 +390,11 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
     borderBottomRightRadius: '6px',
   });
   document.body.appendChild(overlay);
+  let touchTrace: readonly string[] = [];
+  debugTraceCleanup = attachTouchEventDebug(window, (lines) => {
+    touchTrace = lines;
+    updateOverlay();
+  });
 
   function updateOverlay() {
     const vv = window.visualViewport;
@@ -418,6 +427,9 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
     } catch { /* ignore */ }
 
     overlay.textContent =
+      `--- input events (newest first) ---\n` +
+      (touchTrace.length > 0 ? [...touchTrace].reverse().join('\n') : 'waiting for terminal touch') +
+      `\n--- viewport state ---\n` +
       `innerHeight:    ${innerH}\n` +
       `baselineInnerH: ${baselineInnerHeight}\n` +
       `clientHeight:   ${clientH}\n` +

@@ -162,9 +162,8 @@ export async function monitorCi({
     }
 
     if (rows?.length) {
-      const failing = rows.filter((row) => ['fail', 'cancel'].includes(row.bucket));
-      const terminal = rows.every((row) => ['pass', 'skipping'].includes(row.bucket));
-      if (failing.length || terminal) {
+      const terminal = rows.every((row) => row.bucket !== 'pending');
+      if (terminal) {
         const afterHead = await readHead({ repo, pr, runner, cwd });
         if (afterHead && afterHead !== head) {
           return summary('timeout', { ...base, reason: 'superseded', currentHead: afterHead });
@@ -175,16 +174,18 @@ export async function monitorCi({
           await sleep(POLL_MS);
           continue;
         }
-      }
-      if (failing.length) return summary('failure', { ...base, rows: failing });
-      if (terminal) {
         const nextFingerprint = rows
-          .map((row) => [row.name, row.workflow, row.link].map(clean).join('\u0000'))
+          .map((row) => [row.bucket, row.name, row.workflow, row.state, row.link].map(clean).join('\u0000'))
           .sort()
           .join('\u0001');
         stablePolls = nextFingerprint === fingerprint ? stablePolls + 1 : 1;
         fingerprint = nextFingerprint;
-        if (stablePolls >= 2) return summary('success', { ...base, rows });
+        if (stablePolls >= 2) {
+          const failing = rows.filter((row) => ['fail', 'cancel'].includes(row.bucket));
+          return failing.length
+            ? summary('failure', { ...base, rows: failing })
+            : summary('success', { ...base, rows });
+        }
       } else {
         fingerprint = '';
         stablePolls = 0;

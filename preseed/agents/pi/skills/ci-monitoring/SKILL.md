@@ -20,6 +20,6 @@ An explicit user request may also launch `ci-monitor` for a known open PR using 
 repo=<owner/repo> pr=<number> head=<full headRefOid>
 ```
 
-The dedicated agent runs the seeded monitor script once. Its native completion begins with exactly one of `CI_RESULT success`, `CI_RESULT failure`, or `CI_RESULT timeout`. Monitoring stays outside the main session. The agent only reports; the main session owns any follow-up changes.
+The dedicated agent runs the seeded monitor script once. It waits until every observed exact-head check is terminal and the complete fingerprint is stable across two polls. Failure output includes every failed or cancelled check together, so root can triage the whole CI result in one pass. Its native completion begins with exactly one of `CI_RESULT success`, `CI_RESULT failure`, or `CI_RESULT timeout`. Monitoring stays outside the main session. The agent only reports; the main session owns any follow-up changes.
 
 Use only the extension-emitted plan; never independently infer identity from Git text. Successful checked-out-branch push, PR creation, and PR reopen automatically plan review plus CI. If work is interrupted, wait for a later fresh delivery plan, non-delivery marker choice, or explicit user request rather than recovering it.
