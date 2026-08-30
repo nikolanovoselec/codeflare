@@ -1,8 +1,14 @@
+import { z } from 'zod';
 import type { Env } from '../types';
+import { AgentTypeSchema } from '../types';
+import { getAllUsers } from './access-policy';
+import { parseAccessGroups } from './access';
+import { CONFIGURABLE_ENTERPRISE_AGENTS, installedAgents } from './agent-allowlist';
+import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS } from './kv-keys';
 import { isOnboardingLandingPageActive, isSaasModeActive } from './onboarding';
 import { isEnterpriseMode } from './subscription';
 
-const CONFIGURATION_SECTIONS = [
+export const CONFIGURATION_SECTIONS = [
   'access',
   'domain',
   'aiRouting',
@@ -18,28 +24,154 @@ const CONFIGURATION_SECTIONS = [
 
 export type ConfigurationSection = typeof CONFIGURATION_SECTIONS[number];
 export type AdministrationMode = 'default' | 'onboarding' | 'saas' | 'enterprise';
+export type ConfigurationValues = Record<string, unknown>;
+
+export interface ConfigurationTask {
+  id: string;
+  dependsOn: string[];
+}
+
+export interface ConfigurationChange {
+  field: string;
+  before?: unknown;
+  after?: unknown;
+  secret?: { willReplace: boolean };
+}
+
+export interface ConfigurationPreview {
+  section: ConfigurationSection;
+  baseRevision: number;
+  currentRevision: number;
+  changes: ConfigurationChange[];
+  tasks: ConfigurationTask[];
+  warnings: Array<{ code: string; message: string }>;
+  exclusions: string[];
+}
 
 const COMMON_SECTIONS: ConfigurationSection[] = [
-  'access',
-  'domain',
-  'managedEnvironment',
-  'github',
-  'cloudflareConnection',
-  'usageReports',
+  'access', 'domain', 'managedEnvironment', 'github', 'cloudflareConnection', 'usageReports',
 ];
 
 const ENTERPRISE_SECTIONS: ConfigurationSection[] = [
-  'access',
-  'domain',
-  'aiRouting',
-  'codingAgents',
-  'browserRendering',
-  'securityEgress',
-  'dataGovernance',
-  'managedEnvironment',
-  'github',
-  'usageReports',
+  'access', 'domain', 'aiRouting', 'codingAgents', 'browserRendering', 'securityEgress',
+  'dataGovernance', 'managedEnvironment', 'github', 'usageReports',
 ];
+
+const email = z.string().trim().toLowerCase().email();
+const name = z.string().trim().min(1).max(256).refine((value) => !/[,\r\n]/.test(value));
+const reasoning = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+const domain = z.string().trim().toLowerCase().regex(/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i);
+const replacementSecret = z.string().max(2_048).optional().default('');
+
+const accessSchema = z.object({
+  adminUsers: z.array(email).min(1),
+  allowedUsers: z.array(email).optional(),
+  userAccessGroups: z.array(name).optional(),
+  adminAccessGroups: z.array(name).optional(),
+}).strict();
+
+const aiRoutingSchema = z.object({
+  gatewayUrl: z.string().trim().url().max(512),
+  replacementToken: replacementSecret,
+  dynamicRoutes: z.array(name).min(1),
+  defaultRoute: z.object({ route: name, reasoning }).strict(),
+  routeContextWindows: z.record(name, z.number().int().positive()),
+  groupRouting: z.array(z.object({
+    accessGroup: name,
+    routes: z.array(name).min(1),
+    defaultRoute: name,
+    reasoning,
+  }).strict()),
+}).strict().superRefine((value, context) => {
+  if (!value.dynamicRoutes.includes(value.defaultRoute.route)) {
+    context.addIssue({ code: 'custom', message: 'Default route must be in dynamicRoutes', path: ['defaultRoute', 'route'] });
+  }
+  for (const [index, group] of value.groupRouting.entries()) {
+    if (!group.routes.includes(group.defaultRoute) || group.routes.some((route) => !value.dynamicRoutes.includes(route))) {
+      context.addIssue({ code: 'custom', message: 'Group routes must use the route catalog', path: ['groupRouting', index] });
+    }
+  }
+});
+
+const sectionSchemas: Record<ConfigurationSection, z.ZodType<ConfigurationValues>> = {
+  access: accessSchema,
+  domain: z.object({ customDomain: domain }).strict(),
+  aiRouting: aiRoutingSchema,
+  codingAgents: z.object({ activeAgents: z.array(AgentTypeSchema).min(1) }).strict(),
+  browserRendering: z.object({
+    accountId: z.string().trim().max(128).optional().default(''),
+    replacementToken: replacementSecret,
+  }).strict(),
+  securityEgress: z.object({ strictGatewayEgress: z.boolean() }).strict(),
+  dataGovernance: z.object({ governedMode: z.boolean(), viewOnlyStorage: z.boolean() }).strict(),
+  managedEnvironment: z.discriminatedUnion('enabled', [
+    z.object({ enabled: z.literal(false) }).strict(),
+    z.object({
+      enabled: z.literal(true),
+      repository: z.string().trim().max(256),
+      personalAccessToken: replacementSecret,
+      publicKey: z.string().trim().refine((value) => value === '' || /^[0-9a-f]{64}$/.test(value)),
+      immutableResources: z.boolean().optional(),
+      disableUserCreatedResources: z.boolean().optional(),
+    }).strict(),
+  ]),
+  github: z.object({
+    providerType: z.enum(['app', 'oauth']),
+    appClientId: z.string().trim().max(256),
+    appReplacementSecret: replacementSecret,
+    oauthClientId: z.string().trim().max(256),
+    oauthReplacementSecret: replacementSecret,
+  }).strict(),
+  cloudflareConnection: z.object({
+    clientId: z.string().trim().max(256),
+    replacementSecret,
+  }).strict(),
+  usageReports: z.discriminatedUnion('enabled', [
+    z.object({ enabled: z.literal(false) }).strict(),
+    z.object({
+      enabled: z.literal(true),
+      recipients: z.array(email).min(1).max(25),
+      day: z.number().int().min(1).max(31),
+      hour: z.number().int().min(0).max(23),
+      timezone: z.string().trim().min(1).max(128),
+    }).strict(),
+  ]),
+};
+
+const TASKS: Record<ConfigurationSection, ConfigurationTask[]> = {
+  access: [
+    { id: 'store_access_users', dependsOn: [] },
+    { id: 'create_access_app', dependsOn: ['store_access_users'] },
+  ],
+  domain: [
+    { id: 'configure_custom_domain', dependsOn: [] },
+    { id: 'create_access_app', dependsOn: ['configure_custom_domain'] },
+  ],
+  aiRouting: [
+    { id: 'configure_model_routing', dependsOn: [] },
+    { id: 'configure_ai_gateway', dependsOn: ['configure_model_routing'] },
+  ],
+  codingAgents: [{ id: 'configure_active_agents', dependsOn: [] }],
+  browserRendering: [{ id: 'configure_browser_rendering', dependsOn: [] }],
+  securityEgress: [{ id: 'configure_strict_egress', dependsOn: [] }],
+  dataGovernance: [
+    { id: 'configure_r2_sse', dependsOn: [] },
+    { id: 'configure_downloads_disabled', dependsOn: [] },
+  ],
+  managedEnvironment: [{ id: 'configure_managed_environment', dependsOn: [] }],
+  github: [{ id: 'configure_github', dependsOn: [] }],
+  cloudflareConnection: [{ id: 'configure_cloudflare_connection', dependsOn: [] }],
+  usageReports: [{ id: 'configure_usage_reports', dependsOn: [] }],
+};
+
+const SETUP_ONLY_TASKS = ['get_account', 'derive_r2_credentials', 'set_secrets', 'configure_turnstile', 'finalize'];
+const SECRET_FIELDS: Partial<Record<ConfigurationSection, string[]>> = {
+  aiRouting: ['replacementToken'],
+  browserRendering: ['replacementToken'],
+  managedEnvironment: ['personalAccessToken'],
+  github: ['appReplacementSecret', 'oauthReplacementSecret'],
+  cloudflareConnection: ['replacementSecret'],
+};
 
 export function resolveAdministrationMode(env: Env): AdministrationMode {
   if (isEnterpriseMode(env)) return 'enterprise';
@@ -50,4 +182,183 @@ export function resolveAdministrationMode(env: Env): AdministrationMode {
 
 export function applicableConfigurationSections(mode: AdministrationMode): ConfigurationSection[] {
   return [...(mode === 'enterprise' ? ENTERPRISE_SECTIONS : COMMON_SECTIONS)];
+}
+
+export function parseConfigurationRevision(raw: string | null): number {
+  if (!raw || !/^\d+$/.test(raw)) return 0;
+  const revision = Number(raw);
+  return Number.isSafeInteger(revision) ? revision : 0;
+}
+
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim().toLowerCase()))].sort();
+}
+
+function normalizeValues(section: ConfigurationSection, mode: AdministrationMode, values: ConfigurationValues): ConfigurationValues {
+  if (section === 'access') {
+    const admins = uniqueSorted(values.adminUsers as string[]);
+    if (mode === 'enterprise') {
+      return {
+        adminUsers: admins,
+        userAccessGroups: uniqueSorted((values.userAccessGroups as string[] | undefined) ?? []),
+        adminAccessGroups: uniqueSorted((values.adminAccessGroups as string[] | undefined) ?? []),
+      };
+    }
+    const allowed = uniqueSorted((values.allowedUsers as string[] | undefined) ?? admins);
+    return { adminUsers: admins, allowedUsers: allowed };
+  }
+  if (section === 'aiRouting') {
+    return {
+      ...values,
+      dynamicRoutes: [...new Set(values.dynamicRoutes as string[])],
+      groupRouting: [...(values.groupRouting as unknown[])],
+    };
+  }
+  if (section === 'usageReports' && values.enabled === true) {
+    return { ...values, recipients: uniqueSorted(values.recipients as string[]) };
+  }
+  return values;
+}
+
+function parseJson(raw: string | null, fallback: unknown): unknown {
+  if (!raw) return fallback;
+  try { return JSON.parse(raw); } catch { return fallback; }
+}
+
+export async function readCurrentConfigurationValues(
+  env: Env,
+  section: ConfigurationSection,
+  mode: AdministrationMode,
+): Promise<ConfigurationValues> {
+  switch (section) {
+    case 'access': {
+      const users = await getAllUsers(env.KV);
+      const adminUsers = users.filter((user) => user.role === 'admin').map((user) => user.email).sort();
+      if (mode === 'enterprise') {
+        return {
+          adminUsers,
+          userAccessGroups: parseAccessGroups(await env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP)).sort(),
+          adminAccessGroups: parseAccessGroups(await env.KV.get(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP)).sort(),
+        };
+      }
+      return { adminUsers, allowedUsers: users.map((user) => user.email).sort() };
+    }
+    case 'domain':
+      return { customDomain: (await env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN)) ?? '' };
+    case 'aiRouting':
+      return {
+        gatewayUrl: (await env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL)) || env.AIG_GATEWAY_URL || '',
+        dynamicRoutes: parseJson(await env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES), []),
+        defaultRoute: parseJson(await env.KV.get(SETUP_KEYS.DEFAULT_ROUTE), null),
+        routeContextWindows: parseJson(await env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS), {}),
+        groupRouting: parseJson(await env.KV.get(SETUP_KEYS.GROUP_ROUTING), {}),
+      };
+    case 'codingAgents':
+      return { activeAgents: CONFIGURABLE_ENTERPRISE_AGENTS.filter((agent) => installedAgents(env).includes(agent)) };
+    case 'browserRendering':
+      return { accountId: (await env.KV.get(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID)) ?? '' };
+    case 'securityEgress':
+      return { strictGatewayEgress: (await env.KV.get(SETUP_KEYS.STRICT_EGRESS)) === 'active' };
+    case 'dataGovernance':
+      return {
+        governedMode: (await env.KV.get(SETUP_KEYS.R2_SSE_DISABLED)) === 'active',
+        viewOnlyStorage: (await env.KV.get(SETUP_KEYS.DOWNLOADS_DISABLED)) === 'active',
+      };
+    case 'managedEnvironment':
+      return parseJson(await env.KV.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG), { enabled: false }) as ConfigurationValues;
+    case 'github':
+      return {
+        providerType: (await env.KV.get(SETUP_KEYS.GITHUB_PROVIDER_TYPE)) ?? 'app',
+        appClientId: (await env.KV.get(SETUP_KEYS.GITHUB_APP_CLIENT_ID)) ?? '',
+        oauthClientId: (await env.KV.get(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID)) ?? '',
+      };
+    case 'cloudflareConnection':
+      return { clientId: (await env.KV.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID)) ?? '' };
+    case 'usageReports':
+      return parseJson(await env.KV.get(ADMIN_CONFIGURATION_KEYS.USAGE_REPORT_SETTINGS), { enabled: false }) as ConfigurationValues;
+  }
+}
+
+export interface PreviewValidationResult {
+  values?: ConfigurationValues;
+  fieldErrors?: Record<string, string[]>;
+}
+
+export async function validateConfigurationValues(
+  env: Env,
+  section: ConfigurationSection,
+  mode: AdministrationMode,
+  rawValues: unknown,
+): Promise<PreviewValidationResult> {
+  const parsed = sectionSchemas[section].safeParse(rawValues);
+  if (!parsed.success) return { fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]> };
+  const values = normalizeValues(section, mode, parsed.data);
+
+  if (section === 'access') {
+    const admins = values.adminUsers as string[];
+    if (mode !== 'enterprise' && !admins.every((admin) => (values.allowedUsers as string[]).includes(admin))) {
+      return { fieldErrors: { adminUsers: ['Every administrator must also be an allowed user'] } };
+    }
+  }
+  if (section === 'aiRouting') {
+    const hasSavedToken = Boolean(await env.KV.get(SETUP_KEYS.AIG_TOKEN));
+    const replacing = Boolean((values.replacementToken as string).trim());
+    if (!(values.gatewayUrl as string).trim() || (!replacing && !hasSavedToken && !env.AIG_TOKEN)) {
+      return { fieldErrors: { credentials: ['AI Gateway URL and API token are required'] } };
+    }
+  }
+  if (section === 'browserRendering') {
+    const accountId = (values.accountId as string).trim();
+    const hasToken = Boolean((values.replacementToken as string).trim()) || Boolean(await env.KV.get(SETUP_KEYS.BROWSER_RENDER_TOKEN));
+    if (Boolean(accountId) !== hasToken) {
+      return { fieldErrors: { credentials: ['Browser Run requires both account ID and API token'] } };
+    }
+  }
+  if (section === 'codingAgents') {
+    const installed = installedAgents(env);
+    if (!(values.activeAgents as string[]).every((agent) => installed.includes(agent as never))) {
+      return { fieldErrors: { activeAgents: ['Active coding agents must be installed'] } };
+    }
+  }
+  if (section === 'securityEgress' && values.strictGatewayEgress === true && !env.EGRESS) {
+    return { fieldErrors: { strictGatewayEgress: ['Strict Gateway egress requires the EGRESS binding'] } };
+  }
+  return { values };
+}
+
+function same(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+export async function buildConfigurationPreview(
+  env: Env,
+  section: ConfigurationSection,
+  mode: AdministrationMode,
+  baseRevision: number,
+  currentRevision: number,
+  values: ConfigurationValues,
+): Promise<ConfigurationPreview> {
+  const current = await readCurrentConfigurationValues(env, section, mode);
+  const secretFields = new Set(SECRET_FIELDS[section] ?? []);
+  const changes: ConfigurationChange[] = [];
+  for (const [field, after] of Object.entries(values)) {
+    if (secretFields.has(field)) {
+      changes.push({ field, secret: { willReplace: typeof after === 'string' && after.trim().length > 0 } });
+    } else if (!same(current[field], after)) {
+      changes.push({ field, ...(current[field] !== undefined && { before: current[field] }), after });
+    }
+  }
+
+  const tasks = section === 'access' && (mode === 'onboarding' || mode === 'saas')
+    ? TASKS.access.slice(0, 1)
+    : TASKS[section];
+  return {
+    section,
+    baseRevision,
+    currentRevision,
+    changes,
+    tasks: tasks.map((task) => ({ ...task, dependsOn: [...task.dependsOn] })),
+    warnings: [],
+    exclusions: SETUP_ONLY_TASKS.filter((task) => !tasks.some((selected) => selected.id === task)),
+  };
 }

@@ -41,12 +41,12 @@ function createApp(envOverrides: Partial<Env> = {}) {
   return { app, kv };
 }
 
-function post(app: Hono, body: unknown): Promise<Response> {
-  return app.request('/admin/configuration-previews', {
+function post(app: { request: Hono['request'] }, body: unknown): Promise<Response> {
+  return Promise.resolve(app.request('/admin/configuration-previews', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  }));
 }
 
 const enterpriseAiValues = {
@@ -88,7 +88,7 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
 
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({
-      error: { code: 'configuration_revision_conflict' },
+      code: 'configuration_revision_conflict',
       currentRevision: 8,
     });
     expect(kv.put).not.toHaveBeenCalled();

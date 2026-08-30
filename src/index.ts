@@ -21,6 +21,7 @@ import publicRoutes from './routes/public/index';
 import usageRoutes from './routes/usage';
 import adminTiersRoutes from './routes/admin/tiers';
 import adminConfigurationRoutes from './routes/admin/configuration';
+import adminConfigurationPreviewRoutes from './routes/admin/configuration-previews';
 import billingRoutes from './routes/billing';
 import notificationRoutes from './routes/notifications';
 import stripeWebhookRoute from './routes/stripe-webhook';
@@ -286,6 +287,7 @@ app.route('/api/cloudflare', cloudflareRoutes);
 app.route('/api/usage', usageRoutes);
 app.route('/api/admin/tiers', adminTiersRoutes);
 app.route('/api/admin/configuration', adminConfigurationRoutes);
+app.route('/api/admin/configuration-previews', adminConfigurationPreviewRoutes);
 app.route('/api/billing', billingRoutes);
 app.route('/api/notifications', notificationRoutes);
 
