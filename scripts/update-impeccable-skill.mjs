@@ -10,6 +10,10 @@ const repoRoot = dirname(fileURLToPath(new URL('../package.json', import.meta.ur
 const tempRoot = mkdtempSync(join(tmpdir(), 'impeccable-skill-'));
 const bundlePath = join(tempRoot, 'bundle.zip');
 const outDir = join(tempRoot, 'out');
+const CODEFLARE_IMPECCABLE_DESCRIPTION = 'Critique, audit, harden, adapt, animate, or apply bounded polish to an existing frontend whose direction remains intact. Use for accessibility, responsive behavior, performance, UX copy, interaction detail, visual finishing, and explicit impeccable commands. For greenfield creation or any change to the visual thesis, frontend-design owns art direction; use Impeccable afterward for critique or finishing. Not for backend-only or non-UI tasks.';
+const CODEFLARE_IMPECCABLE_BOUNDARY = `## Codeflare routing boundary
+
+Impeccable owns interface critique, finishing, and its explicitly invoked commands. For a general greenfield or full-redesign request, \`frontend-design\` establishes the visual thesis before Impeccable audits or refines it. When another skill routes here as support, load only the requested critique or finishing playbook; the later general/new-work path applies only after explicit Impeccable invocation. Explicit Impeccable commands keep their documented behavior.`;
 
 try {
   const response = await fetch(BUNDLE_URL, { headers: { 'user-agent': 'codeflare-shadow-pin-bot' } });
@@ -43,6 +47,9 @@ function rewriteFiles(root, runtimePath) {
     if (!/\.(css|html|js|json|md|mjs|ts|tsx|txt)$/.test(file)) continue;
     let text = readFileSync(file, 'utf8');
     text = text.replaceAll('.claude/skills/impeccable', runtimePath);
+    if (file === join(root, 'SKILL.md')) {
+      text = applyCodeflareRoutingBoundary(text);
+    }
 
     // hook-admin manages project-local hook manifests. Those commands must stay
     // project-relative even though the preseed skill itself lives in the user's
@@ -54,6 +61,17 @@ function rewriteFiles(root, runtimePath) {
     }
     writeFileSync(file, text);
   }
+}
+
+function applyCodeflareRoutingBoundary(text) {
+  const narrowed = text.replace(
+    /^description:.*$/m,
+    `description: ${CODEFLARE_IMPECCABLE_DESCRIPTION}`,
+  );
+  const frontmatterEnd = narrowed.indexOf('\n---\n', 4);
+  if (frontmatterEnd === -1) throw new Error('downloaded Impeccable skill has malformed frontmatter');
+  const bodyStart = frontmatterEnd + '\n---\n'.length;
+  return `${narrowed.slice(0, bodyStart)}\n${CODEFLARE_IMPECCABLE_BOUNDARY}\n${narrowed.slice(bodyStart)}`;
 }
 
 function syncManifest(agent, skillRoot) {

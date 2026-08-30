@@ -8,6 +8,9 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, it } from 'node:test';
 
 const skillScripts = fileURLToPath(new URL('../../preseed/agents/claude/skills/ui-ux-pro-max/scripts/', import.meta.url));
+const claudeImpeccableSkill = fileURLToPath(new URL('../../preseed/agents/claude/skills/impeccable/SKILL.md', import.meta.url));
+const piImpeccableSkill = fileURLToPath(new URL('../../preseed/agents/pi/skills/impeccable/SKILL.md', import.meta.url));
+const impeccableUpdater = fileURLToPath(new URL('../../scripts/update-impeccable-skill.mjs', import.meta.url));
 const temporaryDirectories = [];
 
 function runPython(args) {
@@ -141,6 +144,26 @@ describe('UI UX Pro Max runtime contract', () => {
       assert.notEqual(generated.status, 0, `${testCase.name} must fail closed`);
       assert.equal(readFileSync(outsideFile, 'utf8'), 'outside\n');
     }
+  });
+
+  it('REQ-AGENT-179: narrows Impeccable discovery without removing explicit commands', () => {
+    const expectedDescription = 'Critique, audit, harden, adapt, animate, or apply bounded polish to an existing frontend whose direction remains intact. Use for accessibility, responsive behavior, performance, UX copy, interaction detail, visual finishing, and explicit impeccable commands. For greenfield creation or any change to the visual thesis, frontend-design owns art direction; use Impeccable afterward for critique or finishing. Not for backend-only or non-UI tasks.';
+    for (const skillPath of [claudeImpeccableSkill, piImpeccableSkill]) {
+      const skill = readFileSync(skillPath, 'utf8');
+      assert.equal(
+        skill.split('\n').find((line) => line.startsWith('description: ')),
+        `description: ${expectedDescription}`,
+      );
+      assert.ok(skill.includes('## Codeflare routing boundary'));
+      assert.ok(skill.includes('general/new-work path applies only after explicit Impeccable invocation'));
+      assert.ok(skill.includes('| `shape [feature]` |'));
+      assert.ok(skill.includes('| `polish [target]` |'));
+      assert.ok(skill.includes('| `live` |'));
+    }
+
+    const updater = readFileSync(impeccableUpdater, 'utf8');
+    assert.ok(updater.includes(expectedDescription));
+    assert.ok(updater.includes('applyCodeflareRoutingBoundary(text)'));
   });
 
   it('REQ-AGENT-137: reports duplicate identifiers and malformed JSON rule values', () => {

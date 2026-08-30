@@ -281,9 +281,7 @@ anchor per non-manual AC, parses multiple anchors independently, and validates
 every declared block ([AD108](../decisions/README.md#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors)). The git-workflow family is `ci-monitoring`,
 `git-review-pipeline` (advanced-only), `pr-workflow`, and `deploy-credentials`.
 
-The design family (UI/frontend work) is `emil-design-eng` and
-`design-taste-frontend` (prose-only, adapted to every agent), plus `impeccable`. `impeccable` keeps its multi-command design skill and bundled offline/live detector
-scripts. It is scoped to Claude + Pi only: Claude gets the vendored tree in
+The advanced design family uses `design` as a compact router and `frontend-design` as the canonical, tool-neutral frontend art-direction owner. `design-taste-frontend` remains a small compatibility redirect; `ui-ux-pro-max`, `frontend-components`, `frontend-patterns`, and `emil-design-eng` keep bounded advisory or engineering roles. Advanced Pi carries one short always-active rule that loads `design` only for visual work. `impeccable` keeps its explicit multi-command skill and bundled offline/live detector scripts, while implicit discovery narrows to critique and finishing. It is scoped to Claude + Pi only: Claude gets the vendored tree in
 `~/.claude/skills/impeccable/`; Pi gets a dedicated copy under
 `~/.pi/agent/skills/impeccable/` with paths re-pointed and `.mjs` scripts emitted
 verbatim, so detector scripts are never mangled by Claude-to-Pi text adaptation. The vendored Impeccable bundle is shadow-pinned by `bump-shadow-pins.yml`, which
@@ -503,7 +501,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/` (Antigravity), `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
-Advanced mode also delivers a composable design suite. `design` is its default entry point: it routes product-interface decisions to `ui-ux-pro-max`, static PNG/PDF work to `canvas-design`, distinctive frontend implementation to the Codeflare-owned `frontend-design`, and critique/polish to `impeccable` where that optional full bundle is installed. The canonical files live under `preseed/agents/claude/skills/`; the normal generator adapts them for each skill-capable runtime. UI UX Pro Max is vendored under MIT and Canvas Design under Apache-2.0 with provenance and modification notices. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Route the request --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
+Advanced mode also delivers a progressively disclosed design suite. `design` classifies work mode and surface, then loads only the relevant specialist. Static PNG/PDF work belongs to `canvas-design`; `frontend-design` owns frontend art direction; UI UX Pro Max supplies optional local evidence; Impeccable supplies critique and finishing where installed; engineering specialists do not redefine direction. The canonical files live under `preseed/agents/claude/skills/`; the generator projects the same tool-neutral methodology to each skill-capable runtime. UI UX Pro Max is vendored under MIT and Canvas Design under Apache-2.0 with provenance and modification notices. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Select the workflow --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
 
 The release auto-upgrade check uses
 `GET /api/sessions/batch-status?includePreseedCheck=true` to compare
@@ -573,7 +571,7 @@ git-review-pipeline, graphify, and browser-run + browser-e2e. Pi owns native
 reviewer and spec/doc enforcement overrides; Claude retains its original agents
 and enforcement skills.
 
-Advanced design uses `design` as the composable entry point. It routes to `ui-ux-pro-max`, `canvas-design`, the independently written `frontend-design`, and the existing `emil-design-eng`, `design-taste-frontend`, `frontend-components`, and `frontend-patterns` specialists when relevant. `impeccable` remains available for Claude + Pi only; it ships its design skill and offline detector in advanced mode, and Pi gets a dedicated verbatim copy rather than the prose-transformed lane. ([REQ-AGENT-134](../../sdd/spec/agents.md#req-agent-134-advanced-design-skill-suite))
+Advanced design uses `design` as the lazy router and `frontend-design` as the one frontend art-direction authority. Six focused references disclose new-work, redesign, art-direction, asset/motion, visual-QA, and conditional Astro/Cloudflare guidance only when needed. `design-taste-frontend` redirects legacy callers; UI UX Pro Max and Emil remain advisory. `impeccable` remains available for Claude + Pi only with explicit commands intact, a narrowed discovery boundary, and Pi's dedicated verbatim tool bundle. ([REQ-AGENT-134](../../sdd/spec/agents.md#req-agent-134-advanced-design-skill-suite), [REQ-AGENT-179](../../sdd/spec/agents.md#req-agent-179-portable-frontend-design-authority))
 
 The `plugins/` tree includes known_marketplaces.json for default+advanced mode.
 Advanced-only plugins are codeflare-memory (plugin.json, memory-capture.sh,

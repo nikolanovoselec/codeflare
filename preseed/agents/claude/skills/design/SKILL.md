@@ -1,51 +1,45 @@
 ---
 name: design
-description: "Master design router for frontend UI, UX systems, static artwork, critique, and polish. Use whenever a request asks to design, redesign, style, visualize, or substantially improve an interface or visual artifact."
+description: "Route visual work to the smallest specialist. Use for frontend creation or redesign, UI direction, dense interfaces, fixed visual artifacts, explicit visual-design requests, and ambiguous look-better requests. Route static art to canvas-design, frontend art direction to frontend-design, and bounded finishing to impeccable where installed. Exclude API or backend design, prose or documentation, and non-visual engineering."
 ---
 
-# Design
+# Design router
 
-Use this as the entry point for design work. It routes the brief to focused skills; it does not replace or repeat them.
+Classify, dispatch, and stop. Do not repeat specialist methodology.
 
-## Route the request
+## Classify
 
-| Need | Skill | Role |
+Choose one work mode: **greenfield**, **full redesign**, **incremental redesign**, **polish**, or **audit**.
+
+Choose one primary surface:
+
+- **Persuade:** marketing, launch, conversion, campaign, portfolio.
+- **Operate:** dashboards, consoles, internal tools, workflows.
+- **Read:** documentation, editorial, knowledge, reports.
+- **Experience:** immersive, expressive, storytelling, experimental.
+
+These labels select workflows, not visual templates.
+
+## Dispatch
+
+| Request | Lead | Add only when needed |
 |---|---|---|
-| Product UI, patterns, palettes, typography, accessibility, stack guidance | `ui-ux-pro-max` | Searchable design intelligence and implementation constraints |
-| Distinctive website, landing page, app shell, or component direction | `frontend-design` | Brief-specific art direction and frontend execution |
-| Poster, artwork, cover, or other static PNG/PDF composition | `canvas-design` | Visual philosophy and canvas composition |
-| UI critique, redesign, accessibility, responsive behavior, motion, or final polish | `impeccable` | Deep interface audit and refinement when installed |
-| High-level landing-page or portfolio art direction | `design-taste-frontend` | Existing Codeflare taste and composition guidance |
-| Repeated UI structure and behavioral component boundaries | `frontend-components` | Composable component and test discipline |
-| React or Next.js state, performance, and architecture | `frontend-patterns` | Framework implementation patterns |
-| Interaction detail and animation craft | `emil-design-eng` | Focused UI polish and motion guidance |
+| Frontend creation, redesign, or polish that changes the visual thesis | `frontend-design` | `ui-ux-pro-max` for local research; `impeccable` for a later critique where installed |
+| Dense operational interface | `frontend-design` | Research or engineering specialists for evidence and implementation |
+| Poster, cover, artwork, or fixed canvas | `canvas-design` | Frontend skills only when the artifact contains an interface |
+| Existing-interface audit, hardening, accessibility, final pass, or bounded polish within an established direction | `impeccable` where installed | If unavailable, use `frontend-design` as the audit fallback without inventing a new thesis |
+| Repeated component structure | `frontend-components` | `frontend-design` when appearance is in scope |
+| React or Next.js performance | `frontend-patterns` | No design skill for non-visual work |
+| Focused interaction or animation detail | `emil-design-eng` | Use after direction exists |
+| Backend, infrastructure, data, prose, or non-visual refactor | No design skill | Use the relevant non-design owner |
 
-Read each selected skill's `SKILL.md` before applying it. Skills are installed beside this file in the runtime's skills directory. Optional specialists may not exist in every runtime; when one is absent, continue with the available selected skills.
+For “make this look better,” inspect first: route thesis, hierarchy, composition, or visual-language changes to `frontend-design`, and bounded correction to `impeccable` where installed. Honor explicit specialist invocation unless the artifact belongs elsewhere. `design-taste-frontend` redirects to `frontend-design`; never load both.
 
-## Composition rules
+## Execute
 
-- **New frontend:** combine `frontend-design` + `ui-ux-pro-max`; add `impeccable` for critique and the final refinement pass when available.
-- **Existing frontend redesign:** begin with `impeccable` when available, use `ui-ux-pro-max` for evidence and constraints, then use `frontend-design` to establish a coherent direction.
-- **Static visual artifact:** use `canvas-design`; add `ui-ux-pro-max` only when the artifact also needs interface, accessibility, or product-system decisions.
-- **Design-system request:** lead with `ui-ux-pro-max`; use `frontend-design` to keep the resulting implementation distinctive rather than database-driven or generic.
-- Do not invoke every skill by default. Select the smallest set that covers the requested outcome.
-- The user's explicit brief, brand, stack, output format, and accessibility requirements override specialist defaults.
-- Resolve disagreements in this order: user constraints, observable accessibility/usability, project design system, coherent art direction, specialist preference.
+1. Inspect enough project context to classify the request.
+2. Load only selected specialists. Missing optional skills are not errors.
+3. Let `frontend-design` own frontend visual direction; other specialists advise inside it.
+4. Resolve conflicts by user constraints, product truth and behavior, accessibility, incumbent commitments, selected thesis, then specialist preference.
 
-## Invocation examples
-
-Natural requests are enough:
-
-- “Use the design skill to redesign this dashboard.”
-- “Use design to create a distinctive landing page for this product.”
-- “Design a static event poster and deliver PNG and PDF.”
-- “Audit and polish this interface without changing its product structure.”
-
-## Workflow
-
-1. Identify the artifact, audience, primary job, required output, stack, and fixed brand constraints.
-2. Choose the specialist set from the routing table and read those skills.
-3. Establish one direction before implementation: content hierarchy, palette, type roles, layout logic, interaction or composition signature.
-4. Build from shared tokens and reusable components where applicable.
-5. Critique the result against the brief at mobile and desktop sizes or against the requested canvas boundaries.
-6. Refine what exists before adding decoration. Deliver the requested files and briefly state the design decisions that materially shaped them.
+Never claim rendering, image work, research, or delegated review unless that capability was available and used.

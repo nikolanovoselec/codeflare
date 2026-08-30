@@ -2820,7 +2820,7 @@ None.
 **Acceptance Criteria:**
 
 1. Advanced mode delivers `design`, `ui-ux-pro-max`, `canvas-design`, and `frontend-design` to Claude and every skill-capable generated runtime; default mode receives none. <!-- @impl: preseed/agents/claude/manifest.json::skills/design --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: delivers the master router and three specialists to every skill-capable agent) -->
-2. The `design` skill routes to the three new specialists and relevant installed Codeflare design specialists, selecting the smallest useful composition. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Route the request --> <!-- @manual: Invoke the router with requests spanning one and multiple design domains and verify it selects only the smallest useful specialist composition. -->
+2. The `design` skill routes to the three new specialists and relevant installed Codeflare design specialists, selecting the smallest useful composition. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @manual: Invoke the router with requests spanning one and multiple design domains and verify it selects only the smallest useful specialist composition. -->
 3. The vendored UI UX Pro Max and Canvas Design sources retain their MIT and Apache-2.0 license texts. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/LICENSE::MIT License --> <!-- @impl: preseed/agents/claude/skills/_licenses/anthropic-skills-Apache-2.0.txt::Apache License --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: ships upstream licenses and marks the adapted Canvas file) -->
 4. The vendored UI UX Pro Max and Canvas Design sources retain their pinned upstream provenance. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/ORIGIN.md::Upstream provenance --> <!-- @impl: preseed/agents/claude/skills/canvas-design/ORIGIN.md::Upstream provenance --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: preserves pinned provenance values and omits a Copilot skill lane) -->
 5. Modified Canvas instructions carry a prominent modification notice. <!-- @impl: preseed/agents/claude/skills/canvas-design/SKILL.md::Modification notice --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: ships upstream licenses and marks the adapted Canvas file) -->
@@ -2841,7 +2841,7 @@ None.
 
 **Verification:** Generated-seed artifact tests plus manual router-selection and provenance review
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -2864,7 +2864,7 @@ None.
 
 **Verification:** UI UX Pro Max CLI behavioral tests
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -2888,7 +2888,7 @@ None.
 
 **Verification:** UI UX Pro Max CLI behavioral tests
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -2911,7 +2911,34 @@ None.
 
 **Verification:** UI UX Pro Max CLI behavioral tests
 
-**Status:** Partial
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-179: Portable Frontend Design Authority
+
+**Intent:** Every skill-capable agent can route visual work to one product-specific frontend art-direction owner without loading unrelated design manuals or claiming unavailable validation.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Advanced Pi instructions carry one short always-active rule that loads `design` for visual work and skips non-visual work. <!-- @impl: preseed/agents/pi/rules/design-routing.md::Design routing --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: gives advanced Pi one short always-active lazy-load rule) -->
+2. `design` classifies work mode and surface, routes static art to `canvas-design`, routes frontend visual direction to `frontend-design`, and excludes non-visual work. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @manual: Evaluate explicit design, frontend art direction, incremental polish, dense UI, static poster, backend, prose, ambiguous visual improvement, competing-skill, and explicit-specialist prompts; verify the smallest relevant route. -->
+3. `frontend-design` inspects product truth, uses an adaptive interview, establishes one product-specific visual thesis, preserves incumbent systems, and reports capability limits honestly. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Start with evidence --> <!-- @manual: Run fresh-context evaluations for Persuade, Operate, Read, Experience, incremental non-React redesign, and static-routing control; verify materially different outcomes and honest capability reporting. -->
+4. Focused frontend-design references project to every skill-capable runtime and load only for their stated workflow boundary. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Select the workflow --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: projects one portable frontend design authority and its focused references) -->
+5. `design-taste-frontend` remains a small compatibility redirect, while research and finishing specialists do not compete with frontend art direction or lose explicit behavior. <!-- @impl: preseed/agents/claude/skills/design-taste-frontend/SKILL.md::Frontend design compatibility route --> <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareRoutingBoundary --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: separates art-direction changes from bounded interface finishing) --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: keeps advisory specialist discovery narrower than art direction) --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: preserves the legacy taste entry point as a small frontend-design redirect) --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-179: narrows Impeccable discovery without removing explicit commands) -->
+6. Portable design guidance contains no required runtime identity, `AGENTS.md`, runtime-specific home path, network access, optional specialist, or skill-authoring dependency. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Frontend Design --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: keeps portable design guidance free of runtime-specific assumptions) --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: degrades without optional audit or internet capabilities) -->
+
+**Constraints:** The Claude preseed remains canonical storage and generates tool-neutral projections for Codex, Gemini, OpenCode, and Pi. Copilot receives no skill projection. Specialist guidance loads only after routing selects it.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-134](#req-agent-134-advanced-design-skill-suite), [REQ-AGENT-135](#req-agent-135-ui-ux-pro-max-query-and-generation)
+
+**Verification:** Generated-seed and runtime contract tests plus activation, portability, and fresh-context behavioral evaluations.
+
+**Status:** Implemented
 
 ---
 

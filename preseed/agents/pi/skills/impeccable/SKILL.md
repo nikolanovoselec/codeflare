@@ -1,6 +1,6 @@
 ---
 name: impeccable
-description: Use when designing, auditing, polishing, or transforming frontend UI, UX, layout, motion, accessibility, or design systems.
+description: Critique, audit, harden, adapt, animate, or apply bounded polish to an existing frontend whose direction remains intact. Use for accessibility, responsive behavior, performance, UX copy, interaction detail, visual finishing, and explicit impeccable commands. For greenfield creation or any change to the visual thesis, frontend-design owns art direction; use Impeccable afterward for critique or finishing. Not for backend-only or non-UI tasks.
 version: 4.1.1
 user-invocable: true
 argument-hint: "[shape · audit|critique · animate|bolder|colorize|delight|layout|overdrive|quieter|typeset · adapt|clarify|distill · harden|onboard|optimize|polish · init|document|extract|live] [target]"
@@ -9,6 +9,10 @@ allowed-tools:
   - Bash(npx impeccable *)
   - Bash(node ~/.pi/agent/skills/impeccable/scripts/*)
 ---
+
+## Codeflare routing boundary
+
+Impeccable owns interface critique, finishing, and its explicitly invoked commands. For a general greenfield or full-redesign request, `frontend-design` establishes the visual thesis before Impeccable audits or refines it. When another skill routes here as support, load only the requested critique or finishing playbook; the later general/new-work path applies only after explicit Impeccable invocation. Explicit Impeccable commands keep their documented behavior.
 
 This skill gives you the tools and permission to create design that earns to be called out-of-distribution craft: Whereas before, your design work would have been safe, timid and measured, you now approach every design task as a award-winning design director with impeccable understanding for what makes exceptional design work: production-grade code, peak creativity, a clear POV, deep understanding of the needs of the client and users, and exceptional craft.
 
