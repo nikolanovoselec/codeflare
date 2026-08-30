@@ -240,9 +240,6 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 2. A touch that becomes a movement gesture does not activate a control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC2: suppresses tap and compatibility click after movement) -->
 3. A cancelled touch does not activate a control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC3: does not activate a tap after cancellation) -->
 4. Classic stationary tap behavior remains unchanged. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC4: preserves the Classic stationary tap path without a synthetic mouse sequence) -->
-5. A stationary Herdr tap opens mobile input when the keyboard is closed. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::focusMobileTerminal --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-020 AC5/AC7: snaps Pi fullscreen history to bottom before opening mobile input) --> <!-- @manual: On Samsung Internet with the keyboard closed, tap Pi input and confirm the keyboard opens. -->
-6. A stationary Herdr tap remains usable while the keyboard is open without resetting the application-owned viewport. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC6: forwards a keyboard-open tap through sub-threshold jitter) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-020 AC6: does not reset Pi fullscreen history when mobile input is already open) --> <!-- @manual: On Samsung Internet with the keyboard open, tap Pi input and Herdr controls and confirm each activates once without selection or a viewport reset. -->
-7. Opening mobile input from a trusted Herdr tap resets application-owned fullscreen history to the live bottom. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-020 AC5/AC7: snaps Pi fullscreen history to bottom before opening mobile input) --> <!-- @manual: In Samsung Internet, scroll Pi history up with the keyboard closed, tap to open the keyboard, and confirm the latest output and prompt become visible. -->
 
 **Constraints:** Long press and multi-touch do not activate the addressed control.
 
@@ -251,6 +248,31 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Dependencies:** [REQ-MOB-005](#req-mob-005-swipe-gestures-send-arrow-keys-or-scroll), [REQ-TERM-002](terminal.md#req-term-002-websocket-connection-to-container-pty)
 
 **Verification:** Automated gesture and duplicate-suppression tests plus manual Samsung Internet tap verification.
+
+**Status:** Implemented
+
+---
+
+### REQ-MOB-022: Herdr mobile input focus and viewport
+
+**Intent:** Trusted Herdr taps coordinate mobile input focus with application-owned fullscreen history.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A stationary Herdr tap opens mobile input when the keyboard is closed. <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::focusMobileTerminal --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-022 AC1/AC3: snaps Pi fullscreen history to bottom before opening mobile input) --> <!-- @manual: On Samsung Internet with the keyboard closed, tap Pi input and confirm the keyboard opens. -->
+2. A stationary Herdr tap remains usable while the keyboard is open. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-022 AC2: forwards a keyboard-open tap through sub-threshold jitter) --> <!-- @manual: On Samsung Internet with the keyboard open, tap Pi input and Herdr controls and confirm each activates once without selection. -->
+3. Opening mobile input from a trusted Herdr tap resets application-owned fullscreen history to the live bottom. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-022 AC1/AC3: snaps Pi fullscreen history to bottom before opening mobile input) --> <!-- @manual: In Samsung Internet, scroll Pi history up with the keyboard closed, tap to open the keyboard, and confirm the latest output and prompt become visible. -->
+4. Tapping Herdr while mobile input is already open does not reset the application-owned viewport. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-022 AC4: does not reset Pi fullscreen history when mobile input is already open) --> <!-- @manual: With the keyboard open and Pi history scrolled up, tap a control and confirm the viewport stays fixed. -->
+
+**Constraints:** Classic terminal focus and viewport behavior remain unchanged.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-MOB-017](#req-mob-017-fullscreen-application-touch-scrolling), [REQ-MOB-020](#req-mob-020-terminal-touch-activation)
+
+**Verification:** Automated tap and viewport tests plus manual Samsung Internet verification.
 
 **Status:** Implemented
 
