@@ -140,7 +140,7 @@ export class Timekeeper {
 
     // Restore or atomically migrate the one accounting state value.
     this.ready = ctx.blockConcurrencyWhile(async () => {
-      const transact = async (callback: (storage: DurableObjectStorage) => Promise<void>) => {
+      const transact = async (callback: (storage: DurableObjectStorage | DurableObjectTransaction) => Promise<void>) => {
         if (typeof ctx.storage.transaction === 'function') await ctx.storage.transaction(callback);
         else await callback(ctx.storage);
       };
@@ -382,7 +382,7 @@ export class Timekeeper {
     if (delta > 0) {
       const now = new Date();
       const candidateMarkers = markerKeysFor(now, sessionHash);
-      const persist = async (storage: DurableObjectStorage) => {
+      const persist = async (storage: DurableObjectStorage | DurableObjectTransaction) => {
         const unknownMarkers = candidateMarkers.filter((key) => !this.markerCache.has(key));
         if (unknownMarkers.length > 0) {
           const stored = await storage.get<boolean>(unknownMarkers);
