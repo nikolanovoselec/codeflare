@@ -4,13 +4,14 @@
  * Tests the extracted resolveKeyAction() pure function and
  * the FUNCTIONAL_KEY_MAP constant.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../lib/mobile', () => ({
   disableVirtualKeyboardOverlay: vi.fn(),
   enableVirtualKeyboardOverlay: vi.fn(),
   forceResetKeyboardState: vi.fn(),
   isFocusOnTerminalInput: vi.fn(() => false),
+  isIOSDevice: vi.fn(() => false),
   isSamsungBrowser: false,
 }));
 
@@ -21,9 +22,51 @@ import {
   activateStickyCtrl,
   deactivateStickyCtrl,
   isStickyCtrlActive,
+  focusMobileTerminal,
   setupMobileInput,
 } from '../../lib/terminal-mobile-input';
-import { disableVirtualKeyboardOverlay, forceResetKeyboardState, isFocusOnTerminalInput } from '../../lib/mobile';
+import { disableVirtualKeyboardOverlay, enableVirtualKeyboardOverlay, forceResetKeyboardState, isFocusOnTerminalInput, isIOSDevice } from '../../lib/mobile';
+import { setIframeInput, setRemoveFocusGuard } from '../../lib/xterm-internals';
+
+describe('focusMobileTerminal', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(isIOSDevice).mockReturnValue(false);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('removes the guard immediately and focuses iOS input synchronously', () => {
+    const terminal = { textarea: document.createElement('textarea') } as any;
+    const input = document.createElement('input');
+    const focus = vi.spyOn(input, 'focus');
+    const removeGuard = vi.fn();
+    setIframeInput(terminal, input);
+    setRemoveFocusGuard(terminal, removeGuard);
+    vi.mocked(isIOSDevice).mockReturnValue(true);
+
+    focusMobileTerminal(terminal);
+
+    expect(removeGuard).toHaveBeenCalledOnce();
+    expect(enableVirtualKeyboardOverlay).toHaveBeenCalledOnce();
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+  });
+
+  it('defers Android input focus by one zero-delay timer', () => {
+    vi.useFakeTimers();
+    const terminal = { textarea: document.createElement('textarea') } as any;
+    const input = document.createElement('input');
+    const focus = vi.spyOn(input, 'focus');
+    setIframeInput(terminal, input);
+    vi.mocked(isIOSDevice).mockReturnValue(false);
+
+    focusMobileTerminal(terminal);
+    expect(enableVirtualKeyboardOverlay).toHaveBeenCalledOnce();
+    expect(focus).not.toHaveBeenCalled();
+
+    vi.runOnlyPendingTimers();
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+  });
+});
 
 describe('FUNCTIONAL_KEY_MAP', () => {
   it('maps Enter to carriage return', () => {

@@ -5,10 +5,10 @@ You are the bounded session-memory worker. Convert the immutable prefiltered con
 
 ## Execution budget
 
-- The public request and agent definition enforce `thinking: medium` and at most four agent turns.
-- Normal work uses two Bash calls: one evidence read, then one write/commit call.
+- The public request and agent definition enforce `thinking: medium` and at most seven agent turns.
+- Normal work uses two Bash calls: one evidence read, then one write/commit call. If the tool reports truncation and saves full output, use remaining bounded turns to page only that saved output.
 - Do not read skills, project documentation, the root session JSONL, pointers, counters, manifests, or unrelated files.
-- Do not split the already-bounded transcript into scratch files, reread chunks, search the filesystem, or use context-mode/Graphify query tools.
+- Do not split the already-bounded transcript into scratch files, reread live inputs, search the filesystem, or use context-mode/Graphify query tools.
 - Process the supplied transcript once. Preserve its ordered arc while retaining only meaningful decisions, preferences, failures, fixes, identifiers, and references.
 
 ## Request variables

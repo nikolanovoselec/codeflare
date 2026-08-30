@@ -48,8 +48,6 @@ describe('REQ-TERM-023 AC1 / H1: bounded stream-safe OSC 777 parser', () => {
     const parser = new OscAgentEventParser();
     const frames = [
       [AGENT_EVENT_FRAMES.piInputRequired, 'input-required'],
-      [AGENT_EVENT_FRAMES.piTaskCompleted, 'task-completed'],
-      [AGENT_EVENT_FRAMES.piTaskFailed, 'task-failed'],
       [AGENT_EVENT_FRAMES.claudeInputRequired, 'input-required'],
     ];
     for (const [frame, kind] of frames) {
@@ -60,6 +58,8 @@ describe('REQ-TERM-023 AC1 / H1: bounded stream-safe OSC 777 parser', () => {
       '\x1b]777;notify;Claude Code;Claude is waiting for your input\x07',
       '\x1b]777;notify;Claude Code;Claude needs your permission!\x07',
       '\x1b]777;notify;Pi;Agent needs your input and here is prose\x07',
+      '\x1b]777;notify;Pi;Ready for input\x07',
+      '\x1b]777;notify;Pi;Task failed\x07',
       '\x1b]777;notify;Other;Agent needs your input\x07',
       '\x1b]777;notify;Pi;Agent needs your input',
     ]) {
@@ -221,6 +221,17 @@ describe('REQ-TERM-028 AC1-AC4 / H4 and queue lifecycle bounds', () => {
     const cancelled = queue.cancelForPresence();
     assert.equal(cancelled.cancelledCount, 2);
     assert.deepEqual(queue.drain({ ackEventIds: [] }).events, []);
+  });
+
+  it('working status cancels queued completion without cancelling needs-input', () => {
+    const { queue } = queueAt();
+    queue.enqueue('input-required', []);
+    queue.enqueue('task-completed', []);
+    queue.drain({ ackEventIds: [] });
+
+    const cancelled = queue.cancelKind('task-completed');
+    assert.equal(cancelled.cancelledCount, 1);
+    assert.deepEqual(queue.drain({ ackEventIds: [] }).events.map((event) => event.kind), ['input-required']);
   });
 
   it('drops the oldest event at the per-session cap and records the drop', () => {

@@ -1,6 +1,8 @@
 import { isAbsolute, relative } from "node:path";
 
-export const MEMORY_EVERY_N_PROMPTS = 15;
+export const MEMORY_EVERY_N_PROMPTS = 50;
+export const VAULT_EVERY_N_PROMPTS = 100;
+export const EXTRACTION_MAX_TURNS = 7;
 export const MEMORY_CAPTURE_MAX_TOTAL_CHARS = 200000;
 export const MEMORY_CAPTURE_MAX_TURN_CHARS = 10000;
 export const EXTRACTION_RUNNING_TTL_MS = 30 * 60 * 1000;
@@ -43,6 +45,8 @@ export interface VaultExtractRequest {
   requestId: string;
   changedFiles: string[];
   stagedManifestHash: string;
+  ownerSessionId?: string;
+  createdAt?: number;
 }
 
 export interface PublicExtractionRequest {
@@ -52,7 +56,7 @@ export interface PublicExtractionRequest {
   run_in_background: true;
   inherit_context: false;
   thinking: "medium";
-  max_turns: 4;
+  max_turns: 7;
   model?: string;
 }
 
@@ -135,11 +139,19 @@ export function parseVaultExtractRequest(value: unknown): VaultExtractRequest | 
   if (!Array.isArray(candidate.changedFiles) || candidate.changedFiles.some((path) => typeof path !== "string" || !isAbsolute(path))) return undefined;
   const stagedManifestHash = nonEmptyString(candidate.stagedManifestHash);
   if (!stagedManifestHash || !MANIFEST_HASH_PATTERN.test(stagedManifestHash)) return undefined;
+  const ownerSessionId = candidate.ownerSessionId === undefined
+    ? undefined
+    : nonEmptyString(candidate.ownerSessionId);
+  if (candidate.ownerSessionId !== undefined && (!ownerSessionId || !SESSION_ID_PATTERN.test(ownerSessionId))) return undefined;
+  const createdAt = candidate.createdAt === undefined ? undefined : candidate.createdAt;
+  if (createdAt !== undefined && (typeof createdAt !== "number" || !Number.isFinite(createdAt) || createdAt < 0)) return undefined;
   return {
     version: 1,
     requestId: candidate.requestId,
     changedFiles: [...candidate.changedFiles].sort(),
     stagedManifestHash,
+    ...(ownerSessionId ? { ownerSessionId } : {}),
+    ...(typeof createdAt === "number" ? { createdAt } : {}),
   };
 }
 
@@ -227,7 +239,7 @@ export function buildPublicExtractionRequest(input: {
     run_in_background: true,
     inherit_context: false,
     thinking: "medium",
-    max_turns: 4,
+    max_turns: EXTRACTION_MAX_TURNS,
     ...(model ? { model } : {}),
   };
 }
@@ -246,7 +258,7 @@ function publicRequestMatches(value: unknown, requestId: string, job: Extraction
     && request.run_in_background === true
     && request.inherit_context === false
     && request.thinking === "medium"
-    && request.max_turns === 4
+    && request.max_turns === EXTRACTION_MAX_TURNS
     && hasExactMarker(request.prompt, requestId);
 }
 
@@ -289,14 +301,15 @@ export function extractionTranscriptFacts(input: {
   now: number;
   successQualifies: () => boolean;
 }): ExtractionTranscriptFacts {
-  const launchCount = input.entries.reduce((count, entry) => count + launchItems(entry).filter((item) => (
+  const launchedRequests = input.entries.flatMap((entry) => launchItems(entry).filter((item) => (
     item?.requestId === input.requestId
       && item?.jobType === input.job
       && Number.isInteger(item?.reminder)
       && item.reminder >= 0
       && item.reminder <= 5
       && publicRequestMatches(item?.request, input.requestId, input.job)
-  )).length, 0);
+  )).map((item) => item.request));
+  const launchCount = launchedRequests.length;
   const giveup = input.entries.some((entry) => giveupItems(entry).some((item) => (
     item?.requestId === input.requestId && item?.jobType === input.job
   )));
@@ -308,7 +321,8 @@ export function extractionTranscriptFacts(input: {
     arguments: part?.arguments,
   }))).filter((call) => call.id
     && call.name === "subagent"
-    && publicRequestMatches(call.arguments, input.requestId, input.job));
+    && publicRequestMatches(call.arguments, input.requestId, input.job)
+    && launchedRequests.some((request) => JSON.stringify(call.arguments) === JSON.stringify(request)));
   const pendingLaunch = launchCount > calls.length;
   const notifications = new Map<string, string>();
   for (const entry of input.entries) {
@@ -479,11 +493,11 @@ export function capTurn(text: string, max = MEMORY_CAPTURE_MAX_TURN_CHARS): stri
   return lost.length > 0 ? `${kept}\n[refs dropped in truncation: ${lost.join(", ")}]` : kept;
 }
 
-// The capture trigger counts real user prompts (15); the payload ceiling used to
+// The capture trigger counts real user prompts (50); the payload ceiling used to
 // count messages (40). The two units convert at a rate that swings with how
 // agentic the window was -- measured, ~2.5 messages per prompt on a light
 // session and ~25 on a heavy one -- so a message count either sat idle or cut a
-// 15-prompt window down to the last 9 of its prompts, permanently: the prompt
+// 50-prompt window down to a suffix of its prompts, permanently: the prompt
 // counter advances whether or not the slice kept everything.
 //
 // Budget characters instead, which is what the payload actually costs, and spend
@@ -584,6 +598,11 @@ export function isResumedSession(counterFileExists: boolean, messageCount: numbe
 
 export function shouldCapture(delta: number): boolean {
   return delta >= MEMORY_EVERY_N_PROMPTS;
+}
+
+export function shouldCheckVault(previousCount: number, currentCount: number): boolean {
+  return Math.floor(currentCount / VAULT_EVERY_N_PROMPTS)
+    > Math.floor(previousCount / VAULT_EVERY_N_PROMPTS);
 }
 
 export function isFirstMessage(counterFileExists: boolean, messageCount: number): boolean {

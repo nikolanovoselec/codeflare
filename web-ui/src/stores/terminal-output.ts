@@ -139,7 +139,6 @@ export function scheduleWrite(key: string, terminal: Terminal, data: string): vo
     frameAssemblers.set(key, assembler);
   }
   const units = assembler.ingest(data, Date.now());
-
   let buffer = writeBuffers.get(key);
   if (!buffer) {
     buffer = [];

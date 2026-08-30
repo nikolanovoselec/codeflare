@@ -2,52 +2,26 @@ import { spawn } from 'node:child_process';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
 const INPUT_NEEDED = '\u001b]777;notify;Pi;Agent needs your input\u0007';
-const READY_FOR_INPUT = '\u001b]777;notify;Pi;Ready for input\u0007';
-const TASK_FAILED = '\u001b]777;notify;Pi;Task failed\u0007';
-
-export const PI_IDLE_NOTIFICATION_DELAY_MS = 5 * 60_000;
-
-type RunState = {
-  readonly started: boolean;
-  readonly interactiveInput: boolean;
-  readonly cancelled: boolean;
-  readonly eventEmitted: boolean;
-  readonly signal?: AbortSignal;
-  readonly finalStopReason?: string;
-};
 
 export function isPiRpcMode(argv: readonly string[]): boolean {
   return argv.some((value, index) => value === '--mode' && argv[index + 1] === 'rpc');
 }
 
-function emit(sequence: string): void {
+function emitInputNeeded(): void {
   if (process.env.HERDR_ENV === '1') {
-    const kind = sequence === INPUT_NEEDED
-      ? 'input-required'
-      : sequence === TASK_FAILED
-        ? 'task-failed'
-        : 'task-completed';
-    const child = spawn('/usr/local/bin/codeflare-agent-event', [kind], {
+    const child = spawn('/usr/local/bin/codeflare-agent-event', ['input-required'], {
       stdio: 'ignore',
     });
     child.unref();
     return;
   }
-  process.stdout.write(sequence);
+  process.stdout.write(INPUT_NEEDED);
 }
 
 // The ask_user_question package's public notifier channel. Channel names in
 // the rpiv:* namespace are immutable with append-only payloads, so this
-// subscription survives the package's major releases, unlike a toolName match
-// on tool_call (a 2.x rename would silently kill the attention signal). It
-// also fires only when a questionnaire will actually open (post-validation).
+// subscription survives package releases and fires only after validation.
 const ASK_USER_PROMPT_EVENT = 'rpiv:ask-user:prompt';
-const SUBAGENT_ACTIVE_EVENT = 'subagents:created';
-const SUBAGENT_TERMINAL_EVENTS = [
-  'subagents:completed',
-  'subagents:failed',
-  'subagents:resumed',
-] as const;
 
 export default function nativeNotifications(
   pi: ExtensionAPI,
@@ -56,141 +30,16 @@ export default function nativeNotifications(
   // RPC stdout is strict JSONL. Native Chat uses Code OSS notifications instead.
   if (isPiRpcMode(argv)) return;
 
-  let run: RunState | undefined;
-  let idleTimer: ReturnType<typeof setTimeout> | undefined;
-  let hasInteractiveLineage = false;
-  const activeSubagents = new Set<string>();
-
-  const cancelIdleTimer = (clearLineage: boolean): void => {
-    if (idleTimer !== undefined) clearTimeout(idleTimer);
-    idleTimer = undefined;
-    if (clearLineage) hasInteractiveLineage = false;
-  };
-
-  const scheduleIdleNotification = (sequence: string): void => {
-    cancelIdleTimer(false);
-    hasInteractiveLineage = true;
-    idleTimer = setTimeout(() => {
-      idleTimer = undefined;
-      if (run?.started === true || activeSubagents.size > 0) return;
-      hasInteractiveLineage = false;
-      emit(sequence);
-    }, PI_IDLE_NOTIFICATION_DELAY_MS);
-    (idleTimer as { unref?: () => void }).unref?.();
-  };
-
-  const subagentId = (payload: unknown): string | undefined => {
-    if (typeof payload !== 'object' || payload === null) return undefined;
-    const id = (payload as { id?: unknown }).id;
-    return typeof id === 'string' && id.length > 0 ? id : undefined;
-  };
-
-  pi.events.on(SUBAGENT_ACTIVE_EVENT, (payload: unknown) => {
-    const id = subagentId(payload);
-    if (!id) return;
-    activeSubagents.add(id);
-    cancelIdleTimer(false);
+  let emittedForRun = false;
+  pi.on('agent_start', async () => {
+    emittedForRun = false;
   });
 
-  for (const channel of SUBAGENT_TERMINAL_EVENTS) {
-    pi.events.on(channel, (payload: unknown) => {
-      const id = subagentId(payload);
-      if (id) activeSubagents.delete(id);
-    });
-  }
-
-  pi.on('input', async (event) => {
-    cancelIdleTimer(false);
-    const interactiveInput = event.source === 'interactive';
-    run = run === undefined
-      ? {
-          started: false,
-          interactiveInput,
-          cancelled: false,
-          eventEmitted: false,
-        }
-      : {
-          ...run,
-          interactiveInput: run.interactiveInput || interactiveInput,
-        };
-  });
-
-  pi.on('agent_start', async (_event, ctx) => {
-    cancelIdleTimer(false);
-    run = run === undefined
-      ? {
-          started: true,
-          interactiveInput: false,
-          cancelled: false,
-          eventEmitted: false,
-          signal: ctx.signal,
-        }
-      : {
-          ...run,
-          started: true,
-          signal: ctx.signal,
-          finalStopReason: undefined,
-        };
-  });
-
-  // The payload (question/option text) is deliberately ignored: fixed inert
-  // notification text only, never model-authored content. A run can produce at
-  // most one terminal event, even if the notifier channel fires repeatedly.
+  // Ignore model-authored question text. One foreground run emits at most one
+  // fixed attention event; Herdr status owns completion notification timing.
   pi.events.on(ASK_USER_PROMPT_EVENT, () => {
-    if (run?.eventEmitted === true) return;
-    cancelIdleTimer(true);
-    emit(INPUT_NEEDED);
-    run = run === undefined
-      ? {
-          started: false,
-          interactiveInput: false,
-          cancelled: false,
-          eventEmitted: true,
-        }
-      : { ...run, eventEmitted: true };
-  });
-
-  pi.on('tool_result', async (event) => {
-    if (event.toolName !== 'ask_user_question') return;
-    const details = event.details as { cancelled?: boolean } | undefined;
-    if (details?.cancelled === true && run !== undefined) {
-      cancelIdleTimer(true);
-      run = { ...run, cancelled: true };
-    }
-  });
-
-  pi.on('agent_end', async (event) => {
-    if (run === undefined) return;
-    const finalAssistant = [...event.messages]
-      .reverse()
-      .find((message) => message.role === 'assistant');
-    run = { ...run, finalStopReason: finalAssistant?.stopReason };
-  });
-
-  pi.on('agent_settled', async () => {
-    const settledRun = run;
-    run = undefined;
-    if (settledRun === undefined || !settledRun.started) return;
-
-    if (
-      settledRun.cancelled
-      || settledRun.eventEmitted
-      || settledRun.signal?.aborted === true
-      || settledRun.finalStopReason === undefined
-      || settledRun.finalStopReason === 'aborted'
-    ) {
-      cancelIdleTimer(true);
-      return;
-    }
-
-    if (!settledRun.interactiveInput && !hasInteractiveLineage) return;
-    if (activeSubagents.size > 0) {
-      hasInteractiveLineage = true;
-      cancelIdleTimer(false);
-      return;
-    }
-    scheduleIdleNotification(
-      settledRun.finalStopReason === 'error' ? TASK_FAILED : READY_FOR_INPUT,
-    );
+    if (emittedForRun) return;
+    emittedForRun = true;
+    emitInputNeeded();
   });
 }

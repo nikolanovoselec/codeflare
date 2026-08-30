@@ -269,6 +269,10 @@ function memoryCounterPath(harness: Harness): string {
   return join(harness.paths.memoryCounterDir, `${harness.sessionId}.count`);
 }
 
+function vaultCheckCounterPath(harness: Harness): string {
+  return join(harness.paths.memoryCounterDir, `${harness.sessionId}.vault-count`);
+}
+
 function vaultPointerPath(harness: Harness): string {
   return join(harness.paths.cacheDir, 'vault-extract.pi.vars');
 }
@@ -279,7 +283,17 @@ function vaultChunkPath(harness: Harness, requestId: string): string {
 
 function writePostCommitChunk(harness: Harness, requestId: string): void {
   writeFileSync(vaultChunkPath(harness, requestId), `${JSON.stringify({
-    nodes: [],
+    nodes: [{
+      id: `document_${requestId}`,
+      label: 'captured document',
+      file_type: 'document',
+      source_file: 'Raw/Sessions/capture.md',
+      source_location: null,
+      source_url: null,
+      captured_at: null,
+      author: null,
+      contributor: null,
+    }],
     edges: [],
     hyperedges: [],
     input_tokens: 0,
@@ -342,6 +356,16 @@ async function appendPrompt(harness: Harness, ordinal: number): Promise<void> {
   await harness.emit('before_agent_start', { prompt: content });
 }
 
+async function triggerVaultCheck(harness: Harness): Promise<void> {
+  mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
+  writeFileSync(memoryCounterPath(harness), '100', 'utf8');
+  writeFileSync(vaultCheckCounterPath(harness), '0', 'utf8');
+  for (let ordinal = 1; ordinal <= 100; ordinal += 1) {
+    appendEntry(harness.sessionFile, userMessage(`vault cadence ${ordinal}`));
+  }
+  await harness.emit('before_agent_start', { prompt: 'vault cadence 100' });
+}
+
 async function failExactAttempts(harness: Harness, job: ExtractionJob): Promise<void> {
   await harness.emit('agent_settled');
   for (let attempt = 1; attempt <= 6; attempt += 1) {
@@ -398,7 +422,7 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
       version: 1,
       requestId: UUIDS[0],
       sessionId: 'session-1',
-      promptCount: 15,
+      promptCount: 50,
       captureTimestamp: '2026-07-14T10-00-00',
       captureFilename: '2026-07-14T10-00-00-session-1.md',
       transcript: '## user\nhello',
@@ -432,7 +456,7 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
       run_in_background: true,
       inherit_context: false,
       thinking: 'medium',
-      max_turns: 4,
+      max_turns: 7,
     });
     expect(buildPublicExtractionRequest({ ...base, model: '  ' })).not.toHaveProperty('model');
     expect(buildPublicExtractionRequest({ ...base, model: 'provider/model' })).toHaveProperty('model', 'provider/model');
@@ -449,7 +473,10 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
       launchEntry(UUIDS[0], 'memory-capture', 0, request),
       toolCall('wrong-background', 'memory-capture', request, undefined, { run_in_background: false }),
       toolCall('wrong-thinking', 'memory-capture', request, undefined, { thinking: 'high' }),
-      toolCall('wrong-turn-limit', 'memory-capture', request, undefined, { max_turns: 40 }),
+      toolCall('wrong-turn-limit', 'memory-capture', request, undefined, { max_turns: 70 }),
+      toolCall('wrong-prompt-path', 'memory-capture', request, undefined, {
+        prompt: request.prompt.replace('VARS_FILE=/vars', 'VARS_FILE=/other'),
+      }),
       toolCall('exact-call', 'memory-capture', request),
     ];
     expect(extractionTranscriptFacts({
@@ -540,7 +567,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
       await harness.emit('session_start');
       mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
       writeFileSync(memoryCounterPath(harness), '0', 'utf8');
-      for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
+      for (let ordinal = 1; ordinal <= 50; ordinal += 1) await appendPrompt(harness, ordinal);
 
       expect(readJson(activeExecutionPath(harness, 'memory-capture')).captureTimestamp).toMatch(/-0400$/);
     } finally {
@@ -549,7 +576,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     }
   });
 
-  it('creates work on the fifteenth real prompt and emits a visible reminder without private spawn', async () => {
+  it('creates work on the fiftieth real prompt and emits a visible reminder without private spawn', async () => {
     const harness = makeHarness();
     let privateSpawnCalls = 0;
     (globalThis as Record<symbol, unknown>)[Symbol.for('@gotgenes/pi-subagents:service')] = {
@@ -559,10 +586,10 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
     writeFileSync(memoryCounterPath(harness), '0', 'utf8');
 
-    for (let ordinal = 1; ordinal <= 14; ordinal += 1) await appendPrompt(harness, ordinal);
+    for (let ordinal = 1; ordinal <= 49; ordinal += 1) await appendPrompt(harness, ordinal);
     expect(existsSync(memoryPointerPath(harness))).toBe(false);
 
-    await appendPrompt(harness, 15);
+    await appendPrompt(harness, 50);
     expect(existsSync(memoryPointerPath(harness))).toBe(true);
     await harness.emit('agent_settled');
 
@@ -577,7 +604,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
       run_in_background: true,
       inherit_context: false,
       thinking: 'medium',
-      max_turns: 4,
+      max_turns: 7,
     });
     expect(launch.request.prompt).toContain(`CODEFLARE_EXTRACTION_REQUEST=${launch.requestId}`);
     const executionPath = memoryExecutionPath(harness, launch.requestId);
@@ -592,7 +619,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
     writeFileSync(memoryCounterPath(harness), '0', 'utf8');
-    for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
+    for (let ordinal = 1; ordinal <= 50; ordinal += 1) await appendPrompt(harness, ordinal);
 
     const requestId = String(readJson(memoryPointerPath(harness)).requestId);
     const sharedPath = memoryExecutionPath(harness, requestId);
@@ -618,13 +645,13 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
     writeFileSync(memoryCounterPath(harness), '0', 'utf8');
-    for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
+    for (let ordinal = 1; ordinal <= 50; ordinal += 1) await appendPrompt(harness, ordinal);
     writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'visible.md'), 'visible\n', 'utf8');
 
     await harness.emit('agent_settled');
     const sent = latestLaunchMessage(harness.pi, 'memory-capture');
-    expect(sent.message.details?.items?.map((item) => item.jobType).sort())
-      .toEqual(['memory-capture', 'vault-extract']);
+    expect(sent.message.details?.items?.map((item) => item.jobType))
+      .toEqual(['memory-capture']);
     const visibleItems = modelVisibleLaunchItems(sent);
     expect(visibleItems).toEqual(sent.message.details?.items);
     const memoryItem = visibleItems.find((item) => item.jobType === 'memory-capture');
@@ -633,7 +660,6 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(markdownHeadings(sent.message.content)).toEqual(['## Extraction jobs ready']);
     expect(extractionJobLines(sent.message.content)).toEqual([
       '- `memory-capture` · delivery 1/6',
-      '- `vault-extract` · delivery 1/6',
     ]);
     expect(sent.message.content).toContain('<extraction-items-json>\n[\n  {');
   });
@@ -642,17 +668,17 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     const harness = makeHarness();
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
-    writeFileSync(memoryCounterPath(harness), '15', 'utf8');
-    for (let ordinal = 1; ordinal <= 29; ordinal += 1) {
+    writeFileSync(memoryCounterPath(harness), '50', 'utf8');
+    for (let ordinal = 1; ordinal <= 99; ordinal += 1) {
       appendEntry(harness.sessionFile, userMessage(`real prompt ${ordinal}`));
     }
 
-    await appendPrompt(harness, 30);
+    await appendPrompt(harness, 100);
     const execution = readJson(activeExecutionPath(harness, 'memory-capture'));
-    expect(execution.promptCount).toBe(30);
-    expect(execution.transcript).not.toContain('real prompt 15\n');
-    expect(execution.transcript).toContain('real prompt 16');
-    expect(execution.transcript).toContain('real prompt 30');
+    expect(execution.promptCount).toBe(100);
+    expect(execution.transcript).not.toContain('real prompt 50\n');
+    expect(execution.transcript).toContain('real prompt 51');
+    expect(execution.transcript).toContain('real prompt 100');
   });
 
   it('excludes synthetic task, Agent, prompt-file, and extraction directive entries from the cadence', async () => {
@@ -660,7 +686,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
     writeFileSync(memoryCounterPath(harness), '0', 'utf8');
-    for (let ordinal = 1; ordinal <= 14; ordinal += 1) await appendPrompt(harness, ordinal);
+    for (let ordinal = 1; ordinal <= 49; ordinal += 1) await appendPrompt(harness, ordinal);
     for (const content of [
       '<task-notification>done</task-notification>',
       'Agent({ subagent_type: "memory-capture" })',
@@ -668,9 +694,9 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
       '[codeflare-extraction] launch',
     ]) appendEntry(harness.sessionFile, userMessage(content));
 
-    await appendPrompt(harness, 15);
+    await appendPrompt(harness, 50);
     const execution = readJson(activeExecutionPath(harness, 'memory-capture'));
-    expect(execution.promptCount).toBe(15);
+    expect(execution.promptCount).toBe(50);
   });
 
   it('REQ-MEM-015 AC5: keeps an emitted request pending until an exact public call', async () => {
@@ -678,7 +704,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
     writeFileSync(memoryCounterPath(harness), '0', 'utf8');
-    for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
+    for (let ordinal = 1; ordinal <= 50; ordinal += 1) await appendPrompt(harness, ordinal);
 
     for (let settlement = 0; settlement < 7; settlement += 1) await harness.emit('agent_settled');
     expect(harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-launch')).toHaveLength(1);
@@ -699,7 +725,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
     writeFileSync(memoryCounterPath(harness), '0', 'utf8');
-    for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
+    for (let ordinal = 1; ordinal <= 50; ordinal += 1) await appendPrompt(harness, ordinal);
 
     await failExactAttempts(harness, 'memory-capture');
     const launchMessages = harness.pi.sent
@@ -715,7 +741,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
     writeFileSync(memoryCounterPath(harness), '0', 'utf8');
-    for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
+    for (let ordinal = 1; ordinal <= 50; ordinal += 1) await appendPrompt(harness, ordinal);
 
     await failExactAttempts(harness, 'memory-capture');
     const giveups = harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-giveup');
@@ -723,9 +749,9 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(markdownHeadings(giveups[0]?.message.content)).toEqual(['## Extraction delivery stopped']);
     expect(extractionJobLines(giveups[0]?.message.content)).toEqual([
       expect.stringMatching(/^- `memory-capture` · request `[^`]+` · 6\/6 failed calls$/),
-      expect.stringMatching(/^- `memory-capture`: a new request may re-arm after 15 later real user prompts$/),
+      expect.stringMatching(/^- `memory-capture`: a new request may re-arm after 50 later real user prompts$/),
     ]);
-    expect(giveups[0]?.message.content).toMatch(/\*\*Next automatic opportunity\*\*[\s\S]+15 later real user prompts/);
+    expect(giveups[0]?.message.content).toMatch(/\*\*Next automatic opportunity\*\*[\s\S]+50 later real user prompts/);
   });
 
   it('requires the post-commit note and chunk before exact success advances the frozen counter', async () => {
@@ -733,7 +759,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
     writeFileSync(memoryCounterPath(harness), '0', 'utf8');
-    for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
+    for (let ordinal = 1; ordinal <= 50; ordinal += 1) await appendPrompt(harness, ordinal);
     await harness.emit('agent_settled');
     const launch = latestLaunch(harness.pi, 'memory-capture');
     appendEntry(harness.sessionFile, toolCall('memory-call', 'memory-capture', launch.request), notification('memory-call'));
@@ -753,28 +779,55 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     writePostCommitChunk(harness, execution.requestId);
     await harness.emit('agent_settled');
 
-    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('15');
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('50');
     expect(existsSync(memoryPointerPath(harness))).toBe(false);
     expect(existsSync(vaultChunkPath(harness, execution.requestId))).toBe(false);
     expect(existsSync(memoryExecutionPath(harness, launch.requestId))).toBe(false);
   });
 
-  it('REQ-MEM-002 AC5: re-arms only after fifteen later real prompts', async () => {
+  it('captures only the uncaptured tail and hash-checks Vault on the first resumed prompt', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    const note = join(harness.paths.vaultRoot, 'Raw', 'Sessions', 'prior-session.md');
+    writeFileSync(note, [
+      '---',
+      `session_id: ${harness.sessionId}`,
+      'captured_prompt_count: 50',
+      '---',
+      '# Prior capture',
+    ].join('\n'), 'utf8');
+    for (let ordinal = 1; ordinal <= 60; ordinal += 1) {
+      appendEntry(harness.sessionFile, userMessage(`resumed prompt ${ordinal}`));
+    }
+    const changed = join(harness.paths.vaultRoot, 'Notes', 'resumed-change.md');
+    writeFileSync(changed, 'changed while session slept\n', 'utf8');
+
+    await appendPrompt(harness, 61);
+
+    const memory = readJson(activeExecutionPath(harness, 'memory-capture'));
+    expect(memory.promptCount).toBe(61);
+    expect(memory.transcript).not.toContain('resumed prompt 50\n');
+    expect(memory.transcript).toContain('resumed prompt 51');
+    expect(memory.transcript).toContain('real prompt 61');
+    expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
+  });
+
+  it('REQ-MEM-002 AC5: re-arms only after fifty later real prompts', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
     writeFileSync(memoryCounterPath(harness), '0', 'utf8');
-    for (let ordinal = 1; ordinal <= 15; ordinal += 1) await appendPrompt(harness, ordinal);
+    for (let ordinal = 1; ordinal <= 50; ordinal += 1) await appendPrompt(harness, ordinal);
     await failExactAttempts(harness, 'memory-capture');
     const extractionFollowUp = latestLaunchMessage(harness.pi, 'memory-capture').message.content;
     const oldPointer = readJson(memoryPointerPath(harness));
     const oldExecution = activeExecutionPath(harness, 'memory-capture');
 
-    for (let ordinal = 16; ordinal <= 29; ordinal += 1) await appendPrompt(harness, ordinal);
+    for (let ordinal = 51; ordinal <= 99; ordinal += 1) await appendPrompt(harness, ordinal);
     expect(readJson(memoryPointerPath(harness)).requestId).toBe(oldPointer.requestId);
     await harness.emit('before_agent_start', { prompt: extractionFollowUp });
     expect(readJson(memoryPointerPath(harness)).requestId).toBe(oldPointer.requestId);
-    await appendPrompt(harness, 30);
+    await appendPrompt(harness, 100);
 
     const replacement = readJson(memoryPointerPath(harness));
     expect(replacement.requestId).not.toBe(oldPointer.requestId);
@@ -789,10 +842,78 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
 });
 
 describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-028 (vault-edit isolation after launch)', () => {
+  it('hash-checks at prompt 100 and launches only when Vault content changed', async () => {
+    const unchanged = makeHarness();
+    await unchanged.emit('session_start');
+    await triggerVaultCheck(unchanged);
+    await unchanged.emit('agent_settled');
+    expect(unchanged.pi.sent.some((sent) => sent.message.details?.items?.some((item) => item.jobType === 'vault-extract'))).toBe(false);
+
+    const changed = makeHarness();
+    await changed.emit('session_start');
+    const path = join(changed.paths.vaultRoot, 'Notes', 'prompt-100.md');
+    writeFileSync(path, 'changed\n', 'utf8');
+    await triggerVaultCheck(changed);
+    await changed.emit('agent_settled');
+    expect(readJson(activeExecutionPath(changed, 'vault-extract')).changedFiles).toEqual([path]);
+    expect(latestLaunch(changed.pi, 'vault-extract').reminder).toBe(0);
+  });
+
+  it('keeps a staged Vault request owned by the root session that detected it', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'owned.md'), 'changed\n', 'utf8');
+    await triggerVaultCheck(harness);
+
+    const secondSessionFile = join(harness.root, 'second-session.jsonl');
+    writeFileSync(secondSessionFile, `${JSON.stringify({ type: 'session', id: 'session-2', cwd: harness.root })}\n`, 'utf8');
+    const secondPi = new FakePi(secondSessionFile);
+    const secondContext: TestContext = {
+      cwd: harness.root,
+      sessionManager: {
+        getSessionFile: () => secondSessionFile,
+        getSessionId: () => 'session-2',
+        getHeader: () => ({ id: 'session-2' }),
+      },
+    };
+    registerMemoryVault(secondPi, {
+      paths: harness.paths,
+      now: () => NOW,
+      randomUUID: () => UUIDS[1],
+    });
+
+    await secondPi.emit('agent_settled', {}, secondContext);
+    expect(secondPi.sent).toHaveLength(0);
+
+    await harness.emit('agent_settled');
+    expect(latestLaunch(harness.pi, 'vault-extract').reminder).toBe(0);
+  });
+
+  it('replaces a stale Vault request owned by another root session', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'stale-owner.md'), 'changed\n', 'utf8');
+    await triggerVaultCheck(harness);
+    const stale = readJson(activeExecutionPath(harness, 'vault-extract'));
+    writeFileSync(activeExecutionPath(harness, 'vault-extract'), JSON.stringify({
+      ...stale,
+      ownerSessionId: 'foreign-session',
+      createdAt: 0,
+    }), 'utf8');
+
+    await triggerVaultCheck(harness);
+
+    const replacement = readJson(activeExecutionPath(harness, 'vault-extract'));
+    expect(replacement.requestId).not.toBe(stale.requestId);
+    expect(replacement.ownerSessionId).toBe('session-1');
+    expect(replacement.createdAt).toBe(NOW);
+  });
+
   it('REQ-VAULT-027 AC2: reconstructs Vault retry state from root JSONL after reload', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'retry.md'), 'retry\n', 'utf8');
+    await triggerVaultCheck(harness);
     await harness.emit('agent_settled');
     const launch = latestLaunch(harness.pi, 'vault-extract');
     appendEntry(harness.sessionFile,
@@ -817,6 +938,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     await harness.emit('session_start');
     const first = join(harness.paths.vaultRoot, 'Notes', 'first.md');
     writeFileSync(first, 'first\n', 'utf8');
+    await triggerVaultCheck(harness);
     await harness.emit('agent_settled');
 
     const pointer = readJson(vaultPointerPath(harness));
@@ -837,7 +959,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
       run_in_background: true,
       inherit_context: false,
       thinking: 'medium',
-      max_turns: 4,
+      max_turns: 7,
     });
     appendEntry(harness.sessionFile, toolCall('vault-call', 'vault-extract', launch.request));
     const frozenBytes = readFileSync(executionPath, 'utf8');
@@ -852,6 +974,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     await harness.emit('session_start');
     const committedBefore = readFileSync(harness.paths.vaultManifestFile, 'utf8');
     writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'failure.md'), 'changed\n', 'utf8');
+    await triggerVaultCheck(harness);
     await harness.emit('agent_settled');
     const launch = latestLaunch(harness.pi, 'vault-extract');
     appendEntry(harness.sessionFile, toolCall('failed-vault', 'vault-extract', launch.request), notification('failed-vault', 'Failed'));
@@ -862,11 +985,27 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     expect(existsSync(vaultPointerPath(harness))).toBe(true);
   });
 
+  it('rediscovers exhausted Vault work only at the next eligible cadence', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    const changed = join(harness.paths.vaultRoot, 'Notes', 'exhausted.md');
+    writeFileSync(changed, 'changed\n', 'utf8');
+    await triggerVaultCheck(harness);
+    await failExactAttempts(harness, 'vault-extract');
+
+    await appendPrompt(harness, 101);
+    expect(existsSync(vaultPointerPath(harness))).toBe(false);
+
+    await triggerVaultCheck(harness);
+    expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
+  });
+
   it('requires a post-commit chunk before native completion can promote the manifest', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     const committedBefore = readFileSync(harness.paths.vaultManifestFile, 'utf8');
     writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'incomplete.md'), 'changed\n', 'utf8');
+    await triggerVaultCheck(harness);
     await harness.emit('agent_settled');
     const launch = latestLaunch(harness.pi, 'vault-extract');
     appendEntry(
@@ -882,11 +1021,17 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
   });
 
   it('rejects an empty, malformed, or schema-invalid correlated chunk before manifest promotion', async () => {
-    for (const invalidChunk of ['', '{not-json', JSON.stringify({ nodes: [], edges: [] })]) {
+    for (const invalidChunk of [
+      '',
+      '{not-json',
+      JSON.stringify({ nodes: [], edges: [] }),
+      JSON.stringify({ nodes: [], edges: [], hyperedges: [], input_tokens: 0, output_tokens: 0 }),
+    ]) {
       const harness = makeHarness();
       await harness.emit('session_start');
       const committedBefore = readFileSync(harness.paths.vaultManifestFile, 'utf8');
       writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'invalid-chunk.md'), 'changed\n', 'utf8');
+      await triggerVaultCheck(harness);
       await harness.emit('agent_settled');
       const launch = latestLaunch(harness.pi, 'vault-extract');
       appendEntry(harness.sessionFile, toolCall('invalid-chunk-vault', 'vault-extract', launch.request), notification('invalid-chunk-vault'));
@@ -920,6 +1065,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
       const changed = join(harness.paths.vaultRoot, 'Notes', 'restored-unextracted.md');
       writeFileSync(changed, 'changed before restore completed\n', 'utf8');
 
+      await triggerVaultCheck(harness);
       await harness.emit('agent_settled');
       expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
       if (restoredManifest === undefined) {
@@ -931,11 +1077,12 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
   });
 
   // REQ-VAULT-028: Vault edits remain isolated after extraction starts
-  it('promotes matching staged bytes and creates one follow-up request for during-run edits', async () => {
+  it('promotes matching staged bytes and defers during-run edits until the next Vault cadence', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     const first = join(harness.paths.vaultRoot, 'Notes', 'first.md');
     writeFileSync(first, 'first\n', 'utf8');
+    await triggerVaultCheck(harness);
     await harness.emit('agent_settled');
     const firstPointer = readJson(vaultPointerPath(harness));
     const firstExecutionPath = activeExecutionPath(harness, 'vault-extract');
@@ -955,8 +1102,9 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     expect(existsSync(firstExecutionPath)).toBe(false);
     expect(existsSync(vaultChunkPath(harness, firstPointer.requestId))).toBe(false);
 
-    const replacement = readJson(vaultPointerPath(harness));
-    expect(replacement.requestId).not.toBe(firstPointer.requestId);
+    expect(existsSync(vaultPointerPath(harness))).toBe(false);
+
+    await triggerVaultCheck(harness);
     expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([duringRun]);
   });
 
@@ -965,6 +1113,7 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     await harness.emit('session_start');
     const changed = join(harness.paths.vaultRoot, 'Notes', 'changed.md');
     writeFileSync(changed, 'changed\n', 'utf8');
+    await triggerVaultCheck(harness);
     await harness.emit('agent_settled');
     const original = readJson(vaultPointerPath(harness));
     const launch = latestLaunch(harness.pi, 'vault-extract');
@@ -979,38 +1128,12 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
     expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
   });
 
-  it('keeps GIVEUP latched for unchanged work, re-arms new content, and clears a full revert', async () => {
-    const unchanged = makeHarness();
-    await unchanged.emit('session_start');
-    writeFileSync(join(unchanged.paths.vaultRoot, 'Notes', 'unchanged.md'), 'changed\n', 'utf8');
-    await failExactAttempts(unchanged, 'vault-extract');
-    const unchangedPointer = readJson(vaultPointerPath(unchanged));
-    appendEntry(unchanged.sessionFile, userMessage('check unchanged giveup'));
-    await unchanged.emit('before_agent_start', { prompt: 'check unchanged giveup' });
-    expect(readJson(vaultPointerPath(unchanged)).requestId).toBe(unchangedPointer.requestId);
-
-    const added = join(unchanged.paths.vaultRoot, 'Notes', 'added.md');
-    writeFileSync(added, 'new after giveup\n', 'utf8');
-    appendEntry(unchanged.sessionFile, userMessage('re-arm changed giveup'));
-    await unchanged.emit('before_agent_start', { prompt: 're-arm changed giveup' });
-    expect(readJson(vaultPointerPath(unchanged)).requestId).not.toBe(unchangedPointer.requestId);
-
-    const reverted = makeHarness();
-    await reverted.emit('session_start');
-    const revertedFile = join(reverted.paths.vaultRoot, 'Notes', 'reverted.md');
-    writeFileSync(revertedFile, 'temporary\n', 'utf8');
-    await failExactAttempts(reverted, 'vault-extract');
-    rmSync(revertedFile, { force: true });
-    appendEntry(reverted.sessionFile, userMessage('clear reverted giveup'));
-    await reverted.emit('before_agent_start', { prompt: 'clear reverted giveup' });
-    expect(existsSync(vaultPointerPath(reverted))).toBe(false);
-  });
-
   it('keeps an empty prelaunch coalescing result as a valid no-op request', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     const changed = join(harness.paths.vaultRoot, 'Notes', 'reverted-before-launch.md');
     writeFileSync(changed, 'temporary\n', 'utf8');
+    await triggerVaultCheck(harness);
     await harness.emit('agent_settled');
     const pointer = readJson(vaultPointerPath(harness));
     rmSync(changed, { force: true });

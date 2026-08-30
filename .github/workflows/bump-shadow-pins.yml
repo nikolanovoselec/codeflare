@@ -7,7 +7,7 @@ name: Bump Shadow Pins
 # - context-mode npm package (plugin.json + entrypoint.sh + Pi foreground-owner runtime + README.md)
 # - graphify PyPI package graphifyy (plugin.json; Dockerfile reads the pin via jq,
 #   so no Dockerfile literal to bump)
-# - zoxide, yazi, lazygit, silverbullet, code-server (GitHub release binaries pinned in Dockerfile; code-server also owns its embedded Code gitlink)
+# - Herdr, zoxide, yazi, lazygit, silverbullet, code-server (GitHub release binaries pinned in Dockerfile; code-server also owns its embedded Code gitlink)
 # - Anthropic's official Claude Code Open VSX package (version + linux-x64 SHA-256 metadata)
 # - lock-backed image npm tools: agent CLIs, Bun, context-mode,
 #   consult-llm-mcp, and chrome-devtools-mcp
@@ -371,6 +371,94 @@ jobs:
             --head "$BRANCH" \
             --title "chore(deps): bump graphify $CUR -> $LAT" \
             --body "$BODY"
+
+  herdr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: develop
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compare Herdr pin against latest release
+        id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(grep -oP 'HERDR_VERSION="\K[^"]+' Dockerfile)
+          LATEST=$(gh api repos/herdrdev/herdr/releases/latest --jq '.tag_name | ltrimstr("v")')
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          [ "$(node scripts/ci/semver-forward.mjs "$CURRENT" "$LATEST")" = upgrade ] \
+            || echo 'skip=true' >> "$GITHUB_OUTPUT"
+
+      - name: Skip existing Herdr bump branch
+        if: steps.ver.outputs.skip != 'true'
+        id: branch
+        env:
+          LAT: ${{ steps.ver.outputs.latest }}
+        run: |
+          BRANCH="bump/herdr-$LAT"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update all Herdr pins
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="v$LAT"
+          gh release download "$TAG" --repo herdrdev/herdr --pattern herdr-linux-x86_64 --output /tmp/herdr
+          SHA=$(sha256sum /tmp/herdr | cut -d' ' -f1)
+          COMMIT=$(git ls-remote https://github.com/herdrdev/herdr.git "refs/tags/${TAG}^{}" | cut -f1)
+          [ -n "$COMMIT" ] || COMMIT=$(git ls-remote https://github.com/herdrdev/herdr.git "refs/tags/${TAG}" | cut -f1)
+          [[ "$SHA" =~ ^[0-9a-f]{64}$ && "$COMMIT" =~ ^[0-9a-f]{40}$ ]]
+
+          sed -i \
+            -e "s/HERDR_VERSION=\"$CUR\"/HERDR_VERSION=\"$LAT\"/" \
+            -e "s/HERDR_COMMIT=\"[0-9a-f]\{40\}\"/HERDR_COMMIT=\"$COMMIT\"/" \
+            -e "s/HERDR_SHA256=\"[0-9a-f]\{64\}\"/HERDR_SHA256=\"$SHA\"/" \
+            Dockerfile
+          jq --arg version "$LAT" --arg commit "$COMMIT" --arg sha "$SHA" \
+            '.version=$version | .commit=$commit | .sha256=$sha' image/herdr/provenance.json \
+            > /tmp/herdr-provenance.json
+          mv /tmp/herdr-provenance.json image/herdr/provenance.json
+          perl -0pi -e 's/herdr \Q$ENV{CUR}\E/herdr $ENV{LAT}/g' \
+            image/herdr/codeflare-herdr-terminal host/__tests__/herdr-launcher.test.js
+          perl -0pi -e 's/\Q$ENV{CUR}\E/$ENV{LAT}/g' .github/workflows/container-image.yml
+
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'
+          git checkout -B "$BRANCH"
+          git add Dockerfile image/herdr/provenance.json image/herdr/codeflare-herdr-terminal \
+            host/__tests__/herdr-launcher.test.js .github/workflows/container-image.yml
+          git commit -m "chore(deps): bump Herdr $CUR to $LAT"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
+
+      - name: Open Herdr bump PR
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create --base develop --head "$BRANCH" \
+            --title "chore(deps): bump Herdr $CUR to $LAT" \
+            --body "Bumps Herdr from $CUR to $LAT, including its commit, checksum, provenance, launcher pin, and packaged API contract check."
 
   zoxide:
     runs-on: ubuntu-latest

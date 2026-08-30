@@ -1,5 +1,5 @@
 import type { Terminal } from '@xterm/xterm';
-import { getXtermCore, scrollBufferLines } from './xterm-internals';
+import { getIframeInput, getXtermCore, scrollBufferLines } from './xterm-internals';
 
 // --- Tuning constants ---
 const SWIPE_THRESHOLD = 20; // px minimum delta to qualify as a swipe
@@ -11,6 +11,7 @@ const INERTIA_FRICTION = 0.993; // velocity decay per ms (≈400ms of meaningful
 const INERTIA_MIN_VELOCITY = 0.05; // px/ms — stop inertia below this
 const VELOCITY_SAMPLE_COUNT = 4; // number of recent touch samples for velocity calc
 const VELOCITY_MAX_AGE_MS = 300; // ignore velocity samples older than this
+const HERDR_COMPATIBILITY_MOUSE_MS = 1000;
 // ANSI escape sequences for arrow keys.
 // Horizontal swipes are always active. Vertical swipes use arrows whenever
 // the keyboard is open; wheel/scroll routing applies only while it is closed.
@@ -20,7 +21,6 @@ const ARROW: Record<string, string> = {
   up: '\x1b[A',
   down: '\x1b[B',
 };
-
 type Direction = 'left' | 'right' | 'up' | 'down';
 
 /**
@@ -85,8 +85,8 @@ function scrollTouchLines(
  * Attach touch gestures to a terminal container.
  * Horizontal swipes (left/right) always map to arrow left/right.
  * Vertical swipes map to arrow up/down while the keyboard is open. With the
- * keyboard closed they scroll normal terminal scrollback, or route to a
- * fullscreen application's wheel protocol when one captures wheel input.
+ * keyboard closed they scroll normal terminal scrollback or route fullscreen
+ * applications to wheel input.
  * Returns a cleanup function, or undefined if touch is not supported.
  */
 export function attachSwipeGestures(
@@ -94,6 +94,7 @@ export function attachSwipeGestures(
   terminal: Terminal,
   isKeyboardOpen?: () => boolean,
   forwardMouseTap = false,
+  onHerdrTap?: (clientX: number, clientY: number) => void,
 ): (() => void) | undefined {
   if (typeof window === 'undefined' || !('ontouchstart' in window)) {
     return undefined;
@@ -101,6 +102,8 @@ export function attachSwipeGestures(
 
   let startX = 0;
   let startY = 0;
+  let lastTouchX = 0;
+  let lastTouchY = 0;
   let maxTouchDistance = 0;
   let lockedDirection: Direction | null = null;
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -109,6 +112,7 @@ export function attachSwipeGestures(
   let scrollMode = false;
   let lastScrollY = 0;
   let scrollAccumulator = 0;
+  let suppressHerdrMouseUntil = 0;
   const scrollPxPerLine = getScrollPxPerLine(terminal);
 
   // Inertia scrolling state
@@ -217,6 +221,8 @@ export function attachSwipeGestures(
     const touch = e.touches[0];
     startX = touch.clientX;
     startY = touch.clientY;
+    lastTouchX = touch.clientX;
+    lastTouchY = touch.clientY;
 
     longPressTimer = setTimeout(() => {
       cancelled = true;
@@ -229,13 +235,13 @@ export function attachSwipeGestures(
 
     const kbOpen = isKeyboardOpen?.() ?? false;
 
-    // When keyboard is open, block native touch behavior. Vertical gestures
-    // become arrow-key navigation below.
-    if (kbOpen) {
-      e.preventDefault();
-    }
+    // Preserve tap-sized Herdr movement for deterministic touchend activation.
+    // Classic retains its established keyboard-open touch suppression.
+    if (kbOpen && (!forwardMouseTap || lockedDirection !== null)) e.preventDefault();
 
     const touch = e.touches[0];
+    lastTouchX = touch.clientX;
+    lastTouchY = touch.clientY;
     const dx = touch.clientX - startX;
     const dy = touch.clientY - startY;
     maxTouchDistance = Math.max(maxTouchDistance, Math.hypot(dx, dy));
@@ -273,6 +279,11 @@ export function attachSwipeGestures(
         && absDy >= SWIPE_THRESHOLD
         && absDy >= absDx * DIRECTION_LOCK_RATIO) {
         scrollMode = true;
+        // Samsung Internet can keep the hidden terminal input focused after
+        // dismissing the keyboard, then reopen it when a touch gesture ends.
+        // Herdr taps focus explicitly, so a confirmed scroll can release this
+        // stale focus without changing Classic's browser-owned tap path.
+        if (forwardMouseTap) getIframeInput(terminal)?.blur();
         lastScrollY = touch.clientY;
         scrollAccumulator = startY - touch.clientY; // pre-seed with threshold movement
         if (longPressTimer !== null) {
@@ -293,6 +304,7 @@ export function attachSwipeGestures(
       if (dir === null) return;
 
       lockedDirection = dir;
+      if (kbOpen) e.preventDefault();
 
       if (longPressTimer !== null) {
         clearTimeout(longPressTimer);
@@ -311,32 +323,26 @@ export function attachSwipeGestures(
     }
   }
 
-  function onTouchEnd() {
-    const shouldForwardTap = forwardMouseTap
+  function onTouchEnd(e: TouchEvent) {
+    // Herdr owns the complete touch sequence. Suppress compatibility mouse
+    // events for taps, gestures, and long presses; only a valid tap activates.
+    if (forwardMouseTap && onHerdrTap) {
+      suppressHerdrMouseUntil = performance.now() + HERDR_COMPATIBILITY_MOUSE_MS;
+      e.preventDefault();
+    }
+    if (forwardMouseTap
+      && onHerdrTap
       && !cancelled
       && !scrollMode
       && lockedDirection === null
-      && maxTouchDistance < SWIPE_THRESHOLD;
-
-    if (shouldForwardTap) {
-      const target = terminal.element?.querySelector<HTMLElement>('.xterm-screen');
-      if (target) {
-        const eventInit: MouseEventInit = {
-          bubbles: true,
-          cancelable: true,
-          clientX: startX,
-          clientY: startY,
-          button: 0,
-          buttons: 1,
-        };
-        target.dispatchEvent(new MouseEvent('mousedown', eventInit));
-        target.dispatchEvent(new MouseEvent('mouseup', { ...eventInit, buttons: 0 }));
-        target.dispatchEvent(new MouseEvent('click', { ...eventInit, buttons: 0 }));
-      }
+      && maxTouchDistance < SWIPE_THRESHOLD) {
+      // Compatibility mouse events can span keyboard geometry changes and turn
+      // a tap into a drag selection, so send one same-cell pair directly.
+      onHerdrTap(startX, startY);
     }
 
     // Start inertia scrolling if we were in scroll mode with enough velocity
-    if (scrollMode && velocitySamples.length >= 2) {
+    if (scrollMode && !forwardMouseTap && velocitySamples.length >= 2) {
       const now = performance.now();
       const first = velocitySamples[0];
       const last = velocitySamples[velocitySamples.length - 1];
@@ -368,7 +374,7 @@ export function attachSwipeGestures(
   // This lets us intercept and block touch scroll when keyboard is open.
   container.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
   container.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
-  container.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
+  container.addEventListener('touchend', onTouchEnd, { capture: true, passive: !onHerdrTap });
   container.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: true });
 
   // --- xterm >=6.1 Gesture shield ---
@@ -386,9 +392,32 @@ export function attachSwipeGestures(
   function shieldFromXtermGesture(e: TouchEvent) {
     e.stopPropagation();
   }
+
+  // Samsung Internet may emit more than one compatibility mouse event after a
+  // prevented touchend. Herdr already owns touch activation directly, so block
+  // every touch-derived mouse event in the bounded post-touch window. Browsers
+  // without sourceCapabilities fall back to matching the touch coordinates.
+  function suppressHerdrCompatibilityMouse(e: MouseEvent) {
+    if (suppressHerdrMouseUntil === 0 || performance.now() > suppressHerdrMouseUntil) return;
+    const firesTouchEvents = (e as MouseEvent & {
+      sourceCapabilities?: { firesTouchEvents?: boolean } | null;
+    }).sourceCapabilities?.firesTouchEvents;
+    if (firesTouchEvents === false) return;
+    const nearStart = Math.hypot(e.clientX - startX, e.clientY - startY) < SWIPE_THRESHOLD;
+    const nearEnd = Math.hypot(e.clientX - lastTouchX, e.clientY - lastTouchY) < SWIPE_THRESHOLD;
+    if (firesTouchEvents !== true && !nearStart && !nearEnd) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+
   container.addEventListener('touchstart', shieldFromXtermGesture);
   container.addEventListener('touchmove', shieldFromXtermGesture);
   container.addEventListener('touchend', shieldFromXtermGesture);
+  if (forwardMouseTap && onHerdrTap) {
+    container.addEventListener('mousedown', suppressHerdrCompatibilityMouse, { capture: true });
+    container.addEventListener('mouseup', suppressHerdrCompatibilityMouse, { capture: true });
+    container.addEventListener('click', suppressHerdrCompatibilityMouse, { capture: true });
+  }
 
   return () => {
     resetState();
@@ -400,5 +429,10 @@ export function attachSwipeGestures(
     container.removeEventListener('touchstart', shieldFromXtermGesture);
     container.removeEventListener('touchmove', shieldFromXtermGesture);
     container.removeEventListener('touchend', shieldFromXtermGesture);
+    if (forwardMouseTap && onHerdrTap) {
+      container.removeEventListener('mousedown', suppressHerdrCompatibilityMouse, { capture: true });
+      container.removeEventListener('mouseup', suppressHerdrCompatibilityMouse, { capture: true });
+      container.removeEventListener('click', suppressHerdrCompatibilityMouse, { capture: true });
+    }
   };
 }

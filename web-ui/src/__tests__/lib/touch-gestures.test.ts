@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { attachSwipeGestures, sendTerminalKey } from '../../lib/touch-gestures';
-import { attachHerdrMouseInput } from '../../lib/herdr-mouse';
 import type { Terminal } from '@xterm/xterm';
+import { setIframeInput } from '../../lib/xterm-internals';
 
 // Helper: create a mock Terminal with the internal triggerDataEvent path
 function createMockTerminal(options: {
@@ -12,6 +12,7 @@ function createMockTerminal(options: {
   const scrollLines = vi.fn();
   const bufferScrollLines = vi.fn();
   const refresh = vi.fn();
+  const focus = vi.fn();
   const element = document.createElement('div');
   const terminal = {
     _core: {
@@ -30,6 +31,7 @@ function createMockTerminal(options: {
     rows: 24,
     scrollLines,
     refresh,
+    focus,
   } as unknown as Terminal;
   return { terminal, triggerDataEvent, scrollLines, bufferScrollLines, refresh, element };
 }
@@ -309,40 +311,32 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
     });
 
     describe('alternate-screen application scrolling', () => {
-      it('REQ-MOB-017 AC1-AC2: routes Herdr swipes as SGR wheel input without xterm mouse tracking', () => {
+      it('REQ-MOB-017 AC1-AC2: routes proportional Herdr wheel steps without inertia', () => {
         (window as any).ontouchstart = null;
         const { terminal, triggerDataEvent, scrollLines, bufferScrollLines, element } = createMockTerminal({
           bufferType: 'alternate',
           mouseTrackingMode: 'none',
         });
-        const screen = document.createElement('div');
-        screen.className = 'xterm-screen';
-        vi.spyOn(screen, 'getBoundingClientRect').mockReturnValue({
-          left: 0,
-          top: 0,
-          width: 200,
-          height: 120,
-          right: 200,
-          bottom: 120,
-          x: 0,
-          y: 0,
-          toJSON: () => ({}),
-        });
-        element.appendChild(screen);
+        const wheelEvents: WheelEvent[] = [];
+        element.addEventListener('wheel', (event) => wheelEvents.push(event as WheelEvent));
         container.appendChild(element);
-        const cleanupMouse = attachHerdrMouseInput(screen, terminal, (sequence) => sendTerminalKey(terminal, sequence));
         const cleanup = attachSwipeGestures(container, terminal, () => false, true)!;
 
         container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
         container.dispatchEvent(makeTouchEvent('touchmove', 100, 60));
+        container.dispatchEvent(makeTouchEvent('touchmove', 100, 30));
+        container.dispatchEvent(makeTouchEvent('touchend', 100, 30));
+        container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
+        container.dispatchEvent(makeTouchEvent('touchmove', 100, 140));
+        container.dispatchEvent(makeTouchEvent('touchend', 100, 140));
 
-        expect(triggerDataEvent).toHaveBeenCalledTimes(2);
-        expect(triggerDataEvent).toHaveBeenNthCalledWith(1, '\x1b[<65;41;13M', false);
-        expect(triggerDataEvent).toHaveBeenNthCalledWith(2, '\x1b[<65;41;13M', false);
+        expect(wheelEvents).toHaveLength(6);
+        expect(wheelEvents.slice(0, 4).every((event) => event.deltaY === 1)).toBe(true);
+        expect(wheelEvents.slice(4).every((event) => event.deltaY === -1)).toBe(true);
+        expect(triggerDataEvent).not.toHaveBeenCalled();
         expect(scrollLines).not.toHaveBeenCalled();
         expect(bufferScrollLines).not.toHaveBeenCalled();
         cleanup();
-        cleanupMouse();
       });
 
       it('REQ-MOB-017 AC3: preserves classic fullscreen wheel forwarding', () => {
@@ -546,65 +540,195 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
     });
 
     describe('Herdr mouse taps', () => {
-      it('sends a stationary touch to the xterm screen only when enabled', () => {
+      it('REQ-MOB-020 AC1: forwards one deterministic tap and suppresses compatibility mouse events', () => {
         (window as any).ontouchstart = null;
-        const { terminal, element } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
-        const screenElement = document.createElement('div');
-        screenElement.className = 'xterm-screen';
-        element.appendChild(screenElement);
-        container.appendChild(element);
-        const mouseDown = vi.fn();
-        const mouseUp = vi.fn();
-        screenElement.addEventListener('mousedown', mouseDown);
-        screenElement.addEventListener('mouseup', mouseUp);
+        const { terminal } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
+        const tap = vi.fn();
+        const cleanup = attachSwipeGestures(container, terminal, () => false, true, tap)!;
 
-        const classicCleanup = attachSwipeGestures(container, terminal, () => false, false)!;
         container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
-        container.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
-        expect(mouseDown).not.toHaveBeenCalled();
-        classicCleanup();
+        const touchEnd = makeTouchEvent('touchend', 40, 50);
+        container.dispatchEvent(touchEnd);
 
-        const herdrCleanup = attachSwipeGestures(container, terminal, () => false, true)!;
-        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
-        container.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
-        expect(mouseDown).toHaveBeenCalledOnce();
-        expect(mouseUp).toHaveBeenCalledOnce();
-        herdrCleanup();
-      });
-
-      it('does not synthesize a click after movement', () => {
-        (window as any).ontouchstart = null;
-        const { terminal, element } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
-        const screenElement = document.createElement('div');
-        screenElement.className = 'xterm-screen';
-        element.appendChild(screenElement);
-        container.appendChild(element);
-        const mouseDown = vi.fn();
-        screenElement.addEventListener('mousedown', mouseDown);
-        const cleanup = attachSwipeGestures(container, terminal, () => false, true)!;
-        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
-        container.dispatchEvent(makeTouchEvent('touchmove', 40, 80));
-        container.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
-        expect(mouseDown).not.toHaveBeenCalled();
+        expect(tap).toHaveBeenCalledOnce();
+        expect(tap).toHaveBeenCalledWith(40, 50);
+        expect(touchEnd.defaultPrevented).toBe(true);
         cleanup();
       });
 
-      it('REQ-MOB-017 AC6: does not synthesize a click after cancellation', () => {
+      it('REQ-MOB-022 AC2: forwards a keyboard-open tap through sub-threshold jitter', () => {
         (window as any).ontouchstart = null;
-        const { terminal, element } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
-        const screenElement = document.createElement('div');
-        screenElement.className = 'xterm-screen';
-        element.appendChild(screenElement);
-        container.appendChild(element);
+        const { terminal, triggerDataEvent } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
+        const tap = vi.fn();
+        const cleanup = attachSwipeGestures(container, terminal, () => true, true, tap)!;
+
+        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        const jitter = makeTouchEvent('touchmove', 42, 53, { cancelable: true });
+        container.dispatchEvent(jitter);
+        const touchEnd = makeTouchEvent('touchend', 42, 53);
+        container.dispatchEvent(touchEnd);
+
+        expect(jitter.defaultPrevented).toBe(false);
+        expect(touchEnd.defaultPrevented).toBe(true);
+        expect(tap).toHaveBeenCalledWith(40, 50);
+        expect(triggerDataEvent).not.toHaveBeenCalled();
+        cleanup();
+      });
+
+      it('REQ-MOB-020 AC4: preserves the Classic stationary tap path without a synthetic mouse sequence', () => {
+        (window as any).ontouchstart = null;
+        const { terminal } = createMockTerminal();
         const mouseDown = vi.fn();
-        screenElement.addEventListener('mousedown', mouseDown);
-        const cleanup = attachSwipeGestures(container, terminal, () => false, true)!;
+        const click = vi.fn();
+        container.addEventListener('mousedown', mouseDown);
+        container.addEventListener('click', click);
+        const cleanup = attachSwipeGestures(container, terminal, () => false, false)!;
+        const touchStart = makeTouchEvent('touchstart', 40, 50);
+        const touchEnd = makeTouchEvent('touchend', 40, 50);
+
+        container.dispatchEvent(touchStart);
+        container.dispatchEvent(touchEnd);
+
+        expect(touchStart.defaultPrevented).toBe(false);
+        expect(touchEnd.defaultPrevented).toBe(false);
+        expect(mouseDown).not.toHaveBeenCalled();
+        expect(click).not.toHaveBeenCalled();
+        cleanup();
+      });
+
+      it('REQ-MOB-020 AC4: preserves Classic keyboard-open touch suppression', () => {
+        (window as any).ontouchstart = null;
+        const { terminal } = createMockTerminal();
+        const cleanup = attachSwipeGestures(container, terminal, () => true, false)!;
+
+        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        const jitter = makeTouchEvent('touchmove', 42, 53, { cancelable: true });
+        container.dispatchEvent(jitter);
+
+        expect(jitter.defaultPrevented).toBe(true);
+        cleanup();
+      });
+
+      it('REQ-MOB-022 AC5: releases stale Herdr input focus when scrolling without changing Classic', () => {
+        (window as any).ontouchstart = null;
+        const input = document.createElement('input');
+        document.body.appendChild(input);
+
+        const { terminal: herdrTerminal } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
+        setIframeInput(herdrTerminal, input);
+        input.focus();
+        const cleanupHerdr = attachSwipeGestures(container, herdrTerminal, () => false, true, vi.fn())!;
+        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        container.dispatchEvent(makeTouchEvent('touchmove', 40, 80));
+        expect(document.activeElement).not.toBe(input);
+        cleanupHerdr();
+
+        const { terminal: classicTerminal } = createMockTerminal();
+        setIframeInput(classicTerminal, input);
+        input.focus();
+        const cleanupClassic = attachSwipeGestures(container, classicTerminal, () => false, false)!;
+        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        container.dispatchEvent(makeTouchEvent('touchmove', 40, 80));
+        expect(document.activeElement).toBe(input);
+        cleanupClassic();
+        input.remove();
+      });
+
+      it('REQ-MOB-020 AC2: suppresses every touch-derived mouse event after movement', () => {
+        (window as any).ontouchstart = null;
+        const { terminal } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
+        const tap = vi.fn();
+        const mouseDown = vi.fn();
+        const click = vi.fn();
+        container.addEventListener('mousedown', mouseDown);
+        container.addEventListener('click', click);
+        const cleanup = attachSwipeGestures(container, terminal, () => false, true, tap)!;
+        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        container.dispatchEvent(makeTouchEvent('touchmove', 40, 80));
+        container.dispatchEvent(makeTouchEvent('touchend', 40, 80));
+
+        const touchMouseEvent = (type: string) => {
+          const event = new MouseEvent(type, {
+            bubbles: true, cancelable: true, clientX: 40, clientY: 80,
+          });
+          Object.defineProperty(event, 'sourceCapabilities', {
+            value: { firesTouchEvents: true },
+          });
+          return event;
+        };
+        container.dispatchEvent(touchMouseEvent('mousedown'));
+        container.dispatchEvent(touchMouseEvent('mouseup'));
+        container.dispatchEvent(touchMouseEvent('click'));
+        container.dispatchEvent(touchMouseEvent('click'));
+
+        expect(tap).not.toHaveBeenCalled();
+        expect(mouseDown).not.toHaveBeenCalled();
+        expect(click).not.toHaveBeenCalled();
+
+        const hardwareClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+        Object.defineProperty(hardwareClick, 'sourceCapabilities', {
+          value: { firesTouchEvents: false },
+        });
+        container.dispatchEvent(hardwareClick);
+        expect(click).toHaveBeenCalledOnce();
+
+        mouseDown.mockClear();
+        click.mockClear();
+        container.dispatchEvent(new MouseEvent('mousedown', {
+          bubbles: true, cancelable: true, clientX: 40, clientY: 50,
+        }));
+        container.dispatchEvent(new MouseEvent('mouseup', {
+          bubbles: true, cancelable: true, clientX: 40, clientY: 80,
+        }));
+        container.dispatchEvent(new MouseEvent('click', {
+          bubbles: true, cancelable: true, clientX: 40, clientY: 80,
+        }));
+        container.dispatchEvent(new MouseEvent('click', {
+          bubbles: true, cancelable: true, clientX: 40, clientY: 80,
+        }));
+        expect(mouseDown).not.toHaveBeenCalled();
+        expect(click).not.toHaveBeenCalled();
+
+        container.dispatchEvent(new MouseEvent('click', {
+          bubbles: true, cancelable: true, clientX: 200, clientY: 200,
+        }));
+        expect(click).toHaveBeenCalledOnce();
+        cleanup();
+      });
+
+      it('suppresses compatibility activation after long press or diagonal movement', () => {
+        (window as any).ontouchstart = null;
+        vi.useFakeTimers();
+        const { terminal } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
+        const tap = vi.fn();
+        const cleanup = attachSwipeGestures(container, terminal, () => false, true, tap)!;
+
+        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        vi.advanceTimersByTime(500);
+        const longPressEnd = makeTouchEvent('touchend', 40, 50);
+        container.dispatchEvent(longPressEnd);
+        expect(longPressEnd.defaultPrevented).toBe(true);
+
+        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        container.dispatchEvent(makeTouchEvent('touchmove', 70, 80));
+        const diagonalEnd = makeTouchEvent('touchend', 70, 80);
+        container.dispatchEvent(diagonalEnd);
+        expect(diagonalEnd.defaultPrevented).toBe(true);
+        expect(tap).not.toHaveBeenCalled();
+        cleanup();
+      });
+
+      it('REQ-MOB-020 AC3: does not activate a tap after cancellation', () => {
+        (window as any).ontouchstart = null;
+        const { terminal } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
+        const tap = vi.fn();
+        const cleanup = attachSwipeGestures(container, terminal, () => false, true, tap)!;
 
         container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
         container.dispatchEvent(new TouchEvent('touchcancel', { touches: [], bubbles: true }));
-        container.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }));
+        container.dispatchEvent(makeTouchEvent('touchend', 40, 50));
 
-        expect(mouseDown).not.toHaveBeenCalled();
+        expect(tap).not.toHaveBeenCalled();
         cleanup();
       });
     });

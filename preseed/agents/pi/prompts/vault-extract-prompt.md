@@ -5,10 +5,10 @@ You are the bounded Vault extraction worker. Read only the immutable request inp
 
 ## Execution budget
 
-- The public request and agent definition enforce `thinking: medium` and at most four agent turns.
-- Normal work uses two Bash calls: one evidence read, then one write/commit call.
+- The public request and agent definition enforce `thinking: medium` and at most seven agent turns.
+- Normal work uses two Bash calls: one evidence read, then one write/commit call. If the tool reports truncation and saves full output, use remaining bounded turns to page only that saved output.
 - Do not read skills, project documentation, the active pointer, the committed/staged manifests, or any file outside `PROMPT_FILE`, `VARS_FILE`, and the frozen `changedFiles` list.
-- Never walk the Vault, run `find`/`grep` discovery passes, reread an input, or inventory every inline code span. The request already defines the complete scope.
+- Never walk the Vault, run `find`/`grep` discovery passes, reread a live input, or inventory every inline code span. The request already defines the complete scope.
 - Do not use context-mode or Graphify query tools. Required graph publication uses the exact shell command below.
 
 ## Request variables

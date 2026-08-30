@@ -114,6 +114,7 @@ let nextConnectionOwner = 0;
 
 // Bug 1 fix: Store inputDisposable outside the connect function to properly clean up
 const inputDisposables = new Map<string, { dispose: () => void }>();
+const herdrKeys = new Set<string>();
 
 // L26: FitAddon management and layout resize delegated to terminal-layout.ts
 // Register layout module dependencies at module init
@@ -195,11 +196,14 @@ function connect(
   _onError?: (error: string) => void,
   manual?: boolean,
   processLabels = true,
+  herdr = false,
 ): () => void {
   const key = makeKey(sessionId, terminalId);
 
   // Close existing connection if any
   disconnect(sessionId, terminalId);
+  if (herdr) herdrKeys.add(key);
+  else herdrKeys.delete(key);
 
   const owner = ++nextConnectionOwner;
   connectionOwners.set(key, owner);
@@ -317,7 +321,6 @@ function connect(
         ws.send(JSON.stringify({ type: 'resize', cols, rows }));
         logger.debug(`[Terminal ${key}] Sent initial resize: ${cols}x${rows}`);
       }
-
     };
 
     function handleWebSocketMessage(event: MessageEvent): void {
@@ -381,7 +384,6 @@ function connect(
         }
         return;
       }
-
       scheduleWrite(key, terminal, messageData);
     }
 
@@ -620,6 +622,7 @@ function isConnected(sessionId: string, terminalId: string): boolean {
 function disposeLocalTerminal(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
   disconnect(sessionId, terminalId);
+  herdrKeys.delete(key);
   clearPendingResizeAuthority(sessionId, terminalId);
   _unregisterFitAddon(sessionId, terminalId);
   const terminal = terminals.get(key);
@@ -640,6 +643,7 @@ function dispose(sessionId: string, terminalId: string): void {
   }
 
   disconnect(sessionId, terminalId);
+  herdrKeys.delete(key);
   clearPendingResizeAuthority(sessionId, terminalId);
   const terminal = terminals.get(key);
   if (terminal) {
@@ -666,6 +670,9 @@ function disposeSession(sessionId: string): void {
   cleanupMapByPrefix(abortControllers, prefix, (controller) => controller.abort());
   cleanupMapByPrefix(inputDisposables, prefix, (disposable) => disposable.dispose());
   cleanupOutputByPrefix(prefix);
+  for (const key of [...herdrKeys]) {
+    if (key.startsWith(prefix)) herdrKeys.delete(key);
+  }
   for (const key of [...pendingFocusClaims]) {
     if (key.startsWith(prefix)) pendingFocusClaims.delete(key);
   }
@@ -698,6 +705,7 @@ function disposeAll(): void {
     terminal.dispose();
   }
   terminals.clear();
+  herdrKeys.clear();
 
   // Clear auxiliary Maps that live outside the reactive store
   for (const disposable of inputDisposables.values()) {
@@ -742,8 +750,9 @@ function reconnect(sessionId: string, terminalId: string, onError?: (error: stri
   }
 
   // Close existing connection and reconnect
+  const herdr = herdrKeys.has(key);
   disconnect(sessionId, terminalId);
-  return connect(sessionId, terminalId, terminal, onError);
+  return connect(sessionId, terminalId, terminal, onError, undefined, !herdr, herdr);
 }
 
 // Send input text to a terminal's WebSocket connection

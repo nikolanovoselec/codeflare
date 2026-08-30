@@ -51,6 +51,7 @@ const createMockTerminal = (): Terminal =>
 
 type CapturedSocket = {
   url: string;
+  send: ReturnType<typeof vi.fn>;
   onmessage: ((event: MessageEvent) => void) | null;
   emitMessage: (data: string | ArrayBuffer) => void;
 };
@@ -197,6 +198,7 @@ describe('Terminal control-message handling', () => {
       const result = parseControlMessage(JSON.stringify({ type: 'process-name' }));
       expect(result).toEqual({ kind: 'raw' });
     });
+
   });
 
   // ── REQ-TERM-009 AC6: registered callback is invoked on a process-name frame ─

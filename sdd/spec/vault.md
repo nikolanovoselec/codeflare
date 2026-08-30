@@ -9,7 +9,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 - **Vault** -- The persistent per-user vault directory holding markdown notes, pasted assets, and derived graph output. Attachment uploads land next to the note that referenced them; the dedicated raw-pasted directory is reserved for user-owned drag-drop. The vault is bisynced to R2 so it survives across sessions and is always present in the unified global graph (tagged as the user-vault source; never pruned by the active-repo prune-on-switch logic).
 - **Capture Agent** -- The background worker that writes one markdown file per batch into the vault's raw-sessions subdirectory and merges it into the unified graph. Claude is pinned to Sonnet per AD58; Pi uses the optional provider-neutral model lever with medium reasoning and bounded one-pass input per AD103.
 - **Vault-monitor Daemon** -- A polling loop in the entrypoint that watches for user-curated edits anywhere under the vault except the agent-written capture directory, the derived graph-output directory, the editor's internal config directory, and the four codeflare-authoritative root pages. When changes are found, writes a trigger marker. Detects changes by comparing each file's content hash against a durable manifest (REQ-VAULT-026), not its mtime, so the R2 restore's mtime reset cannot misfire a full re-extraction.
-- **Vault-extract Agent** -- The background worker that reads only detected changed files and merges their subgraph into the unified graph. Claude is pinned to Sonnet and commits its manifest; Pi uses medium reasoning/four turns and the root promotes staged manifest bytes only after a post-commit request chunk.
+- **Vault-extract Agent** -- The background worker that reads only detected changed files and merges their subgraph into the unified graph. Claude is pinned to Sonnet and commits its manifest; Pi uses medium reasoning/seven turns and the root promotes staged manifest bytes only after a post-commit request chunk.
 - **Unified Global Graph** -- The merged graph that combines every per-repo graph with the vault's own graph; merges are hash-keyed and serialized under a shared multi-writer lock. The graphify MCP wrapper prefers this graph when present so structural queries return a unified view across all sources.
 - **SilverBullet** -- The markdown editor running inside the container, bound to localhost only and reachable from the codeflare UI through the Worker proxy. The auth boundary lives at the Worker.
 
@@ -70,7 +70,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-002: Conversation captures land in the vault as markdown
 
-**Intent:** The capture agent writes one markdown file per 15-prompt batch into `Raw/Sessions/`, and each capture becomes graph-queryable in the same turn.
+**Intent:** The capture agent writes one markdown file per 50-prompt batch, plus an immediate uncaptured-tail capture on session resume, into `Raw/Sessions/`; each capture becomes graph-queryable in the same turn.
 
 **Applies To:** User
 
@@ -80,7 +80,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. Concept references use wikilink syntax; file paths, code symbols, and PR/issue references stay as prose. <!-- @manual -->
 3. The capture agent builds the vault graph inline: the agent emits chunk JSON matching the graph builder's schema, then a graph-build step materializes the per-extraction graph. <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversation captures land in vault as markdown)) --> <!-- @manual -->
 4. The agent merges the per-extraction graph into the unified global graph under the shared multi-writer lock and tags it as the vault source. <!-- @manual -->
-5. If extraction fails, the markdown file stays on disk; the vault-monitor daemon excludes `Raw/Sessions/`, so recovery is the next 15-message capture batch re-firing rather than a vault-monitor tick. <!-- @manual -->
+5. If extraction fails, the markdown file stays on disk; Vault hash checks exclude `Raw/Sessions/`, so memory delivery recovery remains owned by its bounded request lifecycle rather than starting a Vault extraction. <!-- @manual -->
 6. The historical MCP memory subsystem has been removed entirely; the capture agent does not invoke it, and no legacy JSONL graph is read. <!-- @manual -->
 
 **Constraints:**
@@ -99,26 +99,27 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ---
 
-### REQ-VAULT-003: User-curated edits are detected and ingested within ~60s
+<a id="req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s"></a>
+### REQ-VAULT-003: User-curated edits use bounded prompt-cadenced ingestion
 
-**Intent:** A user adds a note in SilverBullet (or any other editor) and within roughly one daemon tick the new content shows up in `mcp__graphify__*` query results.
+**Intent:** User-created Vault content is eventually ingested without a polling extractor repeatedly launching across synchronized sessions.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Vault monitoring uses a short fixed cadence and excludes generated, vendored, internal, captured, and preseed-managed content. <!-- @impl: entrypoint.sh::start_vault_monitor_daemon --> <!-- @test: src/__tests__/lib/vault-exclusion.test.ts (isVaultExcludedPath) -->
-2. Change detection compares each vault file's content hash against a durable manifest (REQ-VAULT-026), not a file mtime, so a container restart that resets every file's mtime does not misreport the vault as changed. <!-- @impl: entrypoint.sh::start_vault_monitor_daemon --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (THE ORACLE: an R2-style restore (rewrite every file, fresh mtime, identical bytes) yields ZERO changes) -->
+1. Generated, vendored, internal, captured, and preseed-managed content is excluded from Vault change detection. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::VAULT_GENERATED_PREFIXES --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::VAULT_PRESEED_ROOT_FILES --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (never reports excluded subtrees (agent-owned / derived / manifest itself)) --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (excludes the four codeflare-authoritative root pages from the manifest) --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-026 AC5: Claude and Pi commit equivalent manifest content) -->
+2. Change detection compares each vault file's content hash against a durable manifest (REQ-VAULT-026), not a file mtime, so a container restart that resets every file's mtime does not misreport the vault as changed. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py --> <!-- @impl: preseed/agents/pi/extensions/vault-manifest-fs.ts::collectVaultFileHashes --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (THE ORACLE: an R2-style restore (rewrite every file, fresh mtime, identical bytes) yields ZERO changes) -->
 3. The hook handler exits immediately when the trigger marker is absent or when an in-flight sentinel exists and is younger than 30 minutes. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-monitor-hook.sh::PROMPT_FILE --> <!-- @test: host/__tests__/vault-monitor-hook-behavior.test.js (vault-monitor-hook.sh behavior (real) / REQ-VAULT-003 AC3 (hook fast-exit + 30-min in-flight sentinel TTL)) -->
 4. The vault-extract subagent deletes the trigger marker first (dedup gate), extracts per changed file, merges via the shared global-graph add command, commits the content-hash manifest and refreshes the ephemeral dedup timestamp, and removes the in-flight sentinel last. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md::LAST_MARKER --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
-5. If any of the extract-merge-advance steps fail, the manifest is not committed; the next daemon tick re-discovers the same files. <!-- @manual -->
+5. If any extract-merge-advance step fails, the committed manifest remains unchanged. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (keeps the committed manifest byte-identical on failure and emits the next reminder) -->
 6. Preseed-page rewrites never register as vault changes: the four pages are excluded from the manifest (AC1) and unchanged bytes never register under content-hash detection (REQ-VAULT-026), which replaces the old high-water-marker bump-after-preseed-write mechanism. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
 7. Pi vault extraction is inert in child sessions, so background monitor transcripts never receive extraction follow-ups. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::isChildSession --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (keeps all handlers inert in child sessions) -->
 
 **Constraints:**
 
 - Claude and Pi use the same exclusion list; boot copies of Codeflare-authoritative root pages never count as user edits.
-- A 30-minute in-flight sentinel prevents repeated dispatch during extraction and exceeds the measured 18-minute duration for 30-plus files.
+- A 30-minute in-flight sentinel prevents repeated Claude dispatch during extraction; prompt cadence, not a polling daemon, creates trigger markers.
 - The hook creates the sentinel on emission; the agent removes it as its final step.
 - Claude: the vault-extract subagent is pinned to sonnet at the definition level per [AD58](../../documentation/decisions/README.md#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad), with reasoning effort pinned at medium.
 - Pi: the provider-neutral model lever is optional; [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs) fixes reasoning effort at medium.
@@ -130,6 +131,38 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions)
 
 **Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-VAULT-031: Vault hash checks follow successful prompt cadence
+
+**Intent:** Vault change detection must run at bounded user-prompt boundaries without consuming an eligible check when scanning fails.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. The first real-user prompt of a resumed session with an uncaptured memory tail performs one Vault content-hash check. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::RESUME_VAULT_CHECK --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: host/__tests__/memory-capture-hook.test.js (resume hash-checks Vault and arms extraction only when content changed) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only the uncaptured tail and hash-checks Vault on the first resumed prompt) -->
+2. Regular Vault content-hash checks occur at each crossed 100-real-user-prompt epoch. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::VAULT_EVERY --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::shouldCheckVault --> <!-- @test: host/__tests__/memory-capture-hook.test.js (hash-checks Vault at prompt 100 without starting memory capture early) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (hash-checks at prompt 100 and launches only when Vault content changed) -->
+3. Claude advances its successful Vault-check counter after the manifest scanner succeeds, including when no content changed. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::arm_vault_check --> <!-- @test: host/__tests__/memory-capture-hook.test.js (advances the Vault check counter when a successful scan finds no changes) -->
+4. A failed manifest scan does not block the active user prompt. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::arm_vault_check --> <!-- @test: host/__tests__/memory-capture-hook.test.js (retries the Vault hash check on the next prompt after a partial file-read failure) -->
+5. A failed manifest scan leaves the successful-check counter unchanged. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::arm_vault_check --> <!-- @test: host/__tests__/memory-capture-hook.test.js (retries the Vault hash check on the next prompt after a partial file-read failure) -->
+6. A failed manifest scan retries on the next real-user prompt. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::arm_vault_check --> <!-- @test: host/__tests__/memory-capture-hook.test.js (retries the Vault hash check on the next prompt after a partial file-read failure) -->
+7. Exhausted Vault extraction leaves uncommitted edits discoverable only at the next eligible resumed-session or 100-prompt content-hash check. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::refreshPendingVaultRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (rediscovers exhausted Vault work only at the next eligible cadence) -->
+
+**Constraints:**
+
+- Generated and internal content exclusions remain governed by [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion).
+- An unchanged successful scan is a no-op and still advances the successful-check counter.
+- No polling extraction daemon runs.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion), [REQ-MEM-002](memory.md#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume)
+
+**Verification:** Automated tests ([Claude memory hook tests](../../host/__tests__/memory-capture-hook.test.js), [Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
 
 **Status:** Implemented
 
@@ -847,7 +880,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 - The manifest's own mtime is irrelevant — only its JSON contents are read — so the R2 restore resetting the manifest file's mtime (like every other file's) is harmless.
 - `vault-extract.last` remains as an ephemeral within-session dedup timestamp for the hook's vars-staleness guard only; it is no longer the change-detection source of truth.
-- The manifest is stdlib-computed (sha256 of bytes) so the 60s daemon spawn stays cheap; no graphify/networkx dependency.
+- The manifest is stdlib-computed (sha256 of bytes) so eligible prompt-cadenced checks stay cheap; no graphify/networkx dependency.
 
 **Priority:** P0
 
@@ -880,7 +913,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Constraints:**
 
-- Runtime coordination uses only one active request pointer and one request-specific execution snapshot; no receipt, lease, queue, scheduler, service, or new endpoint is introduced.
+- Runtime coordination uses only the existing active request pointer and request-specific execution snapshot; no queue, scheduler, service, endpoint, or distributed coordinator is introduced.
 - The already-required request chunk becomes visible at its canonical path only after graph commit and is root-cleaned after promotion.
 - Claude extraction behavior and acceptance criteria remain unchanged.
 
@@ -889,6 +922,32 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s), [REQ-VAULT-026](#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-MEM-015](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard), [REQ-MEM-016](memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile)
 
 **Verification:** Automated test ([Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [manifest promotion tests](../../src/__tests__/lib/vault-manifest-detection.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-VAULT-030: Pi Vault request delivery has one root owner
+
+**Intent:** Simultaneous Pi root sessions must not duplicate one container-global Vault extraction request, while abandoned ownership remains recoverable.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. A staged Vault request is delivered only by the root session that detected it; another root cannot launch the same request. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (keeps a staged Vault request owned by the root session that detected it) -->
+2. A foreign owner becomes replaceable after the existing 30-minute running bound. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::detectNewVaultRequestWhenNoneExists --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (replaces a stale Vault request owned by another root session) -->
+
+**Constraints:**
+
+- Owner and creation metadata remain inside the existing request-specific execution snapshot.
+- Recovery adds no queue, scheduler, service, endpoint, or distributed coordinator.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-VAULT-027](#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)
+
+**Verification:** Automated test ([Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
 
 **Status:** Implemented
 
@@ -903,12 +962,13 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. Vault edits detected after the first exact launch do not alter that request's frozen input. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::refreshPendingVaultRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (coalesces edits before launch and freezes the request after its first exact call) -->
-2. Successful completion of the launched request creates one follow-up request containing the during-run edits. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (promotes matching staged bytes and creates one follow-up request for during-run edits) -->
+2. Successful completion promotes only the launched request's staged hashes. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeVaultSuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (promotes matching staged bytes and defers during-run edits until the next Vault cadence) -->
+3. During-run edits remain outside the committed manifest and are discovered by the next eligible Vault hash check. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (promotes matching staged bytes and defers during-run edits until the next Vault cadence) -->
 
 **Constraints:**
 
 - The launched request remains immutable.
-- Multiple edits detected during the same active request coalesce into the same follow-up request.
+- Multiple during-run edits coalesce naturally in the next eligible content-hash delta.
 
 **Priority:** P0
 

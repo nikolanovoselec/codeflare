@@ -1,7 +1,20 @@
 import type { Terminal as XTerm } from '@xterm/xterm';
-import { disableVirtualKeyboardOverlay, enableVirtualKeyboardOverlay, forceResetKeyboardState, isFocusOnTerminalInput, isSamsungBrowser } from './mobile';
+import { disableVirtualKeyboardOverlay, enableVirtualKeyboardOverlay, forceResetKeyboardState, isFocusOnTerminalInput, isIOSDevice, isSamsungBrowser } from './mobile';
 import { logger } from './logger';
-import { getXtermCore, setIframeInput, setRemoveFocusGuard } from './xterm-internals';
+import { getIframeInput, getRemoveFocusGuard, getXtermCore, setIframeInput, setRemoveFocusGuard } from './xterm-internals';
+
+/** Focus mobile terminal input from a trusted tap without a DOM click. */
+export function focusMobileTerminal(terminal: XTerm): void {
+  getRemoveFocusGuard(terminal)?.();
+  enableVirtualKeyboardOverlay();
+  const focus = () => {
+    const input = getIframeInput(terminal);
+    if (input) input.focus({ preventScroll: true });
+    else terminal.textarea?.focus({ preventScroll: true });
+  };
+  if (isIOSDevice()) focus();
+  else setTimeout(focus, 0);
+}
 
 // ---------------------------------------------------------------------------
 // Sticky CTRL modifier for mobile floating button

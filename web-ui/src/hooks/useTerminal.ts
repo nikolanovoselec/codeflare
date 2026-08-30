@@ -7,16 +7,16 @@ import { sessionStore } from '../stores/session';
 import { logger } from '../lib/logger';
 import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight, enableVirtualKeyboardOverlay, disableVirtualKeyboardOverlay, resetKeyboardStateIfStale, forceResetKeyboardState, isFocusOnTerminalInput, isSamsungBrowser } from '../lib/mobile';
 import { attachSwipeGestures, sendTerminalKey } from '../lib/touch-gestures';
-import { attachHerdrMouseInput } from '../lib/herdr-mouse';
+import { attachHerdrMouseInput, sendHerdrTap } from '../lib/herdr-mouse';
 import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { isSpeechSupported, isListening, startListening, stopListening } from '../lib/speech-input';
-import { setupMobileInput } from '../lib/terminal-mobile-input';
+import { focusMobileTerminal, FUNCTIONAL_KEY_MAP, setupMobileInput } from '../lib/terminal-mobile-input';
 import { loadSettings } from '../lib/settings';
 import { getIframeInput, scrollBufferToBottom, resyncViewportScrollState } from '../lib/xterm-internals';
 import { attachWheelScrolling } from '../lib/terminal-wheel';
 import { useScrollCorrection } from './useScrollCorrection';
 import { agentEventDisposition, showGrantedAgentEvent } from '../lib/agent-notifications';
-import { parseOsc52ClipboardWrite } from '../lib/osc52';
+import { beginClipboardWrite, completeClipboardWrite, parseOsc52ClipboardWrite, retainFailedClipboardWrite, takeFailedClipboardWrite } from '../lib/osc52';
 import { resolveTerminalMode, type TerminalMode } from '../types';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
@@ -70,6 +70,8 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let notificationDisposable: { dispose: () => void } | undefined;
   let clipboardDisposable: { dispose: () => void } | undefined;
   let handleContextMenu: ((event: MouseEvent) => void) | undefined;
+  let sendHerdrTouchTap: ((clientX: number, clientY: number) => void) | undefined;
+  let handleVisibilityChange: (() => void) | undefined;
   let agentEventDisposable: (() => void) | undefined;
   let hasInitialScrolled = false;
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -208,16 +210,23 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         term!.input('\x1b[13;2u', false);
         return false;
       }
-      if (event.ctrlKey && event.key === 'c') {
+      const primaryModifier = event.ctrlKey || event.metaKey;
+      if (primaryModifier && event.key.toLowerCase() === 'c') {
         const selection = term!.getSelection();
         if (selection) {
-          navigator.clipboard.writeText(selection);
-          term!.clearSelection();
+          event.preventDefault();
+          void navigator.clipboard.writeText(selection).then(() => term?.clearSelection()).catch(() => {});
           return false;
         }
         return true;
       }
-      if (event.ctrlKey && event.key === 'v') {
+      if (primaryModifier && event.key.toLowerCase() === 'v') {
+        event.preventDefault();
+        const retained = term ? takeFailedClipboardWrite(term) : undefined;
+        if (retained && term) term.paste(retained);
+        else void navigator.clipboard.readText().then((text) => {
+          if (text && term) term.paste(text);
+        }).catch(() => {});
         return false;
       }
       // Ctrl+Space → toggle voice input via Web Speech API
@@ -272,12 +281,43 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (isHerdr()) {
       const screen = t.element?.querySelector<HTMLElement>('.xterm-screen');
       if (screen) {
-        cleanupHerdrMouse = attachHerdrMouseInput(screen, t, (sequence) => sendTerminalKey(t, sequence));
+        const send = (sequence: string) => sendTerminalKey(t, sequence);
+        cleanupHerdrMouse = attachHerdrMouseInput(screen, t, send);
+        sendHerdrTouchTap = (clientX, clientY) => {
+          const openingMobileInput = !isVirtualKeyboardOpen();
+          sendHerdrTap(screen, t, send, clientX, clientY);
+          if (openingMobileInput) send(FUNCTIONAL_KEY_MAP.End);
+          focusMobileTerminal(t);
+        };
       }
     }
 
     if (isTouchDevice()) {
       setupMobileTerminal();
+    }
+
+    if (isHerdr()) {
+      handleVisibilityChange = () => {
+        if (document.visibilityState !== 'visible' || !isVisible()) return;
+        requestAnimationFrame(() => {
+          if (!isMounted()) return;
+          const mountedContainer = containerEl!;
+          const mountedFitAddon = fitAddon!;
+          const mountedTerm = term!;
+          if (mountedContainer.clientHeight === 0) return;
+          mountedFitAddon.fit();
+          mountedTerm.refresh(0, mountedTerm.rows - 1);
+          if (!canConnect()) return;
+          if (isFocused()) terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
+          terminalStore.resize(
+            props.sessionId,
+            props.terminalId,
+            mountedTerm.cols,
+            mountedTerm.rows,
+          );
+        });
+      };
+      document.addEventListener('visibilitychange', handleVisibilityChange);
     }
 
     // Scroll correction: detects and reverses browser focus-validation bugs that
@@ -406,8 +446,13 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (isHerdr()) {
       clipboardDisposable = t.parser.registerOscHandler(52, (data) => {
         const text = parseOsc52ClipboardWrite(data);
-        if (text === null || loadSettings().clipboardAccess !== true) return true;
-        void navigator.clipboard.writeText(text).catch(() => {});
+        const terminal = term;
+        if (text === null || !terminal) return true;
+        const writeId = beginClipboardWrite(terminal);
+        void navigator.clipboard.writeText(text).then(
+          () => completeClipboardWrite(terminal, writeId),
+          () => retainFailedClipboardWrite(terminal, writeId, text),
+        );
         return true;
       });
     }
@@ -497,7 +542,13 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       },
     );
 
-    cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen, isHerdr());
+    cleanupGestures = attachSwipeGestures(
+      containerEl,
+      t,
+      isVirtualKeyboardOpen,
+      isHerdr(),
+      sendHerdrTouchTap,
+    );
 
     // Font loading fix
     if (document.fonts) {
@@ -615,6 +666,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         props.onError,
         !isHerdr() && tab?.manual === true,
         !isHerdr(),
+        isHerdr(),
       );
     }
   });
@@ -773,6 +825,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     agentEventDisposable?.();
     resizeObserver?.disconnect();
     if (handleContextMenu) mountedContainer?.removeEventListener('contextmenu', handleContextMenu);
+    if (handleVisibilityChange) document.removeEventListener('visibilitychange', handleVisibilityChange);
     terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
     term = undefined;
     fitAddon = undefined;

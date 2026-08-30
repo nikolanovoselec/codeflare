@@ -16,15 +16,12 @@ Any tool call inside `/home/user/Vault/`, or any user prompt referencing vault c
 
 For "take a note" / "note this down" / "save this" / similar phrases, [vault-note-capture.md](./vault-note-capture.md) routes to the `vault-note-capture` skill instead.
 
-## Hook-triggered capture (every 15 user messages)
+## Hook-triggered capture (every 50 user messages)
 
-`memory-capture.sh` (UserPromptSubmit hook) fires every 15 user messages and emits a directive pointing at a `.vars` file.
-
-- If the `.vars` file exists -> spawn a background `subagent_type: memory-capture` (sonnet) with the hook's instructions. The carrier remains until one locked command merges the cumulative graph, publishes `user_vault`, and then removes it; any failure leaves it retryable.
-- If it does not exist -> do nothing.
+`memory-capture.sh` fires every 50 real user messages and immediately on the first prompt with an uncaptured resumed-session tail. It writes a `.vars` carrier and launches the detached capture runner itself; the main agent does not dispatch or wait. The carrier remains until locked cumulative merge and `user_vault` publication succeed.
 
 Sonnet (not haiku) because capture must cite REQ IDs / ADRs / commit SHAs verbatim; haiku confabulated adjacent IDs in benchmarking. See AD58 for rationale.
 
 ## Vault-edit hook (vault-extract subagent)
 
-`vault-monitor-hook.sh` (UserPromptSubmit hook, paired with a 60s daemon that polls `~/Vault/` for changes and writes the `.vars` directive) fires on direct user vault edits. Same `.vars` directive protocol, but spawns `subagent_type: vault-extract` (sonnet) which reads the recent change, chunks it, and merges into `/home/user/Vault/graphify-out/vault-graph.json` then `graphify global add ... --as user_vault` updates the unified global graph.
+Memory cadence owns Vault detection: every resumed-tail capture and each crossed 100-real-user-prompt epoch performs a content-hash check. `vault-monitor-hook.sh` dispatches `subagent_type: vault-extract` (sonnet) only when that check wrote a changed-content marker. No polling extraction daemon runs; unchanged checks are silent no-ops.

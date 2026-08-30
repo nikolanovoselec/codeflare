@@ -633,6 +633,7 @@ describe('Herdr fixed agent-event ingress', () => {
     })).status, 401);
     for (const body of [
       { kind: 'custom-prose', terminalId: '1' },
+      { kind: 'task-completed', terminalId: '1' },
       { kind: 'task-completed', terminalId: '2' },
       { kind: 'task-completed', terminalId: '1', body: 'untrusted' },
       '{"kind":"task-completed","kind":"task-failed","terminalId":"1"}',

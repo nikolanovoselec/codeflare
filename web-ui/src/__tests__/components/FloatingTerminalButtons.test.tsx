@@ -6,11 +6,13 @@ import { sessionStore } from '../../stores/session';
 import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 import { sendTerminalKey } from '../../lib/touch-gestures';
 import { setIframeInput } from '../../lib/xterm-internals';
+import { beginClipboardWrite, retainFailedClipboardWrite } from '../../lib/osc52';
 
 // Mocks for mobile detection
 const mobileMock = vi.hoisted(() => ({
   isTouchDevice: vi.fn(() => true),
   isVirtualKeyboardOpen: vi.fn(() => true),
+  isIOSDevice: vi.fn(() => false),
   getKeyboardHeight: vi.fn(() => 300),
   resetKeyboardStateIfStale: vi.fn(),
   forceResetKeyboardState: vi.fn(),
@@ -341,6 +343,28 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
   });
 
   describe('Clipboard Access Guard', () => {
+    it('retries a rejected OSC 52 copy during trusted paste and pastes retained text', async () => {
+      vi.useRealTimers();
+      const mockTerm = { paste: vi.fn(), textarea: document.createElement('textarea') };
+      (sessionStore as any).activeSessionId = 'test-session';
+      vi.mocked(terminalStore.getTerminal).mockReturnValue(mockTerm as any);
+      const writeId = beginClipboardWrite(mockTerm);
+      retainFailedClipboardWrite(mockTerm, writeId, 'retained Pi selection');
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      const readText = vi.fn().mockResolvedValue('stale clipboard');
+      Object.assign(navigator, { clipboard: { readText, writeText } });
+
+      render(() => <FloatingTerminalButtons showTerminal={true} />);
+      screen.getByTitle('Paste').click();
+
+      await vi.waitFor(() => {
+        expect(writeText).toHaveBeenCalledWith('retained Pi selection');
+        expect(mockTerm.paste).toHaveBeenCalledWith('retained Pi selection');
+      });
+      expect(readText).not.toHaveBeenCalled();
+      vi.useFakeTimers();
+    });
+
     it('should always read clipboard on mobile regardless of clipboardAccess setting', async () => {
       // Switch to real timers for this test — fake timers block async clipboard mocks
       vi.useRealTimers();

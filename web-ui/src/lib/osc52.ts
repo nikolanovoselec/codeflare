@@ -1,5 +1,39 @@
 export const OSC52_CLIPBOARD_MAX_BYTES = 64 * 1024;
 
+interface ClipboardWriteAttempt {
+  readonly id: number;
+  failedText?: string;
+}
+
+const clipboardWriteAttempts = new WeakMap<object, ClipboardWriteAttempt>();
+let nextClipboardWriteId = 0;
+
+export function beginClipboardWrite(terminal: object): number {
+  const id = ++nextClipboardWriteId;
+  clipboardWriteAttempts.set(terminal, { id });
+  return id;
+}
+
+export function retainFailedClipboardWrite(
+  terminal: object,
+  id: number,
+  text: string,
+): void {
+  const attempt = clipboardWriteAttempts.get(terminal);
+  if (attempt?.id === id) attempt.failedText = text;
+}
+
+export function completeClipboardWrite(terminal: object, id: number): void {
+  if (clipboardWriteAttempts.get(terminal)?.id === id) clipboardWriteAttempts.delete(terminal);
+}
+
+export function takeFailedClipboardWrite(terminal: object): string | undefined {
+  const attempt = clipboardWriteAttempts.get(terminal);
+  if (attempt?.failedText === undefined) return undefined;
+  clipboardWriteAttempts.delete(terminal);
+  return attempt.failedText;
+}
+
 /** Parse one bounded OSC 52 clipboard write. Queries and non-standard selectors are rejected. */
 export function parseOsc52ClipboardWrite(data: string): string | null {
   const separator = data.indexOf(';');
