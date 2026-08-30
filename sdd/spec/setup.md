@@ -500,12 +500,12 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. `GET /api/admin/configuration` requires shared authentication and administrator authorization in every deployment mode.
-2. The response returns effective mode, revision, applicable closed sections, non-secret values, active run identity, and direct latest terminal summaries.
-3. Secret fields return only `administration`, `deployment`, or `none`; no secret bytes, expiry claims, or submitted values are returned.
-4. Enterprise AI Gateway requires an effective URL and API token, resolving Administration values independently before deployment fallbacks.
-5. Browser Run remains optional with no enable flag: no stored pair is valid, a configured state requires account ID plus saved token, and blank secret input preserves that token.
-6. Default, Onboarding, and SaaS preserve existing Users behavior; SaaS preserves Subscription Tiers; Enterprise continues rejecting both backend resources.
+1. `GET /api/admin/configuration` requires shared authentication and administrator authorization in every deployment mode. <!-- @test: src/__tests__/routes/admin-configuration.test.ts (rejects unauthenticated and non-admin requests) -->
+2. The response returns effective mode, revision, applicable closed sections, non-secret values, active run identity, and direct latest terminal summaries. <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns one non-enterprise mode contract for %s) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (prefers Administration secret state and reads direct latest summaries without listing Activity) -->
+3. Secret fields return only `administration`, `deployment`, or `none`; no secret bytes, expiry claims, or submitted values are returned. <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) -->
+4. Enterprise AI Gateway requires an effective URL and API token, resolving Administration values independently before deployment fallbacks. <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (prefers Administration secret state and reads direct latest summaries without listing Activity) -->
+5. Browser Run remains optional with no enable flag: no stored pair is valid, a configured state requires account ID plus saved token, and blank secret input preserves that token. <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (prefers Administration secret state and reads direct latest summaries without listing Activity) -->
+6. Default, Onboarding, and SaaS preserve existing Users behavior; SaaS preserves Subscription Tiers; Enterprise continues rejecting both backend resources. <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC1: /api/users fails closed in enterprise mode) --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC5: admin tier config routes 403 in enterprise mode) -->
 
 **Constraints:** Reuse Setup readers and existing mode owners. Configuration reads do not list Activity records.
 
