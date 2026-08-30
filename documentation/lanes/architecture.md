@@ -632,7 +632,7 @@ sequenceDiagram
 
 The root owns delivery and finalization. The child receives one immutable request, publishes under a bounded lock, and cannot advance root counters or manifests by self-report. [Vault](vault.md) owns capture and publication semantics; [Preseed](preseed.md) owns delivered runtime contracts.
 
-**Requirements:** [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)
+**Requirements:** [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)
 
 ### Pi PR-Boundary Review Data Flow
 

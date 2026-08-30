@@ -633,7 +633,7 @@ The setup wizard auto-provisions a higher-precedence Access **bypass** app (`dec
 
 **Symptom:** Extraction emits repeated delivery messages, reaches `background-extraction-giveup`, or finishes without advancing the memory counter or Vault manifest.
 
-**Cause:** Pi treats the root transcript as delivery truth ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)).
+**Cause:** Pi treats the root transcript as delivery truth ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)).
 
 One emitted request remains pending until an exact public `subagent` call appears. Each failed exact call advances one reminder, only six failed calls reach GIVEUP, and a terminal notification cannot advance state without the required post-commit artifacts. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::extractionTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memorySuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::vaultSuccessQualifies -->
 

@@ -166,7 +166,7 @@ In advanced mode the `VAULT_FILTER` re-includes `Vault/graphify-out/vault-graph.
 
 The broad `.config/**` exclude subsumes older specific `.config/rclone/**` and `.config/.wrangler/**` entries. All rclone commands use `--filter` flags, not `--include`/`--exclude`.
 
-Memory-capture counter files used to live at `~/.memory/counter/**` and required an explicit exclude. They now live at `/tmp/.memory-counter/`, which is not synced because Cloudflare Containers use ephemeral disk; see [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC6.
+Memory-capture counter files used to live at `~/.memory/counter/**` and required an explicit exclude. They now live at `/tmp/.memory-counter/`, which is not synced because Cloudflare Containers use ephemeral disk; see [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume).
 
 **Note:** The `metadata` mode is defined in `entrypoint.sh` but the Container DO currently only maps `workspaceSyncEnabled` to `full` or `none`. The `metadata` mode can be used by setting `SYNC_MODE` directly in the container environment (see [configuration.md](configuration.md#container-environment) for the env var reference).
 

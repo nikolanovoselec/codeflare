@@ -509,7 +509,7 @@ On Claude, the global graph should gain a `document` node plus concepts for visi
 
 Cross-session memory in codeflare lives entirely in the vault. Graphify ingests every supported vault input into the unified global graph; agents query it via runtime-native Graphify tools. The former MCP `@modelcontextprotocol/server-memory` subsystem has been removed. Conversation context (decisions, debugging insights, observations) survives across sessions and devices only in Pro/advanced mode, where the capture machinery writes structured notes and bisync preserves the vault subtree. Default mode registers no memory-capture hook, counter, or persisted Vault write machinery.
 
-Implements [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-004](../../sdd/spec/memory.md#req-mem-004-vault-contents-synced-to-r2-across-sessions), [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-MEM-008](../../sdd/spec/memory.md#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline), [REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing).
+Implements [REQ-MEM-001](../../sdd/spec/memory.md#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume), [REQ-MEM-004](../../sdd/spec/memory.md#req-mem-004-vault-contents-synced-to-r2-across-sessions), [REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-MEM-008](../../sdd/spec/memory.md#req-mem-008-memory-prompt-files-preseeded-via-manifest-pipeline), [REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing).
 
 ### Hook Mechanics
 
@@ -524,9 +524,9 @@ The `memory-capture.sh` script runs as a **UserPromptSubmit hook**.
 3. **Counter check** - reads the last count from line 1 and last offset from line 2 of `/tmp/.memory-counter/{session_id}`; `CURRENT_COUNT` counts real-user prompts.
    - **Lifetime:** `/tmp` is fresh after container recycle, so counter presence distinguishes a continuing session from a fresh container.
    - **Override:** `MEMCAP_COUNTER_DIR` changes the location for hermetic tests; production leaves it unset.
-   - **Existing counter:** a delta below 15 exits silently.
+   - **Existing counter:** a delta below 50 exits silently.
    - **`CURRENT_COUNT == 1`:** baseline at the transcript size, write the counter, emit the first-message graphify-query nudge, and exit without capture.
-   - **`CURRENT_COUNT > 1`:** treat the restored transcript as a resumed session ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC6). Capture from line 1 to flush the prior-session tail and re-emit the graphify-query directive.
+   - **`CURRENT_COUNT > 1`:** treat the restored transcript as a resumed session ([REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume) AC7). Capture only the uncaptured tail after the highest durable successful count when one exists, and re-emit the graphify-query directive.
    - **Why re-emit:** the recycled agent context no longer recalls prior decisions or graph-query guidance.
 4. **Vars file** - writes transcript path, offsets, date, counts, and
    counter path to `/tmp/.memory-counter/{session_id}.vars` as JSON.
@@ -594,7 +594,7 @@ An exact successful native notification qualifies only after publication and whi
 The counter directory lives under `/tmp` by design: Cloudflare Containers
 guarantees that `/tmp` (and all non-R2-backed disk) is fresh on every
 container start, which is what makes the counter's absence on the first
-hook fire a reliable "fresh container" signal for [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-15-user-messages) AC6
+hook fire a reliable "fresh container" signal for [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume) AC7
 resume detection. No bisync filter is required because `/tmp` is not
 synced in the first place. The `MEMCAP_COUNTER_DIR` env var overrides
 the default for hermetic tests; production never sets it.
