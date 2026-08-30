@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { prepareUsageD1, type WranglerCommand } from '../../../scripts/ci/prepare-usage-d1.mjs';
+import { prepareUsageD1 } from '../../../scripts/ci/prepare-usage-d1.mjs';
+
+type WranglerCommand = string[];
 
 const config = `
 name = "codeflare"
@@ -98,6 +100,6 @@ describe('D1 deployment boundary (REQ-OPS-056)', () => {
     await expect(prepareUsageD1({
       workerName: 'codeflare-integration', deployToken: 'deploy', runtimeToken: 'runtime', wranglerConfig: config, run: fake.run,
     })).rejects.toThrow('migration failed');
-    expect(fake.calls).toHaveLength(2);
+    expect(fake.calls).toHaveLength(3);
   });
 });

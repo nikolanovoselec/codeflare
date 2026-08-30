@@ -51,6 +51,14 @@ MAX_SESSIONS_ADMIN = "10"
 binding = "KV"
 id = "placeholder"
 
+# D1 historical usage and report-delivery database. Deployment resolves one
+# environment-specific ID before migrations; local tests use the placeholder.
+[[d1_databases]]
+binding = "USAGE_DB"
+database_name = "placeholder"
+database_id = "placeholder"
+migrations_dir = "migrations/usage"
+
 # Strict Gateway egress VPC binding (REQ-ENTERPRISE-016) — ENTERPRISE DEPLOYS ONLY,
 # injected at deploy time by .github/workflows/deploy.yml when ENTERPRISE_MODE=active.
 # Committed commented-out on purpose: (a) default/fork deploys whose accounts have no

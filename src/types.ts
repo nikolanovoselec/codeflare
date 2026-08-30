@@ -17,6 +17,9 @@ interface CoreEnv {
   // KV namespace for session metadata
   KV: KVNamespace;
 
+  // Historical organization usage and report delivery records
+  USAGE_DB: D1Database;
+
   // Container Durable Object
   CONTAINER: DurableObjectNamespace<Container<Env>>;
 
