@@ -1,6 +1,6 @@
 ---
 name: frontend-design
-description: "Own frontend art direction for greenfield work, redesign, and thesis-changing polish or critique across marketing, operational, reading, and immersive interfaces. Use when concept, composition, typography, imagery, motion, responsiveness, or implemented visual quality matters. Inspect the incumbent product first. Exclude static art, prose or documentation, bounded finishing, routine audits with a dedicated owner, and non-visual engineering."
+description: "Own web frontend art direction for responsive content and web products across marketing, operational, reading, and immersive interfaces. Use for greenfield work, redesign, and thesis-changing polish or critique. Exclude native mobile, desktop-native, static art, prose, bounded finishing, and non-visual engineering."
 ---
 
 # Frontend Design
@@ -26,7 +26,7 @@ Ask only about decisions that change the result: audience, job, content, identit
 
 ## Select the workflow
 
-Classify the work as greenfield, full redesign, incremental redesign, polish, or critique. Classify the surface as Persuade, Operate, Read, or Experience.
+Classify the work as greenfield, full redesign, incremental redesign, polish, or critique. Confirm the delivery platform is responsive web content or a web product; native iOS, Android, and cross-platform native work belongs to `native-mobile-design`. Classify the purpose as Persuade, Operate, Read, or Experience.
 
 Read only the references the task needs:
 
@@ -35,6 +35,9 @@ Read only the references the task needs:
 - [references/art-direction.md](references/art-direction.md) when establishing or materially changing frontend visual direction.
 - [references/assets-and-motion.md](references/assets-and-motion.md) when imagery, illustration, video, animation, canvas, WebGL, generated assets, or external references materially support the concept.
 - [references/visual-qa.md](references/visual-qa.md) before final review of work owned here, or when acting as the audit fallback.
+- [references/operate-and-dashboards.md](references/operate-and-dashboards.md) for Operate surfaces; establish decisions and information architecture before selecting components.
+- [references/component-systems.md](references/component-systems.md) when reusing, adapting, importing, generating, or creating component-system material.
+- [references/complex-motion.md](references/complex-motion.md) only when the selected motion language may require coordinated or specialist choreography.
 - [references/astro-cloudflare.md](references/astro-cloudflare.md) only when the repository already uses Astro or the task explicitly considers Astro for a new Cloudflare-targeted frontend.
 
 ## Commit to one direction
@@ -51,7 +54,11 @@ Preserve the incumbent framework, build system, routes, semantics, content, data
 
 Use authentic content and working controls. Cover relevant states, long content, localization, and asset failure. Accessibility belongs to composition and interaction, not cleanup.
 
-Choose techniques from the concept and repository, never habit. Do not mandate a framework, library, palette, icon set, font source, asset workflow, motion runtime, or rendering technique.
+For component work, inspect incumbent components, tokens, and registries first. Establish required behavior, accessibility, information architecture, and the visual thesis before choosing implementation material. Reuse or adapt compatible components; create new ones only when the incumbent system cannot cleanly express required behavior. A component source never chooses the thesis.
+
+Keep simple transitions in CSS or the incumbent framework. Delegate only when the selected motion language requires complexity the existing system cannot express. An animation specialist implements that language and cannot invent it.
+
+Choose techniques from the concept and repository, never habit. Do not mandate a framework, library, component registry, palette, icon set, font source, asset workflow, motion runtime, or rendering technique.
 
 ## Inspect, critique, revise
 

@@ -1,9 +1,9 @@
 // REQ-AGENT-134: advanced sessions receive one design entry point plus its
-// licensed specialists through the canonical multi-agent preseed pipeline.
+// specialists through the canonical multi-agent preseed pipeline.
 import { describe, expect, it } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
 
-const SKILLS = ['design', 'ui-ux-pro-max', 'canvas-design', 'frontend-design'];
+const SKILLS = ['design', 'ui-ux-pro-max', 'canvas-design', 'frontend-design', 'native-mobile-design'];
 const FRONTEND_DESIGN_REFERENCES = [
   'art-direction.md',
   'new-work.md',
@@ -11,7 +11,12 @@ const FRONTEND_DESIGN_REFERENCES = [
   'assets-and-motion.md',
   'visual-qa.md',
   'astro-cloudflare.md',
+  'operate-and-dashboards.md',
+  'component-systems.md',
+  'complex-motion.md',
 ];
+const DESIGN_REFERENCES = ['external-dependencies.md'];
+const NATIVE_MOBILE_REFERENCES = ['platform-behavior.md'];
 const TARGET_PREFIXES = [
   '.claude/skills',
   '.codex/skills',
@@ -23,7 +28,7 @@ const TARGET_PREFIXES = [
 const docsFor = (suffix: string) => AGENTS_SEEDED_CONFIGS.filter((doc) => doc.key.endsWith(suffix));
 
 describe('REQ-AGENT-134: advanced design skill suite', () => {
-  it('REQ-AGENT-134: delivers the master router and three specialists to every skill-capable agent', () => {
+  it('REQ-AGENT-134: delivers the master router and four specialists to every skill-capable agent', () => {
     for (const prefix of TARGET_PREFIXES) {
       for (const skill of SKILLS) {
         const key = `${prefix}/${skill}/SKILL.md`;
@@ -95,12 +100,38 @@ describe('REQ-AGENT-134: advanced design skill suite', () => {
     }
   });
 
-  it('REQ-AGENT-180: keeps portable design guidance free of runtime-specific assumptions', () => {
+  it('REQ-AGENT-182: projects native-mobile authority and progressive cross-cutting references', () => {
+    const canonical = AGENTS_SEEDED_CONFIGS.find(
+      (document) => document.key === '.claude/skills/native-mobile-design/SKILL.md',
+    );
+    expect(canonical).toBeDefined();
+
+    const body = (content: string | undefined) => content?.replace(/^---\n[\s\S]*?\n---\n/, '');
+    for (const prefix of TARGET_PREFIXES) {
+      const skill = AGENTS_SEEDED_CONFIGS.find(
+        (document) => document.key === `${prefix}/native-mobile-design/SKILL.md`,
+      );
+      expect(body(skill?.content)).toBe(body(canonical?.content));
+      for (const reference of NATIVE_MOBILE_REFERENCES) {
+        const key = `${prefix}/native-mobile-design/references/${reference}`;
+        expect(AGENTS_SEEDED_CONFIGS.find((document) => document.key === key), `${key} must be generated`).toBeDefined();
+      }
+      for (const reference of DESIGN_REFERENCES) {
+        const key = `${prefix}/design/references/${reference}`;
+        expect(AGENTS_SEEDED_CONFIGS.find((document) => document.key === key), `${key} must be generated`).toBeDefined();
+      }
+    }
+  });
+
+  it('REQ-AGENT-180/182: keeps portable design guidance free of runtime-specific assumptions', () => {
     const portableKeys = [
       '/skills/design/SKILL.md',
+      ...DESIGN_REFERENCES.map((reference) => `/skills/design/references/${reference}`),
       '/skills/design-taste-frontend/SKILL.md',
       '/skills/frontend-design/SKILL.md',
       ...FRONTEND_DESIGN_REFERENCES.map((reference) => `/skills/frontend-design/references/${reference}`),
+      '/skills/native-mobile-design/SKILL.md',
+      ...NATIVE_MOBILE_REFERENCES.map((reference) => `/skills/native-mobile-design/references/${reference}`),
     ];
     const forbidden = /AGENTS\.md|Claude Code|ChatGPT|\bCodex\b|~\/\.claude|~\/\.codex|\$skill-creator/;
 

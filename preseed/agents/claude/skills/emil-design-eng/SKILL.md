@@ -7,7 +7,9 @@ description: Refine interaction details, component feel, and purposeful animatio
 
 ## Authority boundary
 
-Use this specialist after frontend art direction exists. It owns focused interaction and animation craft, not the primary art-direction workflow.
+Use this specialist after the platform art-direction authority has selected a motion language. It owns focused interaction and animation craft, not visual direction, information architecture, or a competing motion thesis.
+
+Keep simple transitions in CSS or the incumbent framework. Use this specialist for coordinated timelines, interruptible sequences, complex scroll-linked storytelling, SVG morphing, physics, drag, or synchronized choreography. Prefer the existing animation system unless a demonstrated gap exists. Do not introduce GSAP for generic fade-up reveals.
 
 ## Initial Response
 

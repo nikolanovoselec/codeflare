@@ -2819,8 +2819,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. Advanced mode delivers `design`, `ui-ux-pro-max`, `canvas-design`, and `frontend-design` to Claude and every skill-capable generated runtime; default mode receives none. <!-- @impl: preseed/agents/claude/manifest.json::skills/design --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: delivers the master router and three specialists to every skill-capable agent) -->
-2. The `design` skill routes to the three new specialists and relevant installed Codeflare design specialists, selecting the smallest useful composition. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @manual: Invoke the router with requests spanning one and multiple design domains and verify it selects only the smallest useful specialist composition. -->
+1. Advanced mode delivers `design`, `ui-ux-pro-max`, `canvas-design`, `frontend-design`, and `native-mobile-design` to Claude and every skill-capable generated runtime; default mode receives none. <!-- @impl: preseed/agents/claude/manifest.json::skills/design --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: delivers the master router and four specialists to every skill-capable agent) -->
+2. The `design` skill routes to the four core specialists and relevant installed Codeflare design specialists, selecting the smallest useful composition. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @manual: Invoke the router with requests spanning one and multiple design domains and verify it selects only the smallest useful specialist composition. -->
 3. The vendored UI UX Pro Max and Canvas Design sources retain their MIT and Apache-2.0 license texts. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/LICENSE::MIT License --> <!-- @impl: preseed/agents/claude/skills/_licenses/anthropic-skills-Apache-2.0.txt::Apache License --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: ships upstream licenses and marks the adapted Canvas file) -->
 4. The vendored UI UX Pro Max and Canvas Design sources retain their pinned upstream provenance. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/ORIGIN.md::Upstream provenance --> <!-- @impl: preseed/agents/claude/skills/canvas-design/ORIGIN.md::Upstream provenance --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: preserves pinned provenance values and omits a Copilot skill lane) -->
 5. Modified Canvas instructions carry a prominent modification notice. <!-- @impl: preseed/agents/claude/skills/canvas-design/SKILL.md::Modification notice --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-134: ships upstream licenses and marks the adapted Canvas file) -->
@@ -2925,9 +2925,9 @@ None.
 
 1. Advanced Pi instructions include one bounded visual-routing entry. <!-- @impl: preseed/agents/pi/rules/design-routing.md::Design routing --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: projects one bounded advanced Pi visual-routing entry) -->
 2. The Pi routing entry remains inactive for non-visual work. <!-- @impl: preseed/agents/pi/rules/design-routing.md::Design routing --> <!-- @manual: Ask advanced Pi for backend-only and prose-only changes; verify the visual router remains unloaded. -->
-3. `design` classifies visual work by mode and surface. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Classify --> <!-- @manual: Evaluate greenfield, redesign, polish, audit, Persuade, Operate, Read, and Experience prompts. -->
+3. `design` classifies visual work independently by mode, purpose, and delivery platform. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Classify --> <!-- @manual: Evaluate greenfield, redesign, polish, audit, Persuade, Operate, Read, and Experience prompts. -->
 4. Fixed-canvas work selects `canvas-design`. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @manual: Request a poster and social crop; verify frontend specialists remain unloaded. -->
-5. Frontend visual direction selects `frontend-design`. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @manual: Request greenfield, incremental, and dense operational frontend direction; verify one frontend owner. -->
+5. Responsive-web and web-product visual direction selects `frontend-design`. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @manual: Request greenfield, incremental, and dense operational frontend direction; verify one frontend owner. -->
 6. Backend, data, prose, and non-visual refactors select no design skill. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @manual: Evaluate backend, API, data, prose, and non-visual refactor prompts. -->
 
 **Constraints:**
@@ -2958,8 +2958,8 @@ None.
 3. Substantial work commits to one product-specific visual thesis. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Commit to one direction --> <!-- @manual: Compare unrelated Persuade, Operate, Read, and Experience outputs for material diversity. -->
 4. Incremental work preserves unauthorized incumbent contracts. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Implement inside the real system --> <!-- @manual: Evaluate an incremental non-React redesign with explicit preservation boundaries. -->
 5. Validation reports unavailable capabilities without claiming visual evidence. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Inspect, critique, revise --> <!-- @manual: Run without rendering capability and verify the limitation remains explicit. -->
-6. The authority and its six focused references project to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Select the workflow --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-180: projects one portable frontend design authority and its focused references) -->
-7. Each focused reference has a stated workflow boundary. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Select the workflow --> <!-- @manual: Verify new-work, redesign, art-direction, assets-and-motion, visual-QA, and Astro/Cloudflare triggers independently. -->
+6. The authority and its focused references project to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Select the workflow --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-180: projects one portable frontend design authority and its focused references) -->
+7. Each focused reference has a stated workflow boundary. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Select the workflow --> <!-- @manual: Verify new-work, redesign, art-direction, assets-and-motion, visual-QA, operational, component-system, complex-motion, and Astro/Cloudflare triggers independently. -->
 
 **Constraints:**
 
@@ -2992,7 +2992,7 @@ None.
 1. A compact `design-taste-frontend` entry projects to every skill-capable runtime and names `frontend-design` as its target. <!-- @impl: preseed/agents/claude/skills/design-taste-frontend/SKILL.md::Frontend design compatibility route --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-181: projects a compact compatibility entry that targets frontend-design) -->
 2. Legacy taste requests continue through `frontend-design`. <!-- @impl: preseed/agents/claude/skills/design-taste-frontend/SKILL.md::Frontend design compatibility route --> <!-- @manual: Explicitly invoke `design-taste-frontend` and verify the resulting work follows `frontend-design`. -->
 3. UI UX Pro Max supplies evidence without owning the visual thesis. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/SKILL.md::Authority boundary --> <!-- @manual: Request local design evidence during frontend direction and verify `frontend-design` remains the owner. -->
-4. Implicit Impeccable discovery remains limited to critique and bounded finishing. <!-- @impl: preseed/agents/claude/skills/impeccable/SKILL.md::Codeflare routing boundary --> <!-- @manual: Compare thesis-changing redesign and bounded finishing prompts. -->
+4. Implicit Impeccable discovery remains limited to critique and bounded finishing while the incumbent product thesis stays the art-direction authority. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch one art-direction owner --> <!-- @impl: preseed/agents/claude/skills/impeccable/SKILL.md::Codeflare routing boundary --> <!-- @manual: Compare thesis-changing redesign and bounded finishing prompts. -->
 5. Impeccable refresh preserves its explicit command body while applying the Codeflare boundary. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareRoutingBoundary --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-181: adapts upstream Impeccable routing without changing explicit commands) -->
 6. Emil Design Engineering refines interaction only after direction exists. <!-- @impl: preseed/agents/claude/skills/emil-design-eng/SKILL.md::Authority boundary --> <!-- @manual: Request focused motion refinement after selecting a frontend direction. -->
 7. Downloaded Impeccable metadata that cannot establish one routing description fails before any existing skill target changes. <!-- @impl: scripts/update-impeccable-skill.mjs::replaceImpeccableTargets --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-181: adapts upstream Impeccable routing without changing explicit commands) -->
@@ -3007,6 +3007,171 @@ None.
 **Dependencies:** [REQ-AGENT-179](#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-135](#req-agent-135-ui-ux-pro-max-query-and-generation)
 
 **Verification:** Generated compatibility contracts, updater transformation tests, and activation evaluations.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-182: Purpose and Platform Design Routing
+
+**Intent:** Every visual task is classified by independent purpose and delivery-platform axes before one art-direction authority is selected.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. `design` classifies purpose as Persuade, Operate, Read, or Experience. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Classify on two independent axes --> <!-- @manual: Route one materially different request for each purpose. -->
+2. `design` classifies delivery as responsive web, web product, native iOS, native Android, cross-platform native mobile, desktop-native, or static/canvas. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Classify on two independent axes --> <!-- @manual: Route one request for each delivery platform. -->
+3. Purpose controls product hierarchy and success criteria while platform controls interaction, accessibility, lifecycle, and implementation constraints. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Classify on two independent axes --> <!-- @manual: Compare the same purpose across responsive web and native mobile. -->
+4. Native iOS, Android, and cross-platform requests select `native-mobile-design` rather than the web authority. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch one art-direction owner --> <!-- @manual: Evaluate equivalent iOS, Android, and responsive-web requests. -->
+5. Every task receives at most one canonical art-direction authority; additional specialists own only orthogonal concerns. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Compose orthogonal specialists only --> <!-- @manual: Evaluate an operational mobile interface requiring components and motion; verify one visual authority. -->
+6. Native-mobile authority and cross-cutting references project to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/native-mobile-design/SKILL.md::Native Mobile Design --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-182: projects native-mobile authority and progressive cross-cutting references) -->
+
+**Constraints:** Native mobile is never treated as responsive web at a smaller width; detailed platform guidance remains lazy.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-179](#req-agent-179-portable-visual-design-routing)
+
+**Verification:** Generated projection tests and fresh-context dual-axis routing evaluations.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-183: Native Mobile Design Authority
+
+**Intent:** Native iOS, Android, and cross-platform applications receive product-specific art direction that respects genuine platform behavior without becoming visually generic.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. `native-mobile-design` inspects product, platform, device, incumbent, and accessibility evidence before proposing direction. <!-- @impl: preseed/agents/claude/skills/native-mobile-design/SKILL.md::Start with product and platform evidence --> <!-- @manual: Run an incumbent native repository task and verify evidence informs direction. -->
+2. Substantial native work commits to one product-specific visual thesis. <!-- @impl: preseed/agents/claude/skills/native-mobile-design/SKILL.md::Commit to one native direction --> <!-- @manual: Compare unrelated native products and reject substitutable visual identities. -->
+3. Platform conventions constrain behavior and accessibility without erasing product identity. <!-- @impl: preseed/agents/claude/skills/native-mobile-design/SKILL.md::Commit to one native direction --> <!-- @manual: Compare equivalent iOS and Android flows. -->
+4. Native guidance covers navigation, gestures, safe areas, input, scaling, assistive technology, device adaptation, permissions, offline operation, deep links, interruption, lifecycle, transitions, and reduced motion. <!-- @impl: preseed/agents/claude/skills/native-mobile-design/references/platform-behavior.md::Design the complete mobile environment --> <!-- @manual: Evaluate representative native flows across these states. -->
+5. Cross-platform work preserves shared product identity while validating each platform separately. <!-- @impl: preseed/agents/claude/skills/native-mobile-design/references/platform-behavior.md::Choose cross-platform compromises deliberately --> <!-- @manual: Evaluate one shared flow on iOS and Android. -->
+6. Frameworks and official platform systems are treated as conditional implementation guidance, not universal visual styles. <!-- @impl: preseed/agents/claude/skills/native-mobile-design/SKILL.md::Start with product and platform evidence --> <!-- @manual: Compare SwiftUI, Compose, React Native, Expo, and Flutter prompts. -->
+7. Native validation reports unavailable device or rendering capability without claiming evidence. <!-- @impl: preseed/agents/claude/skills/native-mobile-design/SKILL.md::Validate native behavior --> <!-- @manual: Run without device rendering and verify the limitation is explicit. -->
+
+**Constraints:** Core guidance requires no framework, registry, network, device simulator, or optional specialist.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing)
+
+**Verification:** Fresh-context iOS, Android, cross-platform, and capability-limited evaluations.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-184: Operational Information Design
+
+**Intent:** Operational interfaces organize information around user decisions and actions before mapping structure to components or visual treatment.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Operate work establishes operator expertise, frequency, decision, following action, task mode, data volume, update cadence, and data limitations before component selection. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/operate-and-dashboards.md::Establish the operating job --> <!-- @manual: Compare expert security operations with occasional management review. -->
+2. Operate work defines scan path, hierarchy, grouping, density, scope, time, filtering, drill-down, bulk action, saved views, thresholds, persistence, and auditability as applicable. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/operate-and-dashboards.md::Structure decisions before widgets --> <!-- @manual: Evaluate a dense investigation workflow. -->
+3. Summary, table, chart, timeline, topology, and text representations are selected from the user's question rather than widget habit. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/operate-and-dashboards.md::Structure decisions before widgets --> <!-- @manual: Evaluate datasets requiring each representation. -->
+4. Operational flows explicitly design loading, partial, stale, empty, error, permission-limited, degraded, optimistic, confirmed, destructive, and recoverable states as applicable. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/operate-and-dashboards.md::Design operational states --> <!-- @manual: Evaluate an unreliable permission-scoped data source. -->
+5. Smaller screens preserve the primary operational job through prioritization or reduced scope rather than mechanical dashboard stacking. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/operate-and-dashboards.md::Adapt the job for smaller screens --> <!-- @manual: Compare desktop and phone versions of one operational workflow. -->
+6. The operational reference projects to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Select the workflow --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-180: projects one portable frontend design authority and its focused references) -->
+
+**Constraints:** Operational information design does not own visual art direction or framework implementation.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-180](#req-agent-180-portable-frontend-design-authority)
+
+**Verification:** Generated projection tests and expert-versus-occasional dashboard evaluations.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-185: Component Registry and External Design Safety
+
+**Intent:** Component systems and external design dependencies remain bounded implementation inputs rather than authorities or automatic execution paths.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Component selection follows incumbent inspection, required behavior, accessibility, information architecture, and visual thesis in that order. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/component-systems.md::Follow the decision order --> <!-- @manual: Evaluate equivalent incumbent and greenfield component tasks. -->
+2. Complex controls prefer proven accessible primitives over novel hand-built behavior. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/component-systems.md::Prefer proven behavior --> <!-- @manual: Evaluate dialog, combobox, table, focus-trap, and virtualized-list requests. -->
+3. Registry material is admitted only when compatible with framework, tokens, accessibility, runtime, license, maintenance, and repository conventions. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/component-systems.md::Admit a registry conditionally --> <!-- @manual: Compare compatible shadcn and incompatible non-shadcn repositories. -->
+4. External skills, registries, presets, MCP servers, and package commands are inspected as untrusted dependencies before adoption. <!-- @impl: preseed/agents/claude/skills/design/references/external-dependencies.md::Inspect before adoption --> <!-- @manual: Evaluate a mutable external registry proposal. -->
+5. Skill activation executes no mutable latest package and no external package code merely to determine applicability. <!-- @impl: preseed/agents/claude/skills/design/references/external-dependencies.md::Inspect before adoption --> <!-- @manual: Activate design routing without registry access and verify no package command runs. -->
+6. Missing registry or MCP access does not block the owning workflow. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/component-systems.md::Admit a registry conditionally --> <!-- @manual: Run a component task with no registry or MCP capability. -->
+7. External-dependency guidance projects to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Compose orthogonal specialists only --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-182: projects native-mobile authority and progressive cross-cutting references) -->
+
+**Constraints:** Installation, mutation, or repository transmission requires explicit authorization and reviewed provenance.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-181](#req-agent-181-design-specialist-compatibility)
+
+**Verification:** Generated projection tests and fresh-context registry/no-registry safety evaluations.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-186: Conditional Complex Motion Delegation
+
+**Intent:** Motion tooling is selected only when the established visual thesis requires complexity beyond the incumbent system.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Simple interaction and state transitions remain in CSS or the incumbent framework when sufficient. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/complex-motion.md::Start with the smallest motion system --> <!-- @manual: Evaluate a simple hover and disclosure request. -->
+2. Specialist delegation is limited to coordinated timelines, interruptible sequences, complex scroll storytelling, SVG morphing, physics, drag, or synchronized choreography. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/complex-motion.md::Delegate only for real complexity --> <!-- @manual: Evaluate one request for each qualifying complexity. -->
+3. Existing animation systems remain preferred unless a demonstrated technical gap exists. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/complex-motion.md::Start with the smallest motion system --> <!-- @manual: Evaluate a repository with an incumbent motion system. -->
+4. Animation specialists implement the selected motion language without redefining art direction. <!-- @impl: preseed/agents/claude/skills/emil-design-eng/SKILL.md::Authority boundary --> <!-- @manual: Evaluate motion refinement after a selected direction. -->
+5. GSAP is conditional on justified complexity and current official lifecycle, cleanup, transform, responsive, and reduced-motion guidance. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/complex-motion.md::Delegate only for real complexity --> <!-- @manual: Compare generic fade-up and complex scroll-narrative requests. -->
+6. Missing advanced motion capability preserves a simple or static usable experience. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/complex-motion.md::Validate motion as behavior --> <!-- @manual: Evaluate the complex-motion request without animation tooling. -->
+
+**Constraints:** Motion serves the selected thesis and never blocks core content or interaction.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-180](#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing)
+
+**Verification:** Fresh-context simple-interaction and complex-choreography evaluations.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-187: Design Routing Evaluation Matrix
+
+**Intent:** Fresh-context evaluations prove that platform, operational, component, safety, and motion distinctions affect selected workflows.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Expert security operations and occasional management dashboards produce materially different density and information strategies. <!-- @manual: Run isolated dashboard evaluations and compare hierarchy, density, and explanation. -->
+2. Equivalent native iOS and Android flows respect platform behavior without becoming visually generic or narrow desktop pages. <!-- @manual: Run isolated iOS and Android flow evaluations. -->
+3. A cross-platform flow preserves product identity while allowing justified platform divergence. <!-- @manual: Run an isolated shared-product evaluation across iOS and Android. -->
+4. An incumbent shadcn project may reuse compatible components while an equivalent non-shadcn project does not introduce shadcn. <!-- @manual: Run isolated matched component-system evaluations. -->
+5. Missing registry or MCP capability does not block design completion or trigger external execution. <!-- @manual: Run an isolated no-registry/no-MCP evaluation and inspect tool use. -->
+6. A simple interaction avoids complex-motion tooling while a scroll-driven narrative selects justified choreography. <!-- @manual: Run isolated matched motion evaluations and compare specialist activation. -->
+7. Skill activation executes no external package command automatically. <!-- @manual: Inspect tool calls from all fresh-context evaluations. -->
+
+**Constraints:** Evaluations begin from isolated contexts and judge routing and workflow evidence rather than stylistic similarity scores.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-183](#req-agent-183-native-mobile-design-authority), [REQ-AGENT-184](#req-agent-184-operational-information-design), [REQ-AGENT-185](#req-agent-185-component-registry-and-external-design-safety), [REQ-AGENT-186](#req-agent-186-conditional-complex-motion-delegation)
+
+**Verification:** Ten isolated fresh-context evaluations covering the specified dashboard, platform, component, registry, and motion scenarios.
 
 **Status:** Implemented
 

@@ -1,45 +1,65 @@
 ---
 name: design
-description: "Route visual work to the smallest specialist. Use for frontend creation or redesign, UI direction, dense interfaces, fixed visual artifacts, explicit visual-design requests, and ambiguous look-better requests. Route static art to canvas-design, frontend art direction to frontend-design, and bounded finishing to impeccable where installed. Exclude API or backend design, prose or documentation, and non-visual engineering."
+description: "Route visual work by purpose and delivery platform to one canonical art-direction owner plus the smallest orthogonal specialist set. Use for web, native mobile, desktop-native, static, operational, and ambiguous visual requests. Exclude API or backend design, prose, and non-visual engineering."
 ---
 
 # Design router
 
 Classify, dispatch, and stop. Do not repeat specialist methodology.
 
-## Classify
+## Classify on two independent axes
 
 Choose one work mode: **greenfield**, **full redesign**, **incremental redesign**, **polish**, or **audit**.
 
-Choose one primary surface:
+Choose one purpose:
 
 - **Persuade:** marketing, launch, conversion, campaign, portfolio.
 - **Operate:** dashboards, consoles, internal tools, workflows.
 - **Read:** documentation, editorial, knowledge, reports.
 - **Experience:** immersive, expressive, storytelling, experimental.
 
-These labels select workflows, not visual templates.
+Choose one delivery platform:
 
-## Dispatch
+- **Responsive web content or marketing**
+- **Web product or application**
+- **Native iOS**
+- **Native Android**
+- **Cross-platform native mobile**
+- **Desktop-native application**
+- **Static or canvas artifact**
 
-| Request | Lead | Add only when needed |
+Purpose controls hierarchy, density, emotional intent, and success criteria. Platform controls interaction, navigation, accessibility, lifecycle, and implementation constraints. Never treat native mobile as responsive web at a smaller width.
+
+Examples include Persuade + Native iOS for onboarding, Operate + Web application for a security console, Experience + Responsive web for an immersive campaign, and Persuade + Static or canvas for an event poster.
+
+## Dispatch one art-direction owner
+
+| Platform and request | Canonical authority | Add only when needed |
 |---|---|---|
-| Frontend creation, redesign, or polish that changes the visual thesis | `frontend-design` | `ui-ux-pro-max` for local research; `impeccable` for a later critique where installed |
-| Dense operational interface | `frontend-design` | Research or engineering specialists for evidence and implementation |
-| Poster, cover, artwork, or fixed canvas | `canvas-design` | Frontend skills only when the artifact contains an interface |
-| Existing-interface audit, hardening, accessibility, final pass, or bounded polish within an established direction | `impeccable` where installed | If unavailable, use `frontend-design` as the audit fallback without inventing a new thesis |
-| Repeated component structure | `frontend-components` | `frontend-design` when appearance is in scope |
-| React or Next.js performance | `frontend-patterns` | No design skill for non-visual work |
-| Focused interaction or animation detail | `emil-design-eng` | Use after direction exists |
+| Responsive web or web product creation, redesign, or thesis-changing polish | `frontend-design` | Operational information design, component implementation, accessibility, motion, framework engineering, or final critique |
+| Native iOS, native Android, or cross-platform native mobile | `native-mobile-design` | Component, accessibility, or motion implementation after native direction exists |
+| Poster, cover, artwork, or fixed canvas | `canvas-design` | No frontend or native owner unless artifact also contains an interface |
+| Desktop-native application | Use an installed desktop-native specialist | If absent, state the capability gap and ask before selecting a substitute |
+| Existing-interface audit or bounded finishing inside an established direction | Incumbent product direction | `impeccable` as audit or finishing owner where installed; otherwise use the platform authority as fallback |
 | Backend, infrastructure, data, prose, or non-visual refactor | No design skill | Use the relevant non-design owner |
 
-For “make this look better,” inspect first: route thesis, hierarchy, composition, or visual-language changes to `frontend-design`, and bounded correction to `impeccable` where installed. Honor explicit specialist invocation unless the artifact belongs elsewhere. `design-taste-frontend` redirects to `frontend-design`; never load both.
+For “make this look better,” inspect first. Route thesis, hierarchy, composition, or visual-language changes to the platform authority. For bounded correction, preserve the incumbent thesis and route execution to `impeccable` where installed; critique and finishing never become replacement art direction. Honor explicit specialist invocation unless the artifact belongs elsewhere. `design-taste-frontend` redirects to `frontend-design`; never load both.
+
+## Compose orthogonal specialists only
+
+Select exactly one canonical art-direction authority. Add specialists only for operational information architecture, platform-native behavior, component-system implementation, accessibility, complex motion, static composition, framework engineering, or final critique.
+
+A component specialist cannot redefine art direction. An animation specialist implements the selected motion language rather than inventing one. A platform specialist may impose genuine behavior and accessibility constraints without erasing product identity. Never stack taste presets.
+
+For repeated component structure, use `frontend-components`. For React or Next.js performance, use `frontend-patterns`. For focused interaction craft after direction exists, use `emil-design-eng`. For operational web surfaces, the frontend authority loads its dashboard reference before selecting components.
+
+When an external skill, registry, preset, MCP server, or executable package command may be used, read [references/external-dependencies.md](references/external-dependencies.md) before adoption. Missing optional registries, MCP capabilities, or specialists do not block the owning workflow.
 
 ## Execute
 
-1. Inspect enough project context to classify the request.
-2. Load only selected specialists. Missing optional skills are not errors.
-3. Let `frontend-design` own frontend visual direction; other specialists advise inside it.
-4. Resolve conflicts by user constraints, product truth and behavior, accessibility, incumbent commitments, selected thesis, then specialist preference.
+1. Inspect enough project context to classify mode, purpose, and platform.
+2. Select one authority and only necessary orthogonal specialists.
+3. Load detailed guidance progressively after routing.
+4. Resolve conflicts by user constraints, product truth and behavior, accessibility, platform commitments, incumbent contracts, selected thesis, then specialist preference.
 
-Never claim rendering, image work, research, or delegated review unless that capability was available and used.
+Never claim rendering, research, package inspection, registry access, installation, or delegated review unless that capability was available and used.

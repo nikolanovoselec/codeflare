@@ -6,7 +6,15 @@ license: MIT
 
 # Composable frontend components
 
-Use this skill before adding repeated UI or while refactoring duplicated markup. It owns component structure, API composition, state ownership, centralized content and style, and behavioral tests. Visual direction belongs to the applicable design skill; React performance belongs to `frontend-patterns`.
+Use this skill before adding repeated UI or while refactoring duplicated markup. It owns component structure, API composition, state ownership, centralized content and style, and behavioral tests. Visual direction and information architecture belong to the applicable design authority; React performance belongs to `frontend-patterns`. A component library or registry supplies implementation material and cannot redefine either.
+
+## Inspect before introducing components
+
+Inspect incumbent components, tokens, styling, registries, accessibility patterns, and repository conventions first. Reuse or adapt suitable material. Create a component only when the incumbent system cannot cleanly express required behavior.
+
+Prefer proven accessible primitives for complex dialogs, menus, comboboxes, selects, tabs, disclosure, tooltips, date inputs, data tables, drag-and-drop, focus traps, and virtualized collections. Do not hand-build complex behavior for novelty. Do not introduce shadcn, Material, or another system because it is available.
+
+Registry material must fit the framework, styling and tokens, accessibility, bundle and runtime constraints, license, maintenance model, and repository conventions. Inspect generated source and preview diffs before acceptance. Missing registry or MCP access is not a blocker.
 
 ## Extract only real repetition
 
