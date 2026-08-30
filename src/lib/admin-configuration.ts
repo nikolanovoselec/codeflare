@@ -26,12 +26,12 @@ export type ConfigurationSection = typeof CONFIGURATION_SECTIONS[number];
 export type AdministrationMode = 'default' | 'onboarding' | 'saas' | 'enterprise';
 export type ConfigurationValues = Record<string, unknown>;
 
-export interface ConfigurationTask {
+interface ConfigurationTask {
   id: string;
   dependsOn: string[];
 }
 
-export interface ConfigurationChange {
+interface ConfigurationChange {
   field: string;
   before?: unknown;
   after?: unknown;
@@ -225,7 +225,7 @@ function parseJson(raw: string | null, fallback: unknown): unknown {
   try { return JSON.parse(raw); } catch { return fallback; }
 }
 
-export async function readCurrentConfigurationValues(
+async function readCurrentConfigurationValues(
   env: Env,
   section: ConfigurationSection,
   mode: AdministrationMode,

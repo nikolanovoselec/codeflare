@@ -41,7 +41,7 @@ function createApp(envOverrides: Partial<Env> = {}) {
   return { app, kv };
 }
 
-function post(app: { request: Hono['request'] }, body: unknown): Promise<Response> {
+function post(app: ReturnType<typeof createApp>['app'], body: unknown): Promise<Response> {
   return Promise.resolve(app.request('/admin/configuration-previews', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
