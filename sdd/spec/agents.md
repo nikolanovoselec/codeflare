@@ -2915,28 +2915,96 @@ None.
 
 ---
 
-### REQ-AGENT-179: Portable Frontend Design Authority
+### REQ-AGENT-179: Portable Visual Design Routing
 
-**Intent:** Every skill-capable agent can route visual work to one product-specific frontend art-direction owner without loading unrelated design manuals or claiming unavailable validation.
+**Intent:** Visual requests reach the smallest relevant design specialist while non-visual work avoids the design family.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. Advanced Pi instructions carry one short always-active rule that loads `design` for visual work and skips non-visual work. <!-- @impl: preseed/agents/pi/rules/design-routing.md::Design routing --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: gives advanced Pi one short always-active lazy-load rule) -->
-2. `design` classifies work mode and surface, routes static art to `canvas-design`, routes frontend visual direction to `frontend-design`, and excludes non-visual work. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @manual: Evaluate explicit design, frontend art direction, incremental polish, dense UI, static poster, backend, prose, ambiguous visual improvement, competing-skill, and explicit-specialist prompts; verify the smallest relevant route. -->
-3. `frontend-design` inspects product truth, uses an adaptive interview, establishes one product-specific visual thesis, preserves incumbent systems, and reports capability limits honestly. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Start with evidence --> <!-- @manual: Run fresh-context evaluations for Persuade, Operate, Read, Experience, incremental non-React redesign, and static-routing control; verify materially different outcomes and honest capability reporting. -->
-4. Focused frontend-design references project to every skill-capable runtime and load only for their stated workflow boundary. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Select the workflow --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: projects one portable frontend design authority and its focused references) -->
-5. `design-taste-frontend` remains a small compatibility redirect, while research and finishing specialists do not compete with frontend art direction or lose explicit behavior. <!-- @impl: preseed/agents/claude/skills/design-taste-frontend/SKILL.md::Frontend design compatibility route --> <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareRoutingBoundary --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: separates art-direction changes from bounded interface finishing) --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: keeps advisory specialist discovery narrower than art direction) --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: preserves the legacy taste entry point as a small frontend-design redirect) --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-179: narrows Impeccable discovery without removing explicit commands) -->
-6. Portable design guidance contains no required runtime identity, `AGENTS.md`, runtime-specific home path, network access, optional specialist, or skill-authoring dependency. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Frontend Design --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: keeps portable design guidance free of runtime-specific assumptions) --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: degrades without optional audit or internet capabilities) -->
+1. Advanced Pi instructions include one bounded visual-routing entry. <!-- @impl: preseed/agents/pi/rules/design-routing.md::Design routing --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: gives advanced Pi one short always-active lazy-load rule) -->
+2. The Pi routing entry remains inactive for non-visual work. <!-- @impl: preseed/agents/pi/rules/design-routing.md::Design routing --> <!-- @manual: Ask advanced Pi for backend-only and prose-only changes; verify the visual router remains unloaded. -->
+3. `design` classifies visual work by mode and surface. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Classify --> <!-- @manual: Evaluate greenfield, redesign, polish, audit, Persuade, Operate, Read, and Experience prompts. -->
+4. Fixed-canvas work selects `canvas-design`. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @manual: Request a poster and social crop; verify frontend specialists remain unloaded. -->
+5. Frontend visual direction selects `frontend-design`. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @manual: Request greenfield, incremental, and dense operational frontend direction; verify one frontend owner. -->
+6. Backend, data, prose, and non-visual refactors select no design skill. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @manual: Evaluate backend, API, data, prose, and non-visual refactor prompts. -->
 
-**Constraints:** The Claude preseed remains canonical storage and generates tool-neutral projections for Codex, Gemini, OpenCode, and Pi. Copilot receives no skill projection. Specialist guidance loads only after routing selects it.
+**Constraints:**
+
+- The Pi routing entry remains advanced-only.
+- Specialist guidance loads only after routing selects it.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-134](#req-agent-134-advanced-design-skill-suite), [REQ-AGENT-135](#req-agent-135-ui-ux-pro-max-query-and-generation)
+**Dependencies:** [REQ-AGENT-134](#req-agent-134-advanced-design-skill-suite)
 
-**Verification:** Generated-seed and runtime contract tests plus activation, portability, and fresh-context behavioral evaluations.
+**Verification:** Generated-seed contract tests and a fresh-context activation matrix.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-180: Portable Frontend Design Authority
+
+**Intent:** Every skill-capable agent receives one tool-neutral, product-specific frontend art-direction authority.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. `frontend-design` inspects available product evidence before proposing direction. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Start with evidence --> <!-- @manual: Run a fresh-context task with an incumbent repository and verify project evidence informs the direction. -->
+2. Interview depth adapts to unresolved design decisions. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Interview adaptively --> <!-- @manual: Compare tasks with selected, delegated, and unresolved direction. -->
+3. Substantial work commits to one product-specific visual thesis. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Commit to one direction --> <!-- @manual: Compare unrelated Persuade, Operate, Read, and Experience outputs for material diversity. -->
+4. Incremental work preserves unauthorized incumbent contracts. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Implement inside the real system --> <!-- @manual: Evaluate an incremental non-React redesign with explicit preservation boundaries. -->
+5. Validation reports unavailable capabilities without claiming visual evidence. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Inspect, critique, revise --> <!-- @manual: Run without rendering capability and verify the limitation remains explicit. -->
+6. The authority and its six focused references project to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Select the workflow --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-180: projects one portable frontend design authority and its focused references) -->
+7. Each focused reference has a stated workflow boundary. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Select the workflow --> <!-- @manual: Verify new-work, redesign, art-direction, assets-and-motion, visual-QA, and Astro/Cloudflare triggers independently. -->
+
+**Constraints:**
+
+- The Claude preseed is canonical storage for generated projections.
+- Copilot receives no skill projection.
+- Core guidance requires no runtime-specific instruction file.
+- Core guidance requires no runtime-specific home path.
+- Core guidance requires no network access.
+- Core guidance requires no optional specialist.
+- Core guidance requires no authoring tool.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-179](#req-agent-179-portable-visual-design-routing)
+
+**Verification:** Generated projection contracts, portability inspection, and fresh-context frontend evaluations.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-181: Design Specialist Compatibility
+
+**Intent:** Existing design entry points remain available without competing with the selected frontend art direction.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. `design-taste-frontend` redirects legacy callers to `frontend-design`. <!-- @impl: preseed/agents/claude/skills/design-taste-frontend/SKILL.md::Frontend design compatibility route --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-181: preserves the legacy taste entry point as a small frontend-design redirect) -->
+2. UI UX Pro Max supplies evidence without owning the visual thesis. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/SKILL.md::Authority boundary --> <!-- @manual: Request local design evidence during frontend direction and verify `frontend-design` remains the owner. -->
+3. Implicit Impeccable discovery remains limited to critique and bounded finishing. <!-- @impl: preseed/agents/claude/skills/impeccable/SKILL.md::Codeflare routing boundary --> <!-- @manual: Compare thesis-changing redesign and bounded finishing prompts. -->
+4. Impeccable refresh preserves its explicit command body while applying the Codeflare boundary. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareRoutingBoundary --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-181: adapts upstream Impeccable routing without changing explicit commands) -->
+5. Emil Design Engineering refines interaction only after direction exists. <!-- @impl: preseed/agents/claude/skills/emil-design-eng/SKILL.md::Authority boundary --> <!-- @manual: Request focused motion refinement after selecting a frontend direction. -->
+
+**Constraints:**
+
+- Explicit specialist invocations retain their documented behavior.
+- Missing optional specialists do not block the selected owner.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-179](#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-135](#req-agent-135-ui-ux-pro-max-query-and-generation)
+
+**Verification:** Generated compatibility contracts, updater transformation tests, and activation evaluations.
 
 **Status:** Implemented
 

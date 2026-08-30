@@ -281,12 +281,16 @@ anchor per non-manual AC, parses multiple anchors independently, and validates
 every declared block ([AD108](../decisions/README.md#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors)). The git-workflow family is `ci-monitoring`,
 `git-review-pipeline` (advanced-only), `pr-workflow`, and `deploy-credentials`.
 
-The advanced design family uses `design` as a compact router and `frontend-design` as the canonical, tool-neutral frontend art-direction owner. `design-taste-frontend` remains a small compatibility redirect; `ui-ux-pro-max`, `frontend-components`, `frontend-patterns`, and `emil-design-eng` keep bounded advisory or engineering roles. Advanced Pi carries one short always-active rule that loads `design` only for visual work. `impeccable` keeps its explicit multi-command skill and bundled offline/live detector scripts, while implicit discovery narrows to critique and finishing. It is scoped to Claude + Pi only: Claude gets the vendored tree in
+The advanced design family uses `design` as a compact router and `frontend-design` as the canonical, tool-neutral frontend art-direction owner. `design-taste-frontend` remains a compatibility redirect; `ui-ux-pro-max`, `frontend-components`, `frontend-patterns`, and `emil-design-eng` keep bounded advisory or engineering roles. ([REQ-AGENT-179](../../sdd/spec/agents.md#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](../../sdd/spec/agents.md#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility))
+
+Advanced Pi carries one short always-active rule that loads `design` only for visual work. `impeccable` keeps its explicit multi-command skill and bundled offline/live detector scripts, while implicit discovery narrows to critique and finishing. ([REQ-AGENT-179](../../sdd/spec/agents.md#req-agent-179-portable-visual-design-routing), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility))
+
+Impeccable is scoped to Claude + Pi only: Claude gets the vendored tree in
 `~/.claude/skills/impeccable/`; Pi gets a dedicated copy under
 `~/.pi/agent/skills/impeccable/` with paths re-pointed and `.mjs` scripts emitted
-verbatim, so detector scripts are never mangled by Claude-to-Pi text adaptation. The vendored Impeccable bundle is shadow-pinned by `bump-shadow-pins.yml`, which
+verbatim, so detector scripts are never mangled by Claude-to-Pi text adaptation. The vendored bundle is shadow-pinned by `bump-shadow-pins.yml`, which
 checks `impeccable.style`, refreshes both agent copies, updates both manifests,
-and regenerates the seed.
+and regenerates the seed. ([REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility))
 
 [Impeccable 4.1.0](https://github.com/pbakaus/impeccable/releases/tag/skill-v4.1.0)
 adds native-platform review inputs, comp-first/code-first workflow defaults,
@@ -571,7 +575,7 @@ git-review-pipeline, graphify, and browser-run + browser-e2e. Pi owns native
 reviewer and spec/doc enforcement overrides; Claude retains its original agents
 and enforcement skills.
 
-Advanced design uses `design` as the lazy router and `frontend-design` as the one frontend art-direction authority. Six focused references disclose new-work, redesign, art-direction, asset/motion, visual-QA, and conditional Astro/Cloudflare guidance only when needed. `design-taste-frontend` redirects legacy callers; UI UX Pro Max and Emil remain advisory. `impeccable` remains available for Claude + Pi only with explicit commands intact, a narrowed discovery boundary, and Pi's dedicated verbatim tool bundle. ([REQ-AGENT-134](../../sdd/spec/agents.md#req-agent-134-advanced-design-skill-suite), [REQ-AGENT-179](../../sdd/spec/agents.md#req-agent-179-portable-frontend-design-authority))
+Advanced design uses `design` as the lazy router and `frontend-design` as the one frontend art-direction authority. Six focused references disclose new-work, redesign, art-direction, asset/motion, visual-QA, and conditional Astro/Cloudflare guidance only when needed. `design-taste-frontend` redirects legacy callers; UI UX Pro Max and Emil remain advisory. `impeccable` remains available for Claude + Pi only with explicit commands intact, a narrowed discovery boundary, and Pi's dedicated verbatim tool bundle. ([REQ-AGENT-134](../../sdd/spec/agents.md#req-agent-134-advanced-design-skill-suite), [REQ-AGENT-179](../../sdd/spec/agents.md#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](../../sdd/spec/agents.md#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility))
 
 The `plugins/` tree includes known_marketplaces.json for default+advanced mode.
 Advanced-only plugins are codeflare-memory (plugin.json, memory-capture.sh,
