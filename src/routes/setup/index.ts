@@ -5,7 +5,7 @@ import { CONFIGURABLE_ENTERPRISE_AGENTS, installedAgents } from '../../lib/agent
 import { ValidationError, toError } from '../../lib/error-types';
 import { parseJsonBody } from '../../lib/request-helpers';
 import { resetSetupCache } from '../../lib/cache-reset';
-import { getPreferencesKey, SETUP_KEYS } from '../../lib/kv-keys';
+import { ADMIN_CONFIGURATION_KEYS, getPreferencesKey, SETUP_KEYS } from '../../lib/kv-keys';
 import { resolveBucketName } from '../../lib/access';
 import { getOrImportKey, encryptAndStore } from '../../lib/kv-crypto';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
@@ -331,6 +331,19 @@ app.post('/configure', async (c) => {
     };
 
     try {
+      // Routine Environment changes use a separate best-effort pointer. Setup checks
+      // it before full provisioning so both paths cannot intentionally overlap.
+      const routinePointerRaw = await c.env.KV.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN);
+      if (routinePointerRaw) {
+        try {
+          const routinePointer = JSON.parse(routinePointerRaw) as { runId?: string; expiresAt?: string };
+          if (routinePointer.runId && routinePointer.expiresAt && Date.parse(routinePointer.expiresAt) > Date.now()) {
+            await send({ done: true, success: false, error: 'An Environment settings change is already in progress. Please wait and try again.' });
+            return;
+          }
+        } catch { /* malformed or stale pointer does not block Setup */ }
+      }
+
       // Acquire KV-based lock to prevent concurrent configure runs (60s timeout).
       // If lock exists and is not stale, another setup is in progress.
       const existingLock = await c.env.KV.get(lockKey);
@@ -622,6 +635,9 @@ app.post('/configure', async (c) => {
 
       // Final step: Mark setup as complete
       await runStep('finalize', async () => {
+        if (await c.env.KV.get(ADMIN_CONFIGURATION_KEYS.REVISION) === null) {
+          await c.env.KV.put(ADMIN_CONFIGURATION_KEYS.REVISION, '0');
+        }
         await c.env.KV.put(SETUP_KEYS.ACCOUNT_ID, accountId);
         await c.env.KV.put(SETUP_KEYS.R2_ENDPOINT, `https://${accountId}.r2.cloudflarestorage.com`);
         await c.env.KV.put(SETUP_KEYS.COMPLETED_AT, new Date().toISOString());

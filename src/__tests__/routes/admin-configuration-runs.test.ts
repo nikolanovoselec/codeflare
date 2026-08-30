@@ -102,7 +102,7 @@ describe('configuration runs (REQ-SETUP-018)', () => {
   });
 
   it('streams sanitized snapshots, applies one section, increments revision once, and releases admission', async () => {
-    const { app, kv } = createApp();
+    const { app, kv } = createApp({ ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') });
     const secretMarker = 'must-never-enter-run-record';
 
     const response = await post(app, {
@@ -183,10 +183,8 @@ describe('configuration runs (REQ-SETUP-018)', () => {
 
   it('persists failure, skips remaining tasks, leaves revision unchanged, and releases admission', async () => {
     const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
-    const originalPut = vi.mocked(kv.put).getMockImplementation();
-    vi.mocked(kv.put).mockImplementation(async (key, value, options) => {
+    vi.mocked(kv.put).mockImplementation(async (key, value) => {
       if (key === SETUP_KEYS.R2_SSE_DISABLED) throw new Error('provider unavailable: secret detail');
-      if (originalPut) return originalPut(key, value, options);
       kv._store.set(key, value);
     });
 

@@ -231,6 +231,10 @@ export function getAdminConfigurationLatestKey(section: string): string {
   return `${ADMIN_CONFIGURATION_KEYS.LATEST_PREFIX}${section}`;
 }
 
+export function getAdminConfigurationRunKey(runId: string): string {
+  return `${ADMIN_CONFIGURATION_KEYS.RUN_PREFIX}${runId}`;
+}
+
 /**
  * Get KV key for a user's Timekeeper usage record
  */

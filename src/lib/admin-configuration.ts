@@ -5,6 +5,7 @@ import { getAllUsers } from './access-policy';
 import { parseAccessGroups } from './access';
 import { CONFIGURABLE_ENTERPRISE_AGENTS, installedAgents } from './agent-allowlist';
 import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS } from './kv-keys';
+import { encryptAndStore, getOrImportKey } from './kv-crypto';
 import { isOnboardingLandingPageActive, isSaasModeActive } from './onboarding';
 import { isEnterpriseMode } from './subscription';
 
@@ -323,6 +324,12 @@ export async function validateConfigurationValues(
   if (section === 'securityEgress' && values.strictGatewayEgress === true && !env.EGRESS) {
     return { fieldErrors: { strictGatewayEgress: ['Strict Gateway egress requires the EGRESS binding'] } };
   }
+  if (section === 'github') {
+    const replacing = Boolean((values.appReplacementSecret as string).trim() || (values.oauthReplacementSecret as string).trim());
+    if (replacing && !(await getOrImportKey(env))) {
+      return { fieldErrors: { credentials: ['ENCRYPTION_KEY is required to replace GitHub credentials'] } };
+    }
+  }
   return { values };
 }
 
@@ -361,4 +368,37 @@ export async function buildConfigurationPreview(
     warnings: [],
     exclusions: SETUP_ONLY_TASKS.filter((task) => !tasks.some((selected) => selected.id === task)),
   };
+}
+
+export async function executeConfigurationTask(
+  env: Env,
+  taskId: string,
+  values: ConfigurationValues,
+): Promise<void> {
+  switch (taskId) {
+    case 'configure_github': {
+      await env.KV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, values.providerType as string);
+      const appClientId = (values.appClientId as string).trim();
+      const oauthClientId = (values.oauthClientId as string).trim();
+      if (appClientId) await env.KV.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, appClientId);
+      if (oauthClientId) await env.KV.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID, oauthClientId);
+      const appSecret = (values.appReplacementSecret as string).trim();
+      const oauthSecret = (values.oauthReplacementSecret as string).trim();
+      if (appSecret || oauthSecret) {
+        const key = await getOrImportKey(env);
+        if (!key) throw new Error('Encryption key unavailable');
+        if (appSecret) await encryptAndStore(env.KV, SETUP_KEYS.GITHUB_APP_CLIENT_SECRET, { secret: appSecret }, key);
+        if (oauthSecret) await encryptAndStore(env.KV, SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET, { secret: oauthSecret }, key);
+      }
+      return;
+    }
+    case 'configure_r2_sse':
+      await env.KV.put(SETUP_KEYS.R2_SSE_DISABLED, values.governedMode === true ? 'active' : 'inactive');
+      return;
+    case 'configure_downloads_disabled':
+      await env.KV.put(SETUP_KEYS.DOWNLOADS_DISABLED, values.viewOnlyStorage === true ? 'active' : 'inactive');
+      return;
+    default:
+      throw new Error(`Unsupported configuration task: ${taskId}`);
+  }
 }
