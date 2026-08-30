@@ -469,7 +469,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 </p>
                 <div class="settings-admin-actions">
                   <AdminActionButton
-                    tone="--color-accent"
+                    tone="--color-action-setup"
                     icon={mdiViewDashboardOutline}
                     label="Open Administration"
                     onClick={() => { window.location.href = '/admin'; }}

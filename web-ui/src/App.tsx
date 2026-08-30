@@ -338,8 +338,8 @@ export const SubscribeGuard: Component = () => {
   );
 };
 
-const AdministrationShell: Component = () => (
-  <SetupGuard><AdministrationLayout /></SetupGuard>
+const AdministrationShell: Component<{ children?: JSX.Element }> = (props) => (
+  <SetupGuard><AdministrationLayout>{props.children}</AdministrationLayout></SetupGuard>
 );
 
 const AdministrationUsers: Component = () => (

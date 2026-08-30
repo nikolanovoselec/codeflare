@@ -4,7 +4,7 @@ import { useAdministration } from './AdministrationLayout';
 import { environmentAreas } from './environment-areas';
 import type { ConfigurationSection } from '../../types';
 
-export const EnvironmentIndex: Component = () => {
+const EnvironmentIndex: Component = () => {
   const configuration = useAdministration();
   const areas = environmentAreas(configuration);
 

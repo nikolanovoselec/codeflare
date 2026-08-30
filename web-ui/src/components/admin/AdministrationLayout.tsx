@@ -1,5 +1,5 @@
-import { A, Outlet, useLocation } from '@solidjs/router';
-import { Component, For, Show, createContext, createResource, createSignal, useContext } from 'solid-js';
+import { A, useLocation } from '@solidjs/router';
+import { Component, For, Show, createContext, createResource, createSignal, useContext, type JSX } from 'solid-js';
 import {
   mdiAccountMultipleOutline,
   mdiArrowLeft,
@@ -25,7 +25,7 @@ export function useAdministration(): AdminConfigurationResponse {
   return value;
 }
 
-const AdministrationLayout: Component = () => {
+const AdministrationLayout: Component<{ children?: JSX.Element }> = (props) => {
   const [configuration, { refetch }] = createResource(getAdminConfiguration);
   const [drawerOpen, setDrawerOpen] = createSignal(false);
   const location = useLocation();
@@ -121,7 +121,7 @@ const AdministrationLayout: Component = () => {
                   <Navigation />
                 </aside>
               </Show>
-              <main class="admin-main"><Outlet /></main>
+              <main class="admin-main">{props.children}</main>
             </div>
           </AdministrationContext.Provider>
         )}
