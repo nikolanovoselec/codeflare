@@ -8,7 +8,7 @@ import {
   type AccountingStateV2,
 } from '../../timekeeper/accounting';
 
-function stateAt(iso: string): AccountingStateV2 {
+function stateAt(iso: string): Promise<AccountingStateV2> {
   return createAccountingState(new Date(iso), {
     pendingSeconds: 0,
     sessionTotals: {},
@@ -19,7 +19,7 @@ function stateAt(iso: string): AccountingStateV2 {
 describe('AccountingStateV2 (REQ-SUB-025)', () => {
   it('migrates legacy values into one bounded versioned state at the 30-session maximum', async () => {
     const sessionTotals = Object.fromEntries(Array.from({ length: 30 }, (_, index) => [`session-${index}`, index * 10]));
-    const state = createAccountingState(new Date('2026-08-30T12:00:00.000Z'), {
+    const state = await createAccountingState(new Date('2026-08-30T12:00:00.000Z'), {
       pendingSeconds: 37,
       sessionTotals,
       lastFlushedMonthlyTotal: 500,
@@ -54,7 +54,7 @@ describe('AccountingStateV2 (REQ-SUB-025)', () => {
 
   it('attributes runtime and one distinct session to every active period', async () => {
     const sessionHash = await hashSessionId('session-a');
-    const initial = stateAt('2026-08-30T12:00:00.000Z');
+    const initial = await stateAt('2026-08-30T12:00:00.000Z');
     const first = applyPositiveDelta(initial, sessionHash, 60, new Date('2026-08-30T12:00:00.000Z'), new Set());
     expect(first.state.pendingSeconds).toBe(60);
     expect(first.state.historySequence).toBe(1);
@@ -75,7 +75,7 @@ describe('AccountingStateV2 (REQ-SUB-025)', () => {
   it('queues absolute closed-period snapshots before applying a boundary delta', async () => {
     const sessionHash = await hashSessionId('boundary-session');
     const initial = applyPositiveDelta(
-      stateAt('2026-12-31T23:59:00.000Z'),
+      await stateAt('2026-12-31T23:59:00.000Z'),
       sessionHash,
       60,
       new Date('2026-12-31T23:59:00.000Z'),
