@@ -168,6 +168,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD147](#ad147-active-managed-resource-policy-supersedes-provenance-ownership) | Enforce active managed-resource policy before scoped R2 signing | Canonical release-derived paths remain immutable at the Worker boundary; provenance ownership still governs paths outside the active policy. | Architecture, Security, Storage | Active |
 | [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) | Schedule memory and Vault work from successful prompt high-water marks | Memory captures every 50 real prompts; Vault checks resume tails and crossed 100-prompt epochs without polling or consuming failed scans. | Agents, Memory, Storage | Active |
 | [AD149](#ad149-herdr-semantic-status-owns-completion-notification-timing) | Let Herdr status own completion notification timing | A ten-minute timer starts when every tracked agent pane becomes ready; renewed work cancels timing and queued completion. | Architecture, Agents | Active |
+| [AD150](#ad150-d1-owns-historical-usage-and-report-delivery-records) | Keep live quota state in Timekeeper and historical set queries in D1 | One database owns historical periods, report claims, and retention while live quota enforcement remains independent. | Architecture, Usage, Operations | Active |
 ---
 
 ## Decisions
