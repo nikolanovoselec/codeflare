@@ -4,7 +4,10 @@ import {
   createAccountingState,
   historyPhase,
   hashSessionId,
+  nextRegularAlarm,
+  outboxKey,
   periodStarts,
+  shouldRunD1,
   type AccountingStateV2,
 } from '../../timekeeper/accounting';
 
@@ -89,6 +92,7 @@ describe('AccountingStateV2 (REQ-SUB-025)', () => {
       new Set(initial.markerKeys),
     );
     expect(rollover.outbox.map((entry) => entry.kind)).toEqual(['day', 'month', 'year']);
+    expect(outboxKey(rollover.outbox[0])).toBe('historyOutbox:day:2026-12-31');
     expect(rollover.outbox.every((entry) => entry.runtimeSeconds === 60 && entry.sessionCount === 1)).toBe(true);
     expect(rollover.state.periods.day).toMatchObject({ start: '2027-01-01', runtimeSeconds: 30, sessionCount: 1 });
     expect(rollover.state.periods.week.start).toBe('2026-12-28');
@@ -101,5 +105,9 @@ describe('AccountingStateV2 (REQ-SUB-025)', () => {
     expect(phase.offset).toBe(phase.phase % 300);
     expect(phase.d1Slot).toBe(Math.floor(phase.phase / 300));
     expect(await historyPhase('user-key')).toEqual(phase);
+    const selectedTick = phase.offset + phase.d1Slot * 300;
+    expect(shouldRunD1(selectedTick, phase.offset, phase.d1Slot)).toBe(true);
+    expect(shouldRunD1(selectedTick + 300, phase.offset, phase.d1Slot)).toBe(false);
+    expect(nextRegularAlarm(selectedTick, phase.offset)).toBe((selectedTick + 300) * 1_000);
   });
 });

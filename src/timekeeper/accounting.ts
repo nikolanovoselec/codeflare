@@ -2,7 +2,7 @@ import { getIsoWeekStart, getUtcDateString, getUtcMonthString } from '../lib/kv-
 
 export type PeriodKind = 'day' | 'week' | 'month' | 'year';
 
-export interface PeriodAccumulator {
+interface PeriodAccumulator {
   start: string;
   runtimeSeconds: number;
   sessionCount: number;

@@ -192,11 +192,12 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(reconnect.status).toBe(200);
     expect(await reconnect.json()).toEqual(first);
 
+    const lexical = [first, second].sort((left, right) => left.runId.localeCompare(right.runId));
     const pageOne = await (await app.request('/admin/configuration-runs?limit=1')).json() as any;
-    expect(pageOne.items).toEqual([second]);
-    expect(pageOne.nextCursor).toBe(second.runId);
+    expect(pageOne.items).toEqual([lexical[0]]);
+    expect(pageOne.nextCursor).toBe(lexical[0].runId);
     const pageTwo = await (await app.request(`/admin/configuration-runs?limit=1&cursor=${encodeURIComponent(pageOne.nextCursor)}`)).json() as any;
-    expect(pageTwo.items).toEqual([first]);
+    expect(pageTwo.items).toEqual([lexical[1]]);
   });
 
   it('executes only bounded Access operations', async () => {
