@@ -272,7 +272,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Dependencies:** [REQ-MOB-002](#req-mob-002-virtual-keyboard-opens-reliably-on-tap), [REQ-MOB-017](#req-mob-017-fullscreen-application-touch-scrolling), [REQ-MOB-020](#req-mob-020-terminal-touch-activation)
 
-**Verification:** Automated tap and viewport tests plus manual Samsung Internet verification.
+**Verification:** Manual check.
 
 **Status:** Implemented
 
