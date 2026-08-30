@@ -202,7 +202,7 @@ app.post('/', requireAdmin, async (c) => {
   if (baseRevision !== currentRevision) {
     return c.json({ error: 'Environment settings changed', code: 'configuration_revision_conflict', currentRevision }, 409);
   }
-  const validation = await validateConfigurationValues(c.env, section, mode, rawValues);
+  const validation = await validateConfigurationValues(c.env, section, mode, rawValues, c.get('user')?.email);
   if (!validation.values) {
     return c.json({ error: 'Environment values are invalid', code: 'validation_error', fields: validation.fieldErrors ?? {} }, 400);
   }
@@ -287,7 +287,11 @@ app.post('/', requireAdmin, async (c) => {
         await send();
 
         try {
-          await executeConfigurationTask(c.env, run.tasks[index].id, values);
+          await executeConfigurationTask(c.env, run.tasks[index].id, values, {
+            mode,
+            requestUrl: c.req.url,
+            resultingRevision: baseRevision + 1,
+          });
         } catch {
           const completedAt = new Date().toISOString();
           const error: RunError = {

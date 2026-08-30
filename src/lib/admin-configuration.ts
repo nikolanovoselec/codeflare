@@ -2,12 +2,20 @@ import { z } from 'zod';
 import type { Env } from '../types';
 import { AgentTypeSchema } from '../types';
 import { getAllUsers } from './access-policy';
-import { parseAccessGroups } from './access';
+import { parseAccessGroups, resolveBucketName } from './access';
 import { CONFIGURABLE_ENTERPRISE_AGENTS, installedAgents } from './agent-allowlist';
-import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS } from './kv-keys';
+import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS, getPreferencesKey } from './kv-keys';
 import { encryptAndStore, getOrImportKey } from './kv-crypto';
-import { isOnboardingLandingPageActive, isSaasModeActive } from './onboarding';
+import { isOnboardingLandingPageActive, isSaasModeActive, isSessionOidcMode } from './onboarding';
 import { isEnterpriseMode } from './subscription';
+import { handleCreateAccessApp } from '../routes/setup/access';
+import { handleConfigureCustomDomain } from '../routes/setup/custom-domain';
+import { getWorkerNameFromHostname } from '../routes/setup/shared';
+import {
+  configureManagedEnvironment,
+  readManagedEnvironmentSnapshot,
+  resolveManagedResourcePolicy,
+} from './remote-curation';
 
 export const CONFIGURATION_SECTIONS = [
   'access',
@@ -290,6 +298,7 @@ export async function validateConfigurationValues(
   section: ConfigurationSection,
   mode: AdministrationMode,
   rawValues: unknown,
+  initiatedBy?: string,
 ): Promise<PreviewValidationResult> {
   const parsed = sectionSchemas[section].safeParse(rawValues);
   if (!parsed.success) return { fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]> };
@@ -297,8 +306,21 @@ export async function validateConfigurationValues(
 
   if (section === 'access') {
     const admins = values.adminUsers as string[];
+    if (initiatedBy && !admins.includes(initiatedBy.trim().toLowerCase())) {
+      return { fieldErrors: { adminUsers: ['You cannot remove yourself from the administrator list'] } };
+    }
     if (mode !== 'enterprise' && !admins.every((admin) => (values.allowedUsers as string[]).includes(admin))) {
       return { fieldErrors: { adminUsers: ['Every administrator must also be an allowed user'] } };
+    }
+    if (mode === 'enterprise') {
+      const routing = parseJson(await env.KV.get(SETUP_KEYS.GROUP_ROUTING), {});
+      const routingOwners = routing !== null && typeof routing === 'object' && !Array.isArray(routing)
+        ? Object.keys(routing as Record<string, unknown>)
+        : [];
+      const userGroups = values.userAccessGroups as string[];
+      if (routingOwners.some((owner) => !userGroups.includes(owner))) {
+        return { fieldErrors: { userAccessGroups: ['Access groups that own routing policies cannot be removed'] } };
+      }
     }
   }
   if (section === 'aiRouting') {
@@ -321,13 +343,38 @@ export async function validateConfigurationValues(
       return { fieldErrors: { activeAgents: ['Active coding agents must be installed'] } };
     }
   }
-  if (section === 'securityEgress' && values.strictGatewayEgress === true && !env.EGRESS) {
-    return { fieldErrors: { strictGatewayEgress: ['Strict Gateway egress requires the EGRESS binding'] } };
+  if (section === 'securityEgress') {
+    if (values.strictGatewayEgress === true && !env.EGRESS) {
+      return { fieldErrors: { strictGatewayEgress: ['Strict Gateway egress requires the EGRESS binding'] } };
+    }
+    if (values.strictGatewayEgress === false) {
+      const snapshot = await readManagedEnvironmentSnapshot(env);
+      if ((snapshot.config?.resourcePolicy ?? 'mutable') !== 'mutable') {
+        return { fieldErrors: { strictGatewayEgress: ['Strict Gateway egress is required by the managed resource policy'] } };
+      }
+    }
   }
   if (section === 'github') {
     const replacing = Boolean((values.appReplacementSecret as string).trim() || (values.oauthReplacementSecret as string).trim());
     if (replacing && !(await getOrImportKey(env))) {
       return { fieldErrors: { credentials: ['ENCRYPTION_KEY is required to replace GitHub credentials'] } };
+    }
+  }
+  if (section === 'cloudflareConnection' && (values.replacementSecret as string).trim() && !(await getOrImportKey(env))) {
+    return { fieldErrors: { credentials: ['ENCRYPTION_KEY is required to replace Cloudflare credentials'] } };
+  }
+  if (section === 'managedEnvironment') {
+    if (values.enabled === true && (values.personalAccessToken as string).trim() && !(await getOrImportKey(env))) {
+      return { fieldErrors: { personalAccessToken: ['ENCRYPTION_KEY is required to replace the repository token'] } };
+    }
+    const snapshot = await readManagedEnvironmentSnapshot(env);
+    const currentPolicy = snapshot.config?.resourcePolicy ?? 'mutable';
+    const requestedPolicy = resolveManagedResourcePolicy(values as never, currentPolicy);
+    if (requestedPolicy !== 'mutable') {
+      const strictEgress = (await env.KV.get(SETUP_KEYS.STRICT_EGRESS)) === 'active';
+      if (mode !== 'enterprise' || !strictEgress || !env.EGRESS) {
+        return { fieldErrors: { immutableResources: ['Immutable managed resources require Enterprise Mode and Strict Gateway Egress'] } };
+      }
     }
   }
   return { values };
@@ -356,8 +403,16 @@ export async function buildConfigurationPreview(
     }
   }
 
-  const tasks = section === 'access' && (mode === 'onboarding' || mode === 'saas')
-    ? TASKS.access.slice(0, 1)
+  const tasks = section === 'access'
+    ? mode === 'enterprise'
+      ? [
+          { id: 'store_access_users', dependsOn: [] },
+          { id: 'configure_access_groups', dependsOn: ['store_access_users'] },
+          { id: 'create_access_app', dependsOn: ['configure_access_groups'] },
+        ]
+      : mode === 'onboarding' || mode === 'saas'
+        ? TASKS.access.slice(0, 1)
+        : TASKS.access
     : TASKS[section];
   return {
     section,
@@ -370,12 +425,170 @@ export async function buildConfigurationPreview(
   };
 }
 
+interface ConfigurationExecutionContext {
+  mode: AdministrationMode;
+  requestUrl: string;
+  resultingRevision: number;
+}
+
+async function requireCloudflareSetupContext(env: Env): Promise<{ token: string; accountId: string }> {
+  const token = env.CLOUDFLARE_API_TOKEN;
+  const accountId = await env.KV.get(SETUP_KEYS.ACCOUNT_ID);
+  if (!token || !accountId) throw new Error('Cloudflare setup context unavailable');
+  return { token, accountId };
+}
+
+async function storeAccessUsers(
+  env: Env,
+  values: ConfigurationValues,
+  mode: AdministrationMode,
+  workerName: string,
+): Promise<void> {
+  const admins = values.adminUsers as string[];
+  const allowed = mode === 'enterprise' ? admins : values.allowedUsers as string[];
+  const adminSet = new Set(admins);
+  await Promise.all(allowed.map(async (email) => {
+    const existing = await env.KV.get<Record<string, unknown>>(`user:${email}`, 'json');
+    const role = adminSet.has(email) ? 'admin' : 'user';
+    await env.KV.put(`user:${email}`, JSON.stringify({
+      ...existing,
+      addedBy: 'administration',
+      addedAt: typeof existing?.addedAt === 'string' ? existing.addedAt : new Date().toISOString(),
+      role,
+      ...(mode === 'saas' && { accessTier: 'unlimited', subscriptionTier: 'unlimited' }),
+      ...(mode !== 'saas' && role === 'admin' && { accessTier: 'advanced', subscriptionTier: 'unlimited' }),
+    }));
+    if (role === 'admin') {
+      const bucketName = await resolveBucketName(env, email, workerName);
+      const preferencesKey = getPreferencesKey(bucketName);
+      if (await env.KV.get(preferencesKey) === null) {
+        await env.KV.put(preferencesKey, JSON.stringify({ sessionMode: 'advanced' }));
+      }
+    }
+  }));
+}
+
 export async function executeConfigurationTask(
   env: Env,
   taskId: string,
   values: ConfigurationValues,
+  context: ConfigurationExecutionContext,
 ): Promise<void> {
+  const workerName = getWorkerNameFromHostname(context.requestUrl, env.CLOUDFLARE_WORKER_NAME);
   switch (taskId) {
+    case 'store_access_users':
+      await storeAccessUsers(env, values, context.mode, workerName);
+      return;
+    case 'configure_access_groups': {
+      const userGroups = (values.userAccessGroups as string[]).join(',');
+      const adminGroups = (values.adminAccessGroups as string[]).join(',');
+      if (userGroups) await env.KV.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, userGroups);
+      else await env.KV.delete(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP);
+      if (adminGroups) await env.KV.put(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, adminGroups);
+      else await env.KV.delete(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP);
+      return;
+    }
+    case 'configure_custom_domain': {
+      const { token, accountId } = await requireCloudflareSetupContext(env);
+      const customDomain = values.customDomain as string;
+      await handleConfigureCustomDomain(token, accountId, customDomain, context.requestUrl, [], workerName);
+      await env.KV.put(SETUP_KEYS.CUSTOM_DOMAIN, customDomain);
+      return;
+    }
+    case 'create_access_app': {
+      if (isSessionOidcMode(env) && env.OAUTH_CLIENT_ID) return;
+      const { token, accountId } = await requireCloudflareSetupContext(env);
+      const access = 'adminUsers' in values
+        ? values
+        : await readCurrentConfigurationValues(env, 'access', context.mode);
+      const customDomain = typeof values.customDomain === 'string'
+        ? values.customDomain
+        : await env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN);
+      if (!customDomain) throw new Error('Custom domain unavailable');
+      const admins = access.adminUsers as string[];
+      const allowed = context.mode === 'enterprise' ? admins : access.allowedUsers as string[];
+      await handleCreateAccessApp(
+        token,
+        accountId,
+        customDomain,
+        allowed,
+        admins,
+        [],
+        env.KV,
+        workerName,
+        context.mode === 'saas',
+        context.mode === 'enterprise',
+      );
+      return;
+    }
+    case 'configure_model_routing': {
+      await env.KV.put(SETUP_KEYS.DYNAMIC_ROUTES, JSON.stringify(values.dynamicRoutes));
+      if (values.defaultRoute) await env.KV.put(SETUP_KEYS.DEFAULT_ROUTE, JSON.stringify(values.defaultRoute));
+      else await env.KV.delete(SETUP_KEYS.DEFAULT_ROUTE);
+      const windows = values.routeContextWindows as Record<string, number>;
+      if (Object.keys(windows).length) await env.KV.put(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, JSON.stringify(windows));
+      else await env.KV.delete(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS);
+      const submittedGroups = values.groupRouting;
+      const groups = Array.isArray(submittedGroups)
+        ? Object.fromEntries((submittedGroups as Array<Record<string, unknown>>).map((group) => [
+            group.accessGroup as string,
+            { routes: group.routes, defaultRoute: group.defaultRoute, reasoning: group.reasoning },
+          ]))
+        : submittedGroups as Record<string, unknown>;
+      if (Object.keys(groups).length) await env.KV.put(SETUP_KEYS.GROUP_ROUTING, JSON.stringify(groups));
+      else await env.KV.delete(SETUP_KEYS.GROUP_ROUTING);
+      return;
+    }
+    case 'configure_ai_gateway': {
+      await env.KV.put(SETUP_KEYS.AIG_GATEWAY_URL, values.gatewayUrl as string);
+      const token = (values.replacementToken as string).trim();
+      if (token) {
+        const key = await getOrImportKey(env);
+        if (!key) throw new Error('Encryption key unavailable');
+        await encryptAndStore(env.KV, SETUP_KEYS.AIG_TOKEN, { token }, key);
+      }
+      return;
+    }
+    case 'configure_active_agents': {
+      const requested = values.activeAgents as string[];
+      const canonical = CONFIGURABLE_ENTERPRISE_AGENTS.filter((agent) => requested.includes(agent));
+      await env.KV.put(SETUP_KEYS.ACTIVE_AGENTS, JSON.stringify(canonical));
+      return;
+    }
+    case 'configure_browser_rendering': {
+      const accountId = (values.accountId as string).trim();
+      const token = (values.replacementToken as string).trim();
+      if (accountId) await env.KV.put(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, accountId);
+      if (token) {
+        const key = await getOrImportKey(env);
+        await encryptAndStore(env.KV, SETUP_KEYS.BROWSER_RENDER_TOKEN, { token }, key);
+      }
+      return;
+    }
+    case 'configure_strict_egress':
+      await env.KV.put(SETUP_KEYS.STRICT_EGRESS, values.strictGatewayEgress === true ? 'active' : 'inactive');
+      return;
+    case 'configure_r2_sse':
+      await env.KV.put(SETUP_KEYS.R2_SSE_DISABLED, values.governedMode === true ? 'active' : 'inactive');
+      return;
+    case 'configure_downloads_disabled':
+      await env.KV.put(SETUP_KEYS.DOWNLOADS_DISABLED, values.viewOnlyStorage === true ? 'active' : 'inactive');
+      return;
+    case 'configure_managed_environment': {
+      const { accountId } = await requireCloudflareSetupContext(env);
+      await configureManagedEnvironment({
+        env,
+        accountId,
+        workerName,
+        endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+        r2Credentials: {
+          R2_ACCESS_KEY_ID: env.R2_ACCESS_KEY_ID,
+          R2_SECRET_ACCESS_KEY: env.R2_SECRET_ACCESS_KEY,
+        },
+        request: values as never,
+      });
+      return;
+    }
     case 'configure_github': {
       await env.KV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, values.providerType as string);
       const appClientId = (values.appClientId as string).trim();
@@ -392,11 +605,22 @@ export async function executeConfigurationTask(
       }
       return;
     }
-    case 'configure_r2_sse':
-      await env.KV.put(SETUP_KEYS.R2_SSE_DISABLED, values.governedMode === true ? 'active' : 'inactive');
+    case 'configure_cloudflare_connection': {
+      const clientId = (values.clientId as string).trim();
+      if (clientId) await env.KV.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID, clientId);
+      const secret = (values.replacementSecret as string).trim();
+      if (secret) {
+        const key = await getOrImportKey(env);
+        if (!key) throw new Error('Encryption key unavailable');
+        await encryptAndStore(env.KV, SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET, { secret }, key);
+      }
       return;
-    case 'configure_downloads_disabled':
-      await env.KV.put(SETUP_KEYS.DOWNLOADS_DISABLED, values.viewOnlyStorage === true ? 'active' : 'inactive');
+    }
+    case 'configure_usage_reports':
+      await env.KV.put(ADMIN_CONFIGURATION_KEYS.USAGE_REPORT_SETTINGS, JSON.stringify({
+        ...values,
+        settingsRevision: context.resultingRevision,
+      }));
       return;
     default:
       throw new Error(`Unsupported configuration task: ${taskId}`);

@@ -6,8 +6,8 @@ import { ValidationError, toError } from '../../lib/error-types';
 import { parseJsonBody } from '../../lib/request-helpers';
 import { resetSetupCache } from '../../lib/cache-reset';
 import { ADMIN_CONFIGURATION_KEYS, getPreferencesKey, SETUP_KEYS } from '../../lib/kv-keys';
-import { resolveBucketName } from '../../lib/access';
-import { getOrImportKey, encryptAndStore } from '../../lib/kv-crypto';
+import { parseAccessGroups, resolveBucketName } from '../../lib/access';
+import { getOrImportKey } from '../../lib/kv-crypto';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
 import { setupRateLimiter, logger, getWorkerNameFromHostname, upsertStep, withSetupRetry } from './shared';
 import type { SetupStep } from './shared';
@@ -25,6 +25,7 @@ import {
   readManagedEnvironmentSnapshot,
   resolveManagedResourcePolicy,
 } from '../../lib/remote-curation';
+import { executeConfigurationTask, resolveAdministrationMode } from '../../lib/admin-configuration';
 
 // Feature A/C: a Cloudflare Access group name or a gateway route name. Trimmed,
 // 1–256 chars, and MUST NOT contain comma or newline — those are the delimiters
@@ -362,6 +363,11 @@ app.post('/configure', async (c) => {
       // Step 1: Get account ID
       const accountId = await runStep('get_account', (operationSteps) => handleGetAccount(token, operationSteps));
       const workerName = getWorkerNameFromHostname(c.req.url, c.env.CLOUDFLARE_WORKER_NAME);
+      const administrationContext = {
+        mode: resolveAdministrationMode(c.env),
+        requestUrl: c.req.url,
+        resultingRevision: 0,
+      };
 
       // Step 2: Derive R2 S3 credentials
       const { accessKeyId: r2AccessKeyId, secretAccessKey: r2SecretAccessKey } =
@@ -482,42 +488,24 @@ app.post('/configure', async (c) => {
         // comma-joined (the format access.ts parseAccessGroups splits on); schema already
         // trimmed each name and forbade comma/newline. Cleared when the chip list is empty.
         if (enterpriseAccessGroup !== undefined || adminAccessGroup !== undefined) {
-          await runStep('configure_access_groups', async () => {
-            if (enterpriseAccessGroup !== undefined) {
-              const joinedGroups = enterpriseAccessGroup.join(',');
-              if (joinedGroups) await c.env.KV.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, joinedGroups);
-              else await c.env.KV.delete(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP);
-            }
-            if (adminAccessGroup !== undefined) {
-              const joinedAdminGroups = adminAccessGroup.join(',');
-              if (joinedAdminGroups) await c.env.KV.put(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP, joinedAdminGroups);
-              else await c.env.KV.delete(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP);
-            }
-          });
+          await runStep('configure_access_groups', async () => executeConfigurationTask(c.env, 'configure_access_groups', {
+            userAccessGroups: enterpriseAccessGroup ?? parseAccessGroups(await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP)),
+            adminAccessGroups: adminAccessGroup ?? parseAccessGroups(await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP)),
+          }, administrationContext));
         }
 
         // Model routing: the gateway dynamic-route catalog + default route+reasoning
         // (Feature C) and the per-group routing map (REQ-ENTERPRISE-013). Stored as JSON;
         // group routing is cleared when empty.
         if (dynamicRoutes !== undefined || defaultRoute !== undefined || groupRouting !== undefined || routeContextWindows !== undefined) {
-          await runStep('configure_model_routing', async () => {
-            if (dynamicRoutes !== undefined) {
-              await c.env.KV.put(SETUP_KEYS.DYNAMIC_ROUTES, JSON.stringify(dynamicRoutes));
-            }
-            if (defaultRoute !== undefined) {
-              if (defaultRoute) await c.env.KV.put(SETUP_KEYS.DEFAULT_ROUTE, JSON.stringify(defaultRoute));
-              else await c.env.KV.delete(SETUP_KEYS.DEFAULT_ROUTE);
-            }
-            // REQ-ENTERPRISE-012: per-route context windows; cleared when empty.
-            if (routeContextWindows !== undefined) {
-              if (Object.keys(routeContextWindows).length > 0) await c.env.KV.put(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, JSON.stringify(routeContextWindows));
-              else await c.env.KV.delete(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS);
-            }
-            if (groupRouting !== undefined) {
-              if (Object.keys(groupRouting).length > 0) await c.env.KV.put(SETUP_KEYS.GROUP_ROUTING, JSON.stringify(groupRouting));
-              else await c.env.KV.delete(SETUP_KEYS.GROUP_ROUTING);
-            }
-          });
+          await runStep('configure_model_routing', async () => executeConfigurationTask(c.env, 'configure_model_routing', {
+            dynamicRoutes: dynamicRoutes ?? await c.env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES, 'json') ?? [],
+            defaultRoute: defaultRoute !== undefined
+              ? defaultRoute
+              : await c.env.KV.get(SETUP_KEYS.DEFAULT_ROUTE, 'json'),
+            routeContextWindows: routeContextWindows ?? await c.env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, 'json') ?? {},
+            groupRouting: groupRouting ?? await c.env.KV.get(SETUP_KEYS.GROUP_ROUTING, 'json') ?? {},
+          }, administrationContext));
         }
 
         // REQ-ENTERPRISE-017: the customer's AI Gateway URL (non-secret, plain) + token
@@ -526,15 +514,10 @@ app.post('/configure', async (c) => {
         // so a blank value means "keep what's stored", not "clear". The deploy secrets
         // (env.AIG_*) remain an optional fallback (getAigConfig resolves KV first, env second).
         if (aigGatewayUrl !== undefined || aigToken !== undefined) {
-          await runStep('configure_ai_gateway', async () => {
-            const gwUrl = aigGatewayUrl?.trim();
-            if (gwUrl) await c.env.KV.put(SETUP_KEYS.AIG_GATEWAY_URL, gwUrl);
-            const aigTok = aigToken?.trim();
-            if (aigTok) {
-              const cryptoKey = await getOrImportKey(c.env);
-              if (cryptoKey) await encryptAndStore(c.env.KV, SETUP_KEYS.AIG_TOKEN, { token: aigTok }, cryptoKey);
-            }
-          });
+          await runStep('configure_ai_gateway', async () => executeConfigurationTask(c.env, 'configure_ai_gateway', {
+            gatewayUrl: aigGatewayUrl?.trim() || await c.env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL) || c.env.AIG_GATEWAY_URL || '',
+            replacementToken: aigToken ?? '',
+          }, administrationContext));
         }
 
         // REQ-BROWSER-007: the admin-global Cloudflare Browser Rendering token (encrypted
@@ -542,20 +525,10 @@ app.post('/configure', async (c) => {
         // no-clobber on blank (same masked-prefill contract as the AI Gateway token above);
         // the account id is non-secret. Mirrors the read in applyEnterpriseBrowserToken.
         if (browserRenderToken !== undefined || browserRenderAccountId !== undefined) {
-          await runStep('configure_browser_rendering', async () => {
-            const acct = browserRenderAccountId?.trim();
-            if (acct) await c.env.KV.put(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, acct);
-            const tok = browserRenderToken?.trim();
-            if (tok) {
-              // No-clobber, encrypted at rest. encryptAndStore handles the plaintext
-              // fallback when ENCRYPTION_KEY is unset (the documented REQ-BROWSER-007
-              // behavior) — do NOT guard on cryptoKey here, which would silently skip
-              // the write and drop the token. (The AIG token above is pre-stream-rejected
-              // without a key, so it can guard; browser-render has no such pre-check.)
-              const cryptoKey = await getOrImportKey(c.env);
-              await encryptAndStore(c.env.KV, SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: tok }, cryptoKey);
-            }
-          });
+          await runStep('configure_browser_rendering', () => executeConfigurationTask(c.env, 'configure_browser_rendering', {
+            accountId: browserRenderAccountId ?? '',
+            replacementToken: browserRenderToken ?? '',
+          }, administrationContext));
         }
 
         // REQ-ENTERPRISE-016: the strict Gateway egress toggle. Always written explicitly
@@ -563,9 +536,9 @@ app.post('/configure', async (c) => {
         // default OFF on an absent key. (Enabling while EGRESS is unbound was already
         // rejected pre-stream above.)
         if (strictGatewayEgress !== undefined) {
-          await runStep('configure_strict_egress', async () => {
-            await c.env.KV.put(SETUP_KEYS.STRICT_EGRESS, strictGatewayEgress ? 'active' : 'inactive');
-          });
+          await runStep('configure_strict_egress', () => executeConfigurationTask(c.env, 'configure_strict_egress', {
+            strictGatewayEgress,
+          }, administrationContext));
         }
 
         // REQ-ENTERPRISE-018: Governed Mode (R2 SSE-C disable) toggle. Always written
@@ -573,17 +546,17 @@ app.post('/configure', async (c) => {
         // deterministically; default OFF on an absent key. Each bucket is reconciled to
         // this policy losslessly on its next session start (ensureBucketAndSeed → migration).
         if (r2SseDisabled !== undefined) {
-          await runStep('configure_r2_sse', async () => {
-            await c.env.KV.put(SETUP_KEYS.R2_SSE_DISABLED, r2SseDisabled ? 'active' : 'inactive');
-          });
+          await runStep('configure_r2_sse', () => executeConfigurationTask(c.env, 'configure_r2_sse', {
+            governedMode: r2SseDisabled,
+          }, administrationContext));
         }
 
         // View-only storage toggle. Written explicitly ('active'/'inactive', no
         // delete-on-off) so it round-trips deterministically; default OFF on absent.
         if (downloadsDisabled !== undefined) {
-          await runStep('configure_downloads_disabled', async () => {
-            await c.env.KV.put(SETUP_KEYS.DOWNLOADS_DISABLED, downloadsDisabled ? 'active' : 'inactive');
-          });
+          await runStep('configure_downloads_disabled', () => executeConfigurationTask(c.env, 'configure_downloads_disabled', {
+            viewOnlyStorage: downloadsDisabled,
+          }, administrationContext));
         }
 
         // REQ-ENTERPRISE-025: the wizard-selected active coding agents. Canonicalized
@@ -591,10 +564,9 @@ app.post('/configure', async (c) => {
         // value always round-trips byte-identical through readActiveAgents; the schema
         // already enforced non-empty + enterprise-capable entries. Absent ⇒ untouched.
         if (activeAgents !== undefined) {
-          await runStep('configure_active_agents', async () => {
-            const canonical = CONFIGURABLE_ENTERPRISE_AGENTS.filter((a) => activeAgents.includes(a));
-            await c.env.KV.put(SETUP_KEYS.ACTIVE_AGENTS, JSON.stringify(canonical));
-          });
+          await runStep('configure_active_agents', () => executeConfigurationTask(c.env, 'configure_active_agents', {
+            activeAgents,
+          }, administrationContext));
         }
       }
 
@@ -606,25 +578,20 @@ app.post('/configure', async (c) => {
       // Connect-to-Cloudflare OAuth client. The no-ENCRYPTION_KEY case was rejected
       // pre-stream (fail closed); the cryptoKey guard below is defensive so a secret
       // is never written as plaintext even if the key somehow resolves null.
-      if (githubProviderType) {
-        await c.env.KV.put(SETUP_KEYS.GITHUB_PROVIDER_TYPE, githubProviderType);
+      if (githubProviderType || githubAppClientId || githubAppClientSecret || githubOauthClientId || githubOauthClientSecret) {
+        await executeConfigurationTask(c.env, 'configure_github', {
+          providerType: githubProviderType ?? await c.env.KV.get(SETUP_KEYS.GITHUB_PROVIDER_TYPE) ?? 'app',
+          appClientId: githubAppClientId ?? '',
+          appReplacementSecret: githubAppClientSecret ?? '',
+          oauthClientId: githubOauthClientId ?? '',
+          oauthReplacementSecret: githubOauthClientSecret ?? '',
+        }, administrationContext);
       }
-      const ghAppId = githubAppClientId?.trim();
-      if (ghAppId) await c.env.KV.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, ghAppId);
-      const ghOauthId = githubOauthClientId?.trim();
-      if (ghOauthId) await c.env.KV.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID, ghOauthId);
-      const cfOauthId = cloudflareOauthClientId?.trim();
-      if (cfOauthId) await c.env.KV.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID, cfOauthId);
-      const ghAppSecret = githubAppClientSecret?.trim();
-      const ghOauthSecret = githubOauthClientSecret?.trim();
-      const cfOauthSecret = cloudflareOauthClientSecret?.trim();
-      if (ghAppSecret || ghOauthSecret || cfOauthSecret) {
-        const cryptoKey = await getOrImportKey(c.env);
-        if (cryptoKey) {
-          if (ghAppSecret) await encryptAndStore(c.env.KV, SETUP_KEYS.GITHUB_APP_CLIENT_SECRET, { secret: ghAppSecret }, cryptoKey);
-          if (ghOauthSecret) await encryptAndStore(c.env.KV, SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET, { secret: ghOauthSecret }, cryptoKey);
-          if (cfOauthSecret) await encryptAndStore(c.env.KV, SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET, { secret: cfOauthSecret }, cryptoKey);
-        }
+      if (cloudflareOauthClientId || cloudflareOauthClientSecret) {
+        await executeConfigurationTask(c.env, 'configure_cloudflare_connection', {
+          clientId: cloudflareOauthClientId ?? '',
+          replacementSecret: cloudflareOauthClientSecret ?? '',
+        }, administrationContext);
       }
 
       // Build combined allowed origins list

@@ -58,7 +58,7 @@ app.post('/', requireAdmin, async (c) => {
     }, 409);
   }
 
-  const validation = await validateConfigurationValues(c.env, section, mode, rawValues);
+  const validation = await validateConfigurationValues(c.env, section, mode, rawValues, c.get('user')?.email);
   if (!validation.values) {
     return c.json({
       error: 'Environment values are invalid',
