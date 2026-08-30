@@ -796,6 +796,7 @@ None.
 4. Herdr sessions forward accepted OSC 52 writes to the browser clipboard even when the separate desktop right-click paste setting is disabled, because Herdr copy is an explicit user action. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-032: writes Herdr OSC 52 copy output even when desktop paste access is disabled) -->
 5. Classic sessions do not install the Herdr clipboard-write handler. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send the same clipboard control sequence to classic and confirm no browser clipboard write occurs. -->
 6. `Ctrl+V` or `Cmd+V` reads clipboard text during the browser key gesture and pastes it into the active terminal. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (pastes browser clipboard text through xterm on Ctrl+V) -->
+7. If Samsung rejects an asynchronous OSC 52 browser write, Codeflare retains that bounded value; the next trusted Paste action retries the system clipboard write and pastes the retained value once. <!-- @impl: web-ui/src/lib/osc52.ts::retainFailedClipboardWrite --> <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::pasteFromClipboard --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (retries a rejected OSC 52 copy during trusted paste and pastes retained text) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (retains a rejected OSC 52 write for the next Ctrl+V) -->
 
 **Constraints:**
 
@@ -827,8 +828,8 @@ None.
 3. Hardware mouse clicks operate the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes physical and synthesized left clicks as SGR terminal input) -->
 4. Held-button mouse movement operates the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes held-button movement and ignores movement without an active press) -->
 5. Mouse wheels navigate the addressed Herdr control. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (encodes wheel navigation and modifier-aware right clicks) -->
-6. With the keyboard closed or open, a stationary touch tap operates the addressed Herdr control exactly once. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC1: preserves one trusted compatibility click without a duplicate synthetic sequence) --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC1: preserves keyboard-open compatibility clicks through tap-sized jitter) --> <!-- @manual: On Samsung Internet with the keyboard closed and open, tap a closed Herdr menu once and confirm it opens and remains open. -->
-7. One vertical touch swipe sends one wheel step to Herdr. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes one wheel step per Herdr swipe) -->
+6. With the keyboard closed or open, a stationary touch tap sends one same-cell press/release pair to the addressed Herdr control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::sendHerdrTap --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC1: forwards one deterministic tap and suppresses compatibility mouse events) --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (sends a touch tap as one press/release pair at one computed cell) --> <!-- @manual: On Samsung Internet with the keyboard closed and open, tap Pi input and Herdr controls and confirm each activates once. -->
+7. Vertical touch swipes send proportional wheel steps to Herdr and stop at release. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes proportional Herdr wheel steps without inertia) -->
 
 **Constraints:**
 
@@ -874,30 +875,27 @@ None.
 
 ### REQ-TERM-040: Stable Herdr pane scrollback
 
-**Intent:** Keep a Herdr pane visually stable while the user reads its scrollback, using the same bounded output hold as standard terminals.
+**Intent:** Keep Pi history visually stable in Herdr by letting Pi own its fullscreen transcript while Codeflare transports every Herdr differential frame intact.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Herdr viewport input updates the pane to the requested scroll position; an unavailable or invalid state check resumes live output instead of leaving the view frozen. <!-- @impl: host/src/herdr-scroll-query.ts::queryHerdrScroll --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @test: host/__tests__/herdr-scroll-query.test.js (Herdr focused-pane scroll query) --> <!-- @test: host/__tests__/terminal-agent-events.test.js (Herdr scroll probe protocol) -->
-2. While the pane is above bottom, Codeflare shows one complete viewport update before holding later atomic output in the existing bounded buffer. <!-- @impl: web-ui/src/stores/terminal-output.ts::setHerdrScrollState --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-hold.test.ts (publishes one forced full frame, then holds unrelated output) -->
-3. Each later viewport action shows one complete updated view without releasing unrelated held output. <!-- @impl: web-ui/src/stores/terminal-output.ts::setHerdrScrollState --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-hold.test.ts (publishes each requested viewport and resumes from a full bottom frame) -->
-4. Returning to bottom discards superseded held output, shows the current pane, and resumes live output. <!-- @impl: web-ui/src/stores/terminal-output.ts::setHerdrScrollState --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-hold.test.ts (publishes each requested viewport and resumes from a full bottom frame) -->
-5. Initial connection, Page Up or Down, pointer presses, and touch or desktop wheel actions request a current viewport update. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @impl: web-ui/src/stores/terminal-protocol.ts::isHerdrViewportIntent --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (REQ-TERM-040: desktop wheel input probes and holds output above bottom) -->
-6. An older viewport result cannot replace a newer requested view. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @test: web-ui/src/__tests__/stores/terminal-control-message.test.ts (REQ-TERM-040 AC6: ignores an older viewport result after a newer probe) -->
+1. A fresh Pi launched by a Herdr session starts in Pi fullscreen mode; Classic launch behavior remains unchanged. <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/herdr-launcher.test.js (waits for live Pi integration on a fresh start) -->
+2. Every complete Herdr differential frame reaches xterm immediately and in arrival order; Codeflare does not hold, discard, or supersede frames based on viewport state. <!-- @impl: web-ui/src/stores/terminal-output.ts::scheduleWrite --> <!-- @test: web-ui/src/__tests__/stores/herdr-output-delivery.test.ts (delivers every complete frame immediately and in order) -->
+3. While Pi output continues, Pi's application-owned fullscreen transcript preserves a user-selected historical viewport without mixed rows or a click-to-repair step. <!-- @manual: On Samsung Internet, scroll above bottom during Pi output and confirm the historical viewport remains stable until explicitly moved. -->
 
 **Constraints:**
 
-- Herdr remains an unmodified release binary accessed only through its public socket API.
-- The browser receives only validated booleans and request IDs, never socket paths or pane identifiers.
-- Held output remains bounded by [REQ-TERM-014](#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming).
+- Herdr remains an unmodified release binary.
+- Codeflare does not expose Herdr socket paths or pane identifiers to the browser.
+- Classic retains its existing main-screen output hold and scroll behavior.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-016](#req-term-016-terminal-pane-reconnect-and-resize-authority), [REQ-TERM-021](#req-term-021-synchronized-output-frame-atomicity)
+**Dependencies:** [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-021](#req-term-021-synchronized-output-frame-atomicity), [REQ-MOB-017](../mobile.md#req-mob-017-fullscreen-application-touch-scrolling)
 
-**Verification:** Automated host state, WebSocket protocol, and output-hold tests.
+**Verification:** Automated launcher and ordered-frame tests plus manual Samsung Internet viewport verification.
 
 **Status:** Implemented
 

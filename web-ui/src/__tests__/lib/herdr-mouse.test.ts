@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Terminal } from '@xterm/xterm';
-import { attachHerdrMouseInput } from '../../lib/herdr-mouse';
+import { attachHerdrMouseInput, sendHerdrTap } from '../../lib/herdr-mouse';
 
 describe('Herdr SGR mouse input', () => {
   let screen: HTMLDivElement;
@@ -58,6 +58,14 @@ describe('Herdr SGR mouse input', () => {
     expect(send).toHaveBeenNthCalledWith(1, '\x1b[<0;3;2M');
     expect(send).toHaveBeenNthCalledWith(2, '\x1b[<0;3;2m');
     expect(focus).toHaveBeenCalledOnce();
+  });
+
+  it('sends a touch tap as one press/release pair at one computed cell', () => {
+    sendHerdrTap(screen, { cols: 10, rows: 5 } as unknown as Terminal, send, 34, 34);
+
+    expect(send).toHaveBeenNthCalledWith(1, '\x1b[<0;3;2M');
+    expect(send).toHaveBeenNthCalledWith(2, '\x1b[<0;3;2m');
+    expect(focus).not.toHaveBeenCalled();
   });
 
   it('encodes held-button movement and ignores movement without an active press', () => {

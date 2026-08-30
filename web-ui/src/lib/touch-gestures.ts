@@ -93,6 +93,7 @@ export function attachSwipeGestures(
   terminal: Terminal,
   isKeyboardOpen?: () => boolean,
   forwardMouseTap = false,
+  onHerdrTap?: (clientX: number, clientY: number) => void,
 ): (() => void) | undefined {
   if (typeof window === 'undefined' || !('ontouchstart' in window)) {
     return undefined;
@@ -100,6 +101,7 @@ export function attachSwipeGestures(
 
   let startX = 0;
   let startY = 0;
+  let maxTouchDistance = 0;
   let lockedDirection: Direction | null = null;
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   let repeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -169,6 +171,7 @@ export function attachSwipeGestures(
     scrollMode = false;
     lastScrollY = 0;
     scrollAccumulator = 0;
+    maxTouchDistance = 0;
     velocitySamples = [];
   }
 
@@ -226,18 +229,18 @@ export function attachSwipeGestures(
 
     const kbOpen = isKeyboardOpen?.() ?? false;
 
-    // Preserve Herdr compatibility clicks through tap-sized keyboard-open
-    // jitter. Classic retains its established touch suppression.
+    // Preserve tap-sized Herdr movement for deterministic touchend activation.
+    // Classic retains its established keyboard-open touch suppression.
     if (kbOpen && (!forwardMouseTap || lockedDirection !== null)) e.preventDefault();
 
     const touch = e.touches[0];
     const dx = touch.clientX - startX;
     const dy = touch.clientY - startY;
+    maxTouchDistance = Math.max(maxTouchDistance, Math.hypot(dx, dy));
 
     // Already in scroll mode — accumulate delta and scroll terminal buffer
     if (scrollMode) {
       e.preventDefault();
-      if (forwardMouseTap) return;
       const deltaY = lastScrollY - touch.clientY; // positive = finger up = scroll down
       lastScrollY = touch.clientY;
       scrollAccumulator += deltaY;
@@ -274,17 +277,6 @@ export function attachSwipeGestures(
           clearTimeout(longPressTimer);
           longPressTimer = null;
         }
-        if (forwardMouseTap) {
-          scrollTouchLines(
-            terminal,
-            Math.sign(scrollAccumulator),
-            touch.clientX,
-            touch.clientY,
-            true,
-          );
-          e.preventDefault();
-          return;
-        }
         // Immediately scroll if the threshold crossing already covers a full line
         const lines = Math.trunc(scrollAccumulator / scrollPxPerLine);
         if (lines !== 0) {
@@ -318,11 +310,20 @@ export function attachSwipeGestures(
     }
   }
 
-  function onTouchEnd() {
-    // Stationary taps deliberately rely on the browser's trusted compatibility
-    // mouse/click sequence. Synthesizing another sequence here double-activated
-    // Herdr controls on touch devices (menus opened, then immediately closed)
-    // and a synthetic click cannot reliably open the mobile keyboard.
+  function onTouchEnd(e: TouchEvent) {
+    // Herdr owns the complete touch sequence. Suppress compatibility mouse
+    // events for taps, gestures, and long presses; only a valid tap activates.
+    if (forwardMouseTap && onHerdrTap) e.preventDefault();
+    if (forwardMouseTap
+      && onHerdrTap
+      && !cancelled
+      && !scrollMode
+      && lockedDirection === null
+      && maxTouchDistance < SWIPE_THRESHOLD) {
+      // Compatibility mouse events can span keyboard geometry changes and turn
+      // a tap into a drag selection, so send one same-cell pair directly.
+      onHerdrTap(startX, startY);
+    }
 
     // Start inertia scrolling if we were in scroll mode with enough velocity
     if (scrollMode && !forwardMouseTap && velocitySamples.length >= 2) {
@@ -357,7 +358,7 @@ export function attachSwipeGestures(
   // This lets us intercept and block touch scroll when keyboard is open.
   container.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
   container.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
-  container.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
+  container.addEventListener('touchend', onTouchEnd, { capture: true, passive: !onHerdrTap });
   container.addEventListener('touchcancel', onTouchCancel, { capture: true, passive: true });
 
   // --- xterm >=6.1 Gesture shield ---

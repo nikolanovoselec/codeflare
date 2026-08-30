@@ -1,5 +1,17 @@
 export const OSC52_CLIPBOARD_MAX_BYTES = 64 * 1024;
 
+const failedClipboardWrites = new WeakMap<object, string>();
+
+export function retainFailedClipboardWrite(terminal: object, text: string): void {
+  failedClipboardWrites.set(terminal, text);
+}
+
+export function takeFailedClipboardWrite(terminal: object): string | undefined {
+  const text = failedClipboardWrites.get(terminal);
+  failedClipboardWrites.delete(terminal);
+  return text;
+}
+
 /** Parse one bounded OSC 52 clipboard write. Queries and non-standard selectors are rejected. */
 export function parseOsc52ClipboardWrite(data: string): string | null {
   const separator = data.indexOf(';');

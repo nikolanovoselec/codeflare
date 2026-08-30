@@ -14,7 +14,6 @@ import {
 import {
   parseControlMessage,
   reconnectBackoffMs,
-  isHerdrViewportIntent,
   type AgentEventControlMessage,
 } from './terminal-protocol';
 import {
@@ -23,8 +22,6 @@ import {
   releaseTrailingOutput,
   cleanupOutputByPrefix,
   clearAllOutput,
-  setHerdrScrollState,
-  afterNextSynchronizedFrame,
 } from './terminal-output';
 import { cleanupMapByPrefix } from '../lib/map-utils';
 
@@ -209,7 +206,6 @@ function connect(
   else herdrKeys.delete(key);
 
   const owner = ++nextConnectionOwner;
-  let latestHerdrProbe = 0;
   connectionOwners.set(key, owner);
   terminals.set(key, terminal);
 
@@ -234,17 +230,6 @@ function connect(
 
   // Attempt connection with retries
   const ownsConnection = () => connectionOwners.get(key) === owner;
-
-  function sendHerdrScrollProbe(ws: WebSocket): void {
-    if (!herdr || ws.readyState !== WebSocket.OPEN) return;
-    latestHerdrProbe += 1;
-    ws.send(JSON.stringify({
-      type: 'herdr-scroll-probe',
-      requestId: latestHerdrProbe,
-      cols: terminal.cols,
-      rows: terminal.rows,
-    }));
-  }
 
   function attemptConnection(attemptNumber: number): void {
     if (signal.aborted || !ownsConnection()) return;
@@ -314,9 +299,6 @@ function connect(
       // Send RAW data directly to PTY (no JSON wrapping)
       const inputDisposable = terminal.onData((data) => {
         if (ws.readyState === WebSocket.OPEN) {
-          if (herdr && isHerdrViewportIntent(data)) {
-            afterNextSynchronizedFrame(key, () => sendHerdrScrollProbe(ws));
-          }
           ws.send(data);  // Raw terminal input
         }
       });
@@ -339,8 +321,6 @@ function connect(
         ws.send(JSON.stringify({ type: 'resize', cols, rows }));
         logger.debug(`[Terminal ${key}] Sent initial resize: ${cols}x${rows}`);
       }
-      sendHerdrScrollProbe(ws);
-
     };
 
     function handleWebSocketMessage(event: MessageEvent): void {
@@ -404,13 +384,6 @@ function connect(
         }
         return;
       }
-      if (control.kind === 'herdr-scroll') {
-        if (control.message?.requestId === latestHerdrProbe) {
-          setHerdrScrollState(key, terminal, control.message.available, control.message.aboveBottom);
-        }
-        return;
-      }
-
       scheduleWrite(key, terminal, messageData);
     }
 

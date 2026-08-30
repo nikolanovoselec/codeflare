@@ -39,7 +39,6 @@ import {
   HerdrAgentStatusMonitor,
   createHerdrAgentStatusCallbacks,
 } from './herdr-agent-status.js';
-import { queryHerdrScroll } from './herdr-scroll-query.js';
 import {
   EDITOR_WARMING_BUDGET_MS,
   resolveSessionWorkspace,
@@ -299,9 +298,6 @@ attachTerminalConnectionHandler(wss, {
   readiness: () => ({ initFlagObserved, terminalServiceReady }),
   keepalivePingMs: WS_KEEPALIVE_PING_MS,
   maxControlMsgLength: MAX_CONTROL_MSG_LENGTH,
-  queryHerdrScroll: HERDR_SOCKET_PATH
-    ? () => queryHerdrScroll(HERDR_SOCKET_PATH)
-    : undefined,
 });
 
 const upgradeDispatcher = createUpgradeDispatcher({

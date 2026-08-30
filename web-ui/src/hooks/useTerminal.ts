@@ -7,16 +7,16 @@ import { sessionStore } from '../stores/session';
 import { logger } from '../lib/logger';
 import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight, enableVirtualKeyboardOverlay, disableVirtualKeyboardOverlay, resetKeyboardStateIfStale, forceResetKeyboardState, isFocusOnTerminalInput, isSamsungBrowser } from '../lib/mobile';
 import { attachSwipeGestures, sendTerminalKey } from '../lib/touch-gestures';
-import { attachHerdrMouseInput } from '../lib/herdr-mouse';
+import { attachHerdrMouseInput, sendHerdrTap } from '../lib/herdr-mouse';
 import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { isSpeechSupported, isListening, startListening, stopListening } from '../lib/speech-input';
-import { setupMobileInput } from '../lib/terminal-mobile-input';
+import { focusMobileTerminal, setupMobileInput } from '../lib/terminal-mobile-input';
 import { loadSettings } from '../lib/settings';
 import { getIframeInput, scrollBufferToBottom, resyncViewportScrollState } from '../lib/xterm-internals';
 import { attachWheelScrolling } from '../lib/terminal-wheel';
 import { useScrollCorrection } from './useScrollCorrection';
 import { agentEventDisposition, showGrantedAgentEvent } from '../lib/agent-notifications';
-import { parseOsc52ClipboardWrite } from '../lib/osc52';
+import { parseOsc52ClipboardWrite, retainFailedClipboardWrite, takeFailedClipboardWrite } from '../lib/osc52';
 import { resolveTerminalMode, type TerminalMode } from '../types';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
@@ -70,6 +70,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let notificationDisposable: { dispose: () => void } | undefined;
   let clipboardDisposable: { dispose: () => void } | undefined;
   let handleContextMenu: ((event: MouseEvent) => void) | undefined;
+  let sendHerdrTouchTap: ((clientX: number, clientY: number) => void) | undefined;
   let handleVisibilityChange: (() => void) | undefined;
   let agentEventDisposable: (() => void) | undefined;
   let hasInitialScrolled = false;
@@ -221,7 +222,9 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       }
       if (primaryModifier && event.key.toLowerCase() === 'v') {
         event.preventDefault();
-        void navigator.clipboard.readText().then((text) => {
+        const retained = term ? takeFailedClipboardWrite(term) : undefined;
+        if (retained && term) term.paste(retained);
+        else void navigator.clipboard.readText().then((text) => {
           if (text && term) term.paste(text);
         }).catch(() => {});
         return false;
@@ -278,7 +281,12 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (isHerdr()) {
       const screen = t.element?.querySelector<HTMLElement>('.xterm-screen');
       if (screen) {
-        cleanupHerdrMouse = attachHerdrMouseInput(screen, t, (sequence) => sendTerminalKey(t, sequence));
+        const send = (sequence: string) => sendTerminalKey(t, sequence);
+        cleanupHerdrMouse = attachHerdrMouseInput(screen, t, send);
+        sendHerdrTouchTap = (clientX, clientY) => {
+          sendHerdrTap(screen, t, send, clientX, clientY);
+          focusMobileTerminal(t);
+        };
       }
     }
 
@@ -437,7 +445,9 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       clipboardDisposable = t.parser.registerOscHandler(52, (data) => {
         const text = parseOsc52ClipboardWrite(data);
         if (text === null) return true;
-        void navigator.clipboard.writeText(text).catch(() => {});
+        void navigator.clipboard.writeText(text).catch(() => {
+          if (term) retainFailedClipboardWrite(term, text);
+        });
         return true;
       });
     }
@@ -527,7 +537,13 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       },
     );
 
-    cleanupGestures = attachSwipeGestures(containerEl, t, isVirtualKeyboardOpen, isHerdr());
+    cleanupGestures = attachSwipeGestures(
+      containerEl,
+      t,
+      isVirtualKeyboardOpen,
+      isHerdr(),
+      sendHerdrTouchTap,
+    );
 
     // Font loading fix
     if (document.fonts) {

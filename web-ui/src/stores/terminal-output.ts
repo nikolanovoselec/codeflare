@@ -25,14 +25,6 @@ const pendingFlushes = new Map<string, number>();
 // The queue below therefore holds atomic units: ordinary chunk runs or whole
 // frames (see lib/terminal-frames.ts).
 const frameAssemblers = new Map<string, FrameAssembler>();
-interface HerdrOutputGate {
-  holding: boolean;
-  publishNext: 'hold' | 'resume' | null;
-}
-const herdrOutputGates = new Map<string, HerdrOutputGate>();
-const nextSynchronizedFrameCallbacks = new Map<string, () => void>();
-const SYNC_BEGIN = '\x1b[?2026h';
-const SYNC_END = '\x1b[?2026l';
 
 // Cap on output held while the user reads scrollback. Beyond this the OLDEST
 // held chunks are dropped (ring semantics) so held PTY output cannot grow
@@ -94,29 +86,6 @@ export function flushWriteBuffer(key: string, terminal: Terminal): void {
     return;
   }
 
-  const herdrGate = herdrOutputGates.get(key);
-  if (herdrGate?.holding && herdrGate.publishNext) {
-    let frameIndex = -1;
-    for (let index = buffer.length - 1; index >= 0; index -= 1) {
-      if (buffer[index].includes(SYNC_BEGIN) && buffer[index].includes(SYNC_END)) {
-        frameIndex = index;
-        break;
-      }
-    }
-    if (frameIndex !== -1) {
-      const frame = buffer[frameIndex];
-      buffer.splice(0, frameIndex + 1);
-      terminal.write(frame);
-      if (herdrGate.publishNext === 'resume') herdrOutputGates.delete(key);
-      else herdrGate.publishNext = null;
-      if (buffer.length > 0 || assembler?.hasPending()) {
-        const timerId = window.setTimeout(() => flushWriteBuffer(key, terminal), WRITE_FLUSH_INTERVAL_MS);
-        pendingFlushes.set(key, timerId);
-      }
-      return;
-    }
-  }
-
   // Defer the flush while the user reads scrollback: writing would trim the
   // buffer beneath the reader, dragging the viewport line by line to the top
   // (the "snaps to top during agent output" failure). Output accumulates and
@@ -125,7 +94,7 @@ export function flushWriteBuffer(key: string, terminal: Terminal): void {
   // (WebSocket chunk runs or complete synchronized frames — dropping a whole
   // frame is safe: the next full redraw supersedes it); a rare escape
   // sequence split across the drop heals on the application's next repaint.
-  if (isReadingScrollback(terminal) || herdrGate?.holding) {
+  if (isReadingScrollback(terminal)) {
     let heldChars = 0;
     for (const chunk of buffer) heldChars += chunk.length;
     while (heldChars > READ_HOLD_MAX_CHARS && buffer.length > 0) {
@@ -170,14 +139,6 @@ export function scheduleWrite(key: string, terminal: Terminal, data: string): vo
     frameAssemblers.set(key, assembler);
   }
   const units = assembler.ingest(data, Date.now());
-  if (units.some((unit) => unit.includes(SYNC_BEGIN) && unit.includes(SYNC_END))) {
-    const callback = nextSynchronizedFrameCallbacks.get(key);
-    if (callback) {
-      nextSynchronizedFrameCallbacks.delete(key);
-      callback();
-    }
-  }
-
   let buffer = writeBuffers.get(key);
   if (!buffer) {
     buffer = [];
@@ -193,35 +154,6 @@ export function scheduleWrite(key: string, terminal: Terminal, data: string): vo
   }
 }
 
-export function afterNextSynchronizedFrame(key: string, callback: () => void): void {
-  nextSynchronizedFrameCallbacks.set(key, callback);
-}
-
-export function setHerdrScrollState(
-  key: string,
-  terminal: Terminal,
-  available: boolean,
-  aboveBottom: boolean,
-): void {
-  if (!available) {
-    herdrOutputGates.delete(key);
-    flushWriteBuffer(key, terminal);
-    return;
-  }
-
-  const timerId = pendingFlushes.get(key);
-  if (timerId !== undefined) clearTimeout(timerId);
-  pendingFlushes.delete(key);
-  // Herdr repaint probes force a complete frame after this control. Discarding
-  // older held units is safe because that full frame supersedes them.
-  writeBuffers.delete(key);
-  frameAssemblers.delete(key);
-  herdrOutputGates.set(key, {
-    holding: true,
-    publishNext: aboveBottom ? 'hold' : 'resume',
-  });
-}
-
 export function cancelPendingFlush(key: string): void {
   const timerId = pendingFlushes.get(key);
   if (timerId !== undefined) {
@@ -230,8 +162,6 @@ export function cancelPendingFlush(key: string): void {
   }
   writeBuffers.delete(key);
   frameAssemblers.delete(key);
-  herdrOutputGates.delete(key);
-  nextSynchronizedFrameCallbacks.delete(key);
 }
 
 /**
@@ -246,9 +176,7 @@ export function cancelPendingFlush(key: string): void {
 export function releaseTrailingOutput(key: string, terminal: Terminal): void {
   for (
     let queued = writeBuffers.get(key);
-    queued && queued.length > 0
-      && !isReadingScrollback(terminal)
-      && !herdrOutputGates.get(key)?.holding;
+    queued && queued.length > 0 && !isReadingScrollback(terminal);
     queued = writeBuffers.get(key)
   ) {
     flushWriteBuffer(key, terminal);
@@ -261,8 +189,6 @@ export function cleanupOutputByPrefix(prefix: string): void {
   cleanupMapByPrefix(pendingFlushes, prefix, (timerId) => clearTimeout(timerId));
   cleanupMapByPrefix(writeBuffers, prefix);
   cleanupMapByPrefix(frameAssemblers, prefix);
-  cleanupMapByPrefix(herdrOutputGates, prefix);
-  cleanupMapByPrefix(nextSynchronizedFrameCallbacks, prefix);
 }
 
 /** Tear down the whole output pipeline (dispose-all / disconnect-all). */
@@ -273,6 +199,4 @@ export function clearAllOutput(): void {
   pendingFlushes.clear();
   writeBuffers.clear();
   frameAssemblers.clear();
-  herdrOutputGates.clear();
-  nextSynchronizedFrameCallbacks.clear();
 }

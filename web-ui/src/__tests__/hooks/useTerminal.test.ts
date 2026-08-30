@@ -150,6 +150,7 @@ vi.mock('../../lib/touch-gestures', () => ({
 
 vi.mock('../../lib/herdr-mouse', () => ({
   attachHerdrMouseInput: mockAttachHerdrMouseInput,
+  sendHerdrTap: vi.fn(),
 }));
 
 vi.mock('../../lib/terminal-link-provider', () => ({
@@ -157,6 +158,7 @@ vi.mock('../../lib/terminal-link-provider', () => ({
 }));
 
 vi.mock('../../lib/terminal-mobile-input', () => ({
+  focusMobileTerminal: vi.fn(),
   setupMobileInput: vi.fn(() => vi.fn()),
 }));
 
@@ -999,6 +1001,36 @@ describe('useTerminal hook', () => {
     });
   });
 
+  describe('Herdr deterministic touch taps', () => {
+    it('wires a trusted touch tap to same-cell SGR input before mobile focus', async () => {
+      const { attachSwipeGestures } = await import('../../lib/touch-gestures');
+      const { sendHerdrTap } = await import('../../lib/herdr-mouse');
+      const { focusMobileTerminal } = await import('../../lib/terminal-mobile-input');
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      const tap = vi.mocked(attachSwipeGestures).mock.calls.at(-1)?.[4];
+      expect(tap).toBeTypeOf('function');
+
+      tap?.(42, 57);
+
+      expect(sendHerdrTap).toHaveBeenCalledWith(
+        mockXtermScreen,
+        expect.anything(),
+        expect.any(Function),
+        42,
+        57,
+      );
+      expect(focusMobileTerminal).toHaveBeenCalled();
+      expect(vi.mocked(sendHerdrTap).mock.invocationCallOrder.at(-1)!).toBeLessThan(
+        vi.mocked(focusMobileTerminal).mock.invocationCallOrder.at(-1)!,
+      );
+      dispose();
+    });
+  });
+
   describe('Herdr clipboard bridging', () => {
     beforeEach(() => {
       Object.assign(navigator, {
@@ -1024,6 +1056,31 @@ describe('useTerminal hook', () => {
       await vi.waitFor(() => {
         expect(navigator.clipboard.writeText).toHaveBeenCalledWith('copied from Herdr');
       });
+      dispose();
+    });
+
+    it('retains a rejected OSC 52 write for the next Ctrl+V', async () => {
+      vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'));
+      vi.mocked(navigator.clipboard.readText).mockRejectedValueOnce(new Error('denied'));
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      const osc = mockRegisterOscHandler.mock.calls.find(([identifier]) => identifier === 52)?.[1];
+      expect(osc?.('c;cmV0YWluZWQgc2VsZWN0aW9u')).toBe(true);
+      await vi.waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const handler = mockAttachCustomKeyEventHandler.mock.calls[0]?.[0];
+      expect(handler?.({
+        type: 'keydown', key: 'v', ctrlKey: true, metaKey: false,
+        altKey: false, shiftKey: false, preventDefault: vi.fn(),
+      } as unknown as KeyboardEvent)).toBe(false);
+
+      expect(mockTerminalInstance.paste).toHaveBeenCalledWith('retained selection');
+      expect(navigator.clipboard.readText).not.toHaveBeenCalled();
       dispose();
     });
 

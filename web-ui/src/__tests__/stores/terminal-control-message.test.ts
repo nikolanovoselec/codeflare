@@ -29,7 +29,6 @@ import {
   registerProcessNameCallback,
   parseControlMessage,
 } from '../../stores/terminal';
-import { isHerdrViewportIntent } from '../../stores/terminal-protocol';
 
 const SESSION_ID = 'sessabc12345'; // matches SESSION_ID_RE /^[a-z0-9]{8,24}$/
 const TERMINAL_ID = '1';
@@ -154,78 +153,6 @@ describe('Terminal control-message handling', () => {
     });
   });
 
-  describe('Herdr scroll probes', () => {
-    it('REQ-TERM-040: desktop wheel input probes and holds output above bottom', async () => {
-      let onData: ((data: string) => void) | undefined;
-      const terminal = {
-        ...createMockTerminal(),
-        onData: vi.fn((callback: (data: string) => void) => {
-          onData = callback;
-          return { dispose: vi.fn() };
-        }),
-      } as unknown as Terminal;
-      const ws = installCapturingWebSocket();
-      try {
-        terminalStore.connect(SESSION_ID, TERMINAL_ID, terminal, undefined, false, false, true);
-        await vi.advanceTimersByTimeAsync(0);
-        expect(ws.created[0].send).toHaveBeenCalledWith(expect.stringContaining('"type":"herdr-scroll-probe"'));
-
-        ws.created[0].send.mockClear();
-        onData?.('\x1b[<64;10;5M');
-        expect(ws.created[0].send).toHaveBeenCalledOnce();
-        expect(ws.created[0].send.mock.calls[0][0]).toBe('\x1b[<64;10;5M');
-
-        ws.created[0].emitMessage('\x1b[?2026hcurrent\x1b[?2026l');
-        const probe = JSON.parse(String(ws.created[0].send.mock.calls[1][0]));
-        expect(probe.type).toBe('herdr-scroll-probe');
-        ws.created[0].emitMessage(JSON.stringify({
-          type: 'herdr-scroll-state', requestId: probe.requestId, available: true, aboveBottom: true,
-        }));
-        ws.created[0].emitMessage('\x1b[?2026hdesktop viewport\x1b[?2026l');
-        await vi.advanceTimersByTimeAsync(40);
-        expect(terminal.write).toHaveBeenCalledWith(expect.stringContaining('desktop viewport'));
-
-        vi.mocked(terminal.write).mockClear();
-        ws.created[0].emitMessage('incoming agent output');
-        await vi.advanceTimersByTimeAsync(40);
-        expect(terminal.write).not.toHaveBeenCalled();
-      } finally {
-        ws.restore();
-      }
-    });
-
-    it('REQ-TERM-040 AC6: ignores an older viewport result after a newer probe', async () => {
-      let onData: ((data: string) => void) | undefined;
-      const terminal = {
-        ...createMockTerminal(),
-        onData: vi.fn((callback: (data: string) => void) => {
-          onData = callback;
-          return { dispose: vi.fn() };
-        }),
-      } as unknown as Terminal;
-      const ws = installCapturingWebSocket();
-      try {
-        terminalStore.connect(SESSION_ID, TERMINAL_ID, terminal, undefined, false, false, true);
-        await vi.advanceTimersByTimeAsync(0);
-
-        onData?.('\x1b[<64;10;5M');
-        ws.created[0].emitMessage('\x1b[?2026hviewport\x1b[?2026l');
-        await vi.advanceTimersByTimeAsync(40);
-        vi.mocked(terminal.write).mockClear();
-
-        ws.created[0].emitMessage(JSON.stringify({
-          type: 'herdr-scroll-state', requestId: 1, available: true, aboveBottom: true,
-        }));
-        ws.created[0].emitMessage('later output');
-        await vi.advanceTimersByTimeAsync(40);
-
-        expect(terminal.write).toHaveBeenCalledWith('later output');
-      } finally {
-        ws.restore();
-      }
-    });
-  });
-
   // ── REQ-TERM-009 AC2: type-discriminator routing of control vs raw frames ───
   describe('REQ-TERM-009 AC2: parseControlMessage discriminates frames by leading type field', () => {
     it('REQ-TERM-009 AC2: routes a non-empty string process name to the process-name kind', () => {
@@ -272,23 +199,6 @@ describe('Terminal control-message handling', () => {
       expect(result).toEqual({ kind: 'raw' });
     });
 
-    it('validates Herdr scroll state and viewport intent', () => {
-      expect(parseControlMessage(JSON.stringify({
-        type: 'herdr-scroll-state', requestId: 2, available: true, aboveBottom: true,
-      }))).toEqual({
-        kind: 'herdr-scroll',
-        message: { requestId: 2, available: true, aboveBottom: true },
-      });
-      expect(parseControlMessage(JSON.stringify({
-        type: 'herdr-scroll-state', requestId: -1, available: true, aboveBottom: true,
-      }))).toEqual({ kind: 'herdr-scroll', message: undefined });
-      expect(isHerdrViewportIntent('\x1b[5~')).toBe(true);
-      expect(isHerdrViewportIntent('\x1b[<64;10;5M')).toBe(true);
-      expect(isHerdrViewportIntent('\x1b[<0;10;5M')).toBe(true);
-      expect(isHerdrViewportIntent('\x1b[<32;11;5M')).toBe(false);
-      expect(isHerdrViewportIntent('\x1b[<0;11;5m')).toBe(true);
-      expect(isHerdrViewportIntent('normal input')).toBe(false);
-    });
   });
 
   // ── REQ-TERM-009 AC6: registered callback is invoked on a process-name frame ─

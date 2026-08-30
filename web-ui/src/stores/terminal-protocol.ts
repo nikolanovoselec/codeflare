@@ -7,12 +7,6 @@ import { WS_RECONNECT_BASE_MS, WS_RECONNECT_MAX_MS } from '../lib/constants';
 
 export type AgentEventKind = 'input-required' | 'task-completed' | 'task-failed';
 
-export interface HerdrScrollControlMessage {
-  readonly requestId: number;
-  readonly available: boolean;
-  readonly aboveBottom: boolean;
-}
-
 export type AgentEventControlMessage =
   | { readonly type: 'agent-event'; readonly eventId: string; readonly kind: AgentEventKind }
   | { readonly type: 'agent-event-display-granted'; readonly eventId: string; readonly kind: AgentEventKind }
@@ -24,7 +18,6 @@ export type ControlMessage =
   | { kind: 'restore'; state: string | undefined }
   | { kind: 'process-name'; processName: string }
   | { kind: 'agent-event'; message: AgentEventControlMessage | undefined }
-  | { kind: 'herdr-scroll'; message: HerdrScrollControlMessage | undefined }
   | { kind: 'raw' };
 
 const AGENT_EVENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
@@ -37,19 +30,6 @@ const AGENT_EVENT_KINDS = new Set<AgentEventKind>([
 function hasOnlyKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
   const keys = Object.keys(value);
   return keys.length === expected.length && keys.every((key) => expected.includes(key));
-}
-
-function parseHerdrScrollControl(value: Record<string, unknown>): HerdrScrollControlMessage | undefined {
-  if (hasOnlyKeys(value, ['type', 'requestId', 'available', 'aboveBottom'])
-      && value.type === 'herdr-scroll-state'
-      && typeof value.requestId === 'number'
-      && Number.isSafeInteger(value.requestId)
-      && value.requestId >= 0
-      && typeof value.available === 'boolean'
-      && typeof value.aboveBottom === 'boolean') {
-    return { requestId: value.requestId, available: value.available, aboveBottom: value.aboveBottom };
-  }
-  return undefined;
 }
 
 function parseAgentEventControl(value: Record<string, unknown>): AgentEventControlMessage | undefined {
@@ -103,9 +83,6 @@ export function parseControlMessage(messageData: string): ControlMessage {
     ) {
       return { kind: 'process-name', processName: msg.processName };
     }
-    if (msg.type === 'herdr-scroll-state') {
-      return { kind: 'herdr-scroll', message: parseHerdrScrollControl(msg) };
-    }
     if (
       msg.type === 'agent-event'
       || msg.type === 'agent-event-display-granted'
@@ -126,18 +103,6 @@ export function parseControlMessage(messageData: string): ControlMessage {
  * deterministic tests. Worst-case settles at the MAX cap (~4 attempts/min),
  * keeping a stuck pane well under the per-user WS connect budget.
  */
-export function isHerdrViewportIntent(data: string): boolean {
-  if (data.includes('\x1b[5~') || data.includes('\x1b[6~')) return true;
-  for (const report of data.split('\x1b[<').slice(1)) {
-    const match = /^(\d+);\d+;\d+([Mm])/.exec(report);
-    if (!match) continue;
-    const button = Number(match[1]);
-    if (match[2] === 'm') return true;
-    if ((button & 32) === 0 && ((button & 64) !== 0 || (button & 3) !== 3)) return true;
-  }
-  return false;
-}
-
 export function reconnectBackoffMs(attempt: number, rand: () => number = Math.random): number {
   const raw = Math.min(WS_RECONNECT_MAX_MS, WS_RECONNECT_BASE_MS * 2 ** Math.max(0, attempt - 1));
   return Math.round(raw * (0.5 + rand() * 0.5));

@@ -2,8 +2,8 @@ import { Component, Show, createSignal, createEffect } from 'solid-js';
 import '@xterm/xterm/css/xterm.css';
 import { useTerminal } from '../hooks/useTerminal';
 import InitProgress from './InitProgress';
-import { isTouchDevice, isIOSDevice, getKeyboardHeight, enableVirtualKeyboardOverlay } from '../lib/mobile';
-import { getRemoveFocusGuard, getIframeInput } from '../lib/xterm-internals';
+import { isTouchDevice, getKeyboardHeight } from '../lib/mobile';
+import { focusMobileTerminal } from '../lib/terminal-mobile-input';
 import type { TerminalMode } from '../types';
 import '../styles/terminal.css';
 
@@ -86,31 +86,7 @@ const Terminal: Component<TerminalProps> = (props) => {
         class="terminal-container"
         on:click={() => {
           const term = terminal();
-          if (isTouchDevice() && term) {
-            getRemoveFocusGuard(term)?.();
-            enableVirtualKeyboardOverlay();
-            // iOS Safari requires .focus() synchronously in the user-gesture call
-            // stack or the virtual keyboard never opens. Android Chrome and Samsung
-            // Internet need setTimeout(0) for reliable cross-frame focus timing on
-            // iframe inputs. We branch on platform to satisfy both constraints.
-            // Uses on:click (direct addEventListener) instead of onClick (SolidJS
-            // delegation) so iOS Safari recognizes it as a user gesture.
-            const doFocus = () => {
-              const t = terminal();
-              if (!t) return;
-              const input = getIframeInput(t);
-              if (input) {
-                input.focus({ preventScroll: true });
-              } else {
-                t.textarea?.focus({ preventScroll: true });
-              }
-            };
-            if (isIOSDevice()) {
-              doFocus();
-            } else {
-              setTimeout(doFocus, 0);
-            }
-          }
+          if (isTouchDevice() && term) focusMobileTerminal(term);
         }}
         style={{
           width: '100%',

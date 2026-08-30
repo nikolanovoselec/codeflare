@@ -189,7 +189,7 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 **Constraints:**
 
 - Normal scrollback uses xterm's buffer service directly ([REQ-TERM-014](terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming)).
-- Classic alternate-screen scrolling uses xterm's public DOM wheel pipeline; Herdr uses one wheel step per gesture.
+- Classic alternate-screen scrolling uses xterm's public DOM wheel pipeline with inertia; Herdr uses proportional wheel steps without inertia.
 
 **Priority:** P1
 
@@ -209,8 +209,8 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. With the keyboard closed, vertical swipes navigate a fullscreen application's alternate-buffer history. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes one wheel step per Herdr swipe) --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC3: preserves classic fullscreen wheel forwarding) -->
-2. One keyboard-closed Herdr swipe sends one wheel step. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes one wheel step per Herdr swipe) -->
+1. With the keyboard closed, vertical swipes navigate a fullscreen application's alternate-buffer history. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes proportional Herdr wheel steps without inertia) --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC3: preserves classic fullscreen wheel forwarding) -->
+2. A keyboard-closed Herdr swipe emits proportional wheel steps from accumulated finger distance and stops when the finger lifts. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC1-AC2: routes proportional Herdr wheel steps without inertia) -->
 3. Classic preserves its existing fullscreen wheel forwarding. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-017 AC3: preserves classic fullscreen wheel forwarding) -->
 
 **Constraints:**
@@ -236,9 +236,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. A stationary single-finger Herdr tap activates the addressed control exactly once. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC1: preserves one trusted compatibility click without a duplicate synthetic sequence) --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC1: preserves keyboard-open compatibility clicks through tap-sized jitter) --> <!-- @manual: On Samsung Internet with the keyboard closed and open, tap a closed Herdr menu once and confirm it opens and remains open. -->
-2. A touch that becomes a movement gesture does not activate a control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC2: does not synthesize a click after movement) -->
-3. A cancelled touch does not activate a control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC3: does not synthesize a click after cancellation) -->
+1. A stationary single-finger Herdr tap sends one SGR press/release pair at one geometry snapshot and opens mobile input, including while the keyboard is already open. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @impl: web-ui/src/lib/herdr-mouse.ts::sendHerdrTap --> <!-- @impl: web-ui/src/lib/terminal-mobile-input.ts::focusMobileTerminal --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC1: forwards one deterministic tap and suppresses compatibility mouse events) --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC1: forwards a keyboard-open tap through sub-threshold jitter) --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (sends a touch tap as one press/release pair at one computed cell) --> <!-- @manual: On Samsung Internet with the keyboard closed and open, tap Pi input and Herdr controls and confirm each activates once without selection. -->
+2. A touch that becomes a movement gesture does not activate a control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC2: does not activate a tap after movement) -->
+3. A cancelled touch does not activate a control. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC3: does not activate a tap after cancellation) -->
 4. Classic stationary tap behavior remains unchanged. <!-- @impl: web-ui/src/lib/touch-gestures.ts::attachSwipeGestures --> <!-- @test: web-ui/src/__tests__/lib/touch-gestures.test.ts (REQ-MOB-020 AC4: preserves the Classic stationary tap path without a synthetic mouse sequence) -->
 
 **Constraints:** Long press and multi-touch do not activate the addressed control.

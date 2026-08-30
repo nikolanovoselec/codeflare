@@ -13,6 +13,7 @@ import { BUTTON_LABEL_VISIBLE_DURATION_MS } from '../lib/constants';
 import { getIframeInput, scrollBufferLines } from '../lib/xterm-internals';
 import { isSpeechSupported, isListening, startListening, stopListening, getMicPermissionState } from '../lib/speech-input';
 import { resolveTerminalMode } from '../types';
+import { takeFailedClipboardWrite } from '../lib/osc52';
 import '../styles/floating-terminal-buttons.css';
 
 interface FloatingTerminalButtonsProps {
@@ -110,6 +111,15 @@ const FloatingTerminalButtons: Component<FloatingTerminalButtonsProps> = (props)
   const pasteFromClipboard = async () => {
     const term = getActiveTerm();
     if (!term) return;
+    const retained = takeFailedClipboardWrite(term);
+    if (retained) {
+      // This button is a trusted user action, so retry the browser clipboard
+      // write before pasting the OSC 52 text that Samsung previously rejected.
+      try { await navigator.clipboard.writeText(retained); } catch { /* paste still works */ }
+      term.paste(retained);
+      refocusTerminal();
+      return;
+    }
     // On first use, browser shows clipboard permission prompt. On mobile it
     // appears behind the keyboard. Dismiss keyboard so user sees it.
     try {

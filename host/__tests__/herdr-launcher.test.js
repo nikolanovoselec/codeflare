@@ -253,6 +253,7 @@ fi
     const calls = readFileSync(log, 'utf8').trim().split('\n');
     assert.equal(calls.filter((call) => call === 'agent list').length, 2);
     assert.equal(calls.filter((call) => call.startsWith('pane run ')).length, 1);
+    assert.equal(calls.includes('pane run w1:p1 pi --tui-mode fullscreen'), true);
     assert.equal(existsSync(join(runtime, 'herdr/abc12345/bootstrap.done')), true);
   });
 

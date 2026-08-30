@@ -22,7 +22,6 @@ export interface TerminalWsDeps {
   readiness(): { initFlagObserved: boolean; terminalServiceReady: boolean };
   keepalivePingMs: number;
   maxControlMsgLength: number;
-  queryHerdrScroll?: () => Promise<boolean | null>;
 }
 
 export function attachTerminalConnectionHandler(wss: WebSocketServer, deps: TerminalWsDeps): void {
@@ -33,7 +32,6 @@ export function attachTerminalConnectionHandler(wss: WebSocketServer, deps: Term
     const sessionId = query.session as string | undefined;
     const isManualTab = query.manual === '1';
     const connectedAt = Date.now();
-    let latestHerdrScrollRequest = -1;
 
     // Reject early: port 8080 binds before R2 sync + .bashrc autostart writes.
     // If we accept now we'd spawn a fresh PTY with no autostart in .bashrc, and
@@ -105,41 +103,6 @@ export function attachTerminalConnectionHandler(wss: WebSocketServer, deps: Term
 
           if (msg.type === 'focus') {
             session.claimResizeAuthority(ws);
-            return;
-          }
-
-          if (msg.type === 'herdr-scroll-probe') {
-            const keys = Object.keys(msg);
-            if (keys.length === 4
-                && keys.every((key) => key === 'type' || key === 'requestId' || key === 'cols' || key === 'rows')
-                && typeof msg.requestId === 'number' && Number.isSafeInteger(msg.requestId) && msg.requestId >= 0
-                && typeof msg.cols === 'number' && Number.isSafeInteger(msg.cols) && msg.cols > 0 && msg.cols < 10000
-                && typeof msg.rows === 'number' && Number.isSafeInteger(msg.rows) && msg.rows > 0 && msg.rows < 10000
-                && deps.queryHerdrScroll) {
-              const requestId = msg.requestId as number;
-              latestHerdrScrollRequest = Math.max(latestHerdrScrollRequest, requestId);
-              const cols = msg.cols as number;
-              const rows = msg.rows as number;
-              void deps.queryHerdrScroll().then((aboveBottom) => {
-                if (requestId !== latestHerdrScrollRequest
-                    || !session.clients.has(ws)
-                    || ws.readyState !== WebSocket.OPEN) return;
-                if (aboveBottom !== null && !session.canResize(ws)) {
-                  ws.send(JSON.stringify({
-                    type: 'herdr-scroll-state', requestId,
-                    available: false,
-                    aboveBottom: false,
-                  }));
-                  return;
-                }
-                ws.send(JSON.stringify({
-                  type: 'herdr-scroll-state', requestId,
-                  available: aboveBottom !== null,
-                  aboveBottom: aboveBottom === true,
-                }));
-                if (aboveBottom !== null) session.resize(cols, rows, ws);
-              });
-            }
             return;
           }
 
