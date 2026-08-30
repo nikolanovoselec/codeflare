@@ -608,15 +608,19 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         cleanup();
       });
 
-      it('REQ-MOB-020 AC2: does not activate a tap after movement', () => {
+      it('REQ-MOB-020 AC2: suppresses tap and compatibility click after movement', () => {
         (window as any).ontouchstart = null;
         const { terminal } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
         const tap = vi.fn();
+        const click = vi.fn();
+        container.addEventListener('click', click);
         const cleanup = attachSwipeGestures(container, terminal, () => false, true, tap)!;
         container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
         container.dispatchEvent(makeTouchEvent('touchmove', 40, 80));
         container.dispatchEvent(makeTouchEvent('touchend', 40, 80));
+        container.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         expect(tap).not.toHaveBeenCalled();
+        expect(click).not.toHaveBeenCalled();
         cleanup();
       });
 
