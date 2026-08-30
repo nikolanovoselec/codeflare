@@ -609,7 +609,7 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         cleanup();
       });
 
-      it('REQ-MOB-020 AC2/AC4: releases stale Herdr input focus when scrolling without changing Classic', () => {
+      it('REQ-MOB-022 AC5: releases stale Herdr input focus when scrolling without changing Classic', () => {
         (window as any).ontouchstart = null;
         const input = document.createElement('input');
         document.body.appendChild(input);
