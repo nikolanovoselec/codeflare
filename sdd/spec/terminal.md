@@ -796,7 +796,6 @@ None.
 4. Herdr sessions forward accepted OSC 52 writes to the browser clipboard even when the separate desktop right-click paste setting is disabled, because Herdr copy is an explicit user action. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-032: writes Herdr OSC 52 copy output even when desktop paste access is disabled) -->
 5. Classic sessions do not install the Herdr clipboard-write handler. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @manual: In integration, send the same clipboard control sequence to classic and confirm no browser clipboard write occurs. -->
 6. `Ctrl+V` or `Cmd+V` reads clipboard text during the browser key gesture and pastes it into the active terminal. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (pastes browser clipboard text through xterm on Ctrl+V) -->
-7. After Samsung rejects an asynchronous Herdr copy, the next trusted floating Paste control pastes the latest rejected text once and retries writing it to the browser clipboard. <!-- @impl: web-ui/src/lib/osc52.ts::beginClipboardWrite --> <!-- @impl: web-ui/src/lib/osc52.ts::retainFailedClipboardWrite --> <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::pasteFromClipboard --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (retries a rejected OSC 52 copy during trusted paste and pastes retained text) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (retains a rejected OSC 52 write for the next Ctrl+V) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (does not retain an older failed write after a newer write succeeds) -->
 
 **Constraints:**
 
@@ -896,6 +895,34 @@ None.
 **Dependencies:** [REQ-TERM-008](#req-term-008-write-batching-at-30fps), [REQ-TERM-021](#req-term-021-synchronized-output-frame-atomicity), [REQ-MOB-017](mobile.md#req-mob-017-fullscreen-application-touch-scrolling)
 
 **Verification:** Automated launcher and ordered-frame tests plus manual Samsung Internet viewport verification.
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-041: Rejected Herdr clipboard recovery
+
+**Intent:** Recover the latest rejected asynchronous Herdr clipboard write through the next trusted Paste gesture without allowing stale failures to replace newer clipboard state.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The next trusted floating Paste control pastes the latest retained rejected text exactly once into the active terminal. <!-- @impl: web-ui/src/lib/osc52.ts::retainFailedClipboardWrite --> <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::pasteFromClipboard --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-TERM-041: retries a rejected OSC 52 copy during trusted paste and pastes retained text) -->
+2. The same trusted Paste control retries writing the latest retained text to the browser clipboard. <!-- @impl: web-ui/src/lib/osc52.ts::beginClipboardWrite --> <!-- @impl: web-ui/src/components/FloatingTerminalButtons.tsx::pasteFromClipboard --> <!-- @test: web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx (REQ-TERM-041: retries a rejected OSC 52 copy during trusted paste and pastes retained text) -->
+3. An older rejected write cannot replace newer retained clipboard state. <!-- @impl: web-ui/src/lib/osc52.ts::retainFailedClipboardWrite --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (does not retain an older failed write after a newer write succeeds) -->
+
+**Constraints:**
+
+- Browser clipboard permission remains authoritative.
+- Retained clipboard content stays browser-local and is never logged.
+- No second clipboard service is installed.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-032](#req-term-032-herdr-clipboard-compatibility-boundary)
+
+**Verification:** Automated trusted-gesture, exact-once paste, and latest-write ordering tests.
 
 **Status:** Implemented
 

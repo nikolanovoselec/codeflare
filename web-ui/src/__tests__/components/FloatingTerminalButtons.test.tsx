@@ -343,7 +343,7 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
   });
 
   describe('Clipboard Access Guard', () => {
-    it('retries a rejected OSC 52 copy during trusted paste and pastes retained text', async () => {
+    it('REQ-TERM-041: retries a rejected OSC 52 copy during trusted paste and pastes retained text', async () => {
       vi.useRealTimers();
       const mockTerm = { paste: vi.fn(), textarea: document.createElement('textarea') };
       (sessionStore as any).activeSessionId = 'test-session';
@@ -359,6 +359,7 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
 
       await vi.waitFor(() => {
         expect(writeText).toHaveBeenCalledWith('retained Pi selection');
+        expect(mockTerm.paste).toHaveBeenCalledTimes(1);
         expect(mockTerm.paste).toHaveBeenCalledWith('retained Pi selection');
       });
       expect(readText).not.toHaveBeenCalled();
