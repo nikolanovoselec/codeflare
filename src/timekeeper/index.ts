@@ -30,10 +30,15 @@ import {
   applyPositiveDelta,
   createAccountingState,
   hashSessionId,
+  historyPhase,
   markerKeysFor,
+  nextRegularAlarm,
   outboxKey,
+  shouldRunD1,
   type AccountingStateV2,
+  type HistoryOutboxEntry,
 } from './accounting';
+import { userKeyForEmail, writeUsageHistory } from '../lib/admin-usage';
 
 const logger = createLogger('timekeeper');
 
@@ -132,6 +137,7 @@ export class Timekeeper {
   private email: string | null = null;
   private lastFlushedMonthlyTotal = 0;
   private markerCache = new Set<string>();
+  private userKey: string | null = null;
   private ready: Promise<void>;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -207,39 +213,75 @@ export class Timekeeper {
 
   async alarm(): Promise<void> {
     await this.ready;
-    if (this.pendingSeconds === 0 || !this.bucketName) return;
+    const now = new Date();
+    let kvRetryAt: number | undefined;
 
-    const kvKey = getTimekeeperKey(this.bucketName);
-    const secondsToFlush = this.pendingSeconds;
-
-    try {
-      const existing = await this.env.KV.get<UsageRecord>(kvKey, 'json');
-      const now = new Date();
-      const record = this.buildUpdatedRecord(existing, secondsToFlush, now);
-
-      await this.env.KV.put(kvKey, JSON.stringify(record));
-
-      // Only reset after successful write
-      this.pendingSeconds -= secondsToFlush;
-      if (this.pendingSeconds < 0) this.pendingSeconds = 0;
-      this.lastFlushedMonthlyTotal = record.thisMonth.seconds;
-      this.accountingState = {
-        ...this.accountingState,
-        pendingSeconds: this.pendingSeconds,
-        lastFlushedMonthlyTotal: this.lastFlushedMonthlyTotal,
-      };
-      await this.ctx.storage.put('accountingState:v2', this.accountingState);
-    } catch (err) {
-      logger.error('Flush failed, will retry', toError(err));
-      // Re-arm for retry
-      await this.ctx.storage.setAlarm(Date.now() + RETRY_INTERVAL_MS);
-      return;
+    if (this.pendingSeconds > 0 && this.bucketName) {
+      const secondsToFlush = this.pendingSeconds;
+      try {
+        const kvKey = getTimekeeperKey(this.bucketName);
+        const existing = await this.env.KV.get<UsageRecord>(kvKey, 'json');
+        const record = this.buildUpdatedRecord(existing, secondsToFlush, now);
+        await this.env.KV.put(kvKey, JSON.stringify(record));
+        this.pendingSeconds = Math.max(0, this.pendingSeconds - secondsToFlush);
+        this.lastFlushedMonthlyTotal = record.thisMonth.seconds;
+        this.accountingState = {
+          ...this.accountingState,
+          pendingSeconds: this.pendingSeconds,
+          lastFlushedMonthlyTotal: this.lastFlushedMonthlyTotal,
+        };
+        await this.ctx.storage.put('accountingState:v2', this.accountingState);
+      } catch (err) {
+        logger.error('Flush failed, will retry', toError(err));
+        kvRetryAt = now.getTime() + RETRY_INTERVAL_MS;
+      }
     }
 
-    // Re-arm if more pending accumulated during flush
-    if (this.pendingSeconds > 0) {
-      await this.ctx.storage.setAlarm(Date.now() + FLUSH_INTERVAL_MS);
+    let regularAlarmAt: number | undefined;
+    if (this.email && this.env.USAGE_DB) {
+      this.userKey ??= await userKeyForEmail(this.email);
+      const phase = await historyPhase(this.userKey);
+      regularAlarmAt = nextRegularAlarm(Math.floor(now.getTime() / 1_000), phase.offset);
+      const retryAt = this.accountingState.d1Retry.nextAttemptAt
+        ? Date.parse(this.accountingState.d1Retry.nextAttemptAt)
+        : undefined;
+      const d1Due = (retryAt !== undefined && retryAt <= now.getTime())
+        || shouldRunD1(Math.floor(now.getTime() / 1_000), phase.offset, phase.d1Slot);
+      if (d1Due) {
+        try {
+          const current: HistoryOutboxEntry[] = (['day', 'week', 'month', 'year'] as const).map((kind) => ({
+            kind,
+            ...this.accountingState.periods[kind],
+            sourceSequence: this.accountingState.historySequence,
+            snapshotAt: now.toISOString(),
+          }));
+          const listed = await this.ctx.storage.list<HistoryOutboxEntry>({ prefix: 'historyOutbox:', limit: 8 });
+          const closed = [...listed.values()];
+          const result = await writeUsageHistory(this.env.USAGE_DB, this.email, [...closed, ...current]);
+          if (result.acknowledged) {
+            if (listed.size > 0) await this.ctx.storage.delete([...listed.keys()]);
+            this.accountingState = { ...this.accountingState, d1Retry: { attempt: 0 } };
+          } else {
+            throw new Error('D1 history acknowledgement was incomplete');
+          }
+        } catch (err) {
+          logger.error('History flush failed, will retry', toError(err));
+          const attempt = Math.min(this.accountingState.d1Retry.attempt + 1, 6);
+          const delay = Math.min(30_000 * 2 ** (attempt - 1), 15 * 60_000) + Math.floor(Math.random() * 5_000);
+          this.accountingState = {
+            ...this.accountingState,
+            d1Retry: { attempt, nextAttemptAt: new Date(now.getTime() + delay).toISOString() },
+          };
+        }
+        await this.ctx.storage.put('accountingState:v2', this.accountingState);
+      }
     }
+
+    const d1RetryAt = this.accountingState.d1Retry.nextAttemptAt
+      ? Date.parse(this.accountingState.d1Retry.nextAttemptAt)
+      : undefined;
+    const candidates = [kvRetryAt, d1RetryAt, regularAlarmAt].filter((value): value is number => value !== undefined);
+    if (candidates.length > 0) await this.ctx.storage.setAlarm(Math.min(...candidates));
   }
 
   private async handleWelcome(request: Request): Promise<Response> {
@@ -409,7 +451,11 @@ export class Timekeeper {
       this.lastFlushedMonthlyTotal = this.accountingState.lastFlushedMonthlyTotal;
 
       const existingAlarm = await this.ctx.storage.getAlarm();
-      if (!existingAlarm) await this.ctx.storage.setAlarm(Date.now() + FLUSH_INTERVAL_MS);
+      if (!existingAlarm) {
+        this.userKey ??= await userKeyForEmail(this.email!);
+        const phase = await historyPhase(this.userKey);
+        await this.ctx.storage.setAlarm(nextRegularAlarm(Math.floor(Date.now() / 1_000), phase.offset));
+      }
     }
 
     // Usage accumulates in every mode. Read the durable monthly baseline before
