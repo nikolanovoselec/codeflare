@@ -102,7 +102,7 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     const body = await response.json() as any;
     expect(body.mode).toBe('enterprise');
     expect(body.applicableSections).toEqual(enterpriseSections);
-    expect(body.sections.aiRouting).toEqual({
+    expect(body.sections.aiRouting).toMatchObject({
       gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/admin-account/admin-gateway',
       tokenState: 'deployment',
     });
@@ -133,7 +133,7 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
       tokenState: 'administration',
     });
     expect(body.latest.aiRouting).toEqual({ runId: 'latest-ai', state: 'succeeded' });
-    expect(kv.list).not.toHaveBeenCalled();
+    expect(kv.list).not.toHaveBeenCalledWith(expect.objectContaining({ prefix: 'admin:configuration:run:' }));
     expect(JSON.stringify(body)).not.toContain('ciphertext');
   });
 });

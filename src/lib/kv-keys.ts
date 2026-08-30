@@ -219,6 +219,18 @@ export function getTiersConfigKey(): string {
   return 'tiers:config';
 }
 
+export const ADMIN_CONFIGURATION_KEYS = {
+  REVISION: 'admin:configuration:revision',
+  ACTIVE_RUN: 'admin:configuration:active-run',
+  RUN_PREFIX: 'admin:configuration:run:',
+  LATEST_PREFIX: 'admin:configuration:latest:',
+  USAGE_REPORT_SETTINGS: 'admin:usage-reports:settings',
+} as const;
+
+export function getAdminConfigurationLatestKey(section: string): string {
+  return `${ADMIN_CONFIGURATION_KEYS.LATEST_PREFIX}${section}`;
+}
+
 /**
  * Get KV key for a user's Timekeeper usage record
  */
