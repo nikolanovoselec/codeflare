@@ -70,7 +70,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-002: Conversation captures land in the vault as markdown
 
-**Intent:** The capture agent writes one markdown file per 50-prompt batch, plus an immediate uncaptured-tail capture on session resume, into `Raw/Sessions/`; each capture becomes graph-queryable in the same turn.
+**Intent:** The capture agent writes one markdown file per 50-prompt batch, plus an immediate uncaptured-tail capture on session resume, into the session capture directory; each capture becomes graph-queryable in the same turn.
 
 **Applies To:** User
 
@@ -80,7 +80,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 2. Concept references use wikilink syntax; file paths, code symbols, and PR/issue references stay as prose. <!-- @manual -->
 3. The capture agent builds the vault graph inline: the agent emits chunk JSON matching the graph builder's schema, then a graph-build step materializes the per-extraction graph. <!-- @test: host/__tests__/memory-capture-pipeline.test.js (prefilter-transcript.sh (REQ-MEM-001 AC3) / REQ-VAULT-002 (conversation captures land in vault as markdown)) --> <!-- @manual -->
 4. The agent merges the per-extraction graph into the unified global graph under the shared multi-writer lock and tags it as the vault source. <!-- @manual -->
-5. If extraction fails, the markdown file stays on disk; Vault hash checks exclude `Raw/Sessions/`, so memory delivery recovery remains owned by its bounded request lifecycle rather than starting a Vault extraction. <!-- @manual -->
+5. If extraction fails, the markdown file stays on disk; Vault hash checks exclude the session capture directory, so memory delivery recovery remains owned by its bounded request lifecycle rather than starting a Vault extraction. <!-- @manual -->
 6. The historical MCP memory subsystem has been removed entirely; the capture agent does not invoke it, and no legacy JSONL graph is read. <!-- @manual -->
 
 **Constraints:**
@@ -99,7 +99,6 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ---
 
-<a id="req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s"></a>
 ### REQ-VAULT-003: User-curated edits use bounded prompt-cadenced ingestion
 
 **Intent:** User-created Vault content is eventually ingested without a polling extractor repeatedly launching across synchronized sessions.
@@ -196,7 +195,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions), [REQ-VAULT-002](#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s)
+**Dependencies:** [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions), [REQ-VAULT-002](#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion)
 
 **Verification:** Automated test
 
@@ -403,7 +402,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P1
 
-**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s)
+**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion)
 
 **Verification:** Manual check
 
@@ -531,7 +530,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @cites: REQ-VAULT-003 (split-prose: the canonical-schema output contract foreshadowed in REQ-VAULT-003 AC4's extract-merge-advance step lands here) -->
 
-**Intent:** The graph produced by vault extraction is structurally interchangeable with the repo and global graphs, and the re-rendered visualization is published where the vault index page can link to it. This is the output-shape contract; detection and dispatch latency are [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s).
+**Intent:** The graph produced by vault extraction is structurally interchangeable with the repo and global graphs, and the re-rendered visualization is published where the vault index page can link to it. This is the output-shape contract; detection and dispatch latency are [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion).
 
 **Applies To:** User
 
@@ -546,7 +545,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s)
+**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion)
 
 **Verification:** Manual check
 
@@ -884,7 +883,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s) (edit detection loop), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions) (vault + graphify-out ride the R2 sync)
+**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion) (edit detection loop), [REQ-VAULT-001](#req-vault-001-persistent-vault-directory-survives-across-sessions) (vault + graphify-out ride the R2 sync)
 
 **Verification:** Automated test ([Content-hash and promotion tests](../../src/__tests__/lib/vault-manifest-detection.test.ts), [Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [rclone persistence test](../../host/__tests__/entrypoint-rclone-filters.test.js))
 
@@ -919,7 +918,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s), [REQ-VAULT-026](#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-MEM-015](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard), [REQ-MEM-016](memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile)
+**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion), [REQ-VAULT-026](#req-vault-026-vault-extract-change-detection-survives-container-restart-content-hash-manifest), [REQ-MEM-015](memory.md#req-mem-015-pi-extraction-transcript-visibility-and-child-session-guard), [REQ-MEM-016](memory.md#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile)
 
 **Verification:** Automated test ([Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [manifest promotion tests](../../src/__tests__/lib/vault-manifest-detection.test.ts))
 

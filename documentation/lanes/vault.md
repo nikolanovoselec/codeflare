@@ -90,7 +90,7 @@ Inside the container, three sibling directories live under `/home/user/` alongsi
 `-- Temporary/         <- persistent scratch space (always bisynced)
 ```
 
-`Raw/`, `Notes/`, `References/`, and `graphify-out/` are where content lives. `Notes/` and `References/` are the user-facing priority areas promoted on the SilverBullet dashboard; `graphify-out/` is updated by the vault-extract agent via a chunk-JSON merge on every user-edit tick (not a full re-extract). `.silverbullet/` is owned by the editor. `Library/Codeflare/` holds the plug files managed by Codeflare (pdf, treeview, github, graph) -- see [Preseed Integration](#preseed-integration-req-vault-007).
+`Raw/`, `Notes/`, `References/`, and `graphify-out/` are where content lives. `Notes/` and `References/` are the user-facing priority areas promoted on the SilverBullet dashboard; `graphify-out/` is updated by the vault-extract agent after an eligible resumed-session or crossed 100-prompt hash check finds changed content. `.silverbullet/` is owned by the editor. `Library/Codeflare/` holds the plug files managed by Codeflare (pdf, treeview, github, graph) -- see [Preseed Integration](#preseed-integration-req-vault-007).
 
 Two classes of path are hidden from the SilverBullet client listing/sync ([REQ-VAULT-015](../../sdd/spec/vault.md#req-vault-015-vault-idb-lifecycle-and-listing-filters) AC1). Generated `Raw/Graphs/*.html` visualisations stay fetchable by direct link but are removed from the listing so the object index does not try to treat multi-MB HTML graph artifacts as documents. Machine-owned session-capture memory under `Raw/Sessions/` (written by the capture pipeline every ~50 prompts and on resumed tails) is likewise hidden so IndexedDB does not churn on logs the user never opens, and client mutations to those hidden paths are rejected so a transitioning client cannot delete the on-disk memory.
 
@@ -183,7 +183,7 @@ Write sites that touch the global graph:
 
 - `init_user_vault()` at boot, republishing the vault under `user_vault` from the cumulative `graphify-out/vault-graph.json`, never the derived `graph.json` beside it ([REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) AC5).
 - The capture agent, after writing a vault file ([REQ-VAULT-002](../../sdd/spec/vault.md#req-vault-002-conversation-captures-land-in-the-vault-as-markdown)).
-- The vault-extract agent, after user-edit extraction ([REQ-VAULT-003](../../sdd/spec/vault.md#req-vault-003-user-curated-edits-are-detected-and-ingested-within-60s)).
+- The vault-extract agent, after user-edit extraction ([REQ-VAULT-003](../../sdd/spec/vault.md#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion)).
 - `graphify-active-repo.sh` (Claude) and `codeflare-pi.ts::reconcileGlobalGraph` (Pi), whenever reconciliation finds the manifest's repo entries out of step with the active checkout (single-active-repo invariant; see below).
 - The `/graphify` skill, on commit, after building a repo's graph.
 
@@ -498,8 +498,8 @@ SilverBullet writes pasted / drag-dropped attachments next to the note that refe
 
 Manual verification for runtime-specific PDF handling. Claude's content/vision/citation behavior is agent-prompt behavior driven by its `vault-extract-prompt.md`; Pi's prompt deliberately remains metadata-only. There is no synthetic PDF reader or shader-like internal test.
 
-1. Claude AC1/AC2 - healthy PDF: drop a multi-page text PDF into `Raw/Pasted/`, wait one 60s daemon tick, then confirm content-derived graph nodes.
-2. Claude AC3 - citation edge: add a sibling Markdown note that wikilinks the same PDF, tick again, and confirm the edge.
+1. Claude AC1/AC2 - healthy PDF: drop a multi-page text PDF into `Raw/Pasted/`, trigger an eligible resumed-session or crossed 100-prompt hash check, then confirm content-derived graph nodes.
+2. Claude AC3 - citation edge: add a sibling Markdown note that wikilinks the same PDF, trigger the next eligible hash check, and confirm the edge.
 3. Pi AC4 - submit a PDF and confirm it produces only a metadata document node.
 4. AC5 failure isolation - drop a corrupt or password-protected PDF alongside a healthy changed file and confirm one unreadable PDF does not block the batch or manifest advancement.
 
@@ -646,7 +646,7 @@ in the user's vault.
 | Capture not firing after a resume | Counter file present despite the container appearing to be a fresh start (would indicate `/tmp` somehow survived recycle, which Cloudflare's ephemerality contract forbids) | Inspect `ls -la /tmp/.memory-counter/`; if the counter mtime predates the current container's start time, file an issue - the platform contract is being violated. Workaround: `rm /tmp/.memory-counter/{session_id}` |
 | Pi capture launches but no vault file appears | Background task failed, timed out, or returned success without the deterministic note | Inspect the visible native task result. The root leaves the counter and request snapshot unchanged, emits the next bounded reminder, and eventually latches GIVEUP rather than skipping the window. |
 | Capture transcript shows `ISO_TS_ASSERTION_FAILED` | Timestamp assertion rejected the capture ([REQ-MEM-010](../../sdd/spec/memory.md#req-mem-010-memory-capture-hook-plumbing) AC5) | Read the transcript failure; next 50-prompt window retries. |
-| Same file appears in overlapping extraction requests | A change arrived before/while a public Pi launch was being recorded | Prelaunch edits coalesce; launched snapshots stay frozen and during-run edits become one follow-up. Graph writes serialize on `/run/codeflare/locks/graphify-global.lock`, with Pi holding one required lock across merge and global publication. |
+| Same file appears in overlapping extraction requests | A change arrived before/while a public Pi launch was being recorded | Prelaunch edits coalesce; launched snapshots stay frozen, and during-run edits remain eligible for the next resumed-session or 100-prompt hash check. Graph writes serialize on `/run/codeflare/locks/graphify-global.lock`, with Pi holding one required lock across merge and global publication. |
 | A one-file Pi extraction runs for minutes or consumes review-scale tokens | The live agent predates AD103 or inherited broad tools/reasoning and reread skills/input | Verify generated agent frontmatter has `tools: bash` and `thinking: medium`, the public request carries `max_turns: 7`, then remirror and `/reload`. A current worker reads each frozen input once; visualization cannot exceed 15 seconds. |
 
 Vault readiness requires all proofs before click-through: the button stays visible but `aria-disabled`; `probeVaultReady()` must see `{ vaultReady: true }`; `startVaultPrewarm()` and the `codeflare-vault-prewarm` iframe must exchange a same-origin/current-attempt proof naming the canonical 32-hex Vault scope; `space-sync-complete` must fire; the current object-index queue must be empty; and `/.fs/` must list `CONFIG.md`, `Index.md`, and `STYLES.md`. If it opens early, recheck those paths and confirm the bootstrap removed stale Vault workers before registering the canonical one.
