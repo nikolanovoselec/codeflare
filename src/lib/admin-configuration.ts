@@ -2,7 +2,7 @@ import type { Env } from '../types';
 import { isOnboardingLandingPageActive, isSaasModeActive } from './onboarding';
 import { isEnterpriseMode } from './subscription';
 
-export const CONFIGURATION_SECTIONS = [
+const CONFIGURATION_SECTIONS = [
   'access',
   'domain',
   'aiRouting',
