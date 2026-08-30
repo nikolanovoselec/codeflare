@@ -8,6 +8,7 @@
 export const NODE_SUITE_FILES = [
   // CI gate scripts: spawned as subprocesses against temp trees.
   'src/__tests__/ci/suite-gates.test.ts',
+  'src/__tests__/ci/usage-d1-deploy.test.ts',
   'src/__tests__/lib/agent-seed-multi-agent.test.ts',
   'src/__tests__/lib/local-statusline-repo.test.ts',
   // Bundles the Pi extension with an esbuild fixture, which requires Node.
