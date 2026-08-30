@@ -555,7 +555,7 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         cleanup();
       });
 
-      it('REQ-MOB-020 AC5: forwards a keyboard-open tap through sub-threshold jitter', () => {
+      it('REQ-MOB-020 AC6: forwards a keyboard-open tap through sub-threshold jitter', () => {
         (window as any).ontouchstart = null;
         const { terminal, triggerDataEvent } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
         const tap = vi.fn();
