@@ -672,6 +672,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 - URL and token resolve independently with wizard KV before deploy secrets, allowing mixed sources while deploy secrets remain a silent fallback ([REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC1).
 - Grouping fields into `SetupSection`s preserves every field, store binding, and conditional gate; only visual grouping changes.
 - `SetupSection` is a reusable structure-only component with no copy.
+- Routine Administration reads and validates the same effective URL and token through [REQ-SETUP-017](setup.md#req-setup-017-mode-aware-administration-configuration-read); no Worker-binding or unauthenticated transport is added.
 
 **Priority:** P2
 

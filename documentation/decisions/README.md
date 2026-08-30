@@ -4100,3 +4100,19 @@ Pi no longer infers completion from `agent_settled`, stop reasons, interactive l
 **Related REQs:** [REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-pi-native-terminal-notification-producer), [REQ-TERM-029](../../sdd/spec/terminal.md#req-term-029-herdr-status-gated-terminal-completion), [REQ-TERM-038](../../sdd/spec/terminal.md#req-term-038-herdr-semantic-status-owns-completion-readiness), [REQ-TERM-039](../../sdd/spec/terminal.md#req-term-039-herdr-completion-delivery-is-readiness-oriented).
 
 ---
+
+### AD150: D1 owns historical usage and report delivery records
+
+**Category:** Architecture, Usage, Operations
+
+**Status:** Accepted (2026-08-30)
+
+**Context:** Live quota enforcement needs per-user sequential state, while organization totals, stable ranking, CSV export, deleted-user retention, report claims, and retention need indexed set queries. Rebuilding those reads through KV list-and-read scans would increase cost and code. Moving live quota state into D1 would make a historical feature part of session admission.
+
+**Decision:** Keep Timekeeper Durable Objects and Workers KV as the live quota authority. Add one D1 database per deployment environment for historical `usage_users`, absolute sequence-guarded `usage_periods`, `report_deliveries`, and daily `maintenance_claims`. Timekeeper writes bounded absolute snapshots through its existing alarm. Administration reads D1 directly through closed prepared queries. One separate deployment token creates the database and applies additive migrations before Worker deployment.
+
+**Consequences:** History starts empty with no backfill. D1 outages do not block quota enforcement, while deleted-user tombstone failure blocks destructive live cleanup so a late writer cannot recreate history. Reporting and retention reuse the same database and transaction boundary. The design adds no ORM, queue, workflow, cache, coordinator Durable Object, or second database. Account-specific database IDs stay outside Git.
+
+**Related REQs:** [REQ-SUB-025](../../sdd/spec/subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary).
+
+---

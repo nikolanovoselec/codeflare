@@ -225,6 +225,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 - The admin token is shared across all enterprise users, so it must be scoped to `Browser Rendering - Edit` only ([REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template)); the wizard copy states this.
 - The skill-strip mirrors the consult-llm skill removal in `configure_consult_llm` (the same "no provider → no skill" parity, [REQ-AGENT-031](agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)).
+- Routine Administration preserves this optional complete-pair behavior through [REQ-SETUP-017](setup.md#req-setup-017-mode-aware-administration-configuration-read); it adds no enable flag, delete workflow, or Worker-binding transport.
 
 **Priority:** P2
 

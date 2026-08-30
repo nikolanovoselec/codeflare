@@ -1463,3 +1463,59 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Status:** Implemented
 
 ---
+
+### REQ-OPS-056: Non-destructive D1 deployment boundary
+
+**Intent:** Historical usage storage is created and migrated before a D1-aware Worker deploy without widening the runtime token.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Every deployment environment owns one exact `${WORKER_NAME}-usage` database bound once as `USAGE_DB`; account-specific IDs are never committed.
+2. Deploy preflight requires the existing runtime token and separate `CLOUDFLARE_DEPLOY_API_TOKEN`, proves D1 list permission, and stops before mutation on missing or insufficient credentials.
+3. Successful listing resolves one exact database, creates only when absent, rejects duplicate names, and fails closed on list errors.
+4. The temporary Wrangler configuration contains exactly one resolved binding, generated Worker types validate, and committed additive migrations run before Worker deployment.
+5. Migration failure leaves the deployed Worker unchanged; later Worker failure leaves an additive database that the prior Worker safely ignores.
+6. Existing KV, R2, Durable Object state, users, sessions, and containers are never reset or migrated by D1 provisioning.
+7. The deployment token authenticates provisioning, migrations, deploy, and secret upload; the narrower runtime token is uploaded under its existing Worker-secret name.
+
+**Constraints:** GitHub Actions cannot create its own secret. Missing D1 permission is an external blocker, not permission to widen the runtime token.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks), [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records)
+
+**Verification:** Planned fake-Wrangler behavioral tests for preflight, resolution, creation, migration, and fail-closed ordering
+
+**Status:** Partial
+
+---
+
+### REQ-OPS-057: Bounded administration operation envelope
+
+**Intent:** Administration and analytics remain affordable and observable at 2,000 active developers with three sessions each.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Stable visible session status polls every 60 seconds, transitions poll every five seconds, hidden pages stop polling, and recursive scheduling prevents overlap.
+2. Batch status always returns core status, reads usage only for `include=usage`, reads storage only for `include=storage`, and rejects unknown include values.
+3. Analytics, Reports, and Activity read only on navigation, filters, explicit refresh, or run reconnect; none background-polls.
+4. Production and Enterprise use `head_sampling_rate = 0.05`; Integration targets retain `1`, successful pings emit no custom logs, and structured failures remain discoverable.
+5. Sampled D1 metrics record rows read, rows written, and SQL duration without user or secret material.
+6. CI models 2,000 active users and three sessions, enforcing one sub-4-KB state write and zero KV reads per positive ping plus the approved D1 row ceilings.
+7. Integration verifies exception visibility before sampled Production rollout, and account operation and spend alerts precede Production history enablement.
+
+**Constraints:** Cloudflare platform capacity remains contractually external. No queue, cache, coordinator, or second database is introduced for cost control.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-025](subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-OPS-056](#req-ops-056-non-destructive-d1-deployment-boundary)
+
+**Verification:** Planned automated polling, optional-read, logging-config, and representative-load tests plus Integration evidence
+
+**Status:** Partial
+
+---

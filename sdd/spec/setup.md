@@ -491,3 +491,84 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Status:** Implemented
 
 ---
+
+### REQ-SETUP-017: Mode-aware Administration configuration read
+
+**Intent:** Administrators need one authoritative routine-settings response without rerunning first-time provisioning.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. `GET /api/admin/configuration` requires shared authentication and administrator authorization in every deployment mode.
+2. The response returns effective mode, revision, applicable closed sections, non-secret values, active run identity, and direct latest terminal summaries.
+3. Secret fields return only `administration`, `deployment`, or `none`; no secret bytes, expiry claims, or submitted values are returned.
+4. Enterprise AI Gateway requires an effective URL and API token, resolving Administration values independently before deployment fallbacks.
+5. Browser Run remains optional with no enable flag: no stored pair is valid, a configured state requires account ID plus saved token, and blank secret input preserves that token.
+6. Default, Onboarding, and SaaS preserve existing Users behavior; SaaS preserves Subscription Tiers; Enterprise continues rejecting both backend resources.
+
+**Constraints:** Reuse Setup readers and existing mode owners. Configuration reads do not list Activity records.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-ENTERPRISE-017](enterprise-mode.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard), [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)
+
+**Verification:** Planned automated route tests
+
+**Status:** Partial
+
+---
+
+### REQ-SETUP-018: Stateless Environment preview and bounded execution
+
+**Intent:** An administrator can review and apply one known Environment area without rerunning unrelated Setup work.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Preview accepts one closed section, complete values, and base revision; it persists nothing and returns normalized changes, exact tasks, warnings, and exclusions.
+2. Apply recomputes validation, uses best-effort KV admission, rechecks revision before external work, and returns typed `409` conflicts before streaming.
+3. Runs persist sanitized versioned state, named task transitions, initiator, revisions, and terminal outcomes for 90 days; values and secrets never enter records, streams, or logs.
+4. Reconnect returns the same run shape, and Activity lists newest-first with a stable cursor.
+5. Task failure stops dependent work, marks remaining tasks skipped, records operator action, and never performs automatic rollback or replay.
+6. A stale 15-minute active pointer is recovered as `interrupted`; the accepted cross-isolate KV race remains bounded by idempotent operations and revision checks.
+7. Setup and routine execution check each other's existing admission pointers, while first-run `POST /api/setup/configure` keeps its observable sequence and outcome.
+
+**Constraints:** Eleven known sections use one discriminated union. No JSON Patch, stored preview, workflow engine, coordinator Durable Object, or generic rollback layer.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SETUP-004](#req-setup-004-setup-is-idempotent), [REQ-SETUP-006](#req-setup-006-setup-streams-progress-via-ndjson), [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read)
+
+**Verification:** Planned automated request, persistence, conflict, redaction, and first-run compatibility tests
+
+**Status:** Partial
+
+---
+
+### REQ-SETUP-019: Administration and Analytics shell
+
+**Intent:** Routine administration uses a stable mode-aware shell while Setup remains the first-run orchestrator.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The shell exposes `/admin`, `/admin/environment`, `/admin/analytics`, `/admin/reports`, and `/admin/activity`; no user-facing `/admin/configuration` route exists.
+2. Default and Onboarding add Users; SaaS adds Users and Subscription Tiers; Enterprise exposes neither.
+3. Existing Users and Subscription components and APIs are embedded without changing their mutations.
+4. User-facing routine copy says Environment; Configuration remains internal API and storage vocabulary.
+5. Loading, empty, failure, conflict, reconnect, and responsive states follow the approved Administration and Analytics design contract.
+
+**Constraints:** One authoritative response owns mode gating. No UI framework, chart package, icon package, or duplicate mode logic is added.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [REQ-SUB-009](subscription.md#req-sub-009-admin-tier-management)
+
+**Verification:** Automated backend mode gates and user-owned manual UI acceptance
+
+**Status:** Partial
+
+---

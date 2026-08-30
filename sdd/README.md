@@ -90,7 +90,7 @@ One support file lives at the `sdd/` root (the path is the `/review` skill's tri
 - **Multi-user collaboration** -- Each session is single-user. No shared terminals, no real-time collaboration, no pair programming within a session.
 - **Local execution** -- Codeflare does not run on the user's machine. No desktop app, no Electron wrapper, no local Docker mode.
 - **Custom container images** -- All sessions use the same Dockerfile. Users cannot bring their own base image or install system packages that persist across sessions (though they can install packages within a session).
-- **Database hosting** -- No managed PostgreSQL, MySQL, or MongoDB. Codeflare uses KV, R2, and Durable Object storage for its own control, persistence, and accounting state; user projects may provision other Cloudflare storage independently.
+- **Database hosting** -- No managed PostgreSQL, MySQL, or MongoDB. Codeflare uses KV, R2, Durable Object storage, and one D1 database for its own control, persistence, live accounting, historical usage, and report delivery state; user projects may provision other Cloudflare storage independently.
 - **Long-running services** -- Containers are for interactive coding sessions, not for hosting web servers or background workers. They stop and go to sleep on inactivity; persistent files come back from R2 rather than local-disk hibernation.
 - **Node.js APIs in the Worker** -- The Worker runs on Cloudflare's web-standard runtime. No `fs`, `child_process`, `net`, or other Node.js-specific APIs (except via `nodejs_compat` flag for specific modules).
 

@@ -715,3 +715,88 @@ Tiers, billing, usage tracking, and quotas.
 **Status:** Implemented
 
 ---
+
+### REQ-SUB-025: Durable historical usage accounting
+
+**Intent:** Organization analytics needs historical period data without moving live quota authority out of Timekeeper and KV.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. Each positive Timekeeper delta updates durable UTC day, ISO week, UTC month, and UTC year accumulators and counts each distinct positive-runtime session once per period.
+2. One versioned sub-4-KB accounting state replaces legacy accounting keys atomically and performs one state write with zero KV reads on the normal ping path.
+3. The existing alarm performs five-minute KV work and one hash-phased 15-minute D1 duty; no second alarm exists.
+4. Current absolute accumulators and closed-period outbox entries retry independently from KV checkpoints, and sequence-guarded D1 upserts cannot double-count.
+5. Session markers store only domain-separated hashes, use bounded cache and cleanup, and survive restart and period rollover.
+6. History begins at the first successful D1 write with no backfill; personal usage and quota behavior remain compatible.
+7. Retention keeps 400 days, 60 ISO weeks, 60 months, and five years using exact calendar cutoffs.
+
+**Constraints:** Timekeeper remains live quota owner. D1 failure never blocks quota persistence or enforcement.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-022](#req-sub-022-cross-mode-personal-usage-data), [REQ-OPS-056](operations.md#req-ops-056-non-destructive-d1-deployment-boundary)
+
+**Verification:** Planned automated migration, attribution, retry, rollover, retention, and operation-count tests
+
+**Status:** Partial
+
+---
+
+### REQ-SUB-026: Admin organization analytics and deletion history
+
+**Intent:** Administrators can inspect stable organization usage while deleted-user history remains truthful and bounded.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Admin-only organization and user-detail routes work in every deployment mode and accept closed period, start, sort, cursor, limit, and JSON or CSV parameters in UTC.
+2. Opaque versioned cursors bind the complete filter and use deterministic `user_key` tie-breaking; malformed or mismatched cursors are rejected.
+3. JSON and CSV share one query and row mapper, with identical filtering and ordering; CSV ignores pagination only.
+4. `user_key` is stable lowercase hex SHA-256 over a versioned, domain-separated normalized-email input and exposes neither email nor bucket identity.
+5. User deletion writes a D1 tombstone before live cleanup; failure returns typed `503` and leaves live data unchanged.
+6. Deleted users retain named aggregate history for 60 months; explicit same-email provisioning reactivates ownership without erasing prior history.
+7. Responses disclose `dataSince` and result-owned `historyUpdatedAt` without claiming global outbox freshness.
+
+**Constraints:** No cache, second aggregate table, session-state catalog, or timezone parameter is added.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records)
+
+**Verification:** Planned automated authorization, deletion-race, reactivation, cursor, aggregate, and JSON/CSV-equivalence tests
+
+**Status:** Partial
+
+---
+
+### REQ-SUB-027: Monthly organization usage reports
+
+**Intent:** Administrators can schedule private monthly usage reports with recoverable per-recipient delivery evidence.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Revisioned settings accept disabled-by-default state, at most 25 normalized recipients, day 1 through 31, whole local hour, and canonical IANA timezone.
+2. Scheduling chooses the latest closed UTC month, applies last-valid-day and DST rules, and stores its next instant under a revision-specific key.
+3. One immutable summary and exact CSV are generated per dispatch, then sent as separate messages with an 8 MiB attachment limit.
+4. Scheduled and test dispatches use distinct identities, one row per recipient, conditional claims, random claim tokens, bounded leases, and at most three attempts.
+5. Stale claim tokens cannot complete reclaimed rows; deterministic Resend idempotency suppresses the remaining ambiguous duplicate window.
+6. The 15-minute scheduler independently recovers pending, failed, and lease-expired scheduled or test rows; `waitUntil()` is only the test-send fast path.
+7. Delivery history reports pending, sending, accepted, or failed provider-acceptance state without inventing provider delivery state or IDs.
+8. Once-daily retention uses one random token-guarded transactional D1 batch and rolls back the claim when any prune fails.
+
+**Constraints:** Resend credentials and sender identity remain deployment-managed. Reports do not background-poll and never promise exactly-once delivery.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SETUP-018](setup.md#req-setup-018-stateless-environment-preview-and-bounded-execution), [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records)
+
+**Verification:** Planned automated timezone, claim, retry, retention, email, CSV, and delivery-history tests
+
+**Status:** Partial
+
+---
