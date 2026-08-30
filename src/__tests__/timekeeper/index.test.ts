@@ -531,7 +531,8 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
       const lastStateWrite = mockStorage.put.mock.calls
         .filter((c: unknown[]) => c[0] === 'accountingState:v2')
         .pop();
-      expect((lastStateWrite?.[1] as { pendingSeconds: number }).pendingSeconds).toBe(60);
+      expect(lastStateWrite).toBeDefined();
+      expect((lastStateWrite![1] as { pendingSeconds: number }).pendingSeconds).toBe(60);
     });
   });
 
