@@ -4,6 +4,14 @@ import { describe, expect, it } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
 
 const SKILLS = ['design', 'ui-ux-pro-max', 'canvas-design', 'frontend-design'];
+const FRONTEND_DESIGN_REFERENCES = [
+  'art-direction.md',
+  'new-work.md',
+  'redesign.md',
+  'assets-and-motion.md',
+  'visual-qa.md',
+  'astro-cloudflare.md',
+];
 const TARGET_PREFIXES = [
   '.claude/skills',
   '.codex/skills',
@@ -51,6 +59,69 @@ describe('REQ-AGENT-134: advanced design skill suite', () => {
     expect(canvasOrigin.every((document) => document.content.includes('f17010c9bb483898c1d9c9f42dde2b3a98889434'))).toBe(true);
 
     expect(AGENTS_SEEDED_CONFIGS.some((document) => document.key.startsWith('.copilot/skills/'))).toBe(false);
+  });
+
+  // These assertions cover emitted seed contracts; manual REQ evidence owns model routing behavior.
+  it('REQ-AGENT-179: projects one bounded advanced Pi visual-routing entry', () => {
+    const rule = AGENTS_SEEDED_CONFIGS.find(
+      (document) => document.key === '.pi/agent/rules/design-routing.md',
+    );
+    expect(rule?.modes).toEqual(['advanced']);
+    expect(rule?.content.trim().split(/\s+/).length).toBeLessThanOrEqual(35);
+    expect(rule?.content).toContain('[design](../skills/design/SKILL.md)');
+
+    const advancedInstructions = AGENTS_SEEDED_CONFIGS.find(
+      (document) => document.key === '.pi/agent/AGENTS.md' && document.modes.includes('advanced'),
+    );
+    expect(advancedInstructions?.content).toContain('[design](skills/design/SKILL.md)');
+  });
+
+  it('REQ-AGENT-180: projects one portable frontend design authority and its focused references', () => {
+    const canonical = AGENTS_SEEDED_CONFIGS.find(
+      (document) => document.key === '.claude/skills/frontend-design/SKILL.md',
+    );
+    expect(canonical).toBeDefined();
+
+    const body = (content: string | undefined) => content?.replace(/^---\n[\s\S]*?\n---\n/, '');
+    for (const prefix of TARGET_PREFIXES) {
+      const skill = AGENTS_SEEDED_CONFIGS.find(
+        (document) => document.key === `${prefix}/frontend-design/SKILL.md`,
+      );
+      expect(body(skill?.content)).toBe(body(canonical?.content));
+      for (const reference of FRONTEND_DESIGN_REFERENCES) {
+        const key = `${prefix}/frontend-design/references/${reference}`;
+        expect(AGENTS_SEEDED_CONFIGS.find((document) => document.key === key), `${key} must be generated`).toBeDefined();
+      }
+    }
+  });
+
+  it('REQ-AGENT-180: keeps portable design guidance free of runtime-specific assumptions', () => {
+    const portableKeys = [
+      '/skills/design/SKILL.md',
+      '/skills/design-taste-frontend/SKILL.md',
+      '/skills/frontend-design/SKILL.md',
+      ...FRONTEND_DESIGN_REFERENCES.map((reference) => `/skills/frontend-design/references/${reference}`),
+    ];
+    const forbidden = /AGENTS\.md|Claude Code|ChatGPT|\bCodex\b|~\/\.claude|~\/\.codex|\$skill-creator/;
+
+    for (const suffix of portableKeys) {
+      const documents = docsFor(suffix);
+      expect(documents.length, `${suffix} must be projected`).toBe(TARGET_PREFIXES.length);
+      for (const document of documents) {
+        expect(document.content, `${document.key} must stay runtime-neutral`).not.toMatch(forbidden);
+      }
+    }
+  });
+
+  it('REQ-AGENT-181: projects a compact compatibility entry that targets frontend-design', () => {
+    for (const prefix of TARGET_PREFIXES) {
+      const document = AGENTS_SEEDED_CONFIGS.find(
+        (candidate) => candidate.key === `${prefix}/design-taste-frontend/SKILL.md`,
+      );
+      expect(document).toBeDefined();
+      expect(document!.content).toContain('frontend-design');
+      expect(document!.content.length).toBeLessThan(3_000);
+    }
   });
 
   it('REQ-AGENT-134: rewrites UI UX Pro Max search paths for each generated runtime', () => {
