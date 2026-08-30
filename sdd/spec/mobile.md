@@ -286,9 +286,9 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 **Acceptance Criteria:**
 
-1. Adding `debug=1` to a terminal URL displays the input and viewport diagnostic overlay. <!-- @impl: web-ui/src/lib/mobile.ts --> <!-- @manual: Open a terminal URL with `debug=1` and confirm the diagnostic overlay appears. -->
+1. Explicitly opting into mobile input diagnostics displays the input and viewport diagnostic overlay. <!-- @manual: Open a terminal URL with `debug=1` and confirm the diagnostic overlay appears. -->
 2. The input trace retains at most the twelve newest event records. <!-- @impl: web-ui/src/lib/touch-event-debug.ts::attachTouchEventDebug --> <!-- @test: web-ui/src/__tests__/lib/touch-event-debug.test.ts (REQ-MOB-023 AC2-AC4: bounds content-free input metadata and move counts) -->
-3. The overlay reports input ordering, final cancellation, touch origin, target, focus, move count, and keyboard geometry. <!-- @impl: web-ui/src/lib/touch-event-debug.ts::attachTouchEventDebug --> <!-- @impl: web-ui/src/lib/mobile.ts --> <!-- @manual: Reproduce a terminal touch and confirm the overlay reports input events and viewport state. -->
+3. The overlay reports input ordering, final cancellation, touch origin, target, focus, move count, and keyboard geometry. <!-- @impl: web-ui/src/lib/touch-event-debug.ts::attachTouchEventDebug --> <!-- @manual: Reproduce a terminal touch and confirm the overlay reports input events and viewport state. -->
 4. The input trace does not record terminal text. <!-- @impl: web-ui/src/lib/touch-event-debug.ts::attachTouchEventDebug --> <!-- @test: web-ui/src/__tests__/lib/touch-event-debug.test.ts (REQ-MOB-023 AC2-AC4: bounds content-free input metadata and move counts) -->
 
 **Constraints:** Diagnostics activate only through the explicit query parameter and retain no server-side state.
