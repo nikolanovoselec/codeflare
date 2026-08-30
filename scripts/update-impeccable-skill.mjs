@@ -28,15 +28,12 @@ export async function updateImpeccableSkill() {
     const version = skillText.match(/^version:\s*(.+)$/m)?.[1];
     if (!version) throw new Error('downloaded Impeccable skill has no version frontmatter');
 
-    for (const target of [
+    const targets = [
       { agent: 'claude', root: join(repoRoot, 'preseed/agents/claude/skills/impeccable'), runtimePath: '~/.claude/skills/impeccable' },
       { agent: 'pi', root: join(repoRoot, 'preseed/agents/pi/skills/impeccable'), runtimePath: '~/.pi/agent/skills/impeccable' },
-    ]) {
-      rmSync(target.root, { recursive: true, force: true });
-      cpSync(source, target.root, { recursive: true });
-      rewriteFiles(target.root, target.runtimePath);
-      syncManifest(target.agent, target.root);
-    }
+    ];
+    replaceImpeccableTargets(source, skillText, targets);
+    for (const target of targets) syncManifest(target.agent, target.root);
 
     console.log(`Updated Impeccable preseed skill to ${version}`);
   } finally {
@@ -44,14 +41,22 @@ export async function updateImpeccableSkill() {
   }
 }
 
-function rewriteFiles(root, runtimePath) {
+export function replaceImpeccableTargets(source, skillText, targets) {
+  const transformedSkill = applyCodeflareRoutingBoundary(skillText);
+  for (const target of targets) {
+    rmSync(target.root, { recursive: true, force: true });
+    cpSync(source, target.root, { recursive: true });
+    rewriteFiles(target.root, target.runtimePath, transformedSkill);
+  }
+}
+
+function rewriteFiles(root, runtimePath, transformedSkill) {
   for (const file of walkFiles(root)) {
     if (!/\.(css|html|js|json|md|mjs|ts|tsx|txt)$/.test(file)) continue;
-    let text = readFileSync(file, 'utf8');
+    let text = file === join(root, 'SKILL.md')
+      ? transformedSkill
+      : readFileSync(file, 'utf8');
     text = text.replaceAll('.claude/skills/impeccable', runtimePath);
-    if (file === join(root, 'SKILL.md')) {
-      text = applyCodeflareRoutingBoundary(text);
-    }
 
     // hook-admin manages project-local hook manifests. Those commands must stay
     // project-relative even though the preseed skill itself lives in the user's

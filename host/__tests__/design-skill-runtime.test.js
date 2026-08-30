@@ -6,7 +6,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, it } from 'node:test';
-import { applyCodeflareRoutingBoundary } from '../../scripts/update-impeccable-skill.mjs';
+import {
+  applyCodeflareRoutingBoundary,
+  replaceImpeccableTargets,
+} from '../../scripts/update-impeccable-skill.mjs';
 
 const skillScripts = fileURLToPath(new URL('../../preseed/agents/claude/skills/ui-ux-pro-max/scripts/', import.meta.url));
 const temporaryDirectories = [];
@@ -171,8 +174,9 @@ version: 4.1.1
       () => applyCodeflareRoutingBoundary('description: malformed'),
       /malformed frontmatter/,
     );
+    const missingDescription = '---\nname: impeccable\nversion: 4.1.1\n---\n\n# Impeccable\n';
     for (const invalid of [
-      '---\nname: impeccable\nversion: 4.1.1\n---\n\n# Impeccable\n',
+      missingDescription,
       '---\nname: impeccable\nversion: 4.1.1\n---\n\ndescription: Body text only.\n',
       '---\nname: impeccable\ndescription: First.\ndescription: Second.\n---\n',
     ]) {
@@ -180,6 +184,28 @@ version: 4.1.1
         () => applyCodeflareRoutingBoundary(invalid),
         /exactly one frontmatter description/,
       );
+    }
+
+    const updateRoot = mkdtempSync(join(tmpdir(), 'impeccable-update-'));
+    temporaryDirectories.push(updateRoot);
+    const source = join(updateRoot, 'source');
+    const targets = ['claude', 'pi'].map((agent) => ({
+      root: join(updateRoot, agent),
+      runtimePath: `~/.${agent}/impeccable`,
+    }));
+    mkdirSync(source);
+    writeFileSync(join(source, 'SKILL.md'), missingDescription);
+    for (const target of targets) {
+      mkdirSync(target.root);
+      writeFileSync(join(target.root, 'existing.txt'), `${target.runtimePath}\n`);
+    }
+
+    assert.throws(
+      () => replaceImpeccableTargets(source, missingDescription, targets),
+      /exactly one frontmatter description/,
+    );
+    for (const target of targets) {
+      assert.equal(readFileSync(join(target.root, 'existing.txt'), 'utf8'), `${target.runtimePath}\n`);
     }
   });
 
