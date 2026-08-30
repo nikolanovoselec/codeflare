@@ -608,21 +608,42 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         cleanup();
       });
 
-      it('REQ-MOB-020 AC2: suppresses tap and compatibility click after movement', () => {
+      it('REQ-MOB-020 AC2: suppresses every touch-derived mouse event after movement', () => {
         (window as any).ontouchstart = null;
         const { terminal } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
         const tap = vi.fn();
+        const mouseDown = vi.fn();
         const click = vi.fn();
+        container.addEventListener('mousedown', mouseDown);
         container.addEventListener('click', click);
         const cleanup = attachSwipeGestures(container, terminal, () => false, true, tap)!;
         container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
         container.dispatchEvent(makeTouchEvent('touchmove', 40, 80));
         container.dispatchEvent(makeTouchEvent('touchend', 40, 80));
-        container.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+        const touchMouseEvent = (type: string) => {
+          const event = new MouseEvent(type, {
+            bubbles: true, cancelable: true, clientX: 40, clientY: 80,
+          });
+          Object.defineProperty(event, 'sourceCapabilities', {
+            value: { firesTouchEvents: true },
+          });
+          return event;
+        };
+        container.dispatchEvent(touchMouseEvent('mousedown'));
+        container.dispatchEvent(touchMouseEvent('mouseup'));
+        container.dispatchEvent(touchMouseEvent('click'));
+        container.dispatchEvent(touchMouseEvent('click'));
+
         expect(tap).not.toHaveBeenCalled();
+        expect(mouseDown).not.toHaveBeenCalled();
         expect(click).not.toHaveBeenCalled();
 
-        container.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        const hardwareClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+        Object.defineProperty(hardwareClick, 'sourceCapabilities', {
+          value: { firesTouchEvents: false },
+        });
+        container.dispatchEvent(hardwareClick);
         expect(click).toHaveBeenCalledOnce();
         cleanup();
       });

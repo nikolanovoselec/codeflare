@@ -11,7 +11,7 @@ const INERTIA_FRICTION = 0.993; // velocity decay per ms (≈400ms of meaningful
 const INERTIA_MIN_VELOCITY = 0.05; // px/ms — stop inertia below this
 const VELOCITY_SAMPLE_COUNT = 4; // number of recent touch samples for velocity calc
 const VELOCITY_MAX_AGE_MS = 300; // ignore velocity samples older than this
-const HERDR_COMPATIBILITY_CLICK_MS = 1000;
+const HERDR_COMPATIBILITY_MOUSE_MS = 1000;
 // ANSI escape sequences for arrow keys.
 // Horizontal swipes are always active. Vertical swipes use arrows whenever
 // the keyboard is open; wheel/scroll routing applies only while it is closed.
@@ -102,6 +102,8 @@ export function attachSwipeGestures(
 
   let startX = 0;
   let startY = 0;
+  let lastTouchX = 0;
+  let lastTouchY = 0;
   let maxTouchDistance = 0;
   let lockedDirection: Direction | null = null;
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -110,7 +112,7 @@ export function attachSwipeGestures(
   let scrollMode = false;
   let lastScrollY = 0;
   let scrollAccumulator = 0;
-  let suppressHerdrClickUntil = 0;
+  let suppressHerdrMouseUntil = 0;
   const scrollPxPerLine = getScrollPxPerLine(terminal);
 
   // Inertia scrolling state
@@ -219,6 +221,8 @@ export function attachSwipeGestures(
     const touch = e.touches[0];
     startX = touch.clientX;
     startY = touch.clientY;
+    lastTouchX = touch.clientX;
+    lastTouchY = touch.clientY;
 
     longPressTimer = setTimeout(() => {
       cancelled = true;
@@ -236,6 +240,8 @@ export function attachSwipeGestures(
     if (kbOpen && (!forwardMouseTap || lockedDirection !== null)) e.preventDefault();
 
     const touch = e.touches[0];
+    lastTouchX = touch.clientX;
+    lastTouchY = touch.clientY;
     const dx = touch.clientX - startX;
     const dy = touch.clientY - startY;
     maxTouchDistance = Math.max(maxTouchDistance, Math.hypot(dx, dy));
@@ -316,7 +322,7 @@ export function attachSwipeGestures(
     // Herdr owns the complete touch sequence. Suppress compatibility mouse
     // events for taps, gestures, and long presses; only a valid tap activates.
     if (forwardMouseTap && onHerdrTap) {
-      suppressHerdrClickUntil = performance.now() + HERDR_COMPATIBILITY_CLICK_MS;
+      suppressHerdrMouseUntil = performance.now() + HERDR_COMPATIBILITY_MOUSE_MS;
       e.preventDefault();
     }
     if (forwardMouseTap
@@ -382,12 +388,19 @@ export function attachSwipeGestures(
     e.stopPropagation();
   }
 
-  // Samsung Internet can emit a compatibility click after a prevented
-  // touchend. Herdr taps already activate and focus through onHerdrTap, so own
-  // only clicks immediately following a Herdr touch sequence.
-  function suppressHerdrCompatibilityClick(e: MouseEvent) {
-    if (suppressHerdrClickUntil === 0 || performance.now() > suppressHerdrClickUntil) return;
-    suppressHerdrClickUntil = 0;
+  // Samsung Internet may emit more than one compatibility mouse event after a
+  // prevented touchend. Herdr already owns touch activation directly, so block
+  // every touch-derived mouse event in the bounded post-touch window. Browsers
+  // without sourceCapabilities fall back to matching the touch coordinates.
+  function suppressHerdrCompatibilityMouse(e: MouseEvent) {
+    if (suppressHerdrMouseUntil === 0 || performance.now() > suppressHerdrMouseUntil) return;
+    const firesTouchEvents = (e as MouseEvent & {
+      sourceCapabilities?: { firesTouchEvents?: boolean } | null;
+    }).sourceCapabilities?.firesTouchEvents;
+    if (firesTouchEvents === false) return;
+    const nearStart = Math.hypot(e.clientX - startX, e.clientY - startY) < SWIPE_THRESHOLD;
+    const nearEnd = Math.hypot(e.clientX - lastTouchX, e.clientY - lastTouchY) < SWIPE_THRESHOLD;
+    if (firesTouchEvents !== true && !nearStart && !nearEnd) return;
     e.preventDefault();
     e.stopImmediatePropagation();
   }
@@ -396,7 +409,9 @@ export function attachSwipeGestures(
   container.addEventListener('touchmove', shieldFromXtermGesture);
   container.addEventListener('touchend', shieldFromXtermGesture);
   if (forwardMouseTap && onHerdrTap) {
-    container.addEventListener('click', suppressHerdrCompatibilityClick, { capture: true });
+    container.addEventListener('mousedown', suppressHerdrCompatibilityMouse, { capture: true });
+    container.addEventListener('mouseup', suppressHerdrCompatibilityMouse, { capture: true });
+    container.addEventListener('click', suppressHerdrCompatibilityMouse, { capture: true });
   }
 
   return () => {
@@ -410,7 +425,9 @@ export function attachSwipeGestures(
     container.removeEventListener('touchmove', shieldFromXtermGesture);
     container.removeEventListener('touchend', shieldFromXtermGesture);
     if (forwardMouseTap && onHerdrTap) {
-      container.removeEventListener('click', suppressHerdrCompatibilityClick, { capture: true });
+      container.removeEventListener('mousedown', suppressHerdrCompatibilityMouse, { capture: true });
+      container.removeEventListener('mouseup', suppressHerdrCompatibilityMouse, { capture: true });
+      container.removeEventListener('click', suppressHerdrCompatibilityMouse, { capture: true });
     }
   };
 }
