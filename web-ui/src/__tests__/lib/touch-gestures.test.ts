@@ -621,6 +621,9 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         container.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         expect(tap).not.toHaveBeenCalled();
         expect(click).not.toHaveBeenCalled();
+
+        container.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        expect(click).toHaveBeenCalledOnce();
         cleanup();
       });
 

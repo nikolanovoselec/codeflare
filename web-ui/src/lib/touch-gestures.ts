@@ -387,6 +387,7 @@ export function attachSwipeGestures(
   // only clicks immediately following a Herdr touch sequence.
   function suppressHerdrCompatibilityClick(e: MouseEvent) {
     if (suppressHerdrClickUntil === 0 || performance.now() > suppressHerdrClickUntil) return;
+    suppressHerdrClickUntil = 0;
     e.preventDefault();
     e.stopImmediatePropagation();
   }
