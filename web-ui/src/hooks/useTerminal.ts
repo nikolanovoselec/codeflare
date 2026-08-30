@@ -10,7 +10,7 @@ import { attachSwipeGestures, sendTerminalKey } from '../lib/touch-gestures';
 import { attachHerdrMouseInput, sendHerdrTap } from '../lib/herdr-mouse';
 import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
 import { isSpeechSupported, isListening, startListening, stopListening } from '../lib/speech-input';
-import { focusMobileTerminal, setupMobileInput } from '../lib/terminal-mobile-input';
+import { focusMobileTerminal, FUNCTIONAL_KEY_MAP, setupMobileInput } from '../lib/terminal-mobile-input';
 import { loadSettings } from '../lib/settings';
 import { getIframeInput, scrollBufferToBottom, resyncViewportScrollState } from '../lib/xterm-internals';
 import { attachWheelScrolling } from '../lib/terminal-wheel';
@@ -284,7 +284,9 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         const send = (sequence: string) => sendTerminalKey(t, sequence);
         cleanupHerdrMouse = attachHerdrMouseInput(screen, t, send);
         sendHerdrTouchTap = (clientX, clientY) => {
+          const openingMobileInput = !isVirtualKeyboardOpen();
           sendHerdrTap(screen, t, send, clientX, clientY);
+          if (openingMobileInput) send(FUNCTIONAL_KEY_MAP.End);
           focusMobileTerminal(t);
         };
       }

@@ -1002,7 +1002,7 @@ describe('useTerminal hook', () => {
   });
 
   describe('Herdr deterministic touch taps', () => {
-    it('wires a trusted touch tap to same-cell SGR input before mobile focus', async () => {
+    it('REQ-MOB-002 AC7: snaps Pi fullscreen history to bottom before opening mobile input', async () => {
       const { attachSwipeGestures } = await import('../../lib/touch-gestures');
       const { sendHerdrTap } = await import('../../lib/herdr-mouse');
       const { focusMobileTerminal } = await import('../../lib/terminal-mobile-input');
@@ -1024,10 +1024,31 @@ describe('useTerminal hook', () => {
         42,
         57,
       );
+      expect(sendTerminalKey).toHaveBeenCalledWith(expect.anything(), '\x1b[F');
       expect(focusMobileTerminal).toHaveBeenCalled();
       const tapOrder = vi.mocked(sendHerdrTap).mock.invocationCallOrder;
+      const endOrder = vi.mocked(sendTerminalKey).mock.invocationCallOrder;
       const focusOrder = vi.mocked(focusMobileTerminal).mock.invocationCallOrder;
-      expect(tapOrder[tapOrder.length - 1]!).toBeLessThan(focusOrder[focusOrder.length - 1]!);
+      expect(tapOrder[tapOrder.length - 1]!).toBeLessThan(endOrder[endOrder.length - 1]!);
+      expect(endOrder[endOrder.length - 1]!).toBeLessThan(focusOrder[focusOrder.length - 1]!);
+      dispose();
+    });
+
+    it('REQ-MOB-002 AC8: does not reset Pi fullscreen history when mobile input is already open', async () => {
+      vi.mocked(isVirtualKeyboardOpen).mockReturnValue(true);
+      const { attachSwipeGestures } = await import('../../lib/touch-gestures');
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      const gestureCalls = vi.mocked(attachSwipeGestures).mock.calls;
+      const tap = gestureCalls[gestureCalls.length - 1]?.[4];
+      vi.mocked(sendTerminalKey).mockClear();
+
+      tap?.(42, 57);
+
+      expect(sendTerminalKey).not.toHaveBeenCalled();
       dispose();
     });
   });
