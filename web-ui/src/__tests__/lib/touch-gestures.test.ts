@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { attachSwipeGestures, sendTerminalKey } from '../../lib/touch-gestures';
 import type { Terminal } from '@xterm/xterm';
+import { setIframeInput } from '../../lib/xterm-internals';
 
 // Helper: create a mock Terminal with the internal triggerDataEvent path
 function createMockTerminal(options: {
@@ -606,6 +607,31 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
 
         expect(jitter.defaultPrevented).toBe(true);
         cleanup();
+      });
+
+      it('REQ-MOB-020 AC2/AC4: releases stale Herdr input focus when scrolling without changing Classic', () => {
+        (window as any).ontouchstart = null;
+        const input = document.createElement('input');
+        document.body.appendChild(input);
+
+        const { terminal: herdrTerminal } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
+        setIframeInput(herdrTerminal, input);
+        input.focus();
+        const cleanupHerdr = attachSwipeGestures(container, herdrTerminal, () => false, true, vi.fn())!;
+        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        container.dispatchEvent(makeTouchEvent('touchmove', 40, 80));
+        expect(document.activeElement).not.toBe(input);
+        cleanupHerdr();
+
+        const { terminal: classicTerminal } = createMockTerminal();
+        setIframeInput(classicTerminal, input);
+        input.focus();
+        const cleanupClassic = attachSwipeGestures(container, classicTerminal, () => false, false)!;
+        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        container.dispatchEvent(makeTouchEvent('touchmove', 40, 80));
+        expect(document.activeElement).toBe(input);
+        cleanupClassic();
+        input.remove();
       });
 
       it('REQ-MOB-020 AC2: suppresses every touch-derived mouse event after movement', () => {

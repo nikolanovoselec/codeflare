@@ -1,5 +1,5 @@
 import type { Terminal } from '@xterm/xterm';
-import { getXtermCore, scrollBufferLines } from './xterm-internals';
+import { getIframeInput, getXtermCore, scrollBufferLines } from './xterm-internals';
 
 // --- Tuning constants ---
 const SWIPE_THRESHOLD = 20; // px minimum delta to qualify as a swipe
@@ -279,6 +279,11 @@ export function attachSwipeGestures(
         && absDy >= SWIPE_THRESHOLD
         && absDy >= absDx * DIRECTION_LOCK_RATIO) {
         scrollMode = true;
+        // Samsung Internet can keep the hidden terminal input focused after
+        // dismissing the keyboard, then reopen it when a touch gesture ends.
+        // Herdr taps focus explicitly, so a confirmed scroll can release this
+        // stale focus without changing Classic's browser-owned tap path.
+        if (forwardMouseTap) getIframeInput(terminal)?.blur();
         lastScrollY = touch.clientY;
         scrollAccumulator = startY - touch.clientY; // pre-seed with threshold movement
         if (longPressTimer !== null) {
