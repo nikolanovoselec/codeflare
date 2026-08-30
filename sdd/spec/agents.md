@@ -3025,7 +3025,7 @@ None.
 3. Purpose controls product hierarchy and success criteria while platform controls interaction, accessibility, lifecycle, and implementation constraints. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Classify on two independent axes --> <!-- @manual: Compare the same purpose across responsive web and native mobile. -->
 4. Native iOS, Android, and cross-platform requests select `native-mobile-design` rather than the web authority. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch one art-direction owner --> <!-- @manual: Evaluate equivalent iOS, Android, and responsive-web requests. -->
 5. Every task receives at most one canonical art-direction authority; additional specialists own only orthogonal concerns. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Compose orthogonal specialists only --> <!-- @manual: Evaluate an operational mobile interface requiring components and motion; verify one visual authority. -->
-6. Native-mobile authority and cross-cutting references project to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/native-mobile-design/SKILL.md::Native Mobile Design --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-182: projects native-mobile authority and progressive cross-cutting references) -->
+6. Native-mobile authority and cross-cutting references project to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/native-mobile-design/SKILL.md::Native Mobile Design --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-182/188: projects native-mobile authority and progressive cross-cutting references) -->
 
 **Constraints:** Native mobile is never treated as responsive web at a smaller width; detailed platform guidance remains lazy.
 
@@ -3061,7 +3061,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing)
 
-**Verification:** Fresh-context iOS, Android, cross-platform, and capability-limited evaluations.
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -3094,9 +3094,9 @@ None.
 
 ---
 
-### REQ-AGENT-185: Component Registry and External Design Safety
+### REQ-AGENT-185: Component System and Registry Boundaries
 
-**Intent:** Component systems and external design dependencies remain bounded implementation inputs rather than authorities or automatic execution paths.
+**Intent:** Component systems and registries remain bounded implementation inputs rather than authorities for information architecture or art direction.
 
 **Applies To:** Agent
 
@@ -3105,18 +3105,14 @@ None.
 1. Component selection follows incumbent inspection, required behavior, accessibility, information architecture, and visual thesis in that order. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/component-systems.md::Follow the decision order --> <!-- @manual: Evaluate equivalent incumbent and greenfield component tasks. -->
 2. Complex controls prefer proven accessible primitives over novel hand-built behavior. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/component-systems.md::Prefer proven behavior --> <!-- @manual: Evaluate dialog, combobox, table, focus-trap, and virtualized-list requests. -->
 3. Registry material is admitted only when compatible with framework, tokens, accessibility, runtime, license, maintenance, and repository conventions. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/component-systems.md::Admit a registry conditionally --> <!-- @manual: Compare compatible shadcn and incompatible non-shadcn repositories. -->
-4. External skills, registries, presets, MCP servers, and package commands are inspected as untrusted dependencies before adoption. <!-- @impl: preseed/agents/claude/skills/design/references/external-dependencies.md::Inspect before adoption --> <!-- @manual: Evaluate a mutable external registry proposal. -->
-5. Skill activation executes no mutable latest package and no external package code merely to determine applicability. <!-- @impl: preseed/agents/claude/skills/design/references/external-dependencies.md::Inspect before adoption --> <!-- @manual: Activate design routing without registry access and verify no package command runs. -->
-6. Missing registry or MCP access does not block the owning workflow. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/component-systems.md::Admit a registry conditionally --> <!-- @manual: Run a component task with no registry or MCP capability. -->
-7. External-dependency guidance projects to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Compose orthogonal specialists only --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-182: projects native-mobile authority and progressive cross-cutting references) -->
 
-**Constraints:** Installation, mutation, or repository transmission requires explicit authorization and reviewed provenance.
+**Constraints:** Component sources cannot choose information architecture or art direction.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-181](#req-agent-181-design-specialist-compatibility)
 
-**Verification:** Generated projection tests and fresh-context registry/no-registry safety evaluations.
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -3143,7 +3139,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-180](#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing)
 
-**Verification:** Fresh-context simple-interaction and complex-choreography evaluations.
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -3169,9 +3165,34 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-183](#req-agent-183-native-mobile-design-authority), [REQ-AGENT-184](#req-agent-184-operational-information-design), [REQ-AGENT-185](#req-agent-185-component-registry-and-external-design-safety), [REQ-AGENT-186](#req-agent-186-conditional-complex-motion-delegation)
+**Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-183](#req-agent-183-native-mobile-design-authority), [REQ-AGENT-184](#req-agent-184-operational-information-design), [REQ-AGENT-185](#req-agent-185-component-system-and-registry-boundaries), [REQ-AGENT-186](#req-agent-186-conditional-complex-motion-delegation), [REQ-AGENT-188](#req-agent-188-external-design-dependency-safety)
 
-**Verification:** Ten isolated fresh-context evaluations covering the specified dashboard, platform, component, registry, and motion scenarios.
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-188: External Design Dependency Safety
+
+**Intent:** External design dependencies are reviewed before execution and remain optional to the owning workflow.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. External skills, registries, presets, MCP servers, and package commands are inspected as untrusted dependencies before adoption. <!-- @impl: preseed/agents/claude/skills/design/references/external-dependencies.md::Inspect before adoption --> <!-- @manual: Evaluate a mutable external registry proposal. -->
+2. Skill activation executes no mutable latest package and no external package code merely to determine applicability. <!-- @impl: preseed/agents/claude/skills/design/references/external-dependencies.md::Inspect before adoption --> <!-- @manual: Activate design routing without registry access and verify no package command runs. -->
+3. Missing registry or MCP access does not block the owning workflow. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/component-systems.md::Admit a registry conditionally --> <!-- @manual: Run a component task with no registry or MCP capability. -->
+4. External-dependency guidance projects to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Compose orthogonal specialists only --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-182/188: projects native-mobile authority and progressive cross-cutting references) -->
+
+**Constraints:** Installation, mutation, or repository transmission requires explicit authorization and reviewed provenance.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-181](#req-agent-181-design-specialist-compatibility)
+
+**Verification:** Automated tests and manual check
 
 **Status:** Implemented
 

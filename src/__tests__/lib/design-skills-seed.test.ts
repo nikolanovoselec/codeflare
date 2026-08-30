@@ -1,5 +1,6 @@
 // REQ-AGENT-134: advanced sessions receive one design entry point plus its
 // specialists through the canonical multi-agent preseed pipeline.
+import { posix } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AGENTS_SEEDED_CONFIGS } from '../../lib/agent-seed.generated';
 
@@ -100,7 +101,7 @@ describe('REQ-AGENT-134: advanced design skill suite', () => {
     }
   });
 
-  it('REQ-AGENT-182: projects native-mobile authority and progressive cross-cutting references', () => {
+  it('REQ-AGENT-182/188: projects native-mobile authority and progressive cross-cutting references', () => {
     const canonical = AGENTS_SEEDED_CONFIGS.find(
       (document) => document.key === '.claude/skills/native-mobile-design/SKILL.md',
     );
@@ -123,7 +124,7 @@ describe('REQ-AGENT-134: advanced design skill suite', () => {
     }
   });
 
-  it('REQ-AGENT-180/182: keeps portable design guidance free of runtime-specific assumptions', () => {
+  it('REQ-AGENT-180/182/188: keeps portable design projections structurally equivalent and resolvable', () => {
     const portableKeys = [
       '/skills/design/SKILL.md',
       ...DESIGN_REFERENCES.map((reference) => `/skills/design/references/${reference}`),
@@ -133,13 +134,27 @@ describe('REQ-AGENT-134: advanced design skill suite', () => {
       '/skills/native-mobile-design/SKILL.md',
       ...NATIVE_MOBILE_REFERENCES.map((reference) => `/skills/native-mobile-design/references/${reference}`),
     ];
-    const forbidden = /AGENTS\.md|Claude Code|ChatGPT|\bCodex\b|~\/\.claude|~\/\.codex|\$skill-creator/;
+    const body = (content: string) => content.replace(/^---\n[\s\S]*?\n---\n/, '');
+    const emittedKeys = new Set(AGENTS_SEEDED_CONFIGS.map((document) => document.key));
 
     for (const suffix of portableKeys) {
       const documents = docsFor(suffix);
+      const canonical = documents.find((document) => document.key.startsWith('.claude/skills/'));
       expect(documents.length, `${suffix} must be projected`).toBe(TARGET_PREFIXES.length);
+      expect(canonical, `${suffix} must have a canonical Claude projection`).toBeDefined();
+
       for (const document of documents) {
-        expect(document.content, `${document.key} must stay runtime-neutral`).not.toMatch(forbidden);
+        expect(body(document.content), `${document.key} must preserve the canonical body`).toBe(
+          body(canonical!.content),
+        );
+
+        for (const match of document.content.matchAll(/\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+          const target = match[1]!.split('#', 1)[0]!;
+          if (!target || /^(?:[a-z]+:|\/)/i.test(target)) continue;
+
+          const resolved = posix.normalize(posix.join(posix.dirname(document.key), target));
+          expect(emittedKeys.has(resolved), `${document.key} must resolve ${target}`).toBe(true);
+        }
       }
     }
   });
