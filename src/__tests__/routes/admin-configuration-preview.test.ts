@@ -137,6 +137,63 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     expect(kv.delete).not.toHaveBeenCalled();
   });
 
+  it('expands Enterprise Access work and rejects removal of a routing owner', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
+    await kv.put(SETUP_KEYS.GROUP_ROUTING, JSON.stringify({
+      engineering: { routes: ['claude'], defaultRoute: 'claude', reasoning: 'medium' },
+    }));
+    vi.mocked(kv.put).mockClear();
+
+    const invalid = await post(app, {
+      section: 'access',
+      baseRevision: 0,
+      values: {
+        adminUsers: ['admin@example.com'],
+        userAccessGroups: [],
+        adminAccessGroups: ['administrators'],
+      },
+    });
+    expect(invalid.status).toBe(400);
+    expect(kv.put).not.toHaveBeenCalled();
+
+    const accepted = await post(app, {
+      section: 'access',
+      baseRevision: 0,
+      values: {
+        adminUsers: ['admin@example.com'],
+        userAccessGroups: ['engineering'],
+        adminAccessGroups: ['administrators'],
+      },
+    });
+    expect(accepted.status).toBe(200);
+    expect((await accepted.json() as any).tasks).toEqual([
+      { id: 'store_access_users', dependsOn: [] },
+      { id: 'configure_access_groups', dependsOn: ['store_access_users'] },
+      { id: 'create_access_app', dependsOn: ['configure_access_groups'] },
+    ]);
+    expect(kv.put).not.toHaveBeenCalled();
+  });
+
+  it('resolves AI Gateway URL and token independently across Administration and deployment sources', async () => {
+    const administrationUrl = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'deployment-token' });
+    await administrationUrl.kv.put(SETUP_KEYS.AIG_GATEWAY_URL, enterpriseAiValues.gatewayUrl);
+    vi.mocked(administrationUrl.kv.put).mockClear();
+    expect((await post(administrationUrl.app, {
+      section: 'aiRouting', baseRevision: 0, values: enterpriseAiValues,
+    })).status).toBe(200);
+
+    const administrationToken = createApp({
+      ENTERPRISE_MODE: 'active',
+      AIG_GATEWAY_URL: enterpriseAiValues.gatewayUrl,
+    });
+    await administrationToken.kv.put(SETUP_KEYS.AIG_TOKEN, JSON.stringify({ encrypted: 'administration-token' }));
+    vi.mocked(administrationToken.kv.put).mockClear();
+    expect((await post(administrationToken.app, {
+      section: 'aiRouting', baseRevision: 0, values: enterpriseAiValues,
+    })).status).toBe(200);
+    expect(administrationToken.kv.put).not.toHaveBeenCalled();
+  });
+
   it('preserves an effective AI token, redacts secret values, and requires effective credentials', async () => {
     const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'deployment-token-must-not-leak' });
 

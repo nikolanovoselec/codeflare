@@ -10,6 +10,19 @@ import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS } from '../../lib/kv-keys';
 let mockRole = 'admin';
 let mockAuthReject = false;
 
+const setupOperations = vi.hoisted(() => ({
+  createAccessApp: vi.fn(async () => {}),
+  configureCustomDomain: vi.fn(async () => {}),
+}));
+
+vi.mock('../../routes/setup/access', () => ({
+  handleCreateAccessApp: setupOperations.createAccessApp,
+}));
+
+vi.mock('../../routes/setup/custom-domain', () => ({
+  handleConfigureCustomDomain: setupOperations.configureCustomDomain,
+}));
+
 vi.mock('../../middleware/auth', () => ({
   authMiddleware: vi.fn(async (c: any, next: any) => {
     if (mockAuthReject) throw new AppError('AUTH_ERROR', 401, 'Not authenticated');
@@ -153,6 +166,99 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(pageOne.nextCursor).toBe(second.runId);
     const pageTwo = await (await app.request(`/admin/configuration-runs?limit=1&cursor=${encodeURIComponent(pageOne.nextCursor)}`)).json() as any;
     expect(pageTwo.items).toEqual([first]);
+  });
+
+  it('executes only bounded Access operations', async () => {
+    const { app, kv } = createApp({
+      ENTERPRISE_MODE: 'active',
+      CLOUDFLARE_API_TOKEN: 'cloudflare-token',
+      CLOUDFLARE_WORKER_NAME: 'codeflare-integration',
+    });
+    await kv.put(SETUP_KEYS.ACCOUNT_ID, 'account-1');
+    await kv.put(SETUP_KEYS.CUSTOM_DOMAIN, 'admin.example.com');
+    vi.mocked(kv.put).mockClear();
+
+    const response = await post(app, {
+      section: 'access',
+      baseRevision: 0,
+      values: {
+        adminUsers: ['admin@example.com'],
+        userAccessGroups: ['engineering'],
+        adminAccessGroups: ['administrators'],
+      },
+    });
+    expect(response.status).toBe(200);
+    const terminal = snapshots(await response.text()).at(-1).run;
+    expect(terminal.state).toBe('succeeded');
+    expect(terminal.tasks.map((task: any) => task.id)).toEqual([
+      'store_access_users', 'configure_access_groups', 'create_access_app',
+    ]);
+    expect(JSON.parse(await kv.get('user:admin@example.com') as string)).toMatchObject({ role: 'admin' });
+    expect(await kv.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP)).toBe('engineering');
+    expect(await kv.get(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP)).toBe('administrators');
+    expect(setupOperations.createAccessApp).toHaveBeenCalledOnce();
+    expect(setupOperations.configureCustomDomain).not.toHaveBeenCalled();
+    expect(kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.R2_ENDPOINT, expect.anything());
+    expect(kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.COMPLETE, expect.anything());
+  });
+
+  it('keeps Domain work coupled to its existing domain and Access operations', async () => {
+    const { app, kv } = createApp({
+      CLOUDFLARE_API_TOKEN: 'cloudflare-token',
+      CLOUDFLARE_WORKER_NAME: 'codeflare-integration',
+    });
+    await kv.put(SETUP_KEYS.ACCOUNT_ID, 'account-1');
+    await kv.put('user:admin@example.com', JSON.stringify({ role: 'admin' }));
+    vi.mocked(kv.put).mockClear();
+
+    const response = await post(app, {
+      section: 'domain', baseRevision: 0, values: { customDomain: 'new.example.com' },
+    });
+    expect(response.status).toBe(200);
+    expect(snapshots(await response.text()).at(-1).run.state).toBe('succeeded');
+    expect(setupOperations.configureCustomDomain).toHaveBeenCalledOnce();
+    expect(setupOperations.createAccessApp).toHaveBeenCalledOnce();
+    expect(await kv.get(SETUP_KEYS.CUSTOM_DOMAIN)).toBe('new.example.com');
+    expect(kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.R2_ENDPOINT, expect.anything());
+    expect(kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.COMPLETE, expect.anything());
+  });
+
+  it('applies AI routing and Browser Run without clobbering saved credentials', async () => {
+    const ai = createApp({
+      ENTERPRISE_MODE: 'active',
+      AIG_TOKEN: 'deployment-token',
+      ENCRYPTION_KEY: Buffer.alloc(32, 5).toString('base64'),
+    });
+    const aiResponse = await post(ai.app, {
+      section: 'aiRouting',
+      baseRevision: 0,
+      values: {
+        gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/account/gateway',
+        replacementToken: '',
+        dynamicRoutes: ['claude'],
+        defaultRoute: { route: 'claude', reasoning: 'medium' },
+        routeContextWindows: { claude: 200000 },
+        groupRouting: [],
+      },
+    });
+    expect(aiResponse.status).toBe(200);
+    expect(snapshots(await aiResponse.text()).at(-1).run.state).toBe('succeeded');
+    expect(await ai.kv.get(SETUP_KEYS.AIG_GATEWAY_URL)).toBe('https://gateway.ai.cloudflare.com/v1/account/gateway');
+    expect(await ai.kv.get(SETUP_KEYS.DYNAMIC_ROUTES)).toBe(JSON.stringify(['claude']));
+    expect(ai.kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.AIG_TOKEN, expect.anything(), expect.anything());
+
+    const browser = createApp({ ENTERPRISE_MODE: 'active' });
+    await browser.kv.put(SETUP_KEYS.BROWSER_RENDER_TOKEN, JSON.stringify({ encrypted: 'saved-token' }));
+    vi.mocked(browser.kv.put).mockClear();
+    const browserResponse = await post(browser.app, {
+      section: 'browserRendering',
+      baseRevision: 0,
+      values: { accountId: 'browser-account', replacementToken: '' },
+    });
+    expect(browserResponse.status).toBe(200);
+    expect(snapshots(await browserResponse.text()).at(-1).run.state).toBe('succeeded');
+    expect(await browser.kv.get(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID)).toBe('browser-account');
+    expect(browser.kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.BROWSER_RENDER_TOKEN, expect.anything(), expect.anything());
   });
 
   it('marks a stale prior run interrupted before admitting new work', async () => {
