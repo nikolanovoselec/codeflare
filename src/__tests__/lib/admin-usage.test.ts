@@ -51,7 +51,7 @@ describe('historical usage SQL owner (REQ-SUB-025)', () => {
     expect(upserts).toHaveLength(2);
     expect(upserts.every((statement) => statement.sql.includes("account_status = 'active'"))).toBe(true);
     expect(upserts.every((statement) => statement.sql.includes('excluded.source_sequence > usage_periods.source_sequence'))).toBe(true);
-    expect(fake.statements.at(-1).sql).toContain('source_sequence');
+    expect(fake.statements.at(-1)!.sql).toContain('source_sequence');
   });
 
   it('does not acknowledge a successful guarded no-op without equal/newer or deleted-owner evidence', async () => {
