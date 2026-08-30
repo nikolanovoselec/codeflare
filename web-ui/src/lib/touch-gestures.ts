@@ -20,6 +20,8 @@ const ARROW: Record<string, string> = {
   up: '\x1b[A',
   down: '\x1b[B',
 };
+const PAGE_UP = '\x1b[5~';
+const PAGE_DOWN = '\x1b[6~';
 
 type Direction = 'left' | 'right' | 'up' | 'down';
 
@@ -85,8 +87,8 @@ function scrollTouchLines(
  * Attach touch gestures to a terminal container.
  * Horizontal swipes (left/right) always map to arrow left/right.
  * Vertical swipes map to arrow up/down while the keyboard is open. With the
- * keyboard closed they scroll normal terminal scrollback, or route to a
- * fullscreen application's wheel protocol when one captures wheel input.
+ * keyboard closed they scroll normal terminal scrollback, route Classic
+ * fullscreen applications to wheel input, or page through Herdr.
  * Returns a cleanup function, or undefined if touch is not supported.
  */
 export function attachSwipeGestures(
@@ -227,11 +229,9 @@ export function attachSwipeGestures(
 
     const kbOpen = isKeyboardOpen?.() ?? false;
 
-    // When keyboard is open, block native touch behavior. Vertical gestures
-    // become arrow-key navigation below.
-    if (kbOpen) {
-      e.preventDefault();
-    }
+    // Preserve browser compatibility clicks through tap-sized keyboard-open
+    // jitter. Once a swipe locks, own later movement as terminal input.
+    if (kbOpen && lockedDirection !== null) e.preventDefault();
 
     const touch = e.touches[0];
     const dx = touch.clientX - startX;
@@ -240,6 +240,7 @@ export function attachSwipeGestures(
     // Already in scroll mode — accumulate delta and scroll terminal buffer
     if (scrollMode) {
       e.preventDefault();
+      if (forwardMouseTap) return;
       const deltaY = lastScrollY - touch.clientY; // positive = finger up = scroll down
       lastScrollY = touch.clientY;
       scrollAccumulator += deltaY;
@@ -276,6 +277,11 @@ export function attachSwipeGestures(
           clearTimeout(longPressTimer);
           longPressTimer = null;
         }
+        if (forwardMouseTap) {
+          sendTerminalKey(terminal, dy > 0 ? PAGE_UP : PAGE_DOWN);
+          e.preventDefault();
+          return;
+        }
         // Immediately scroll if the threshold crossing already covers a full line
         const lines = Math.trunc(scrollAccumulator / scrollPxPerLine);
         if (lines !== 0) {
@@ -290,6 +296,7 @@ export function attachSwipeGestures(
       if (dir === null) return;
 
       lockedDirection = dir;
+      if (kbOpen) e.preventDefault();
 
       if (longPressTimer !== null) {
         clearTimeout(longPressTimer);
@@ -315,7 +322,7 @@ export function attachSwipeGestures(
     // and a synthetic click cannot reliably open the mobile keyboard.
 
     // Start inertia scrolling if we were in scroll mode with enough velocity
-    if (scrollMode && velocitySamples.length >= 2) {
+    if (scrollMode && !forwardMouseTap && velocitySamples.length >= 2) {
       const now = performance.now();
       const first = velocitySamples[0];
       const last = velocitySamples[velocitySamples.length - 1];

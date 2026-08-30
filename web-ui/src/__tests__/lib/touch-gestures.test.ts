@@ -311,40 +311,28 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
     });
 
     describe('alternate-screen application scrolling', () => {
-      it('REQ-MOB-017 AC1-AC2: routes Herdr swipes as SGR wheel input without xterm mouse tracking', () => {
+      it('REQ-MOB-017 AC1-AC2: routes one Herdr swipe through stable page navigation', () => {
         (window as any).ontouchstart = null;
-        const { terminal, triggerDataEvent, scrollLines, bufferScrollLines, element } = createMockTerminal({
+        const { terminal, triggerDataEvent, scrollLines, bufferScrollLines } = createMockTerminal({
           bufferType: 'alternate',
           mouseTrackingMode: 'none',
         });
-        const screen = document.createElement('div');
-        screen.className = 'xterm-screen';
-        vi.spyOn(screen, 'getBoundingClientRect').mockReturnValue({
-          left: 0,
-          top: 0,
-          width: 200,
-          height: 120,
-          right: 200,
-          bottom: 120,
-          x: 0,
-          y: 0,
-          toJSON: () => ({}),
-        });
-        element.appendChild(screen);
-        container.appendChild(element);
-        const cleanupMouse = attachHerdrMouseInput(screen, terminal, (sequence) => sendTerminalKey(terminal, sequence));
         const cleanup = attachSwipeGestures(container, terminal, () => false, true)!;
 
         container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
         container.dispatchEvent(makeTouchEvent('touchmove', 100, 60));
+        container.dispatchEvent(makeTouchEvent('touchmove', 100, 30));
+        container.dispatchEvent(makeTouchEvent('touchend', 100, 30));
+        container.dispatchEvent(makeTouchEvent('touchstart', 100, 100));
+        container.dispatchEvent(makeTouchEvent('touchmove', 100, 140));
+        container.dispatchEvent(makeTouchEvent('touchend', 100, 140));
 
         expect(triggerDataEvent).toHaveBeenCalledTimes(2);
-        expect(triggerDataEvent).toHaveBeenNthCalledWith(1, '\x1b[<65;41;13M', false);
-        expect(triggerDataEvent).toHaveBeenNthCalledWith(2, '\x1b[<65;41;13M', false);
+        expect(triggerDataEvent).toHaveBeenNthCalledWith(1, '\x1b[6~', false);
+        expect(triggerDataEvent).toHaveBeenNthCalledWith(2, '\x1b[5~', false);
         expect(scrollLines).not.toHaveBeenCalled();
         expect(bufferScrollLines).not.toHaveBeenCalled();
         cleanup();
-        cleanupMouse();
       });
 
       it('REQ-MOB-017 AC3: preserves classic fullscreen wheel forwarding', () => {
@@ -590,6 +578,21 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         expect(click).toHaveBeenCalledOnce();
         cleanupGestures();
         cleanupMouse();
+      });
+
+      it('REQ-MOB-020 AC1: preserves keyboard-open compatibility clicks through tap-sized jitter', () => {
+        (window as any).ontouchstart = null;
+        const { terminal, triggerDataEvent } = createMockTerminal({ bufferType: 'alternate', mouseTrackingMode: 'any' });
+        const cleanup = attachSwipeGestures(container, terminal, () => true, true)!;
+
+        container.dispatchEvent(makeTouchEvent('touchstart', 40, 50));
+        const jitter = makeTouchEvent('touchmove', 42, 53, { cancelable: true });
+        container.dispatchEvent(jitter);
+        container.dispatchEvent(makeTouchEvent('touchend', 42, 53));
+
+        expect(jitter.defaultPrevented).toBe(false);
+        expect(triggerDataEvent).not.toHaveBeenCalled();
+        cleanup();
       });
 
       it('REQ-MOB-020 AC4: preserves the Classic stationary tap path without a synthetic mouse sequence', () => {

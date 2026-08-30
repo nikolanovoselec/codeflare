@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-08-30
+
+- **Herdr mobile gestures use stable page navigation and preserve keyboard-open taps** ([REQ-MOB-017](mobile.md#req-mob-017-fullscreen-application-touch-scrolling), [REQ-MOB-020](mobile.md#req-mob-020-terminal-touch-activation), and [REQ-TERM-036](terminal.md#req-term-036-browser-pointer-interaction-with-herdr) amended; remain Implemented). A Herdr vertical swipe now sends one PageUp or PageDown input instead of a burst of wheel redraws, matching the stable floating controls. Tap-sized movement no longer suppresses the browser compatibility click while the virtual keyboard is open.
+
 ## 2026-08-29
 
 - **Herdr semantic status now owns delayed completion notifications** ([REQ-TERM-024](terminal.md#req-term-024-pi-native-terminal-notification-producer), [REQ-TERM-029](terminal.md#req-term-029-herdr-status-gated-terminal-completion), [REQ-TERM-038](terminal.md#req-term-038-herdr-semantic-status-owns-completion-readiness), and [REQ-TERM-039](terminal.md#req-term-039-herdr-completion-delivery-is-readiness-oriented) amended; remain Implemented). Immediate validated input-required signals remain unchanged. Pi no longer reconstructs completion from settled turns, subagent lineage, failures, or a five-minute timer. Herdr aggregates every recognized Pi and Claude pane across tabs and splits. After at least one pane was `working`, one ten-minute timer starts only when all tracked panes are `idle` or `done`; any `working`, `blocked`, or `unknown` pane prevents completion. A `working` snapshot also cancels queued completion, and the socket monitor re-snapshots after a bounded timeout, tracked-pane lifecycle change, malformed status event, or disconnect. Classic emits no completion notification.
