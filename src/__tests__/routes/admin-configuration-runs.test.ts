@@ -173,6 +173,10 @@ describe('configuration runs (REQ-SETUP-018)', () => {
       ENTERPRISE_MODE: 'active',
       CLOUDFLARE_API_TOKEN: 'cloudflare-token',
       CLOUDFLARE_WORKER_NAME: 'codeflare-integration',
+      CONTAINER: {
+        idFromName: vi.fn(() => ({ toString: () => 'bucket-owner-id' })),
+        get: vi.fn(() => ({ claimBucketOwner: vi.fn(async () => 'owned') })),
+      } as unknown as Env['CONTAINER'],
     });
     await kv.put(SETUP_KEYS.ACCOUNT_ID, 'account-1');
     await kv.put(SETUP_KEYS.CUSTOM_DOMAIN, 'admin.example.com');
