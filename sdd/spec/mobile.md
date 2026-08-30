@@ -278,6 +278,31 @@ Touch input, virtual keyboard, scroll stability, and terminal rendering on mobil
 
 ---
 
+### REQ-MOB-023: Opt-in mobile input diagnostics
+
+**Intent:** A user can capture bounded mobile browser input evidence without exposing terminal content.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Adding `debug=1` to a terminal URL displays the input and viewport diagnostic overlay. <!-- @impl: web-ui/src/lib/mobile.ts --> <!-- @manual: Open a terminal URL with `debug=1` and confirm the diagnostic overlay appears. -->
+2. The input trace retains at most the twelve newest event records. <!-- @impl: web-ui/src/lib/touch-event-debug.ts::attachTouchEventDebug --> <!-- @test: web-ui/src/__tests__/lib/touch-event-debug.test.ts (REQ-MOB-023 AC2-AC4: bounds content-free input metadata and move counts) -->
+3. The overlay reports input ordering, final cancellation, touch origin, target, focus, move count, and keyboard geometry. <!-- @impl: web-ui/src/lib/touch-event-debug.ts::attachTouchEventDebug --> <!-- @impl: web-ui/src/lib/mobile.ts --> <!-- @manual: Reproduce a terminal touch and confirm the overlay reports input events and viewport state. -->
+4. The input trace does not record terminal text. <!-- @impl: web-ui/src/lib/touch-event-debug.ts::attachTouchEventDebug --> <!-- @test: web-ui/src/__tests__/lib/touch-event-debug.test.ts (REQ-MOB-023 AC2-AC4: bounds content-free input metadata and move counts) -->
+
+**Constraints:** Diagnostics activate only through the explicit query parameter and retain no server-side state.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-MOB-003](#req-mob-003-samsung-internet-keyboard-viewport-state), [REQ-MOB-020](#req-mob-020-terminal-touch-activation)
+
+**Verification:** Automated trace tests for AC2 and AC4; manual deployed overlay checks for AC1 and AC3.
+
+**Status:** Implemented
+
+---
+
 ### REQ-MOB-006: Sticky Ctrl button for mobile
 
 **Intent:** Mobile users can send Ctrl-modified key sequences (Ctrl+C, Ctrl+D, etc.) without a physical keyboard by using a persistent on-screen Ctrl button.

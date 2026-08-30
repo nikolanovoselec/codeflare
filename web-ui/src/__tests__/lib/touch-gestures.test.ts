@@ -645,6 +645,28 @@ describe('touch-gestures / REQ-MOB-005 (swipe gestures arrow keys/scroll)', () =
         });
         container.dispatchEvent(hardwareClick);
         expect(click).toHaveBeenCalledOnce();
+
+        mouseDown.mockClear();
+        click.mockClear();
+        container.dispatchEvent(new MouseEvent('mousedown', {
+          bubbles: true, cancelable: true, clientX: 40, clientY: 50,
+        }));
+        container.dispatchEvent(new MouseEvent('mouseup', {
+          bubbles: true, cancelable: true, clientX: 40, clientY: 80,
+        }));
+        container.dispatchEvent(new MouseEvent('click', {
+          bubbles: true, cancelable: true, clientX: 40, clientY: 80,
+        }));
+        container.dispatchEvent(new MouseEvent('click', {
+          bubbles: true, cancelable: true, clientX: 40, clientY: 80,
+        }));
+        expect(mouseDown).not.toHaveBeenCalled();
+        expect(click).not.toHaveBeenCalled();
+
+        container.dispatchEvent(new MouseEvent('click', {
+          bubbles: true, cancelable: true, clientX: 200, clientY: 200,
+        }));
+        expect(click).toHaveBeenCalledOnce();
         cleanup();
       });
 
