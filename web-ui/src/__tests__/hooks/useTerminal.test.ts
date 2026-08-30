@@ -157,10 +157,14 @@ vi.mock('../../lib/terminal-link-provider', () => ({
   registerMultiLineLinkProvider: vi.fn(),
 }));
 
-vi.mock('../../lib/terminal-mobile-input', () => ({
-  focusMobileTerminal: vi.fn(),
-  setupMobileInput: vi.fn(() => vi.fn()),
-}));
+vi.mock('../../lib/terminal-mobile-input', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/terminal-mobile-input')>();
+  return {
+    ...actual,
+    focusMobileTerminal: vi.fn(),
+    setupMobileInput: vi.fn(() => vi.fn()),
+  };
+});
 
 vi.mock('../../lib/settings', () => ({
   loadSettings: vi.fn(() => ({ clipboardAccess: true })),
@@ -1002,7 +1006,7 @@ describe('useTerminal hook', () => {
   });
 
   describe('Herdr deterministic touch taps', () => {
-    it('REQ-MOB-002 AC7: snaps Pi fullscreen history to bottom before opening mobile input', async () => {
+    it('REQ-MOB-020 AC5/AC7: snaps Pi fullscreen history to bottom before opening mobile input', async () => {
       const { attachSwipeGestures } = await import('../../lib/touch-gestures');
       const { sendHerdrTap } = await import('../../lib/herdr-mouse');
       const { focusMobileTerminal } = await import('../../lib/terminal-mobile-input');
@@ -1034,7 +1038,7 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
-    it('REQ-MOB-002 AC8: does not reset Pi fullscreen history when mobile input is already open', async () => {
+    it('REQ-MOB-020 AC6: does not reset Pi fullscreen history when mobile input is already open', async () => {
       vi.mocked(isVirtualKeyboardOpen).mockReturnValue(true);
       const { attachSwipeGestures } = await import('../../lib/touch-gestures');
       const dispose = createRoot((dispose) => {
