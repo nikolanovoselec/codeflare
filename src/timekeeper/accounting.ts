@@ -79,6 +79,11 @@ function markerKey(kind: PeriodKind, start: string, sessionHash: string): string
   return `historyMarker:${kind}:${start}:${sessionHash}`;
 }
 
+export function markerKeysFor(now: Date, sessionHash: string): string[] {
+  const starts = periodStarts(now);
+  return PERIOD_KINDS.map((kind) => markerKey(kind, starts[kind], sessionHash));
+}
+
 export function outboxKey(entry: Pick<HistoryOutboxEntry, 'kind' | 'start'>): string {
   return `historyOutbox:${entry.kind}:${entry.start}`;
 }

@@ -26,6 +26,14 @@ import { endTrialNow } from '../lib/stripe';
 import { sendWelcomeEmail } from '../lib/email';
 import { parseUserRecord } from '../lib/user-record';
 import { isSaasModeActive } from '../lib/onboarding';
+import {
+  applyPositiveDelta,
+  createAccountingState,
+  hashSessionId,
+  markerKeysFor,
+  outboxKey,
+  type AccountingStateV2,
+} from './accounting';
 
 const logger = createLogger('timekeeper');
 
@@ -117,39 +125,65 @@ async function getWelcomeIdempotencyKey(userEmail: string): Promise<string> {
 export class Timekeeper {
   private ctx: DurableObjectState;
   private env: Env;
+  private accountingState!: AccountingStateV2;
   private pendingSeconds = 0;
   private sessionTotals: Record<string, number> = {};
   private bucketName: string | null = null;
   private email: string | null = null;
   private lastFlushedMonthlyTotal = 0;
+  private markerCache = new Set<string>();
+  private ready: Promise<void>;
 
   constructor(ctx: DurableObjectState, env: Env) {
     this.ctx = ctx;
     this.env = env;
 
-    // Restore state from DO storage (crash resilience)
-    ctx.blockConcurrencyWhile(async () => {
-      const [pending, totals, bucket, email, flushedMonthly] = await Promise.all([
-        ctx.storage.get<number>('pendingSeconds'),
-        ctx.storage.get<string>('sessionTotals'),
-        ctx.storage.get<string>('bucketName'),
-        ctx.storage.get<string>('email'),
-        ctx.storage.get<number>('lastFlushedMonthlyTotal'),
+    // Restore or atomically migrate the one accounting state value.
+    this.ready = ctx.blockConcurrencyWhile(async () => {
+      const transact = async (callback: (storage: DurableObjectStorage) => Promise<void>) => {
+        if (typeof ctx.storage.transaction === 'function') await ctx.storage.transaction(callback);
+        else await callback(ctx.storage);
+      };
+      await transact(async (storage) => {
+        const existing = await storage.get<AccountingStateV2>('accountingState:v2');
+        if (existing?.version === 2) {
+          this.accountingState = existing;
+          return;
+        }
+        const [pending, totals, flushedMonthly] = await Promise.all([
+          storage.get<number>('pendingSeconds'),
+          storage.get<string>('sessionTotals'),
+          storage.get<number>('lastFlushedMonthlyTotal'),
+        ]);
+        let parsedTotals: Record<string, number> = {};
+        if (totals) {
+          try {
+            const parsed = SessionTotalsSchema.safeParse(JSON.parse(totals));
+            if (parsed.success) parsedTotals = parsed.data;
+          } catch { /* corrupt legacy totals become empty */ }
+        }
+        this.accountingState = await createAccountingState(new Date(), {
+          pendingSeconds: pending ?? 0,
+          sessionTotals: parsedTotals,
+          lastFlushedMonthlyTotal: flushedMonthly ?? 0,
+        });
+        await storage.put('accountingState:v2', this.accountingState);
+        if (typeof storage.delete === 'function') {
+          await storage.delete(['pendingSeconds', 'sessionTotals', 'lastFlushedMonthlyTotal']);
+        }
+      });
+      [this.bucketName, this.email] = await Promise.all([
+        ctx.storage.get<string>('bucketName').then((value) => value ?? null),
+        ctx.storage.get<string>('email').then((value) => value ?? null),
       ]);
-      this.pendingSeconds = pending ?? 0;
-      this.bucketName = bucket ?? null;
-      this.email = email ?? null;
-      this.lastFlushedMonthlyTotal = flushedMonthly ?? 0;
-      if (totals) {
-        try {
-          const parsed = SessionTotalsSchema.safeParse(JSON.parse(totals));
-          if (parsed.success) this.sessionTotals = parsed.data;
-        } catch { /* ignore corrupt data */ }
-      }
+      this.pendingSeconds = this.accountingState.pendingSeconds;
+      this.sessionTotals = this.accountingState.sessionTotals;
+      this.lastFlushedMonthlyTotal = this.accountingState.lastFlushedMonthlyTotal;
     });
   }
 
   async fetch(request: Request): Promise<Response> {
+    await this.ready;
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -172,6 +206,7 @@ export class Timekeeper {
   }
 
   async alarm(): Promise<void> {
+    await this.ready;
     if (this.pendingSeconds === 0 || !this.bucketName) return;
 
     const kvKey = getTimekeeperKey(this.bucketName);
@@ -188,10 +223,12 @@ export class Timekeeper {
       this.pendingSeconds -= secondsToFlush;
       if (this.pendingSeconds < 0) this.pendingSeconds = 0;
       this.lastFlushedMonthlyTotal = record.thisMonth.seconds;
-      await Promise.all([
-        this.ctx.storage.put('pendingSeconds', this.pendingSeconds),
-        this.ctx.storage.put('lastFlushedMonthlyTotal', this.lastFlushedMonthlyTotal),
-      ]);
+      this.accountingState = {
+        ...this.accountingState,
+        pendingSeconds: this.pendingSeconds,
+        lastFlushedMonthlyTotal: this.lastFlushedMonthlyTotal,
+      };
+      await this.ctx.storage.put('accountingState:v2', this.accountingState);
     } catch (err) {
       logger.error('Flush failed, will retry', toError(err));
       // Re-arm for retry
@@ -336,60 +373,68 @@ export class Timekeeper {
     // Compute delta from per-session monotonic total.
     // Clamp to MAX_DELTA_PER_PING to prevent huge spikes from corrupt sessionTotals.
     const MAX_DELTA_PER_PING = 300; // 5 minutes max per ping cycle
-    const previousTotal = this.sessionTotals[body.sessionId] ?? 0;
-    let delta: number;
-    if (body.totalSeconds < previousTotal) {
-      // Session restarted - treat totalSeconds as fresh
-      delta = Math.min(body.totalSeconds, MAX_DELTA_PER_PING);
-    } else {
-      delta = Math.min(body.totalSeconds - previousTotal, MAX_DELTA_PER_PING);
-    }
-    this.sessionTotals[body.sessionId] = body.totalSeconds;
+    const sessionHash = await hashSessionId(body.sessionId);
+    const previousTotal = this.sessionTotals[sessionHash] ?? 0;
+    const delta = body.totalSeconds < previousTotal
+      ? Math.min(body.totalSeconds, MAX_DELTA_PER_PING)
+      : Math.min(body.totalSeconds - previousTotal, MAX_DELTA_PER_PING);
 
-    // Evict stale session entries to prevent unbounded growth (keep max 30)
-    const MAX_SESSION_ENTRIES = 30;
-    const keys = Object.keys(this.sessionTotals);
-    if (keys.length > MAX_SESSION_ENTRIES) {
-      const toRemove = keys.slice(0, keys.length - MAX_SESSION_ENTRIES);
-      for (const k of toRemove) delete this.sessionTotals[k];
-    }
-
-    this.pendingSeconds += delta;
-
-    // Only persist to DO storage when state actually changed
     if (delta > 0) {
-      await Promise.all([
-        this.ctx.storage.put('pendingSeconds', this.pendingSeconds),
-        this.ctx.storage.put('sessionTotals', JSON.stringify(this.sessionTotals)),
-      ]);
+      const now = new Date();
+      const candidateMarkers = markerKeysFor(now, sessionHash);
+      const persist = async (storage: DurableObjectStorage) => {
+        const unknownMarkers = candidateMarkers.filter((key) => !this.markerCache.has(key));
+        if (unknownMarkers.length > 0) {
+          const stored = await storage.get<boolean>(unknownMarkers);
+          for (const key of unknownMarkers) {
+            if (stored instanceof Map && stored.has(key)) this.markerCache.add(key);
+          }
+        }
+        const applied = applyPositiveDelta(this.accountingState, sessionHash, delta, now, this.markerCache);
+        const totals = { ...applied.state.sessionTotals, [sessionHash]: body.totalSeconds };
+        const keys = Object.keys(totals);
+        for (const key of keys.slice(0, Math.max(0, keys.length - 30))) delete totals[key];
+        this.accountingState = { ...applied.state, sessionTotals: totals };
+        for (const key of applied.markerKeys) {
+          await storage.put(key, true);
+          this.markerCache.add(key);
+        }
+        for (const entry of applied.outbox) await storage.put(outboxKey(entry), entry);
+        await storage.put('accountingState:v2', this.accountingState);
+      };
+      if (typeof this.ctx.storage.transaction === 'function') await this.ctx.storage.transaction(persist);
+      else await persist(this.ctx.storage);
+      this.pendingSeconds = this.accountingState.pendingSeconds;
+      this.sessionTotals = this.accountingState.sessionTotals;
+      this.lastFlushedMonthlyTotal = this.accountingState.lastFlushedMonthlyTotal;
 
-      // Arm alarm if none pending
       const existingAlarm = await this.ctx.storage.getAlarm();
-      if (!existingAlarm) {
-        await this.ctx.storage.setAlarm(Date.now() + FLUSH_INTERVAL_MS);
-      }
+      if (!existingAlarm) await this.ctx.storage.setAlarm(Date.now() + FLUSH_INTERVAL_MS);
     }
 
     // Usage accumulates in every mode. Read the durable monthly baseline before
     // deciding whether this deployment also owns SaaS quota/trial enforcement.
     let quotaExceeded = false;
     let totalMonthlySeconds = this.lastFlushedMonthlyTotal + this.pendingSeconds;
-    let usageReadSucceeded = false;
-    try {
-      const kvRecord = await this.env.KV.get<UsageRecord>(getTimekeeperKey(this.bucketName), 'json');
-      const currentMonth = getUtcMonthString(new Date());
-      const kvMonthly = (kvRecord && kvRecord.thisMonth.month === currentMonth)
-        ? kvRecord.thisMonth.seconds
-        : 0;
-      totalMonthlySeconds = kvMonthly + this.pendingSeconds;
-      this.lastFlushedMonthlyTotal = kvMonthly;
-      usageReadSucceeded = true;
-      void this.ctx.storage.put('lastFlushedMonthlyTotal', kvMonthly);
-    } catch {
-      // Keep the last durable baseline already restored into DO storage.
+    const saasMode = isSaasModeActive(this.env.SAAS_MODE);
+    let usageReadSucceeded = !saasMode;
+    if (saasMode) {
+      try {
+        const kvRecord = await this.env.KV.get<UsageRecord>(getTimekeeperKey(this.bucketName), 'json');
+        const currentMonth = getUtcMonthString(new Date());
+        const kvMonthly = (kvRecord && kvRecord.thisMonth.month === currentMonth)
+          ? kvRecord.thisMonth.seconds
+          : 0;
+        totalMonthlySeconds = kvMonthly + this.pendingSeconds;
+        this.lastFlushedMonthlyTotal = kvMonthly;
+        this.accountingState = { ...this.accountingState, lastFlushedMonthlyTotal: kvMonthly };
+        usageReadSucceeded = true;
+      } catch {
+        // Keep the last durable baseline already restored into DO storage.
+      }
     }
 
-    if (isSaasModeActive(this.env.SAAS_MODE) && usageReadSucceeded) {
+    if (saasMode && usageReadSucceeded) {
       try {
         const [tiers, userRaw] = await Promise.all([
           getTierConfig(this.env.KV),

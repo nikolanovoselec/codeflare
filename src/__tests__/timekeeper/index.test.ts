@@ -306,7 +306,10 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
         totalSeconds: 60,
         email: 'alice@example.com',
       }));
-      expect(mockStorage.put).toHaveBeenCalledWith('pendingSeconds', 60);
+      expect(mockStorage.put).toHaveBeenCalledWith(
+        'accountingState:v2',
+        expect.objectContaining({ pendingSeconds: 60 }),
+      );
     });
   });
 
@@ -426,8 +429,11 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
 
       await tk.alarm();
 
-      // pendingSeconds should be reset to 0
-      expect(mockStorage.put).toHaveBeenCalledWith('pendingSeconds', 0);
+      // pendingSeconds should be reset to 0 in the unified state.
+      expect(mockStorage.put).toHaveBeenCalledWith(
+        'accountingState:v2',
+        expect.objectContaining({ pendingSeconds: 0 }),
+      );
     });
 
     it('does NOT re-arm if pendingSeconds = 0 after flush', async () => {
@@ -528,11 +534,11 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
 
       // Should re-arm alarm for retry (30s)
       expect(mockStorage.setAlarm).toHaveBeenCalledWith(expect.any(Number));
-      // pendingSeconds should NOT be reset to 0 (preserved for retry)
-      const lastPendingWrite = mockStorage.put.mock.calls
-        .filter((c: unknown[]) => c[0] === 'pendingSeconds')
+      // Unified state remains at 60; failed KV work never checkpoints it to 0.
+      const lastStateWrite = mockStorage.put.mock.calls
+        .filter((c: unknown[]) => c[0] === 'accountingState:v2')
         .pop();
-      expect(lastPendingWrite?.[1]).toBe(60); // still 60, not 0
+      expect((lastStateWrite?.[1] as { pendingSeconds: number }).pendingSeconds).toBe(60);
     });
   });
 
