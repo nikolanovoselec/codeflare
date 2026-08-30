@@ -67,7 +67,7 @@ describe('REQ-AGENT-134: advanced design skill suite', () => {
     );
     expect(rule?.modes).toEqual(['advanced']);
     expect(rule?.content.trim().split(/\s+/).length).toBeLessThanOrEqual(35);
-    expect(rule?.content).toContain('[design](skills/design/SKILL.md)');
+    expect(rule?.content).toContain('[design](../skills/design/SKILL.md)');
 
     const advancedInstructions = AGENTS_SEEDED_CONFIGS.find(
       (document) => document.key === '.pi/agent/AGENTS.md' && document.modes.includes('advanced'),

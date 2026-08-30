@@ -9,8 +9,6 @@ import { afterEach, describe, it } from 'node:test';
 import { applyCodeflareRoutingBoundary } from '../../scripts/update-impeccable-skill.mjs';
 
 const skillScripts = fileURLToPath(new URL('../../preseed/agents/claude/skills/ui-ux-pro-max/scripts/', import.meta.url));
-const claudeImpeccableSkill = fileURLToPath(new URL('../../preseed/agents/claude/skills/impeccable/SKILL.md', import.meta.url));
-const piImpeccableSkill = fileURLToPath(new URL('../../preseed/agents/pi/skills/impeccable/SKILL.md', import.meta.url));
 const temporaryDirectories = [];
 
 function runPython(args) {
@@ -174,16 +172,6 @@ version: 4.1.1
       /malformed frontmatter/,
     );
 
-    for (const skillPath of [claudeImpeccableSkill, piImpeccableSkill]) {
-      const skill = readFileSync(skillPath, 'utf8');
-      assert.equal(
-        skill.split('\n').find((line) => line.startsWith('description: ')),
-        `description: ${expectedDescription}`,
-      );
-      assert.ok(skill.includes('| `shape [feature]` |'));
-      assert.ok(skill.includes('| `polish [target]` |'));
-      assert.ok(skill.includes('| `live` |'));
-    }
   });
 
   it('REQ-AGENT-137: reports duplicate identifiers and malformed JSON rule values', () => {

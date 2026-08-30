@@ -566,9 +566,13 @@ function renderInstructionsFile(ruleFiles, agentId) {
   const sections = ruleFiles
     .sort((a, b) => a.withinClaude.localeCompare(b.withinClaude))
     .map((f) => agentId === 'pi'
-      ? adaptPiRuntimeNames(adaptPaths(f.content.trim(), agentId))
+      ? adaptPiInstructionLinks(adaptPiRuntimeNames(adaptPaths(f.content.trim(), agentId)))
       : adaptPaths(f.content.trim(), agentId));
   return sections.join('\n\n---\n\n') + '\n';
+}
+
+function adaptPiInstructionLinks(content) {
+  return content.replaceAll('](../skills/', '](skills/');
 }
 
 function hasPathsFrontmatter(content) {

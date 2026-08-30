@@ -13,6 +13,7 @@ const claudeDir = resolve(repoRoot, 'preseed/agents/claude');
 const piDir = resolve(repoRoot, 'preseed/agents/pi');
 const piConstitution = readFileSync(resolve(piDir, 'rules/engineering-constitution.md'), 'utf8');
 const piDesignRouting = readFileSync(resolve(piDir, 'rules/design-routing.md'), 'utf8');
+const compiledPiDesignRouting = piDesignRouting.replaceAll('](../skills/', '](skills/');
 const piGitWorkflow = readFileSync(resolve(piDir, 'rules/git-workflow.md'), 'utf8');
 const localExecutionGate = readFileSync(resolve(claudeDir, 'rules/no-local-builds.md'), 'utf8');
 const generatedSource = readFileSync(resolve(repoRoot, 'src/lib/agent-seed.generated.ts'), 'utf8');
@@ -59,7 +60,7 @@ describe('engineering constitution preseed', () => {
   it('delivers Git Workflow in both modes and the constitution only in advanced mode', () => {
     const expectedByMode = {
       default: `${piGitWorkflow.trim()}\n\n---\n\n${localExecutionGate.trim()}`,
-      advanced: `${piDesignRouting.trim()}\n\n---\n\n${piConstitution.trim()}\n\n---\n\n${piGitWorkflow.trim()}`,
+      advanced: `${compiledPiDesignRouting.trim()}\n\n---\n\n${piConstitution.trim()}\n\n---\n\n${piGitWorkflow.trim()}`,
     };
     for (const mode of ['default', 'advanced']) {
       const instructions = generatedDocuments.find(
