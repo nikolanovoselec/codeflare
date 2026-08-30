@@ -2995,7 +2995,7 @@ None.
 4. Implicit Impeccable discovery remains limited to critique and bounded finishing. <!-- @impl: preseed/agents/claude/skills/impeccable/SKILL.md::Codeflare routing boundary --> <!-- @manual: Compare thesis-changing redesign and bounded finishing prompts. -->
 5. Impeccable refresh preserves its explicit command body while applying the Codeflare boundary. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareRoutingBoundary --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-181: adapts upstream Impeccable routing without changing explicit commands) -->
 6. Emil Design Engineering refines interaction only after direction exists. <!-- @impl: preseed/agents/claude/skills/emil-design-eng/SKILL.md::Authority boundary --> <!-- @manual: Request focused motion refinement after selecting a frontend direction. -->
-7. Impeccable refresh rejects downloaded metadata when one routing description cannot be established. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareRoutingBoundary --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-181: adapts upstream Impeccable routing without changing explicit commands) -->
+7. Downloaded Impeccable metadata that cannot establish one routing description fails before any existing skill target changes. <!-- @impl: scripts/update-impeccable-skill.mjs::replaceImpeccableTargets --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-181: adapts upstream Impeccable routing without changing explicit commands) -->
 
 **Constraints:**
 
