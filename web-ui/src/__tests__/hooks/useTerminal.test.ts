@@ -1011,7 +1011,8 @@ describe('useTerminal hook', () => {
         result.containerRef(containerEl);
         return dispose;
       });
-      const tap = vi.mocked(attachSwipeGestures).mock.calls.at(-1)?.[4];
+      const gestureCalls = vi.mocked(attachSwipeGestures).mock.calls;
+      const tap = gestureCalls[gestureCalls.length - 1]?.[4];
       expect(tap).toBeTypeOf('function');
 
       tap?.(42, 57);
@@ -1024,9 +1025,9 @@ describe('useTerminal hook', () => {
         57,
       );
       expect(focusMobileTerminal).toHaveBeenCalled();
-      expect(vi.mocked(sendHerdrTap).mock.invocationCallOrder.at(-1)!).toBeLessThan(
-        vi.mocked(focusMobileTerminal).mock.invocationCallOrder.at(-1)!,
-      );
+      const tapOrder = vi.mocked(sendHerdrTap).mock.invocationCallOrder;
+      const focusOrder = vi.mocked(focusMobileTerminal).mock.invocationCallOrder;
+      expect(tapOrder[tapOrder.length - 1]!).toBeLessThan(focusOrder[focusOrder.length - 1]!);
       dispose();
     });
   });
@@ -1081,6 +1082,43 @@ describe('useTerminal hook', () => {
 
       expect(mockTerminalInstance.paste).toHaveBeenCalledWith('retained selection');
       expect(navigator.clipboard.readText).not.toHaveBeenCalled();
+      dispose();
+    });
+
+    it('does not retain an older failed write after a newer write succeeds', async () => {
+      let rejectFirst!: (reason?: unknown) => void;
+      let resolveSecond!: () => void;
+      const first = new Promise<void>((_resolve, reject) => { rejectFirst = reject; });
+      const second = new Promise<void>((resolve) => { resolveSecond = resolve; });
+      vi.mocked(navigator.clipboard.writeText)
+        .mockImplementationOnce(() => first)
+        .mockImplementationOnce(() => second);
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      const osc = mockRegisterOscHandler.mock.calls.find(([identifier]) => identifier === 52)?.[1];
+      expect(osc?.('c;Zmlyc3Q=')).toBe(true);
+      expect(osc?.('c;c2Vjb25k')).toBe(true);
+
+      resolveSecond();
+      await second;
+      rejectFirst(new Error('older denied'));
+      await first.catch(() => undefined);
+      await Promise.resolve();
+
+      const handler = mockAttachCustomKeyEventHandler.mock.calls[0]?.[0];
+      expect(handler?.({
+        type: 'keydown', key: 'v', ctrlKey: true, metaKey: false,
+        altKey: false, shiftKey: false, preventDefault: vi.fn(),
+      } as unknown as KeyboardEvent)).toBe(false);
+
+      await vi.waitFor(() => {
+        expect(navigator.clipboard.readText).toHaveBeenCalledOnce();
+        expect(mockTerminalInstance.paste).toHaveBeenCalledWith('pasted into Herdr');
+      });
+      expect(mockTerminalInstance.paste).not.toHaveBeenCalledWith('first');
       dispose();
     });
 

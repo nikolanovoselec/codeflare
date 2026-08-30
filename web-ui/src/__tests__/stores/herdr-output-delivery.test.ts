@@ -18,7 +18,7 @@ describe('Herdr differential output delivery', () => {
     vi.useRealTimers();
   });
 
-  it('delivers every complete frame immediately and in order', () => {
+  it('delivers every complete frame on schedule and in order', () => {
     const term = terminal();
     scheduleWrite('s:1', term, frame('first differential'));
     vi.advanceTimersByTime(40);

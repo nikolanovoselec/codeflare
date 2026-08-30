@@ -272,9 +272,7 @@ A 2,000,000-character cap bounds held memory. Overflow drops the oldest whole he
 
 ### Herdr Viewport Ownership
 
-Herdr owns history inside its alternate-buffer application, but its viewport still needs stable browser presentation. After a Page Up or Down, pointer press, wheel action, or initial connection, the browser asks the host for the focused pane's current scroll state. The host validates one bounded public Herdr API response and returns only a request ID plus two booleans. Socket paths and pane identity never enter the browser protocol.
-
-Fresh Herdr Pi starts with `--tui-mode fullscreen`, so Pi owns transcript history and preserves its internal viewport while output continues. Codeflare delivers every complete Herdr differential frame immediately and in order; it never holds or discards stateful frames. Classic keeps its existing terminal-owned scrollback hold. This path implements [REQ-TERM-040](../../sdd/spec/terminal.md#req-term-040-stable-herdr-pane-scrollback). <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @impl: web-ui/src/stores/terminal-output.ts::scheduleWrite -->
+Fresh Herdr Pi starts with `--tui-mode fullscreen`, so Pi owns transcript history and preserves its internal viewport while output continues. Codeflare queues complete Herdr differential frames on the standard 33 ms output schedule and presents them in order without a viewport-specific gate. Classic keeps its existing terminal-owned scrollback hold. This path implements [REQ-TERM-040](../../sdd/spec/terminal.md#req-term-040-stable-herdr-pane-scrollback). <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @impl: web-ui/src/stores/terminal-output.ts::scheduleWrite -->
 
 ### Viewport DOM Desync (instant yank to top)
 

@@ -16,7 +16,7 @@ import { getIframeInput, scrollBufferToBottom, resyncViewportScrollState } from 
 import { attachWheelScrolling } from '../lib/terminal-wheel';
 import { useScrollCorrection } from './useScrollCorrection';
 import { agentEventDisposition, showGrantedAgentEvent } from '../lib/agent-notifications';
-import { parseOsc52ClipboardWrite, retainFailedClipboardWrite, takeFailedClipboardWrite } from '../lib/osc52';
+import { beginClipboardWrite, completeClipboardWrite, parseOsc52ClipboardWrite, retainFailedClipboardWrite, takeFailedClipboardWrite } from '../lib/osc52';
 import { resolveTerminalMode, type TerminalMode } from '../types';
 
 /** DECTCEM (DEC Text Cursor Enable Mode) — the CSI parameter for cursor show/hide sequences */
@@ -444,10 +444,13 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     if (isHerdr()) {
       clipboardDisposable = t.parser.registerOscHandler(52, (data) => {
         const text = parseOsc52ClipboardWrite(data);
-        if (text === null) return true;
-        void navigator.clipboard.writeText(text).catch(() => {
-          if (term) retainFailedClipboardWrite(term, text);
-        });
+        const terminal = term;
+        if (text === null || !terminal) return true;
+        const writeId = beginClipboardWrite(terminal);
+        void navigator.clipboard.writeText(text).then(
+          () => completeClipboardWrite(terminal, writeId),
+          () => retainFailedClipboardWrite(terminal, writeId, text),
+        );
         return true;
       });
     }

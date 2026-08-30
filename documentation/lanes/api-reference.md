@@ -130,8 +130,6 @@ A successful start response means asynchronous startup was accepted, not that po
 
 **Terminal frame contract:** Client→server sends raw PTY input or JSON control frames `{type:"focus"}`, `{type:"resize", cols, rows}`, or `{type:"kill"}`. Server→client sends raw PTY output or JSON frames `{type:"restore", state}` and `{type:"process-name", terminalId, processName}`. <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @impl: host/src/session.ts::attach --> <!-- @impl: host/src/session.ts::start -->
 
-Herdr scroll request IDs are non-negative safe integers. Probe dimensions are positive safe integers below 10,000. The response booleans are validated before use, and a response older than the latest request cannot change held-output state. Classic uses `process-name` for outer tab labels; Herdr ignores it because inner process state belongs to Herdr. Herdr viewport state follows [REQ-TERM-040](../../sdd/spec/terminal.md#req-term-040-stable-herdr-pane-scrollback). <!-- @impl: web-ui/src/stores/terminal-protocol.ts::parseControlMessage --> <!-- @impl: web-ui/src/stores/terminal.ts::connect -->
-
 ## Vault
 
 The in-container SilverBullet editor is reached through the Worker proxy. Under [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) the SilverBullet app is served under a **bucket-stable** path `/api/vault/<token>/` (token = opaque 32-hex `SHA-256(salt+bucketName)`, no PII), so the IndexedDB names persist across sessions; the session-keyed `/api/vault/:sid/` path is an entry that sets `cf_vault_sid` and 302-redirects to the token path.

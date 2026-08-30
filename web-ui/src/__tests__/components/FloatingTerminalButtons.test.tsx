@@ -6,7 +6,7 @@ import { sessionStore } from '../../stores/session';
 import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 import { sendTerminalKey } from '../../lib/touch-gestures';
 import { setIframeInput } from '../../lib/xterm-internals';
-import { retainFailedClipboardWrite } from '../../lib/osc52';
+import { beginClipboardWrite, retainFailedClipboardWrite } from '../../lib/osc52';
 
 // Mocks for mobile detection
 const mobileMock = vi.hoisted(() => ({
@@ -348,7 +348,8 @@ describe('FloatingTerminalButtons / REQ-MOB-006 (sticky Ctrl button)', () => {
       const mockTerm = { paste: vi.fn(), textarea: document.createElement('textarea') };
       (sessionStore as any).activeSessionId = 'test-session';
       vi.mocked(terminalStore.getTerminal).mockReturnValue(mockTerm as any);
-      retainFailedClipboardWrite(mockTerm, 'retained Pi selection');
+      const writeId = beginClipboardWrite(mockTerm);
+      retainFailedClipboardWrite(mockTerm, writeId, 'retained Pi selection');
       const writeText = vi.fn().mockResolvedValue(undefined);
       const readText = vi.fn().mockResolvedValue('stale clipboard');
       Object.assign(navigator, { clipboard: { readText, writeText } });
