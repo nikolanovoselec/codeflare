@@ -66,14 +66,18 @@ function rewriteFiles(root, runtimePath) {
 }
 
 export function applyCodeflareRoutingBoundary(text) {
-  const narrowed = text.replace(
+  const match = text.match(/^---\n([\s\S]*?)\n---\n/);
+  if (!match) throw new Error('downloaded Impeccable skill has malformed frontmatter');
+  const descriptions = match[1].match(/^description:.*$/gm) ?? [];
+  if (descriptions.length !== 1) {
+    throw new Error('downloaded Impeccable skill must have exactly one frontmatter description');
+  }
+  const frontmatter = match[1].replace(
     /^description:.*$/m,
     `description: ${CODEFLARE_IMPECCABLE_DESCRIPTION}`,
   );
-  const frontmatterEnd = narrowed.indexOf('\n---\n', 4);
-  if (frontmatterEnd === -1) throw new Error('downloaded Impeccable skill has malformed frontmatter');
-  const bodyStart = frontmatterEnd + '\n---\n'.length;
-  return `${narrowed.slice(0, bodyStart)}\n${CODEFLARE_IMPECCABLE_BOUNDARY}\n${narrowed.slice(bodyStart)}`;
+  const body = text.slice(match[0].length);
+  return `---\n${frontmatter}\n---\n\n${CODEFLARE_IMPECCABLE_BOUNDARY}\n${body}`;
 }
 
 function syncManifest(agent, skillRoot) {

@@ -171,7 +171,16 @@ version: 4.1.1
       () => applyCodeflareRoutingBoundary('description: malformed'),
       /malformed frontmatter/,
     );
-
+    for (const invalid of [
+      '---\nname: impeccable\nversion: 4.1.1\n---\n\n# Impeccable\n',
+      '---\nname: impeccable\nversion: 4.1.1\n---\n\ndescription: Body text only.\n',
+      '---\nname: impeccable\ndescription: First.\ndescription: Second.\n---\n',
+    ]) {
+      assert.throws(
+        () => applyCodeflareRoutingBoundary(invalid),
+        /exactly one frontmatter description/,
+      );
+    }
   });
 
   it('REQ-AGENT-137: reports duplicate identifiers and malformed JSON rule values', () => {

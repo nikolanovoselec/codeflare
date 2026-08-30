@@ -61,7 +61,8 @@ describe('REQ-AGENT-134: advanced design skill suite', () => {
     expect(AGENTS_SEEDED_CONFIGS.some((document) => document.key.startsWith('.copilot/skills/'))).toBe(false);
   });
 
-  it('REQ-AGENT-179: gives advanced Pi one short always-active lazy-load rule', () => {
+  // These assertions cover emitted seed contracts; manual REQ evidence owns model routing behavior.
+  it('REQ-AGENT-179: projects one bounded advanced Pi visual-routing entry', () => {
     const rule = AGENTS_SEEDED_CONFIGS.find(
       (document) => document.key === '.pi/agent/rules/design-routing.md',
     );
@@ -112,7 +113,7 @@ describe('REQ-AGENT-134: advanced design skill suite', () => {
     }
   });
 
-  it('REQ-AGENT-181: preserves the legacy taste entry point as a small frontend-design redirect', () => {
+  it('REQ-AGENT-181: projects a compact compatibility entry that targets frontend-design', () => {
     for (const prefix of TARGET_PREFIXES) {
       const document = AGENTS_SEEDED_CONFIGS.find(
         (candidate) => candidate.key === `${prefix}/design-taste-frontend/SKILL.md`,

@@ -2923,7 +2923,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Advanced Pi instructions include one bounded visual-routing entry. <!-- @impl: preseed/agents/pi/rules/design-routing.md::Design routing --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: gives advanced Pi one short always-active lazy-load rule) -->
+1. Advanced Pi instructions include one bounded visual-routing entry. <!-- @impl: preseed/agents/pi/rules/design-routing.md::Design routing --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-179: projects one bounded advanced Pi visual-routing entry) -->
 2. The Pi routing entry remains inactive for non-visual work. <!-- @impl: preseed/agents/pi/rules/design-routing.md::Design routing --> <!-- @manual: Ask advanced Pi for backend-only and prose-only changes; verify the visual router remains unloaded. -->
 3. `design` classifies visual work by mode and surface. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Classify --> <!-- @manual: Evaluate greenfield, redesign, polish, audit, Persuade, Operate, Read, and Experience prompts. -->
 4. Fixed-canvas work selects `canvas-design`. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @manual: Request a poster and social crop; verify frontend specialists remain unloaded. -->
@@ -2989,11 +2989,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. `design-taste-frontend` redirects legacy callers to `frontend-design`. <!-- @impl: preseed/agents/claude/skills/design-taste-frontend/SKILL.md::Frontend design compatibility route --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-181: preserves the legacy taste entry point as a small frontend-design redirect) -->
-2. UI UX Pro Max supplies evidence without owning the visual thesis. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/SKILL.md::Authority boundary --> <!-- @manual: Request local design evidence during frontend direction and verify `frontend-design` remains the owner. -->
-3. Implicit Impeccable discovery remains limited to critique and bounded finishing. <!-- @impl: preseed/agents/claude/skills/impeccable/SKILL.md::Codeflare routing boundary --> <!-- @manual: Compare thesis-changing redesign and bounded finishing prompts. -->
-4. Impeccable refresh preserves its explicit command body while applying the Codeflare boundary. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareRoutingBoundary --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-181: adapts upstream Impeccable routing without changing explicit commands) -->
-5. Emil Design Engineering refines interaction only after direction exists. <!-- @impl: preseed/agents/claude/skills/emil-design-eng/SKILL.md::Authority boundary --> <!-- @manual: Request focused motion refinement after selecting a frontend direction. -->
+1. A compact `design-taste-frontend` entry projects to every skill-capable runtime and names `frontend-design` as its target. <!-- @impl: preseed/agents/claude/skills/design-taste-frontend/SKILL.md::Frontend design compatibility route --> <!-- @test: src/__tests__/lib/design-skills-seed.test.ts (REQ-AGENT-181: projects a compact compatibility entry that targets frontend-design) -->
+2. Legacy taste requests continue through `frontend-design`. <!-- @impl: preseed/agents/claude/skills/design-taste-frontend/SKILL.md::Frontend design compatibility route --> <!-- @manual: Explicitly invoke `design-taste-frontend` and verify the resulting work follows `frontend-design`. -->
+3. UI UX Pro Max supplies evidence without owning the visual thesis. <!-- @impl: preseed/agents/claude/skills/ui-ux-pro-max/SKILL.md::Authority boundary --> <!-- @manual: Request local design evidence during frontend direction and verify `frontend-design` remains the owner. -->
+4. Implicit Impeccable discovery remains limited to critique and bounded finishing. <!-- @impl: preseed/agents/claude/skills/impeccable/SKILL.md::Codeflare routing boundary --> <!-- @manual: Compare thesis-changing redesign and bounded finishing prompts. -->
+5. Impeccable refresh preserves its explicit command body while applying the Codeflare boundary. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareRoutingBoundary --> <!-- @test: host/__tests__/design-skill-runtime.test.js (REQ-AGENT-181: adapts upstream Impeccable routing without changing explicit commands) -->
+6. Emil Design Engineering refines interaction only after direction exists. <!-- @impl: preseed/agents/claude/skills/emil-design-eng/SKILL.md::Authority boundary --> <!-- @manual: Request focused motion refinement after selecting a frontend direction. -->
 
 **Constraints:**
 
