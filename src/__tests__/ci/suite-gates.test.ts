@@ -374,7 +374,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
   it('REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently', () => {
     const { testWorkflow } = readCacheWorkflowContract();
-    for (const [name, expectedLegs] of [['backend-tests', 9], ['frontend-tests', 3], ['host-tests', 2]] as const) {
+    for (const [name, expectedLegs] of [['backend-tests', 13], ['frontend-tests', 3], ['host-tests', 2]] as const) {
       const strategy = (testWorkflow.jobs[name] as {
         strategy?: { 'max-parallel'?: number; matrix?: { include?: unknown[] } };
       }).strategy;
@@ -407,8 +407,8 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     };
     const nodeFiles = new Set(NODE_SUITE_FILES);
     const expectedWorkers = collect(join(REPO, 'src')).filter((file) => !nodeFiles.has(file)).sort();
-    const groups = Array.from({ length: 8 }, (_, index) => {
-      const selected = spawnSync(process.execPath, [WEIGHTED_SELECTOR, `${index + 1}/8`], {
+    const groups = Array.from({ length: 12 }, (_, index) => {
+      const selected = spawnSync(process.execPath, [WEIGHTED_SELECTOR, `${index + 1}/12`], {
         cwd: REPO,
         encoding: 'utf8',
       });
@@ -427,7 +427,8 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       strategy: { matrix: { include: Array<Record<string, string>> } };
     };
     expect(backend.strategy.matrix.include.map((leg) => leg['balance-group'])).toEqual([
-      '1/8', '2/8', '3/8', '4/8', '5/8', '6/8', '7/8', '8/8', '',
+      '1/12', '2/12', '3/12', '4/12', '5/12', '6/12',
+      '7/12', '8/12', '9/12', '10/12', '11/12', '12/12', '',
     ]);
     const backendCoverageLegs = backend.strategy.matrix.include.filter((leg) => leg.coverage === 'true').length;
     const coverageBackend = testWorkflow.jobs['coverage-backend'] as {
@@ -460,11 +461,11 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
         DIR: '.',
         SCRIPT: 'test',
         SHARD: '',
-        BALANCE_GROUP: '1/8',
+        BALANCE_GROUP: '1/12',
       },
     });
     expect(rendered.status, rendered.stderr).toBe(0);
-    expect(rendered.stdout).toContain('select-weighted-backend-tests.mjs 1/8');
+    expect(rendered.stdout).toContain('select-weighted-backend-tests.mjs 1/12');
     expect(rendered.stdout).toContain('npm run test -- "${tests[@]}"');
   });
 
