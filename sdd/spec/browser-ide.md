@@ -770,7 +770,7 @@ A full code-server browser editor for an advanced running session. The editor op
 
 - The fixed local `pi --mode rpc --no-session --no-themes` process serializes all IDE turns.
 - Pi 0.84.1 awaits extension settlement handlers before emitting external settlement.
-- Active cancellation or backend failure follows REQ-IDE-008 process-generation ownership.
+- Active cancellation or backend failure follows [REQ-IDE-008](#req-ide-008-ide-agent-process-lifecycle) process-generation ownership.
 
 **Priority:** P1
 
