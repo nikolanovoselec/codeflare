@@ -130,14 +130,14 @@ Read [Security](documentation/lanes/security.md), [Authentication](documentation
 
 ### Before you begin
 
-Use a Cloudflare account that can run Workers and Containers, a GitHub fork with Actions enabled, and separate deployment and runtime tokens from [Configuration](documentation/lanes/configuration.md#cloudflare-api-token-operator). Before deployment, licensed operators complete the private [deployment quick start](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/quickstarts.md) for their selected mode. Production promotion and recovery run through reviewed GitHub workflows rather than local Wrangler commands.
+Use a Cloudflare account that can run Workers and Containers, a GitHub fork with Actions enabled, and the established API token permissions from [Configuration](documentation/lanes/configuration.md#cloudflare-api-token-operator). Before deployment, licensed operators complete the private [deployment quick start](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/quickstarts.md) for their selected mode. Production promotion and recovery run through reviewed GitHub workflows rather than local Wrangler commands.
 
 ### Default self-operated deployment
 
 The public path creates a private single-tenant instance in four steps:
 
 1. Fork this repository.
-2. Add `CLOUDFLARE_DEPLOY_API_TOKEN`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_ACCOUNT_ID` to each target GitHub Environment. Deployment token needs D1 Edit; runtime token remains separate and narrower. Use the maintained [operator token scope list](documentation/lanes/configuration.md#cloudflare-api-token-operator).
+2. Keep `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in their established repository or target-environment Actions secret scope. The API token needs D1 Edit for usage-database creation and migrations. Use the maintained [operator token scope list](documentation/lanes/configuration.md#cloudflare-api-token-operator).
 3. Run **Actions > Deploy > Run workflow** from `main` with the production target.
 4. Open the Worker URL and complete the setup wizard for the custom domain, allowed users, administrators, R2 credentials, and Cloudflare Access resources.
 

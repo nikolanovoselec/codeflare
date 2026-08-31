@@ -2,7 +2,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { deploymentCredentialBoundary } from './deployment-credentials.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -30,17 +29,17 @@ function renderBinding(config, databaseName, databaseId) {
 
 export async function prepareUsageD1({
   workerName,
-  deployToken,
-  runtimeToken,
+  apiToken,
   wranglerConfig,
   run,
   writeConfig = async () => {},
 }) {
-  const credentials = deploymentCredentialBoundary(deployToken, runtimeToken);
+  if (!apiToken) throw new Error('CLOUDFLARE_API_TOKEN is required');
+  const wranglerEnvironment = { CLOUDFLARE_API_TOKEN: apiToken };
   if (!workerName?.trim()) throw new Error('Worker name is required');
   const databaseName = `${workerName}-usage`;
 
-  const listed = await run(['d1', 'list', '--json'], credentials.wranglerEnvironment);
+  const listed = await run(['d1', 'list', '--json'], wranglerEnvironment);
   if (listed.status !== 0) throw new Error(`Could not list D1 databases — refusing to mutate: ${listed.stderr || listed.stdout || 'unknown error'}`);
   const databases = parseJson(listed.stdout || '[]', 'D1 list');
   if (!Array.isArray(databases)) throw new Error('D1 list returned an unexpected shape');
@@ -50,7 +49,7 @@ export async function prepareUsageD1({
   let database = exact[0];
   let created = false;
   if (!database) {
-    const creation = await run(['d1', 'create', databaseName, '--json'], credentials.wranglerEnvironment);
+    const creation = await run(['d1', 'create', databaseName, '--json'], wranglerEnvironment);
     if (creation.status !== 0) throw new Error(`Could not create D1 database ${databaseName}: ${creation.stderr || creation.stdout || 'unknown error'}`);
     database = parseJson(creation.stdout || '{}', 'D1 create');
     created = true;
@@ -61,9 +60,9 @@ export async function prepareUsageD1({
   const rendered = renderBinding(wranglerConfig, databaseName, databaseId);
   await writeConfig(rendered);
 
-  const types = await run(['types'], credentials.wranglerEnvironment);
+  const types = await run(['types'], wranglerEnvironment);
   if (types.status !== 0) throw new Error(`Worker binding type generation failed: ${types.stderr || types.stdout || 'unknown error'}`);
-  const migration = await run(['d1', 'migrations', 'apply', databaseName, '--remote'], credentials.wranglerEnvironment);
+  const migration = await run(['d1', 'migrations', 'apply', databaseName, '--remote'], wranglerEnvironment);
   if (migration.status !== 0) throw new Error(`D1 migration failed: ${migration.stderr || migration.stdout || 'unknown error'}`);
 
   return { databaseId, databaseName, created, wranglerConfig: rendered };
@@ -84,8 +83,7 @@ async function main() {
   const configPath = process.argv[2] || 'wrangler.toml';
   const result = await prepareUsageD1({
     workerName: process.env.WORKER_NAME,
-    deployToken: process.env.CLOUDFLARE_API_TOKEN,
-    runtimeToken: process.env.RUNTIME_CLOUDFLARE_API_TOKEN,
+    apiToken: process.env.CLOUDFLARE_API_TOKEN,
     wranglerConfig: await readFile(configPath, 'utf8'),
     run: runWrangler,
     writeConfig: (content) => writeFile(configPath, content),

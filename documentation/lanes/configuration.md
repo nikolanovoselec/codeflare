@@ -43,8 +43,7 @@ Every table below identifies default, required state, consumer, and requirement.
 | Variable | Purpose | Default | Required | Consumed by | Implements |
 |----------|---------|---------|----------|-------------|------------|
 | `SERVICE_TOKEN_EMAIL` | Email for service token auth | - | no | Optional | [REQ-AUTH-003](../../sdd/spec/authentication.md#req-auth-003-cf-access-mode-for-all-other-deployments), [REQ-SETUP-003](../../sdd/spec/setup.md#req-setup-003-three-deployment-modes) |
-| `CLOUDFLARE_DEPLOY_API_TOKEN` | GitHub Actions deployment, D1 provisioning, and migrations; must differ from the runtime token | - | yes for deployment | GitHub deployment-environment secret | [REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary) |
-| `CLOUDFLARE_API_TOKEN` | Runtime R2 bucket creation; never reused for D1 deployment | - | yes | Wrangler secret | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
+| `CLOUDFLARE_API_TOKEN` | GitHub Actions deployment, D1 provisioning and migrations, plus runtime R2 bucket creation | - | yes | Repository or deployment-environment secret; uploaded as the existing Worker secret | [REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary), [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
 | `R2_ACCESS_KEY_ID` | R2 auth for containers | setup-generated | runtime-required; not preconfigured | Setup-generated Worker secret | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
 | `R2_SECRET_ACCESS_KEY` | R2 auth for containers | setup-generated | runtime-required; not preconfigured | Setup-generated Worker secret | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
 | `R2_ACCOUNT_ID` | R2 endpoint construction | - | no | Dynamic (env with KV fallback) | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
@@ -147,7 +146,7 @@ Base image: Node.js 24 Debian (bookworm-slim).
 
 ### Cloudflare API Token (Operator)
 
-Deployment and runtime use separate tokens. `CLOUDFLARE_DEPLOY_API_TOKEN` uses the permissions needed by GitHub Actions, including D1 Edit. `CLOUDFLARE_API_TOKEN` keeps the runtime permissions needed for per-user R2 and setup-owned operations. Never widen or reuse the runtime token to satisfy deployment preflight. Start from the **"Edit Cloudflare Workers"** template, then add only the scopes required by that token's owner. Database identity, migration order, restore limits, and rollout checks are in [Administration and historical usage](administration-analytics.md).
+The established `CLOUDFLARE_API_TOKEN` continues to authenticate GitHub Actions deployment and the Worker runtime. Add D1 Edit to its existing permissions so deployment can create and migrate the usage database. Start from the **"Edit Cloudflare Workers"** template, then add only the scopes required by this repository. Database identity, migration order, restore limits, and rollout checks are in [Administration and historical usage](administration-analytics.md).
 
 #### Account Permissions
 
@@ -177,7 +176,7 @@ If your agent asks for additional permissions, you can add them by editing your 
 
 | Permission | Level | When Needed |
 |---|---|---|
-| D1 | Edit | Required on `CLOUDFLARE_DEPLOY_API_TOKEN` for usage-database creation and migrations; omit from runtime token |
+| D1 | Edit | Required on `CLOUDFLARE_API_TOKEN` for usage-database creation and migrations |
 | DNS | Edit | Managing DNS records for custom domains |
 | Zone | Read | Required alongside DNS for zone resolution |
 | Turnstile | Edit | Creating CAPTCHA widgets |

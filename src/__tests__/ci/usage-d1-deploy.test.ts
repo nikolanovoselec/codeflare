@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { deploymentCredentialBoundary } from '../../../scripts/ci/deployment-credentials.mjs';
 import { prepareUsageD1 } from '../../../scripts/ci/prepare-usage-d1.mjs';
 import { setHeadSampling } from '../../../scripts/ci/set-head-sampling.mjs';
 
@@ -41,36 +40,23 @@ describe('observability deployment boundary (REQ-OPS-057)', () => {
 });
 
 describe('D1 deployment boundary (REQ-OPS-056)', () => {
-  it('uses the deployment token for Wrangler and exposes only the runtime token as a Worker secret (AC7)', async () => {
-    const boundary = deploymentCredentialBoundary('deploy-token', 'runtime-token');
-    expect(boundary.wranglerEnvironment).toEqual({ CLOUDFLARE_API_TOKEN: 'deploy-token' });
-    expect(boundary.workerSecrets).toEqual({ CLOUDFLARE_API_TOKEN: 'runtime-token' });
-    expect(JSON.stringify(boundary.workerSecrets)).not.toContain('deploy-token');
-
+  it('uses the established API token for Wrangler D1 work (AC7)', async () => {
     const fake = fakeRunner({
       'd1 list --json': { status: 0, stdout: JSON.stringify([{ uuid: '22222222-2222-4222-8222-222222222222', name: 'codeflare-integration-usage' }]) },
       'd1 migrations apply codeflare-integration-usage --remote': { status: 0 },
     });
     await prepareUsageD1({
-      workerName: 'codeflare-integration', deployToken: 'deploy-token', runtimeToken: 'runtime-token', wranglerConfig: config, run: fake.run,
+      workerName: 'codeflare-integration', apiToken: 'api-token', wranglerConfig: config, run: fake.run,
     });
     expect(fake.environments).not.toHaveLength(0);
-    expect(fake.environments.every((environment) => environment.CLOUDFLARE_API_TOKEN === 'deploy-token')).toBe(true);
+    expect(fake.environments.every((environment) => environment.CLOUDFLARE_API_TOKEN === 'api-token')).toBe(true);
   });
 
-  it('rejects missing separate or runtime credentials before any Wrangler call', async () => {
+  it('rejects a missing established API token before any Wrangler call', async () => {
     const fake = fakeRunner({});
     await expect(prepareUsageD1({
       workerName: 'codeflare-integration',
-      deployToken: '',
-      runtimeToken: 'runtime',
-      wranglerConfig: config,
-      run: fake.run,
-    })).rejects.toThrow('CLOUDFLARE_DEPLOY_API_TOKEN');
-    await expect(prepareUsageD1({
-      workerName: 'codeflare-integration',
-      deployToken: 'deploy',
-      runtimeToken: '',
+      apiToken: '',
       wranglerConfig: config,
       run: fake.run,
     })).rejects.toThrow('CLOUDFLARE_API_TOKEN');
@@ -82,7 +68,7 @@ describe('D1 deployment boundary (REQ-OPS-056)', () => {
       'd1 list --json': { status: 1, stderr: 'permission denied' },
     });
     await expect(prepareUsageD1({
-      workerName: 'codeflare-integration', deployToken: 'deploy', runtimeToken: 'runtime', wranglerConfig: config, run: fake.run,
+      workerName: 'codeflare-integration', apiToken: 'api-token', wranglerConfig: config, run: fake.run,
     })).rejects.toThrow('Could not list D1 databases');
     expect(fake.calls).toEqual([['d1', 'list', '--json']]);
   });
@@ -97,7 +83,7 @@ describe('D1 deployment boundary (REQ-OPS-056)', () => {
       'd1 migrations apply codeflare-integration-usage --remote': { status: 0 },
     });
     const result = await prepareUsageD1({
-      workerName: 'codeflare-integration', deployToken: 'deploy', runtimeToken: 'runtime', wranglerConfig: config, run: fake.run,
+      workerName: 'codeflare-integration', apiToken: 'api-token', wranglerConfig: config, run: fake.run,
     });
     expect(result.databaseId).toBe('11111111-1111-4111-8111-111111111111');
     expect(result.created).toBe(true);
@@ -114,7 +100,7 @@ describe('D1 deployment boundary (REQ-OPS-056)', () => {
       'd1 migrations apply codeflare-integration-usage --remote': { status: 0 },
     });
     const result = await prepareUsageD1({
-      workerName: 'codeflare-integration', deployToken: 'deploy', runtimeToken: 'runtime', wranglerConfig: config, run: reuse.run,
+      workerName: 'codeflare-integration', apiToken: 'api-token', wranglerConfig: config, run: reuse.run,
     });
     expect(result.created).toBe(false);
     expect(reuse.calls.some((call) => call[1] === 'create')).toBe(false);
@@ -123,7 +109,7 @@ describe('D1 deployment boundary (REQ-OPS-056)', () => {
       'd1 list --json': { status: 0, stdout: JSON.stringify([existing, { ...existing, uuid: '33333333-3333-4333-8333-333333333333' }]) },
     });
     await expect(prepareUsageD1({
-      workerName: 'codeflare-integration', deployToken: 'deploy', runtimeToken: 'runtime', wranglerConfig: config, run: duplicate.run,
+      workerName: 'codeflare-integration', apiToken: 'api-token', wranglerConfig: config, run: duplicate.run,
     })).rejects.toThrow('duplicate');
     expect(duplicate.calls).toHaveLength(1);
   });
@@ -134,7 +120,7 @@ describe('D1 deployment boundary (REQ-OPS-056)', () => {
       'd1 migrations apply codeflare-integration-usage --remote': { status: 1, stderr: 'migration failed' },
     });
     await expect(prepareUsageD1({
-      workerName: 'codeflare-integration', deployToken: 'deploy', runtimeToken: 'runtime', wranglerConfig: config, run: fake.run,
+      workerName: 'codeflare-integration', apiToken: 'api-token', wranglerConfig: config, run: fake.run,
     })).rejects.toThrow('migration failed');
     expect(fake.calls).toHaveLength(3);
   });

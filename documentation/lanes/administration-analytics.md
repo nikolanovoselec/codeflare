@@ -36,9 +36,9 @@ D1 and KV must be restored as separate systems. A KV restore recovers live setti
 
 ## Deployment credentials
 
-Deployment uses two tokens. `CLOUDFLARE_DEPLOY_API_TOKEN` needs D1 Edit together with the existing Worker deployment permissions. Runtime `CLOUDFLARE_API_TOKEN` keeps its narrower runtime permissions. They must be different secret values. Reusing the runtime token because a deployment is urgent defeats the boundary and the workflow rejects it. ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary)) <!-- @impl: .github/workflows/deploy.yml::deploy -->
+Deployment continues to use the established `CLOUDFLARE_API_TOKEN`. It needs D1 Edit together with its existing Worker deployment permissions so the workflow can resolve the database, apply migrations, deploy, and preserve the same Worker secret. ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary)) <!-- @impl: .github/workflows/deploy.yml::deploy -->
 
-Store both values in each GitHub deployment environment. Integration must have the pair before this feature can deploy. Neither token enters source, D1, Activity, report history, or a session container. ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary)) <!-- @impl: .github/workflows/deploy.yml::deploy -->
+Store the token and `CLOUDFLARE_ACCOUNT_ID` in the existing repository or target-environment Actions secret scope. Neither value enters source, D1, Activity, report history, or a session container. ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary)) <!-- @impl: .github/workflows/deploy.yml::deploy -->
 
 ## Retention and reports
 
