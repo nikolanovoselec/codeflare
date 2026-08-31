@@ -574,3 +574,25 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Status:** Implemented
 
 ---
+
+### REQ-SETUP-020: Administration report timezone selection
+
+**Intent:** An administrator can select a report timezone without losing an accepted deployed schedule value.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Administration presents report timezones as a dropdown of canonical IANA choices and preserves an accepted stored value when it is absent from the bundled choices. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @impl: web-ui/src/lib/iana-timezones.ts::ianaTimezoneOptions --> <!-- @test: web-ui/src/__tests__/lib/iana-timezones.test.ts (REQ-SETUP-020 AC1: provides stable canonical report-scheduling choices and preserves accepted stored values) -->
+
+**Constraints:** Backend report-setting validation remains authoritative.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-027](subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-SETUP-018](#req-setup-018-stateless-environment-preview-and-bounded-execution)
+
+**Verification:** Automated timezone-option behavior and user-owned manual UI acceptance on Integration
+
+**Status:** Implemented
+
+---

@@ -87,7 +87,7 @@ Browser and visual acceptance belongs to the operator on Integration. CI does no
 | Administration UI and demand-driven reads | `web-ui/src/components/admin/`, `web-ui/src/api/client.ts` |
 | Deployment boundary | `scripts/ci/prepare-usage-d1.mjs`, `.github/workflows/deploy.yml` |
 
-Owning requirements are [REQ-SETUP-017 through REQ-SETUP-019](../../sdd/spec/setup.md), [REQ-SUB-025 through REQ-SUB-027](../../sdd/spec/subscription.md), and [REQ-OPS-056 through REQ-OPS-057](../../sdd/spec/operations.md).
+Owning requirements are [REQ-SETUP-017 through REQ-SETUP-020](../../sdd/spec/setup.md), [REQ-SUB-025 through REQ-SUB-027](../../sdd/spec/subscription.md), and [REQ-OPS-056 through REQ-OPS-057](../../sdd/spec/operations.md).
 
 ## Related Documentation
 
