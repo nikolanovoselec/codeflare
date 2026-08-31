@@ -26,7 +26,7 @@ import {
   setupMobileInput,
 } from '../../lib/terminal-mobile-input';
 import { disableVirtualKeyboardOverlay, enableVirtualKeyboardOverlay, forceResetKeyboardState, isFocusOnTerminalInput, isIOSDevice } from '../../lib/mobile';
-import { setIframeInput, setRemoveFocusGuard } from '../../lib/xterm-internals';
+import { getIframeInput, setIframeInput, setRemoveFocusGuard } from '../../lib/xterm-internals';
 
 describe('focusMobileTerminal', () => {
   beforeEach(() => {
@@ -65,6 +65,56 @@ describe('focusMobileTerminal', () => {
 
     vi.runOnlyPendingTimers();
     expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+  });
+});
+
+describe('MultiView keyboard routing', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('REQ-TERM-017 AC6: sends keyboard input only to the focused MultiView pane without an active session', () => {
+    vi.useFakeTimers();
+    const leftTerminal = {
+      input: vi.fn(),
+      getSelection: vi.fn(() => ''),
+      clearSelection: vi.fn(),
+      paste: vi.fn(),
+    } as any;
+    const rightTerminal = {
+      input: vi.fn(),
+      getSelection: vi.fn(() => ''),
+      clearSelection: vi.fn(),
+      paste: vi.fn(),
+    } as any;
+    const existingIframes = document.querySelectorAll('.terminal-input-iframe').length;
+    const cleanupLeft = setupMobileInput(
+      leftTerminal,
+      { active: true, focused: false },
+      { refreshCursorLine: vi.fn() },
+    );
+    const cleanupRight = setupMobileInput(
+      rightTerminal,
+      { active: true, focused: true },
+      { refreshCursorLine: vi.fn() },
+    );
+    const iframes = Array.from(document.querySelectorAll<HTMLIFrameElement>('.terminal-input-iframe'))
+      .slice(existingIframes);
+    for (const iframe of iframes) {
+      iframe.contentDocument!.body.innerHTML = '<input id="ti" type="password">';
+      iframe.dispatchEvent(new Event('load'));
+    }
+
+    focusMobileTerminal(rightTerminal);
+    vi.runOnlyPendingTimers();
+    const focusedInput = getIframeInput(rightTerminal)!;
+    expect(focusedInput.ownerDocument.activeElement).toBe(focusedInput);
+
+    focusedInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(rightTerminal.input).toHaveBeenCalledWith('\r', false);
+    expect(leftTerminal.input).not.toHaveBeenCalled();
+
+    cleanupLeft();
+    cleanupRight();
   });
 });
 
