@@ -73,24 +73,36 @@ describe('D1 deployment boundary (REQ-OPS-056)', () => {
     expect(fake.calls).toEqual([['d1', 'list', '--json']]);
   });
 
-  it('creates one absent database, renders one binding, then applies migrations', async () => {
-    const fake = fakeRunner({
-      'd1 list --json': { status: 0, stdout: '[]' },
-      'd1 create codeflare-integration-usage --json': {
-        status: 0,
-        stdout: JSON.stringify({ uuid: '11111111-1111-4111-8111-111111111111', name: 'codeflare-integration-usage' }),
-      },
-      'd1 migrations apply codeflare-integration-usage --remote': { status: 0 },
+  it('creates one absent database with supported Wrangler arguments, resolves its ID, then applies migrations', async () => {
+    const database = { uuid: '11111111-1111-4111-8111-111111111111', name: 'codeflare-integration-usage' };
+    const calls: WranglerCommand[] = [];
+    let listCalls = 0;
+    const run = vi.fn(async (command: WranglerCommand) => {
+      calls.push(command);
+      const key = command.join(' ');
+      if (key === 'd1 list --json') {
+        listCalls += 1;
+        return { status: 0, stdout: JSON.stringify(listCalls === 1 ? [] : [database]) };
+      }
+      if (key === 'd1 create codeflare-integration-usage') return { status: 0, stdout: 'Database created' };
+      if (key === 'types' || key === 'd1 migrations apply codeflare-integration-usage --remote') return { status: 0, stdout: '' };
+      return { status: 1, stderr: `Unsupported command: ${key}` };
     });
     const result = await prepareUsageD1({
-      workerName: 'codeflare-integration', apiToken: 'api-token', wranglerConfig: config, run: fake.run,
+      workerName: 'codeflare-integration', apiToken: 'api-token', wranglerConfig: config, run,
     });
-    expect(result.databaseId).toBe('11111111-1111-4111-8111-111111111111');
+    expect(result.databaseId).toBe(database.uuid);
     expect(result.created).toBe(true);
     expect(result.wranglerConfig.match(/binding = "USAGE_DB"/g)).toHaveLength(1);
     expect(result.wranglerConfig).toContain('database_name = "codeflare-integration-usage"');
-    expect(result.wranglerConfig).toContain('database_id = "11111111-1111-4111-8111-111111111111"');
-    expect(fake.calls.at(-1)).toEqual(['d1', 'migrations', 'apply', 'codeflare-integration-usage', '--remote']);
+    expect(result.wranglerConfig).toContain(`database_id = "${database.uuid}"`);
+    expect(calls).toEqual([
+      ['d1', 'list', '--json'],
+      ['d1', 'create', 'codeflare-integration-usage'],
+      ['d1', 'list', '--json'],
+      ['types'],
+      ['d1', 'migrations', 'apply', 'codeflare-integration-usage', '--remote'],
+    ]);
   });
 
   it('reuses one exact database and rejects duplicate exact names', async () => {
