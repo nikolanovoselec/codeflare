@@ -25,6 +25,7 @@ const AdministrationOverview = lazy(() => import('./components/admin/Administrat
 const EnvironmentIndex = lazy(() => import('./components/admin/EnvironmentIndex'));
 const EnvironmentAreaDetail = lazy(async () => ({ default: (await import('./components/admin/EnvironmentIndex')).EnvironmentAreaDetail }));
 const AdministrationPendingPage = lazy(() => import('./components/admin/AdministrationPendingPage'));
+const AnalyticsPage = lazy(() => import('./components/admin/AnalyticsPage'));
 
 // Check setup status from API.
 // Returns null when status cannot be determined (e.g. Access redirect/network error).
@@ -350,10 +351,6 @@ const AdministrationSubscriptions: Component = () => (
   <AdminSubscriptionManagement onBack={() => { window.location.href = '/admin'; }} />
 );
 
-const AdministrationAnalytics: Component = () => (
-  <AdministrationPendingPage title="Analytics" description="Organization runtime and distinct-session history in UTC." />
-);
-
 const AdministrationReports: Component = () => (
   <AdministrationPendingPage title="Reports" description="Monthly usage schedules and per-recipient delivery history." />
 );
@@ -389,7 +386,7 @@ const App: Component = () => {
         <Route path="/environment/:section" component={EnvironmentAreaDetail} />
         <Route path="/users" component={AdministrationUsers} />
         <Route path="/subscriptions" component={AdministrationSubscriptions} />
-        <Route path="/analytics" component={AdministrationAnalytics} />
+        <Route path="/analytics" component={AnalyticsPage} />
         <Route path="/reports" component={AdministrationReports} />
         <Route path="/activity" component={AdministrationActivity} />
       </Route>

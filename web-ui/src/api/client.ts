@@ -63,6 +63,53 @@ export async function getAdminConfiguration(): Promise<AdminConfigurationRespons
   return fetchApi('/admin/configuration', {}, AdminConfigurationResponseSchema);
 }
 
+const AdminUsageUserSchema = z.object({
+  userKey: z.string().regex(/^[0-9a-f]{64}$/),
+  email: z.string().email(),
+  accountStatus: z.enum(['active', 'deleted']),
+  dataSince: z.string(),
+  deletedAt: z.string().nullable(),
+  runtimeSeconds: z.number().nonnegative(),
+  sessionCount: z.number().int().nonnegative(),
+  historyUpdatedAt: z.string(),
+});
+
+const AdminUsageResponseSchema = z.object({
+  period: z.enum(['day', 'week', 'month', 'year']),
+  start: z.string(),
+  timezone: z.literal('UTC'),
+  sort: z.enum(['runtimeSeconds', 'sessionCount', 'email']),
+  direction: z.enum(['asc', 'desc']),
+  summary: z.object({
+    runtimeSeconds: z.number().nonnegative(),
+    sessionCount: z.number().int().nonnegative(),
+    activeUsers: z.number().int().nonnegative(),
+  }),
+  dataSince: z.string().nullable(),
+  historyUpdatedAt: z.string().nullable(),
+  users: z.array(AdminUsageUserSchema),
+  nextCursor: z.string().nullable(),
+});
+
+type AdminUsageResponse = z.infer<typeof AdminUsageResponseSchema>;
+export type AdminUsageUser = z.infer<typeof AdminUsageUserSchema>;
+
+export interface AdminUsageQuery {
+  period: 'day' | 'week' | 'month' | 'year';
+  start: string;
+  sort?: 'runtimeSeconds' | 'sessionCount' | 'email';
+  direction?: 'asc' | 'desc';
+  cursor?: string;
+  limit?: number;
+}
+
+export async function getAdminUsage(query: AdminUsageQuery): Promise<AdminUsageResponse> {
+  const params = new URLSearchParams(Object.entries(query)
+    .filter((entry): entry is [string, string | number] => entry[1] !== undefined)
+    .map(([key, value]) => [key, String(value)]));
+  return fetchApi(`/admin/usage?${params}`, {}, AdminUsageResponseSchema);
+}
+
 // Per-device agent notification enrollment (REQ-TERM-025 AC1-AC5)
 const AgentNotificationConfigSchema = z.object({
   vapidPublicKey: z.string().min(1),
