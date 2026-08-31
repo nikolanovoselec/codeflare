@@ -902,7 +902,7 @@ describe('Preferences Routes', () => {
       });
     });
 
-    it('target journaling preserves concurrent preference changes', async () => {
+    it('REQ-MEM-011 AC5: target journaling preserves concurrent preference changes', async () => {
       managedReleaseState.active = {
         digest: 'd'.repeat(64),
         compressed: new Uint8Array(),
@@ -946,6 +946,57 @@ describe('Preferences Routes', () => {
         sessionMode: 'advanced',
         herdrEnabled: true,
         managedEnvironmentApplied: { digest: 'd'.repeat(64) },
+      });
+    });
+
+    it('REQ-MEM-011 AC6: aborts stale reconciliation without reverting a concurrent mode update', async () => {
+      managedReleaseState.active = {
+        digest: 'd'.repeat(64),
+        compressed: new Uint8Array(),
+        release: { sequence: 9 },
+      };
+      managedReleaseState.cachedByDigest.set('a'.repeat(64), {
+        compressed: new Uint8Array(),
+        release: { sequence: 8 },
+      });
+      mockKV._set('user-prefs:codeflare-test-user', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest: 'a'.repeat(64), managedExtensionsDigest: 'c'.repeat(64), sequence: 8,
+          mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z',
+        },
+      });
+      let firstLookupStarted!: () => void;
+      const lookupStarted = new Promise<void>((resolve) => { firstLookupStarted = resolve; });
+      let continueFirstLookup!: () => void;
+      const lookupContinue = new Promise<void>((resolve) => { continueFirstLookup = resolve; });
+      const { getActiveVerifiedManagedRelease } = await import('../../lib/managed-release-active');
+      vi.mocked(getActiveVerifiedManagedRelease).mockImplementationOnce(async () => {
+        firstLookupStarted();
+        await lookupContinue;
+        return managedReleaseState.active;
+      });
+      const app = createTestApp();
+
+      const firstResponse = app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+      await lookupStarted;
+      const secondResponse = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'default' }),
+      });
+      expect(secondResponse.status).toBe(200);
+      continueFirstLookup();
+
+      expect((await firstResponse).status).toBe(500);
+      expect(mockReconcileAgentConfigs).toHaveBeenCalledTimes(1);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({
+        sessionMode: 'default',
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), mode: 'default' },
       });
     });
 

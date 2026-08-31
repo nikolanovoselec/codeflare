@@ -211,6 +211,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
     let managedInvolved = Boolean(
       existing.managedEnvironmentApplied || existing.managedEnvironmentReconciliation,
     );
+    let preserveConcurrentPreferences = false;
     try {
       const user = c.get('user');
       const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
@@ -279,6 +280,16 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
             : {};
       if (activeManagedRelease) {
         const latestBeforeJournal = await c.env.KV.get<UserPreferences>(key, 'json') ?? updated;
+        if (
+          latestBeforeJournal.sessionMode !== updated.sessionMode
+          || JSON.stringify(latestBeforeJournal.managedEnvironmentApplied)
+            !== JSON.stringify(updated.managedEnvironmentApplied)
+          || JSON.stringify(latestBeforeJournal.managedEnvironmentReconciliation)
+            !== JSON.stringify(updated.managedEnvironmentReconciliation)
+        ) {
+          preserveConcurrentPreferences = true;
+          throw new Error('Preferences changed before managed reconciliation started');
+        }
         await c.env.KV.put(key, JSON.stringify({
           ...latestBeforeJournal,
           managedEnvironmentReconciliation: { targets: expectedReconciliationTargets },
@@ -300,10 +311,14 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
 
       const latest = await c.env.KV.get<UserPreferences>(key, 'json') ?? updated;
       if (
-        JSON.stringify(latest.managedEnvironmentReconciliation?.targets ?? [])
-        !== JSON.stringify(expectedReconciliationTargets)
+        latest.sessionMode !== updated.sessionMode
+        || JSON.stringify(latest.managedEnvironmentApplied)
+          !== JSON.stringify(updated.managedEnvironmentApplied)
+        || JSON.stringify(latest.managedEnvironmentReconciliation?.targets ?? [])
+          !== JSON.stringify(expectedReconciliationTargets)
       ) {
-        throw new Error('Managed reconciliation target state changed before publication');
+        preserveConcurrentPreferences = true;
+        throw new Error('Managed reconciliation preference state changed before publication');
       }
       const withoutManagedState = Object.fromEntries(
         Object.entries(latest).filter(([preferenceKey]) => (
@@ -338,21 +353,23 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
       // Managed reconciliation is not best-effort: reporting success here would hide a
       // partially reconciled bucket and a skipped applied stamp, and the next container
       // start would then reject with MANAGED_ENVIRONMENT_UPDATE_PENDING and no cause.
-      // Restore pre-request user preferences before rethrowing, but retain the internal
-      // target journal so a retry can repair any managed objects written before failure.
+      // Restore pre-request user preferences after reconciliation failure, but retain the
+      // target journal. A conflict abort preserves the newer preference record instead.
       if (managedInvolved) {
-        // Best-effort: a failing restore must not replace the reconciliation error that
-        // this branch exists to report.
-        try {
-          const latest = await c.env.KV.get<UserPreferences>(key, 'json') ?? {};
-          await c.env.KV.put(key, JSON.stringify({
-            ...existing,
-            ...(latest.managedEnvironmentReconciliation
-              ? { managedEnvironmentReconciliation: latest.managedEnvironmentReconciliation }
-              : {}),
-          }));
-        } catch (restoreErr) {
-          logger.error('Failed to restore preferences after managed reconcile failure', restoreErr instanceof Error ? restoreErr : new Error(String(restoreErr)));
+        if (!preserveConcurrentPreferences) {
+          // Best-effort: a failing restore must not replace the reconciliation error that
+          // this branch exists to report.
+          try {
+            const latest = await c.env.KV.get<UserPreferences>(key, 'json') ?? {};
+            await c.env.KV.put(key, JSON.stringify({
+              ...existing,
+              ...(latest.managedEnvironmentReconciliation
+                ? { managedEnvironmentReconciliation: latest.managedEnvironmentReconciliation }
+                : {}),
+            }));
+          } catch (restoreErr) {
+            logger.error('Failed to restore preferences after managed reconcile failure', restoreErr instanceof Error ? restoreErr : new Error(String(restoreErr)));
+          }
         }
         throw err;
       }
