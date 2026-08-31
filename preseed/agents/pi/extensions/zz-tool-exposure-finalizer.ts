@@ -1,4 +1,4 @@
-import { registerInitialToolFilter } from "./capability";
+import { registerInitialToolFilter } from "./capability-helpers";
 
 export function finalizeToolExposure(...args: Parameters<typeof registerInitialToolFilter>): void {
   registerInitialToolFilter(...args);
