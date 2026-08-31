@@ -5,7 +5,7 @@
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.84.2",
     "@gotgenes/pi-subagents": "19.3.2",
-    "@juicesharp/rpiv-advisor": "2.6.0",
+    "@juicesharp/rpiv-advisor": "2.7.1",
     "@juicesharp/rpiv-ask-user-question": "2.6.0",
     "@juicesharp/rpiv-todo": "2.6.0",
     "@narumitw/pi-goal": "0.53.0",
