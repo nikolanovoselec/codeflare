@@ -20,7 +20,7 @@ vi.mock('../../stores/setup', () => ({
     tokenDetectError: null,
     accountInfo: null,
     detectToken: vi.fn(),
-    loadExistingConfig: vi.fn().mockResolvedValue(undefined),
+    loadExistingConfig: vi.fn().mockResolvedValue(true),
     nextStep: vi.fn(),
   },
 }));
@@ -37,7 +37,7 @@ describe('SetupWizard', () => {
     // Default: not yet configured (first-time setup, authorized immediately)
     mockedGetSetupStatus.mockResolvedValue({ configured: false });
     mockedGetUser.mockResolvedValue({ role: 'admin', authenticated: true } as any);
-    vi.mocked(setupStore.loadExistingConfig).mockResolvedValue(undefined);
+    vi.mocked(setupStore.loadExistingConfig).mockResolvedValue(true);
     Object.assign(setupStore, { enterpriseMode: false, tokenDetected: false, accountInfo: null });
   });
 
@@ -54,22 +54,40 @@ describe('SetupWizard', () => {
       });
     });
 
-    it('hydrates completed Enterprise initialization before rendering recovery', async () => {
+    it('REQ-SETUP-022 AC2: hydrates completed Enterprise initialization before rendering recovery', async () => {
       mockedGetSetupStatus.mockResolvedValue({ configured: true, enterpriseMode: true });
-      vi.mocked(setupStore.loadExistingConfig).mockImplementationOnce(async () => {
-        Object.assign(setupStore, {
-          enterpriseMode: true,
-          tokenDetected: true,
-          accountInfo: { id: 'account-id', name: 'Enterprise account' },
-        });
-      });
+      let resolveHydration!: (loaded: boolean) => void;
+      vi.mocked(setupStore.loadExistingConfig).mockReturnValueOnce(new Promise<boolean>((resolve) => {
+        resolveHydration = resolve;
+      }));
 
       render(() => <SetupWizard />);
+      await waitFor(() => expect(setupStore.loadExistingConfig).toHaveBeenCalledOnce());
+      expect(document.body.textContent).toContain('Loading');
+      expect(document.querySelector('.setup-journey-layout')).not.toBeInTheDocument();
+
+      Object.assign(setupStore, {
+        enterpriseMode: true,
+        tokenDetected: true,
+        accountInfo: { id: 'account-id', name: 'Enterprise account' },
+      });
+      resolveHydration(true);
+
       await waitFor(() => {
-        expect(setupStore.loadExistingConfig).toHaveBeenCalledOnce();
         expect(document.body.textContent).toContain('Completed');
         expect(document.body.textContent).toContain('Enterprise');
       });
+    });
+
+    it('REQ-SETUP-022 AC3: keeps configured recovery closed when hydration fails', async () => {
+      mockedGetSetupStatus.mockResolvedValue({ configured: true, enterpriseMode: true });
+      vi.mocked(setupStore.loadExistingConfig).mockResolvedValueOnce(false);
+
+      render(() => <SetupWizard />);
+      await waitFor(() => expect(document.body.textContent).toContain('Initialization settings could not be loaded'));
+      expect(document.body.textContent).not.toContain('Completed');
+      expect(document.querySelector('.setup-journey-layout')).not.toBeInTheDocument();
+      expect(document.body.textContent).toContain('Retry');
     });
 
     it('renders a bounded loading shell while setup status resolves', () => {

@@ -82,7 +82,7 @@ const storeMethods = vi.hoisted(() => ({
   applyGroupRoutingToAll: vi.fn(),
   nextStep: vi.fn(),
   prevStep: vi.fn(),
-  loadExistingConfig: vi.fn().mockResolvedValue(undefined),
+  loadExistingConfig: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('../../stores/setup', () => ({

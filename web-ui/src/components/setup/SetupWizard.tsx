@@ -8,7 +8,7 @@ import ProgressStep from './ProgressStep';
 import Icon from '../Icon';
 import '../../styles/setup-wizard.css';
 
-type AuthState = 'loading' | 'authorized' | 'denied';
+type AuthState = 'loading' | 'authorized' | 'denied' | 'load-error';
 
 const SetupWizard: Component = () => {
   const [authState, setAuthState] = createSignal<AuthState>('loading');
@@ -24,7 +24,11 @@ const SetupWizard: Component = () => {
           return;
         }
       }
-      await setupStore.loadExistingConfig();
+      const loaded = await setupStore.loadExistingConfig();
+      if (status.configured && !loaded) {
+        setAuthState('load-error');
+        return;
+      }
       setInitializationComplete(status.configured);
       setAuthState('authorized');
     } catch {
@@ -43,6 +47,22 @@ const SetupWizard: Component = () => {
               <Icon path={mdiLoading} size={14} class="setup-header-status-icon--spin" />
               Loading
             </span>
+          </div>
+        </div>
+      </Show>
+
+      <Show when={authState() === 'load-error'}>
+        <div class="setup-container setup-container--message">
+          <div class="setup-header">
+            <Icon path={mdiAlertCircleOutline} size={24} class="setup-logo-icon setup-logo-icon--error" />
+            <h1 class="setup-title">Administration &amp; Analytics</h1>
+            <span class="setup-header-status setup-header-status--error">Unavailable</span>
+          </div>
+          <div class="setup-content setup-content--message">
+            <p class="denied-message">Initialization settings could not be loaded. No values were changed.</p>
+            <button type="button" class="denied-button" onClick={() => window.location.reload()}>
+              Retry
+            </button>
           </div>
         </div>
       </Show>

@@ -559,9 +559,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 2. Default and Onboarding add Users; SaaS adds Users and Subscription Tiers; Enterprise exposes neither. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout -->
 3. Existing Users and Subscription components and APIs are embedded without changing their mutations. <!-- @impl: web-ui/src/App.tsx::AdministrationUsers --> <!-- @impl: web-ui/src/App.tsx::AdministrationSubscriptions -->
 4. User-facing routine copy says Environment; Configuration remains internal API and storage vocabulary. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentIndex --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel -->
-5. Loading, empty, failure, conflict, reconnect, responsive, and managed-environment configuration states follow the approved Administration and Analytics design contract. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: web-ui/src/components/admin/environment-areas.ts::environmentAreas --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @impl: web-ui/src/styles/administration.css::.admin-shell --> <!-- @test: web-ui/src/__tests__/components/environment-areas.test.ts (REQ-SETUP-019 AC5: reports configured, disabled, and unconfigured managed-environment states) --> <!-- @manual -->
+5. Loading, empty, failure, conflict, reconnect, and responsive states follow the approved Administration and Analytics design contract. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @impl: web-ui/src/styles/administration.css::.admin-shell --> <!-- @manual -->
 6. First-run Setup presents mode-applicable readiness, access, routing, platform, managed-environment, integration, review, apply, and result stages. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @manual -->
-7. Administration exposes bootstrap and recovery as Initialization, and a successfully initialized deployment shows Completed status with its effective deployment mode. Workspace settings do not duplicate the action. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (hydrates completed Enterprise initialization before rendering recovery) --> <!-- @manual -->
+7. Completed deployments expose bootstrap recovery through Administration instead of duplicating the action in workspace settings. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @manual -->
 
 **Constraints:** One authoritative response owns mode gating. No UI framework, chart package, icon package, or duplicate mode logic is added.
 
@@ -583,7 +583,8 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. Administration presents report timezones as a dropdown of canonical IANA choices and preserves an accepted stored value when it is absent from the bundled choices. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @impl: web-ui/src/lib/iana-timezones.ts::ianaTimezoneOptions --> <!-- @test: web-ui/src/__tests__/lib/iana-timezones.test.ts (REQ-SETUP-020 AC1: provides stable canonical report-scheduling choices and preserves accepted stored values) -->
+1. Administration presents report timezones as a dropdown populated with canonical IANA choices. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (REQ-SETUP-020 AC1: renders canonical IANA timezone choices as a select) -->
+2. An accepted stored timezone remains selected when it is absent from the bundled choices. <!-- @impl: web-ui/src/lib/iana-timezones.ts::ianaTimezoneOptions --> <!-- @test: web-ui/src/__tests__/lib/iana-timezones.test.ts (REQ-SETUP-020 AC2: preserves accepted stored timezone values) --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (REQ-SETUP-020 AC2: retains an accepted stored timezone outside bundled choices) -->
 
 **Constraints:** Backend report-setting validation remains authoritative.
 
@@ -592,6 +593,52 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Dependencies:** [REQ-SUB-027](subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-SETUP-018](#req-setup-018-stateless-environment-preview-and-bounded-execution)
 
 **Verification:** Automated timezone-option behavior and user-owned manual UI acceptance on Integration
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-021: Administration managed-environment status
+
+**Intent:** Administration reports the deployed managed-environment state without confusing configuration with release freshness.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Managed-environment summaries distinguish configured release, configured-disabled, and unconfigured states. <!-- @impl: web-ui/src/components/admin/environment-areas.ts::environmentAreas --> <!-- @test: web-ui/src/__tests__/components/environment-areas.test.ts (REQ-SETUP-021 AC1: reports configured, disabled, and unconfigured managed-environment states) -->
+
+**Constraints:** The authoritative managed-environment prefill remains the status source.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SETUP-013](#req-setup-013-managed-environment-configuration), [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read)
+
+**Verification:** Automated summary-state mapping and user-owned manual UI acceptance on Integration
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-022: Initialization presentation and hydration
+
+**Intent:** Administrators can identify Initialization and cannot mistake unloaded recovery defaults for deployed configuration.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Administration labels its bootstrap-recovery entry Initialization. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @manual -->
+2. A configured deployment keeps recovery hidden until existing values load, then shows Completed status with its effective deployment mode. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/stores/setup.ts::loadExistingConfig --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (REQ-SETUP-022 AC2: hydrates completed Enterprise initialization before rendering recovery) -->
+3. Failed configured-deployment hydration shows a retryable load error without rendering recovery defaults. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/stores/setup.ts::loadExistingConfig --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (REQ-SETUP-022 AC3: keeps configured recovery closed when hydration fails) --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (REQ-SETUP-022 AC3: reports hydration failure and permits retry) -->
+
+**Constraints:** First-run Setup remains best-effort before any deployed configuration exists.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell)
+
+**Verification:** Automated hydration-order and failure-state behavior plus user-owned manual UI acceptance on Integration
 
 **Status:** Implemented
 

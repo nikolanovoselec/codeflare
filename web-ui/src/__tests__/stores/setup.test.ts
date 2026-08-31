@@ -1409,6 +1409,14 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
   });
 
   describe('loadExistingConfig', () => {
+    it('REQ-SETUP-022 AC3: reports hydration failure and permits retry', async () => {
+      mockFetch.mockResolvedValue(new Response('Unavailable', { status: 503 }));
+
+      expect(await setupStore.loadExistingConfig()).toBe(false);
+      expect(await setupStore.loadExistingConfig()).toBe(false);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
     it('uses setup prefill endpoint when setup is not configured', async () => {
       mockFetch.mockImplementation((url: string) => {
         if (url === '/api/setup/status') {

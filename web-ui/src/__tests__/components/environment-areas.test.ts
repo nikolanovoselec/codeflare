@@ -15,7 +15,7 @@ function managedEnvironmentArea(section: unknown) {
 }
 
 describe('Environment area summaries', () => {
-  it('REQ-SETUP-019 AC5: reports configured, disabled, and unconfigured managed-environment states', () => {
+  it('REQ-SETUP-021 AC1: reports configured, disabled, and unconfigured managed-environment states', () => {
     expect(managedEnvironmentArea({ configured: true, enabled: true, activeReleaseTag: 'seed-v41' })).toMatchObject({
       summary: 'seed-v41',
       status: 'Configured',

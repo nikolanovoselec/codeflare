@@ -16,7 +16,7 @@
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
-Administration is the routine control surface after Setup. Setup still owns first claim and first-run orchestration, presented as the same progressive operator experience across readiness, mode-applicable settings, review, apply, and result stages. Completed deployments keep **Initialization** in Administration navigation with a Completed status; workspace settings point only to Administration. Sending an operator through full provisioning to change one report recipient would be a bad control plane, so routine changes use bounded Environment sections instead. ([REQ-SETUP-019](../../sdd/spec/setup.md#req-setup-019-administration-and-analytics-shell)) <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard -->
+Administration is the routine control surface after Setup. Setup still owns first claim and first-run orchestration, presented as the same progressive operator experience across readiness, mode-applicable settings, review, apply, and result stages. Completed deployments keep **Initialization** in Administration navigation with a Completed status; workspace settings point only to Administration. Sending an operator through full provisioning to change one report recipient would be a bad control plane, so routine changes use bounded Environment sections instead. ([REQ-SETUP-019](../../sdd/spec/setup.md#req-setup-019-administration-and-analytics-shell), [REQ-SETUP-022](../../sdd/spec/setup.md#req-setup-022-initialization-presentation-and-hydration)) <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard -->
 
 ## Runtime ownership
 
@@ -87,7 +87,7 @@ Browser and visual acceptance belongs to the operator on Integration. CI does no
 | Administration UI and demand-driven reads | `web-ui/src/components/admin/`, `web-ui/src/api/client.ts` |
 | Deployment boundary | `scripts/ci/prepare-usage-d1.mjs`, `.github/workflows/deploy.yml` |
 
-Owning requirements are [REQ-SETUP-017 through REQ-SETUP-020](../../sdd/spec/setup.md), [REQ-SUB-025 through REQ-SUB-027](../../sdd/spec/subscription.md), and [REQ-OPS-056 through REQ-OPS-057](../../sdd/spec/operations.md).
+Owning requirements are [REQ-SETUP-017 through REQ-SETUP-022](../../sdd/spec/setup.md), [REQ-SUB-025 through REQ-SUB-027](../../sdd/spec/subscription.md), and [REQ-OPS-056 through REQ-OPS-057](../../sdd/spec/operations.md).
 
 ## Related Documentation
 

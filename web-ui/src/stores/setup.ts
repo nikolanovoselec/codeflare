@@ -395,8 +395,8 @@ function goToStep(step: number): void {
  * Pre-fill the store from the existing backend configuration.
  * Called when setup is already configured (re-configuration flow).
  */
-async function loadExistingConfig(): Promise<void> {
-  if (configLoaded) return;
+async function loadExistingConfig(): Promise<boolean> {
+  if (configLoaded) return true;
   configLoaded = true;
   try {
     const statusRes = await api.getSetupStatus();
@@ -419,7 +419,7 @@ async function loadExistingConfig(): Promise<void> {
         setState(
           produce((s) => applyEnterprisePrefill(s, prefill, statusRes.customDomain))
         );
-        return;
+        return true;
       }
       // Reconfiguration: load existing config so admin can see what's set.
       const { users: usersRes } = await api.getUsers();
@@ -434,21 +434,22 @@ async function loadExistingConfig(): Promise<void> {
       setState(
         produce((s) => applyReconfigPrefill(s, usersRes, reconfigPrefill, statusRes.customDomain, statusRes.saasMode))
       );
-      return;
+      return true;
     }
 
     // Initial setup: in SaaS mode, admin enters everything manually (no prefill)
     if (statusRes.saasMode) {
-      return;
+      return true;
     }
 
     const prefill = await api.getSetupPrefill();
     setState(
       produce((s) => applyInitialPrefill(s, prefill))
     );
+    return true;
   } catch {
-    // Silently fail — pre-fill is best-effort
     configLoaded = false;
+    return false;
   }
 }
 
