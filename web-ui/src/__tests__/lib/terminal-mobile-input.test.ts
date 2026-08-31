@@ -86,14 +86,14 @@ describe('MultiView keyboard routing', () => {
       paste: vi.fn(),
     } as any;
     const existingIframes = document.querySelectorAll('.terminal-input-iframe').length;
-    const cleanupLeft = setupMobileInput(
-      leftTerminal,
-      { active: true, focused: false },
-      { refreshCursorLine: vi.fn() },
-    );
     const cleanupRight = setupMobileInput(
       rightTerminal,
       { active: true, focused: true },
+      { refreshCursorLine: vi.fn() },
+    );
+    const cleanupLeft = setupMobileInput(
+      leftTerminal,
+      { active: true, focused: false },
       { refreshCursorLine: vi.fn() },
     );
     const iframes = Array.from(document.querySelectorAll<HTMLIFrameElement>('.terminal-input-iframe'))
