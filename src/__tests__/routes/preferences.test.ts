@@ -1000,6 +1000,53 @@ describe('Preferences Routes', () => {
       });
     });
 
+    it('REQ-MEM-011 AC6: final publication snapshot rejects a concurrent mode change', async () => {
+      managedReleaseState.active = {
+        digest: 'd'.repeat(64),
+        compressed: new Uint8Array(),
+        release: { sequence: 9 },
+      };
+      managedReleaseState.cachedByDigest.set('a'.repeat(64), {
+        compressed: new Uint8Array(),
+        release: { sequence: 8 },
+      });
+      mockKV._set('user-prefs:codeflare-test-user', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest: 'a'.repeat(64), managedExtensionsDigest: 'c'.repeat(64), sequence: 8,
+          mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z',
+        },
+      });
+      let digestStarted!: () => void;
+      const digestIsRunning = new Promise<void>((resolve) => { digestStarted = resolve; });
+      let finishDigest!: (digest: string) => void;
+      mockManagedExtensionsDocumentDigest.mockImplementationOnce(() => new Promise<string>((resolve) => {
+        finishDigest = resolve;
+        digestStarted();
+      }));
+      const app = createTestApp();
+
+      const response = app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+      await digestIsRunning;
+      const concurrent = await mockKV.get('user-prefs:codeflare-test-user', 'json') as Record<string, unknown>;
+      await mockKV.put('user-prefs:codeflare-test-user', JSON.stringify({ ...concurrent, sessionMode: 'default' }));
+      finishDigest('e'.repeat(64));
+
+      expect((await response).status).toBe(500);
+      expect(mockReconcileAgentConfigs).toHaveBeenCalledTimes(1);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({
+        sessionMode: 'default',
+        managedEnvironmentApplied: { digest: 'a'.repeat(64), mode: 'default' },
+        managedEnvironmentReconciliation: {
+          targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' }],
+        },
+      });
+    });
+
     it('REQ-MEM-011 AC6: aborts stale reconciliation without reverting a concurrent mode update', async () => {
       managedReleaseState.active = {
         digest: 'd'.repeat(64),
