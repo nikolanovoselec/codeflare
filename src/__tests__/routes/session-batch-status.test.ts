@@ -585,6 +585,41 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.managedReleaseStatus).toBe('current');
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
+
+    it('REQ-STOR-033 AC8: batch status exposes only matching pending progress', async () => {
+      const digest = 'd'.repeat(64);
+      managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
+      mockKV._set('managed-reconcile-progress:test-bucket', {
+        schemaVersion: 1, targetDigest: digest, phase: 'writing', completed: 25, total: 61,
+        updatedAt: '2026-08-31T12:00:00.000Z',
+      });
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseProgress?: unknown };
+      expect(body.managedReleaseProgress).toEqual({ phase: 'writing', completed: 25, total: 61 });
+    });
+
+    it('REQ-STOR-033 AC8: applied target omits and opportunistically clears stale progress', async () => {
+      const digest = 'd'.repeat(64);
+      managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      mockKV._set('user-prefs:test-bucket', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest, managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'default',
+          appliedAt: '2026-01-01T00:00:00.000Z',
+        },
+      });
+      mockKV._set('managed-reconcile-progress:test-bucket', {
+        schemaVersion: 1, targetDigest: digest, phase: 'finalizing', completed: 61, total: 61,
+        updatedAt: '2026-08-31T12:00:00.000Z',
+      });
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseProgress?: unknown };
+      expect(body.managedReleaseProgress).toBeUndefined();
+      expect(mockKV.delete).toHaveBeenCalledWith('managed-reconcile-progress:test-bucket');
+    });
   });
 
   // REQ-ENTERPRISE-020: every batch-status poll synchronously decides the Governed Mode regime

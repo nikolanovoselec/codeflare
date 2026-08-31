@@ -350,4 +350,62 @@ describe('managed storage reconcile', () => {
     expect(preferences.workspaceSyncEnabled).toBe(true);
     expect(preferences.lastPreseedHash).toBe('baked-hash');
   });
+
+  it('REQ-STOR-033 AC7: automatic endpoint is separate and manual Recreate remains full overwrite', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentApplied: {
+        digest: '1'.repeat(64), managedExtensionsDigest: '2'.repeat(64), sequence: 8,
+        mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+    state.cached = { compressed: state.active!.compressed, release: state.active!.release };
+
+    const automatic = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+    expect(automatic.status).toBe(200);
+    expect(reconcile).toHaveBeenLastCalledWith(
+      expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced',
+      expect.objectContaining({ automatic: expect.objectContaining({ assumeEmpty: false }) }),
+    );
+
+    reconcile.mockClear();
+    const manual = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
+    expect(manual.status).toBe(200);
+    expect(reconcile).toHaveBeenCalledWith(
+      expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced',
+      expect.not.objectContaining({ automatic: expect.anything() }),
+    );
+  });
+
+  it('REQ-STOR-033 AC4: automatic fallback is bounded and invalid applied identity fails closed', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentApplied: {
+        digest: 'invalid', managedExtensionsDigest: '2'.repeat(64), sequence: 8,
+        mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+    expect(response.status).toBe(500);
+    expect(createBucket).not.toHaveBeenCalled();
+    expect(reconcile).not.toHaveBeenCalled();
+  });
+
+  it('REQ-STOR-033 AC8: automatic progress is bounded, observational, and cleared after stamping', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+    expect(response.status).toBe(200);
+    const progressWrites = kv.put.mock.calls.filter(([key]) => key === 'managed-reconcile-progress:user-bucket');
+    expect(progressWrites.length).toBeGreaterThan(0);
+    expect(progressWrites.every(([, , options]) => options?.expirationTtl === 86_400)).toBe(true);
+    const appliedPutIndex = kv.put.mock.calls.findLastIndex(([key]) => key === 'user-prefs:user-bucket');
+    const clearIndex = kv.delete.mock.calls.findLastIndex(([key]) => key === 'managed-reconcile-progress:user-bucket');
+    expect(appliedPutIndex).toBeGreaterThanOrEqual(0);
+    expect(clearIndex).toBeGreaterThanOrEqual(0);
+  });
 });

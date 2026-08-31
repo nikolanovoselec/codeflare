@@ -2170,9 +2170,10 @@ None.
 4. On initial dashboard load, if an upgrade is needed, the frontend triggers the reconcile in the background. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) -->
 5. While automatic preseed reconciliation runs, the frontend keeps its update state active and clears it after completion. <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (should set preseedUpgrading during upgrade and clear after) -->
 6. If the auto-upgrade fails, the error is logged but the dashboard remains fully usable. A page refresh retries the check. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049 AC7: should clear preseedUpgrading on failure so dashboard remains usable) -->
-7. The reconcile respects the user's current session mode and tier (standard/pro/unlimited) - identical behavior to the manual "Recreate" button. <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) --> <!-- @manual -->
+7. The reconcile respects the user's current session mode and tier (standard/pro/unlimited); automatic managed-release upgrades use delta semantics while manual Recreate retains full overwrite. <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC7: automatic endpoint is separate and manual Recreate remains full overwrite) -->
+8. While an automatic managed-release upgrade is pending, existing batch-status polling transports matching server-observed planning, writing, and finalizing progress; the New Session button keeps centered text and fills its entire background from darker accent to ordinary accent as completion advances. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-033 AC8: batch status exposes only matching pending progress) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-049 AC8: whole-button managed upgrade progress preserves centered text and ordinary completion color) -->
 
-**Constraints:** None.
+**Constraints:** Progress is observational and never coordinates reconciliation.
 
 **Priority:** P1
 

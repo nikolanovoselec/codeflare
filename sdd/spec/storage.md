@@ -316,8 +316,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Constraints:**
 
-- Mode takes effect on an explicit re-seed, a mode-change reconcile, or the release-upgrade reconcile ([REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)), and currently-seeded keys are build-authoritative and overwritten by those reconciles.
-- Only files the build never seeded are preserved as the user's own ([REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
+- Mode takes effect on an explicit re-seed, a mode-change reconcile, or the release-upgrade reconcile ([REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)). Explicit re-seed and mode-change reconciliation overwrite every desired key. Automatic managed-release upgrade leaves release-identical keys untouched, including markerless user edits, and overwrites only keys whose desired release bytes or content type changed.
+- Only files the build never seeded are preserved as the user's own outside automatic managed-release delta semantics ([REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
 - No duplicate preseed source files exist on disk; all agent variants are generated from the Claude Code preseed as the single source of truth.
 - Preseed configuration must validate that no two entries within a single mode share the same key.
 
@@ -618,7 +618,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. Managed writes carry active release provenance. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC1 + REQ-STOR-024 AC2: Default and Advanced stream identical mode payloads with active release provenance) -->
-2. Obsolete content is deleted only while its marker matches the prior release. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC2: prior release markers guard managed cleanup) -->
+2. A path proven obsolete by direct applied-to-target comparison is deleted in mutable mode only while it retains a valid Codeflare provenance marker; marker equality with the immediately applied release is not required. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC2 + REQ-STOR-033 AC5: direct delta cleanup accepts older valid markers and preserves markerless edits) -->
 3. In mutable mode, signed retirements delete earlier seeded content only while a Codeflare ownership marker remains. <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC3: signed retirements delete only Codeflare-owned paths) -->
 4. Image-owned runtime files, user roots, transcripts, Vault content, and company package bytes remain outside managed documents. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/lib/r2-seed.ts::reseedContextModePlugin --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC4: image-owned and user-owned roots remain outside managed documents) -->
 5. In protected modes, signed retirements delete prior content without requiring an ownership marker. <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC5: protected signed retirement deletes markerless prior content) -->
@@ -916,5 +916,34 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Verification:** Automated root-boundary and category tests
 
 **Status:** Implemented
+
+---
+
+### REQ-STOR-033: Delta and resumable managed-release reconciliation
+
+**Intent:** Automatic managed-release upgrades must perform only release-required object mutations and resume interrupted work from existing R2 provenance without changing manual Recreate behavior.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Automatic reconciliation compares the exact applied signed bundle directly with the active target bundle using SHA-256 fingerprints over content type and content for each mode-eligible path; sequence distance does not introduce intermediate migrations. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC1: direct delta handles one-release and fifteen-release gaps without intermediate bundles) -->
+2. Automatic reconciliation PUTs only added paths or paths whose release content or content type changed; release-identical paths remain untouched, including markerless user edits. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC2: automatic delta writes only added or changed release paths) -->
+3. Before an automatic planned PUT, a matching target provenance marker counts the path complete and suppresses the PUT; fresh and cache-missing fallback plans include every target path. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC3: target provenance resumes interrupted automatic reconciliation) -->
+4. Full-target fallback is allowed only when applied identity is absent or its valid digest names a missing immutable cache object; malformed or conflicting applied identity fails before bucket mutation. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC4: automatic fallback is bounded and invalid applied identity fails closed) -->
+5. Direct-delta cleanup considers only source paths absent from target plus signed retirements; mutable deletion requires a valid Codeflare marker and preserves markerless edits and every desired target path. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC2 + REQ-STOR-033 AC5: direct delta cleanup accepts older valid markers and preserves markerless edits) -->
+6. The automatic endpoint revalidates active target, mode, policy, SSE regime, session ownership, and migration state immediately before stamping applied identity last. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC6: stale or failed automatic work never stamps applied identity) -->
+7. Existing manual, preference, lifecycle, and Stripe reconciliation callers retain full current behavior and never write managed-release progress. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC7: automatic endpoint is separate and manual Recreate remains full overwrite) -->
+8. Observational progress uses a strict expiring KV record, never controls execution, is exposed only for the matching pending target, and clears after successful applied stamping. <!-- @impl: src/lib/managed-reconcile-progress.ts::ManagedReconcileProgressSchema --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC8: automatic progress is bounded, observational, and cleared after stamping) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-033 AC8: batch status exposes only matching pending progress) -->
+
+**Constraints:** At most six R2 operations run concurrently. Browser closure may pause execution; a later dashboard trigger resumes from R2 markers. No Workflow, Queue, Durable Object, lock service, new binding, release-format change, bucket-layout change, or rclone change is introduced.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-021](#req-stor-021-managed-content-ownership), [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)
+
+**Verification:** Automated delta, route, status, and dashboard tests plus Enterprise Integration interruption verification
+
+**Status:** Planned
 
 ---

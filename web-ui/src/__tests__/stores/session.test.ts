@@ -48,6 +48,7 @@ vi.mock('../../api/client', () => ({
 
 vi.mock('../../api/storage', () => ({
   recreateAgentConfigs: vi.fn().mockResolvedValue({ success: true, written: [], skipped: [], deleted: [], warnings: [] }),
+  upgradeAgentConfigs: vi.fn().mockResolvedValue({ success: true, written: [], skipped: [], deleted: [], warnings: [] }),
 }));
 
 vi.mock('../../lib/vault-cache', () => ({
@@ -77,6 +78,7 @@ const mockGetBatchSessionStatus = vi.mocked(api.getBatchSessionStatus);
 const mockGetStartupStatus = vi.mocked(api.getStartupStatus);
 const mockStopSession = vi.mocked(api.stopSession);
 const mockRecreateAgentConfigs = vi.mocked(storageApi.recreateAgentConfigs);
+const mockUpgradeAgentConfigs = vi.mocked((storageApi as typeof storageApi & { upgradeAgentConfigs: typeof storageApi.recreateAgentConfigs }).upgradeAgentConfigs);
 const mockCleanupSessionVaultCache = vi.mocked(vaultCache.cleanupSessionVaultCache);
 const mockSweepOrphanVaultCaches = vi.mocked(vaultCache.sweepOrphanVaultCaches);
 
@@ -384,7 +386,7 @@ describe('Session Store', () => {
     });
 
     // REQ-AGENT-049: auto-upgrade preseed on stale hash
-    it('should trigger recreateAgentConfigs when preseedNeedsUpgrade is true', async () => {
+    it('REQ-STOR-033 AC7: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,
@@ -393,7 +395,8 @@ describe('Session Store', () => {
 
       await sessionStore.loadSessions();
 
-      expect(mockRecreateAgentConfigs).toHaveBeenCalledOnce();
+      expect(mockUpgradeAgentConfigs).toHaveBeenCalledOnce();
+      expect(mockRecreateAgentConfigs).not.toHaveBeenCalled();
     });
 
     it('should not trigger recreateAgentConfigs when preseedNeedsUpgrade is false', async () => {
@@ -410,7 +413,7 @@ describe('Session Store', () => {
 
     it('should set preseedUpgrading during upgrade and clear after', async () => {
       let resolveRecreate: (value: any) => void;
-      mockRecreateAgentConfigs.mockReturnValue(
+      mockUpgradeAgentConfigs.mockReturnValue(
         new Promise((resolve) => { resolveRecreate = resolve; })
       );
       mockGetBatchSessionStatus.mockResolvedValue({
@@ -430,7 +433,7 @@ describe('Session Store', () => {
     });
 
     it('REQ-AGENT-049 AC7: should clear preseedUpgrading on failure so dashboard remains usable', async () => {
-      mockRecreateAgentConfigs.mockRejectedValue(new Error('Network failure'));
+      mockUpgradeAgentConfigs.mockRejectedValue(new Error('Network failure'));
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,
@@ -440,6 +443,17 @@ describe('Session Store', () => {
       await sessionStore.loadSessions();
 
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+    });
+
+    it('REQ-AGENT-049 AC8: mirrors managed release progress from batch status', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {}, maxSessions: 3, managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: false,
+        managedReleaseProgress: { phase: 'writing', completed: 25, total: 61 },
+      } as any);
+
+      await sessionStore.loadSessions();
+
+      expect((sessionStore as any).managedReleaseProgress).toEqual({ phase: 'writing', completed: 25, total: 61 });
     });
 
     // REQ-ENTERPRISE-020: mirror the backend Governed Mode migration flag so the New Session
