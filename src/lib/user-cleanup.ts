@@ -190,6 +190,7 @@ async function deleteR2Bucket(
  */
 export async function cleanupUserData(email: string, env: Env): Promise<CleanupResult> {
   const normalizedEmail = normalizeCleanupEmail(email);
+  const bucketName = await resolveCleanupBucket(normalizedEmail, env);
   try {
     await tombstoneUsageUser(env.USAGE_DB, normalizedEmail, new Date().toISOString());
   } catch {
@@ -200,7 +201,6 @@ export async function cleanupUserData(email: string, env: Env): Promise<CleanupR
       'Account deletion is temporarily unavailable. No live data was removed.',
     );
   }
-  const bucketName = await resolveCleanupBucket(normalizedEmail, env);
 
   // --- Block A: Session + Container cleanup ---
   const deletedSessions = await deleteSessionsAndContainers(bucketName, env);

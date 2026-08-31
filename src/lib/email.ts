@@ -117,7 +117,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
       }),
     });
     if (!resp.ok) {
-      logger.error('Email send failed', new Error(`Resend API ${resp.status}`), { to: opts.to, subject: opts.subject });
+      logger.error('Email send failed', new Error(`Resend API ${resp.status}`), { recipientCount: opts.to.length, subject: opts.subject });
     }
     return resp.ok;
   } catch (err) {

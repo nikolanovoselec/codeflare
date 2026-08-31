@@ -9,7 +9,8 @@ const sectionLabels: Record<ConfigurationRun['section'], string> = {
 };
 
 const ActivityPage: Component = () => {
-  const [activity, { refetch }] = createResource(getConfigurationRuns);
+  const [cursor, setCursor] = createSignal('');
+  const [activity, { refetch }] = createResource(cursor, (value) => getConfigurationRuns(value || undefined));
   const [expanded, setExpanded] = createSignal<string>();
 
   return (
@@ -39,6 +40,8 @@ const ActivityPage: Component = () => {
                 </article>
               )}</For>
             </section>
+            <Show when={resolved().nextCursor}><div class="admin-form-actions"><button type="button" class="admin-secondary-button" onClick={() => setCursor(resolved().nextCursor || '')}>Older changes</button></div></Show>
+            <Show when={cursor()}><div class="admin-form-actions"><button type="button" class="admin-secondary-button" onClick={() => setCursor('')}>Back to newest</button></div></Show>
           </Show>}
         </Show>
       </Show>

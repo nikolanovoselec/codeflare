@@ -108,7 +108,8 @@ interface ReportRow {
 }
 
 function csvField(value: string): string {
-  return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
 }
 
 export function buildReportArtifacts(reportMonth: string, input: ReportRow[]): { html: string; csv: string } {

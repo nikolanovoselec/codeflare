@@ -17,6 +17,7 @@ import {
   SETUP_KEYS,
   getAdminConfigurationLatestKey,
   getAdminConfigurationRunKey,
+  listAllKvKeys,
 } from '../../lib/kv-keys';
 
 const RUN_TTL_SECONDS = 90 * 24 * 60 * 60;
@@ -160,8 +161,8 @@ app.use('*', authMiddleware);
 app.get('/', requireAdmin, async (c) => {
   const query = querySchema.safeParse(c.req.query());
   if (!query.success) return c.json({ error: 'Invalid Activity cursor or limit', code: 'validation_error' }, 400);
-  const listed = await c.env.KV.list({ prefix: ADMIN_CONFIGURATION_KEYS.RUN_PREFIX });
-  const runIds = listed.keys
+  const listed = await listAllKvKeys(c.env.KV, ADMIN_CONFIGURATION_KEYS.RUN_PREFIX);
+  const runIds = listed
     .map((key) => key.name.slice(ADMIN_CONFIGURATION_KEYS.RUN_PREFIX.length))
     .filter((runId) => !query.data.cursor || runId > query.data.cursor)
     .sort();
@@ -242,9 +243,17 @@ app.post('/', requireAdmin, async (c) => {
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
-  const send = async () => writer.write(encoder.encode(`${JSON.stringify({ type: 'snapshot', run })}\n`));
+  let observerConnected = true;
+  const send = async () => {
+    if (!observerConnected) return;
+    try {
+      await writer.write(encoder.encode(`${JSON.stringify({ type: 'snapshot', run })}\n`));
+    } catch {
+      observerConnected = false;
+    }
+  };
 
-  void (async () => {
+  const execution = (async () => {
     try {
       await send();
       const beforeWorkRevision = parseConfigurationRevision(await c.env.KV.get(ADMIN_CONFIGURATION_KEYS.REVISION));
@@ -344,9 +353,14 @@ app.post('/', requireAdmin, async (c) => {
       await send();
     } finally {
       await releaseAdmission(c.env.KV, run.runId).catch(() => {});
-      await writer.close();
+      if (observerConnected) await writer.close().catch(() => {});
     }
   })();
+  try {
+    c.executionCtx.waitUntil(execution);
+  } catch {
+    // Unit tests without an ExecutionContext still consume the response stream.
+  }
 
   return new Response(readable, { headers: { 'Content-Type': 'application/x-ndjson' } });
 });

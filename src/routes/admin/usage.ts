@@ -63,7 +63,8 @@ function cursorValue(row: AdminUsageRow, sort: UsageSort): string | number {
 }
 
 function csvCell(value: unknown): string {
-  const text = value === null || value === undefined ? '' : String(value);
+  const raw = value === null || value === undefined ? '' : String(value);
+  const text = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 

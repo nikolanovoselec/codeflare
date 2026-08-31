@@ -546,8 +546,8 @@ export async function resolveOrProvisionUser(
   const kvEntry = await resolveUserFromKV(kv, normalizedEmail);
 
   if (kvEntry) {
+    await retryUsageReactivation(env, normalizedEmail);
     if (kvEntry.addedBy === 'jit') {
-      await retryUsageReactivation(env, normalizedEmail);
       await queueWelcomeEmail(kv, env, bucketName, normalizedEmail);
     }
     return {

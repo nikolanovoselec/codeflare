@@ -181,8 +181,10 @@ const ConfigurationRunSchema = z.object({
 const ConfigurationRunsSchema = z.object({ items: z.array(ConfigurationRunSchema), nextCursor: z.string().nullable() });
 export type ConfigurationRun = z.infer<typeof ConfigurationRunSchema>;
 
-export async function getConfigurationRuns(): Promise<z.infer<typeof ConfigurationRunsSchema>> {
-  return fetchApi('/admin/configuration-runs?limit=50', {}, ConfigurationRunsSchema);
+export async function getConfigurationRuns(cursor?: string): Promise<z.infer<typeof ConfigurationRunsSchema>> {
+  const query = new URLSearchParams({ limit: '50' });
+  if (cursor) query.set('cursor', cursor);
+  return fetchApi(`/admin/configuration-runs?${query}`, {}, ConfigurationRunsSchema);
 }
 
 export async function getConfigurationRun(runId: string): Promise<ConfigurationRun> {

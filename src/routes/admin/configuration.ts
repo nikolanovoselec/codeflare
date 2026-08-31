@@ -97,7 +97,7 @@ app.get('/', requireAdmin, async (c) => {
     access: {
       adminUsers: allUsers.filter((user) => user.role === 'admin').map((user) => user.email),
       ...(mode === 'default' || mode === 'onboarding'
-        ? { allowedUsers: allUsers.filter((user) => user.role !== 'admin').map((user) => user.email) }
+        ? { allowedUsers: allUsers.map((user) => user.email) }
         : {}),
     },
     domain: { customDomain: customDomain ?? '' },
