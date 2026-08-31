@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createDueScheduledDispatch, createReportDispatch, retentionCutoffs, runUsageRetention } from '../../lib/usage-report-scheduler';
+import type { Env as AppEnv } from '../../types';
 
 describe('usage report scheduling recovery (REQ-SUB-027)', () => {
   it('recreates a missing revision cursor for the next configured delivery', async () => {
@@ -15,7 +16,7 @@ describe('usage report scheduling recovery (REQ-SUB-027)', () => {
       USAGE_DB: { batch: vi.fn() },
     };
 
-    await createDueScheduledDispatch(env as unknown as Env, new Date('2027-08-01T00:00:00.000Z'));
+    await createDueScheduledDispatch(env as unknown as AppEnv, new Date('2027-08-01T00:00:00.000Z'));
 
     expect(env.USAGE_DB.batch).not.toHaveBeenCalled();
     expect(puts).toHaveLength(1);

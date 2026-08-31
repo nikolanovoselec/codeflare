@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { prepareUsageD1 } from '../../../scripts/ci/prepare-usage-d1.mjs';
 import { setHeadSampling } from '../../../scripts/ci/set-head-sampling.mjs';
+// @ts-expect-error Vite loads the workflow as raw text in this CI behavior test.
 import deployWorkflow from '../../../.github/workflows/deploy.yml?raw';
 
 type WranglerCommand = string[];

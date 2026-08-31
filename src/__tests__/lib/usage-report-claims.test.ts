@@ -1,3 +1,4 @@
+// @ts-expect-error Provided by the Cloudflare Vitest Workers runtime.
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { claimReportDelivery, completeReportDelivery } from '../../lib/usage-report-scheduler';
@@ -14,13 +15,8 @@ async function insertDelivery(id: string, state: 'pending' | 'sending' | 'failed
 }
 
 beforeEach(async () => {
-  await db.exec(`CREATE TABLE IF NOT EXISTS report_deliveries (
-    id TEXT PRIMARY KEY, delivery_kind TEXT NOT NULL, dispatch_id TEXT NOT NULL,
-    settings_revision INTEGER NOT NULL, report_month TEXT NOT NULL, recipient TEXT NOT NULL,
-    state TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, claim_token TEXT,
-    lease_expires_at TEXT, reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-    accepted_at TEXT
-  ); DELETE FROM report_deliveries;`);
+  await db.exec('CREATE TABLE IF NOT EXISTS report_deliveries (id TEXT PRIMARY KEY, delivery_kind TEXT NOT NULL, dispatch_id TEXT NOT NULL, settings_revision INTEGER NOT NULL, report_month TEXT NOT NULL, recipient TEXT NOT NULL, state TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, claim_token TEXT, lease_expires_at TEXT, reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, accepted_at TEXT)');
+  await db.prepare('DELETE FROM report_deliveries').run();
 });
 
 describe('usage report delivery claims (REQ-SUB-027)', () => {

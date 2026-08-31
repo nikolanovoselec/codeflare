@@ -23,6 +23,10 @@ inputs:
   changed-line-threshold:
     description: 'Changed-production-line coverage floor.'
     required: true
+  changed-line-exclusions:
+    description: 'Comma-separated production files owned by explicit manual validation.'
+    required: false
+    default: ''
   statements-threshold:
     required: true
   branches-threshold:
@@ -66,6 +70,7 @@ runs:
         PACKAGE_ROOT: ${{ inputs.package-root }}
         CHANGED_BASE: ${{ inputs.changed-base }}
         CHANGED_LINE_THRESHOLD: ${{ inputs.changed-line-threshold }}
+        CHANGED_LINE_EXCLUSIONS: ${{ inputs.changed-line-exclusions }}
         STATEMENTS_THRESHOLD: ${{ inputs.statements-threshold }}
         BRANCHES_THRESHOLD: ${{ inputs.branches-threshold }}
         FUNCTIONS_THRESHOLD: ${{ inputs.functions-threshold }}
@@ -84,7 +89,7 @@ runs:
 
         args=("$log" "$status" false)
         if [ -n "$CHANGED_BASE" ]; then
-          args+=("$output/lcov.info" "$CHANGED_BASE" "$PACKAGE_ROOT" "$CHANGED_LINE_THRESHOLD")
+          args+=("$output/lcov.info" "$CHANGED_BASE" "$PACKAGE_ROOT" "$CHANGED_LINE_THRESHOLD" "$CHANGED_LINE_EXCLUSIONS")
         fi
         node "$GITHUB_WORKSPACE/scripts/ci/check-coverage-result.mjs" "${args[@]}"
 

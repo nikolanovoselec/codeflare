@@ -360,6 +360,20 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
     assert.equal(evaluateChangedLineCoverage({ diff: testOnly, lcov: null, packageRoot: '.', threshold: 80 }).ok, true);
   });
 
+  it('REQ-OPS-022 AC6: omits only explicitly manual-validation production files', () => {
+    const diff = `${productionDiff('web-ui/src/components/admin/ReportsPage.tsx')}\n${productionDiff('web-ui/src/api/client.ts')}`;
+    const result = evaluateChangedLineCoverage({
+      diff,
+      lcov: lcov('web-ui/src/api/client.ts', [[1, 1], [2, 1], [3, 1], [4, 1], [5, 1]]),
+      packageRoot: 'web-ui',
+      threshold: 70,
+      excludedFiles: ['web-ui/src/components/admin/ReportsPage.tsx'],
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.files, ['web-ui/src/api/client.ts']);
+  });
+
   it('REQ-OPS-022 AC6: fails closed on missing, malformed, or file-incomplete LCOV required by a production change', () => {
     const diff = productionDiff('src/example.ts');
     const cases = [
