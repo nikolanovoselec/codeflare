@@ -3,7 +3,6 @@ import {
   mdiClose,
   mdiCogOutline,
   mdiChevronDown,
-  mdiWrenchOutline,
   mdiAccountGroupOutline,
   mdiViewDashboardOutline,
 } from '@mdi/js';
@@ -464,8 +463,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   <h3 class="settings-section-title type-section-header">Administration &amp; Analytics</h3>
                 </div>
                 <p class="settings-hint type-hint" style={{ "margin-bottom": "var(--space-2)" }}>
-                  Inspect routine Environment settings and organization data in Administration.
-                  Keep the Setup Wizard for full provisioning.
+                  Inspect routine Environment settings, organization data, and setup recovery in Administration.
                 </p>
                 <div class="settings-admin-actions">
                   <AdminActionButton
@@ -473,12 +471,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     icon={mdiViewDashboardOutline}
                     label="Open Administration"
                     onClick={() => { window.location.href = '/admin'; }}
-                  />
-                  <AdminActionButton
-                    tone="--color-action-setup"
-                    icon={mdiWrenchOutline}
-                    label="Setup Wizard"
-                    onClick={() => { window.location.href = '/setup'; }}
                   />
                   {/* REQ-ENTERPRISE-008 AC2: user administration is delegated to
                       Cloudflare Access in enterprise mode — hide the entry. */}
@@ -492,7 +484,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   </Show>
                 </div>
                 <span class="settings-hint type-hint" data-testid="settings-r2-warning">
-                  If you rotate your Cloudflare API token, redeploy with the new token and re-run the Setup Wizard.
+                  If you rotate your Cloudflare API token, redeploy with the new token, then use Setup & recovery in Administration.
                 </span>
               </section>
               {/* REQ-ENTERPRISE-008 AC1: subscription-tier config is a SaaS-billing

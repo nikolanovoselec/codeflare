@@ -303,3 +303,25 @@
             gap: 8px;
           }
         }
+
+/* Approved first-run journey: keep field owners mounted while showing one bounded page. */
+.configure-step[data-page] > .setup-page { display: none; }
+.configure-step[data-page="access"] > .setup-page--access,
+.configure-step[data-page="ai"] > .setup-page--ai,
+.configure-step[data-page="platform"] > .setup-page--platform,
+.configure-step[data-page="managed"] > .setup-page--managed,
+.configure-step[data-page="integrations"] > .setup-page--integrations,
+.configure-step[data-page="review"] > .setup-page--review { display: flex; }
+
+.setup-review { flex-direction: column; gap: 18px; }
+.setup-review-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-lg); overflow: hidden; }
+.setup-review-grid > div { display: flex; flex-direction: column; gap: 6px; padding: 18px; background: var(--color-bg-tertiary); border-right: 1px solid var(--color-border-subtle); border-bottom: 1px solid var(--color-border-subtle); }
+.setup-review-grid > div:nth-child(2n) { border-right: 0; }
+.setup-review-grid span { color: var(--color-text-muted); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .06em; }
+.setup-review-grid strong { color: var(--color-text-primary); font-size: var(--text-sm); font-weight: var(--font-medium); overflow-wrap: anywhere; }
+.setup-review-note { margin: 0; padding: 14px 16px; border-left: 3px solid var(--color-info); background: var(--color-bg-tertiary); color: var(--color-text-secondary); font-size: var(--text-sm); }
+
+@media (max-width: 640px) {
+  .setup-review-grid { grid-template-columns: 1fr; }
+  .setup-review-grid > div { border-right: 0; }
+}

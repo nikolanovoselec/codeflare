@@ -1,4 +1,4 @@
-import { Component, For, Show, onMount } from 'solid-js';
+import { Component, For, Show, createMemo, createSignal, onMount } from 'solid-js';
 import { setupStore, DEFAULT_ROUTE_CONTEXT_WINDOW, type ReasoningLevel } from '../../stores/setup';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
@@ -11,6 +11,7 @@ import GitHubProviderChooser from './GitHubProviderChooser';
 import CloudflareProviderChooser from './CloudflareProviderChooser';
 import SetupSection from './SetupSection';
 import ManagedEnvironmentSection from './ManagedEnvironmentSection';
+import SetupJourneyNav, { type SetupJourneyPage } from './SetupJourneyNav';
 import '../../styles/configure-step.css';
 
 const REASONING_OPTIONS = [
@@ -23,7 +24,22 @@ const REASONING_OPTIONS = [
   { value: 'max', label: 'reasoning: max' },
 ];
 
+const PAGE_COPY: Record<Exclude<SetupJourneyPage, 'readiness' | 'apply'>, { title: string; description: string }> = {
+  access: { title: 'Access and identity', description: 'Define the domain, administrators, and admission rules.' },
+  ai: { title: 'AI Gateway and routing', description: 'Set the required gateway, routes, and fallback policy.' },
+  platform: { title: 'Platform controls', description: 'Choose agents, optional Browser Run, security, and governance.' },
+  managed: { title: 'Managed environment', description: 'Configure signed resources and persistence policy.' },
+  integrations: { title: 'Integrations', description: 'Configure GitHub and the deployment connection.' },
+  review: { title: 'Review initial setup', description: 'Confirm the full provisioning sequence before resources change.' },
+};
+
 const ConfigureStep: Component = () => {
+  const [page, setPage] = createSignal<Exclude<SetupJourneyPage, 'readiness' | 'apply'>>('access');
+  const pages = createMemo<Array<Exclude<SetupJourneyPage, 'readiness' | 'apply'>>>(() => setupStore.enterpriseMode
+    ? ['access', 'ai', 'platform', 'managed', 'integrations', 'review']
+    : ['access', 'managed', 'integrations', 'review']);
+  const pageIndex = createMemo(() => pages().indexOf(page()));
+
   // Pre-fill from existing config when re-configuring
   onMount(async () => {
     try {
@@ -80,12 +96,49 @@ const ConfigureStep: Component = () => {
     return false;
   };
 
+  const managedEnvironmentValid = () => !setupStore.managedEnvironmentEnabled || (
+    Boolean(setupStore.managedEnvironmentRepository.trim()) &&
+    (setupStore.managedEnvironmentPersonalAccessTokenSet || Boolean(setupStore.managedEnvironmentPersonalAccessToken.trim())) &&
+    (Boolean(setupStore.managedEnvironmentPublicKeyFingerprint) || /^[0-9a-f]{64}$/.test(setupStore.managedEnvironmentPublicKey.trim())) &&
+    (!setupStore.managedEnvironmentImmutableResources || setupStore.strictGatewayEgress)
+  );
+
+  const canContinue = createMemo(() => {
+    if (page() === 'access') return Boolean(setupStore.customDomain) && setupStore.adminUsers.length > 0;
+    if (page() === 'ai') {
+      return setupStore.dynamicRoutes.length > 0 && Boolean(setupStore.aigGatewayUrl.trim()) && (setupStore.aigTokenSet || Boolean(setupStore.aigToken.trim()));
+    }
+    if (page() === 'platform') return setupStore.activeAgents.length > 0;
+    if (page() === 'managed') return managedEnvironmentValid();
+    return true;
+  });
+
+  const goBack = () => {
+    if (pageIndex() === 0) setupStore.prevStep();
+    else setPage(pages()[pageIndex() - 1]!);
+  };
+
+  const goForward = () => {
+    if (page() === 'review') setupStore.nextStep();
+    else setPage(pages()[pageIndex() + 1]!);
+  };
+
   return (
-    <div class="configure-step">
-      <h2 class="configure-title">Configure Your Instance</h2>
+    <div class="setup-journey-layout">
+      <SetupJourneyNav active={page()} enterprise={setupStore.enterpriseMode} />
+      <div class="configure-step setup-journey-main" data-page={page()}>
+        <div class="setup-page-heading">
+          <div>
+            <span class="setup-page-eyebrow">Environment setup</span>
+            <h2 class="configure-title">{PAGE_COPY[page()].title}</h2>
+            <p>{PAGE_COPY[page()].description}</p>
+          </div>
+          <span class="setup-page-status">{pageIndex() + 1} of {pages().length}</span>
+        </div>
 
       {/* Access & Identity — who can reach this instance and how they sign in. */}
       <SetupSection
+        page="access"
         title="Access & Identity"
         description="Who can reach this instance and how they sign in."
       >
@@ -161,6 +214,7 @@ const ConfigureStep: Component = () => {
           worker-side LlmInterceptor uses to route each agent request. */}
       <Show when={setupStore.enterpriseMode}>
         <SetupSection
+          page="ai"
           title="AI Gateway & Model Routing"
           description="Where agent LLM traffic is sent and how it is routed."
         >
@@ -303,6 +357,7 @@ const ConfigureStep: Component = () => {
             universe comes from the prefill, so a newly capable agent appears without
             a UI change. At least one must stay active; Bash is always available. */}
         <SetupSection
+          page="platform"
           title="Coding Agents"
           description="Choose which coding agents users can pick when starting a session."
         >
@@ -329,6 +384,7 @@ const ConfigureStep: Component = () => {
             accordion is hidden, so the browser-run feature's token is configured once
             here for every user. */}
         <SetupSection
+          page="platform"
           title="Browser Rendering"
           description="The in-session browser tools, configured once for every user."
         >
@@ -363,6 +419,7 @@ const ConfigureStep: Component = () => {
             toggle — routes each container's outbound HTTP/HTTPS through your Cloudflare
             Gateway so your Zero Trust egress policies apply. Default OFF. */}
         <SetupSection
+          page="platform"
           title="Security & Egress"
           description="Force container traffic through your Cloudflare Gateway for inspection."
         >
@@ -385,6 +442,7 @@ const ConfigureStep: Component = () => {
             re-encrypts each bucket on its next session start, so it requires an explicit
             admin confirmation of the consequence. Default OFF. */}
         <SetupSection
+          page="platform"
           title="Data Governance"
           description="Control whether bucket data is company-readable for security scanning."
         >
@@ -422,35 +480,38 @@ const ConfigureStep: Component = () => {
         </SetupSection>
       </Show>
 
-      <ManagedEnvironmentSection
-        enabled={setupStore.managedEnvironmentEnabled}
-        enterpriseMode={setupStore.enterpriseMode}
-        immutableResources={setupStore.managedEnvironmentImmutableResources}
-        disableUserCreatedResources={setupStore.managedEnvironmentDisableUserCreatedResources}
-        repository={setupStore.managedEnvironmentRepository}
-        personalAccessToken={setupStore.managedEnvironmentPersonalAccessToken}
-        personalAccessTokenSet={setupStore.managedEnvironmentPersonalAccessTokenSet}
-        publicKey={setupStore.managedEnvironmentPublicKey}
-        publicKeyFingerprint={setupStore.managedEnvironmentPublicKeyFingerprint}
-        activeReleaseTag={setupStore.managedEnvironmentActiveReleaseTag}
-        activeSequence={setupStore.managedEnvironmentActiveSequence}
-        activeDigestPrefix={setupStore.managedEnvironmentActiveDigestPrefix}
-        freshness={setupStore.managedEnvironmentFreshness}
-        lastCheckedAt={setupStore.managedEnvironmentLastCheckedAt}
-        patExpiryState={setupStore.managedEnvironmentPatExpiryState}
-        lastError={setupStore.managedEnvironmentLastError}
-        onEnabledChange={(value) => setupStore.setManagedEnvironmentEnabled(value)}
-        onImmutableResourcesChange={(value) => setupStore.setManagedEnvironmentImmutableResources(value)}
-        onDisableUserCreatedResourcesChange={(value) => setupStore.setManagedEnvironmentDisableUserCreatedResources(value)}
-        onRepositoryChange={(value) => setupStore.setManagedEnvironmentRepository(value)}
-        onPersonalAccessTokenChange={(value) => setupStore.setManagedEnvironmentPersonalAccessToken(value)}
-        onPublicKeyChange={(value) => setupStore.setManagedEnvironmentPublicKey(value)}
-      />
+      <div class="setup-page setup-page--managed">
+        <ManagedEnvironmentSection
+          enabled={setupStore.managedEnvironmentEnabled}
+          enterpriseMode={setupStore.enterpriseMode}
+          immutableResources={setupStore.managedEnvironmentImmutableResources}
+          disableUserCreatedResources={setupStore.managedEnvironmentDisableUserCreatedResources}
+          repository={setupStore.managedEnvironmentRepository}
+          personalAccessToken={setupStore.managedEnvironmentPersonalAccessToken}
+          personalAccessTokenSet={setupStore.managedEnvironmentPersonalAccessTokenSet}
+          publicKey={setupStore.managedEnvironmentPublicKey}
+          publicKeyFingerprint={setupStore.managedEnvironmentPublicKeyFingerprint}
+          activeReleaseTag={setupStore.managedEnvironmentActiveReleaseTag}
+          activeSequence={setupStore.managedEnvironmentActiveSequence}
+          activeDigestPrefix={setupStore.managedEnvironmentActiveDigestPrefix}
+          freshness={setupStore.managedEnvironmentFreshness}
+          lastCheckedAt={setupStore.managedEnvironmentLastCheckedAt}
+          patExpiryState={setupStore.managedEnvironmentPatExpiryState}
+          lastError={setupStore.managedEnvironmentLastError}
+          onEnabledChange={(value) => setupStore.setManagedEnvironmentEnabled(value)}
+          onImmutableResourcesChange={(value) => setupStore.setManagedEnvironmentImmutableResources(value)}
+          onDisableUserCreatedResourcesChange={(value) => setupStore.setManagedEnvironmentDisableUserCreatedResources(value)}
+          onRepositoryChange={(value) => setupStore.setManagedEnvironmentRepository(value)}
+          onPersonalAccessTokenChange={(value) => setupStore.setManagedEnvironmentPersonalAccessToken(value)}
+          onPublicKeyChange={(value) => setupStore.setManagedEnvironmentPublicKey(value)}
+        />
+      </div>
 
       {/* GitHub (admin, any mode — the Setup wizard is admin-gated everywhere).
           REQ-GITHUB-008: the connect flow uses this dedicated app, distinct from the
           SaaS login OAuth app. */}
       <SetupSection
+        page="integrations"
         title="GitHub"
         description="The GitHub app or OAuth client used to connect repositories."
       >
@@ -474,6 +535,7 @@ const ConfigureStep: Component = () => {
           Cloudflare deploy flow, so the chooser is hidden there. */}
       <Show when={!setupStore.enterpriseMode}>
         <SetupSection
+          page="integrations"
           title="Cloudflare Connection"
           description="The Cloudflare OAuth client used for per-user deploys."
         >
@@ -487,30 +549,28 @@ const ConfigureStep: Component = () => {
         </SetupSection>
       </Show>
 
-      {/* Navigation */}
+      <section class="setup-page setup-page--review setup-review" aria-label="Initial setup summary">
+        <div class="setup-review-grid">
+          <div><span>Domain</span><strong>{setupStore.customDomain || 'Not configured'}</strong></div>
+          <div><span>Access</span><strong>{setupStore.adminUsers.length} admins{setupStore.enterpriseMode ? ` · ${setupStore.enterpriseAccessGroups.length} user groups` : ` · ${setupStore.allowedUsers.length} users`}</strong></div>
+          <Show when={setupStore.enterpriseMode}>
+            <div><span>Routing</span><strong>{setupStore.dynamicRoutes.length} routes · {setupStore.defaultRouteName || 'group policy'}</strong></div>
+            <div><span>Platform</span><strong>{setupStore.activeAgents.join(' + ') || 'No agents'}{setupStore.r2SseDisabled ? ' · governed' : ''}</strong></div>
+          </Show>
+          <div><span>Managed environment</span><strong>{setupStore.managedEnvironmentEnabled ? (setupStore.managedEnvironmentImmutableResources ? 'Immutable resources' : 'Enabled') : 'Not enabled'}</strong></div>
+          <div><span>Provisioning</span><strong>Ordered bootstrap tasks · stop on failure</strong></div>
+        </div>
+        <p class="setup-review-note">Full provisioning runs once. Routine changes move to bounded Environment areas after setup.</p>
+      </section>
+
       <div class="setup-actions">
-        <Button onClick={() => setupStore.prevStep()} variant="ghost">
-          Back
-        </Button>
-        <Button
-          onClick={() => setupStore.nextStep()}
-          disabled={
-            !setupStore.customDomain ||
-            setupStore.adminUsers.length === 0 ||
-            (setupStore.enterpriseMode && setupStore.dynamicRoutes.length === 0) ||
-            (setupStore.managedEnvironmentEnabled && (
-              !setupStore.managedEnvironmentRepository.trim() ||
-              (!setupStore.managedEnvironmentPersonalAccessTokenSet && !setupStore.managedEnvironmentPersonalAccessToken.trim()) ||
-              (!setupStore.managedEnvironmentPublicKeyFingerprint && !setupStore.managedEnvironmentPublicKey.trim()) ||
-              (Boolean(setupStore.managedEnvironmentPublicKey.trim()) && !/^[0-9a-f]{64}$/.test(setupStore.managedEnvironmentPublicKey.trim())) ||
-              (setupStore.managedEnvironmentImmutableResources && !setupStore.strictGatewayEgress)
-            ))
-          }
-        >
-          Continue
+        <Button onClick={goBack} variant="ghost">Back</Button>
+        <Button onClick={goForward} disabled={!canContinue()}>
+          {page() === 'review' ? 'Initialize Codeflare' : 'Continue'}
         </Button>
       </div>
 
+      </div>
     </div>
   );
 };

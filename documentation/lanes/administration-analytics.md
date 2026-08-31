@@ -16,7 +16,7 @@
 - [Requirement and Source Map](#requirement-and-source-map)
 - [Related Documentation](#related-documentation)
 
-Administration is the routine control surface after Setup. Setup still owns first claim and first-run orchestration. Sending an operator back through Setup to change one report recipient would be a bad control plane, so routine changes use bounded Environment sections instead.
+Administration is the routine control surface after Setup. Setup still owns first claim and first-run orchestration, presented as the same progressive operator experience across readiness, mode-applicable settings, review, apply, and result stages. Completed deployments keep **Setup & recovery** in Administration navigation; workspace settings point only to Administration. Sending an operator through full provisioning to change one report recipient would be a bad control plane, so routine changes use bounded Environment sections instead. ([REQ-SETUP-019](../../sdd/spec/setup.md#req-setup-019-administration-and-analytics-shell)) <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard -->
 
 ## Runtime ownership
 

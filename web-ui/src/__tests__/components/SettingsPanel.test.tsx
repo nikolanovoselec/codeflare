@@ -754,7 +754,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(screen.queryByTestId('accordion-header-admin')).not.toBeInTheDocument();
     });
 
-    it('shows "Setup Wizard" button for admins', () => {
+    it('routes routine admin access through Administration without a duplicate Setup button', () => {
       render(() => (
         <SettingsPanel
           isOpen={true}
@@ -765,12 +765,13 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       ));
       fireEvent.click(screen.getByTestId('accordion-header-admin'));
 
-      expect(screen.getByRole('button', { name: /Setup Wizard/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Open Administration/ })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Setup Wizard/ })).not.toBeInTheDocument();
     });
   });
 
   describe('Administration section', () => {
-    it('shows administration section with setup button for admin', () => {
+    it('shows administration section with the Administration entry for admin', () => {
       render(() => (
         <SettingsPanel
           isOpen={true}
@@ -783,7 +784,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
 
       const header = screen.getByTestId('accordion-header-admin');
       expect(header).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Setup Wizard/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Open Administration/ })).toBeInTheDocument();
     });
 
     it('hides administration for non-admin', () => {
@@ -961,7 +962,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
 
       const warning = screen.getByTestId('settings-r2-warning');
       expect(warning).toBeInTheDocument();
-      expect(warning.textContent).toContain('re-run the Setup Wizard');
+      expect(warning.textContent).toContain('Setup & recovery');
     });
 
     it('hides R2 warning hint for non-admin users', () => {
