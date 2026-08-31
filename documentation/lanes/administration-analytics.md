@@ -1,5 +1,21 @@
 # Administration and historical usage
 
+**Audience:** Operators, Developers
+
+**Owns:** routine Environment changes, historical usage storage, reporting, retention, and rollout checks. **Does not own:** live quota enforcement, first-run Setup orchestration, or private environment credentials.
+
+## Contents
+
+- [Runtime ownership](#runtime-ownership)
+- [D1 database and migrations](#d1-database-and-migrations)
+- [Deployment credentials](#deployment-credentials)
+- [Retention and reports](#retention-and-reports)
+- [Operation envelope and logging](#operation-envelope-and-logging)
+- [Design-source review](#design-source-review)
+- [Integration acceptance checklist](#integration-acceptance-checklist)
+- [Requirement and Source Map](#requirement-and-source-map)
+- [Related Documentation](#related-documentation)
+
 Administration is the routine control surface after Setup. Setup still owns first claim and first-run orchestration. Sending an operator back through Setup to change one report recipient would be a bad control plane, so routine changes use bounded Environment sections instead.
 
 ## Runtime ownership
@@ -60,3 +76,23 @@ Record exact commit and Deploy run before testing. Then verify:
 - One caught structured error and one uncaught route exception are discoverable in Integration logs.
 
 Browser and visual acceptance belongs to the operator on Integration. CI does not pretend a component snapshot proved any of this.
+
+## Requirement and Source Map
+
+| Contract | Primary source |
+|---|---|
+| Environment read, preview, and runs | `src/routes/admin/configuration*.ts`, `src/lib/admin-configuration.ts` |
+| Historical accounting and analytics | `src/timekeeper/`, `src/lib/admin-usage.ts`, `src/routes/admin/usage.ts` |
+| Reports, claims, email, and retention | `src/lib/usage-report-scheduler.ts`, `src/lib/usage-reports.ts`, `src/routes/admin/usage-reports.ts` |
+| Administration UI and demand-driven reads | `web-ui/src/components/admin/`, `web-ui/src/api/client.ts` |
+| Deployment boundary | `scripts/ci/prepare-usage-d1.mjs`, `.github/workflows/deploy.yml` |
+
+Owning requirements are [REQ-SETUP-017 through REQ-SETUP-019](../../sdd/spec/setup.md), [REQ-SUB-025 through REQ-SUB-027](../../sdd/spec/subscription.md), and [REQ-OPS-056 through REQ-OPS-057](../../sdd/spec/operations.md).
+
+## Related Documentation
+
+- [Configuration](configuration.md)
+- [Development and Deployment](deployment.md)
+- [API Reference](api-reference.md)
+- [Billing and Subscription](billing.md)
+- [Architecture decision AD150](../decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records)
