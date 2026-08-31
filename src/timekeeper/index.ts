@@ -37,6 +37,7 @@ import {
   shouldRunD1,
   type AccountingStateV2,
   type HistoryOutboxEntry,
+  type PeriodKind,
 } from './accounting';
 import { userKeyForEmail, writeUsageHistory } from '../lib/admin-usage';
 
@@ -276,10 +277,46 @@ export class Timekeeper {
       }
     }
 
+    let cleanupRetryAt: number | undefined;
+    if (this.accountingState.markerCleanup) {
+      const cleanup = this.accountingState.markerCleanup;
+      const prefix = `historyMarker:${cleanup.kind}:${cleanup.start}:`;
+      const markers = await this.ctx.storage.list<boolean>({
+        prefix,
+        ...(cleanup.lastDeletedKey && { startAfter: cleanup.lastDeletedKey }),
+        limit: 128,
+      });
+      if (markers.size > 0) await this.ctx.storage.delete([...markers.keys()]);
+      if (markers.size === 128) {
+        this.accountingState = {
+          ...this.accountingState,
+          markerCleanup: { ...cleanup, lastDeletedKey: [...markers.keys()].at(-1)! },
+        };
+        cleanupRetryAt = now.getTime() + 1_000;
+      } else {
+        const remaining = await this.ctx.storage.list<boolean>({ prefix: 'historyMarker:', limit: 128 });
+        let nextCleanup: { kind: PeriodKind; start: string } | undefined;
+        for (const key of remaining.keys()) {
+          const match = /^historyMarker:(day|week|month|year):([^:]+):/.exec(key);
+          if (!match) continue;
+          const kind = match[1] as PeriodKind;
+          const start = match[2];
+          if (start !== this.accountingState.periods[kind].start) {
+            nextCleanup = { kind, start };
+            break;
+          }
+        }
+        const { markerCleanup: _completed, ...withoutCleanup } = this.accountingState;
+        this.accountingState = nextCleanup ? { ...withoutCleanup, markerCleanup: nextCleanup } : withoutCleanup as AccountingStateV2;
+        if (nextCleanup) cleanupRetryAt = now.getTime() + 1_000;
+      }
+      await this.ctx.storage.put('accountingState:v2', this.accountingState);
+    }
+
     const d1RetryAt = this.accountingState.d1Retry.nextAttemptAt
       ? Date.parse(this.accountingState.d1Retry.nextAttemptAt)
       : undefined;
-    const candidates = [kvRetryAt, d1RetryAt, regularAlarmAt].filter((value): value is number => value !== undefined);
+    const candidates = [kvRetryAt, d1RetryAt, cleanupRetryAt, regularAlarmAt].filter((value): value is number => value !== undefined);
     if (candidates.length > 0) await this.ctx.storage.setAlarm(Math.min(...candidates));
   }
 

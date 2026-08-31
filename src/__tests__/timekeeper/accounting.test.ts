@@ -96,6 +96,7 @@ describe('AccountingStateV2 (REQ-SUB-025)', () => {
     expect(rollover.outbox.every((entry) => entry.runtimeSeconds === 60 && entry.sessionCount === 1)).toBe(true);
     expect(rollover.state.periods.day).toMatchObject({ start: '2027-01-01', runtimeSeconds: 30, sessionCount: 1 });
     expect(rollover.state.periods.week.start).toBe('2026-12-28');
+    expect(rollover.state.markerCleanup).toEqual({ kind: 'day', start: '2026-12-31' });
   });
 
   it('derives a stable 15-minute D1 phase and five-minute offset', async () => {

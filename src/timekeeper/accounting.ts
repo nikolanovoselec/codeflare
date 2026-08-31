@@ -131,6 +131,9 @@ export function applyPositiveDelta(
       ...(previous.quotaMonth !== starts.month && { lastFlushedMonthlyTotal: 0 }),
       historySequence: sourceSequence,
       periods,
+      ...(!previous.markerCleanup && outbox.length > 0 && {
+        markerCleanup: { kind: outbox[0].kind, start: outbox[0].start },
+      }),
     },
     markerKeys,
     outbox,
