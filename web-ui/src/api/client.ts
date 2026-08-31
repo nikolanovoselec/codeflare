@@ -128,6 +128,38 @@ export async function getAdminUsageUser(
   );
 }
 
+const UsageReportDeliverySchema = z.object({
+  id: z.string(),
+  deliveryKind: z.enum(['scheduled', 'test']),
+  dispatchId: z.string(),
+  settingsRevision: z.number().int(),
+  reportMonth: z.string(),
+  recipient: z.string().email(),
+  state: z.enum(['pending', 'sending', 'accepted', 'failed']),
+  attempt: z.number().int(),
+  reason: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  acceptedAt: z.string().nullable().optional(),
+});
+
+const UsageReportDeliveriesSchema = z.object({
+  deliveries: z.array(UsageReportDeliverySchema),
+  nextCursor: z.string().nullable(),
+});
+
+export type UsageReportDelivery = z.infer<typeof UsageReportDeliverySchema>;
+
+export async function getUsageReportDeliveries(): Promise<z.infer<typeof UsageReportDeliveriesSchema>> {
+  return fetchApi('/admin/usage-report-deliveries?limit=50', {}, UsageReportDeliveriesSchema);
+}
+
+export async function sendUsageReportTest(): Promise<{ dispatchId: string; deliveryKind: 'test'; state: 'pending' }> {
+  return fetchApi('/admin/usage-report-tests', { method: 'POST' }, z.object({
+    dispatchId: z.string(), deliveryKind: z.literal('test'), state: z.literal('pending'),
+  }));
+}
+
 // Per-device agent notification enrollment (REQ-TERM-025 AC1-AC5)
 const AgentNotificationConfigSchema = z.object({
   vapidPublicKey: z.string().min(1),

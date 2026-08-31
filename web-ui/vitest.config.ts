@@ -31,6 +31,7 @@ export default defineConfig({
         'src/index.tsx',
         'src/components/admin/AnalyticsPage.tsx',
         'src/components/admin/AnalyticsUserDetail.tsx',
+        'src/components/admin/ReportsPage.tsx',
       ],
       // Measured 2026-07-20 (run 29725141008), the first run that ever executed
       // them: 77.44 statements / 65.99 branches / 77.09 functions / 79.66 lines.
