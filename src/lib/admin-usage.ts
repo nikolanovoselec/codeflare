@@ -104,7 +104,7 @@ interface D1UsageRow {
   updated_at: string;
 }
 
-export function mapAdminUsageRow(row: D1UsageRow): AdminUsageRow {
+function mapAdminUsageRow(row: D1UsageRow): AdminUsageRow {
   return {
     userKey: row.user_key,
     email: row.email,
