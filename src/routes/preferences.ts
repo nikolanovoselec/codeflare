@@ -309,6 +309,15 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
         await reseedContextModePlugin(c.env, bucketName, endpoint, contextModeEnabled, r2SseDisabled);
       }
 
+      const nextManagedEnvironmentApplied = activeManagedRelease
+        ? {
+            digest: activeManagedRelease.digest,
+            managedExtensionsDigest: await managedExtensionsDocumentDigest(activeManagedRelease),
+            sequence: activeManagedRelease.release.sequence,
+            mode: body.sessionMode,
+            appliedAt: new Date().toISOString(),
+          }
+        : null;
       const latest = await c.env.KV.get<UserPreferences>(key, 'json') ?? updated;
       if (
         latest.sessionMode !== updated.sessionMode
@@ -326,17 +335,8 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
           && preferenceKey !== 'managedEnvironmentReconciliation'
         )),
       ) as UserPreferences;
-      const applied: UserPreferences = activeManagedRelease
-        ? {
-            ...withoutManagedState,
-            managedEnvironmentApplied: {
-              digest: activeManagedRelease.digest,
-              managedExtensionsDigest: await managedExtensionsDocumentDigest(activeManagedRelease),
-              sequence: activeManagedRelease.release.sequence,
-              mode: body.sessionMode,
-              appliedAt: new Date().toISOString(),
-            },
-          }
+      const applied: UserPreferences = nextManagedEnvironmentApplied
+        ? { ...withoutManagedState, managedEnvironmentApplied: nextManagedEnvironmentApplied }
         : { ...withoutManagedState, lastPreseedHash: PRESEED_CONTENT_HASH };
       await c.env.KV.put(key, JSON.stringify(applied));
 

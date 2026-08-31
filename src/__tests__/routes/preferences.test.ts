@@ -16,8 +16,9 @@ vi.mock('../../middleware/auth', () => ({
 }));
 
 // Mock r2-seed and r2-config for preseed reconciliation tests
-const { mockReconcileAgentConfigs, managedReleaseState } = vi.hoisted(() => ({
+const { mockReconcileAgentConfigs, mockManagedExtensionsDocumentDigest, managedReleaseState } = vi.hoisted(() => ({
   mockReconcileAgentConfigs: vi.fn(async () => ({ written: [], skipped: [], deleted: [], warnings: [] })),
+  mockManagedExtensionsDocumentDigest: vi.fn(async () => 'e'.repeat(64)),
   managedReleaseState: {
     active: null as any,
     cachedByDigest: new Map<string, { compressed: Uint8Array; release: { sequence: number } }>(),
@@ -25,7 +26,11 @@ const { mockReconcileAgentConfigs, managedReleaseState } = vi.hoisted(() => ({
 }));
 vi.mock('../../lib/r2-seed', async () => {
   const actual = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
-  return { ...actual, reconcileAgentConfigs: mockReconcileAgentConfigs };
+  return {
+    ...actual,
+    reconcileAgentConfigs: mockReconcileAgentConfigs,
+    managedExtensionsDocumentDigest: mockManagedExtensionsDocumentDigest,
+  };
 });
 vi.mock('../../lib/r2-config', () => ({ getR2Config: vi.fn(async () => ({ accountId: 'test-account', endpoint: 'https://r2.test' })) }));
 vi.mock('../../lib/managed-release-active', async (importOriginal) => ({
@@ -47,6 +52,8 @@ describe('Preferences Routes', () => {
   beforeEach(() => {
     mockKV = createMockKV();
     mockReconcileAgentConfigs.mockClear();
+    mockManagedExtensionsDocumentDigest.mockReset();
+    mockManagedExtensionsDocumentDigest.mockResolvedValue('e'.repeat(64));
     managedReleaseState.active = null;
     managedReleaseState.cachedByDigest.clear();
   });
@@ -946,6 +953,50 @@ describe('Preferences Routes', () => {
         sessionMode: 'advanced',
         herdrEnabled: true,
         managedEnvironmentApplied: { digest: 'd'.repeat(64) },
+      });
+    });
+
+    it('REQ-MEM-011 AC5: preserves a preference update during applied digest preparation', async () => {
+      managedReleaseState.active = {
+        digest: 'd'.repeat(64),
+        compressed: new Uint8Array(),
+        release: { sequence: 9 },
+      };
+      managedReleaseState.cachedByDigest.set('a'.repeat(64), {
+        compressed: new Uint8Array(),
+        release: { sequence: 8 },
+      });
+      mockKV._set('user-prefs:codeflare-test-user', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest: 'a'.repeat(64), managedExtensionsDigest: 'c'.repeat(64), sequence: 8,
+          mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z',
+        },
+      });
+      let digestStarted!: () => void;
+      const digestIsRunning = new Promise<void>((resolve) => { digestStarted = resolve; });
+      let finishDigest!: (digest: string) => void;
+      mockManagedExtensionsDocumentDigest.mockImplementationOnce(() => new Promise<string>((resolve) => {
+        finishDigest = resolve;
+        digestStarted();
+      }));
+      const app = createTestApp();
+
+      const response = app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+      await digestIsRunning;
+      const concurrent = await mockKV.get('user-prefs:codeflare-test-user', 'json') as Record<string, unknown>;
+      await mockKV.put('user-prefs:codeflare-test-user', JSON.stringify({ ...concurrent, herdrEnabled: true }));
+      finishDigest('e'.repeat(64));
+
+      expect((await response).status).toBe(200);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({
+        sessionMode: 'advanced',
+        herdrEnabled: true,
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64) },
       });
     });
 
