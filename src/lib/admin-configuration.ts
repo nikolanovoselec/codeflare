@@ -4,10 +4,11 @@ import { AgentTypeSchema } from '../types';
 import { getAllUsers } from './access-policy';
 import { parseAccessGroups, resolveBucketName } from './access';
 import { CONFIGURABLE_ENTERPRISE_AGENTS, installedAgents } from './agent-allowlist';
-import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS, getPreferencesKey } from './kv-keys';
+import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS, getPreferencesKey, getUsageReportNextKey } from './kv-keys';
 import { encryptAndStore, getOrImportKey } from './kv-crypto';
 import { isOnboardingLandingPageActive, isSaasModeActive, isSessionOidcMode } from './onboarding';
 import { isEnterpriseMode } from './subscription';
+import { nextReportDelivery, normalizeReportSettings } from './usage-reports';
 import { handleCreateAccessApp } from '../routes/setup/access';
 import { handleConfigureCustomDomain } from '../routes/setup/custom-domain';
 import { getWorkerNameFromHostname } from '../routes/setup/shared';
@@ -224,8 +225,8 @@ function normalizeValues(section: ConfigurationSection, mode: AdministrationMode
       groupRouting: [...(values.groupRouting as unknown[])],
     };
   }
-  if (section === 'usageReports' && values.enabled === true) {
-    return { ...values, recipients: uniqueSorted(values.recipients as string[]) };
+  if (section === 'usageReports') {
+    return normalizeReportSettings(values as never) as ConfigurationValues;
   }
   return values;
 }
@@ -303,7 +304,12 @@ export async function validateConfigurationValues(
 ): Promise<PreviewValidationResult> {
   const parsed = sectionSchemas[section].safeParse(rawValues);
   if (!parsed.success) return { fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]> };
-  const values = normalizeValues(section, mode, parsed.data);
+  let values: ConfigurationValues;
+  try {
+    values = normalizeValues(section, mode, parsed.data);
+  } catch (error) {
+    return { fieldErrors: { settings: [error instanceof Error ? error.message : 'Invalid settings'] } };
+  }
 
   if (section === 'access') {
     const admins = values.adminUsers as string[];
@@ -620,12 +626,19 @@ export async function executeConfigurationTask(
       }
       return;
     }
-    case 'configure_usage_reports':
-      await env.KV.put(ADMIN_CONFIGURATION_KEYS.USAGE_REPORT_SETTINGS, JSON.stringify({
-        ...values,
-        settingsRevision: context.resultingRevision,
-      }));
+    case 'configure_usage_reports': {
+      const settings = { ...values, settingsRevision: context.resultingRevision };
+      await env.KV.put(ADMIN_CONFIGURATION_KEYS.USAGE_REPORT_SETTINGS, JSON.stringify(settings));
+      if (values.enabled === true) {
+        const now = new Date();
+        await env.KV.put(getUsageReportNextKey(context.resultingRevision), JSON.stringify({
+          settingsRevision: context.resultingRevision,
+          nextDeliveryAt: nextReportDelivery(values as never, now).toISOString(),
+          updatedAt: now.toISOString(),
+        }), { expirationTtl: 90 * 24 * 60 * 60 });
+      }
       return;
+    }
     default:
       throw new Error(`Unsupported configuration task: ${taskId}`);
   }
