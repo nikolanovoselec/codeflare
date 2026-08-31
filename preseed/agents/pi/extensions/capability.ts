@@ -7,6 +7,7 @@ import {
   type RegisteredTool,
   type ToolActivationPi,
 } from "./capability-helpers";
+import { INLINE_EDIT_TOOL } from "./inline-edit";
 
 type SessionEntry = { type?: string; customType?: string; data?: unknown };
 type SessionContext = {
@@ -61,6 +62,10 @@ function hasUnfinishedGoal(ctx: SessionContext): boolean {
 export function registerInitialToolFilter(pi: ExtensionAPI): void {
   pi.on("before_agent_start", (_event, ctx) => {
     const activeBeforeFilter = new Set(pi.getActiveTools());
+    // Inline Chat deliberately narrows the provider to one host-owned result tool.
+    // The final exposure filter runs later and must not replace that exclusive mode
+    // with the normal read/bash/edit/write/capability set.
+    if (activeBeforeFilter.has(INLINE_EDIT_TOOL)) return;
     const keepGoalTools = hasUnfinishedGoal(ctx)
       || GOAL_TERMINAL_TOOLS.every((name) => activeBeforeFilter.has(name));
     const initial = initialActiveTools(pi);
