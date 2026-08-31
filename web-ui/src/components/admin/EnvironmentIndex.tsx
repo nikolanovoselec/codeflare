@@ -127,7 +127,7 @@ export const EnvironmentAreaDetail: Component = () => {
           <div class="admin-form-actions"><button type="submit" class="admin-primary-button" disabled={busy() || Boolean(configuration.activeRunId)}>{busy() ? 'Reviewing…' : 'Review changes'}</button></div>
         </form>
       </Show>
-      <Show when={preview() && !run()}>{(reviewed) => <section class="admin-panel">
+      <Show when={!run() ? preview() : undefined}>{(reviewed) => <section class="admin-panel">
         <div class="admin-panel-heading"><div><h2>Review changes</h2><p>Only tasks listed below will run.</p></div></div>
         <Show when={reviewed().changes.length > 0} fallback={<div class="admin-state-panel"><h3>No changes detected</h3><p>Return to edit before applying.</p></div>}>
           <dl class="admin-change-list"><For each={reviewed().changes}>{(change) => <div><dt>{change.field}</dt><dd>{change.secret ? (change.secret.willReplace ? 'Replace saved secret' : 'Preserve saved secret') : JSON.stringify(change.after)}</dd></div>}</For></dl>
