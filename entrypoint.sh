@@ -2671,7 +2671,7 @@ const required = [
   'npm:pi-caveman@1.0.8',
   'npm:pi-evaluate@0.1.5',
   'npm:@narumitw/pi-goal@0.53.0',
-  'npm:@narumitw/pi-plan-mode@0.52.0',
+  'npm:@narumitw/pi-plan-mode@0.53.0',
   'npm:@narumitw/pi-usage@0.52.0',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable its extension and skills on every
