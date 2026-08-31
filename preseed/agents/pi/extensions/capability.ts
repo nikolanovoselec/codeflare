@@ -3,6 +3,7 @@ import {
   activateRegisteredTools,
   activationGroup,
   initialActiveTools,
+  isExclusiveActiveTool,
   searchCapabilities,
   type RegisteredTool,
   type ToolActivationPi,
@@ -65,7 +66,7 @@ export function registerInitialToolFilter(pi: ExtensionAPI): void {
     // Inline Chat deliberately narrows the provider to one host-owned result tool.
     // The final exposure filter runs later and must not replace that exclusive mode
     // with the normal read/bash/edit/write/capability set.
-    if (activeBeforeFilter.size === 1 && activeBeforeFilter.has(INLINE_EDIT_RESULT_TOOL)) return;
+    if (isExclusiveActiveTool(activeBeforeFilter, INLINE_EDIT_RESULT_TOOL)) return;
     const keepGoalTools = hasUnfinishedGoal(ctx)
       || GOAL_TERMINAL_TOOLS.every((name) => activeBeforeFilter.has(name));
     const initial = initialActiveTools(pi);

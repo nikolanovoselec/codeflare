@@ -37,6 +37,10 @@ export function initialActiveTools(pi: ToolActivationPi): string[] {
   return CORE_TOOL_NAMES.filter((name) => registered.has(name));
 }
 
+export function isExclusiveActiveTool(activeTools: ReadonlySet<string>, toolName: string): boolean {
+  return activeTools.size === 1 && activeTools.has(toolName);
+}
+
 export function activationGroup(name: string): string[] {
   return [...(TOOL_ACTIVATION_GROUPS[name] ?? [name])];
 }
