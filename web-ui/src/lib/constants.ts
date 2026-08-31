@@ -65,8 +65,9 @@ export const WS_CONTAINER_STOPPED_CODE = 4503;
 // Session
 // =============================================================================
 
-/** Interval for polling the session list to keep the dashboard up to date (ms) */
-export const SESSION_LIST_POLL_INTERVAL_MS = 5_000;
+/** Session-list polling cadence: responsive during transitions, bounded when stable. */
+export const SESSION_POLL_TRANSITION_MS = 5_000;
+export const SESSION_POLL_STABLE_MS = 60_000;
 
 /** Maximum polls when waiting for session to stop */
 export const MAX_STOP_POLL_ATTEMPTS = 20;
