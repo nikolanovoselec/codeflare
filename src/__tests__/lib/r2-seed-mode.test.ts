@@ -260,7 +260,7 @@ const mockR2 = (opts: {
       return Promise.resolve(
         new Response(null, {
           status: 200,
-          headers: marker ? { 'x-amz-meta-codeflare-preseed': marker } : {},
+          headers: marker ? { 'x-amz-meta-codeflare-preseed': marker, etag: '"observed"' } : {},
         }),
       );
     }
@@ -475,7 +475,10 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
       }
       if (method === 'HEAD') {
         return Promise.resolve(
-          new Response(null, { status: 200, headers: { 'x-amz-meta-codeflare-preseed': 'an-older-build' } }),
+          new Response(null, {
+            status: 200,
+            headers: { 'x-amz-meta-codeflare-preseed': 'an-older-build', etag: '"observed"' },
+          }),
         );
       }
       return Promise.resolve(new Response(null, { status: 204 }));
