@@ -131,6 +131,10 @@ export async function recreateAgentConfigs(): Promise<RecreateAgentConfigsRespon
   return storageFetch('/storage/seed/agent-configs', { method: 'POST' }, RecreateAgentConfigsResponseSchema);
 }
 
+export async function upgradeAgentConfigs(): Promise<RecreateAgentConfigsResponse> {
+  return storageFetch('/storage/seed/agent-configs/upgrade', { method: 'POST' }, RecreateAgentConfigsResponseSchema);
+}
+
 // Storage preview (discriminated union)
 const StoragePreviewResponseSchema = z.discriminatedUnion('type', [
   StoragePreviewTextResponseSchema,

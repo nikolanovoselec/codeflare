@@ -230,9 +230,9 @@ describe('Session Store', () => {
     });
 
     it('REQ-AGENT-049 AC4: reconciles upgrading and returns to current after success', async () => {
-      let resolveRecreate: (value: any) => void;
-      mockRecreateAgentConfigs.mockReturnValueOnce(new Promise((resolve) => {
-        resolveRecreate = resolve;
+      let resolveUpgrade: (value: any) => void;
+      mockUpgradeAgentConfigs.mockReturnValueOnce(new Promise((resolve) => {
+        resolveUpgrade = resolve;
       }));
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
@@ -244,9 +244,9 @@ describe('Session Store', () => {
       await sessionStore.loadSessions();
 
       expect(sessionStore.managedReleaseStatus).toBe('upgrading');
-      expect(mockRecreateAgentConfigs).toHaveBeenCalledTimes(1);
+      expect(mockUpgradeAgentConfigs).toHaveBeenCalledTimes(1);
 
-      resolveRecreate!({ success: true, written: [], skipped: [], deleted: [], warnings: [] });
+      resolveUpgrade!({ success: true, written: [], skipped: [], deleted: [], warnings: [] });
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       expect(sessionStore.managedReleaseStatus).toBe('current');
     });
@@ -516,6 +516,19 @@ describe('Session Store', () => {
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: false });
       await sessionStore.refreshSessionStatuses();
       expect(sessionStore.bucketMigrationPercent).toBeNull();
+    });
+
+    it('REQ-AGENT-049 AC8: mirrors managed release progress on transient polling', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        managedReleaseStatus: 'upgrading',
+        managedReleaseProgress: { phase: 'writing', completed: 50, total: 61 },
+      });
+
+      await sessionStore.refreshSessionStatuses();
+
+      expect(sessionStore.managedReleaseProgress).toEqual({ phase: 'writing', completed: 50, total: 61 });
     });
 
     it('REQ-STOR-023 AC3: checks for a later managed release while status is current', async () => {

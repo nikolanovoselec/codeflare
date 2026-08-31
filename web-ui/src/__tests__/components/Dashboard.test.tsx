@@ -1128,6 +1128,25 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(complete.getAttribute('style')).toContain('var(--color-accent) 100%');
   });
 
+  it('REQ-AGENT-049 AC8: shows planning and finalizing managed upgrade phases', () => {
+    (sessionStore as any)._setManagedReleaseStatus('upgrading');
+    (sessionStore as any)._setManagedReleaseProgress({ phase: 'planning', completed: 0, total: 0 });
+    render(() => <Dashboard {...defaultProps} />);
+
+    const planning = screen.getByTestId('dashboard-new-session');
+    expect(planning.textContent).toBe('Upgrading');
+    expect(planning).toHaveAttribute('aria-label', 'Upgrading managed resources');
+    expect(planning.getAttribute('style')).toContain('color-mix(in srgb, var(--color-accent) 72%, black) 0%');
+
+    cleanup();
+    (sessionStore as any)._setManagedReleaseProgress({ phase: 'finalizing', completed: 100, total: 100 });
+    render(() => <Dashboard {...defaultProps} />);
+
+    const finalizing = screen.getByTestId('dashboard-new-session');
+    expect(finalizing.textContent).toBe('Finalizing');
+    expect(finalizing).toHaveAttribute('aria-label', 'Finalizing managed resources');
+  });
+
   // REQ-ENTERPRISE-021 AC3: Governed Mode migrating-button label
   it('REQ-ENTERPRISE-021 AC3: disables the button and shows "Migrating" when migrating with no percent known yet', () => {
     (sessionStore as any)._setBucketMigrating(true);
