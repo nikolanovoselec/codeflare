@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-08-31
 
-- **Native Inline Chat keeps its exclusive result tool through final exposure filtering** ([REQ-IDE-025](browser-ide.md#req-ide-025-shared-ide-pi-surface-isolation) AC5 amended; completed as Implemented). The late `zz-tool-exposure-finalizer.ts` handler previously replaced Inline Chat's single host-owned result tool with the normal panel tools immediately before provider dispatch. The model then called an exposed workspace tool, while the host correctly rejected every non-result tool as invalid. The final filter now preserves the exclusive Inline result mode; focused coverage distinguishes exclusive and mixed tool sets, while prompt verification loads the production extensions. Panel tool exposure, result validation, and exact settlement restoration remain unchanged.
+- **Native Inline Chat keeps its exclusive result tool through final exposure filtering** ([REQ-IDE-025](browser-ide.md#req-ide-025-shared-ide-pi-surface-isolation) AC5 amended; completed as Implemented). The late `zz-tool-exposure-finalizer.ts` handler previously replaced Inline Chat's single host-owned result tool with the normal panel tools immediately before provider dispatch. The model then called an exposed workspace tool, while the host correctly rejected every non-result tool as invalid. The final filter now preserves the exclusive Inline result mode; behavioral coverage executes the Inline and production final-filter handlers in order and distinguishes exclusive from mixed tool sets. Panel tool exposure, result validation, and exact settlement restoration remain unchanged.
 
 ## 2026-08-30
 

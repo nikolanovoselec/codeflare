@@ -10,7 +10,7 @@ import registerInlineEditMode, {
   INLINE_EDIT_TOOL,
   encodeInlineEditCommandPayload,
 } from '../../preseed/agents/pi/extensions/inline-edit.ts';
-import { isExclusiveActiveTool } from '../../preseed/agents/pi/extensions/capability-helpers.ts';
+import { registerInitialToolFilter } from '../../preseed/agents/pi/extensions/capability-helpers.ts';
 
 function fixture() {
   const commands = new Map();
@@ -40,6 +40,7 @@ function fixture() {
     },
   };
   registerInlineEditMode(pi);
+  registerInitialToolFilter(pi);
   return {
     commands,
     tools,
@@ -57,9 +58,10 @@ function fixture() {
   };
 }
 
-test('REQ-IDE-025: mixed tools cannot impersonate exclusive inline result mode', () => {
-  assert.equal(isExclusiveActiveTool(new Set([INLINE_EDIT_TOOL]), INLINE_EDIT_TOOL), true);
-  assert.equal(isExclusiveActiveTool(new Set([INLINE_EDIT_TOOL, 'read']), INLINE_EDIT_TOOL), false);
+test('REQ-IDE-025: mixed tools cannot impersonate exclusive inline result mode', async () => {
+  const runtime = fixture();
+  await runtime.emit('before_agent_start', { systemPrompt: 'panel system prompt' });
+  assert.deepEqual(runtime.activeTools(), ['read', 'bash', 'edit', 'write', 'capability']);
 });
 
 const proposal = {
