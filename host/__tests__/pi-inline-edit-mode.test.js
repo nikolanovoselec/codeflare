@@ -10,7 +10,7 @@ import registerInlineEditMode, {
   INLINE_EDIT_TOOL,
   encodeInlineEditCommandPayload,
 } from '../../preseed/agents/pi/extensions/inline-edit.ts';
-import finalizeToolExposure from '../../preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts';
+import { registerInitialToolFilter } from '../../preseed/agents/pi/extensions/capability.ts';
 
 function fixture() {
   const commands = new Map();
@@ -40,7 +40,7 @@ function fixture() {
     },
   };
   registerInlineEditMode(pi);
-  finalizeToolExposure(pi);
+  registerInitialToolFilter(pi);
   return {
     commands,
     tools,
