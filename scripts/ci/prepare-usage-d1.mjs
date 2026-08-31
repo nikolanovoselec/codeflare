@@ -2,6 +2,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { deploymentCredentialBoundary } from './deployment-credentials.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -27,12 +28,6 @@ function renderBinding(config, databaseName, databaseId) {
   return `${config.slice(0, usageBlocks[0].index)}${rendered}${config.slice(usageBlocks[0].index + current.length)}`;
 }
 
-function assertCredentials(deployToken, runtimeToken) {
-  if (!deployToken) throw new Error('CLOUDFLARE_DEPLOY_API_TOKEN is required');
-  if (!runtimeToken) throw new Error('CLOUDFLARE_API_TOKEN is required as the runtime Worker secret');
-  if (deployToken === runtimeToken) throw new Error('Deployment and runtime API tokens must be separate credentials');
-}
-
 export async function prepareUsageD1({
   workerName,
   deployToken,
@@ -41,11 +36,11 @@ export async function prepareUsageD1({
   run,
   writeConfig = async () => {},
 }) {
-  assertCredentials(deployToken, runtimeToken);
+  const credentials = deploymentCredentialBoundary(deployToken, runtimeToken);
   if (!workerName?.trim()) throw new Error('Worker name is required');
   const databaseName = `${workerName}-usage`;
 
-  const listed = await run(['d1', 'list', '--json']);
+  const listed = await run(['d1', 'list', '--json'], credentials.wranglerEnvironment);
   if (listed.status !== 0) throw new Error(`Could not list D1 databases — refusing to mutate: ${listed.stderr || listed.stdout || 'unknown error'}`);
   const databases = parseJson(listed.stdout || '[]', 'D1 list');
   if (!Array.isArray(databases)) throw new Error('D1 list returned an unexpected shape');
@@ -55,7 +50,7 @@ export async function prepareUsageD1({
   let database = exact[0];
   let created = false;
   if (!database) {
-    const creation = await run(['d1', 'create', databaseName, '--json']);
+    const creation = await run(['d1', 'create', databaseName, '--json'], credentials.wranglerEnvironment);
     if (creation.status !== 0) throw new Error(`Could not create D1 database ${databaseName}: ${creation.stderr || creation.stdout || 'unknown error'}`);
     database = parseJson(creation.stdout || '{}', 'D1 create');
     created = true;
@@ -66,17 +61,17 @@ export async function prepareUsageD1({
   const rendered = renderBinding(wranglerConfig, databaseName, databaseId);
   await writeConfig(rendered);
 
-  const types = await run(['types']);
+  const types = await run(['types'], credentials.wranglerEnvironment);
   if (types.status !== 0) throw new Error(`Worker binding type generation failed: ${types.stderr || types.stdout || 'unknown error'}`);
-  const migration = await run(['d1', 'migrations', 'apply', databaseName, '--remote']);
+  const migration = await run(['d1', 'migrations', 'apply', databaseName, '--remote'], credentials.wranglerEnvironment);
   if (migration.status !== 0) throw new Error(`D1 migration failed: ${migration.stderr || migration.stdout || 'unknown error'}`);
 
   return { databaseId, databaseName, created, wranglerConfig: rendered };
 }
 
-async function runWrangler(args) {
+async function runWrangler(args, environment = {}) {
   return new Promise((resolve) => {
-    const child = spawn('npx', ['wrangler', ...args], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('npx', ['wrangler', ...args], { env: { ...process.env, ...environment }, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => { stdout += chunk; });

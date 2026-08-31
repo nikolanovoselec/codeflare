@@ -395,9 +395,7 @@ jobs:
           RUNTIME_CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          [ -n "$CLOUDFLARE_API_TOKEN" ] || { echo "::error::CLOUDFLARE_DEPLOY_API_TOKEN is required"; exit 1; }
-          [ -n "$RUNTIME_CLOUDFLARE_API_TOKEN" ] || { echo "::error::CLOUDFLARE_API_TOKEN runtime secret is required"; exit 1; }
-          [ "$CLOUDFLARE_API_TOKEN" != "$RUNTIME_CLOUDFLARE_API_TOKEN" ] || { echo "::error::Deployment and runtime tokens must be separate"; exit 1; }
+          node scripts/ci/deployment-credentials.mjs validate
           npx wrangler d1 list --json >/dev/null
 
       - name: Resolve, bind, and migrate usage database
@@ -652,12 +650,10 @@ jobs:
         run: |
           FILE=$(mktemp)
           trap 'rm -f "$FILE"' EXIT
-          SECRETS='{}'
+          SECRETS=$(node scripts/ci/deployment-credentials.mjs worker-secrets)
           add() {
             SECRETS=$(printf '%s' "$SECRETS" | jq --arg k "$1" --arg v "$2" '. + {($k): $v}')
           }
-
-          add CLOUDFLARE_API_TOKEN "$RUNTIME_CLOUDFLARE_API_TOKEN"
 
           # CF_ACCESS_CLIENT_SECRET (CF Access mode) or OAUTH_E2E_TEST_SECRET
           # (GitHub OIDC mode) — the service-auth identity used by the

@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { deploymentCredentialBoundary } from '../../../scripts/ci/deployment-credentials.mjs';
 import { prepareUsageD1 } from '../../../scripts/ci/prepare-usage-d1.mjs';
 import { setHeadSampling } from '../../../scripts/ci/set-head-sampling.mjs';
-// @ts-expect-error Vite loads the workflow as raw text in this CI behavior test.
-import deployWorkflow from '../../../.github/workflows/deploy.yml?raw';
 
 type WranglerCommand = string[];
 
@@ -17,11 +16,13 @@ migrations_dir = "migrations/usage"
 
 function fakeRunner(responses: Record<string, { status: number; stdout?: string; stderr?: string }>) {
   const calls: WranglerCommand[] = [];
-  const run = vi.fn(async (command: WranglerCommand) => {
+  const environments: Array<Record<string, string>> = [];
+  const run = vi.fn(async (command: WranglerCommand, environment: Record<string, string>) => {
     calls.push(command);
+    environments.push(environment);
     return responses[command.join(' ')] ?? { status: 0, stdout: '' };
   });
-  return { calls, run };
+  return { calls, environments, run };
 }
 
 describe('observability deployment boundary (REQ-OPS-057)', () => {
@@ -40,11 +41,21 @@ describe('observability deployment boundary (REQ-OPS-057)', () => {
 });
 
 describe('D1 deployment boundary (REQ-OPS-056)', () => {
-  it('uses the deployment token for D1 work and uploads only the runtime token to the Worker (AC7)', () => {
-    expect(deployWorkflow).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEPLOY_API_TOKEN }}');
-    expect(deployWorkflow).toContain('RUNTIME_CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
-    expect(deployWorkflow).toContain('add CLOUDFLARE_API_TOKEN "$RUNTIME_CLOUDFLARE_API_TOKEN"');
-    expect(deployWorkflow).not.toContain('add CLOUDFLARE_DEPLOY_API_TOKEN');
+  it('uses the deployment token for Wrangler and exposes only the runtime token as a Worker secret (AC7)', async () => {
+    const boundary = deploymentCredentialBoundary('deploy-token', 'runtime-token');
+    expect(boundary.wranglerEnvironment).toEqual({ CLOUDFLARE_API_TOKEN: 'deploy-token' });
+    expect(boundary.workerSecrets).toEqual({ CLOUDFLARE_API_TOKEN: 'runtime-token' });
+    expect(JSON.stringify(boundary.workerSecrets)).not.toContain('deploy-token');
+
+    const fake = fakeRunner({
+      'd1 list --json': { status: 0, stdout: JSON.stringify([{ uuid: '22222222-2222-4222-8222-222222222222', name: 'codeflare-integration-usage' }]) },
+      'd1 migrations apply codeflare-integration-usage --remote': { status: 0 },
+    });
+    await prepareUsageD1({
+      workerName: 'codeflare-integration', deployToken: 'deploy-token', runtimeToken: 'runtime-token', wranglerConfig: config, run: fake.run,
+    });
+    expect(fake.environments).not.toHaveLength(0);
+    expect(fake.environments.every((environment) => environment.CLOUDFLARE_API_TOKEN === 'deploy-token')).toBe(true);
   });
 
   it('rejects missing separate or runtime credentials before any Wrangler call', async () => {

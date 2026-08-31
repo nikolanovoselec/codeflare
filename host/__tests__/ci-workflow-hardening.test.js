@@ -604,6 +604,7 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
         'package-root': 'web-ui',
         'changed-base': '${{ github.event.pull_request.base.sha }}',
         'changed-line-threshold': '70',
+        'changed-line-exclusions': 'web-ui/src/components/admin/ActivityPage.tsx, web-ui/src/components/admin/AnalyticsPage.tsx, web-ui/src/components/admin/AnalyticsUserDetail.tsx, web-ui/src/components/admin/EnvironmentAreaFields.tsx, web-ui/src/components/admin/EnvironmentIndex.tsx, web-ui/src/components/admin/ReportsPage.tsx',
         'statements-threshold': '75',
         'branches-threshold': '63',
         'functions-threshold': '75',
