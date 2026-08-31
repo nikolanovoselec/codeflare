@@ -22,6 +22,9 @@ describe('usage report settings and schedule (REQ-SUB-027)', () => {
     });
     expect(() => normalizeReportSettings({ enabled: true, recipients: ['a@example.com'], day: 1, hour: 9.5, timezone: 'Europe/Zurich' })).toThrow();
     expect(() => normalizeReportSettings({ enabled: true, recipients: ['a@example.com'], day: 1, hour: 9, timezone: 'CET' })).toThrow();
+    expect(() => normalizeReportSettings({ enabled: true, recipients: [], day: 1, hour: 9, timezone: 'UTC' })).toThrow();
+    expect(() => normalizeReportSettings({ enabled: true, recipients: ['invalid'], day: 1, hour: 9, timezone: 'UTC' })).toThrow();
+    expect(() => normalizeReportSettings({ enabled: true, recipients: Array.from({ length: 26 }, (_, index) => `user${index}@example.com`), day: 1, hour: 9, timezone: 'UTC' })).toThrow();
   });
 
   it('uses the last valid day when a requested 31st is absent', () => {

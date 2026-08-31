@@ -797,11 +797,11 @@
 }
 
 .admin-inline-error {
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-6);
   padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--color-danger);
+  border: 1px solid var(--color-error);
   border-radius: var(--radius-md);
-  color: var(--color-danger);
+  color: var(--color-error);
 }
 
 .admin-status-badge {
@@ -815,7 +815,7 @@
 }
 
 .admin-status-badge.is-accepted { color: var(--color-success); }
-.admin-status-badge.is-failed { color: var(--color-danger); }
+.admin-status-badge.is-failed { color: var(--color-error); }
 .admin-status-badge.is-sending { color: var(--color-info); }
 
 @media (max-width: 767px) {
