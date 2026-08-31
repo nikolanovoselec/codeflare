@@ -140,14 +140,20 @@ export async function deleteSession(id: string): Promise<void> {
   });
 }
 
+export interface ManagedReleaseProgress {
+  phase: 'planning' | 'writing' | 'finalizing';
+  completed: number;
+  total: number;
+}
+
 /**
  * Get status for all sessions in a single batch call
  * Returns statuses map, maxSessions limit, and optional storageStats
  */
-export async function getBatchSessionStatus(options?: { includePreseedCheck?: boolean }): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }; preseedNeedsUpgrade?: boolean; managedReleaseStatus?: 'current' | 'upgrading' | 'update_pending'; bucketMigrating?: boolean; bucketMigrationPending?: boolean; bucketMigrationPercent?: number }> {
+export async function getBatchSessionStatus(options?: { includePreseedCheck?: boolean }): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }; preseedNeedsUpgrade?: boolean; managedReleaseStatus?: 'current' | 'upgrading' | 'update_pending'; managedReleaseProgress?: ManagedReleaseProgress; bucketMigrating?: boolean; bucketMigrationPending?: boolean; bucketMigrationPercent?: number }> {
   const path = options?.includePreseedCheck ? '/sessions/batch-status?includePreseedCheck=true' : '/sessions/batch-status';
   const response = await fetchApi(path, {}, BatchSessionStatusResponseSchema);
-  return { statuses: response.statuses, maxSessions: response.maxSessions, storageStats: response.storageStats, usage: response.usage, preseedNeedsUpgrade: response.preseedNeedsUpgrade, managedReleaseStatus: response.managedReleaseStatus, bucketMigrating: response.bucketMigrating, bucketMigrationPending: response.bucketMigrationPending, bucketMigrationPercent: response.bucketMigrationPercent };
+  return { statuses: response.statuses, maxSessions: response.maxSessions, storageStats: response.storageStats, usage: response.usage, preseedNeedsUpgrade: response.preseedNeedsUpgrade, managedReleaseStatus: response.managedReleaseStatus, managedReleaseProgress: response.managedReleaseProgress, bucketMigrating: response.bucketMigrating, bucketMigrationPending: response.bucketMigrationPending, bucketMigrationPercent: response.bucketMigrationPercent };
 }
 
 // Get container startup status (polling endpoint)

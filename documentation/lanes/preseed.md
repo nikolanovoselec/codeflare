@@ -222,12 +222,31 @@ because the same request has already issued one PUT per live key. The HEAD
 fan-out is batched, and a candidate count past the cap skips the sweep with
 a warning rather than issuing the requests.
 
-**Upgrade semantics**: currently-seeded keys are build-authoritative. A
-release that changes preseed content changes `PRESEED_CONTENT_HASH`, which
-triggers the upgrade reconcile (REQ-AGENT-049) on next dashboard load; that
-reconcile overwrites live keys and removes retired ones. Files the build
-never seeded are never touched. Implements
-[REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed).
+**Upgrade semantics**: the dashboard uses the dedicated automatic upgrade
+endpoint. For a managed release, it compares the exact applied signed bundle
+directly with the active target bundle. It writes only target paths whose
+release content or content type changed, plus newly added paths. An unchanged
+release path is not written, so a markerless user edit at that path survives.
+Manual Recreate and mode-change callers still overwrite every desired path.
+
+Each planned automatic write first checks the target object's provenance
+marker. A target-digest match counts as complete and skips the PUT, so a later
+dashboard visit resumes work paused by browser closure. Fresh buckets and a
+valid applied digest whose immutable cache object is unavailable plan the full
+target, then use the same marker checks. R2 markers govern execution; the
+expiring KV progress record is display-only.
+
+When both applied and target bundles are available, direct-delta cleanup
+considers paths present in the applied mode and absent from the target mode.
+Signed target retirements are a separate cleanup source and retain their
+existing provenance rule. Direct removals require a valid Codeflare digest;
+markerless edits and every desired target path remain. Conditional deletion
+also preserves an object replaced after its cleanup check. The applied release identity is
+written only after reconciliation and final target, mode, policy, SSE,
+session-ownership, and migration checks. Implements
+[REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed),
+[REQ-STOR-033](../../sdd/spec/storage.md#req-stor-033-delta-and-resumable-managed-release-reconciliation),
+and [REQ-STOR-034](../../sdd/spec/storage.md#req-stor-034-observational-managed-reconciliation-progress).
 
 <a id="preseed-components"></a>
 ## Artifact Inventory and Sources

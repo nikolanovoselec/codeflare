@@ -23,6 +23,7 @@ import type { UsageRecord } from '../../types';
 import { getActiveManagedRelease } from '../../lib/managed-release-active';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { countsTowardSessionLimit } from '../container/lifecycle-validation';
+import { clearMatchingManagedReconcileProgress, readManagedReconcileProgress } from '../../lib/managed-reconcile-progress';
 
 /**
  * Check container health and PTY status for a session.
@@ -179,6 +180,7 @@ app.get('/batch-status', async (c) => {
   // request and existing reconcile route; it does not add another poller.
   let preseedNeedsUpgrade: boolean | undefined;
   let managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | undefined;
+  let managedReleaseProgress: { phase: 'planning' | 'writing' | 'finalizing'; completed: number; total: number } | undefined;
   if (c.req.query('includePreseedCheck') === 'true') {
     const prefs = await c.env.KV.get<UserPreferences>(getPreferencesKey(bucketName), 'json');
     const mode = await resolveEffectiveSessionMode(prefs ?? null, user, c.env);
@@ -201,6 +203,18 @@ app.get('/batch-status', async (c) => {
         managedReleaseStatus = managedMismatch
           ? (hasOwningSession ? 'update_pending' : 'upgrading')
           : 'current';
+      }
+      if (active) {
+        const progress = await readManagedReconcileProgress(c.env.KV, bucketName);
+        if (!managedMismatch && progress?.targetDigest === active.digest) {
+          await clearMatchingManagedReconcileProgress(c.env.KV, bucketName, active.digest);
+        } else if (managedReleaseStatus === 'upgrading' && progress?.targetDigest === active.digest) {
+          managedReleaseProgress = {
+            phase: progress.phase,
+            completed: progress.completed,
+            total: progress.total,
+          };
+        }
       }
 
       const bakedMismatch = !active && (
@@ -257,7 +271,7 @@ app.get('/batch-status', async (c) => {
     }
   }
 
-  return c.json({ statuses, maxSessions, storageStats, usage, preseedNeedsUpgrade, managedReleaseStatus, bucketMigrating, bucketMigrationPending, bucketMigrationPercent });
+  return c.json({ statuses, maxSessions, storageStats, usage, preseedNeedsUpgrade, managedReleaseStatus, managedReleaseProgress, bucketMigrating, bucketMigrationPending, bucketMigrationPercent });
 });
 
 /**

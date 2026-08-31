@@ -8,6 +8,7 @@ import {
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+import * as storageApi from '../../api/storage';
 import {
   browseStorage,
   uploadFile,
@@ -308,6 +309,19 @@ describe('Storage API Client', () => {
   // recreateAgentConfigs
   // ==========================================================================
   describe('recreateAgentConfigs', () => {
+    it('REQ-STOR-033 AC7: calls the separate automatic managed upgrade endpoint', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({
+        success: true, bucketCreated: false, written: [], skipped: [], deleted: [], warnings: [],
+      }));
+
+      await (storageApi as typeof storageApi & { upgradeAgentConfigs: () => Promise<unknown> }).upgradeAgentConfigs();
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/storage/seed/agent-configs/upgrade',
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+
     it('calls POST /api/storage/seed/agent-configs', async () => {
       mockFetch.mockResolvedValueOnce(
         mockResponse({

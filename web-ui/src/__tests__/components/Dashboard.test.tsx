@@ -109,6 +109,7 @@ vi.mock('../../stores/session', async () => {
   let _bucketMigrating = false;
   let _bucketMigrationPercent: number | null = null;
   let _managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null = null;
+  let _managedReleaseProgress: { phase: 'planning' | 'writing' | 'finalizing'; completed: number; total: number } | null = null;
   let _enterpriseMode = false;
   let _sessionMode = 'advanced';
   return {
@@ -120,6 +121,7 @@ vi.mock('../../stores/session', async () => {
       get bucketMigrating() { return _bucketMigrating; },
       get bucketMigrationPercent() { return _bucketMigrationPercent; },
       get managedReleaseStatus() { return _managedReleaseStatus; },
+      get managedReleaseProgress() { return _managedReleaseProgress; },
       get enterpriseMode() { return _enterpriseMode; },
       get preferences() { return { sessionMode: _sessionMode }; },
       isAtSessionLimit: () => _isAtLimit,
@@ -134,6 +136,7 @@ vi.mock('../../stores/session', async () => {
       _setBucketMigrating: (v: boolean) => { _bucketMigrating = v; },
       _setBucketMigrationPercent: (v: number | null) => { _bucketMigrationPercent = v; },
       _setManagedReleaseStatus: (v: 'current' | 'upgrading' | 'update_pending' | null) => { _managedReleaseStatus = v; },
+      _setManagedReleaseProgress: (v: typeof _managedReleaseProgress) => { _managedReleaseProgress = v; },
       _setEnterpriseMode: (v: boolean) => { _enterpriseMode = v; },
     },
     isAtUsageQuota: () => false,
@@ -243,6 +246,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     (sessionStore as any)._setEnterpriseMode(false);
     (sessionStore as any)._setSessionMode('advanced');
     (sessionStore as any)._setManagedReleaseStatus(null);
+    (sessionStore as any)._setManagedReleaseProgress(null);
     mockMultiView = null;
   });
 
@@ -1103,14 +1107,44 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(button).toHaveAttribute('aria-label', 'Session environment update pending until session stops');
   });
 
-  it('disables New Session while a managed release is updating', () => {
+  it('REQ-AGENT-175 AC5: whole-button managed upgrade progress preserves centered text and ordinary completion color', () => {
     (sessionStore as any)._setManagedReleaseStatus('upgrading');
+    (sessionStore as any)._setManagedReleaseProgress({ phase: 'writing', completed: 25, total: 100 });
     render(() => <Dashboard {...defaultProps} />);
 
     const button = screen.getByTestId('dashboard-new-session');
     expect(button).toBeDisabled();
-    expect(button.textContent).toBe('Updating');
-    expect(button).toHaveAttribute('aria-label', 'Updating session environment');
+    expect(button.textContent).toBe('Upgrading 25 / 100');
+    expect(button).toHaveAttribute('aria-label', 'Upgrading managed resources, 25 of 100 complete');
+    expect(button.getAttribute('style')).toContain('linear-gradient');
+    expect(button.getAttribute('style')).toContain('var(--color-accent) 0%');
+    expect(button.getAttribute('style')).toContain('var(--color-accent) 25%');
+    expect(button.querySelector('[role="progressbar"]')).toBeNull();
+
+    cleanup();
+    (sessionStore as any)._setManagedReleaseProgress({ phase: 'writing', completed: 100, total: 100 });
+    render(() => <Dashboard {...defaultProps} />);
+    const complete = screen.getByTestId('dashboard-new-session');
+    expect(complete.getAttribute('style')).toContain('var(--color-accent) 100%');
+  });
+
+  it('REQ-AGENT-175 AC5: shows planning and finalizing managed upgrade phases', () => {
+    (sessionStore as any)._setManagedReleaseStatus('upgrading');
+    (sessionStore as any)._setManagedReleaseProgress({ phase: 'planning', completed: 0, total: 0 });
+    render(() => <Dashboard {...defaultProps} />);
+
+    const planning = screen.getByTestId('dashboard-new-session');
+    expect(planning.textContent).toBe('Upgrading');
+    expect(planning).toHaveAttribute('aria-label', 'Upgrading managed resources');
+    expect(planning.getAttribute('style')).toContain('color-mix(in srgb, var(--color-accent) 72%, black) 0%');
+
+    cleanup();
+    (sessionStore as any)._setManagedReleaseProgress({ phase: 'finalizing', completed: 100, total: 100 });
+    render(() => <Dashboard {...defaultProps} />);
+
+    const finalizing = screen.getByTestId('dashboard-new-session');
+    expect(finalizing.textContent).toBe('Finalizing');
+    expect(finalizing).toHaveAttribute('aria-label', 'Finalizing managed resources');
   });
 
   // REQ-ENTERPRISE-021 AC3: Governed Mode migrating-button label

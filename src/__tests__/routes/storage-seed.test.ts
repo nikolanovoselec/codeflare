@@ -257,7 +257,7 @@ describe('Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recrea
     expect(mockKV.delete).toHaveBeenCalledWith('storage-stats:my-bucket');
   });
 
-  it('REQ-AGENT-049 AC8: propagates advanced mode and contextModeEnabled for unlimited tier', async () => {
+  it('REQ-AGENT-049 AC7: propagates advanced mode and contextModeEnabled for unlimited tier', async () => {
     mockKV = createMockKV();
     mockKV._set('user-prefs:adv-bucket', { sessionMode: 'advanced' });
     const app = createTestApp({
