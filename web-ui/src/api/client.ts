@@ -110,6 +110,24 @@ export async function getAdminUsage(query: AdminUsageQuery): Promise<AdminUsageR
   return fetchApi(`/admin/usage?${params}`, {}, AdminUsageResponseSchema);
 }
 
+const AdminUsageDetailSchema = AdminUsageUserSchema.extend({
+  period: z.enum(['day', 'week', 'month', 'year']),
+  start: z.string(),
+  timezone: z.literal('UTC'),
+});
+
+export async function getAdminUsageUser(
+  userKey: string,
+  period: AdminUsageQuery['period'],
+  start: string,
+): Promise<z.infer<typeof AdminUsageDetailSchema>> {
+  return fetchApi(
+    `/admin/usage/users/${encodeURIComponent(userKey)}?period=${period}&start=${encodeURIComponent(start)}`,
+    {},
+    AdminUsageDetailSchema,
+  );
+}
+
 // Per-device agent notification enrollment (REQ-TERM-025 AC1-AC5)
 const AgentNotificationConfigSchema = z.object({
   vapidPublicKey: z.string().min(1),

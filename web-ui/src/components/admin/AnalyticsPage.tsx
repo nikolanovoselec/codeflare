@@ -1,3 +1,4 @@
+import { A } from '@solidjs/router';
 import { Component, For, Show, createResource, createSignal } from 'solid-js';
 import { getAdminUsage, type AdminUsageQuery, type AdminUsageUser } from '../../api/client';
 
@@ -128,7 +129,7 @@ const AnalyticsPage: Component = () => {
                     </tr></thead>
                     <tbody><For each={resolved().users}>{(user: AdminUsageUser) => (
                       <tr>
-                        <td>{user.email}</td>
+                        <td><A href={`/admin/analytics/users/${user.userKey}?period=${resolved().period}&start=${encodeURIComponent(resolved().start)}`}>{user.email}</A></td>
                         <td><span class={`admin-status admin-status-${user.accountStatus === 'active' ? 'enabled' : 'disabled'}`}>{user.accountStatus}</span></td>
                         <td class="admin-mono">{duration(user.runtimeSeconds)}</td>
                         <td class="admin-mono">{user.sessionCount}</td>

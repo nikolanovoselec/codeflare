@@ -26,6 +26,7 @@ const EnvironmentIndex = lazy(() => import('./components/admin/EnvironmentIndex'
 const EnvironmentAreaDetail = lazy(async () => ({ default: (await import('./components/admin/EnvironmentIndex')).EnvironmentAreaDetail }));
 const AdministrationPendingPage = lazy(() => import('./components/admin/AdministrationPendingPage'));
 const AnalyticsPage = lazy(() => import('./components/admin/AnalyticsPage'));
+const AnalyticsUserDetail = lazy(() => import('./components/admin/AnalyticsUserDetail'));
 
 // Check setup status from API.
 // Returns null when status cannot be determined (e.g. Access redirect/network error).
@@ -387,6 +388,7 @@ const App: Component = () => {
         <Route path="/users" component={AdministrationUsers} />
         <Route path="/subscriptions" component={AdministrationSubscriptions} />
         <Route path="/analytics" component={AnalyticsPage} />
+        <Route path="/analytics/users/:userKey" component={AnalyticsUserDetail} />
         <Route path="/reports" component={AdministrationReports} />
         <Route path="/activity" component={AdministrationActivity} />
       </Route>

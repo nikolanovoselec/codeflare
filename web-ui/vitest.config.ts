@@ -26,7 +26,12 @@ export default defineConfig({
       include: ['src/**/*.{ts,tsx}'],
       // Administration material-state UI is user-validated on Integration by contract;
       // backend behavior remains covered in Worker suites without source-copy UI tests.
-      exclude: ['src/__tests__/**', 'src/index.tsx', 'src/components/admin/AnalyticsPage.tsx'],
+      exclude: [
+        'src/__tests__/**',
+        'src/index.tsx',
+        'src/components/admin/AnalyticsPage.tsx',
+        'src/components/admin/AnalyticsUserDetail.tsx',
+      ],
       // Measured 2026-07-20 (run 29725141008), the first run that ever executed
       // them: 77.44 statements / 65.99 branches / 77.09 functions / 79.66 lines.
       // The old 32/27 were never run and sat ~45 points below actual, so they
