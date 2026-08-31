@@ -3,7 +3,7 @@ import { getManagedReconcileProgressKey } from './kv-keys';
 
 const PROGRESS_TTL_SECONDS = 24 * 60 * 60;
 
-export const ManagedReconcileProgressSchema = z.object({
+const ManagedReconcileProgressSchema = z.object({
   schemaVersion: z.literal(1),
   targetDigest: z.string().regex(/^[0-9a-f]{64}$/),
   phase: z.enum(['planning', 'writing', 'finalizing']),
