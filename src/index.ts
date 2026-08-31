@@ -24,6 +24,7 @@ import adminConfigurationRoutes from './routes/admin/configuration';
 import adminConfigurationPreviewRoutes from './routes/admin/configuration-previews';
 import adminConfigurationRunRoutes from './routes/admin/configuration-runs';
 import adminUsageRoutes from './routes/admin/usage';
+import adminUsageReportRoutes from './routes/admin/usage-reports';
 import { runUsageReportScheduler } from './lib/usage-report-scheduler';
 import billingRoutes from './routes/billing';
 import notificationRoutes from './routes/notifications';
@@ -293,6 +294,7 @@ app.route('/api/admin/configuration', adminConfigurationRoutes);
 app.route('/api/admin/configuration-previews', adminConfigurationPreviewRoutes);
 app.route('/api/admin/configuration-runs', adminConfigurationRunRoutes);
 app.route('/api/admin/usage', adminUsageRoutes);
+app.route('/api/admin', adminUsageReportRoutes);
 app.route('/api/billing', billingRoutes);
 app.route('/api/notifications', notificationRoutes);
 
