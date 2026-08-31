@@ -31,17 +31,20 @@ function createApp() {
   } as unknown as Env;
   const waitUntil = vi.fn();
   const app = new Hono<{ Bindings: Env; Variables: AuthVariables & { requestId: string } }>();
-  app.use('*', async (c, next) => { c.env = env; c.set('requestId', 'req-1'); c.executionCtx = { waitUntil } as any; return next(); });
+  app.use('*', async (c, next) => { c.set('requestId', 'req-1'); return next(); });
   app.route('/admin', reportRoutes);
-  return { app, waitUntil };
+  const request = (path: string, init?: RequestInit) => app.fetch(
+    new Request(`http://localhost${path}`, init), env, { waitUntil } as unknown as ExecutionContext,
+  );
+  return { request, waitUntil };
 }
 
 describe('admin usage report routes (REQ-SUB-027)', () => {
   beforeEach(() => { role = 'admin'; vi.clearAllMocks(); });
 
   it('creates distinct test delivery rows and uses waitUntil only as fast path', async () => {
-    const { app, waitUntil } = createApp();
-    const response = await app.request('/admin/usage-report-tests', { method: 'POST' });
+    const { request, waitUntil } = createApp();
+    const response = await request('/admin/usage-report-tests', { method: 'POST' });
     expect(response.status).toBe(202);
     expect(createReportDispatch).toHaveBeenCalledWith(expect.anything(), 'test', 'test:req-1', 2, expect.any(String), ['admin@example.com'], expect.any(Date));
     expect(waitUntil).toHaveBeenCalledOnce();
@@ -49,8 +52,8 @@ describe('admin usage report routes (REQ-SUB-027)', () => {
   });
 
   it('returns cursor-ready history with public delivery identity fields', async () => {
-    const { app } = createApp();
-    const response = await app.request('/admin/usage-report-deliveries?limit=25');
+    const { request } = createApp();
+    const response = await request('/admin/usage-report-deliveries?limit=25');
     expect(response.status).toBe(200);
     const body = await response.json() as any;
     expect(body.deliveries[0]).toMatchObject({ deliveryKind: 'test', dispatchId: 'test:req-1', state: 'pending' });
@@ -58,6 +61,6 @@ describe('admin usage report routes (REQ-SUB-027)', () => {
 
   it('requires administrator role', async () => {
     role = 'user';
-    expect((await createApp().app.request('/admin/usage-report-deliveries')).status).toBe(403);
+    expect((await createApp().request('/admin/usage-report-deliveries')).status).toBe(403);
   });
 });
