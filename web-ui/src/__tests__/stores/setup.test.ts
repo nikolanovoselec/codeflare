@@ -1417,6 +1417,36 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
+    it('REQ-SETUP-022 AC3: keeps configured recovery closed when provider prefill fails', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(JSON.stringify({ configured: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }));
+        }
+        if (url === '/api/users') {
+          return Promise.resolve(new Response(JSON.stringify({ users: [] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }));
+        }
+        if (url === '/api/setup/prefill') return Promise.resolve(new Response('Unavailable', { status: 503 }));
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+      expect(await setupStore.loadExistingConfig()).toBe(false);
+    });
+
+    it('REQ-SETUP-022 AC2: shares the result of overlapping hydration calls', async () => {
+      mockFetch.mockResolvedValue(new Response('Unavailable', { status: 503 }));
+
+      const first = setupStore.loadExistingConfig();
+      const second = setupStore.loadExistingConfig();
+      await expect(Promise.all([first, second])).resolves.toEqual([false, false]);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
     it('uses setup prefill endpoint when setup is not configured', async () => {
       mockFetch.mockImplementation((url: string) => {
         if (url === '/api/setup/status') {

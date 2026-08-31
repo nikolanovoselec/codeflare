@@ -1,7 +1,7 @@
 /**
  * Prefill hydration appliers, extracted from setup.ts's loadExistingConfig.
  * Each function mutates a Solid `produce()` draft of the setup-wizard state —
- * the store owns WHEN to hydrate (status branching, best-effort fetches);
+ * the store owns WHEN to hydrate (status branching and request success);
  * these own WHAT maps from the backend payloads into the state.
  */
 import type { SetupState } from './setup-types';
@@ -83,14 +83,11 @@ export function applyEnterprisePrefill(s: SetupState, prefill: SetupPrefill, cus
   s.groupRouting = prefill.groupRouting;
 }
 
-/**
- * Non-enterprise reconfiguration hydration: users/admins from /api/users,
- * provider config best-effort from the prefill (masked secrets).
- */
+/** Non-enterprise reconfiguration hydration from users and masked prefill responses. */
 export function applyReconfigPrefill(
   s: SetupState,
   users: UsersList,
-  reconfigPrefill: SetupPrefill | null,
+  reconfigPrefill: SetupPrefill,
   customDomain: string | undefined,
   saasMode: boolean | undefined,
 ): void {
@@ -105,9 +102,7 @@ export function applyReconfigPrefill(
       .filter((u) => u.role !== 'admin')
       .map((u) => u.email);
   }
-  if (reconfigPrefill) {
-    applyProviderPrefill(s, reconfigPrefill);
-  }
+  applyProviderPrefill(s, reconfigPrefill);
 }
 
 /** Initial (non-configured, non-SaaS) hydration from the deploy-time prefill. */
