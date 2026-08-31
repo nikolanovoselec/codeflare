@@ -785,7 +785,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. A reported test failure inside the coverage run is fatal regardless of exit status. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
 4. The known teardown-crash fingerprint is tolerated only for backend coverage and only after the table, test-failure, and threshold checks have all passed. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateCoverageResult --> <!-- @impl: .github/actions/merge-coverage/action.yml::Merge shard coverage and enforce thresholds --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (fails closed on coverage evidence and bounds the backend crash exception) -->
 5. Pull requests run backend and frontend coverage when their package path is affected; push, merge-group, scheduled, and manually dispatched full runs retain both package threshold gates. <!-- @impl: .github/workflows/test.yml::coverage-backend --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-022 AC5: merges affected package coverage only after matrix tests) -->
-6. Affected pull-request packages enforce bounded changed-production-line coverage against sub-100% floors and fail closed on missing, malformed, or incomplete evidence, except the closed Administration material-state UI files listed for user-owned Integration validation. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateChangedLineCoverage --> <!-- @impl: .github/actions/merge-coverage/action.yml::Merge shard coverage and enforce thresholds --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-022 AC6: bounded changed-production-line LCOV gate) -->
+6. Affected pull-request packages enforce bounded changed-production-line coverage against sub-100% floors and fail closed on missing, malformed, or incomplete evidence, except the closed Administration material-state UI owners assigned to user-owned Integration validation. <!-- @impl: scripts/ci/check-coverage-result.mjs::evaluateChangedLineCoverage --> <!-- @impl: .github/actions/merge-coverage/action.yml::Merge shard coverage and enforce thresholds --> <!-- @impl: .github/workflows/test.yml::coverage-frontend --> <!-- @test: host/__tests__/ci-workflow-hardening.test.js (REQ-OPS-022 AC6: bounded changed-production-line LCOV gate) -->
 
 **Constraints:**
 
@@ -793,7 +793,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - `set -o pipefail` is required: without it `npm test | tee` reports tee's status and a failed threshold check passes.
 - Changed-line enforcement is package-scoped and thresholded; it does not require 100% coverage per file and does not replace the existing global thresholds.
 - Changed-line evidence follows destination paths for renames; deletions and test-only changes require no evidence.
-- Manual-validation exclusions are limited to the six Administration UI files named in the frontend coverage job; backend contracts and other frontend production files remain covered.
+- Manual-validation exceptions do not extend to backend contracts, shared frontend infrastructure, or non-Administration production code.
 
 **Priority:** P1
 

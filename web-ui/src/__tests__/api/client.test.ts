@@ -1346,25 +1346,32 @@ describe('API Client', () => {
       await getConfigurationRun('run-1');
       await getUsageReportDeliveries('delivery-cursor');
 
-      expect(mockFetch.mock.calls.map(([url]) => url)).toEqual(expect.arrayContaining([
+      expect(mockFetch.mock.calls.map(([url]) => url)).toEqual([
+        '/api/admin/configuration',
         '/api/admin/usage?period=day&start=2026-08-30&cursor=usage-cursor&limit=50',
+        `/api/admin/usage/users/${'a'.repeat(64)}?period=day&start=2026-08-30`,
         '/api/admin/configuration-runs?limit=50&cursor=run-cursor',
+        '/api/admin/configuration-runs/run-1',
         '/api/admin/usage-report-deliveries?limit=50&cursor=delivery-cursor',
-      ]));
+      ]);
+      expect(mockFetch.mock.calls.every(([, options]) => options.credentials === 'same-origin')).toBe(true);
     });
 
-    it('submits preview, run, and report-test requests without retaining submitted values', async () => {
+    it('submits exact preview, run, and report-test contracts', async () => {
       mockFetch
         .mockResolvedValueOnce(response({ section: 'domain', baseRevision: 1, currentRevision: 1, changes: [], tasks: [], warnings: [], exclusions: [] }))
         .mockResolvedValueOnce({ ok: true, status: 202 })
         .mockResolvedValueOnce(response({ dispatchId: 'test-1', deliveryKind: 'test', state: 'pending' }));
+      const values = { customDomain: 'example.com' };
+      const body = JSON.stringify({ section: 'domain', baseRevision: 1, values });
 
-      await previewConfiguration('domain', 1, { customDomain: 'example.com' });
-      await expect(startConfigurationRun('domain', 1, { customDomain: 'example.com' })).resolves.toMatchObject({ status: 202 });
+      await previewConfiguration('domain', 1, values);
+      await expect(startConfigurationRun('domain', 1, values)).resolves.toMatchObject({ status: 202 });
       await sendUsageReportTest();
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/admin/configuration-runs', expect.objectContaining({ method: 'POST' }));
-      expect(mockFetch).toHaveBeenCalledWith('/api/admin/usage-report-tests', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenNthCalledWith(1, '/api/admin/configuration-previews', expect.objectContaining({ method: 'POST', body }));
+      expect(mockFetch).toHaveBeenNthCalledWith(2, '/api/admin/configuration-runs', expect.objectContaining({ method: 'POST', body, credentials: 'same-origin' }));
+      expect(mockFetch).toHaveBeenNthCalledWith(3, '/api/admin/usage-report-tests', expect.objectContaining({ method: 'POST' }));
     });
 
     it('returns a typed configuration conflict from a failed run request', async () => {
