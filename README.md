@@ -137,7 +137,7 @@ Use a Cloudflare account that can run Workers and Containers, a GitHub fork with
 The public path creates a private single-tenant instance in four steps:
 
 1. Fork this repository.
-2. Keep `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in their established repository or target-environment Actions secret scope. The API token needs D1 Edit for usage-database creation and migrations. Use the maintained [operator token scope list](documentation/lanes/configuration.md#cloudflare-api-token-operator).
+2. Keep `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in their established repository or target-environment Actions secret scope. The API token needs D1 Edit for usage-database creation and migrations. Use the maintained [operator token scope list](documentation/lanes/configuration.md#cloudflare-api-token-operator) and [REQ-OPS-056](sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary).
 3. Run **Actions > Deploy > Run workflow** from `main` with the production target.
 4. Open the Worker URL and complete the setup wizard for the custom domain, allowed users, administrators, R2 credentials, and Cloudflare Access resources.
 

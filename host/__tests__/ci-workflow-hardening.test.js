@@ -29,6 +29,15 @@ describe('deployment workflow safety', () => {
     assert.equal(deploy.concurrency['cancel-in-progress'], false);
   });
 
+  it('REQ-OPS-056 AC7: preserves the established credential through deployment and Worker secret upload', () => {
+    const preflight = step(deploy.jobs.deploy, 'Preflight deployment credentials and D1 access');
+    const secrets = step(deploy.jobs.deploy, 'Set worker secrets (bulk)');
+    const established = '${{ secrets.CLOUDFLARE_API_TOKEN }}';
+    assert.equal(preflight.env.CLOUDFLARE_API_TOKEN, established);
+    assert.equal(secrets.env.CLOUDFLARE_API_TOKEN, established);
+    assert.match(secrets.run, /add CLOUDFLARE_API_TOKEN "\$CLOUDFLARE_API_TOKEN"/);
+  });
+
   it('wires deployment to the behaviorally tested service-user seed boundary', () => {
     const seed = step(deploy.jobs.deploy, 'Seed service user in KV (stress-test identity, optional)');
     assert.equal(seed.run, 'scripts/ci/seed-service-user.sh');

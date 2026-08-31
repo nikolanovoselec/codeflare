@@ -146,7 +146,7 @@ Base image: Node.js 24 Debian (bookworm-slim).
 
 ### Cloudflare API Token (Operator)
 
-The established `CLOUDFLARE_API_TOKEN` continues to authenticate GitHub Actions deployment and the Worker runtime. Add D1 Edit to its existing permissions so deployment can create and migrate the usage database. Start from the **"Edit Cloudflare Workers"** template, then add only the scopes required by this repository. Database identity, migration order, restore limits, and rollout checks are in [Administration and historical usage](administration-analytics.md).
+The established `CLOUDFLARE_API_TOKEN` continues to authenticate GitHub Actions deployment and the Worker runtime. Add D1 Edit to its existing permissions so deployment can create and migrate the usage database. Start from the **"Edit Cloudflare Workers"** template, then add only the scopes required by this repository. Database identity, migration order, restore limits, and rollout checks are in [Administration and historical usage](administration-analytics.md) and [REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary).
 
 #### Account Permissions
 
