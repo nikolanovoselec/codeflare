@@ -49,9 +49,15 @@ export async function prepareUsageD1({
   let database = exact[0];
   let created = false;
   if (!database) {
-    const creation = await run(['d1', 'create', databaseName, '--json'], wranglerEnvironment);
+    const creation = await run(['d1', 'create', databaseName], wranglerEnvironment);
     if (creation.status !== 0) throw new Error(`Could not create D1 database ${databaseName}: ${creation.stderr || creation.stdout || 'unknown error'}`);
-    database = parseJson(creation.stdout || '{}', 'D1 create');
+    const refreshed = await run(['d1', 'list', '--json'], wranglerEnvironment);
+    if (refreshed.status !== 0) throw new Error(`Could not resolve created D1 database ${databaseName}: ${refreshed.stderr || refreshed.stdout || 'unknown error'}`);
+    const refreshedDatabases = parseJson(refreshed.stdout || '[]', 'D1 list after create');
+    if (!Array.isArray(refreshedDatabases)) throw new Error('D1 list after create returned an unexpected shape');
+    const createdMatches = refreshedDatabases.filter((candidate) => candidate?.name === databaseName);
+    if (createdMatches.length !== 1) throw new Error(`D1 list after create must contain exactly one database named ${databaseName}`);
+    database = createdMatches[0];
     created = true;
   }
   const databaseId = database?.uuid;
