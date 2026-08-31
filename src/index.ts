@@ -24,6 +24,7 @@ import adminConfigurationRoutes from './routes/admin/configuration';
 import adminConfigurationPreviewRoutes from './routes/admin/configuration-previews';
 import adminConfigurationRunRoutes from './routes/admin/configuration-runs';
 import adminUsageRoutes from './routes/admin/usage';
+import { runUsageReportScheduler } from './lib/usage-report-scheduler';
 import billingRoutes from './routes/billing';
 import notificationRoutes from './routes/notifications';
 import stripeWebhookRoute from './routes/stripe-webhook';
@@ -528,7 +529,10 @@ export default {
       `default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https://cloudflareinsights.com; img-src 'self' data: https://www.gravatar.com; script-src 'self' '${DESIGN_READY_CSP_HASH}' https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`
     );
     return secureResponse;
-  }
+  },
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runUsageReportScheduler(env));
+  },
 };
 
 // Export Durable Objects

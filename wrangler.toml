@@ -21,6 +21,9 @@ compatibility_flags = ["nodejs_compat"]
 [observability]
 enabled = true
 
+[triggers]
+crons = ["*/15 * * * *"]
+
 # Environment variables
 [vars]
 ONBOARDING_LANDING_PAGE = "inactive"

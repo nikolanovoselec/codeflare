@@ -8,7 +8,7 @@ import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS, getPreferencesKey, getUsageReport
 import { encryptAndStore, getOrImportKey } from './kv-crypto';
 import { isOnboardingLandingPageActive, isSaasModeActive, isSessionOidcMode } from './onboarding';
 import { isEnterpriseMode } from './subscription';
-import { nextReportDelivery, normalizeReportSettings } from './usage-reports';
+import { nextReportDelivery, normalizeReportSettings, type EnabledReportSettings, type ReportSettingsInput } from './usage-reports';
 import { handleCreateAccessApp } from '../routes/setup/access';
 import { handleConfigureCustomDomain } from '../routes/setup/custom-domain';
 import { getWorkerNameFromHostname } from '../routes/setup/shared';
@@ -226,7 +226,7 @@ function normalizeValues(section: ConfigurationSection, mode: AdministrationMode
     };
   }
   if (section === 'usageReports') {
-    return normalizeReportSettings(values as never) as ConfigurationValues;
+    return normalizeReportSettings(values as unknown as ReportSettingsInput) as unknown as ConfigurationValues;
   }
   return values;
 }
@@ -633,7 +633,7 @@ export async function executeConfigurationTask(
         const now = new Date();
         await env.KV.put(getUsageReportNextKey(context.resultingRevision), JSON.stringify({
           settingsRevision: context.resultingRevision,
-          nextDeliveryAt: nextReportDelivery(values as never, now).toISOString(),
+          nextDeliveryAt: nextReportDelivery(values as unknown as EnabledReportSettings, now).toISOString(),
           updatedAt: now.toISOString(),
         }), { expirationTtl: 90 * 24 * 60 * 60 });
       }
