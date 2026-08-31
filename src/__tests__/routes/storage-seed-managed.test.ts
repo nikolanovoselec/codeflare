@@ -403,9 +403,7 @@ describe('managed storage reconcile', () => {
     const progressWrites = kv.put.mock.calls.filter(([key]) => key === 'managed-reconcile-progress:user-bucket');
     expect(progressWrites.length).toBeGreaterThan(0);
     expect(progressWrites.every(([, , options]) => options?.expirationTtl === 86_400)).toBe(true);
-    const appliedPutIndex = kv.put.mock.calls.findLastIndex(([key]) => key === 'user-prefs:user-bucket');
-    const clearIndex = kv.delete.mock.calls.findLastIndex(([key]) => key === 'managed-reconcile-progress:user-bucket');
-    expect(appliedPutIndex).toBeGreaterThanOrEqual(0);
-    expect(clearIndex).toBeGreaterThanOrEqual(0);
+    expect(kv.put.mock.calls.some(([key]) => key === 'user-prefs:user-bucket')).toBe(true);
+    expect(kv.delete.mock.calls.some(([key]) => key === 'managed-reconcile-progress:user-bucket')).toBe(true);
   });
 });
