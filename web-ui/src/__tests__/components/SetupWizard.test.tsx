@@ -9,15 +9,18 @@ vi.mock('../../api/client', () => ({
   getUser: vi.fn(),
 }));
 
-// Mock the SplashCursor component (WebGL-based, not testable in jsdom)
-vi.mock('../../components/SplashCursor', () => ({
-  default: () => <div data-testid="splash-cursor" />,
-}));
-
 // Mock the setup store
 vi.mock('../../stores/setup', () => ({
   setupStore: {
     step: 1,
+    enterpriseMode: false,
+    saasMode: false,
+    tokenDetecting: false,
+    tokenDetected: false,
+    tokenDetectError: null,
+    accountInfo: null,
+    detectToken: vi.fn(),
+    nextStep: vi.fn(),
   },
 }));
 
@@ -38,40 +41,29 @@ describe('SetupWizard', () => {
     cleanup();
   });
 
-  describe('KittScanner', () => {
-    it('should render KittScanner inside setup-container when authorized', async () => {
+  describe('operator shell states', () => {
+    it('renders the first-run operator shell when authorized', async () => {
       render(() => <SetupWizard />);
-
       await waitFor(() => {
-        const container = document.querySelector('.setup-container');
-        expect(container).toBeInTheDocument();
-        const kittScanner = container?.querySelector('.kitt-scanner');
-        expect(kittScanner).toBeInTheDocument();
+        expect(document.querySelector('.setup-journey-layout')).toBeInTheDocument();
+        expect(document.body.textContent).toContain('Deployment readiness');
       });
     });
 
-    it('should render KittScanner inside setup-container during loading state', () => {
-      // Before onMount resolves, authState is 'loading'
-      mockedGetSetupStatus.mockReturnValue(new Promise(() => {})); // never resolves
+    it('renders a bounded loading shell while setup status resolves', () => {
+      mockedGetSetupStatus.mockReturnValue(new Promise(() => {}));
       render(() => <SetupWizard />);
-
-      const container = document.querySelector('.setup-container');
-      expect(container).toBeInTheDocument();
-      const kittScanner = container?.querySelector('.kitt-scanner');
-      expect(kittScanner).toBeInTheDocument();
+      expect(document.querySelector('.setup-container--message')).toBeInTheDocument();
+      expect(document.body.textContent).toContain('Loading');
     });
 
-    it('should render KittScanner inside setup-container when denied', async () => {
+    it('renders the denied recovery shell for non-admins', async () => {
       mockedGetSetupStatus.mockResolvedValue({ configured: true });
       mockedGetUser.mockResolvedValue({ role: 'viewer', authenticated: true } as any);
-
       render(() => <SetupWizard />);
-
       await waitFor(() => {
-        const container = document.querySelector('.setup-container');
-        expect(container).toBeInTheDocument();
-        const kittScanner = container?.querySelector('.kitt-scanner');
-        expect(kittScanner).toBeInTheDocument();
+        expect(document.body.textContent).toContain('Access denied');
+        expect(document.body.textContent).toContain('Only administrators');
       });
     });
   });

@@ -765,7 +765,8 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       ));
       fireEvent.click(screen.getByTestId('accordion-header-admin'));
 
-      expect(screen.getByRole('button', { name: /Open Administration/ })).toBeInTheDocument();
+      const administrationLink = screen.getByRole('link', { name: /Open Administration/ });
+      expect(administrationLink).toHaveAttribute('href', '/admin');
       expect(screen.queryByRole('button', { name: /Setup Wizard/ })).not.toBeInTheDocument();
     });
   });
@@ -784,7 +785,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
 
       const header = screen.getByTestId('accordion-header-admin');
       expect(header).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Open Administration/ })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Open Administration/ })).toHaveAttribute('href', '/admin');
     });
 
     it('hides administration for non-admin', () => {

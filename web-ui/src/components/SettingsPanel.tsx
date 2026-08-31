@@ -470,7 +470,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     tone="--color-action-setup"
                     icon={mdiViewDashboardOutline}
                     label="Open Administration"
-                    onClick={() => { window.location.href = '/admin'; }}
+                    href="/admin"
                   />
                   {/* REQ-ENTERPRISE-008 AC2: user administration is delegated to
                       Cloudflare Access in enterprise mode — hide the entry. */}

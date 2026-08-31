@@ -24,6 +24,8 @@ const storeState = vi.hoisted(() => ({
   strictGatewayEgress: false,
   r2SseDisabled: false,
   downloadsDisabled: false,
+  activeAgents: ['copilot'] as string[],
+  configurableAgents: ['copilot', 'pi'] as string[],
   githubProviderType: 'app' as 'app' | 'oauth',
   githubAppClientId: '',
   githubAppClientSecret: '',
@@ -98,6 +100,8 @@ vi.mock('../../stores/setup', () => ({
     get strictGatewayEgress() { return storeState.strictGatewayEgress; },
     get r2SseDisabled() { return storeState.r2SseDisabled; },
     get downloadsDisabled() { return storeState.downloadsDisabled; },
+    get activeAgents() { return storeState.activeAgents; },
+    get configurableAgents() { return storeState.configurableAgents; },
     get githubProviderType() { return storeState.githubProviderType; },
     get githubAppClientId() { return storeState.githubAppClientId; },
     get githubAppClientSecret() { return storeState.githubAppClientSecret; },
@@ -148,6 +152,8 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
     storeState.strictGatewayEgress = false;
     storeState.r2SseDisabled = false;
     storeState.downloadsDisabled = false;
+    storeState.activeAgents = ['copilot'];
+    storeState.configurableAgents = ['copilot', 'pi'];
     storeState.githubProviderType = 'app';
     storeState.githubAppClientId = '';
     storeState.githubAppClientSecret = '';
@@ -397,7 +403,7 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
       expect(optionValues).not.toContain('');
     });
 
-    it('keeps Continue disabled in enterprise mode until a dynamic route is added (AC6)', () => {
+    it('blocks the AI-routing page until required route and gateway credentials exist (AC6)', () => {
       storeState.enterpriseMode = true;
       storeState.customDomain = 'claude.example.com';
       storeState.adminUsers = ['admin@test.com'];
@@ -405,18 +411,22 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
       render(() => <ConfigureStep />);
 
       const continueBtn = screen.getByText('Continue').closest('button') as HTMLButtonElement;
-      expect(continueBtn.disabled).toBe(true);
+      expect(continueBtn.disabled).toBe(false);
+      fireEvent.click(continueBtn);
+      expect((screen.getByText('Continue').closest('button') as HTMLButtonElement).disabled).toBe(true);
     });
 
-    it('enables Continue in enterprise mode once domain, admin, and a route exist (AC6)', () => {
+    it('enables AI-routing Continue once route, gateway URL, and token exist (AC6)', () => {
       storeState.enterpriseMode = true;
       storeState.customDomain = 'claude.example.com';
       storeState.adminUsers = ['admin@test.com'];
       storeState.dynamicRoutes = ['development'];
+      storeState.aigGatewayUrl = 'https://gateway.ai.cloudflare.com/v1/account/gateway';
+      storeState.aigToken = 'token';
       render(() => <ConfigureStep />);
 
-      const continueBtn = screen.getByText('Continue').closest('button') as HTMLButtonElement;
-      expect(continueBtn.disabled).toBe(false);
+      fireEvent.click(screen.getByText('Continue'));
+      expect((screen.getByText('Continue').closest('button') as HTMLButtonElement).disabled).toBe(false);
     });
   });
 
@@ -698,12 +708,16 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
       expect(storeMethods.prevStep).toHaveBeenCalled();
     });
 
-    it('calls nextStep when Continue is clicked', () => {
+    it('calls nextStep after the mode-applicable pages reach review', () => {
       storeState.customDomain = 'app.example.com';
       storeState.adminUsers = ['admin@example.com'];
       render(() => <ConfigureStep />);
-      fireEvent.click(screen.getByText('Continue'));
-      expect(storeMethods.nextStep).toHaveBeenCalled();
+      fireEvent.click(screen.getByText('Continue')); // access → managed environment
+      fireEvent.click(screen.getByText('Continue')); // managed environment → integrations
+      fireEvent.click(screen.getByText('Continue')); // integrations → review
+      expect(storeMethods.nextStep).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByText('Initialize Codeflare'));
+      expect(storeMethods.nextStep).toHaveBeenCalledOnce();
     });
 
     it('disables Continue when custom domain is empty', () => {

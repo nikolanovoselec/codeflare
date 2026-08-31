@@ -96,12 +96,17 @@ const ConfigureStep: Component = () => {
     return false;
   };
 
-  const managedEnvironmentValid = () => !setupStore.managedEnvironmentEnabled || (
-    Boolean(setupStore.managedEnvironmentRepository.trim()) &&
-    (setupStore.managedEnvironmentPersonalAccessTokenSet || Boolean(setupStore.managedEnvironmentPersonalAccessToken.trim())) &&
-    (Boolean(setupStore.managedEnvironmentPublicKeyFingerprint) || /^[0-9a-f]{64}$/.test(setupStore.managedEnvironmentPublicKey.trim())) &&
-    (!setupStore.managedEnvironmentImmutableResources || setupStore.strictGatewayEgress)
-  );
+  const managedEnvironmentValid = () => {
+    if (!setupStore.managedEnvironmentEnabled) return true;
+    const replacementKey = setupStore.managedEnvironmentPublicKey.trim();
+    const validKey = replacementKey
+      ? /^[0-9a-f]{64}$/.test(replacementKey)
+      : Boolean(setupStore.managedEnvironmentPublicKeyFingerprint);
+    return Boolean(setupStore.managedEnvironmentRepository.trim()) &&
+      (setupStore.managedEnvironmentPersonalAccessTokenSet || Boolean(setupStore.managedEnvironmentPersonalAccessToken.trim())) &&
+      validKey &&
+      (!setupStore.managedEnvironmentImmutableResources || setupStore.strictGatewayEgress);
+  };
 
   const canContinue = createMemo(() => {
     if (page() === 'access') return Boolean(setupStore.customDomain) && setupStore.adminUsers.length > 0;

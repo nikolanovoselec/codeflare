@@ -672,6 +672,7 @@
   border: none;
   border-radius: var(--radius-xl);
   color: white;
+  text-decoration: none;
   font-size: var(--text-base);
   font-weight: var(--font-semibold);
   cursor: pointer;
