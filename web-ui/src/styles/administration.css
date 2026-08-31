@@ -824,3 +824,86 @@
     flex-direction: column;
   }
 }
+
+.admin-activity-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.admin-activity-item {
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+}
+
+.admin-activity-summary {
+  display: grid;
+  width: 100%;
+  min-height: 68px;
+  grid-template-columns: 110px minmax(180px, 1fr) minmax(180px, auto) 120px;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-activity-summary > span:nth-child(2) {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.admin-activity-summary small { color: var(--color-text-muted); }
+
+.admin-run-state {
+  display: inline-flex;
+  width: fit-content;
+  padding: 3px var(--space-2);
+  border-radius: 999px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  text-transform: capitalize;
+}
+
+.admin-run-state.is-succeeded { color: var(--color-success); }
+.admin-run-state.is-running,
+.admin-run-state.is-queued { color: var(--color-info); }
+.admin-run-state.is-failed,
+.admin-run-state.is-interrupted { color: var(--color-error); }
+
+.admin-activity-detail {
+  padding: 0 var(--space-4) var(--space-4);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.admin-activity-detail ol {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-activity-detail li {
+  display: grid;
+  grid-template-columns: 90px minmax(160px, 1fr) minmax(180px, 2fr);
+  align-items: center;
+  gap: var(--space-3);
+}
+
+@media (max-width: 767px) {
+  .admin-activity-summary {
+    grid-template-columns: auto 1fr;
+  }
+
+  .admin-activity-summary > .admin-mono { grid-column: 2; }
+  .admin-activity-detail li { grid-template-columns: 90px 1fr; }
+  .admin-activity-detail li small { grid-column: 2; }
+}

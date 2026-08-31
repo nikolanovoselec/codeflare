@@ -128,6 +128,26 @@ export async function getAdminUsageUser(
   );
 }
 
+const ConfigurationRunErrorSchema = z.object({
+  code: z.string(), message: z.string(), retryable: z.boolean(), operatorAction: z.string().optional(),
+});
+const ConfigurationRunTaskSchema = z.object({
+  id: z.string(), state: z.enum(['waiting', 'running', 'succeeded', 'failed', 'skipped']),
+  startedAt: z.string().optional(), completedAt: z.string().optional(), error: ConfigurationRunErrorSchema.optional(),
+});
+const ConfigurationRunSchema = z.object({
+  version: z.literal(1), runId: z.string(), section: ConfigurationSectionSchema,
+  baseRevision: z.number().int(), resultingRevision: z.number().int().optional(), initiatedBy: z.string(),
+  state: z.enum(['queued', 'running', 'succeeded', 'failed', 'interrupted']), tasks: z.array(ConfigurationRunTaskSchema),
+  createdAt: z.string(), updatedAt: z.string(), completedAt: z.string().optional(), error: ConfigurationRunErrorSchema.optional(),
+});
+const ConfigurationRunsSchema = z.object({ items: z.array(ConfigurationRunSchema), nextCursor: z.string().nullable() });
+export type ConfigurationRun = z.infer<typeof ConfigurationRunSchema>;
+
+export async function getConfigurationRuns(): Promise<z.infer<typeof ConfigurationRunsSchema>> {
+  return fetchApi('/admin/configuration-runs?limit=50', {}, ConfigurationRunsSchema);
+}
+
 const UsageReportDeliverySchema = z.object({
   id: z.string(),
   deliveryKind: z.enum(['scheduled', 'test']),

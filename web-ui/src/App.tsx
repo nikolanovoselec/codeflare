@@ -24,10 +24,10 @@ const AdministrationLayout = lazy(() => import('./components/admin/Administratio
 const AdministrationOverview = lazy(() => import('./components/admin/AdministrationOverview'));
 const EnvironmentIndex = lazy(() => import('./components/admin/EnvironmentIndex'));
 const EnvironmentAreaDetail = lazy(async () => ({ default: (await import('./components/admin/EnvironmentIndex')).EnvironmentAreaDetail }));
-const AdministrationPendingPage = lazy(() => import('./components/admin/AdministrationPendingPage'));
 const AnalyticsPage = lazy(() => import('./components/admin/AnalyticsPage'));
 const AnalyticsUserDetail = lazy(() => import('./components/admin/AnalyticsUserDetail'));
 const ReportsPage = lazy(() => import('./components/admin/ReportsPage'));
+const ActivityPage = lazy(() => import('./components/admin/ActivityPage'));
 
 // Check setup status from API.
 // Returns null when status cannot be determined (e.g. Access redirect/network error).
@@ -353,10 +353,6 @@ const AdministrationSubscriptions: Component = () => (
   <AdminSubscriptionManagement onBack={() => { window.location.href = '/admin'; }} />
 );
 
-const AdministrationActivity: Component = () => (
-  <AdministrationPendingPage title="Activity" description="Settings changes retained for 90 days." />
-);
-
 const App: Component = () => {
   return (
     <ErrorBoundary
@@ -387,7 +383,7 @@ const App: Component = () => {
         <Route path="/analytics" component={AnalyticsPage} />
         <Route path="/analytics/users/:userKey" component={AnalyticsUserDetail} />
         <Route path="/reports" component={ReportsPage} />
-        <Route path="/activity" component={AdministrationActivity} />
+        <Route path="/activity" component={ActivityPage} />
       </Route>
       <Route
         path="/*"
