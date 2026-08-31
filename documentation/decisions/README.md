@@ -4108,7 +4108,7 @@ Pi no longer infers completion from `agent_settled`, stop reasons, interactive l
 
 **Status:** Accepted (2026-08-30)
 
-**Context:** Live quota enforcement needs per-user sequential state, while organization totals, stable ranking, CSV export, deleted-user retention, report claims, and retention need indexed set queries. Rebuilding those reads through KV list-and-read scans would increase cost and code. Moving live quota state into D1 would make a historical feature part of session admission.
+**Context:** Live quota enforcement needs per-user sequential state, while organization totals, stable ranking, CSV export, deleted-user retention, report claims, and retention need indexed set queries. Rebuilding those reads through KV list-and-read scans would increase cost and code. Moving live quota state into D1 would make a historical feature part of session admission. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory -->
 
 **Decision:** Keep Timekeeper Durable Objects and Workers KV as the live quota authority. Add one D1 database per deployment environment for historical `usage_users`, absolute sequence-guarded `usage_periods`, `report_deliveries`, and daily `maintenance_claims`. Timekeeper writes bounded absolute snapshots through its existing alarm. Administration reads D1 directly through closed prepared queries. One separate deployment token creates the database and applies additive migrations before Worker deployment.
 

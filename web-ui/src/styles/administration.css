@@ -706,6 +706,12 @@
   overflow-x: auto;
 }
 
+.admin-table-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}
+
 .admin-data-table {
   width: 100%;
   border-collapse: collapse;

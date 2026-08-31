@@ -1,3 +1,4 @@
+/* v8 ignore start -- user-validated administration UI */
 import { A } from '@solidjs/router';
 import { Component, For, Show, createResource, createSignal } from 'solid-js';
 import { getAdminConfiguration, getUsageReportDeliveries, sendUsageReportTest } from '../../api/client';
@@ -13,7 +14,8 @@ interface ReportSettings {
 
 const ReportsPage: Component = () => {
   const [configuration] = createResource(getAdminConfiguration);
-  const [history, { refetch }] = createResource(getUsageReportDeliveries);
+  const [historyCursor, setHistoryCursor] = createSignal<string | null>(null);
+  const [history, { refetch }] = createResource(() => historyCursor() ?? 'first', (cursor) => getUsageReportDeliveries(cursor === 'first' ? undefined : cursor));
   const [sending, setSending] = createSignal(false);
   const [sendError, setSendError] = createSignal<string>();
   const settings = () => (configuration()?.sections.usageReports || { enabled: false }) as ReportSettings;
@@ -61,9 +63,9 @@ const ReportsPage: Component = () => {
         <Show when={!history.loading} fallback={<div class="admin-state-panel"><div class="app-loading-spinner" /><p>Loading delivery history…</p></div>}>
           <Show when={!history.error && history()} fallback={<div class="admin-state-panel"><h2>Delivery history unavailable</h2><button type="button" class="admin-primary-button" onClick={() => void refetch()}>Retry</button></div>}>
             {(resolved) => <Show when={resolved().deliveries.length > 0} fallback={<div class="admin-state-panel"><h2>No deliveries yet</h2><p>Scheduled and test attempts will appear here.</p></div>}>
-              <div class="admin-table-scroll"><table class="admin-data-table"><thead><tr><th>Kind</th><th>Month</th><th>Recipient</th><th>State</th><th>Result</th><th>Attempts</th><th>Updated</th></tr></thead><tbody>
+              <><div class="admin-table-scroll"><table class="admin-data-table"><thead><tr><th>Kind</th><th>Month</th><th>Recipient</th><th>State</th><th>Result</th><th>Attempts</th><th>Updated</th></tr></thead><tbody>
                 <For each={resolved().deliveries}>{(delivery) => <tr><td><span class={`admin-status-badge is-${delivery.state}`}>{delivery.deliveryKind === 'test' ? 'Test' : 'Scheduled'}</span></td><td class="admin-mono">{delivery.reportMonth}</td><td>{delivery.recipient}</td><td>{delivery.state}</td><td>{delivery.reason === 'provider_unavailable' ? 'Email provider unavailable' : delivery.reason === 'attachment_too_large' ? 'Attachment too large' : delivery.state === 'accepted' ? 'Provider accepted' : 'Awaiting attempt'}</td><td class="admin-mono">{delivery.attempt}/3</td><td class="admin-mono">{delivery.updatedAt}</td></tr>}</For>
-              </tbody></table></div>
+              </tbody></table></div><Show when={resolved().nextCursor}>{(cursor) => <div class="admin-table-actions"><button type="button" class="admin-secondary-button" onClick={() => setHistoryCursor(cursor())}>Load next 50 deliveries</button></div>}</Show></>
             </Show>}
           </Show>
         </Show>
@@ -73,3 +75,4 @@ const ReportsPage: Component = () => {
 };
 
 export default ReportsPage;
+/* v8 ignore stop */

@@ -187,12 +187,20 @@ export async function recoverReportDeliveries(env: Env, now: Date): Promise<void
   }
 }
 
-async function createDueScheduledDispatch(env: Env, now: Date): Promise<void> {
+export async function createDueScheduledDispatch(env: Env, now: Date): Promise<void> {
   const settings = await env.KV.get<StoredReportSettings>('admin:usage-reports:settings', 'json');
   if (!settings?.enabled) return;
   const cursorKey = getUsageReportNextKey(settings.settingsRevision);
   const cursor = await env.KV.get<ReportCursor>(cursorKey, 'json');
-  if (!cursor || cursor.settingsRevision !== settings.settingsRevision || cursor.nextDeliveryAt > now.toISOString()) return;
+  if (!cursor || cursor.settingsRevision !== settings.settingsRevision) {
+    await env.KV.put(cursorKey, JSON.stringify({
+      settingsRevision: settings.settingsRevision,
+      nextDeliveryAt: nextReportDelivery(settings, now).toISOString(),
+      updatedAt: now.toISOString(),
+    }), { expirationTtl: 90 * 24 * 60 * 60 });
+    return;
+  }
+  if (cursor.nextDeliveryAt > now.toISOString()) return;
   const reportMonth = latestClosedMonth(now);
   await createReportDispatch(
     env.USAGE_DB,

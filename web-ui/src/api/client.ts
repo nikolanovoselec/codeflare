@@ -213,8 +213,10 @@ const UsageReportDeliveriesSchema = z.object({
 
 export type UsageReportDelivery = z.infer<typeof UsageReportDeliverySchema>;
 
-export async function getUsageReportDeliveries(): Promise<z.infer<typeof UsageReportDeliveriesSchema>> {
-  return fetchApi('/admin/usage-report-deliveries?limit=50', {}, UsageReportDeliveriesSchema);
+export async function getUsageReportDeliveries(cursor?: string): Promise<z.infer<typeof UsageReportDeliveriesSchema>> {
+  const query = new URLSearchParams({ limit: '50' });
+  if (cursor) query.set('cursor', cursor);
+  return fetchApi(`/admin/usage-report-deliveries?${query}`, {}, UsageReportDeliveriesSchema);
 }
 
 export async function sendUsageReportTest(): Promise<{ dispatchId: string; deliveryKind: 'test'; state: 'pending' }> {

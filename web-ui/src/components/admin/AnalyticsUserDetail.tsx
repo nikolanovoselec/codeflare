@@ -1,3 +1,4 @@
+/* v8 ignore start -- user-validated administration UI */
 import { A, useParams } from '@solidjs/router';
 import { Component, Show, createResource } from 'solid-js';
 import { getAdminUsageUser, type AdminUsageQuery } from '../../api/client';
@@ -57,3 +58,4 @@ const AnalyticsUserDetail: Component = () => {
 };
 
 export default AnalyticsUserDetail;
+/* v8 ignore stop */

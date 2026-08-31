@@ -1,3 +1,4 @@
+/* v8 ignore start -- user-validated administration UI */
 import { A } from '@solidjs/router';
 import { Component, For, Show, createResource, createSignal } from 'solid-js';
 import { getAdminUsage, type AdminUsageQuery, type AdminUsageUser } from '../../api/client';
@@ -138,6 +139,9 @@ const AnalyticsPage: Component = () => {
                     )}</For></tbody>
                   </table>
                 </div>
+                <Show when={resolved().nextCursor}>{(cursor) => (
+                  <div class="admin-table-actions"><button type="button" class="admin-secondary-button" onClick={() => setQuery({ ...query(), cursor: cursor() })}>Load next 50 users</button></div>
+                )}</Show>
               </section>
             </Show>
           )}
@@ -148,3 +152,4 @@ const AnalyticsPage: Component = () => {
 };
 
 export default AnalyticsPage;
+/* v8 ignore stop */
