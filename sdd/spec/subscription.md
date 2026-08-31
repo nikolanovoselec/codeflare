@@ -757,7 +757,7 @@ Tiers, billing, usage tracking, and quotas.
 3. JSON and CSV share one query and row mapper, with identical filtering and ordering; CSV ignores pagination only. <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageRows --> <!-- @impl: src/routes/admin/usage.ts::usageCsv --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
 4. `user_key` is stable lowercase hex SHA-256 over a versioned, domain-separated normalized-email input and exposes neither email nor bucket identity. <!-- @impl: src/lib/admin-usage.ts::userKeyForEmail --> <!-- @test: src/__tests__/lib/admin-usage.test.ts (historical usage SQL owner (REQ-SUB-025)) -->
 5. User deletion writes a D1 tombstone before live cleanup; failure returns typed `503` and leaves live data unchanged. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/admin-usage.ts::tombstoneUsageUser --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (cleanupUserData) -->
-6. Deleted users retain named aggregate history for 60 months; explicit same-email provisioning reactivates ownership without erasing prior history. <!-- @impl: src/lib/admin-usage.ts::reactivateUsageUser --> <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @test: src/__tests__/lib/admin-usage.test.ts (historical usage SQL owner (REQ-SUB-025)) -->
+6. Deleted users retain named aggregate history for 60 months; explicit same-email provisioning reactivates ownership without erasing prior history. <!-- @impl: src/lib/admin-usage.ts::reactivateUsageUser --> <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/admin-usage.test.ts (historical usage SQL owner (REQ-SUB-025)) --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report retention transaction (REQ-SUB-026, REQ-SUB-027)) -->
 7. Responses disclose `dataSince` and result-owned `historyUpdatedAt` without claiming global outbox freshness. <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
 
 **Constraints:** No cache, second aggregate table, session-state catalog, or timezone parameter is added.
@@ -766,9 +766,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records)
 
-**Verification:** Planned automated authorization, deletion-race, reactivation, cursor, aggregate, and JSON/CSV-equivalence tests
+**Verification:** Automated authorization, deletion-race, reactivation, retention, cursor, aggregate, and JSON/CSV-equivalence tests; UI manual validation on Integration
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -780,14 +780,14 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Revisioned settings accept disabled-by-default state, at most 25 normalized recipients, day 1 through 31, whole local hour, and canonical IANA timezone.
-2. Scheduling chooses the latest closed UTC month, applies last-valid-day and DST rules, and stores its next instant under a revision-specific key.
-3. One immutable summary and exact CSV are generated per dispatch, then sent as separate messages with an 8 MiB attachment limit.
-4. Scheduled and test dispatches use distinct identities, one row per recipient, conditional claims, random claim tokens, bounded leases, and at most three attempts.
-5. Stale claim tokens cannot complete reclaimed rows; deterministic Resend idempotency suppresses the remaining ambiguous duplicate window.
-6. The 15-minute scheduler independently recovers pending, failed, and lease-expired scheduled or test rows; `waitUntil()` is only the test-send fast path.
-7. Delivery history reports pending, sending, accepted, or failed provider-acceptance state without inventing provider delivery state or IDs.
-8. Once-daily retention uses one random token-guarded transactional D1 batch and rolls back the claim when any prune fails.
+1. Revisioned settings accept disabled-by-default state, at most 25 normalized recipients, day 1 through 31, whole local hour, and canonical IANA timezone. <!-- @impl: src/lib/usage-reports.ts::normalizeReportSettings --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) -->
+2. Scheduling chooses the latest closed UTC month, applies last-valid-day and DST rules, and stores its next instant under a revision-specific key. <!-- @impl: src/lib/usage-reports.ts::nextReportDelivery --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) -->
+3. One immutable summary and exact CSV are generated per dispatch, then sent as separate messages with an 8 MiB attachment limit. <!-- @impl: src/lib/usage-reports.ts::buildReportArtifacts --> <!-- @impl: src/lib/email.ts::sendUsageReportEmail --> <!-- @test: src/__tests__/lib/usage-report-delivery.test.ts (usage report artifacts and email boundary (REQ-SUB-027)) -->
+4. Scheduled and test dispatches use distinct identities, one row per recipient, conditional claims, random claim tokens, bounded leases, and at most three attempts. <!-- @impl: src/lib/usage-report-scheduler.ts::createReportDispatch --> <!-- @impl: src/lib/usage-report-scheduler.ts::claimReportDelivery --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (usage report delivery claims (REQ-SUB-027)) -->
+5. Stale claim tokens cannot complete reclaimed rows; deterministic Resend idempotency suppresses the remaining ambiguous duplicate window. <!-- @impl: src/lib/usage-report-scheduler.ts::completeReportDelivery --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (usage report delivery claims (REQ-SUB-027)) -->
+6. The 15-minute scheduler independently recovers pending, failed, and lease-expired scheduled or test rows; `waitUntil()` is only the test-send fast path. <!-- @impl: src/index.ts::scheduled --> <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) -->
+7. Delivery history reports pending, sending, accepted, or failed provider-acceptance state without inventing provider delivery state or IDs. <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) --> <!-- @manual -->
+8. Once-daily retention uses one random token-guarded transactional D1 batch and rolls back the claim when any prune fails. <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report retention transaction (REQ-SUB-026, REQ-SUB-027)) -->
 
 **Constraints:** Resend credentials and sender identity remain deployment-managed. Reports do not background-poll and never promise exactly-once delivery.
 
@@ -795,8 +795,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SETUP-018](setup.md#req-setup-018-stateless-environment-preview-and-bounded-execution), [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records)
 
-**Verification:** Planned automated timezone, claim, retry, retention, email, CSV, and delivery-history tests
+**Verification:** Automated timezone, claim, retry, retention, email, CSV, and delivery-history tests; UI manual validation on Integration
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
