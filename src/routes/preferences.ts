@@ -278,8 +278,9 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
             ? { managedRelease: null, interruptedManagedReleases }
             : {};
       if (activeManagedRelease) {
+        const latestBeforeJournal = await c.env.KV.get<UserPreferences>(key, 'json') ?? updated;
         await c.env.KV.put(key, JSON.stringify({
-          ...updated,
+          ...latestBeforeJournal,
           managedEnvironmentReconciliation: { targets: expectedReconciliationTargets },
         }));
       }

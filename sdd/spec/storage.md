@@ -997,7 +997,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Constraints:**
 
 - Interrupted target state never uses observational progress as authority.
-- Frontend seed-action coordination is page-local; cross-client serialization is tracked in [issue #1006](https://github.com/nikolanovoselec/codeflare/issues/1006) and is not claimed here. <!-- @impl: web-ui/src/stores/session.ts::sessionStore --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-035: blocks a second managed seed action within one page) --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-STOR-035: blocks managed seed controls while an in-page update is active) -->
 
 **Priority:** P0
 
@@ -1029,6 +1028,29 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** [REQ-STOR-023](#req-stor-023-managed-release-status-and-discovery), [REQ-STOR-034](#req-stor-034-observational-managed-reconciliation-progress-writes)
 
 **Verification:** Automated batch-status and progress-reader tests
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-037: Page-local managed seed-action coordination
+
+**Intent:** One dashboard page does not start overlapping managed seed updates.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. While a managed seed update is active, another managed seed action started from the same page does not run. <!-- @impl: web-ui/src/stores/session.ts::sessionStore --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-037 AC1: blocks a second managed seed action within one page) -->
+2. Session-mode and Manual Recreate controls are disabled while that page has a managed seed update active. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-STOR-037 AC2: blocks managed seed controls while an in-page update is active) -->
+
+**Constraints:** Coordination is page-local; cross-client serialization is tracked in [issue #1006](https://github.com/nikolanovoselec/codeflare/issues/1006) and is not claimed here.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-035](#req-stor-035-managed-reconciliation-cleanup-and-finalization), [REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)
+
+**Verification:** Automated session-store and settings-control tests
 
 **Status:** Implemented
 

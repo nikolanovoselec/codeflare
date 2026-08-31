@@ -432,7 +432,7 @@ describe('Session Store', () => {
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
     });
 
-    it('REQ-STOR-035: blocks a second managed seed action within one page', async () => {
+    it('REQ-STOR-037 AC1: blocks a second managed seed action within one page', async () => {
       let finish!: () => void;
       const first = sessionStore.runPreseedUpdate(() => new Promise<void>((resolve) => { finish = resolve; }));
 

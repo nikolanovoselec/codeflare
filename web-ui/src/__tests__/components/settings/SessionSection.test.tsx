@@ -81,7 +81,7 @@ describe('terminal experience preference', () => {
     expect(onHerdrToggle).toHaveBeenCalledOnce();
   });
 
-  it('REQ-STOR-035: blocks managed seed controls while an in-page update is active', () => {
+  it('REQ-STOR-037 AC2: blocks managed seed controls while an in-page update is active', () => {
     renderSection({ seedUpdateActive: true });
 
     expect(screen.getByTestId('session-mode-default')).toBeDisabled();

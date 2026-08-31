@@ -945,7 +945,6 @@ None.
 3. A stationary mobile tap on a Herdr link opens it once. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-042 AC3/AC4: opens a touched link without terminal touch side effects) -->
 4. Mobile link activation leaves terminal input, fullscreen history, and keyboard focus unchanged. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-042 AC3/AC4: opens a touched link without terminal touch side effects) -->
 5. A modified non-link hardware click continues to send its Herdr SGR press and release. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (REQ-TERM-042 AC5: keeps modified non-link clicks in Herdr) -->
-6. A stationary non-link touch continues to activate its pane, reset fullscreen history, send the Herdr tap, and open mobile input. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-022 AC1/AC3: activates the pane and snaps Pi fullscreen history before opening mobile input) -->
 
 **Constraints:** URL reconstruction and opening remain owned by the existing terminal link provider.
 

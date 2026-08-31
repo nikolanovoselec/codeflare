@@ -902,6 +902,53 @@ describe('Preferences Routes', () => {
       });
     });
 
+    it('target journaling preserves concurrent preference changes', async () => {
+      managedReleaseState.active = {
+        digest: 'd'.repeat(64),
+        compressed: new Uint8Array(),
+        release: { sequence: 9 },
+      };
+      managedReleaseState.cachedByDigest.set('a'.repeat(64), {
+        compressed: new Uint8Array(),
+        release: { sequence: 8 },
+      });
+      mockKV._set('user-prefs:codeflare-test-user', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest: 'a'.repeat(64), managedExtensionsDigest: 'c'.repeat(64), sequence: 8,
+          mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z',
+        },
+      });
+      let releaseLookupStarted!: () => void;
+      const lookupStarted = new Promise<void>((resolve) => { releaseLookupStarted = resolve; });
+      let releaseLookupContinue!: () => void;
+      const lookupContinue = new Promise<void>((resolve) => { releaseLookupContinue = resolve; });
+      const { getActiveVerifiedManagedRelease } = await import('../../lib/managed-release-active');
+      vi.mocked(getActiveVerifiedManagedRelease).mockImplementationOnce(async () => {
+        releaseLookupStarted();
+        await lookupContinue;
+        return managedReleaseState.active;
+      });
+      const app = createTestApp();
+
+      const response = app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+      await lookupStarted;
+      const concurrent = await mockKV.get('user-prefs:codeflare-test-user', 'json') as Record<string, unknown>;
+      await mockKV.put('user-prefs:codeflare-test-user', JSON.stringify({ ...concurrent, herdrEnabled: true }));
+      releaseLookupContinue();
+
+      expect((await response).status).toBe(200);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({
+        sessionMode: 'advanced',
+        herdrEnabled: true,
+        managedEnvironmentApplied: { digest: 'd'.repeat(64) },
+      });
+    });
+
     it('REQ-STOR-024: a failed managed reconciliation is reported instead of returning success', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
         sessionMode: 'default',
