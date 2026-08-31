@@ -20,6 +20,7 @@ interface TerminalProps {
   alwaysObserveResize?: boolean;
   /** When true, skip rendering the per-terminal InitProgress overlay (used in tiled mode) */
   hideInitProgress?: boolean;
+  onActivate?: () => void;
   onError?: (error: string) => void;
   onInitComplete?: () => void;
 }

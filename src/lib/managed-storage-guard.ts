@@ -28,10 +28,10 @@ export async function guardManagedStorageMutation(input: {
     const snapshot = await readManagedEnvironmentSnapshot(input.env);
     const applied = preferences.managedEnvironmentApplied;
     if (!snapshot.config || !snapshot.enabled) {
-      if (applied) throw new ManagedEnvironmentUpdatePendingError();
+      if (applied) throw new ManagedEnvironmentUpdatePendingError('storage');
       return;
     }
-    if (!snapshot.active || !applied) throw new ManagedEnvironmentUpdatePendingError();
+    if (!snapshot.active || !applied) throw new ManagedEnvironmentUpdatePendingError('storage');
     const mode = await resolveEffectiveSessionMode(preferences, input.user, input.env);
     const desiredPolicy: ManagedResourcePolicy = snapshot.config.resourcePolicy;
     const appliedPolicy = applied.resourcePolicy ?? 'mutable';
@@ -44,7 +44,7 @@ export async function guardManagedStorageMutation(input: {
       || (desiredPolicy !== 'mutable' && !/^[0-9a-f]{64}$/.test(applied.managedPathsDigest ?? ''))
       || (desiredPolicy === 'mutable' && applied.managedPathsDigest !== undefined)
     ) {
-      throw new ManagedEnvironmentUpdatePendingError();
+      throw new ManagedEnvironmentUpdatePendingError('storage');
     }
     if (desiredPolicy === 'mutable') return;
     const { endpoint } = await getR2Config(input.env);
@@ -62,7 +62,7 @@ export async function guardManagedStorageMutation(input: {
     });
   } catch (error) {
     if (error instanceof ManagedEnvironmentUpdatePendingError) throw error;
-    throw new ManagedEnvironmentUpdatePendingError();
+    throw new ManagedEnvironmentUpdatePendingError('storage');
   }
 
   if (input.keys?.some(key => isManagedMutationProtected(policy!, key))) {

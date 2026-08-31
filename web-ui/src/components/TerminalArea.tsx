@@ -241,6 +241,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
                   connect={true}
                   alwaysObserveResize={true}
                   hideInitProgress={true}
+                  onActivate={() => terminalWorkspaceStore.setFocusedPane(pane.id)}
                   onError={props.onTerminalError}
                   onInitComplete={() => props.onOpenSessionById(pane.data.sessionId)}
                 />

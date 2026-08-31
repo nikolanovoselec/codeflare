@@ -10,6 +10,7 @@ import registerInlineEditMode, {
   INLINE_EDIT_TOOL,
   encodeInlineEditCommandPayload,
 } from '../../preseed/agents/pi/extensions/inline-edit.ts';
+import { registerInitialToolFilter } from '../../preseed/agents/pi/extensions/capability-helpers.ts';
 
 function fixture() {
   const commands = new Map();
@@ -26,6 +27,12 @@ function fixture() {
       handlers.set(event, [...existing, handler]);
     },
     getActiveTools() { return [...activeTools]; },
+    getAllTools() {
+      return [
+        ...['read', 'bash', 'edit', 'write', 'capability'].map((name) => ({ name })),
+        ...tools.values(),
+      ];
+    },
     sendUserMessage(message) { sentUserMessages.push(message); },
     setActiveTools(names) {
       activeTools = [...names];
@@ -33,6 +40,7 @@ function fixture() {
     },
   };
   registerInlineEditMode(pi);
+  registerInitialToolFilter(pi);
   return {
     commands,
     tools,
@@ -49,6 +57,12 @@ function fixture() {
     },
   };
 }
+
+test('REQ-IDE-025: mixed tools cannot impersonate exclusive inline result mode', async () => {
+  const runtime = fixture();
+  await runtime.emit('before_agent_start', { systemPrompt: 'panel system prompt' });
+  assert.deepEqual(runtime.activeTools(), ['read', 'bash', 'edit', 'write', 'capability']);
+});
 
 const proposal = {
   outcome: 'edit',
@@ -87,6 +101,7 @@ test('REQ-IDE-025: inline result mode isolates provider tools and context then r
   const start = await runtime.emit('before_agent_start', { systemPrompt: 'base system canary' });
   assert.match(start.systemPrompt, new RegExp(INLINE_EDIT_TOOL));
   assert.doesNotMatch(start.systemPrompt, /base system canary|inline-12345678/);
+  assert.deepEqual(runtime.activeTools(), [INLINE_EDIT_TOOL]);
 
   const priorPanelMessage = { role: 'assistant', content: 'panel-history-canary' };
   const currentInlineMessage = { role: 'user', content: 'Replace the selected function.' };
