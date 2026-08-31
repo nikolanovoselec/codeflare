@@ -1500,11 +1500,11 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Stable visible session status polls every 60 seconds, transitions poll every five seconds, hidden pages stop polling, and recursive scheduling prevents overlap.
-2. Batch status always returns core status, reads usage only for `include=usage`, reads storage only for `include=storage`, and rejects unknown include values.
-3. Analytics, Reports, and Activity read only on navigation, filters, explicit refresh, or run reconnect; none background-polls.
-4. Production and Enterprise use `head_sampling_rate = 0.05`; Integration targets retain `1`, successful pings emit no custom logs, and structured failures remain discoverable.
-5. Sampled D1 metrics record rows read, rows written, and SQL duration without user or secret material.
+1. Stable visible session status polls every 60 seconds, transitions poll every five seconds, hidden pages stop polling, and recursive scheduling prevents overlap. <!-- @impl: web-ui/src/stores/session-polling.ts::startSessionListPolling --> <!-- @manual -->
+2. Batch status always returns core status, reads usage only for `include=usage`, reads storage only for `include=storage`, and rejects unknown include values. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: web-ui/src/api/client.ts::getBatchSessionStatus --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-OPS-057 AC2: closed optional batch-status reads) -->
+3. Analytics, Reports, and Activity read only on navigation, filters, explicit refresh, or run reconnect; none background-polls. <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @manual -->
+4. Production and Enterprise use `head_sampling_rate = 0.05`; Integration targets retain `1`, successful pings emit no custom logs, and structured failures remain discoverable. <!-- @impl: scripts/ci/set-head-sampling.mjs::setHeadSampling --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (observability deployment boundary (REQ-OPS-057)) -->
+5. Sampled D1 metrics record rows read, rows written, and SQL duration without user or secret material. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @test: src/__tests__/lib/admin-usage.test.ts (historical usage SQL owner (REQ-SUB-025)) -->
 6. CI models 2,000 active users and three sessions, enforcing one sub-4-KB state write and zero KV reads per positive ping plus the approved D1 row ceilings. <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) -->
 7. Integration verifies exception visibility before sampled Production rollout, and account operation and spend alerts precede Production history enablement.
 
@@ -1514,7 +1514,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SUB-025](subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-OPS-056](#req-ops-056-non-destructive-d1-deployment-boundary)
 
-**Verification:** Planned automated polling, optional-read, logging-config, and representative-load tests plus Integration evidence
+**Verification:** Automated optional-read, logging-config, and representative-load tests; polling and exception visibility require Integration evidence
 
 **Status:** Partial
 

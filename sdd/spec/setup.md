@@ -559,7 +559,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 2. Default and Onboarding add Users; SaaS adds Users and Subscription Tiers; Enterprise exposes neither. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout -->
 3. Existing Users and Subscription components and APIs are embedded without changing their mutations. <!-- @impl: web-ui/src/App.tsx::AdministrationUsers --> <!-- @impl: web-ui/src/App.tsx::AdministrationSubscriptions -->
 4. User-facing routine copy says Environment; Configuration remains internal API and storage vocabulary. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentIndex --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel -->
-5. Loading, empty, failure, conflict, reconnect, and responsive states follow the approved Administration and Analytics design contract. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/styles/administration.css::.admin-shell --> <!-- @manual -->
+5. Loading, empty, failure, conflict, reconnect, and responsive states follow the approved Administration and Analytics design contract. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @impl: web-ui/src/styles/administration.css::.admin-shell --> <!-- @manual -->
 
 **Constraints:** One authoritative response owns mode gating. No UI framework, chart package, icon package, or duplicate mode logic is added.
 
@@ -567,8 +567,8 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [REQ-SUB-009](subscription.md#req-sub-009-admin-tier-management)
 
-**Verification:** Automated backend mode gates and user-owned manual UI acceptance
+**Verification:** Automated backend mode gates and user-owned manual UI acceptance on Integration
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
