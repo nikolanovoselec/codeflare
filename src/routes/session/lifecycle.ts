@@ -102,6 +102,12 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
  * waking stopped containers during polling.
  */
 app.get('/batch-status', async (c) => {
+  const url = new URL(c.req.url);
+  const includeRaw = url.searchParams.get('include');
+  const include = new Set(includeRaw?.split(',') ?? []);
+  if (includeRaw !== null && (includeRaw === '' || [...include].some((value) => value !== 'usage' && value !== 'storage'))) {
+    return c.json({ error: 'Unknown batch status include', code: 'validation_error' }, 400);
+  }
   const bucketName = c.get('bucketName');
   const prefix = getSessionPrefix(bucketName);
 
@@ -143,36 +149,37 @@ app.get('/batch-status', async (c) => {
   const user = c.get('user');
   let maxSessions = getMaxSessions(user.role, c.env);
 
-  // Include cached storage stats (already in KV from /api/storage/stats, 60s TTL)
-  const storageStatsCached = await c.env.KV.get(`storage-stats:${bucketName}`, 'json') as { totalFiles: number; totalFolders: number; totalSizeBytes: number } | null;
+  // Storage and usage are opt-in because each adds point reads to this frequent route.
+  const storageStatsCached = include.has('storage')
+    ? await c.env.KV.get(`storage-stats:${bucketName}`, 'json') as { totalFiles: number; totalFolders: number; totalSizeBytes: number } | null
+    : null;
   const storageStats = storageStatsCached || undefined;
 
-  // Include per-user consumption in every deployment mode. Only SaaS exposes
-  // billing quota and derives the session cap from subscription entitlements.
   let usage: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string } | undefined;
   const saasMode = isSaasModeActive(c.env.SAAS_MODE);
-  try {
-    const [record, tiers] = await Promise.all([
-      c.env.KV.get<UsageRecord>(getTimekeeperKey(bucketName), 'json'),
-      getTierConfig(c.env.KV),
-    ]);
-    const entitlements = getEffectiveTierForUser(user, tiers, c.env);
-    if (saasMode) {
-      // REQ-SUB-013 AC4: SaaS uses the effective-tier cap; role-based limits
-      // remain authoritative in onboarding/default/enterprise deployments.
-      maxSessions = entitlements.maxSessions;
+  if (saasMode || include.has('usage')) {
+    try {
+      const tiers = await getTierConfig(c.env.KV);
+      const entitlements = getEffectiveTierForUser(user, tiers, c.env);
+      if (saasMode) {
+        // SaaS max-session entitlement remains mandatory status metadata.
+        maxSessions = entitlements.maxSessions;
+      }
+      if (include.has('usage')) {
+        const record = await c.env.KV.get<UsageRecord>(getTimekeeperKey(bucketName), 'json');
+        const now = new Date();
+        const currentMonth = getUtcMonthString(now);
+        const currentDate = getUtcDateString(now);
+        usage = {
+          dailySeconds: (record && record.today.date === currentDate) ? record.today.seconds : 0,
+          monthlySeconds: (record && record.thisMonth.month === currentMonth) ? record.thisMonth.seconds : 0,
+          monthlyQuotaSeconds: saasMode ? entitlements.monthlyQuotaSeconds : null,
+          tier: entitlements.effectiveTier,
+        };
+      }
+    } catch {
+      // Non-fatal: status remains available when optional usage or tier reads fail.
     }
-    const now = new Date();
-    const currentMonth = getUtcMonthString(now);
-    const currentDate = getUtcDateString(now);
-    usage = {
-      dailySeconds: (record && record.today.date === currentDate) ? record.today.seconds : 0,
-      monthlySeconds: (record && record.thisMonth.month === currentMonth) ? record.thisMonth.seconds : 0,
-      monthlyQuotaSeconds: saasMode ? entitlements.monthlyQuotaSeconds : null,
-      tier: entitlements.effectiveTier,
-    };
-  } catch {
-    // Non-fatal - usage display is best-effort
   }
 
   // Initial-load upgrade decision. Remote curation piggybacks on this existing
