@@ -25,4 +25,16 @@ describe('usage report delivery claims (REQ-SUB-027)', () => {
     expect(prepareCalls[0][0]).toContain('claim_token = ?2');
     expect(bindCalls[0]).toEqual(['delivery', 'stale', 'accepted', null, '2027-08-01T00:00:00.000Z']);
   });
+
+  it('records a claimed provider failure and reports the changed row', async () => {
+    const run = vi.fn().mockResolvedValue({ meta: { changes: 1 } });
+    const prepare = vi.fn(() => ({ bind: () => ({ run }) }));
+    await expect(completeReportDelivery(
+      { prepare } as unknown as D1Database,
+      'delivery',
+      'active',
+      'provider_unavailable',
+      new Date('2027-08-01T00:00:00Z'),
+    )).resolves.toBe(true);
+  });
 });

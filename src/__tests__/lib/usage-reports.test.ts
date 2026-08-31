@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { latestClosedMonth, nextReportDelivery, normalizeReportSettings } from '../../lib/usage-reports';
 
 describe('usage report settings and schedule (REQ-SUB-027)', () => {
+  it('keeps disabled reports closed and credential-free', () => {
+    expect(normalizeReportSettings({ enabled: false })).toEqual({ enabled: false });
+  });
+
   it('normalizes unique recipients and validates canonical IANA timezone and whole hour', () => {
     expect(normalizeReportSettings({
       enabled: true,
