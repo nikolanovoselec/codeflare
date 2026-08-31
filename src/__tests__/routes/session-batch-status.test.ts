@@ -681,6 +681,36 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     });
   });
 
+  describe('REQ-OPS-057 AC2: closed optional batch-status reads', () => {
+    it('omits usage and storage reads from status-only requests', async () => {
+      mockKV._set('storage-stats:test-bucket', { totalFiles: 1, totalFolders: 0, totalSizeBytes: 10 });
+      mockKV._set(getTimekeeperKey('test-bucket'), { today: {}, thisMonth: {} });
+      const response = await createApp().request('/sessions/batch-status');
+      expect(response.status).toBe(200);
+      const body = await response.json() as Record<string, unknown>;
+      expect(body).not.toHaveProperty('usage');
+      expect(body).not.toHaveProperty('storageStats');
+      const keys = (mockKV.get.mock.calls as [string, ...unknown[]][]).map(([key]) => key);
+      expect(keys).not.toContain('storage-stats:test-bucket');
+      expect(keys).not.toContain(getTimekeeperKey('test-bucket'));
+    });
+
+    it('reads only requested usage and storage fields', async () => {
+      mockKV._set('storage-stats:test-bucket', { totalFiles: 1, totalFolders: 0, totalSizeBytes: 10 });
+      const storage = await createApp().request('/sessions/batch-status?include=storage');
+      expect(await storage.json()).toMatchObject({ storageStats: { totalFiles: 1 } });
+      const usage = await createApp().request('/sessions/batch-status?include=usage');
+      expect(await usage.json()).toHaveProperty('usage');
+      const both = await createApp().request('/sessions/batch-status?include=usage,storage');
+      expect(await both.json()).toMatchObject({ storageStats: { totalFiles: 1 }, usage: expect.any(Object) });
+    });
+
+    it('rejects unknown or empty include values', async () => {
+      expect((await createApp().request('/sessions/batch-status?include=metrics')).status).toBe(400);
+      expect((await createApp().request('/sessions/batch-status?include=')).status).toBe(400);
+    });
+  });
+
   describe('REQ-SUB-006 AC2: usage visibility outside SaaS mode', () => {
     it('returns accumulated usage without a billing quota in onboarding/default mode', async () => {
       const now = new Date();
@@ -695,7 +725,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       mockKV._set(getTimekeeperKey('test-bucket'), record);
       const app = createApp();
 
-      const res = await app.request('/sessions/batch-status');
+      const res = await app.request('/sessions/batch-status?include=usage');
       expect(res.status).toBe(200);
       const body = await res.json() as {
         usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null };
@@ -769,7 +799,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       const entitlements = getEffectiveTierForUser(saasUser, getDefaultTiers());
 
       const app = createSaasApp();
-      const res = await app.request('/sessions/batch-status');
+      const res = await app.request('/sessions/batch-status?include=usage');
       expect(res.status).toBe(200);
       const body = await res.json() as {
         usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string };
