@@ -1472,12 +1472,12 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Every deployment environment owns one exact `${WORKER_NAME}-usage` database bound once as `USAGE_DB`; account-specific IDs are never committed. <!-- @impl: wrangler.toml::USAGE_DB --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 -->
+1. Every deployment environment owns one exact `${WORKER_NAME}-usage` database bound once as `USAGE_DB`; account-specific IDs are never committed. <!-- @impl: wrangler.toml::USAGE_DB --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
 2. Deploy preflight requires the existing runtime token and separate `CLOUDFLARE_DEPLOY_API_TOKEN`, proves D1 list permission, and stops before mutation on missing or insufficient credentials. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
 3. Successful listing resolves one exact database, creates only when absent, rejects duplicate names, and fails closed on list errors. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
-4. The temporary Wrangler configuration contains exactly one resolved binding, generated Worker types validate, and committed additive migrations run before Worker deployment. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @impl: migrations/usage/0001_initial.sql --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
+4. The temporary Wrangler configuration contains exactly one resolved binding, generated Worker types validate, and committed additive migrations run before Worker deployment. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @impl: migrations/usage/0001_initial.sql::schema --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
 5. Migration failure leaves the deployed Worker unchanged; later Worker failure leaves an additive database that the prior Worker safely ignores. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
-6. Existing KV, R2, Durable Object state, users, sessions, and containers are never reset or migrated by D1 provisioning. <!-- @impl: migrations/usage/0001_initial.sql --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 -->
+6. Existing KV, R2, Durable Object state, users, sessions, and containers are never reset or migrated by D1 provisioning. <!-- @impl: migrations/usage/0001_initial.sql::schema --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
 7. The deployment token authenticates provisioning, migrations, deploy, and secret upload; the narrower runtime token is uploaded under its existing Worker-secret name. <!-- @impl: .github/workflows/deploy.yml::deploy -->
 
 **Constraints:** GitHub Actions cannot create its own secret. Missing D1 permission is an external blocker, not permission to widen the runtime token.
@@ -1505,8 +1505,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. Analytics, Reports, and Activity read only on navigation, filters, explicit refresh, or run reconnect; none background-polls. <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @manual -->
 4. Production and Enterprise use `head_sampling_rate = 0.05`; Integration targets retain `1`, successful pings emit no custom logs, and structured failures remain discoverable. <!-- @impl: scripts/ci/set-head-sampling.mjs::setHeadSampling --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (observability deployment boundary (REQ-OPS-057)) -->
 5. Sampled D1 metrics record rows read, rows written, and SQL duration without user or secret material. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @test: src/__tests__/lib/admin-usage.test.ts (historical usage SQL owner (REQ-SUB-025)) -->
-6. CI models 2,000 active users and three sessions, enforcing one sub-4-KB state write and zero KV reads per positive ping plus the approved D1 row ceilings. <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) -->
-7. Integration verifies exception visibility before sampled Production rollout, and account operation and spend alerts precede Production history enablement.
+6. CI models 2,000 active users and three sessions, enforcing one sub-4-KB state write and zero KV reads per positive ping plus the approved D1 row ceilings. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/timekeeper/accounting.ts::applyPositiveDelta --> <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) -->
+7. Integration exception-visibility evidence is a required rollout gate before sampled Production promotion, and account operation and spend alerts must precede Production history enablement. <!-- @impl: documentation/lanes/administration-analytics.md::Integration acceptance checklist --> <!-- @manual -->
 
 **Constraints:** Cloudflare platform capacity remains contractually external. No queue, cache, coordinator, or second database is introduced for cost control.
 
@@ -1514,8 +1514,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-SUB-025](subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-OPS-056](#req-ops-056-non-destructive-d1-deployment-boundary)
 
-**Verification:** Automated optional-read, logging-config, and representative-load tests; polling and exception visibility require Integration evidence
+**Verification:** Automated optional-read, logging-config, and representative-load tests; polling and exception visibility evidence remains required from Integration before goal completion
 
-**Status:** Partial
+**Status:** Implemented
 
 ---

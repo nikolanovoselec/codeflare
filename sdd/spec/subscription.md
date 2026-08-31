@@ -730,7 +730,7 @@ Tiers, billing, usage tracking, and quotas.
 4. Current absolute accumulators and closed-period outbox entries retry independently from KV checkpoints, and sequence-guarded D1 upserts cannot double-count. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/admin-usage.test.ts (historical usage SQL owner (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/alarm-history.test.ts (Timekeeper single-alarm history duty (REQ-SUB-025)) -->
 5. Session markers store only domain-separated hashes, use bounded cache and cleanup, and survive restart and period rollover. <!-- @impl: src/timekeeper/accounting.ts::hashSessionId --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting.test.ts (AccountingStateV2 (REQ-SUB-025)) -->
 6. History begins at the first successful D1 write with no backfill; personal usage and quota behavior remain compatible. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO) -->
-7. Retention keeps 400 days, 60 ISO weeks, 60 months, and five years using exact calendar cutoffs.
+7. Retention keeps 400 days, 60 ISO weeks, 60 months, and five years using exact calendar cutoffs. <!-- @impl: src/lib/usage-report-scheduler.ts::retentionCutoffs --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report retention transaction (REQ-SUB-026, REQ-SUB-027)) -->
 
 **Constraints:** Timekeeper remains live quota owner. D1 failure never blocks quota persistence or enforcement.
 
@@ -738,9 +738,9 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-006](#req-sub-006-real-time-usage-tracking-via-timekeeper-do), [REQ-SUB-022](#req-sub-022-cross-mode-personal-usage-data), [REQ-OPS-056](operations.md#req-ops-056-non-destructive-d1-deployment-boundary)
 
-**Verification:** Planned automated migration, attribution, retry, rollover, retention, and operation-count tests
+**Verification:** Automated migration, attribution, retry, rollover, retention, and operation-count tests
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 

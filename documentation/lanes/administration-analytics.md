@@ -1,0 +1,62 @@
+# Administration and historical usage
+
+Administration is the routine control surface after Setup. Setup still owns first claim and first-run orchestration. Sending an operator back through Setup to change one report recipient would be a bad control plane, so routine changes use bounded Environment sections instead.
+
+## Runtime ownership
+
+Workers KV owns current Environment values, configuration revisions, active-run admission, and sanitized Activity records. Configuration runs stop at the first failed task and never roll back external provider work automatically. Activity expires after 90 days.
+
+Timekeeper Durable Objects and KV remain the live quota owners. D1 owns historical organization usage, deleted-user tombstones, report delivery claims, and retention claims. Historical analytics starts empty after rollout and never reconstructs old usage from quota records. The absence of a backfill is deliberate; invented history would be worse than an empty chart.
+
+Analytics, Reports, and Activity are demand-driven. They read on navigation, filter changes, explicit refresh, or run reconnect. They do not background-poll.
+
+## D1 database and migrations
+
+Each deployment uses one D1 database named `<worker-name>-usage`, bound to the Worker as `USAGE_DB`. The deploy workflow lists exact names, rejects duplicates, creates the database when absent, writes its ID into the temporary `wrangler.toml`, and applies migrations before Worker deployment. Account IDs and database IDs do not belong in source.
+
+`migrations/usage/0001_initial.sql` is additive. It creates historical user and period rows, report delivery records, and maintenance claims. Deploying Worker code before this migration is not supported. The workflow fails instead of publishing code against a missing schema.
+
+D1 and KV must be restored as separate systems. A KV restore recovers live settings and run records; it does not recover historical usage or report claims. Use Cloudflare D1 Time Travel or the account's approved D1 backup procedure for `USAGE_DB`, then verify migration state before restoring Worker traffic. Restoring D1 to an older point can legitimately remove newer history and delivery evidence. Do not manufacture replacement rows from current quota totals.
+
+## Deployment credentials
+
+Deployment uses two tokens. `CLOUDFLARE_DEPLOY_API_TOKEN` needs D1 Edit together with the existing Worker deployment permissions. Runtime `CLOUDFLARE_API_TOKEN` keeps its narrower runtime permissions. They must be different secret values. Reusing the runtime token because a deployment is urgent defeats the boundary and the workflow rejects it.
+
+Store both values in each GitHub deployment environment. Integration must have the pair before this feature can deploy. Neither token enters source, D1, Activity, report history, or a session container.
+
+## Retention and reports
+
+Historical rows use UTC periods. Active day rows retain the current day plus 399 preceding days, week rows retain 59 preceding ISO weeks, month rows retain 59 preceding months, and year rows retain four preceding years. Deleted users and their named aggregate rows remain for 60 calendar months. Report delivery records remain for 60 calendar months. Maintenance claims remain for 35 UTC days.
+
+One 15-minute scheduler owns report dispatch, recovery, and a once-daily token-guarded retention transaction. Reports are disabled by default. When enabled, each recipient gets a separate claimed delivery with at most three attempts. `accepted` means Resend accepted the request. It does not claim inbox delivery, and no provider ID is invented.
+
+CSV attachments stop at 8 MiB. Scheduled messages use deterministic idempotency; test requests use their request identity so two test clicks remain two tests.
+
+## Operation envelope and logging
+
+At 2,000 active developers with three sessions each, positive Timekeeper pings perform one sub-4-KB Durable Object state write and no KV reads. Historical D1 writes run once per user on a hash-phased 15-minute duty, not once per session. Stable visible session status polls run every 60 seconds; transitions use five seconds; hidden pages stop polling.
+
+Integration and Enterprise Integration retain `head_sampling_rate = 1`. Production and Enterprise use `0.05`. D1 history metrics record rows read, rows written, SQL duration, backlog age, and snapshot count without email addresses or secrets. Before Production history is enabled, operators must add account-level D1 operation and spend alerts and verify caught structured errors plus uncaught exceptions remain discoverable under the intended sampling policy.
+
+Pricing assumptions were checked on 29 August 2026. Refresh Cloudflare D1 included-operation and overage prices before Production approval. The continuous stress model stays under 48 million billed D1 rows written, including indexes and retention; CI guards that envelope.
+
+## Design-source review
+
+Source ownership was checked against the three calibration compositions (`42-environment-desktop.svg`, `43-analytics-desktop.svg`, and `44-environment-mobile.svg`) and the 53-screen journey/state catalog. Current routes cover Overview, every mode-gated Environment section, preview, execution, Analytics overview and user detail, Reports and delivery history, Activity, deleted users, provider failures, conflicts, interruption, empty history, and mobile composition. Shared administration tokens and responsive rules remain in `web-ui/src/styles/administration.css`; no chart or component framework was added.
+
+This is a source review, not browser acceptance. Pixel composition, touch behavior, focus order, network cadence, and email rendering still need the Integration checks below.
+
+## Integration acceptance checklist
+
+Record exact commit and Deploy run before testing. Then verify:
+
+- Mode-aware navigation and every applicable Environment section in Default, Onboarding, SaaS, and Enterprise.
+- One non-destructive Environment review and apply, including conflict, reconnect, failure, and interrupted states.
+- Analytics empty-history and data-start states, user detail, deleted-user history, and CSV export.
+- Reports disabled state, schedule presentation, test email, provider failure, and delivery history.
+- Activity empty and retained-run states. Confirm records contain no submitted secrets.
+- Five-second transition polling, 60-second stable polling, hidden cancellation, immediate visible refresh, and no overlapping requests in browser network tools.
+- Desktop and mobile hierarchy against the approved Administration and Analytics design catalog.
+- One caught structured error and one uncaught route exception are discoverable in Integration logs.
+
+Browser and visual acceptance belongs to the operator on Integration. CI does not pretend a component snapshot proved any of this.

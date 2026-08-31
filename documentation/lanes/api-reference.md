@@ -213,6 +213,15 @@ For `GET /api/user`, current workers return `allowedAgents`. During a rolling up
 |--------|----------|------|------------|-------------|
 | GET | `/api/admin/tiers` | Admin role | [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel), [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | Get current tier config (admin only) |
 | PUT | `/api/admin/tiers` | Admin role | [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel), [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel) | Update tier config (admin only, 8-tier array) |
+| GET | `/api/admin/configuration` | Admin role | [REQ-SETUP-017](../../sdd/spec/setup.md#req-setup-017-mode-aware-administration-configuration-read) | Read mode-gated Environment values, revision, active run, and sanitized latest summaries |
+| POST | `/api/admin/configuration-previews` | Admin role | [REQ-SETUP-018](../../sdd/spec/setup.md#req-setup-018-stateless-environment-preview-and-bounded-execution) | Validate one closed Environment section and return a stateless task preview |
+| GET | `/api/admin/configuration-runs` | Admin role | [REQ-SETUP-018](../../sdd/spec/setup.md#req-setup-018-stateless-environment-preview-and-bounded-execution) | Cursor-paginated sanitized Activity runs |
+| POST | `/api/admin/configuration-runs` | Admin role | [REQ-SETUP-018](../../sdd/spec/setup.md#req-setup-018-stateless-environment-preview-and-bounded-execution) | Start one bounded run and stream NDJSON snapshots |
+| GET | `/api/admin/configuration-runs/:runId` | Admin role | [REQ-SETUP-018](../../sdd/spec/setup.md#req-setup-018-stateless-environment-preview-and-bounded-execution) | Reconnect to one persisted run |
+| GET | `/api/admin/usage` | Admin role | [REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-analytics-and-deletion-history) | Organization usage JSON or equivalent CSV for one closed UTC period |
+| GET | `/api/admin/usage/users/:userKey` | Admin role | [REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-analytics-and-deletion-history) | One active or deleted user's named aggregate history |
+| POST | `/api/admin/usage-report-tests` | Admin role | [REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports) | Queue distinct test deliveries for the latest closed UTC month; returns `202` |
+| GET | `/api/admin/usage-report-deliveries` | Admin role | [REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports) | Cursor-paginated scheduled and test provider-acceptance history |
 | PUT | `/api/users/max-users` | Admin role | [REQ-AUTH-018](../../sdd/spec/authentication.md#req-auth-018-user-management-admin-panel), [REQ-SUB-009](../../sdd/spec/subscription.md#req-sub-009-admin-configurable-tiers-via-management-panel) | Set max users capacity cap (admin only) |
 
 ## Billing

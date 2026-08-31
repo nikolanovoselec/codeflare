@@ -130,18 +130,18 @@ Read [Security](documentation/lanes/security.md), [Authentication](documentation
 
 ### Before you begin
 
-Use a Cloudflare account that can run Workers and Containers, a GitHub fork with Actions enabled, and the maintained minimum-scope operator token from [Configuration](documentation/lanes/configuration.md#cloudflare-api-token-operator). Before deployment, licensed operators complete the private [deployment quick start](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/quickstarts.md) for their selected mode. Production promotion and recovery run through reviewed GitHub workflows rather than local Wrangler commands.
+Use a Cloudflare account that can run Workers and Containers, a GitHub fork with Actions enabled, and separate deployment and runtime tokens from [Configuration](documentation/lanes/configuration.md#cloudflare-api-token-operator). Before deployment, licensed operators complete the private [deployment quick start](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/deployment/quickstarts.md) for their selected mode. Production promotion and recovery run through reviewed GitHub workflows rather than local Wrangler commands.
 
 ### Default self-operated deployment
 
 The public path creates a private single-tenant instance in four steps:
 
 1. Fork this repository.
-2. Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub Actions repository secrets. Use the maintained [operator token scope list](documentation/lanes/configuration.md#cloudflare-api-token-operator).
+2. Add `CLOUDFLARE_DEPLOY_API_TOKEN`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_ACCOUNT_ID` to each target GitHub Environment. Deployment token needs D1 Edit; runtime token remains separate and narrower. Use the maintained [operator token scope list](documentation/lanes/configuration.md#cloudflare-api-token-operator).
 3. Run **Actions > Deploy > Run workflow** from `main` with the production target.
 4. Open the Worker URL and complete the setup wizard for the custom domain, allowed users, administrators, R2 credentials, and Cloudflare Access resources.
 
-The workflow provisions the shared Worker, KV control plane, and session container image in the operator's account. The setup wizard creates the configured Cloudflare Access application and policies; each user's R2 bucket is created when that user's container is first initialized. For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Production deployment belongs to GitHub Actions; `npm run deploy` is not a substitute for the reviewed workflow. See [Architecture](documentation/lanes/architecture.md#bucket-creation-and-seeding) for the resource lifecycle.
+The workflow provisions the shared Worker, KV control plane, historical-usage D1 database, and session container image in the operator's account. The setup wizard creates the configured Cloudflare Access application and policies; each user's R2 bucket is created when that user's container is first initialized. For a shared or production deployment, configure `ENCRYPTION_KEY` before storing provider or user credentials. Production deployment belongs to GitHub Actions; `npm run deploy` is not a substitute for the reviewed workflow. See [Architecture](documentation/lanes/architecture.md#bucket-creation-and-seeding) for the resource lifecycle.
 
 ### Verify the deployment
 
