@@ -11,6 +11,7 @@ import { isEnterpriseMode } from './subscription';
 import { handleCreateAccessApp } from '../routes/setup/access';
 import { handleConfigureCustomDomain } from '../routes/setup/custom-domain';
 import { getWorkerNameFromHostname } from '../routes/setup/shared';
+import { reactivateUsageUser } from './admin-usage';
 import {
   configureManagedEnvironment,
   readManagedEnvironmentSnapshot,
@@ -464,6 +465,9 @@ async function storeAccessUsers(
       if (await env.KV.get(preferencesKey) === null) {
         await env.KV.put(preferencesKey, JSON.stringify({ sessionMode: 'advanced' }));
       }
+    }
+    if (env.USAGE_DB) {
+      await reactivateUsageUser(env.USAGE_DB, email).catch(() => {});
     }
   }));
 }

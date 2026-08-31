@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { userKeyForEmail, writeUsageHistory } from '../../lib/admin-usage';
+import { reactivateUsageUser, userKeyForEmail, writeUsageHistory } from '../../lib/admin-usage';
 
 function fakeDb(finalRows: unknown[] = []) {
   const statements: Array<{ sql: string; values: unknown[] }> = [];
@@ -52,6 +52,17 @@ describe('historical usage SQL owner (REQ-SUB-025)', () => {
     expect(upserts.every((statement) => statement.sql.includes("account_status = 'active'"))).toBe(true);
     expect(upserts.every((statement) => statement.sql.includes('excluded.source_sequence > usage_periods.source_sequence'))).toBe(true);
     expect(fake.statements.at(-1)!.sql).toContain('source_sequence');
+  });
+
+  it('reactivates only the same stable owner and keeps prior periods untouched', async () => {
+    const run = vi.fn(async () => ({ success: true }));
+    const prepare = vi.fn((sql: string) => ({
+      bind: vi.fn((...values: unknown[]) => ({ run, sql, values })),
+    }));
+    await reactivateUsageUser({ prepare } as unknown as D1Database, ' Alice@Example.com ');
+    expect(prepare).toHaveBeenCalledWith(expect.stringContaining("account_status = 'active'"));
+    expect(prepare).toHaveBeenCalledWith(expect.not.stringContaining('usage_periods'));
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it('does not acknowledge a successful guarded no-op without equal/newer or deleted-owner evidence', async () => {

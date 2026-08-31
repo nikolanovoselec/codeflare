@@ -26,6 +26,7 @@ import {
   resolveManagedResourcePolicy,
 } from '../../lib/remote-curation';
 import { executeConfigurationTask, resolveAdministrationMode } from '../../lib/admin-configuration';
+import { reactivateUsageUser } from '../../lib/admin-usage';
 
 // Feature A/C: a Cloudflare Access group name or a gateway route name. Trimmed,
 // 1–256 chars, and MUST NOT contain comma or newline — those are the delimiters
@@ -427,6 +428,12 @@ app.post('/configure', async (c) => {
         return c.env.KV.put(`user:${email}`, JSON.stringify(entry));
       });
       await Promise.all(userWrites);
+      if (c.env.USAGE_DB) {
+        await Promise.all(normalizedAllowed.map((email) =>
+          reactivateUsageUser(c.env.USAGE_DB, email).catch((error) => {
+            logger.warn('Historical usage reactivation will retry later', { error: toError(error).message });
+          })));
+      }
 
       // Auto-set advanced session mode for admin users so their first
       // session seeds advanced skills and agent rules.

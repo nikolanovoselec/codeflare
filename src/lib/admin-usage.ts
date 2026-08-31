@@ -54,6 +54,30 @@ interface AcknowledgementRow {
   account_status: 'active' | 'deleted';
 }
 
+export async function tombstoneUsageUser(db: D1Database, email: string, deletedAt: string): Promise<void> {
+  if (!UTC_TIMESTAMP.test(deletedAt)) throw new Error('Invalid deletion timestamp');
+  const normalizedEmail = email.trim().toLowerCase();
+  const userKey = await userKeyForEmail(normalizedEmail);
+  const statement = db.prepare(`
+INSERT INTO usage_users (user_key, email, account_status, data_since, deleted_at)
+VALUES (?1, ?2, 'deleted', ?3, ?3)
+ON CONFLICT(user_key) DO UPDATE SET
+  email = excluded.email,
+  account_status = 'deleted',
+  deleted_at = excluded.deleted_at`).bind(userKey, normalizedEmail, deletedAt);
+  const [result] = await db.batch([statement]);
+  if (!result?.success) throw new Error('D1 history tombstone failed');
+}
+
+export async function reactivateUsageUser(db: D1Database, email: string): Promise<void> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const userKey = await userKeyForEmail(normalizedEmail);
+  await db.prepare(`
+UPDATE usage_users
+SET account_status = 'active', deleted_at = NULL
+WHERE user_key = ?1 AND email = ?2`).bind(userKey, normalizedEmail).run();
+}
+
 export async function writeUsageHistory(
   db: D1Database,
   email: string,
