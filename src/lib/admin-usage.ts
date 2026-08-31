@@ -78,6 +78,126 @@ SET account_status = 'active', deleted_at = NULL
 WHERE user_key = ?1 AND email = ?2`).bind(userKey, normalizedEmail).run();
 }
 
+export type UsagePeriod = PeriodKind;
+export type UsageSort = 'runtimeSeconds' | 'sessionCount' | 'email';
+export type UsageDirection = 'asc' | 'desc';
+
+export interface AdminUsageRow {
+  userKey: string;
+  email: string;
+  accountStatus: 'active' | 'deleted';
+  dataSince: string;
+  deletedAt: string | null;
+  runtimeSeconds: number;
+  sessionCount: number;
+  historyUpdatedAt: string;
+}
+
+interface D1UsageRow {
+  user_key: string;
+  email: string;
+  account_status: 'active' | 'deleted';
+  data_since: string;
+  deleted_at: string | null;
+  runtime_seconds: number;
+  session_count: number;
+  updated_at: string;
+}
+
+export function mapAdminUsageRow(row: D1UsageRow): AdminUsageRow {
+  return {
+    userKey: row.user_key,
+    email: row.email,
+    accountStatus: row.account_status,
+    dataSince: row.data_since,
+    deletedAt: row.deleted_at,
+    runtimeSeconds: row.runtime_seconds,
+    sessionCount: row.session_count,
+    historyUpdatedAt: row.updated_at,
+  };
+}
+
+const SORT_COLUMNS: Record<UsageSort, string> = {
+  runtimeSeconds: 'p.runtime_seconds',
+  sessionCount: 'p.session_count',
+  email: 'u.email',
+};
+
+export async function queryAdminUsageSummary(db: D1Database, period: UsagePeriod, start: string) {
+  const result = await db.prepare(`
+SELECT
+  COALESCE(SUM(p.runtime_seconds), 0) AS runtime_seconds,
+  COALESCE(SUM(p.session_count), 0) AS session_count,
+  COUNT(CASE WHEN p.runtime_seconds > 0 THEN 1 END) AS active_users,
+  MIN(u.data_since) AS data_since,
+  MAX(p.updated_at) AS history_updated_at
+FROM usage_periods p
+JOIN usage_users u ON u.user_key = p.user_key
+WHERE p.period_kind = ?1 AND p.period_start = ?2`).bind(period, start).all<{
+    runtime_seconds: number;
+    session_count: number;
+    active_users: number;
+    data_since: string | null;
+    history_updated_at: string | null;
+  }>();
+  if (!result.success) throw new Error('D1 usage summary query failed');
+  return result.results[0] ?? { runtime_seconds: 0, session_count: 0, active_users: 0, data_since: null, history_updated_at: null };
+}
+
+interface UsageContinuation {
+  lastValue: string | number;
+  userKey: string;
+}
+
+export async function queryAdminUsageRows(
+  db: D1Database,
+  options: {
+    period: UsagePeriod;
+    start: string;
+    sort: UsageSort;
+    direction: UsageDirection;
+    limit?: number;
+    continuation?: UsageContinuation;
+  },
+): Promise<AdminUsageRow[]> {
+  const column = SORT_COLUMNS[options.sort];
+  const direction = options.direction === 'asc' ? 'ASC' : 'DESC';
+  const comparison = options.direction === 'asc' ? '>' : '<';
+  const values: unknown[] = [options.period, options.start];
+  let continuationSql = '';
+  if (options.continuation) {
+    continuationSql = ` AND (${column} ${comparison} ?3 OR (${column} = ?3 AND u.user_key > ?4))`;
+    values.push(options.continuation.lastValue, options.continuation.userKey);
+  }
+  const limitSql = options.limit === undefined ? '' : ` LIMIT ?${values.length + 1}`;
+  if (options.limit !== undefined) values.push(options.limit);
+  const result = await db.prepare(`
+SELECT u.user_key, u.email, u.account_status, u.data_since, u.deleted_at,
+       p.runtime_seconds, p.session_count, p.updated_at
+FROM usage_periods p
+JOIN usage_users u ON u.user_key = p.user_key
+WHERE p.period_kind = ?1 AND p.period_start = ?2${continuationSql}
+ORDER BY ${column} ${direction}, u.user_key ASC${limitSql}`).bind(...values).all<D1UsageRow>();
+  if (!result.success) throw new Error('D1 usage row query failed');
+  return result.results.map(mapAdminUsageRow);
+}
+
+export async function queryAdminUsageUser(
+  db: D1Database,
+  userKey: string,
+  period: UsagePeriod,
+  start: string,
+): Promise<AdminUsageRow | null> {
+  const result = await db.prepare(`
+SELECT u.user_key, u.email, u.account_status, u.data_since, u.deleted_at,
+       p.runtime_seconds, p.session_count, p.updated_at
+FROM usage_users u
+JOIN usage_periods p ON p.user_key = u.user_key
+WHERE u.user_key = ?1 AND p.period_kind = ?2 AND p.period_start = ?3`).bind(userKey, period, start).all<D1UsageRow>();
+  if (!result.success) throw new Error('D1 usage detail query failed');
+  return result.results[0] ? mapAdminUsageRow(result.results[0]) : null;
+}
+
 export async function writeUsageHistory(
   db: D1Database,
   email: string,

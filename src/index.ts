@@ -23,6 +23,7 @@ import adminTiersRoutes from './routes/admin/tiers';
 import adminConfigurationRoutes from './routes/admin/configuration';
 import adminConfigurationPreviewRoutes from './routes/admin/configuration-previews';
 import adminConfigurationRunRoutes from './routes/admin/configuration-runs';
+import adminUsageRoutes from './routes/admin/usage';
 import billingRoutes from './routes/billing';
 import notificationRoutes from './routes/notifications';
 import stripeWebhookRoute from './routes/stripe-webhook';
@@ -290,6 +291,7 @@ app.route('/api/admin/tiers', adminTiersRoutes);
 app.route('/api/admin/configuration', adminConfigurationRoutes);
 app.route('/api/admin/configuration-previews', adminConfigurationPreviewRoutes);
 app.route('/api/admin/configuration-runs', adminConfigurationRunRoutes);
+app.route('/api/admin/usage', adminUsageRoutes);
 app.route('/api/billing', billingRoutes);
 app.route('/api/notifications', notificationRoutes);
 
