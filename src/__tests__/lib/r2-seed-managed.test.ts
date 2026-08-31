@@ -523,6 +523,33 @@ describe('managed release user-bucket reconciliation', () => {
     ))).toBe(false);
   });
 
+  it('REQ-STOR-033 AC4: full-target fallback sweeps stale managed markers only after desired writes', async () => {
+    const targetDigest = '2'.repeat(64);
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        const marker = url.endsWith('/obsolete.md') ? '1'.repeat(64) : null;
+        return new Response('', { status: marker ? 200 : 404, headers: marker ? { 'x-amz-meta-codeflare-preseed': marker } : {} });
+      }
+      if (!init?.method && url.includes('list-type=2')) {
+        return new Response('<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>.claude/skills/obsolete.md</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>', { status: 200 });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: await selection(targetDigest, release(41, [document('.claude/skills/current.md')])),
+      automatic: { assumeEmpty: false },
+    });
+
+    expect(result.deleted).toContain('.claude/skills/obsolete.md');
+    const desiredPut = fetchR2.mock.calls.findIndex(([url, init]) => url.endsWith('/current.md') && init?.method === 'PUT');
+    const cleanupList = fetchR2.mock.calls.findIndex(([url]) => String(url).includes('list-type=2'));
+    expect(desiredPut).toBeGreaterThanOrEqual(0);
+    expect(cleanupList).toBeGreaterThan(desiredPut);
+  });
+
   it('REQ-STOR-021 AC2 + REQ-STOR-033 AC5: direct delta cleanup accepts older valid markers and preserves markerless edits', async () => {
     const prior = await selection('1'.repeat(64), release(40, [
       document('.claude/markerless-edit.md'),

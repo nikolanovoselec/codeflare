@@ -28,6 +28,11 @@ vi.mock('../../lib/managed-release-active', () => ({
     if (state.activeError) throw state.activeError;
     return state.active;
   }),
+  getActiveManagedRelease: vi.fn(async () => state.active ? ({
+    digest: state.active.digest,
+    pointer: state.active.pointer,
+    resourcePolicy: state.resourcePolicy,
+  }) : null),
   getCachedManagedReleaseByDigest: vi.fn(async () => state.cached),
 }));
 vi.mock('../../lib/remote-curation', async (importOriginal) => ({
@@ -360,7 +365,9 @@ describe('managed storage reconcile', () => {
         mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z',
       },
     });
-    state.cached = { compressed: state.active!.compressed, release: state.active!.release };
+    const prior = { ...release, sequence: 8 };
+    const priorCompressed = await gzipBytes(new TextEncoder().encode(JSON.stringify(prior)));
+    state.cached = { compressed: priorCompressed, release: await parseManagedReleaseStream(priorCompressed) };
 
     const automatic = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
     expect(automatic.status).toBe(200);
@@ -392,6 +399,39 @@ describe('managed storage reconcile', () => {
     expect(response.status).toBe(500);
     expect(createBucket).not.toHaveBeenCalled();
     expect(reconcile).not.toHaveBeenCalled();
+  });
+
+  it('REQ-STOR-033 AC6: target changes during automatic reconciliation and prevents applied stamping', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+    reconcile.mockImplementationOnce(async () => {
+      state.active = {
+        ...state.active!,
+        digest: 'e'.repeat(64),
+        pointer: { ...state.active!.pointer, digest: 'e'.repeat(64), sequence: 10 },
+      };
+      return { written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined };
+    });
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+    expect(response.status).toBe(500);
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentApplied).toBeUndefined();
+  });
+
+  it('REQ-STOR-033 AC8: finalizing progress is persisted before cleanup begins', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+    reconcile.mockImplementationOnce(async (...args: any[]) => {
+      const options = args[4] as { automatic: { onProgress: (value: { completed: number; total: number }) => Promise<void> } };
+      await options.automatic.onProgress({ completed: 0, total: 0 });
+      const progress = await kv.get('managed-reconcile-progress:user-bucket', 'json') as { phase?: string };
+      expect(progress.phase).toBe('finalizing');
+      return { written: [], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined };
+    });
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+    expect(response.status).toBe(200);
   });
 
   it('REQ-STOR-033 AC8: automatic progress is bounded, observational, and cleared after stamping', async () => {

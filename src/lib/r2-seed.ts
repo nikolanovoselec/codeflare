@@ -1178,6 +1178,21 @@ export async function reconcileAgentConfigs(
       deleted.push(...cleanupResult.deleted);
       warnings.push(...cleanupResult.warnings);
     }
+    if (managedRelease && automaticPlan && !automaticPlan.directDelta) {
+      const seededKeys = new Set([
+        ...getManagedDocumentKeysForMode(managedRelease.release, mode),
+        '.codeflare/managed-extensions.json',
+      ]);
+      const cleanupResult = await deleteStaleMarkedConfigs(
+        env,
+        bucketName,
+        endpoint,
+        seededKeys,
+        options.r2SseDisabled,
+      );
+      deleted.push(...cleanupResult.deleted);
+      warnings.push(...cleanupResult.warnings);
+    }
     if (managedRelease) {
       const cleanupResult = await deleteRetiredManagedConfigs(
         env,

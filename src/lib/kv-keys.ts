@@ -188,6 +188,11 @@ export function getPreferencesKey(bucketName: string): string {
   return `user-prefs:${bucketName}`;
 }
 
+/** Observational progress for one automatic managed-release reconciliation. */
+export function getManagedReconcileProgressKey(bucketName: string): string {
+  return `managed-reconcile-progress:${bucketName}`;
+}
+
 /**
  * REQ-ENTERPRISE-020: per-bucket Governed Mode migration state object. The single
  * source of truth for a bucket's R2 encryption regime + any in-flight migration

@@ -600,6 +600,36 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.managedReleaseProgress).toEqual({ phase: 'writing', completed: 25, total: 61 });
     });
 
+    it('REQ-STOR-033 AC8: malformed progress is omitted', async () => {
+      const digest = 'd'.repeat(64);
+      managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
+      mockKV._set('managed-reconcile-progress:test-bucket', {
+        schemaVersion: 1, targetDigest: digest, phase: 'writing', completed: 62, total: 61,
+        updatedAt: '2026-08-31T12:00:00.000Z',
+      });
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseProgress?: unknown };
+      expect(body.managedReleaseProgress).toBeUndefined();
+    });
+
+    it('REQ-STOR-033 AC8: update-pending state omits progress', async () => {
+      const digest = 'd'.repeat(64);
+      managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      const running = makeSession('aabbccdd11223344', 'running');
+      mockKV._set('session:test-bucket:aabbccdd11223344', running, buildSessionMetadata(running));
+      mockKV._set('managed-reconcile-progress:test-bucket', {
+        schemaVersion: 1, targetDigest: digest, phase: 'writing', completed: 25, total: 61,
+        updatedAt: '2026-08-31T12:00:00.000Z',
+      });
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; managedReleaseProgress?: unknown };
+      expect(body.managedReleaseStatus).toBe('update_pending');
+      expect(body.managedReleaseProgress).toBeUndefined();
+    });
+
     it('REQ-STOR-033 AC8: applied target omits and opportunistically clears stale progress', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
