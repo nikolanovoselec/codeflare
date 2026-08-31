@@ -1,5 +1,31 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createReportDispatch, retentionCutoffs, runUsageRetention } from '../../lib/usage-report-scheduler';
+import { createDueScheduledDispatch, createReportDispatch, retentionCutoffs, runUsageRetention } from '../../lib/usage-report-scheduler';
+
+describe('usage report scheduling recovery (REQ-SUB-027)', () => {
+  it('recreates a missing revision cursor for the next configured delivery', async () => {
+    const puts: unknown[][] = [];
+    const env = {
+      KV: {
+        get: vi.fn(async (key: string) => key.endsWith(':settings') ? {
+          enabled: true, recipients: ['ops@example.com'], day: 15, hour: 9,
+          timezone: 'UTC', settingsRevision: 7,
+        } : null),
+        put: vi.fn(async (...args: unknown[]) => { puts.push(args); }),
+      },
+      USAGE_DB: { batch: vi.fn() },
+    };
+
+    await createDueScheduledDispatch(env as unknown as Env, new Date('2027-08-01T00:00:00.000Z'));
+
+    expect(env.USAGE_DB.batch).not.toHaveBeenCalled();
+    expect(puts).toHaveLength(1);
+    expect(puts[0][0]).toBe('admin:usage-reports:next:7');
+    expect(JSON.parse(String(puts[0][1]))).toMatchObject({
+      settingsRevision: 7,
+      nextDeliveryAt: '2027-08-15T09:00:00.000Z',
+    });
+  });
+});
 
 describe('usage report retention transaction (REQ-SUB-026, REQ-SUB-027)', () => {
   it('computes every exact calendar cutoff', () => {

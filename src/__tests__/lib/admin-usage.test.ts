@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { reactivateUsageUser, userKeyForEmail, writeUsageHistory } from '../../lib/admin-usage';
+import { setLogLevel } from '../../lib/logger';
 
 function fakeDb(finalRows: unknown[] = []) {
   const statements: Array<{ sql: string; values: unknown[] }> = [];
@@ -52,6 +53,31 @@ describe('historical usage SQL owner (REQ-SUB-025)', () => {
     expect(upserts.every((statement) => statement.sql.includes("account_status = 'active'"))).toBe(true);
     expect(upserts.every((statement) => statement.sql.includes('excluded.source_sequence > usage_periods.source_sequence'))).toBe(true);
     expect(fake.statements.at(-1)!.sql).toContain('source_sequence');
+  });
+
+  it('logs bounded D1 metrics without user or secret material (REQ-OPS-057 AC5)', async () => {
+    const output = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    setLogLevel('info');
+    try {
+      const snapshot = { kind: 'day' as const, start: '2026-08-30', runtimeSeconds: 120, sessionCount: 2, sourceSequence: 7, snapshotAt: '2026-08-30T12:00:00.000Z' };
+      const measured = fakeDb([{ period_kind: 'day', period_start: '2026-08-30', source_sequence: 7, account_status: 'active' }]);
+      measured.batch.mockResolvedValueOnce([
+        { success: true, meta: { rows_read: 1, rows_written: 1, duration: 2 } },
+        { success: true, meta: { rows_read: 3, rows_written: 2, duration: 4 } },
+        { success: true, results: [{ period_kind: 'day', period_start: '2026-08-30', source_sequence: 7, account_status: 'active' }], meta: { rows_read: 2, rows_written: 0, duration: 1 } },
+      ] as never);
+
+      await writeUsageHistory(measured.db, 'private@example.com', [snapshot]);
+
+      const entry = JSON.parse(String(output.mock.calls.at(-1)?.[0])) as { data: Record<string, unknown> };
+      expect(entry.data).toMatchObject({ rowsRead: 6, rowsWritten: 3, sqlDurationMs: 7, snapshotCount: 1 });
+      expect(entry.data.backlogSeconds).toEqual(expect.any(Number));
+      expect(JSON.stringify(entry)).not.toContain('private@example.com');
+      expect(JSON.stringify(entry)).not.toContain('runtimeSeconds');
+    } finally {
+      setLogLevel('silent');
+      output.mockRestore();
+    }
   });
 
   it('reactivates only the same stable owner and keeps prior periods untouched', async () => {

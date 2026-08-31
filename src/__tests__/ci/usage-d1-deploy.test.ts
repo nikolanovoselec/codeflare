@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { prepareUsageD1 } from '../../../scripts/ci/prepare-usage-d1.mjs';
 import { setHeadSampling } from '../../../scripts/ci/set-head-sampling.mjs';
+import deployWorkflow from '../../../.github/workflows/deploy.yml?raw';
 
 type WranglerCommand = string[];
 
@@ -38,6 +39,13 @@ describe('observability deployment boundary (REQ-OPS-057)', () => {
 });
 
 describe('D1 deployment boundary (REQ-OPS-056)', () => {
+  it('uses the deployment token for D1 work and uploads only the runtime token to the Worker (AC7)', () => {
+    expect(deployWorkflow).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEPLOY_API_TOKEN }}');
+    expect(deployWorkflow).toContain('RUNTIME_CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
+    expect(deployWorkflow).toContain('add CLOUDFLARE_API_TOKEN "$RUNTIME_CLOUDFLARE_API_TOKEN"');
+    expect(deployWorkflow).not.toContain('add CLOUDFLARE_DEPLOY_API_TOKEN');
+  });
+
   it('rejects missing separate or runtime credentials before any Wrangler call', async () => {
     const fake = fakeRunner({});
     await expect(prepareUsageD1({
