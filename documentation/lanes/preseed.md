@@ -236,11 +236,12 @@ valid applied digest whose immutable cache object is unavailable plan the full
 target, then use the same marker checks. R2 markers govern execution; the
 expiring KV progress record is display-only.
 
-Before automatic writes, preferences record the bounded set of targets that may
-have written managed objects. If the active target changes, the next run repairs
-a desired path only when it still carries an interrupted target marker. It also
-removes interrupted-only paths only while they retain that provenance. The state
-survives another interruption and clears with successful applied publication.
+Before managed-release writes, preferences record the bounded set of targets
+that may have written managed objects. If the active target changes, the next run
+repairs a desired path only when it still carries an interrupted target marker.
+It removes interrupted-only paths only while they retain that provenance. The
+state survives another interruption and clears with successful applied
+publication. See [REQ-STOR-035](../../sdd/spec/storage.md#req-stor-035-managed-reconciliation-cleanup-and-finalization).
 
 When both applied and target bundles are available, direct-delta cleanup
 considers paths present in the applied mode and absent from the target mode.

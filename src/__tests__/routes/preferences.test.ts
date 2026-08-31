@@ -19,6 +19,7 @@ vi.mock('../../middleware/auth', () => ({
 const { mockReconcileAgentConfigs, managedReleaseState } = vi.hoisted(() => ({
   mockReconcileAgentConfigs: vi.fn(async () => ({ written: [], skipped: [], deleted: [], warnings: [] })),
   managedReleaseState: {
+    active: null as any,
     cachedByDigest: new Map<string, { compressed: Uint8Array; release: { sequence: number } }>(),
   },
 }));
@@ -29,8 +30,12 @@ vi.mock('../../lib/r2-seed', async () => {
 vi.mock('../../lib/r2-config', () => ({ getR2Config: vi.fn(async () => ({ accountId: 'test-account', endpoint: 'https://r2.test' })) }));
 vi.mock('../../lib/managed-release-active', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/managed-release-active')>()),
-  getActiveManagedRelease: vi.fn(async () => null),
-  getActiveVerifiedManagedRelease: vi.fn(async () => null),
+  getActiveManagedRelease: vi.fn(async () => managedReleaseState.active ? ({
+    digest: managedReleaseState.active.digest,
+    pointer: { sequence: managedReleaseState.active.release.sequence },
+    resourcePolicy: 'mutable',
+  }) : null),
+  getActiveVerifiedManagedRelease: vi.fn(async () => managedReleaseState.active),
   getCachedManagedReleaseByDigest: vi.fn(async (_env: Env, digest: string) => managedReleaseState.cachedByDigest.get(digest) ?? null),
 }));
 
@@ -42,6 +47,7 @@ describe('Preferences Routes', () => {
   beforeEach(() => {
     mockKV = createMockKV();
     mockReconcileAgentConfigs.mockClear();
+    managedReleaseState.active = null;
     managedReleaseState.cachedByDigest.clear();
   });
 
@@ -857,6 +863,42 @@ describe('Preferences Routes', () => {
       expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toEqual({
         sessionMode: 'default',
         managedEnvironmentReconciliation: pending,
+      });
+    });
+
+    it('REQ-STOR-035 AC1/AC2: a failed managed mode change records and retains its active target', async () => {
+      managedReleaseState.active = {
+        digest: 'd'.repeat(64),
+        compressed: new Uint8Array(),
+        release: { sequence: 9 },
+      };
+      managedReleaseState.cachedByDigest.set('a'.repeat(64), {
+        compressed: new Uint8Array(),
+        release: { sequence: 8 },
+      });
+      mockKV._set('user-prefs:codeflare-test-user', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest: 'a'.repeat(64), managedExtensionsDigest: 'c'.repeat(64), sequence: 8,
+          mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z',
+        },
+      });
+      mockReconcileAgentConfigs.mockRejectedValueOnce(new Error('partial write'));
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(500);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({
+        sessionMode: 'default',
+        managedEnvironmentApplied: { digest: 'a'.repeat(64) },
+        managedEnvironmentReconciliation: {
+          targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' }],
+        },
       });
     });
 

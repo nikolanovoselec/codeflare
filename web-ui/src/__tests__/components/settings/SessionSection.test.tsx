@@ -26,6 +26,7 @@ function renderSection(overrides: {
   defaultWorkspace?: 'terminal' | 'vscode';
   canUseAdvanced?: boolean;
   canChangeSleepAfter?: boolean;
+  seedUpdateActive?: boolean;
   onSessionModeChange?: ModeChange;
   onDefaultWorkspaceChange?: (workspace: 'terminal' | 'vscode') => void;
   herdrEnabled?: boolean;
@@ -50,6 +51,7 @@ function renderSection(overrides: {
     recreateDocsMessage: () => null,
     recreateDocsError: () => null,
     recreateAgentLoading: () => false,
+    seedUpdateActive: () => overrides.seedUpdateActive ?? false,
     recreateAgentMessage: () => null,
     recreateAgentError: () => null,
     onSessionModeChange: overrides.onSessionModeChange ?? (() => {}),
@@ -77,6 +79,14 @@ describe('terminal experience preference', () => {
     expect(toggle).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(toggle);
     expect(onHerdrToggle).toHaveBeenCalledOnce();
+  });
+
+  it('REQ-STOR-035: blocks managed seed controls while an in-page update is active', () => {
+    renderSection({ seedUpdateActive: true });
+
+    expect(screen.getByTestId('session-mode-default')).toBeDisabled();
+    expect(screen.getByTestId('session-mode-advanced')).toBeDisabled();
+    expect(screen.getByTestId('settings-recreate-agent-label').closest('button')).toBeDisabled();
   });
 
   it('reflects an enabled preference', () => {

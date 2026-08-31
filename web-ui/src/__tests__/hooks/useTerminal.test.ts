@@ -1015,7 +1015,7 @@ describe('useTerminal hook', () => {
   });
 
   describe('Herdr deterministic touch taps', () => {
-    it('REQ-TERM-042 AC3: opens a touched link without sending terminal input or opening the keyboard', async () => {
+    it('REQ-TERM-042 AC3/AC4: opens a touched link without terminal touch side effects', async () => {
       mockActivateLinkAt.mockReturnValueOnce(true);
       const { attachSwipeGestures, sendTerminalKey } = await import('../../lib/touch-gestures');
       const { sendHerdrTap } = await import('../../lib/herdr-mouse');

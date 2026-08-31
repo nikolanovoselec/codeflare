@@ -279,7 +279,7 @@ describe('managed storage reconcile', () => {
     expect(preferences.lastPreseedHash).toBeUndefined();
   });
 
-  it('REQ-STOR-024 AC5: reconciles from current release when disposable cache history is absent', async () => {
+  it('REQ-STOR-024 AC5 + REQ-STOR-033 AC5: reconciles from current release when disposable cache history is absent', async () => {
     state.cached = null;
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', {
@@ -359,7 +359,7 @@ describe('managed storage reconcile', () => {
     expect(preferences.lastPreseedHash).toBe('baked-hash');
   });
 
-  it('REQ-STOR-033 AC6: automatic endpoint is separate and manual Recreate remains full overwrite', async () => {
+  it('REQ-STOR-033 AC7: automatic endpoint is separate and manual Recreate remains full overwrite', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', {
       sessionMode: 'advanced',
@@ -386,6 +386,26 @@ describe('managed storage reconcile', () => {
       expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced',
       expect.not.objectContaining({ automatic: expect.anything() }),
     );
+  });
+
+  it('REQ-STOR-035 AC1/AC2: failed manual Recreate records and retains its active target', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentApplied: {
+        digest: '1'.repeat(64), managedExtensionsDigest: '4'.repeat(64), sequence: 8,
+        mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+    reconcile.mockRejectedValueOnce(new Error('partial write'));
+
+    const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
+
+    expect(response.status).toBe(500);
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentReconciliation).toEqual({
+      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' }],
+    });
   });
 
   it('REQ-STOR-035 AC3: manual Recreate repairs interrupted targets before clearing their state', async () => {
@@ -467,7 +487,7 @@ describe('managed storage reconcile', () => {
     expect(preferences.managedEnvironmentReconciliation).toBeUndefined();
   });
 
-  it('REQ-STOR-033 AC5: automatic fallback is bounded and invalid applied identity fails closed', async () => {
+  it('REQ-STOR-033 AC6: invalid applied identity fails closed before bucket mutation', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', {
       sessionMode: 'advanced',

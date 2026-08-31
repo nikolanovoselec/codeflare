@@ -386,7 +386,7 @@ describe('Session Store', () => {
     });
 
     // REQ-AGENT-049: auto-upgrade preseed on stale hash
-    it('REQ-STOR-033 AC6: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true', async () => {
+    it('REQ-STOR-033 AC7: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,
@@ -430,6 +430,19 @@ describe('Session Store', () => {
 
       resolveRecreate!({ success: true, written: [], skipped: [], deleted: [], warnings: [] });
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+    });
+
+    it('REQ-STOR-035: blocks a second managed seed action within one page', async () => {
+      let finish!: () => void;
+      const first = sessionStore.runPreseedUpdate(() => new Promise<void>((resolve) => { finish = resolve; }));
+
+      expect(sessionStore.preseedUpgrading).toBe(true);
+      await expect(sessionStore.runPreseedUpdate(async () => undefined))
+        .rejects.toThrow('Session environment update already in progress');
+
+      finish();
+      await first;
+      expect(sessionStore.preseedUpgrading).toBe(false);
     });
 
     it('REQ-AGENT-049 AC7: should clear preseedUpgrading on failure so dashboard remains usable', async () => {

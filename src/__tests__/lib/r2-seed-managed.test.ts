@@ -555,7 +555,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(cleanupList).toBeGreaterThan(desiredPut);
   });
 
-  it('REQ-STOR-035 AC6: fallback cleanup preserves a stale object replaced after HEAD', async () => {
+  it('REQ-STOR-035 AC6: fallback cleanup preserves an object replaced after inspection', async () => {
     const targetDigest = '2'.repeat(64);
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
@@ -593,9 +593,9 @@ describe('managed release user-bucket reconciliation', () => {
       document('.claude/user-edit.md', ['default'], 'applied bytes'),
     ]));
     const interrupted = await selection('2'.repeat(64), release(41, [
+      document('.claude/interrupted-only.md', ['default'], 'interrupted only'),
       document('.claude/reverted.md', ['default'], 'interrupted bytes'),
       document('.claude/user-edit.md', ['default'], 'interrupted bytes'),
-      document('.claude/interrupted-only.md', ['default'], 'interrupted only'),
     ]));
     const target = await selection('3'.repeat(64), release(42, [
       document('.claude/reverted.md', ['default'], 'applied bytes'),
@@ -743,7 +743,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(result.deleted).toContain('.claude/interrupted-only.md');
   });
 
-  it('REQ-STOR-035 AC6: cleanup binds deletion to the HEAD-observed object version', async () => {
+  it('REQ-STOR-035 AC6: cleanup preserves an object replaced after inspection', async () => {
     const prior = await selection('1'.repeat(64), release(40, [document('.claude/removed.md')]));
     const target = await selection('2'.repeat(64), release(41, []));
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {

@@ -202,6 +202,16 @@ function isSessionInitializing(sessionId: string): boolean {
   return state.initializingSessionIds[sessionId] === true;
 }
 
+async function runPreseedUpdate<T>(operation: () => Promise<T>): Promise<T> {
+  if (state.preseedUpgrading) throw new Error('Session environment update already in progress');
+  setState('preseedUpgrading', true);
+  try {
+    return await operation();
+  } finally {
+    setState('preseedUpgrading', false);
+  }
+}
+
 function applyManagedReleaseBatch(
   status: 'current' | 'upgrading' | 'update_pending' | undefined,
   needsUpgrade: boolean | undefined,
@@ -212,16 +222,14 @@ function applyManagedReleaseBatch(
     setState('managedReleaseProgress', status === 'upgrading' ? progress ?? null : null);
   }
   if (!needsUpgrade || state.preseedUpgrading) return;
-  setState('preseedUpgrading', true);
-  upgradeAgentConfigs()
+  void runPreseedUpdate(upgradeAgentConfigs)
     .then(() => {
       if (status === 'upgrading') {
         setState('managedReleaseStatus', 'current');
         setState('managedReleaseProgress', null);
       }
     })
-    .catch((err) => logger.warn('[SessionStore] preseed auto-upgrade failed:', err))
-    .finally(() => setState('preseedUpgrading', false));
+    .catch((err) => logger.warn('[SessionStore] preseed auto-upgrade failed:', err));
 }
 
 // Register polling dependencies (extracted to session-polling.ts)
@@ -686,6 +694,7 @@ export const sessionStore = {
   get preferences() { return state.preferences; },
   loadPreferences,
   updatePreferences: updateUserPreferences,
+  runPreseedUpdate,
   get maxSessions() { return state.maxSessions; },
   isAtSessionLimit,
   hasRecentContext,

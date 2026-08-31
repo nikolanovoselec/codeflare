@@ -20,6 +20,7 @@ import { allowedAgents } from '../lib/agent-allowlist';
 import { createLogger } from '../lib/logger';
 import { countsTowardSessionLimit } from './container/lifecycle-validation';
 import {
+  appendManagedReconciliationTarget,
   getActiveManagedRelease,
   getActiveVerifiedManagedRelease,
   getCachedManagedReleaseByDigest,
@@ -233,6 +234,13 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
         };
       }
       const existingTargets = readManagedReconciliationTargets(existing.managedEnvironmentReconciliation);
+      const expectedReconciliationTargets = activeManagedRelease
+        ? appendManagedReconciliationTarget(existingTargets, {
+            digest: activeManagedRelease.digest,
+            sequence: activeManagedRelease.release.sequence,
+            mode: body.sessionMode,
+          })
+        : existingTargets;
       const interruptedManagedReleases: PriorManagedReleaseSelection[] = [];
       for (const target of existingTargets) {
         if (activeManagedRelease && target.digest === activeManagedRelease.digest && target.mode === body.sessionMode) {
@@ -269,6 +277,12 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
           : interruptedManagedReleases.length > 0
             ? { managedRelease: null, interruptedManagedReleases }
             : {};
+      if (activeManagedRelease) {
+        await c.env.KV.put(key, JSON.stringify({
+          ...updated,
+          managedEnvironmentReconciliation: { targets: expectedReconciliationTargets },
+        }));
+      }
       const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, body.sessionMode, {
         overwrite: true,
         cleanup: true,
@@ -286,7 +300,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
       const latest = await c.env.KV.get<UserPreferences>(key, 'json') ?? updated;
       if (
         JSON.stringify(latest.managedEnvironmentReconciliation?.targets ?? [])
-        !== JSON.stringify(existingTargets)
+        !== JSON.stringify(expectedReconciliationTargets)
       ) {
         throw new Error('Managed reconciliation target state changed before publication');
       }
@@ -323,14 +337,19 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
       // Managed reconciliation is not best-effort: reporting success here would hide a
       // partially reconciled bucket and a skipped applied stamp, and the next container
       // start would then reject with MANAGED_ENVIRONMENT_UPDATE_PENDING and no cause.
-      // Restore the pre-request document before rethrowing: otherwise a retry compares
-      // its own half-applied sessionMode, skips this block entirely, and reports success
-      // over a bucket that was never reconciled.
+      // Restore pre-request user preferences before rethrowing, but retain the internal
+      // target journal so a retry can repair any managed objects written before failure.
       if (managedInvolved) {
         // Best-effort: a failing restore must not replace the reconciliation error that
         // this branch exists to report.
         try {
-          await c.env.KV.put(key, JSON.stringify(existing));
+          const latest = await c.env.KV.get<UserPreferences>(key, 'json') ?? {};
+          await c.env.KV.put(key, JSON.stringify({
+            ...existing,
+            ...(latest.managedEnvironmentReconciliation
+              ? { managedEnvironmentReconciliation: latest.managedEnvironmentReconciliation }
+              : {}),
+          }));
         } catch (restoreErr) {
           logger.error('Failed to restore preferences after managed reconcile failure', restoreErr instanceof Error ? restoreErr : new Error(String(restoreErr)));
         }

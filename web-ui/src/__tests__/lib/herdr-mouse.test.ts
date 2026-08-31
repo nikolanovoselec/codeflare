@@ -174,7 +174,7 @@ describe('Herdr SGR mouse input', () => {
     document.removeEventListener('mouseup', leakedMouseup);
   });
 
-  it('REQ-TERM-042 AC4: keeps modified non-link clicks in Herdr', () => {
+  it('REQ-TERM-042 AC5: keeps modified non-link clicks in Herdr', () => {
     cleanup();
     const links = {
       hasLinkAt: vi.fn(() => false),

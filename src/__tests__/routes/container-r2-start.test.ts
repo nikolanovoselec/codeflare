@@ -184,7 +184,7 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
       }));
     });
 
-    it('REQ-STOR-035 AC2: blocks container start while interrupted targets remain pending', async () => {
+    it('REQ-STOR-022 AC3: blocks container start while interrupted targets remain pending', async () => {
       testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', {
         managedEnvironmentApplied: {

@@ -198,6 +198,7 @@ describe('REQ-ENTERPRISE-008 AC3: SessionSection mode selector', () => {
     recreateDocsMessage: () => null,
     recreateDocsError: () => null,
     recreateAgentLoading: () => false,
+    seedUpdateActive: () => false,
     recreateAgentMessage: () => null,
     recreateAgentError: () => null,
     onSessionModeChange: () => {},

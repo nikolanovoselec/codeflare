@@ -164,7 +164,7 @@ async function reconcileAgentConfigsForRequest(
       latestPreferencesBeforeReconcile.managedEnvironmentReconciliation,
     );
     let expectedReconciliationTargets: ManagedReconciliationTarget[] | undefined;
-    if (automatic && activeManagedRelease) {
+    if (activeManagedRelease) {
       expectedReconciliationTargets = appendManagedReconciliationTarget(existingTargets, {
         digest: activeManagedRelease.digest,
         sequence: activeManagedRelease.release.sequence,
