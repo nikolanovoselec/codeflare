@@ -500,8 +500,9 @@ describe('managed release user-bucket reconciliation', () => {
     expect(putUrls).not.toContain(`${endpoint}/bucket/.claude/stable.md`);
   });
 
-  it('REQ-STOR-033 AC3: target provenance resumes interrupted automatic reconciliation', async () => {
+  it('REQ-STOR-033 AC3 + REQ-STOR-034 AC4: target provenance resumes and increments progress', async () => {
     const targetDigest = '2'.repeat(64);
+    const progress: Array<{ completed: number; total: number }> = [];
     fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
         return new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': targetDigest } });
@@ -513,11 +514,15 @@ describe('managed release user-bucket reconciliation', () => {
       overwrite: true,
       cleanup: true,
       managedRelease: await selection(targetDigest, release(41, [document('.claude/already-done.md')])),
-      automatic: { assumeEmpty: false },
+      automatic: {
+        assumeEmpty: false,
+        onProgress: async (value) => { progress.push(value); },
+      },
     } as Parameters<typeof reconcileAgentConfigs>[4] & { automatic: { assumeEmpty: boolean } });
 
     expect(result.written).toEqual([]);
     expect(result.skipped).toContain('.claude/already-done.md');
+    expect(progress[progress.length - 1]).toEqual({ completed: 2, total: 2 });
     expect(fetchR2.mock.calls.some(([url, init]) => (
       String(url).endsWith('/.claude/already-done.md') && init?.method === 'PUT'
     ))).toBe(false);
@@ -528,7 +533,7 @@ describe('managed release user-bucket reconciliation', () => {
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
         const marker = url.endsWith('/obsolete.md') ? '1'.repeat(64) : null;
-        return new Response('', { status: marker ? 200 : 404, headers: marker ? { 'x-amz-meta-codeflare-preseed': marker } : {} });
+        return new Response('', { status: marker ? 200 : 404, headers: marker ? { 'x-amz-meta-codeflare-preseed': marker, etag: '"stale"' } : {} });
       }
       if (!init?.method && url.includes('list-type=2')) {
         return new Response('<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>.claude/skills/obsolete.md</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>', { status: 200 });
@@ -548,6 +553,38 @@ describe('managed release user-bucket reconciliation', () => {
     const cleanupList = fetchR2.mock.calls.findIndex(([url]) => String(url).includes('list-type=2'));
     expect(desiredPut).toBeGreaterThanOrEqual(0);
     expect(cleanupList).toBeGreaterThan(desiredPut);
+  });
+
+  it('REQ-STOR-033 AC5: fallback cleanup preserves a stale object replaced after HEAD', async () => {
+    const targetDigest = '2'.repeat(64);
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        if (url.endsWith('/obsolete.md')) {
+          return new Response('', {
+            status: 200,
+            headers: { 'x-amz-meta-codeflare-preseed': '1'.repeat(64), etag: '"observed-stale"' },
+          });
+        }
+        return new Response('', { status: 404 });
+      }
+      if (!init?.method && url.includes('list-type=2')) {
+        return new Response('<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>.claude/skills/obsolete.md</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>', { status: 200 });
+      }
+      if (init?.method === 'DELETE' && url.endsWith('/obsolete.md')) return new Response('', { status: 412 });
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: await selection(targetDigest, release(41, [document('.claude/skills/current.md')])),
+      automatic: { assumeEmpty: false },
+    });
+
+    const deletion = fetchR2.mock.calls.find(([url, init]) => url.endsWith('/obsolete.md') && init?.method === 'DELETE');
+    expect(new Headers(deletion?.[1]?.headers).get('If-Match')).toBe('"observed-stale"');
+    expect(result.deleted).not.toContain('.claude/skills/obsolete.md');
+    expect(result.warnings).toContain('DELETE .claude/skills/obsolete.md: object changed during cleanup');
   });
 
   it('REQ-STOR-033 AC5: cleanup binds deletion to the HEAD-observed object version', async () => {

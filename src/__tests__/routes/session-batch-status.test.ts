@@ -586,7 +586,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
-    it('REQ-STOR-034 AC1: batch status exposes only matching pending progress', async () => {
+    it('REQ-STOR-034 AC2: batch status exposes only matching pending progress', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
@@ -631,7 +631,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.managedReleaseProgress).toBeUndefined();
     });
 
-    it('REQ-STOR-034 AC1: update-pending state omits progress', async () => {
+    it('REQ-STOR-034 AC2: update-pending state omits progress', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       const running = makeSession('aabbccdd11223344', 'running');
@@ -647,7 +647,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.managedReleaseProgress).toBeUndefined();
     });
 
-    it('REQ-STOR-034 AC3: applied target omits and opportunistically clears stale progress', async () => {
+    it('REQ-STOR-034 AC6: applied target omits and opportunistically clears stale progress', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', {

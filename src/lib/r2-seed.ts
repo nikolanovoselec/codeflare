@@ -473,9 +473,12 @@ async function deleteStaleMarkedConfigs(
         // which is the by-name path's business, not this one's.
         const marker = head.headers.get(PRESEED_MARKER_HEADER);
         if (!marker || marker === PRESEED_CONTENT_HASH) return null;
+        const etag = head.headers.get('etag');
+        if (!etag) throw new Error(`HEAD ${key}: missing ETag`);
 
-        const res = await r2Client.fetch(url, { method: 'DELETE' });
+        const res = await r2Client.fetch(url, { method: 'DELETE', headers: { 'If-Match': etag } });
         if (res.ok || res.status === 404) return key;
+        if (res.status === 412) throw new Error(`DELETE ${key}: object changed during cleanup`);
         throw new Error(`DELETE ${key}: HTTP ${res.status}`);
       })
     );

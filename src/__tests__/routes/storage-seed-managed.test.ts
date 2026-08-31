@@ -420,7 +420,7 @@ describe('managed storage reconcile', () => {
     expect(preferences.managedEnvironmentApplied).toBeUndefined();
   });
 
-  it('REQ-STOR-034 AC2: finalizing progress is persisted before cleanup begins', async () => {
+  it('REQ-STOR-034 AC3: finalizing progress is persisted before cleanup begins', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
     reconcile.mockImplementationOnce(async (...args: any[]) => {
@@ -435,7 +435,7 @@ describe('managed storage reconcile', () => {
     expect(response.status).toBe(200);
   });
 
-  it('REQ-STOR-034 AC2/AC3: automatic progress is bounded, observational, and cleared after stamping', async () => {
+  it('REQ-STOR-034 AC5/AC6: automatic progress is bounded, observational, and cleared after stamping', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
 
