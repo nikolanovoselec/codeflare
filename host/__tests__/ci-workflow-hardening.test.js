@@ -35,7 +35,34 @@ describe('deployment workflow safety', () => {
     const established = '${{ secrets.CLOUDFLARE_API_TOKEN }}';
     assert.equal(preflight.env.CLOUDFLARE_API_TOKEN, established);
     assert.equal(secrets.env.CLOUDFLARE_API_TOKEN, established);
-    assert.match(secrets.run, /add CLOUDFLARE_API_TOKEN "\$CLOUDFLARE_API_TOKEN"/);
+
+    const directory = mkdtempSync(join(tmpdir(), 'codeflare-secret-bulk-'));
+    const capture = join(directory, 'payload.json');
+    const fakeNpx = join(directory, 'npx');
+    try {
+      writeFileSync(fakeNpx, '#!/bin/sh\n[ "$1 $2 $3" = "wrangler secret bulk" ] || exit 2\ncat "$4" > "$CAPTURE_FILE"\n');
+      chmodSync(fakeNpx, 0o755);
+      const blankSecrets = Object.fromEntries(Object.keys(secrets.env).map((name) => [name, '']));
+      const result = spawnSync('bash', ['-e', '-c', secrets.run], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          ...blankSecrets,
+          PATH: `${directory}:${process.env.PATH}`,
+          CAPTURE_FILE: capture,
+          CLOUDFLARE_API_TOKEN: 'established-token',
+          WORKER_NAME: 'test-worker',
+          ONBOARDING_MODE: 'inactive',
+          SAAS_MODE_VAR: 'inactive',
+        },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(JSON.parse(readFileSync(capture, 'utf8')), {
+        CLOUDFLARE_API_TOKEN: 'established-token',
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('wires deployment to the behaviorally tested service-user seed boundary', () => {
