@@ -484,7 +484,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   </Show>
                 </div>
                 <span class="settings-hint type-hint" data-testid="settings-r2-warning">
-                  If you rotate your Cloudflare API token, redeploy with the new token, then use Setup & recovery in Administration.
+                  If you rotate your Cloudflare API token, redeploy with the new token, then use Initialization in Administration.
                 </span>
               </section>
               {/* REQ-ENTERPRISE-008 AC1: subscription-tier config is a SaaS-billing

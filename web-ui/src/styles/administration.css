@@ -221,6 +221,10 @@
   white-space: nowrap;
 }
 
+.admin-metric .admin-domain-value {
+  text-transform: none;
+}
+
 .admin-overview-grid {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
@@ -406,6 +410,14 @@
   background: var(--color-accent);
   color: var(--color-accent-contrast);
   font-weight: var(--font-semibold);
+}
+
+a.admin-primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-accent-contrast);
+  text-decoration: none;
 }
 
 .admin-icon-button {

@@ -41,7 +41,7 @@ const AdministrationLayout: Component<{ children?: JSX.Element }> = (props) => {
       { href: '/admin/analytics', label: 'Analytics', icon: mdiChartLine, show: true },
       { href: '/admin/reports', label: 'Reports', icon: mdiEmailOutline, show: true },
       { href: '/admin/activity', label: 'Activity', icon: mdiHistory, show: true },
-      { href: '/setup', label: 'Setup & recovery', icon: mdiWrenchOutline, show: true },
+      { href: '/setup', label: 'Initialization', icon: mdiWrenchOutline, show: true },
     ].filter((item) => item.show);
   };
 

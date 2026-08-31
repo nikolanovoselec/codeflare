@@ -12,16 +12,21 @@ type AuthState = 'loading' | 'authorized' | 'denied';
 
 const SetupWizard: Component = () => {
   const [authState, setAuthState] = createSignal<AuthState>('loading');
+  const [initializationComplete, setInitializationComplete] = createSignal(false);
 
   onMount(async () => {
     try {
       const status = await getSetupStatus();
-      if (!status.configured) {
-        setAuthState('authorized');
-        return;
+      if (status.configured) {
+        const user = await getUser();
+        if (user.role !== 'admin') {
+          setAuthState('denied');
+          return;
+        }
       }
-      const user = await getUser();
-      setAuthState(user.role === 'admin' ? 'authorized' : 'denied');
+      await setupStore.loadExistingConfig();
+      setInitializationComplete(status.configured);
+      setAuthState('authorized');
     } catch {
       setAuthState('denied');
     }
@@ -50,7 +55,7 @@ const SetupWizard: Component = () => {
             <span class="setup-header-status setup-header-status--error">Access denied</span>
           </div>
           <div class="setup-content setup-content--message">
-            <p class="denied-message">Only administrators can access first-run setup and recovery.</p>
+            <p class="denied-message">Only administrators can access Initialization.</p>
             <button type="button" class="denied-button" onClick={() => { window.location.href = '/app/'; }}>
               Return to dashboard
             </button>
@@ -63,7 +68,7 @@ const SetupWizard: Component = () => {
           <div class="setup-header">
             <Icon path={mdiXml} size={24} class="setup-logo-icon" />
             <h1 class="setup-title">Administration &amp; Analytics</h1>
-            <span class="setup-header-status">First-run setup</span>
+            <span class="setup-header-status">{initializationComplete() ? 'Completed' : 'First-run setup'}</span>
           </div>
           <div class="setup-content">
             <Switch>

@@ -26,7 +26,7 @@ const AdministrationOverview: Component = () => {
         </article>
         <article class="admin-metric">
           <span>Custom domain</span>
-          <strong>{domain?.customDomain || 'Not configured'}</strong>
+          <strong class="admin-domain-value">{domain?.customDomain || 'Not configured'}</strong>
           <small>Stored Environment value</small>
         </article>
         <article class="admin-metric">

@@ -19,6 +19,10 @@ function groupRouting(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;
   return Object.entries(record(value)).map(([accessGroup, routing]) => ({ accessGroup, ...record(routing) }));
 }
+function timezones(current: string): string[] {
+  const supported = ['UTC', ...Intl.supportedValuesOf('timeZone')];
+  return supported.includes(current) ? supported : [current, ...supported];
+}
 
 const EnvironmentAreaFields: Component<Props> = (props) => {
   const current = () => record(props.current);
@@ -63,7 +67,8 @@ const EnvironmentAreaFields: Component<Props> = (props) => {
     </Match>
     <Match when={props.section === 'cloudflareConnection'}>{field('clientId', 'Cloudflare OAuth client ID')}{field('replacementSecret', 'Replacement client secret', 'password', '')}</Match>
     <Match when={props.section === 'usageReports'}>
-      {toggle('enabled', 'Enable monthly reports', current().enabled === true)}{textarea('recipients', 'Recipients, one email per line', lines(current().recipients))}{field('day', 'Local delivery day (1–31)', 'number', current().day ?? 1)}{field('hour', 'Local delivery hour (0–23)', 'number', current().hour ?? 9)}{field('timezone', 'IANA timezone', 'text', current().timezone ?? 'UTC')}
+      {toggle('enabled', 'Enable monthly reports', current().enabled === true)}{textarea('recipients', 'Recipients, one email per line', lines(current().recipients))}{field('day', 'Local delivery day (1–31)', 'number', current().day ?? 1)}{field('hour', 'Local delivery hour (0–23)', 'number', current().hour ?? 9)}
+      <label class="admin-form-field"><span>IANA timezone</span><select name="timezone" value={text(current().timezone) || 'UTC'}><For each={timezones(text(current().timezone) || 'UTC')}>{(timezone) => <option value={timezone}>{timezone}</option>}</For></select></label>
     </Match>
   </Switch></div>;
 };

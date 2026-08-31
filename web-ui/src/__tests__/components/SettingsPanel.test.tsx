@@ -963,7 +963,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
 
       const warning = screen.getByTestId('settings-r2-warning');
       expect(warning).toBeInTheDocument();
-      expect(warning.textContent).toContain('Setup & recovery');
+      expect(warning.textContent).toContain('Initialization');
     });
 
     it('hides R2 warning hint for non-admin users', () => {

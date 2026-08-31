@@ -6,6 +6,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 - **Enterprise first-run AI routing validates its complete credential boundary** ([REQ-ENTERPRISE-012](enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list) AC6 amended; remains Implemented). The progressive AI-routing stage requires at least one dynamic route, a Gateway URL, and either a saved or newly entered Gateway token before continuing.
 
+- **Completed bootstrap is presented as Initialization** ([REQ-SETUP-019](setup.md#req-setup-019-administration-and-analytics-shell) AC7 amended; remains Implemented). Administration names its bootstrap and recovery entry Initialization, hydrates effective deployment mode before rendering, and marks a successfully initialized deployment Completed.
+
 ## 2026-08-30
 
 - **Administration material-state UI keeps user-owned validation** ([REQ-OPS-022](operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence) amended; remains Implemented). Changed-line coverage still fails closed for affected production files except the closed Administration material-state UI owners explicitly mapped in CI documentation. Their visual and interaction acceptance remains manual on Integration under the approved execution boundary; backend contracts and all other frontend production files retain automated coverage gates.

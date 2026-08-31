@@ -70,8 +70,12 @@ function describe(section: ConfigurationSection, raw: unknown): Pick<Environment
       return { summary: `${governed ? 'Governed' : 'Encrypted'} · ${viewOnly ? 'view-only storage' : 'downloads allowed'}`, status: governed || viewOnly ? 'Enabled' : 'Disabled' };
     }
     case 'managedEnvironment': {
-      const status = text(value.status);
-      return { summary: status ?? 'No managed release selected', status: status ? 'Configured' : 'Not configured' };
+      const configured = value.configured === true;
+      const release = text(value.activeReleaseTag);
+      return {
+        summary: configured ? (release ?? (value.enabled === true ? 'Managed release enabled' : 'Managed environment disabled')) : 'No managed release selected',
+        status: configured ? 'Configured' : 'Not configured',
+      };
     }
     case 'github': {
       const provider = text(value.providerType);

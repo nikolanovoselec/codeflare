@@ -20,11 +20,13 @@ vi.mock('../../stores/setup', () => ({
     tokenDetectError: null,
     accountInfo: null,
     detectToken: vi.fn(),
+    loadExistingConfig: vi.fn().mockResolvedValue(undefined),
     nextStep: vi.fn(),
   },
 }));
 
 import { getSetupStatus, getUser } from '../../api/client';
+import { setupStore } from '../../stores/setup';
 const mockedGetSetupStatus = vi.mocked(getSetupStatus);
 const mockedGetUser = vi.mocked(getUser);
 
@@ -35,6 +37,8 @@ describe('SetupWizard', () => {
     // Default: not yet configured (first-time setup, authorized immediately)
     mockedGetSetupStatus.mockResolvedValue({ configured: false });
     mockedGetUser.mockResolvedValue({ role: 'admin', authenticated: true } as any);
+    vi.mocked(setupStore.loadExistingConfig).mockResolvedValue(undefined);
+    Object.assign(setupStore, { enterpriseMode: false, tokenDetected: false, accountInfo: null });
   });
 
   afterEach(() => {
@@ -47,6 +51,24 @@ describe('SetupWizard', () => {
       await waitFor(() => {
         expect(document.querySelector('.setup-journey-layout')).toBeInTheDocument();
         expect(document.body.textContent).toContain('Deployment readiness');
+      });
+    });
+
+    it('hydrates completed Enterprise initialization before rendering recovery', async () => {
+      mockedGetSetupStatus.mockResolvedValue({ configured: true, enterpriseMode: true });
+      vi.mocked(setupStore.loadExistingConfig).mockImplementationOnce(async () => {
+        Object.assign(setupStore, {
+          enterpriseMode: true,
+          tokenDetected: true,
+          accountInfo: { id: 'account-id', name: 'Enterprise account' },
+        });
+      });
+
+      render(() => <SetupWizard />);
+      await waitFor(() => {
+        expect(setupStore.loadExistingConfig).toHaveBeenCalledOnce();
+        expect(document.body.textContent).toContain('Completed');
+        expect(document.body.textContent).toContain('Enterprise');
       });
     });
 
