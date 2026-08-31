@@ -724,12 +724,12 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Each positive Timekeeper delta updates durable UTC day, ISO week, UTC month, and UTC year accumulators and counts each distinct positive-runtime session once per period.
-2. One versioned sub-4-KB accounting state replaces legacy accounting keys atomically and performs one state write with zero KV reads on the normal ping path.
-3. The existing alarm performs five-minute KV work and one hash-phased 15-minute D1 duty; no second alarm exists.
-4. Current absolute accumulators and closed-period outbox entries retry independently from KV checkpoints, and sequence-guarded D1 upserts cannot double-count.
-5. Session markers store only domain-separated hashes, use bounded cache and cleanup, and survive restart and period rollover.
-6. History begins at the first successful D1 write with no backfill; personal usage and quota behavior remain compatible.
+1. Each positive Timekeeper delta updates durable UTC day, ISO week, UTC month, and UTC year accumulators and counts each distinct positive-runtime session once per period. <!-- @impl: src/timekeeper/accounting.ts::applyPositiveDelta --> <!-- @test: src/__tests__/timekeeper/accounting.test.ts (AccountingStateV2 (REQ-SUB-025)) -->
+2. One versioned sub-4-KB accounting state replaces legacy accounting keys atomically and performs one state write with zero KV reads on the normal ping path. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting-integration.test.ts (Timekeeper AccountingStateV2 integration (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) -->
+3. The existing alarm performs five-minute KV work and one hash-phased 15-minute D1 duty; no second alarm exists. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/timekeeper/accounting.ts::historyPhase --> <!-- @test: src/__tests__/timekeeper/alarm-history.test.ts (Timekeeper single-alarm history duty (REQ-SUB-025)) -->
+4. Current absolute accumulators and closed-period outbox entries retry independently from KV checkpoints, and sequence-guarded D1 upserts cannot double-count. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/lib/admin-usage.test.ts (historical usage SQL owner (REQ-SUB-025)) --> <!-- @test: src/__tests__/timekeeper/alarm-history.test.ts (Timekeeper single-alarm history duty (REQ-SUB-025)) -->
+5. Session markers store only domain-separated hashes, use bounded cache and cleanup, and survive restart and period rollover. <!-- @impl: src/timekeeper/accounting.ts::hashSessionId --> <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @test: src/__tests__/timekeeper/accounting.test.ts (AccountingStateV2 (REQ-SUB-025)) -->
+6. History begins at the first successful D1 write with no backfill; personal usage and quota behavior remain compatible. <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory --> <!-- @test: src/__tests__/timekeeper/index.test.ts (Timekeeper DO) -->
 7. Retention keeps 400 days, 60 ISO weeks, 60 months, and five years using exact calendar cutoffs.
 
 **Constraints:** Timekeeper remains live quota owner. D1 failure never blocks quota persistence or enforcement.

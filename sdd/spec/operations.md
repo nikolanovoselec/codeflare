@@ -1472,13 +1472,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Every deployment environment owns one exact `${WORKER_NAME}-usage` database bound once as `USAGE_DB`; account-specific IDs are never committed.
-2. Deploy preflight requires the existing runtime token and separate `CLOUDFLARE_DEPLOY_API_TOKEN`, proves D1 list permission, and stops before mutation on missing or insufficient credentials.
-3. Successful listing resolves one exact database, creates only when absent, rejects duplicate names, and fails closed on list errors.
-4. The temporary Wrangler configuration contains exactly one resolved binding, generated Worker types validate, and committed additive migrations run before Worker deployment.
-5. Migration failure leaves the deployed Worker unchanged; later Worker failure leaves an additive database that the prior Worker safely ignores.
-6. Existing KV, R2, Durable Object state, users, sessions, and containers are never reset or migrated by D1 provisioning.
-7. The deployment token authenticates provisioning, migrations, deploy, and secret upload; the narrower runtime token is uploaded under its existing Worker-secret name.
+1. Every deployment environment owns one exact `${WORKER_NAME}-usage` database bound once as `USAGE_DB`; account-specific IDs are never committed. <!-- @impl: wrangler.toml::USAGE_DB --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 -->
+2. Deploy preflight requires the existing runtime token and separate `CLOUDFLARE_DEPLOY_API_TOKEN`, proves D1 list permission, and stops before mutation on missing or insufficient credentials. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
+3. Successful listing resolves one exact database, creates only when absent, rejects duplicate names, and fails closed on list errors. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
+4. The temporary Wrangler configuration contains exactly one resolved binding, generated Worker types validate, and committed additive migrations run before Worker deployment. <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 --> <!-- @impl: migrations/usage/0001_initial.sql --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
+5. Migration failure leaves the deployed Worker unchanged; later Worker failure leaves an additive database that the prior Worker safely ignores. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/ci/usage-d1-deploy.test.ts (D1 deployment boundary (REQ-OPS-056)) -->
+6. Existing KV, R2, Durable Object state, users, sessions, and containers are never reset or migrated by D1 provisioning. <!-- @impl: migrations/usage/0001_initial.sql --> <!-- @impl: scripts/ci/prepare-usage-d1.mjs::prepareUsageD1 -->
+7. The deployment token authenticates provisioning, migrations, deploy, and secret upload; the narrower runtime token is uploaded under its existing Worker-secret name. <!-- @impl: .github/workflows/deploy.yml::deploy -->
 
 **Constraints:** GitHub Actions cannot create its own secret. Missing D1 permission is an external blocker, not permission to widen the runtime token.
 
@@ -1486,9 +1486,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-013](#req-ops-013-deploy-command-and-post-deploy-hooks), [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records)
 
-**Verification:** Planned fake-Wrangler behavioral tests for preflight, resolution, creation, migration, and fail-closed ordering
+**Verification:** Fake-Wrangler behavioral tests for preflight, resolution, creation, migration, and fail-closed ordering
 
-**Status:** Partial
+**Status:** Implemented
 
 ---
 
@@ -1505,7 +1505,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 3. Analytics, Reports, and Activity read only on navigation, filters, explicit refresh, or run reconnect; none background-polls.
 4. Production and Enterprise use `head_sampling_rate = 0.05`; Integration targets retain `1`, successful pings emit no custom logs, and structured failures remain discoverable.
 5. Sampled D1 metrics record rows read, rows written, and SQL duration without user or secret material.
-6. CI models 2,000 active users and three sessions, enforcing one sub-4-KB state write and zero KV reads per positive ping plus the approved D1 row ceilings.
+6. CI models 2,000 active users and three sessions, enforcing one sub-4-KB state write and zero KV reads per positive ping plus the approved D1 row ceilings. <!-- @test: src/__tests__/timekeeper/accounting-load.test.ts (historical accounting operation fixture (REQ-OPS-057 AC6)) -->
 7. Integration verifies exception visibility before sampled Production rollout, and account operation and spend alerts precede Production history enablement.
 
 **Constraints:** Cloudflare platform capacity remains contractually external. No queue, cache, coordinator, or second database is introduced for cost control.
