@@ -7,7 +7,6 @@ import {
   queryAdminUsageSummary,
   queryAdminUsageUser,
   type AdminUsageRow,
-  type UsageDirection,
   type UsagePeriod,
   type UsageSort,
 } from '../../lib/admin-usage';
