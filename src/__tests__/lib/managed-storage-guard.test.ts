@@ -80,4 +80,14 @@ describe('REQ-ENTERPRISE-030 Storage mutation guard', () => {
       .rejects.toMatchObject({ code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING' });
     expect(readVerifiedManagedR2Policy).not.toHaveBeenCalled();
   });
+
+  it('explains why uploads and deletions are blocked during a managed update', async () => {
+    state.snapshot.active.digest = 'c'.repeat(64);
+
+    await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, keys: ['Vault/personal.md'] }))
+      .rejects.toMatchObject({
+        code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING',
+        userMessage: 'Uploads and deletions are blocked until your managed environment finishes updating. Wait for the update to finish, then try again.',
+      });
+  });
 });
