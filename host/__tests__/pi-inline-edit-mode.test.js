@@ -58,6 +58,12 @@ function fixture() {
   };
 }
 
+test('REQ-IDE-025: mixed tools cannot impersonate exclusive inline result mode', async () => {
+  const runtime = fixture();
+  await runtime.emit('before_agent_start', { systemPrompt: 'panel system prompt' });
+  assert.deepEqual(runtime.activeTools(), ['read', 'bash', 'edit', 'write', 'capability']);
+});
+
 const proposal = {
   outcome: 'edit',
   summary: 'Replaced the function because the selected implementation was stale.',

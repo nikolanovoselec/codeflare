@@ -7,7 +7,6 @@ import {
   type RegisteredTool,
   type ToolActivationPi,
 } from "./capability-helpers";
-import { INLINE_EDIT_TOOL } from "./inline-edit";
 
 type SessionEntry = { type?: string; customType?: string; data?: unknown };
 type SessionContext = {
@@ -28,6 +27,7 @@ type CapabilityParams = {
 };
 
 const GOAL_STATE_ENTRY_TYPE = "goal-state";
+const INLINE_EDIT_RESULT_TOOL = "codeflare_submit_inline_result";
 const GOAL_TERMINAL_TOOLS = ["goal_complete", "goal_blocked"] as const;
 const UNFINISHED_GOAL_STATUSES = new Set([
   "active",
@@ -65,7 +65,7 @@ export function registerInitialToolFilter(pi: ExtensionAPI): void {
     // Inline Chat deliberately narrows the provider to one host-owned result tool.
     // The final exposure filter runs later and must not replace that exclusive mode
     // with the normal read/bash/edit/write/capability set.
-    if (activeBeforeFilter.has(INLINE_EDIT_TOOL)) return;
+    if (activeBeforeFilter.size === 1 && activeBeforeFilter.has(INLINE_EDIT_RESULT_TOOL)) return;
     const keepGoalTools = hasUnfinishedGoal(ctx)
       || GOAL_TERMINAL_TOOLS.every((name) => activeBeforeFilter.has(name));
     const initial = initialActiveTools(pi);
