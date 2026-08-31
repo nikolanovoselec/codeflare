@@ -19,6 +19,10 @@ vi.mock('../../components/Terminal', async () => {
           data-visible={String(props.visible ?? props.active)}
           data-focused={String(props.focused ?? props.active)}
           data-connect={String(props.connect ?? props.active)}
+          onTouchEnd={(event) => {
+            event.stopPropagation();
+            props.onActivate?.();
+          }}
         />
       );
     },
@@ -407,6 +411,25 @@ describe('TerminalArea', () => {
     await waitFor(() => expect(screen.getByTestId('terminal-session-b-1')).toHaveAttribute('data-focused', 'true'));
     expect(screen.getByTestId('terminal-session-a-1')).toHaveAttribute('data-focused', 'false');
     expect(terminalLifecycle.unmounted).toEqual([]);
+  });
+
+  it('REQ-TERM-017: routes direct terminal touch activation to MultiView pane focus', () => {
+    mockSessions = [
+      { id: 'session-a', name: 'A', status: 'running', terminalMode: 'herdr' },
+      { id: 'session-b', name: 'B', status: 'running', terminalMode: 'herdr' },
+    ];
+    mockVisiblePanes = [
+      { id: 'multiview:session-a:1', sessionId: 'session-a', terminalId: '1', source: 'multiview' },
+      { id: 'multiview:session-b:1', sessionId: 'session-b', terminalId: '1', source: 'multiview' },
+    ];
+    mockFocusedPaneId = 'multiview:session-a:1';
+    mockWorkspaceLayout = '2-split';
+
+    render(() => <TerminalArea {...defaultProps} showTerminal viewState="terminal" />);
+
+    screen.getByTestId('terminal-session-b-1').dispatchEvent(new TouchEvent('touchend', { bubbles: true }));
+
+    expect(terminalWorkspaceStore.setFocusedPane).toHaveBeenCalledWith('multiview:session-b:1');
   });
 
   it('REQ-TERM-012: renders the MultiView terminal id tracked by the visible workspace', () => {
