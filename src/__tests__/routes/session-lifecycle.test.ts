@@ -501,7 +501,7 @@ describe('Session Lifecycle Routes / REQ-SESSION-006 (user can stop, restart, de
         cachedAt: Date.now(),
       });
 
-      const res = await app.request('/sessions/batch-status');
+      const res = await app.request('/sessions/batch-status?include=storage');
       expect(res.status).toBe(200);
 
       const body = await res.json() as { storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number } };

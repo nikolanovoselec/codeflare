@@ -124,6 +124,7 @@ const REMOVAL_THRESHOLD = 3;
 let sessionListPollTimeout: ReturnType<typeof setTimeout> | null = null;
 let pollingActive = false;
 let visibilityListenerInstalled = false;
+let pollInFlight: Promise<void> | null = null;
 
 // ============================================================================
 // refreshSessionStatuses
@@ -292,13 +293,19 @@ function clearPollTimeout(): void {
   }
 }
 
+function pollWithoutOverlap(): Promise<void> {
+  if (pollInFlight) return pollInFlight;
+  pollInFlight = refreshSessionStatuses().finally(() => { pollInFlight = null; });
+  return pollInFlight;
+}
+
 function scheduleNextPoll(): void {
   clearPollTimeout();
   if (!pollingActive || document.visibilityState === 'hidden') return;
   sessionListPollTimeout = setTimeout(async () => {
     sessionListPollTimeout = null;
     if (!pollingActive || document.visibilityState === 'hidden') return;
-    await refreshSessionStatuses();
+    await pollWithoutOverlap();
     scheduleNextPoll();
   }, transitioning() ? SESSION_POLL_TRANSITION_MS : SESSION_POLL_STABLE_MS);
 }
@@ -306,7 +313,7 @@ function scheduleNextPoll(): void {
 function handlePollingVisibilityChange(): void {
   clearPollTimeout();
   if (!pollingActive || document.visibilityState === 'hidden') return;
-  void refreshSessionStatuses().then(scheduleNextPoll);
+  void pollWithoutOverlap().then(scheduleNextPoll);
 }
 
 export function startSessionListPolling(): void {
