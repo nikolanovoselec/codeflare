@@ -14,7 +14,14 @@ import { clearMatchingManagedReconcileProgress, writeManagedReconcileProgress } 
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { countsTowardSessionLimit } from '../container/lifecycle-validation';
-import { getActiveManagedRelease, getActiveVerifiedManagedRelease, getCachedManagedReleaseByDigest } from '../../lib/managed-release-active';
+import {
+  appendManagedReconciliationTarget,
+  getActiveManagedRelease,
+  getActiveVerifiedManagedRelease,
+  getCachedManagedReleaseByDigest,
+  readManagedReconciliationTargets,
+  type ManagedReconciliationTarget,
+} from '../../lib/managed-release-active';
 import { getManagedEnvironmentConfig } from '../../lib/remote-curation';
 
 const logger = createLogger('storage-seed');
@@ -138,12 +145,60 @@ async function reconcileAgentConfigsForRequest(
     // Preserve ordinary baked reseed behavior. The no-hot-mutation gate applies
     // only while curation is active or while a prior curated state must converge
     // back to baked content.
-    if (activeManagedRelease || applied) {
+    if (activeManagedRelease || applied || preferences?.managedEnvironmentReconciliation) {
       await assertNoOwningSession(c.env.KV, bucketName);
     }
 
     // REQ-ENTERPRISE-020: block reseed while the bucket's encryption regime is migrating.
     if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
+
+    const latestPreferencesBeforeReconcile = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') ?? {};
+    if (
+      automatic
+      && activeManagedRelease
+      && JSON.stringify(latestPreferencesBeforeReconcile.managedEnvironmentApplied ?? null) !== JSON.stringify(applied ?? null)
+    ) {
+      throw new Error('Managed reconciliation applied identity changed before planning');
+    }
+    const existingTargets = readManagedReconciliationTargets(
+      latestPreferencesBeforeReconcile.managedEnvironmentReconciliation,
+    );
+    let expectedReconciliationTargets: ManagedReconciliationTarget[] | undefined;
+    if (automatic && activeManagedRelease) {
+      expectedReconciliationTargets = appendManagedReconciliationTarget(existingTargets, {
+        digest: activeManagedRelease.digest,
+        sequence: activeManagedRelease.release.sequence,
+        mode,
+      });
+    }
+
+    const interruptedManagedReleases: PriorManagedReleaseSelection[] = [];
+    for (const target of existingTargets) {
+      if (activeManagedRelease && target.digest === activeManagedRelease.digest && target.mode === mode) {
+        if (target.sequence !== activeManagedRelease.release.sequence) {
+          throw new Error('Managed reconciliation target identity conflicts with active content');
+        }
+        continue;
+      }
+      const content = activeManagedRelease && target.digest === activeManagedRelease.digest
+        ? { compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }
+        : await getCachedManagedReleaseByDigest(c.env, target.digest);
+      if (!content || content.release.sequence !== target.sequence) {
+        throw new Error('Interrupted managed release identity is unavailable or conflicting');
+      }
+      interruptedManagedReleases.push({
+        digest: target.digest,
+        mode: target.mode,
+        compressed: content.compressed,
+        release: content.release,
+      });
+    }
+    if (expectedReconciliationTargets) {
+      await c.env.KV.put(preferencesKey, JSON.stringify({
+        ...latestPreferencesBeforeReconcile,
+        managedEnvironmentReconciliation: { targets: expectedReconciliationTargets },
+      }));
+    }
 
     const { accountId, endpoint } = await getR2Config(c.env);
     const bucketResult = await createBucketIfNotExists(accountId, c.env.CLOUDFLARE_API_TOKEN, bucketName);
@@ -170,6 +225,8 @@ async function reconcileAgentConfigsForRequest(
             || currentActive.resourcePolicy !== resourcePolicy
             || currentMode !== mode
             || currentSseDisabled !== r2SseDisabled
+            || JSON.stringify(currentPreferences.managedEnvironmentReconciliation?.targets ?? [])
+              !== JSON.stringify(expectedReconciliationTargets ?? [])
           ) {
             throw new Error('Managed reconciliation target changed before finalization');
           }
@@ -180,6 +237,7 @@ async function reconcileAgentConfigsForRequest(
           managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release },
           resourcePolicy,
           ...(priorManagedRelease ? { priorManagedRelease } : priorManagedDigest ? { priorManagedDigest } : {}),
+          ...(interruptedManagedReleases.length > 0 ? { interruptedManagedReleases } : {}),
           ...(automatic ? {
             automatic: {
               assumeEmpty: bucketResult.created === true,
@@ -198,10 +256,21 @@ async function reconcileAgentConfigsForRequest(
           } : {}),
         }
       : priorManagedRelease
-        ? { managedRelease: null, priorManagedRelease, resourcePolicy: 'mutable' as const }
+        ? {
+            managedRelease: null,
+            priorManagedRelease,
+            resourcePolicy: 'mutable' as const,
+            ...(interruptedManagedReleases.length > 0 ? { interruptedManagedReleases } : {}),
+          }
         : priorManagedDigest
           ? { resourcePolicy: 'mutable' as const }
-          : {};
+          : interruptedManagedReleases.length > 0
+            ? {
+                managedRelease: null,
+                interruptedManagedReleases,
+                resourcePolicy: 'mutable' as const,
+              }
+            : {};
 
     if (automatic && activeManagedRelease) {
       await writeManagedReconcileProgress(c.env.KV, bucketName, {
@@ -250,13 +319,21 @@ async function reconcileAgentConfigsForRequest(
     // final side effect: no caller can observe current until all R2/context work and
     // cache invalidation have succeeded.
     const latestPreferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') ?? {};
-    const withoutApplied = Object.fromEntries(
-      Object.entries(latestPreferences).filter(([key]) => key !== 'managedEnvironmentApplied'),
+    if (
+      JSON.stringify(latestPreferences.managedEnvironmentReconciliation?.targets ?? [])
+      !== JSON.stringify(expectedReconciliationTargets ?? existingTargets)
+    ) {
+      throw new Error('Managed reconciliation target state changed before publication');
+    }
+    const withoutManagedState = Object.fromEntries(
+      Object.entries(latestPreferences).filter(([key]) => (
+        key !== 'managedEnvironmentApplied' && key !== 'managedEnvironmentReconciliation'
+      )),
     ) as UserPreferences;
     const enterpriseMode = isEnterpriseMode(c.env);
     const updatedPreferences: UserPreferences = activeManagedRelease
       ? {
-          ...latestPreferences,
+          ...withoutManagedState,
           ...(enterpriseMode ? { sessionMode: 'advanced' as const } : {}),
           managedEnvironmentApplied: {
             digest: activeManagedRelease.digest,
@@ -269,7 +346,7 @@ async function reconcileAgentConfigsForRequest(
           },
         }
       : {
-          ...withoutApplied,
+          ...withoutManagedState,
           lastPreseedHash: PRESEED_CONTENT_HASH,
           ...(enterpriseMode ? { sessionMode: 'advanced' as const } : {}),
         };

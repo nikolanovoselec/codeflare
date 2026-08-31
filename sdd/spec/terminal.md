@@ -932,6 +932,31 @@ None.
 
 ---
 
+### REQ-TERM-042: Browser terminal link activation
+
+**Intent:** Links detected in terminal output open through one browser-owned path in Classic and Herdr sessions.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A hardware Ctrl-click or Cmd-click on a Herdr link opens it once without sending SGR input. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @impl: web-ui/src/lib/terminal-link-provider.ts::registerMultiLineLinkProvider --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (REQ-TERM-042 AC1: opens Ctrl-click and Cmd-click links once without sending terminal input) --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (REQ-TERM-042 AC1: tolerates same-cell pointer jitter during modified link activation) -->
+2. Pointer movement into another terminal cell after a modified Herdr link press cancels activation. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (REQ-TERM-042 AC2: cancels a modified link click after cross-cell movement without leaking mouseup) -->
+3. A stationary mobile tap on a Herdr link opens it once without sending SGR input, resetting fullscreen history, or opening terminal input. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-042 AC3: opens a touched link without sending terminal input or opening the keyboard) -->
+4. Non-link hardware and touch gestures retain their existing mode-specific behavior. <!-- @impl: web-ui/src/lib/herdr-mouse.ts::attachHerdrMouseInput --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/herdr-mouse.test.ts (REQ-TERM-042 AC4: keeps modified non-link clicks in Herdr) --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-MOB-022 AC1/AC3: activates the pane and snaps Pi fullscreen history before opening mobile input) -->
+
+**Constraints:** URL reconstruction and opening remain owned by the existing terminal link provider.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-TERM-036](#req-term-036-browser-pointer-interaction-with-herdr), [REQ-AGENT-013](agents.md#req-agent-013-browser-shim-for-oauth-flows)
+
+**Verification:** Automated link lookup, desktop pointer, and mobile touch tests plus manual browser verification.
+
+**Status:** Implemented
+
+---
+
 ### REQ-TERM-023: Away-only agent notification delivery
 
 **Intent:** Agent attention events are delivered only while every connected view of the originating terminal is away, without waking or extending the session container.

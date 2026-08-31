@@ -59,7 +59,8 @@ const managedReleaseState = vi.hoisted(() => ({
   active: null as null | { digest: string; pointer: { sequence: number }; resourcePolicy: 'mutable' | 'immutable' | 'exclusive' },
   error: null as Error | null,
 }));
-vi.mock('../../lib/managed-release-active', () => ({
+vi.mock('../../lib/managed-release-active', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/managed-release-active')>()),
   getActiveManagedRelease: vi.fn(async () => {
     if (managedReleaseState.error) throw managedReleaseState.error;
     return managedReleaseState.active;
@@ -586,7 +587,28 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
-    it('REQ-STOR-034 AC2: batch status exposes only matching pending progress', async () => {
+    it('REQ-STOR-035 AC2: pending target state retries even when applied identity matches active', async () => {
+      const digest = 'd'.repeat(64);
+      managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      mockKV._set('user-prefs:test-bucket', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest, managedExtensionsDigest: 'e'.repeat(64), sequence: 4,
+          mode: 'default', appliedAt: '2026-01-01T00:00:00.000Z',
+        },
+        managedEnvironmentReconciliation: {
+          targets: [{ digest: 'c'.repeat(64), sequence: 3, mode: 'default' }],
+        },
+      });
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+
+      expect(body.managedReleaseStatus).toBe('upgrading');
+      expect(body.preseedNeedsUpgrade).toBe(true);
+    });
+
+    it('REQ-STOR-036 AC2: batch status exposes only matching pending progress', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
@@ -600,7 +622,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.managedReleaseProgress).toEqual({ phase: 'writing', completed: 25, total: 61 });
     });
 
-    it('REQ-STOR-034 AC1: progress read failure cannot replace authoritative upgrading status', async () => {
+    it('REQ-STOR-036 AC3: progress read failure cannot replace authoritative upgrading status', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
@@ -617,7 +639,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(true);
     });
 
-    it('REQ-STOR-034 AC1: malformed progress is omitted', async () => {
+    it('REQ-STOR-036 AC1: malformed progress is omitted', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
@@ -631,7 +653,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.managedReleaseProgress).toBeUndefined();
     });
 
-    it('REQ-STOR-034 AC2: update-pending state omits progress', async () => {
+    it('REQ-STOR-036 AC2: update-pending state omits progress', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       const running = makeSession('aabbccdd11223344', 'running');
@@ -647,7 +669,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.managedReleaseProgress).toBeUndefined();
     });
 
-    it('REQ-STOR-034 AC6: applied target omits and opportunistically clears stale progress', async () => {
+    it('REQ-STOR-036 AC4: applied target omits and opportunistically clears stale progress', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', {

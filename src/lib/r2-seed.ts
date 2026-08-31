@@ -187,6 +187,7 @@ async function seedManagedDocuments(
     overwrite: boolean;
     r2SseDisabled?: boolean;
     plannedKeys?: ReadonlySet<string>;
+    requiredMarkersByKey?: ReadonlyMap<string, ReadonlySet<string>>;
     resumeFromTargetMarker?: boolean;
     assumeEmpty?: boolean;
     onItemComplete?: () => Promise<void>;
@@ -205,16 +206,26 @@ async function seedManagedDocuments(
   await streamManagedReleaseDocuments(selection.compressed, async (document: ManagedReleaseDocument) => {
     if (!eligible.has(document.key) || !document.modes.includes(mode)) return;
     const url = getR2Url(endpoint, bucketName, document.key);
-    if (!options.overwrite || (options.resumeFromTargetMarker && !options.assumeEmpty)) {
+    const requiredMarkers = options.requiredMarkersByKey?.get(document.key);
+    if (requiredMarkers || !options.overwrite || (options.resumeFromTargetMarker && !options.assumeEmpty)) {
       const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
       if (head.ok) {
-        if (!options.overwrite || head.headers.get(PRESEED_MARKER_HEADER) === selection.digest) {
+        const marker = head.headers.get(PRESEED_MARKER_HEADER);
+        if (
+          !options.overwrite
+          || marker === selection.digest
+          || (requiredMarkers && (!marker || !requiredMarkers.has(marker)))
+        ) {
           skipped.add(document.key);
           await options.onItemComplete?.();
           return;
         }
       } else if (head.status !== 404) {
         throw new Error(`Failed to check existing object ${document.key}: HTTP ${head.status}`);
+      } else if (requiredMarkers) {
+        skipped.add(document.key);
+        await options.onItemComplete?.();
+        return;
       }
     }
     const response = await client.fetch(url, {
@@ -683,10 +694,23 @@ async function buildManagedAutomaticPlan(
   target: ManagedReleaseSelection,
   mode: SessionMode,
   prior?: PriorManagedReleaseSelection,
-): Promise<{ documentKeys: Set<string>; writeExtensions: boolean; directDelta: boolean }> {
+  interrupted: readonly PriorManagedReleaseSelection[] = [],
+): Promise<{
+  documentKeys: Set<string>;
+  requiredMarkersByKey: Map<string, Set<string>>;
+  requiredExtensionMarkers: Set<string>;
+  writeExtensions: boolean;
+  directDelta: boolean;
+}> {
   const targetFingerprints = await managedDocumentFingerprintMap(target, mode);
   if (!prior) {
-    return { documentKeys: new Set(targetFingerprints.keys()), writeExtensions: true, directDelta: false };
+    return {
+      documentKeys: new Set(targetFingerprints.keys()),
+      requiredMarkersByKey: new Map(),
+      requiredExtensionMarkers: new Set(),
+      writeExtensions: true,
+      directDelta: false,
+    };
   }
 
   const priorFingerprints = await managedDocumentFingerprintMap(prior, prior.mode);
@@ -708,9 +732,44 @@ async function buildManagedAutomaticPlan(
     managedDocumentContentDigest(priorExtensions.contentType, priorExtensions.content),
     managedDocumentContentDigest(targetExtensions.contentType, targetExtensions.content),
   ]);
+  const directExtensionWrite = priorExtensionsDigest !== targetExtensionsDigest;
+  const requiredMarkersByKey = new Map<string, Set<string>>();
+  const requiredExtensionMarkers = new Set<string>();
+  for (const interruptedRelease of interrupted) {
+    const interruptedFingerprints = await managedDocumentFingerprintMap(interruptedRelease, interruptedRelease.mode);
+    for (const [key, targetFingerprint] of targetFingerprints) {
+      if (documentKeys.has(key) && !requiredMarkersByKey.has(key)) continue;
+      const interruptedFingerprint = interruptedFingerprints.get(key);
+      if (
+        interruptedFingerprint
+        && (
+          interruptedFingerprint.contentType !== targetFingerprint.contentType
+          || interruptedFingerprint.contentDigest !== targetFingerprint.contentDigest
+        )
+      ) {
+        documentKeys.add(key);
+        const requiredMarkers = requiredMarkersByKey.get(key) ?? new Set<string>();
+        requiredMarkers.add(interruptedRelease.digest);
+        requiredMarkersByKey.set(key, requiredMarkers);
+      }
+    }
+    if (!directExtensionWrite) {
+      const interruptedExtensions = managedExtensionsDocument(interruptedRelease);
+      const interruptedExtensionsDigest = await managedDocumentContentDigest(
+        interruptedExtensions.contentType,
+        interruptedExtensions.content,
+      );
+      if (interruptedExtensionsDigest !== targetExtensionsDigest) {
+        requiredExtensionMarkers.add(interruptedRelease.digest);
+      }
+    }
+  }
+
   return {
     documentKeys,
-    writeExtensions: priorExtensionsDigest !== targetExtensionsDigest,
+    requiredMarkersByKey,
+    requiredExtensionMarkers,
+    writeExtensions: directExtensionWrite || requiredExtensionMarkers.size > 0,
     directDelta: true,
   };
 }
@@ -723,17 +782,22 @@ async function seedAutomaticDocument(
   targetDigest: string,
   assumeEmpty: boolean,
   r2SseDisabled?: boolean,
+  requiredMarkers?: ReadonlySet<string>,
 ): Promise<{ written: boolean; skipped: boolean }> {
   const client = createR2Client(env);
   const url = getR2Url(endpoint, bucketName, document.key);
   const sseHeaders = getSseHeaders(env, r2SseDisabled);
-  if (!assumeEmpty) {
+  if (!assumeEmpty || requiredMarkers) {
     const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
-    if (head.ok && head.headers.get(PRESEED_MARKER_HEADER) === targetDigest) {
-      return { written: false, skipped: true };
-    }
-    if (!head.ok && head.status !== 404) {
+    if (head.ok) {
+      const marker = head.headers.get(PRESEED_MARKER_HEADER);
+      if (marker === targetDigest || (requiredMarkers && (!marker || !requiredMarkers.has(marker)))) {
+        return { written: false, skipped: true };
+      }
+    } else if (head.status !== 404) {
       throw new Error(`Failed to check existing object ${document.key}: HTTP ${head.status}`);
+    } else if (requiredMarkers) {
+      return { written: false, skipped: true };
     }
   }
   const response = await client.fetch(url, {
@@ -1052,6 +1116,8 @@ export async function reconcileAgentConfigs(
     /** undefined = ordinary baked behavior; null = disable curation and restore baked behavior. */
     managedRelease?: ManagedReleaseSelection | null;
     priorManagedRelease?: PriorManagedReleaseSelection;
+    /** Earlier automatic targets whose marked writes may have survived target drift. */
+    interruptedManagedReleases?: readonly PriorManagedReleaseSelection[];
     /** Prior applied ownership marker used only for bounded current-release paths. */
     priorManagedDigest?: string;
     /** Explicit only for managed-environment reconciliation; omission preserves legacy seed behavior. */
@@ -1063,7 +1129,12 @@ export async function reconcileAgentConfigs(
   const contextModeEnabled = options.contextModeEnabled === true;
   const managedRelease = options.managedRelease;
   const automaticPlan = managedRelease && options.automatic
-    ? await buildManagedAutomaticPlan(managedRelease, mode, options.priorManagedRelease)
+    ? await buildManagedAutomaticPlan(
+        managedRelease,
+        mode,
+        options.priorManagedRelease,
+        options.interruptedManagedReleases,
+      )
     : undefined;
   const automaticTotal = automaticPlan
     ? automaticPlan.documentKeys.size + (automaticPlan.writeExtensions ? 1 : 0)
@@ -1097,6 +1168,7 @@ export async function reconcileAgentConfigs(
         r2SseDisabled: options.r2SseDisabled,
         ...(automaticPlan ? {
           plannedKeys: automaticPlan.documentKeys,
+          requiredMarkersByKey: automaticPlan.requiredMarkersByKey,
           resumeFromTargetMarker: true,
           assumeEmpty: options.automatic!.assumeEmpty,
           onItemComplete: reportAutomaticProgress,
@@ -1117,6 +1189,9 @@ export async function reconcileAgentConfigs(
         managedRelease.digest,
         options.automatic!.assumeEmpty,
         options.r2SseDisabled,
+        automaticPlan.requiredExtensionMarkers.size > 0
+          ? automaticPlan.requiredExtensionMarkers
+          : undefined,
       );
       if (extensionResult.written) seedResult.written.push(extension.key);
       if (extensionResult.skipped) seedResult.skipped.push(extension.key);
@@ -1186,6 +1261,21 @@ export async function reconcileAgentConfigs(
       );
       deleted.push(...cleanupResult.deleted);
       warnings.push(...cleanupResult.warnings);
+    }
+    if (options.interruptedManagedReleases) {
+      for (const interruptedRelease of options.interruptedManagedReleases) {
+        const cleanupResult = await deletePriorManagedConfigs(
+          env,
+          bucketName,
+          endpoint,
+          interruptedRelease,
+          managedRelease ?? null,
+          mode,
+          options.r2SseDisabled,
+        );
+        deleted.push(...cleanupResult.deleted);
+        warnings.push(...cleanupResult.warnings);
+      }
     }
     if (managedRelease && automaticPlan && !automaticPlan.directDelta) {
       const seededKeys = new Set([

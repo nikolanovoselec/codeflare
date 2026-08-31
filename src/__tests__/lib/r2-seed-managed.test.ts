@@ -500,7 +500,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(putUrls).not.toContain(`${endpoint}/bucket/.claude/stable.md`);
   });
 
-  it('REQ-STOR-033 AC3 + REQ-STOR-034 AC4: target provenance resumes and increments progress', async () => {
+  it('REQ-STOR-033 AC3 + REQ-STOR-034 AC3: target provenance resumes and increments progress', async () => {
     const targetDigest = '2'.repeat(64);
     const progress: Array<{ completed: number; total: number }> = [];
     fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => {
@@ -528,7 +528,7 @@ describe('managed release user-bucket reconciliation', () => {
     ))).toBe(false);
   });
 
-  it('REQ-STOR-033 AC4: full-target fallback sweeps stale managed markers only after desired writes', async () => {
+  it('REQ-STOR-033 AC4 + REQ-STOR-035 AC5: full-target fallback sweeps stale managed markers only after desired writes', async () => {
     const targetDigest = '2'.repeat(64);
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
@@ -555,7 +555,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(cleanupList).toBeGreaterThan(desiredPut);
   });
 
-  it('REQ-STOR-033 AC5: fallback cleanup preserves a stale object replaced after HEAD', async () => {
+  it('REQ-STOR-035 AC6: fallback cleanup preserves a stale object replaced after HEAD', async () => {
     const targetDigest = '2'.repeat(64);
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
@@ -587,7 +587,163 @@ describe('managed release user-bucket reconciliation', () => {
     expect(result.warnings).toContain('DELETE .claude/skills/obsolete.md: object changed during cleanup');
   });
 
-  it('REQ-STOR-033 AC5: cleanup binds deletion to the HEAD-observed object version', async () => {
+  it('REQ-STOR-035 AC4: interrupted target drift repairs only objects carrying interrupted provenance', async () => {
+    const applied = await selection('1'.repeat(64), release(40, [
+      document('.claude/reverted.md', ['default'], 'applied bytes'),
+      document('.claude/user-edit.md', ['default'], 'applied bytes'),
+    ]));
+    const interrupted = await selection('2'.repeat(64), release(41, [
+      document('.claude/reverted.md', ['default'], 'interrupted bytes'),
+      document('.claude/user-edit.md', ['default'], 'interrupted bytes'),
+      document('.claude/interrupted-only.md', ['default'], 'interrupted only'),
+    ]));
+    const target = await selection('3'.repeat(64), release(42, [
+      document('.claude/reverted.md', ['default'], 'applied bytes'),
+      document('.claude/user-edit.md', ['default'], 'applied bytes'),
+    ]));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD' && url.endsWith('/reverted.md')) {
+        return new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': interrupted.digest } });
+      }
+      if (init?.method === 'HEAD' && url.endsWith('/user-edit.md')) {
+        return new Response('', { status: 200 });
+      }
+      if (init?.method === 'HEAD' && url.endsWith('/interrupted-only.md')) {
+        return new Response('', {
+          status: 200,
+          headers: { 'x-amz-meta-codeflare-preseed': interrupted.digest, etag: '"interrupted"' },
+        });
+      }
+      if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: target,
+      priorManagedRelease: { ...applied, mode: 'default' },
+      interruptedManagedReleases: [{ ...interrupted, mode: 'default' }],
+      automatic: { assumeEmpty: false },
+    });
+
+    expect(fetchR2.mock.calls.some(([url, init]) => (
+      String(url).endsWith('/reverted.md') && init?.method === 'PUT'
+    ))).toBe(true);
+    expect(fetchR2.mock.calls.some(([url, init]) => (
+      String(url).endsWith('/user-edit.md') && init?.method === 'PUT'
+    ))).toBe(false);
+    const interruptedDelete = fetchR2.mock.calls.find(([url, init]) => (
+      String(url).endsWith('/interrupted-only.md') && init?.method === 'DELETE'
+    ));
+    expect(new Headers(interruptedDelete?.[1]?.headers).get('If-Match')).toBe('"interrupted"');
+    expect(result.deleted).toContain('.claude/interrupted-only.md');
+  });
+
+  it('REQ-STOR-035 AC4: repairs markers from repeated interrupted targets', async () => {
+    const applied = await selection('1'.repeat(64), release(40, [
+      document('.claude/from-b.md', ['default'], 'applied B bytes'),
+      document('.claude/from-c.md', ['default'], 'applied C bytes'),
+    ]));
+    const interruptedB = await selection('2'.repeat(64), release(41, [
+      document('.claude/from-b.md', ['default'], 'interrupted B bytes'),
+      document('.claude/from-c.md', ['default'], 'applied C bytes'),
+    ]));
+    const interruptedC = await selection('3'.repeat(64), release(42, [
+      document('.claude/from-b.md', ['default'], 'applied B bytes'),
+      document('.claude/from-c.md', ['default'], 'interrupted C bytes'),
+    ]));
+    const target = await selection('4'.repeat(64), release(43, [
+      document('.claude/from-b.md', ['default'], 'applied B bytes'),
+      document('.claude/from-c.md', ['default'], 'applied C bytes'),
+    ]));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD' && url.endsWith('/from-b.md')) {
+        return new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': interruptedB.digest } });
+      }
+      if (init?.method === 'HEAD' && url.endsWith('/from-c.md')) {
+        return new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': interruptedC.digest } });
+      }
+      if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      return new Response('', { status: 200 });
+    });
+
+    await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: target,
+      priorManagedRelease: { ...applied, mode: 'default' },
+      interruptedManagedReleases: [
+        { ...interruptedB, mode: 'default' },
+        { ...interruptedC, mode: 'default' },
+      ],
+      automatic: { assumeEmpty: false },
+    });
+
+    const putUrls = fetchR2.mock.calls
+      .filter(([, init]) => init?.method === 'PUT')
+      .map(([url]) => String(url));
+    expect(putUrls).toContain(`${endpoint}/bucket/.claude/from-b.md`);
+    expect(putUrls).toContain(`${endpoint}/bucket/.claude/from-c.md`);
+  });
+
+  it('REQ-STOR-035 AC4: repairs an interrupted extensions manifest when applied already matches target', async () => {
+    const target = await selection('3'.repeat(64), release(42, []));
+    const interrupted = await selection('2'.repeat(64), release(41, []));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD' && url.endsWith('/.codeflare/managed-extensions.json')) {
+        return new Response('', {
+          status: 200,
+          headers: { 'x-amz-meta-codeflare-preseed': interrupted.digest },
+        });
+      }
+      if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      return new Response('', { status: 200 });
+    });
+
+    await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: target,
+      priorManagedRelease: { ...target, mode: 'default' },
+      interruptedManagedReleases: [{ ...interrupted, mode: 'default' }],
+      automatic: { assumeEmpty: false },
+    });
+
+    expect(fetchR2.mock.calls.some(([url, init]) => (
+      String(url).endsWith('/.codeflare/managed-extensions.json') && init?.method === 'PUT'
+    ))).toBe(true);
+  });
+
+  it('REQ-STOR-035 AC5: managed disable removes interrupted-only objects with matching provenance', async () => {
+    const interrupted = await selection('2'.repeat(64), release(41, [
+      document('.claude/interrupted-only.md', ['default'], 'interrupted only'),
+    ]));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD' && url.endsWith('/interrupted-only.md')) {
+        return new Response('', {
+          status: 200,
+          headers: { 'x-amz-meta-codeflare-preseed': interrupted.digest, etag: '"interrupted"' },
+        });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: null,
+      interruptedManagedReleases: [{ ...interrupted, mode: 'default' }],
+    });
+
+    const deletion = fetchR2.mock.calls.find(([url, init]) => (
+      String(url).endsWith('/interrupted-only.md') && init?.method === 'DELETE'
+    ));
+    expect(new Headers(deletion?.[1]?.headers).get('If-Match')).toBe('"interrupted"');
+    expect(result.deleted).toContain('.claude/interrupted-only.md');
+  });
+
+  it('REQ-STOR-035 AC6: cleanup binds deletion to the HEAD-observed object version', async () => {
     const prior = await selection('1'.repeat(64), release(40, [document('.claude/removed.md')]));
     const target = await selection('2'.repeat(64), release(41, []));
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
@@ -615,7 +771,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(result.warnings).toContain('DELETE .claude/removed.md: object changed during cleanup');
   });
 
-  it('REQ-STOR-021 AC2 + REQ-STOR-033 AC5: direct delta cleanup accepts older valid markers and preserves markerless edits', async () => {
+  it('REQ-STOR-021 AC2 + REQ-STOR-035 AC5: direct delta cleanup accepts older valid markers and preserves markerless edits', async () => {
     const prior = await selection('1'.repeat(64), release(40, [
       document('.claude/markerless-edit.md'),
       document('.claude/old-managed.md'),

@@ -20,7 +20,7 @@ import { isSaasModeActive } from '../../lib/onboarding';
 import { getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../../lib/subscription';
 import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import type { UsageRecord } from '../../types';
-import { getActiveManagedRelease } from '../../lib/managed-release-active';
+import { getActiveManagedRelease, hasPendingManagedReconciliation } from '../../lib/managed-release-active';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { countsTowardSessionLimit } from '../container/lifecycle-validation';
 import { clearMatchingManagedReconcileProgress, readManagedReconcileProgress } from '../../lib/managed-reconcile-progress';
@@ -187,9 +187,12 @@ app.get('/batch-status', async (c) => {
     try {
       const active = await getActiveManagedRelease(c.env);
       const applied = prefs?.managedEnvironmentApplied;
+      const hasInterruptedTargets = hasPendingManagedReconciliation(
+        prefs?.managedEnvironmentReconciliation,
+      );
       const desiredPolicy = active?.resourcePolicy ?? 'mutable';
       const appliedPolicy = applied?.resourcePolicy ?? 'mutable';
-      const managedMismatch = active
+      const managedMismatch = hasInterruptedTargets || (active
         ? applied?.digest !== active.digest
           || applied.mode !== mode
           || applied.sequence !== active.pointer.sequence
@@ -197,7 +200,7 @@ app.get('/batch-status', async (c) => {
           || appliedPolicy !== desiredPolicy
           || (desiredPolicy !== 'mutable' && !/^[0-9a-f]{64}$/.test(applied.managedPathsDigest ?? ''))
           || (desiredPolicy === 'mutable' && applied.managedPathsDigest !== undefined)
-        : applied !== undefined;
+        : applied !== undefined);
 
       if (active || applied) {
         managedReleaseStatus = managedMismatch
@@ -228,7 +231,8 @@ app.get('/batch-status', async (c) => {
       // Cache availability may fail open only to a previously applied verified
       // bucket state. A fresh bucket remains blocked and must not trigger a
       // reconciliation request until the verified deployment cache is readable.
-      managedReleaseStatus = prefs?.managedEnvironmentApplied?.mode === mode
+      managedReleaseStatus = !hasPendingManagedReconciliation(prefs?.managedEnvironmentReconciliation)
+        && prefs?.managedEnvironmentApplied?.mode === mode
         && /^[0-9a-f]{64}$/.test(prefs.managedEnvironmentApplied.managedExtensionsDigest ?? '')
         ? 'current'
         : 'update_pending';

@@ -1,5 +1,5 @@
 import { MANAGED_RELEASE_LIMITS } from '../../scripts/agent-seed-release-limits.mjs';
-import type { Env } from '../types';
+import type { Env, UserPreferences } from '../types';
 import { PRESEED_RUNTIME_DEPENDENCY_HASH } from './agent-seed.generated';
 import { readBoundedResponse } from './bounded-stream';
 import { getR2Config } from './r2-config';
@@ -22,6 +22,65 @@ export interface VerifiedManagedReleaseContent {
 export interface ActiveVerifiedManagedRelease extends VerifiedManagedReleaseContent {
   digest: string;
   pointer: ActiveManagedRelease;
+}
+
+const MAX_INTERRUPTED_MANAGED_TARGETS = 32;
+
+export type ManagedReconciliationTarget = NonNullable<UserPreferences['managedEnvironmentReconciliation']>['targets'][number];
+
+export function readManagedReconciliationTargets(value: unknown): ManagedReconciliationTarget[] {
+  if (value === undefined) return [];
+  if (!value || typeof value !== 'object' || !Array.isArray((value as { targets?: unknown }).targets)) {
+    throw new Error('Managed reconciliation target state is invalid');
+  }
+  const targets = (value as { targets: unknown[] }).targets;
+  if (targets.length > MAX_INTERRUPTED_MANAGED_TARGETS) {
+    throw new Error('Managed reconciliation target state exceeds its bound');
+  }
+  const seen = new Map<string, ManagedReconciliationTarget>();
+  for (const candidate of targets) {
+    if (!candidate || typeof candidate !== 'object') throw new Error('Managed reconciliation target state is invalid');
+    const target = candidate as Partial<ManagedReconciliationTarget>;
+    if (
+      typeof target.digest !== 'string'
+      || !/^[0-9a-f]{64}$/.test(target.digest)
+      || typeof target.sequence !== 'number'
+      || !Number.isSafeInteger(target.sequence)
+      || target.sequence <= 0
+      || (target.mode !== 'default' && target.mode !== 'advanced')
+    ) {
+      throw new Error('Managed reconciliation target state is invalid');
+    }
+    const key = `${target.digest}:${target.mode}`;
+    const existing = seen.get(key);
+    if (existing && existing.sequence !== target.sequence) {
+      throw new Error('Managed reconciliation target state conflicts with itself');
+    }
+    seen.set(key, target as ManagedReconciliationTarget);
+  }
+  return [...seen.values()];
+}
+
+export function hasPendingManagedReconciliation(value: unknown): boolean {
+  try {
+    return readManagedReconciliationTargets(value).length > 0;
+  } catch {
+    return true;
+  }
+}
+
+export function appendManagedReconciliationTarget(
+  targets: readonly ManagedReconciliationTarget[],
+  target: ManagedReconciliationTarget,
+): ManagedReconciliationTarget[] {
+  const next = [
+    ...targets.filter(value => value.digest !== target.digest || value.mode !== target.mode),
+    target,
+  ];
+  if (next.length > MAX_INTERRUPTED_MANAGED_TARGETS) {
+    throw new Error('Managed reconciliation target state exceeds its bound');
+  }
+  return next;
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {

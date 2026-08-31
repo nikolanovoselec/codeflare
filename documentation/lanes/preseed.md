@@ -236,6 +236,12 @@ valid applied digest whose immutable cache object is unavailable plan the full
 target, then use the same marker checks. R2 markers govern execution; the
 expiring KV progress record is display-only.
 
+Before automatic writes, preferences record the bounded set of targets that may
+have written managed objects. If the active target changes, the next run repairs
+a desired path only when it still carries an interrupted target marker. It also
+removes interrupted-only paths only while they retain that provenance. The state
+survives another interruption and clears with successful applied publication.
+
 When both applied and target bundles are available, direct-delta cleanup
 considers paths present in the applied mode and absent from the target mode.
 Signed target retirements are a separate cleanup source and retain their
@@ -245,8 +251,10 @@ also preserves an object replaced after its cleanup check. The applied release i
 written only after reconciliation and final target, mode, policy, SSE,
 session-ownership, and migration checks. Implements
 [REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed),
-[REQ-STOR-033](../../sdd/spec/storage.md#req-stor-033-delta-and-resumable-managed-release-reconciliation),
-and [REQ-STOR-034](../../sdd/spec/storage.md#req-stor-034-observational-managed-reconciliation-progress).
+[REQ-STOR-033](../../sdd/spec/storage.md#req-stor-033-managed-release-delta-planning-and-resume),
+[REQ-STOR-034](../../sdd/spec/storage.md#req-stor-034-observational-managed-reconciliation-progress-writes),
+[REQ-STOR-035](../../sdd/spec/storage.md#req-stor-035-managed-reconciliation-cleanup-and-finalization),
+and [REQ-STOR-036](../../sdd/spec/storage.md#req-stor-036-managed-reconciliation-progress-reads).
 
 <a id="preseed-components"></a>
 ## Artifact Inventory and Sources
@@ -539,7 +547,7 @@ retries. Implements
 
 Managed curation reuses that flow. Status polls compare the verified active digest, sequence, and resolved mode with `managedEnvironmentApplied`. Unchanged-release polls do not expand payload bytes, while the five-minute resolver still verifies and caches a newly discovered release. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease -->
 
-An idle mismatch makes the existing `POST /api/storage/seed/agent-configs` route download the content-addressed `seed-v1.json.gz` once from deployment R2, verify its signature and complete contract as a bounded stream, then stream the same downloaded bytes into the ordinary mode/provenance/cleanup writer with no more than six concurrent R2 operations. User-bucket keys, contents, content types, ownership markers, cleanup, context-mode pass, and applied stamp remain unchanged. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+An idle mismatch sends the dashboard through `POST /api/storage/seed/agent-configs/upgrade`. The Worker loads the exact applied and target signed bundles from deployment R2, verifies them as bounded streams, and writes only added or release-changed target paths with no more than six concurrent R2 operations. Target markers resume interrupted writes. A fresh bucket or unavailable valid applied history uses a marker-resumable full-target pass. Manual `POST /api/storage/seed/agent-configs` remains the full-overwrite Recreate path. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest -->
 
 New Session controls follow [REQ-AGENT-175](../../sdd/spec/agents.md#req-agent-175-environment-update-ui-lockdown), while managed admission follows [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission). The canonical explanation of Mutable, Immutable, Exclusive, release-delta cleanup, and retirement tombstones lives in [Managed-resource persistence modes](storage-and-sync.md#managed-resource-persistence-modes). Repository trust, signed release rollout, persistence-mode selection, acceptance, and recovery belong to the private [Managed Environment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/managed-environment.md).
 

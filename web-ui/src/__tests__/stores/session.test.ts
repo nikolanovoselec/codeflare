@@ -386,7 +386,7 @@ describe('Session Store', () => {
     });
 
     // REQ-AGENT-049: auto-upgrade preseed on stale hash
-    it('REQ-STOR-033 AC7: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true', async () => {
+    it('REQ-STOR-033 AC6: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,

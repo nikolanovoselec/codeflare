@@ -19,7 +19,12 @@ import { withEffectiveSessionMode } from '../lib/session-mode';
 import { allowedAgents } from '../lib/agent-allowlist';
 import { createLogger } from '../lib/logger';
 import { countsTowardSessionLimit } from './container/lifecycle-validation';
-import { getActiveManagedRelease, getActiveVerifiedManagedRelease, getCachedManagedReleaseByDigest } from '../lib/managed-release-active';
+import {
+  getActiveManagedRelease,
+  getActiveVerifiedManagedRelease,
+  getCachedManagedReleaseByDigest,
+  readManagedReconciliationTargets,
+} from '../lib/managed-release-active';
 import { PRESEED_CONTENT_HASH } from '../lib/agent-seed.generated';
 
 const logger = createLogger('preferences');
@@ -68,6 +73,12 @@ function withoutLegacyPresetId(preferences: UserPreferences & { lastPresetId?: u
   ) as UserPreferences;
 }
 
+function withoutManagedReconciliation(preferences: UserPreferences): UserPreferences {
+  return Object.fromEntries(
+    Object.entries(preferences).filter(([key]) => key !== 'managedEnvironmentReconciliation'),
+  ) as UserPreferences;
+}
+
 function mergePreferences(
   existing: UserPreferences,
   update: object,
@@ -96,7 +107,7 @@ app.get('/', async (c) => {
   // REQ-ENTERPRISE-001 AC2: surface the enterprise-forced Pro mode to the client
   // (computed, not stored) so advanced-gated dashboard surfaces render for JIT
   // users who never wrote a preference. Byte-identical when the flag is unset.
-  return c.json(withEffectiveSessionMode(withoutLegacyPresetId(stored), c.env));
+  return c.json(withEffectiveSessionMode(withoutManagedReconciliation(withoutLegacyPresetId(stored)), c.env));
 });
 
 /**
@@ -161,7 +172,9 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
     // The no-hot-mutation gate applies only while curation is active or while a prior
     // curated state must converge back to baked content. An unconfigured deployment
     // keeps byte-identical baked behavior (REQ-STOR-022) and never sees this error.
-    let managedGateApplies = Boolean(existing.managedEnvironmentApplied);
+    let managedGateApplies = Boolean(
+      existing.managedEnvironmentApplied || existing.managedEnvironmentReconciliation,
+    );
     if (!managedGateApplies) {
       try {
         managedGateApplies = Boolean(await getActiveManagedRelease(c.env));
@@ -194,7 +207,9 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
   // Auto-reconcile preseed when sessionMode changes so the next session
   // picks up the correct skills/agents/rules without manual Recreate click.
   if (body.sessionMode && body.sessionMode !== existing.sessionMode) {
-    let managedInvolved = Boolean(existing.managedEnvironmentApplied);
+    let managedInvolved = Boolean(
+      existing.managedEnvironmentApplied || existing.managedEnvironmentReconciliation,
+    );
     try {
       const user = c.get('user');
       const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
@@ -217,11 +232,43 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
           ...priorRelease,
         };
       }
+      const existingTargets = readManagedReconciliationTargets(existing.managedEnvironmentReconciliation);
+      const interruptedManagedReleases: PriorManagedReleaseSelection[] = [];
+      for (const target of existingTargets) {
+        if (activeManagedRelease && target.digest === activeManagedRelease.digest && target.mode === body.sessionMode) {
+          if (target.sequence !== activeManagedRelease.release.sequence) {
+            throw new Error('Managed reconciliation target identity conflicts with active content');
+          }
+          continue;
+        }
+        const content = activeManagedRelease && target.digest === activeManagedRelease.digest
+          ? { compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }
+          : await getCachedManagedReleaseByDigest(c.env, target.digest);
+        if (!content || content.release.sequence !== target.sequence) {
+          throw new Error('Interrupted managed release identity is unavailable or conflicting');
+        }
+        interruptedManagedReleases.push({
+          digest: target.digest,
+          mode: target.mode,
+          compressed: content.compressed,
+          release: content.release,
+        });
+      }
       const managedOptions = activeManagedRelease
-        ? { managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release }, ...(priorManagedRelease && { priorManagedRelease }) }
+        ? {
+            managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release },
+            ...(priorManagedRelease && { priorManagedRelease }),
+            ...(interruptedManagedReleases.length > 0 && { interruptedManagedReleases }),
+          }
         : priorManagedRelease
-          ? { managedRelease: null, priorManagedRelease }
-          : {};
+          ? {
+              managedRelease: null,
+              priorManagedRelease,
+              ...(interruptedManagedReleases.length > 0 && { interruptedManagedReleases }),
+            }
+          : interruptedManagedReleases.length > 0
+            ? { managedRelease: null, interruptedManagedReleases }
+            : {};
       const result = await reconcileAgentConfigs(c.env, bucketName, endpoint, body.sessionMode, {
         overwrite: true,
         cleanup: true,
@@ -237,12 +284,21 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
       }
 
       const latest = await c.env.KV.get<UserPreferences>(key, 'json') ?? updated;
-      const withoutApplied = Object.fromEntries(
-        Object.entries(latest).filter(([preferenceKey]) => preferenceKey !== 'managedEnvironmentApplied'),
+      if (
+        JSON.stringify(latest.managedEnvironmentReconciliation?.targets ?? [])
+        !== JSON.stringify(existingTargets)
+      ) {
+        throw new Error('Managed reconciliation target state changed before publication');
+      }
+      const withoutManagedState = Object.fromEntries(
+        Object.entries(latest).filter(([preferenceKey]) => (
+          preferenceKey !== 'managedEnvironmentApplied'
+          && preferenceKey !== 'managedEnvironmentReconciliation'
+        )),
       ) as UserPreferences;
       const applied: UserPreferences = activeManagedRelease
         ? {
-            ...latest,
+            ...withoutManagedState,
             managedEnvironmentApplied: {
               digest: activeManagedRelease.digest,
               managedExtensionsDigest: await managedExtensionsDocumentDigest(activeManagedRelease),
@@ -251,7 +307,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
               appliedAt: new Date().toISOString(),
             },
           }
-        : { ...withoutApplied, lastPreseedHash: PRESEED_CONTENT_HASH };
+        : { ...withoutManagedState, lastPreseedHash: PRESEED_CONTENT_HASH };
       await c.env.KV.put(key, JSON.stringify(applied));
 
       logger.info('Auto-reconciled agent configs on preferences change', {
@@ -288,7 +344,7 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
   // Non-sessionMode fields keep the raw client value; sessionMode itself is
   // coerced to Pro at the top of this handler under enterprise.
   const current = await c.env.KV.get<UserPreferences>(key, 'json') ?? updated;
-  return c.json(withEffectiveSessionMode(current, c.env));
+  return c.json(withEffectiveSessionMode(withoutManagedReconciliation(current), c.env));
 });
 
 export default app;

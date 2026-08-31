@@ -68,6 +68,139 @@ describe('Herdr SGR mouse input', () => {
     expect(focus).not.toHaveBeenCalled();
   });
 
+  it('REQ-TERM-042 AC1: opens Ctrl-click and Cmd-click links once without sending terminal input', () => {
+    for (const init of [{ ctrlKey: true }, { metaKey: true }]) {
+      cleanup();
+      send.mockClear();
+      focus.mockClear();
+      const links = {
+        hasLinkAt: vi.fn(() => true),
+        activateLinkAt: vi.fn(() => true),
+      };
+      cleanup = attachHerdrMouseInput(
+        screen,
+        { cols: 10, rows: 5, focus } as unknown as Terminal,
+        send,
+        links,
+      );
+
+      screen.dispatchEvent(new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 34,
+        clientY: 34,
+        button: 0,
+        buttons: 1,
+        ...init,
+      }));
+      screen.dispatchEvent(new MouseEvent('mouseup', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 34,
+        clientY: 34,
+        button: 0,
+        buttons: 0,
+        ...init,
+      }));
+
+      expect(links.hasLinkAt).toHaveBeenCalledWith(3, 2);
+      expect(links.activateLinkAt).toHaveBeenCalledWith(3, 2);
+      expect(send).not.toHaveBeenCalled();
+      expect(focus).not.toHaveBeenCalled();
+    }
+  });
+
+  it('REQ-TERM-042 AC1: tolerates same-cell pointer jitter during modified link activation', () => {
+    cleanup();
+    const links = {
+      hasLinkAt: vi.fn(() => true),
+      activateLinkAt: vi.fn(() => true),
+    };
+    cleanup = attachHerdrMouseInput(
+      screen,
+      { cols: 10, rows: 5, focus } as unknown as Terminal,
+      send,
+      links,
+    );
+
+    screen.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true, cancelable: true, clientX: 34, clientY: 34,
+      button: 0, buttons: 1, ctrlKey: true,
+    }));
+    document.dispatchEvent(new MouseEvent('mousemove', {
+      bubbles: true, cancelable: true, clientX: 35, clientY: 35,
+      buttons: 1, ctrlKey: true,
+    }));
+    document.dispatchEvent(new MouseEvent('mouseup', {
+      bubbles: true, cancelable: true, clientX: 35, clientY: 35,
+      button: 0, buttons: 0, ctrlKey: true,
+    }));
+
+    expect(links.activateLinkAt).toHaveBeenCalledWith(3, 2);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('REQ-TERM-042 AC2: cancels a modified link click after cross-cell movement without leaking mouseup', () => {
+    cleanup();
+    const leakedMouseup = vi.fn();
+    document.addEventListener('mouseup', leakedMouseup);
+    const links = {
+      hasLinkAt: vi.fn(() => true),
+      activateLinkAt: vi.fn(() => true),
+    };
+    cleanup = attachHerdrMouseInput(
+      screen,
+      { cols: 10, rows: 5, focus } as unknown as Terminal,
+      send,
+      links,
+    );
+
+    screen.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true, cancelable: true, clientX: 34, clientY: 34,
+      button: 0, buttons: 1, ctrlKey: true,
+    }));
+    document.dispatchEvent(new MouseEvent('mousemove', {
+      bubbles: true, cancelable: true, clientX: 84, clientY: 59,
+      buttons: 1, ctrlKey: true,
+    }));
+    document.dispatchEvent(new MouseEvent('mouseup', {
+      bubbles: true, cancelable: true, clientX: 84, clientY: 59,
+      button: 0, buttons: 0, ctrlKey: true,
+    }));
+
+    expect(links.activateLinkAt).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+    expect(leakedMouseup).not.toHaveBeenCalled();
+    document.removeEventListener('mouseup', leakedMouseup);
+  });
+
+  it('REQ-TERM-042 AC4: keeps modified non-link clicks in Herdr', () => {
+    cleanup();
+    const links = {
+      hasLinkAt: vi.fn(() => false),
+      activateLinkAt: vi.fn(() => false),
+    };
+    cleanup = attachHerdrMouseInput(
+      screen,
+      { cols: 10, rows: 5, focus } as unknown as Terminal,
+      send,
+      links,
+    );
+
+    screen.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true, cancelable: true, clientX: 34, clientY: 34,
+      button: 0, buttons: 1, ctrlKey: true,
+    }));
+    document.dispatchEvent(new MouseEvent('mouseup', {
+      bubbles: true, cancelable: true, clientX: 34, clientY: 34,
+      button: 0, buttons: 0, ctrlKey: true,
+    }));
+
+    expect(send).toHaveBeenNthCalledWith(1, '\x1b[<16;3;2M');
+    expect(send).toHaveBeenNthCalledWith(2, '\x1b[<16;3;2m');
+    expect(links.activateLinkAt).not.toHaveBeenCalled();
+  });
+
   it('encodes held-button movement and ignores movement without an active press', () => {
     document.dispatchEvent(new MouseEvent('mousemove', {
       bubbles: true,

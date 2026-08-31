@@ -14,16 +14,27 @@ const progress = {
 };
 
 describe('managed reconciliation progress / REQ-STOR-034', () => {
-  it('AC1: progress storage failures remain observational', async () => {
-    const get = vi.fn().mockRejectedValue(new Error('KV read failed'));
-    const put = vi.fn().mockRejectedValue(new Error('KV write failed'));
-    const kv = { get, put, delete: vi.fn() } as unknown as KVNamespace;
+  it('REQ-STOR-034 AC1: progress write failure remains observational', async () => {
+    const kv = {
+      get: vi.fn(),
+      put: vi.fn().mockRejectedValue(new Error('KV write failed')),
+      delete: vi.fn(),
+    } as unknown as KVNamespace;
 
-    await expect(readManagedReconcileProgress(kv, 'bucket')).resolves.toBeUndefined();
     await expect(writeManagedReconcileProgress(kv, 'bucket', progress)).resolves.toBeUndefined();
   });
 
-  it('AC7: progress cleanup failure cannot change applied reconciliation outcome', async () => {
+  it('REQ-STOR-036 AC3: progress read failure remains observational', async () => {
+    const kv = {
+      get: vi.fn().mockRejectedValue(new Error('KV read failed')),
+      put: vi.fn(),
+      delete: vi.fn(),
+    } as unknown as KVNamespace;
+
+    await expect(readManagedReconcileProgress(kv, 'bucket')).resolves.toBeUndefined();
+  });
+
+  it('REQ-STOR-034 AC6: progress cleanup failure cannot change applied reconciliation outcome', async () => {
     const kv = {
       get: vi.fn().mockResolvedValue({
         schemaVersion: 1,

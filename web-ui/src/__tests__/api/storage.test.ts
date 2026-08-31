@@ -309,7 +309,7 @@ describe('Storage API Client', () => {
   // recreateAgentConfigs
   // ==========================================================================
   describe('recreateAgentConfigs', () => {
-    it('REQ-STOR-033 AC7: calls the separate automatic managed upgrade endpoint', async () => {
+    it('REQ-STOR-033 AC6: calls the separate automatic managed upgrade endpoint', async () => {
       mockFetch.mockResolvedValueOnce(mockResponse({
         success: true, bucketCreated: false, written: [], skipped: [], deleted: [], warnings: [],
       }));
