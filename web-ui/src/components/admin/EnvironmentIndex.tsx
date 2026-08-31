@@ -2,7 +2,6 @@ import { A, useParams } from '@solidjs/router';
 import { Component, For, Show, createSignal } from 'solid-js';
 import { useAdministration } from './AdministrationLayout';
 import { environmentAreas } from './environment-areas';
-import type { ConfigurationSection } from '../../types';
 import {
   ConfigurationRequestError,
   getConfigurationRun,

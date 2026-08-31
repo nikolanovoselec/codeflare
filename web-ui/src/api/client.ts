@@ -153,7 +153,8 @@ export async function previewConfiguration(section: ConfigurationSection, baseRe
 
 export async function startConfigurationRun(section: ConfigurationSection, baseRevision: number, values: unknown): Promise<Response> {
   const response = await fetch('/api/admin/configuration-runs', {
-    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', credentials: 'same-origin', redirect: 'manual',
+    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
     body: JSON.stringify({ section, baseRevision, values }),
   });
   if (!response.ok) {
