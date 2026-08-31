@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { retentionCutoffs, runUsageRetention } from '../../lib/usage-report-scheduler';
+import { createReportDispatch, retentionCutoffs, runUsageRetention } from '../../lib/usage-report-scheduler';
 
 describe('usage report retention transaction (REQ-SUB-026, REQ-SUB-027)', () => {
   it('computes every exact calendar cutoff', () => {
@@ -16,6 +16,17 @@ describe('usage report retention transaction (REQ-SUB-026, REQ-SUB-027)', () => 
 
   it('starts ISO weeks on Monday for non-Sunday dates', () => {
     expect(retentionCutoffs(new Date('2027-08-16T12:00:00.000Z')).week).toBe('2026-06-29');
+  });
+
+  it('skips empty dispatches and batches one row per recipient', async () => {
+    const db = {
+      prepare: vi.fn((sql: string) => ({ bind: (...values: unknown[]) => ({ sql, values }) })),
+      batch: vi.fn(async () => []),
+    };
+    await createReportDispatch(db as unknown as D1Database, 'test', 'test:req', 2, '2027-07', [], new Date('2027-08-01T00:00:00Z'));
+    expect(db.batch).not.toHaveBeenCalled();
+    await createReportDispatch(db as unknown as D1Database, 'test', 'test:req', 2, '2027-07', ['a@example.com', 'b@example.com'], new Date('2027-08-01T00:00:00Z'));
+    expect(db.batch).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ values: expect.arrayContaining(['a@example.com']) })]));
   });
 
   it('uses one token-guarded transactional batch', async () => {

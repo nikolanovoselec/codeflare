@@ -178,7 +178,9 @@ export async function recoverReportDeliveries(env: Env, now: Date): Promise<void
       reportMonth: claimed.report_month,
       html: report.html,
       csv: report.csv,
-      idempotencyKey: reportIdempotencyKey(claimed.settings_revision, claimed.report_month, claimed.recipient),
+      idempotencyKey: claimed.delivery_kind === 'scheduled'
+        ? reportIdempotencyKey(claimed.settings_revision, claimed.report_month, claimed.recipient)
+        : `usage-report-test:${claimed.dispatch_id}:${claimed.recipient.trim().toLowerCase()}`,
       env,
     });
     await completeReportDelivery(env.USAGE_DB, claimed.id, claimToken, result, new Date());
