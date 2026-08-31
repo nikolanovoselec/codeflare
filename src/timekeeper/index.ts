@@ -42,8 +42,7 @@ import { userKeyForEmail, writeUsageHistory } from '../lib/admin-usage';
 
 const logger = createLogger('timekeeper');
 
-const FLUSH_INTERVAL_MS = 300_000; // 5 minutes
-const RETRY_INTERVAL_MS = 30_000;  // 30 seconds on failure
+const RETRY_INTERVAL_MS = 30_000; // 30 seconds on KV failure
 
 /** Persisted sessionTotals shape: sessionId -> accumulated seconds. */
 const SessionTotalsSchema = z.record(z.string(), z.number());
