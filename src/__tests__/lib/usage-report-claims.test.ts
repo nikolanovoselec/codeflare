@@ -8,9 +8,11 @@ describe('usage report delivery claims (REQ-SUB-027)', () => {
     const prepare = vi.fn(() => ({ bind }));
     const row = await claimReportDelivery({ prepare } as unknown as D1Database, 'delivery', new Date('2027-08-01T00:00:00Z'), 'new-token');
     expect(row?.attempt).toBe(2);
-    expect(prepare.mock.calls[0][0]).toContain("state = 'failed'");
-    expect(prepare.mock.calls[0][0]).toContain('attempt < 3');
-    expect(bind.mock.calls[0]).toContain('2027-08-01T00:05:00.000Z');
+    const prepareCalls = prepare.mock.calls as unknown as Array<[string]>;
+    const bindCalls = bind.mock.calls as unknown as unknown[][];
+    expect(prepareCalls[0][0]).toContain("state = 'failed'");
+    expect(prepareCalls[0][0]).toContain('attempt < 3');
+    expect(bindCalls[0]).toContain('2027-08-01T00:05:00.000Z');
   });
 
   it('only completes a row when its active claim token matches', async () => {
@@ -18,7 +20,9 @@ describe('usage report delivery claims (REQ-SUB-027)', () => {
     const bind = vi.fn(() => ({ run }));
     const prepare = vi.fn(() => ({ bind }));
     expect(await completeReportDelivery({ prepare } as unknown as D1Database, 'delivery', 'stale', 'accepted', new Date('2027-08-01T00:00:00Z'))).toBe(false);
-    expect(prepare.mock.calls[0][0]).toContain('claim_token = ?2');
-    expect(bind.mock.calls[0]).toEqual(['delivery', 'stale', 'accepted', null, '2027-08-01T00:00:00.000Z']);
+    const prepareCalls = prepare.mock.calls as unknown as Array<[string]>;
+    const bindCalls = bind.mock.calls as unknown as unknown[][];
+    expect(prepareCalls[0][0]).toContain('claim_token = ?2');
+    expect(bindCalls[0]).toEqual(['delivery', 'stale', 'accepted', null, '2027-08-01T00:00:00.000Z']);
   });
 });
