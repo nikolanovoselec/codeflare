@@ -233,11 +233,11 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
 # that runtime copy. Drop each overlay after its upstream artifact contains at
 # least the pinned fixed version.
-RUN CODE_SERVER_VERSION="4.133.0" && \
-    CODE_SERVER_SHA256="a4e0f8f8c76e7de8e7424289f74e507af4c97bfe104c3e8ee272b8cc7b46c6f1" && \
-    CODE_SERVER_COMMIT="d2f7a122522456b351e9b3ddd39e4f3fb9fd5318" && \
-    CODE_SERVER_CODE_VERSION="1.133.0" && \
-    CODE_SERVER_VSCODE_COMMIT="a5b500951314efd502d07465bd138dfbd714a960" && \
+RUN CODE_SERVER_VERSION="4.135.0" && \
+    CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    CODE_SERVER_COMMIT="de89acbcdce9d9b870008a270c9f6466993d91f4" && \
+    CODE_SERVER_CODE_VERSION="1.135.0" && \
+    CODE_SERVER_VSCODE_COMMIT="08d4889f9ec4a1685d257b9b95de036c8e1ce1e5" && \
     JS_YAML_VERSION="4.3.1" && \
     JS_YAML_SHA512="098e9cac6ab7d77317f06930bc1eedce0a7df6f8d0c58d7efb9cb5d3f04a37f1947c7a9668e19030d66406fa92cec64a5a4fe28f01e55b3ce42ee96c18786359" && \
     NODE_TAR_VERSION="7.5.21" && \
