@@ -87,6 +87,17 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     expect(body.sections.cloudflareConnection).toBeDefined();
   });
 
+  it('returns administrators inside the round-trippable allowed-user set', async () => {
+    const { app, kv } = createApp();
+    await kv.put('user:admin@example.com', JSON.stringify({ role: 'admin', accessTier: 'advanced' }));
+    await kv.put('user:user@example.com', JSON.stringify({ role: 'user', accessTier: 'advanced' }));
+    const body = await (await app.request('/admin/configuration')).json() as any;
+    expect(body.sections.access).toEqual({
+      adminUsers: ['admin@example.com'],
+      allowedUsers: ['admin@example.com', 'user@example.com'],
+    });
+  });
+
   it('returns enterprise credential sources without exposing secret bytes', async () => {
     const { app, kv } = createApp({
       ENTERPRISE_MODE: 'active',

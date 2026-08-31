@@ -27,6 +27,10 @@ const rows = [
     user_key: 'b'.repeat(64), email: 'bob@example.com', account_status: 'deleted', data_since: '2026-08-02T00:00:00.000Z',
     deleted_at: '2026-08-29T00:00:00.000Z', runtime_seconds: 0, session_count: 0, updated_at: '2026-08-30T11:00:00.000Z',
   },
+  {
+    user_key: 'c'.repeat(64), email: '=2+2@example.com', account_status: 'active', data_since: '2026-08-03T00:00:00.000Z',
+    deleted_at: null, runtime_seconds: 1, session_count: 1, updated_at: '2026-08-30T10:00:00.000Z',
+  },
 ];
 
 function createApp() {
@@ -104,6 +108,7 @@ describe('admin organization usage routes (REQ-SUB-026)', () => {
     const csv = await response.text();
     expect(csv).toContain('alice@example.com');
     expect(csv).toContain('bob@example.com');
+    expect(csv).toContain("'=2+2@example.com");
     expect(csv.indexOf(json.users[0].email)).toBeLessThan(csv.indexOf(json.users[1].email));
   });
 

@@ -51,7 +51,7 @@ function createApp(envOverrides: Partial<Env> = {}) {
     if (err instanceof AppError) return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
     return c.json({ error: String(err) }, 500);
   });
-  return { app, kv };
+  return { app, kv, env };
 }
 
 type TestApp = ReturnType<typeof createApp>['app'];
@@ -160,6 +160,22 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(persisted).not.toContain(secretMarker);
     expect(JSON.parse(persisted)).toEqual(events.at(-1).run);
     expect(JSON.parse(await kv.get(`admin:configuration:latest:github`) as string)).toMatchObject({ runId, state: 'succeeded' });
+  });
+
+  it('continues persisted execution after the response observer disconnects', async () => {
+    const { app, kv, env } = createApp();
+    let background: Promise<unknown> | undefined;
+    const response = await app.fetch(new Request('http://localhost/admin/configuration-runs', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ section: 'github', baseRevision: 0, values: githubValues }),
+    }), env, { waitUntil: (promise: Promise<unknown>) => { background = promise; } } as unknown as ExecutionContext);
+    const reader = response.body!.getReader();
+    await reader.read();
+    await reader.cancel();
+    expect(background).toBeDefined();
+    await background;
+    expect(await kv.get(ADMIN_CONFIGURATION_KEYS.REVISION)).toBe('1');
+    expect(await kv.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN)).toBeNull();
   });
 
   it('rechecks revision after admission and fails before external work when the race is lost', async () => {

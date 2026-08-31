@@ -91,13 +91,21 @@ describe('cleanupUserData', () => {
     vi.clearAllMocks();
   });
 
-  it('writes a D1 tombstone before any live cleanup', async () => {
+  it('resolves ownership, then writes a D1 tombstone before live cleanup', async () => {
     mockKV._store.set(`user:${email}`, JSON.stringify({ role: 'user' }));
     await cleanupUserData(email, createEnv());
 
     expect(mockUsageBatch).toHaveBeenCalledOnce();
-    expect(mockUsageBatch.mock.invocationCallOrder[0]).toBeLessThan(mockResolveBucketName.mock.invocationCallOrder[0]);
+    expect(mockResolveBucketName.mock.invocationCallOrder[0]).toBeLessThan(mockUsageBatch.mock.invocationCallOrder[0]);
     expect(mockUsageBatch.mock.invocationCallOrder[0]).toBeLessThan(mockKV.delete.mock.invocationCallOrder[0]);
+  });
+
+  it('does not tombstone when verified bucket resolution fails before cleanup', async () => {
+    mockKV._store.set(`user:${email}`, JSON.stringify({ role: 'user' }));
+    mockResolveBucketName.mockRejectedValueOnce(new Error('ownership unavailable'));
+    await expect(cleanupUserData(email, createEnv())).rejects.toThrow('ownership unavailable');
+    expect(mockUsageBatch).not.toHaveBeenCalled();
+    expect(await mockKV.get(`user:${email}`)).not.toBeNull();
   });
 
   it('fails closed with typed 503 evidence and leaves live data unchanged when tombstoning fails', async () => {
