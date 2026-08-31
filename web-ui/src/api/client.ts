@@ -1,4 +1,4 @@
-import type { Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, AuthStatus, AuthProvider, AdminConfigurationResponse } from '../types';
+import type { Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, AuthStatus, AuthProvider, AdminConfigurationResponse, ConfigurationSection } from '../types';
 import { logger } from '../lib/logger';
 import { STARTUP_POLL_INTERVAL_MS, SESSION_ID_DISPLAY_LENGTH, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, SESSION_ID_RE } from '../lib/constants';
 import { z } from 'zod';
@@ -128,6 +128,42 @@ export async function getAdminUsageUser(
   );
 }
 
+const ConfigurationPreviewSchema = z.object({
+  section: ConfigurationSectionSchema,
+  baseRevision: z.number().int(),
+  currentRevision: z.number().int(),
+  changes: z.array(z.object({ field: z.string(), before: z.unknown().optional(), after: z.unknown().optional(), secret: z.object({ willReplace: z.boolean() }).optional() })),
+  tasks: z.array(z.object({ id: z.string(), dependsOn: z.array(z.string()) })),
+  warnings: z.array(z.object({ code: z.string(), message: z.string() })),
+  exclusions: z.array(z.string()),
+});
+export type ConfigurationPreview = z.infer<typeof ConfigurationPreviewSchema>;
+
+export class ConfigurationRequestError extends Error {
+  constructor(public status: number, public body: Record<string, unknown>) {
+    super(typeof body.error === 'string' ? body.error : 'Environment request failed');
+  }
+}
+
+export async function previewConfiguration(section: ConfigurationSection, baseRevision: number, values: unknown): Promise<ConfigurationPreview> {
+  return fetchApi('/admin/configuration-previews', {
+    method: 'POST', body: JSON.stringify({ section, baseRevision, values }),
+  }, ConfigurationPreviewSchema);
+}
+
+export async function startConfigurationRun(section: ConfigurationSection, baseRevision: number, values: unknown): Promise<Response> {
+  const response = await fetch('/api/admin/configuration-runs', {
+    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ section, baseRevision, values }),
+  });
+  if (!response.ok) {
+    let body: Record<string, unknown> = {};
+    try { body = await response.json() as Record<string, unknown>; } catch { /* response had no JSON body */ }
+    throw new ConfigurationRequestError(response.status, body);
+  }
+  return response;
+}
+
 const ConfigurationRunErrorSchema = z.object({
   code: z.string(), message: z.string(), retryable: z.boolean(), operatorAction: z.string().optional(),
 });
@@ -146,6 +182,10 @@ export type ConfigurationRun = z.infer<typeof ConfigurationRunSchema>;
 
 export async function getConfigurationRuns(): Promise<z.infer<typeof ConfigurationRunsSchema>> {
   return fetchApi('/admin/configuration-runs?limit=50', {}, ConfigurationRunsSchema);
+}
+
+export async function getConfigurationRun(runId: string): Promise<ConfigurationRun> {
+  return fetchApi(`/admin/configuration-runs/${encodeURIComponent(runId)}`, {}, ConfigurationRunSchema);
 }
 
 const UsageReportDeliverySchema = z.object({
