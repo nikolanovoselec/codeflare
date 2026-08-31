@@ -1438,7 +1438,7 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
       expect(await setupStore.loadExistingConfig()).toBe(false);
     });
 
-    it('REQ-SETUP-022 AC2: shares the result of overlapping hydration calls', async () => {
+    it('shares the result of overlapping hydration calls', async () => {
       mockFetch.mockResolvedValue(new Response('Unavailable', { status: 503 }));
 
       const first = setupStore.loadExistingConfig();
@@ -1494,10 +1494,13 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
             { status: 200, headers: { 'Content-Type': 'application/json' } }
           ));
         }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        }
         return Promise.reject(new Error(`Unexpected URL: ${url}`));
       });
 
-      await setupStore.loadExistingConfig();
+      expect(await setupStore.loadExistingConfig()).toBe(true);
 
       expect(setupStore.customDomain).toBe('claude.example.com');
       expect(setupStore.adminUsers).toEqual(['admin@example.com']);
@@ -1641,10 +1644,13 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
             { status: 200, headers: { 'Content-Type': 'application/json' } }
           ));
         }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        }
         return Promise.reject(new Error(`Unexpected URL: ${url}`));
       });
 
-      await setupStore.loadExistingConfig();
+      expect(await setupStore.loadExistingConfig()).toBe(true);
 
       expect(setupStore.customDomain).toBe('my-app.example.com');
     });
@@ -1663,10 +1669,13 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
             { status: 200, headers: { 'Content-Type': 'application/json' } }
           ));
         }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        }
         return Promise.reject(new Error(`Unexpected URL: ${url}`));
       });
 
-      await setupStore.loadExistingConfig();
+      expect(await setupStore.loadExistingConfig()).toBe(true);
 
       // Should remain as default empty string
       expect(setupStore.customDomain).toBe('');

@@ -66,11 +66,7 @@ describe('SetupWizard', () => {
       expect(document.body.textContent).toContain('Loading');
       expect(document.querySelector('.setup-journey-layout')).not.toBeInTheDocument();
 
-      Object.assign(setupStore, {
-        enterpriseMode: true,
-        tokenDetected: true,
-        accountInfo: { id: 'account-id', name: 'Enterprise account' },
-      });
+      Object.assign(setupStore, { enterpriseMode: true });
       resolveHydration(true);
 
       await waitFor(() => {

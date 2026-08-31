@@ -29,6 +29,11 @@ const WelcomeStep: Component = () => {
         </div>
 
         <div class="token-detect-section">
+        <div class="readiness-facts">
+          <div><span>Deployment mode</span><strong>{setupStore.enterpriseMode ? 'Enterprise' : setupStore.saasMode ? 'SaaS' : 'Standard'}</strong></div>
+          <div><span>Routine changes</span><strong>Bounded by area</strong></div>
+        </div>
+
         {/* Detecting state */}
         <Show when={setupStore.tokenDetecting}>
           <div class="token-status token-status--detecting">
@@ -57,10 +62,6 @@ const WelcomeStep: Component = () => {
               </div>
             </div>
 
-            <div class="readiness-facts">
-              <div><span>Deployment mode</span><strong>{setupStore.enterpriseMode ? 'Enterprise' : setupStore.saasMode ? 'SaaS' : 'Standard'}</strong></div>
-              <div><span>Routine changes</span><strong>Bounded by area</strong></div>
-            </div>
             <div class="setup-actions setup-actions--end">
               <Button onClick={() => setupStore.nextStep()}>
                 Start setup
