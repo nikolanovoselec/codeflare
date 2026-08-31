@@ -8,6 +8,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 - **Completed bootstrap is presented as Initialization** ([REQ-SETUP-019](setup.md#req-setup-019-administration-and-analytics-shell) AC7 amended; remains Implemented). Administration names its bootstrap and recovery entry Initialization, hydrates effective deployment mode before rendering, and marks a successfully initialized deployment Completed.
 
+- **Environment status and report timezone controls preserve deployed truth** ([REQ-SETUP-019](setup.md#req-setup-019-administration-and-analytics-shell) AC5 and [REQ-SUB-027](subscription.md#req-sub-027-monthly-organization-usage-reports) AC1 amended; remain Implemented). Managed-environment summaries distinguish configured, configured-disabled, and unconfigured states. Report scheduling uses an IANA timezone dropdown while retaining an accepted stored timezone even when absent from the bundled choices.
+
 ## 2026-08-30
 
 - **Administration material-state UI keeps user-owned validation** ([REQ-OPS-022](operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence) amended; remains Implemented). Changed-line coverage still fails closed for affected production files except the closed Administration material-state UI owners explicitly mapped in CI documentation. Their visual and interaction acceptance remains manual on Integration under the approved execution boundary; backend contracts and all other frontend production files retain automated coverage gates.

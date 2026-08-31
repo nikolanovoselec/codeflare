@@ -1,7 +1,7 @@
 /* v8 ignore start -- user-validated administration UI */
 import { For, Match, Switch, type Component } from 'solid-js';
 import type { AdministrationMode, ConfigurationSection } from '../../types';
-import { IANA_TIMEZONES } from '../../lib/iana-timezones';
+import { ianaTimezoneOptions } from '../../lib/iana-timezones';
 
 interface Props {
   section: ConfigurationSection;
@@ -65,7 +65,7 @@ const EnvironmentAreaFields: Component<Props> = (props) => {
     <Match when={props.section === 'cloudflareConnection'}>{field('clientId', 'Cloudflare OAuth client ID')}{field('replacementSecret', 'Replacement client secret', 'password', '')}</Match>
     <Match when={props.section === 'usageReports'}>
       {toggle('enabled', 'Enable monthly reports', current().enabled === true)}{textarea('recipients', 'Recipients, one email per line', lines(current().recipients))}{field('day', 'Local delivery day (1–31)', 'number', current().day ?? 1)}{field('hour', 'Local delivery hour (0–23)', 'number', current().hour ?? 9)}
-      <label class="admin-form-field"><span>IANA timezone</span><select name="timezone" value={text(current().timezone) || 'UTC'}><For each={IANA_TIMEZONES}>{(timezone) => <option value={timezone}>{timezone}</option>}</For></select></label>
+      <label class="admin-form-field"><span>IANA timezone</span><select name="timezone" value={text(current().timezone) || 'UTC'}><For each={ianaTimezoneOptions(text(current().timezone) || 'UTC')}>{(timezone) => <option value={timezone}>{timezone}</option>}</For></select></label>
     </Match>
   </Switch></div>;
 };

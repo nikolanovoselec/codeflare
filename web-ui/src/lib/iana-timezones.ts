@@ -420,3 +420,9 @@ export const IANA_TIMEZONES = [
   'Pacific/Wake',
   'Pacific/Wallis',
 ] as const;
+
+export function ianaTimezoneOptions(current: string): readonly string[] {
+  return IANA_TIMEZONES.includes(current as (typeof IANA_TIMEZONES)[number])
+    ? IANA_TIMEZONES
+    : [current, ...IANA_TIMEZONES];
+}
