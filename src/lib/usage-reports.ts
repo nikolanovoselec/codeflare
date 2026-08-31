@@ -1,4 +1,6 @@
-interface EnabledReportSettings {
+import { escapeXml } from './xml-utils';
+
+export interface EnabledReportSettings {
   enabled: true;
   recipients: string[];
   day: number;
@@ -6,7 +8,7 @@ interface EnabledReportSettings {
   timezone: string;
 }
 
-type ReportSettingsInput = EnabledReportSettings | { enabled: false };
+export type ReportSettingsInput = EnabledReportSettings | { enabled: false };
 
 function canonicalTimezone(timezone: string): boolean {
   if (timezone !== 'UTC' && !timezone.includes('/')) return false;
@@ -97,4 +99,36 @@ export function nextReportDelivery(
 export function latestClosedMonth(now: Date): string {
   const previous = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
   return `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+interface ReportRow {
+  email: string;
+  runtimeSeconds: number;
+  sessionCount: number;
+}
+
+function csvField(value: string): string {
+  return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+}
+
+export function buildReportArtifacts(reportMonth: string, input: ReportRow[]): { html: string; csv: string } {
+  const rows = [...input].sort((a, b) => b.runtimeSeconds - a.runtimeSeconds || a.email.localeCompare(b.email));
+  const runtimeSeconds = rows.reduce((sum, row) => sum + row.runtimeSeconds, 0);
+  const sessionCount = rows.reduce((sum, row) => sum + row.sessionCount, 0);
+  const csv = ['email,runtime_seconds,session_count', ...rows.map((row) => `${csvField(row.email)},${row.runtimeSeconds},${row.sessionCount}`)].join('\r\n') + '\r\n';
+  const top = rows.slice(0, 10).map((row) => `<tr><td>${escapeXml(row.email)}</td><td>${row.runtimeSeconds}</td><td>${row.sessionCount}</td></tr>`).join('');
+  const html = `<h2>Codeflare usage for ${escapeXml(reportMonth)}</h2><p>${runtimeSeconds} runtime seconds across ${sessionCount} distinct sessions.</p><table><thead><tr><th>User</th><th>Runtime seconds</th><th>Sessions</th></tr></thead><tbody>${top}</tbody></table>`;
+  return { html, csv };
+}
+
+export function scheduledDispatchId(settingsRevision: number, reportMonth: string): string {
+  return `scheduled:${settingsRevision}:${reportMonth}`;
+}
+
+export function testDispatchId(requestId: string): string {
+  return `test:${requestId}`;
+}
+
+export function reportIdempotencyKey(settingsRevision: number, reportMonth: string, recipient: string): string {
+  return `usage-report:${settingsRevision}:${reportMonth}:${recipient.trim().toLowerCase()}`;
 }

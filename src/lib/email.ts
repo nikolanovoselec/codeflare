@@ -79,6 +79,7 @@ interface SendEmailOptions {
   html: string;
   replyTo?: string;
   idempotencyKey?: string;
+  attachments?: Array<{ filename: string; content: string }>;
   env: {
     RESEND_API_KEY?: string;
     RESEND_EMAIL?: string;
@@ -91,7 +92,7 @@ interface SendEmailOptions {
  * Never throws — callers can fire-and-forget.
  */
 export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
-  const { to, subject, html, replyTo, idempotencyKey, env } = opts;
+  const { to, subject, html, replyTo, idempotencyKey, attachments, env } = opts;
 
   if (!env.RESEND_API_KEY || to.length === 0) {
     return false;
@@ -112,6 +113,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
         subject,
         html,
         ...(replyTo ? { reply_to: replyTo } : {}),
+        ...(attachments ? { attachments } : {}),
       }),
     });
     if (!resp.ok) {
@@ -122,6 +124,36 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
     logger.error('Email send error', toError(err));
     return false;
   }
+}
+
+function base64Utf8(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 32_768) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32_768));
+  }
+  return btoa(binary);
+}
+
+export async function sendUsageReportEmail(opts: {
+  recipient: string;
+  reportMonth: string;
+  html: string;
+  csv: string;
+  idempotencyKey: string;
+  env: { RESEND_API_KEY?: string; RESEND_EMAIL?: string };
+}): Promise<'accepted' | 'attachment_too_large' | 'provider_unavailable'> {
+  if (!opts.env.RESEND_API_KEY) return 'provider_unavailable';
+  if (new TextEncoder().encode(opts.csv).byteLength > 8 * 1024 * 1024) return 'attachment_too_large';
+  const accepted = await sendEmail({
+    to: [opts.recipient],
+    subject: `Codeflare usage report: ${opts.reportMonth}`,
+    html: opts.html,
+    idempotencyKey: opts.idempotencyKey,
+    attachments: [{ filename: `codeflare-usage-${opts.reportMonth}.csv`, content: base64Utf8(opts.csv) }],
+    env: opts.env,
+  });
+  return accepted ? 'accepted' : 'provider_unavailable';
 }
 
 /**
