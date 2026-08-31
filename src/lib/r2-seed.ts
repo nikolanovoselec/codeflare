@@ -183,11 +183,19 @@ async function seedManagedDocuments(
   endpoint: string,
   mode: SessionMode,
   selection: ManagedReleaseSelection,
-  options: { overwrite: boolean; r2SseDisabled?: boolean },
+  options: {
+    overwrite: boolean;
+    r2SseDisabled?: boolean;
+    plannedKeys?: ReadonlySet<string>;
+    resumeFromTargetMarker?: boolean;
+    assumeEmpty?: boolean;
+    onItemComplete?: () => Promise<void>;
+  },
 ): Promise<SeedDocsResult> {
   const eligibleKeys = selection.release.documents
     .filter((document) => document.modes.includes(mode))
-    .map((document) => document.key);
+    .map((document) => document.key)
+    .filter((key) => options.plannedKeys?.has(key) ?? true);
   const eligible = new Set(eligibleKeys);
   const written = new Set<string>();
   const skipped = new Set<string>();
@@ -197,13 +205,17 @@ async function seedManagedDocuments(
   await streamManagedReleaseDocuments(selection.compressed, async (document: ManagedReleaseDocument) => {
     if (!eligible.has(document.key) || !document.modes.includes(mode)) return;
     const url = getR2Url(endpoint, bucketName, document.key);
-    if (!options.overwrite) {
+    if (!options.overwrite || (options.resumeFromTargetMarker && !options.assumeEmpty)) {
       const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
       if (head.ok) {
-        skipped.add(document.key);
-        return;
+        if (!options.overwrite || head.headers.get(PRESEED_MARKER_HEADER) === selection.digest) {
+          skipped.add(document.key);
+          await options.onItemComplete?.();
+          return;
+        }
+      } else if (head.status !== 404) {
+        throw new Error(`Failed to check existing object ${document.key}: HTTP ${head.status}`);
       }
-      if (head.status !== 404) throw new Error(`Failed to check existing object ${document.key}: HTTP ${head.status}`);
     }
     const response = await client.fetch(url, {
       method: 'PUT',
@@ -216,6 +228,7 @@ async function seedManagedDocuments(
     });
     if (!response.ok) throw new Error(`Failed to seed object ${document.key}: HTTP ${response.status}`);
     written.add(document.key);
+    await options.onItemComplete?.();
   });
 
   return {
@@ -631,6 +644,103 @@ function managedExtensionsDocument(selection: ManagedReleaseSelection): SeedDocu
   };
 }
 
+export interface ManagedAutomaticReconcileOptions {
+  assumeEmpty: boolean;
+  onProgress?: (progress: { completed: number; total: number }) => Promise<void>;
+}
+
+type ManagedDocumentFingerprint = {
+  contentType: string;
+  contentDigest: string;
+};
+
+async function managedDocumentContentDigest(contentType: string, content: string): Promise<string> {
+  const bytes = new TextEncoder().encode(`${contentType}\0${content}`);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function managedDocumentFingerprintMap(
+  selection: ManagedReleaseSelection,
+  mode: SessionMode,
+): Promise<Map<string, ManagedDocumentFingerprint>> {
+  const fingerprints = new Map<string, ManagedDocumentFingerprint>();
+  await streamManagedReleaseDocuments(selection.compressed, async (document) => {
+    if (!document.modes.includes(mode)) return;
+    fingerprints.set(document.key, {
+      contentType: document.contentType,
+      contentDigest: await managedDocumentContentDigest(document.contentType, document.content),
+    });
+  });
+  return fingerprints;
+}
+
+async function buildManagedAutomaticPlan(
+  target: ManagedReleaseSelection,
+  mode: SessionMode,
+  prior?: PriorManagedReleaseSelection,
+): Promise<{ documentKeys: Set<string>; writeExtensions: boolean; directDelta: boolean }> {
+  const targetFingerprints = await managedDocumentFingerprintMap(target, mode);
+  if (!prior) {
+    return { documentKeys: new Set(targetFingerprints.keys()), writeExtensions: true, directDelta: false };
+  }
+
+  const priorFingerprints = await managedDocumentFingerprintMap(prior, prior.mode);
+  const documentKeys = new Set<string>();
+  for (const [key, targetFingerprint] of targetFingerprints) {
+    const priorFingerprint = priorFingerprints.get(key);
+    if (
+      !priorFingerprint
+      || priorFingerprint.contentType !== targetFingerprint.contentType
+      || priorFingerprint.contentDigest !== targetFingerprint.contentDigest
+    ) {
+      documentKeys.add(key);
+    }
+  }
+
+  const priorExtensions = managedExtensionsDocument(prior);
+  const targetExtensions = managedExtensionsDocument(target);
+  const [priorExtensionsDigest, targetExtensionsDigest] = await Promise.all([
+    managedDocumentContentDigest(priorExtensions.contentType, priorExtensions.content),
+    managedDocumentContentDigest(targetExtensions.contentType, targetExtensions.content),
+  ]);
+  return {
+    documentKeys,
+    writeExtensions: priorExtensionsDigest !== targetExtensionsDigest,
+    directDelta: true,
+  };
+}
+
+async function seedAutomaticDocument(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  document: SeedDocument,
+  targetDigest: string,
+  assumeEmpty: boolean,
+  r2SseDisabled?: boolean,
+): Promise<{ written: boolean; skipped: boolean }> {
+  const client = createR2Client(env);
+  const url = getR2Url(endpoint, bucketName, document.key);
+  const sseHeaders = getSseHeaders(env, r2SseDisabled);
+  if (!assumeEmpty) {
+    const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
+    if (head.ok && head.headers.get(PRESEED_MARKER_HEADER) === targetDigest) {
+      return { written: false, skipped: true };
+    }
+    if (!head.ok && head.status !== 404) {
+      throw new Error(`Failed to check existing object ${document.key}: HTTP ${head.status}`);
+    }
+  }
+  const response = await client.fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': document.contentType, ...markerHeaders(targetDigest), ...sseHeaders },
+    body: document.content,
+  });
+  if (!response.ok) throw new Error(`Failed to seed object ${document.key}: HTTP ${response.status}`);
+  return { written: true, skipped: false };
+}
+
 async function deleteManagedConfigsByDigest(
   env: SeedEnv,
   bucketName: string,
@@ -638,6 +748,7 @@ async function deleteManagedConfigsByDigest(
   candidates: readonly string[],
   digest: string,
   r2SseDisabled?: boolean,
+  acceptAnyManagedMarker = false,
 ): Promise<{ deleted: string[]; warnings: string[] }> {
   const client = createR2Client(env);
   const sseHeaders = getSseHeaders(env, r2SseDisabled);
@@ -650,7 +761,8 @@ async function deleteManagedConfigsByDigest(
       const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
       if (head.status === 404) return {};
       if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
-      if (head.headers.get(PRESEED_MARKER_HEADER) !== digest) return {};
+      const marker = head.headers.get(PRESEED_MARKER_HEADER);
+      if (acceptAnyManagedMarker ? !marker || !/^[0-9a-f]{64}$/.test(marker) : marker !== digest) return {};
       const response = await client.fetch(url, { method: 'DELETE' });
       if (!response.ok && response.status !== 404) throw new Error(`DELETE ${key}: HTTP ${response.status}`);
       return { deleted: key };
@@ -673,6 +785,7 @@ async function deletePriorManagedConfigs(
   current: ManagedReleaseSelection | null,
   mode: SessionMode,
   r2SseDisabled?: boolean,
+  acceptAnyManagedMarker = false,
 ): Promise<{ deleted: string[]; warnings: string[] }> {
   const priorKeys = new Set([
     ...getManagedDocumentKeysForMode(prior.release, prior.mode),
@@ -682,7 +795,7 @@ async function deletePriorManagedConfigs(
     ? [...getManagedDocumentKeysForMode(current.release, mode), '.codeflare/managed-extensions.json']
     : []);
   const candidates = [...priorKeys].filter((key) => !currentKeys.has(key));
-  return deleteManagedConfigsByDigest(env, bucketName, endpoint, candidates, prior.digest, r2SseDisabled);
+  return deleteManagedConfigsByDigest(env, bucketName, endpoint, candidates, prior.digest, r2SseDisabled, acceptAnyManagedMarker);
 }
 
 async function deleteRetiredManagedConfigs(
@@ -935,10 +1048,33 @@ export async function reconcileAgentConfigs(
     priorManagedDigest?: string;
     /** Explicit only for managed-environment reconciliation; omission preserves legacy seed behavior. */
     resourcePolicy?: ManagedResourcePolicy;
+    /** Dashboard-owned automatic upgrade. Omission preserves every existing caller. */
+    automatic?: ManagedAutomaticReconcileOptions;
   }
 ): Promise<{ written: string[]; skipped: string[]; deleted: string[]; warnings: string[]; managedPathsDigest?: string }> {
   const contextModeEnabled = options.contextModeEnabled === true;
   const managedRelease = options.managedRelease;
+  const automaticPlan = managedRelease && options.automatic
+    ? await buildManagedAutomaticPlan(managedRelease, mode, options.priorManagedRelease)
+    : undefined;
+  const automaticTotal = automaticPlan
+    ? automaticPlan.documentKeys.size + (automaticPlan.writeExtensions ? 1 : 0)
+    : 0;
+  let automaticCompleted = 0;
+  let progressWrites = Promise.resolve();
+  const reportAutomaticProgress = options.automatic?.onProgress
+    ? async (): Promise<void> => {
+        automaticCompleted += 1;
+        progressWrites = progressWrites.then(() => options.automatic!.onProgress!({
+          completed: automaticCompleted,
+          total: automaticTotal,
+        }));
+        await progressWrites;
+      }
+    : undefined;
+  if (automaticPlan) {
+    await options.automatic?.onProgress?.({ completed: 0, total: automaticTotal });
+  }
   const policy = options.resourcePolicy && options.resourcePolicy !== 'mutable'
     ? managedRelease
       ? await buildManagedR2Policy(managedRelease.digest, managedRelease.release, options.resourcePolicy)
@@ -951,21 +1087,43 @@ export async function reconcileAgentConfigs(
     ? await seedManagedDocuments(env, bucketName, endpoint, mode, managedRelease, {
         overwrite: options.overwrite,
         r2SseDisabled: options.r2SseDisabled,
+        ...(automaticPlan ? {
+          plannedKeys: automaticPlan.documentKeys,
+          resumeFromTargetMarker: true,
+          assumeEmpty: options.automatic!.assumeEmpty,
+          onItemComplete: reportAutomaticProgress,
+        } : {}),
       })
     : await seedDocuments(env, bucketName, endpoint, getConfigsForMode(mode, contextModeEnabled), {
         overwrite: options.overwrite,
         r2SseDisabled: options.r2SseDisabled,
       });
-  if (managedRelease) {
-    const extensionResult = await seedDocuments(
-      env,
-      bucketName,
-      endpoint,
-      [managedExtensionsDocument(managedRelease)],
-      { overwrite: options.overwrite, r2SseDisabled: options.r2SseDisabled, marker: managedRelease.digest },
-    );
-    seedResult.written.push(...extensionResult.written);
-    seedResult.skipped.push(...extensionResult.skipped);
+  if (managedRelease && (!automaticPlan || automaticPlan.writeExtensions)) {
+    if (automaticPlan) {
+      const extension = managedExtensionsDocument(managedRelease);
+      const extensionResult = await seedAutomaticDocument(
+        env,
+        bucketName,
+        endpoint,
+        extension,
+        managedRelease.digest,
+        options.automatic!.assumeEmpty,
+        options.r2SseDisabled,
+      );
+      if (extensionResult.written) seedResult.written.push(extension.key);
+      if (extensionResult.skipped) seedResult.skipped.push(extension.key);
+      await reportAutomaticProgress?.();
+    } else {
+      const extensionResult = await seedDocuments(
+        env,
+        bucketName,
+        endpoint,
+        [managedExtensionsDocument(managedRelease)],
+        { overwrite: options.overwrite, r2SseDisabled: options.r2SseDisabled, marker: managedRelease.digest },
+      );
+      seedResult.written.push(...extensionResult.written);
+      seedResult.skipped.push(...extensionResult.skipped);
+    }
   }
 
   let deleted: string[] = [];
@@ -1000,6 +1158,7 @@ export async function reconcileAgentConfigs(
         managedRelease ?? null,
         mode,
         options.r2SseDisabled,
+        automaticPlan?.directDelta === true,
       );
       deleted.push(...cleanupResult.deleted);
       warnings.push(...cleanupResult.warnings);
