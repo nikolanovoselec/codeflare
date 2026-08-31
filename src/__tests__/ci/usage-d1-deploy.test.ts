@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { prepareUsageD1 } from '../../../scripts/ci/prepare-usage-d1.mjs';
+import { setHeadSampling } from '../../../scripts/ci/set-head-sampling.mjs';
 
 type WranglerCommand = string[];
 
@@ -20,6 +21,21 @@ function fakeRunner(responses: Record<string, { status: number; stdout?: string;
   });
   return { calls, run };
 }
+
+describe('observability deployment boundary (REQ-OPS-057)', () => {
+  it('keeps full Integration heads and samples Production and Enterprise heads', () => {
+    const source = '[observability.logs]\nhead_sampling_rate = 1\n';
+    expect(setHeadSampling(source, 'integration')).toContain('head_sampling_rate = 1');
+    expect(setHeadSampling(source, 'enterprise integration')).toContain('head_sampling_rate = 1');
+    expect(setHeadSampling(source, 'production')).toContain('head_sampling_rate = 0.05');
+    expect(setHeadSampling(source, 'enterprise')).toContain('head_sampling_rate = 0.05');
+  });
+
+  it('fails closed when the sampling contract is missing or environment is unknown', () => {
+    expect(() => setHeadSampling('[observability]\nenabled = true\n', 'integration')).toThrow('head_sampling_rate');
+    expect(() => setHeadSampling('[observability.logs]\nhead_sampling_rate = 1\n', 'preview')).toThrow('Unknown deployment environment');
+  });
+});
 
 describe('D1 deployment boundary (REQ-OPS-056)', () => {
   it('rejects missing separate or runtime credentials before any Wrangler call', async () => {
