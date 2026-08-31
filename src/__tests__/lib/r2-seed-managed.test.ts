@@ -468,7 +468,7 @@ describe('managed release user-bucket reconciliation', () => {
       document('.claude/added-later.md', ['default'], 'old removed'),
       document('.claude/changed.md', ['default'], 'old content'),
       document('.claude/stable.md', ['default'], 'same content'),
-      document('.claude/type.md', ['default'], 'same bytes', 'text/plain'),
+      document('.claude/type.md', ['default'], 'same bytes', 'text/plain; charset=utf-8'),
     ]));
     const target = await selection('2'.repeat(64), release(41, [
       document('.claude/changed.md', ['default'], 'new content'),
