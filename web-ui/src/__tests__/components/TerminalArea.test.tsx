@@ -299,6 +299,7 @@ describe('TerminalArea', () => {
     expect(paneB).toHaveAttribute('data-connect', 'true');
     expect(paneB).toHaveAttribute('data-focused', 'true');
     expect(screen.queryByTestId('terminal-session-c-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('terminal-tabs')).not.toBeInTheDocument();
   });
 
   it('renders classic tabs and tiling controls', () => {
