@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { getManagedReconcileProgressKey } from './kv-keys';
+import { createLogger } from './logger';
 
+const logger = createLogger('managed-reconcile-progress');
 const PROGRESS_TTL_SECONDS = 24 * 60 * 60;
 
 const ManagedReconcileProgressSchema = z.object({
@@ -20,9 +22,17 @@ export async function readManagedReconcileProgress(
   kv: KVNamespace,
   bucketName: string,
 ): Promise<ManagedReconcileProgress | undefined> {
-  const value = await kv.get(getManagedReconcileProgressKey(bucketName), 'json');
-  const parsed = ManagedReconcileProgressSchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
+  try {
+    const value = await kv.get(getManagedReconcileProgressKey(bucketName), 'json');
+    const parsed = ManagedReconcileProgressSchema.safeParse(value);
+    return parsed.success ? parsed.data : undefined;
+  } catch (error) {
+    logger.warn('Managed reconciliation progress read failed', {
+      bucketName,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
 }
 
 export async function writeManagedReconcileProgress(
@@ -35,9 +45,16 @@ export async function writeManagedReconcileProgress(
     ...progress,
     updatedAt: new Date().toISOString(),
   });
-  await kv.put(getManagedReconcileProgressKey(bucketName), JSON.stringify(value), {
-    expirationTtl: PROGRESS_TTL_SECONDS,
-  });
+  try {
+    await kv.put(getManagedReconcileProgressKey(bucketName), JSON.stringify(value), {
+      expirationTtl: PROGRESS_TTL_SECONDS,
+    });
+  } catch (error) {
+    logger.warn('Managed reconciliation progress write failed', {
+      bucketName,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 export async function clearMatchingManagedReconcileProgress(
@@ -47,6 +64,13 @@ export async function clearMatchingManagedReconcileProgress(
 ): Promise<void> {
   const progress = await readManagedReconcileProgress(kv, bucketName);
   if (progress?.targetDigest === targetDigest) {
-    await kv.delete(getManagedReconcileProgressKey(bucketName));
+    try {
+      await kv.delete(getManagedReconcileProgressKey(bucketName));
+    } catch (error) {
+      logger.warn('Managed reconciliation progress cleanup failed', {
+        bucketName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }

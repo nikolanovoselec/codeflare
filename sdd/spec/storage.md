@@ -316,7 +316,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Constraints:**
 
-- Mode takes effect on an explicit re-seed, a mode-change reconcile, or the release-upgrade reconcile ([REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)). Explicit re-seed and mode-change reconciliation overwrite every desired key. Automatic managed-release upgrade leaves release-identical keys untouched, including markerless user edits, and overwrites only keys whose desired release bytes or content type changed.
+- Reconciliation activation and ownership semantics follow [REQ-STOR-033](#req-stor-033-delta-and-resumable-managed-release-reconciliation): explicit re-seed and mode changes overwrite desired keys, while automatic upgrades preserve release-identical keys.
 - Only files the build never seeded are preserved as the user's own outside automatic managed-release delta semantics ([REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
 - No duplicate preseed source files exist on disk; all agent variants are generated from the Claude Code preseed as the single source of truth.
 - Preseed configuration must validate that no two entries within a single mode share the same key.
@@ -927,22 +927,45 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Automatic reconciliation compares the exact applied signed bundle directly with the active target bundle using SHA-256 fingerprints over content type and content for each mode-eligible path; sequence distance does not introduce intermediate migrations. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC1/AC2: direct delta handles a fifteen-release gap and writes only added or changed release paths) -->
-2. Automatic reconciliation PUTs only added paths or paths whose release content or content type changed; release-identical paths remain untouched, including markerless user edits. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC1/AC2: direct delta handles a fifteen-release gap and writes only added or changed release paths) -->
-3. Before an automatic planned PUT, a matching target provenance marker counts the path complete and suppresses the PUT; fresh and cache-missing fallback plans include every target path. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC3: target provenance resumes interrupted automatic reconciliation) -->
-4. Full-target fallback is allowed only when applied identity is absent or its valid digest names a missing immutable cache object; malformed or conflicting applied identity fails before bucket mutation. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC4: automatic fallback is bounded and invalid applied identity fails closed) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC4: full-target fallback sweeps stale managed markers only after desired writes) -->
-5. Direct-delta cleanup considers only source paths absent from target plus signed retirements; mutable deletion requires a valid Codeflare marker and preserves markerless edits and every desired target path. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC2 + REQ-STOR-033 AC5: direct delta cleanup accepts older valid markers and preserves markerless edits) -->
-6. The automatic endpoint revalidates active target, mode, policy, SSE regime, session ownership, and migration state immediately before stamping applied identity last. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC6: target changes during automatic reconciliation and prevents applied stamping) -->
-7. Existing manual, preference, lifecycle, and Stripe reconciliation callers retain full current behavior and never write managed-release progress. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC7: automatic endpoint is separate and manual Recreate remains full overwrite) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-033 AC7: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true) -->
-8. Observational progress uses a strict expiring KV record, never controls execution, is exposed only for the matching pending target, and clears after successful applied stamping. <!-- @impl: src/lib/managed-reconcile-progress.ts::ManagedReconcileProgressSchema --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC8: automatic progress is bounded, observational, and cleared after stamping) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-033 AC8: batch status exposes only matching pending progress) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049 AC8: mirrors managed release progress on transient polling) -->
+1. Automatic reconciliation compares the exact applied release directly with the active target, regardless of sequence distance and without replaying intermediate releases. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC1/AC2: direct delta handles a fifteen-release gap and writes only added or changed release paths) -->
+2. Automatic reconciliation changes only paths added by the target or changed in release content or content type; release-identical paths remain untouched, including markerless user edits. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC1/AC2: direct delta handles a fifteen-release gap and writes only added or changed release paths) -->
+3. Automatic retries skip target-complete objects, while fresh and bounded fallback reconciliation covers every target path. <!-- @impl: src/lib/r2-seed.ts::seedManagedDocuments --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC3: target provenance resumes interrupted automatic reconciliation) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC4: full-target fallback sweeps stale managed markers only after desired writes) -->
+4. Full-target fallback is limited to absent applied identity or unavailable valid release history; malformed or conflicting applied identity fails before bucket changes. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC4: automatic fallback is bounded and invalid applied identity fails closed) -->
+5. Cleanup removes only proven source-absent paths or signed retirements that remain product-owned, preserving markerless edits, desired target paths, and concurrently replaced objects. <!-- @impl: src/lib/r2-seed.ts::deleteManagedConfigsByDigest --> <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC2 + REQ-STOR-033 AC5: direct delta cleanup accepts older valid markers and preserves markerless edits) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC5: cleanup binds deletion to the HEAD-observed object version) -->
+6. Applied identity remains unchanged unless target identity, mode, resource policy, storage-encryption regime, session ownership, and migration state still match immediately before cleanup and final publication. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC6: target changes before cleanup and prevents destructive finalization) -->
+7. Manual Recreate and existing non-dashboard reconciliation callers retain full-overwrite behavior; only automatic dashboard reconciliation uses release deltas. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC7: automatic endpoint is separate and manual Recreate remains full overwrite) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-033 AC7: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true) -->
 
-**Constraints:** At most six R2 operations run concurrently. Browser closure may pause execution; a later dashboard trigger resumes from R2 markers. No Workflow, Queue, Durable Object, lock service, new binding, release-format change, bucket-layout change, or rclone change is introduced.
+**Constraints:** No more than six R2 operations run concurrently. Interrupted automatic work can resume without replaying completed target objects.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-STOR-021](#req-stor-021-managed-content-ownership), [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)
 
-**Verification:** Automated delta, route, status, and dashboard tests plus Enterprise Integration interruption verification
+**Verification:** Automated delta and route tests plus Enterprise Integration interruption verification
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-034: Observational managed reconciliation progress
+
+**Intent:** Managed-release progress must remain useful to the dashboard without becoming an authority for reconciliation or session admission.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Progress storage failure or malformed data never changes authoritative release status or blocks reconciliation, and progress is exposed only for the matching upgrading target. <!-- @impl: src/lib/managed-reconcile-progress.ts::readManagedReconcileProgress --> <!-- @impl: src/lib/managed-reconcile-progress.ts::writeManagedReconcileProgress --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/lib/managed-reconcile-progress.test.ts (AC1: progress storage failures remain observational) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-034 AC1: progress read failure cannot replace authoritative upgrading status) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-034 AC1: batch status exposes only matching pending progress) -->
+2. Reported progress distinguishes planning, writing, and finalizing, counts completed target objects including resumed objects, and expires within 24 hours. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: src/lib/managed-reconcile-progress.ts::writeManagedReconcileProgress --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-034 AC2: finalizing progress is persisted before cleanup begins) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-034 AC2/AC3: automatic progress is bounded, observational, and cleared after stamping) -->
+3. Matching progress clears after successful applied publication or when status observes that target already applied; cleanup failure cannot change reconciliation outcome. <!-- @impl: src/lib/managed-reconcile-progress.ts::clearMatchingManagedReconcileProgress --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/lib/managed-reconcile-progress.test.ts (AC3: progress cleanup failure cannot change applied reconciliation outcome) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-034 AC3: applied target omits and opportunistically clears stale progress) -->
+
+**Constraints:** Progress is observational and never an execution checkpoint.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-023](#req-stor-023-managed-release-status-and-discovery), [REQ-STOR-033](#req-stor-033-delta-and-resumable-managed-release-reconciliation)
+
+**Verification:** Automated progress-helper, route, status, store, and dashboard tests
 
 **Status:** Implemented
 

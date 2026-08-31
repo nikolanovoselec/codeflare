@@ -586,7 +586,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
-    it('REQ-STOR-033 AC8: batch status exposes only matching pending progress', async () => {
+    it('REQ-STOR-034 AC1: batch status exposes only matching pending progress', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
@@ -600,7 +600,24 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.managedReleaseProgress).toEqual({ phase: 'writing', completed: 25, total: 61 });
     });
 
-    it('REQ-STOR-033 AC8: malformed progress is omitted', async () => {
+    it('REQ-STOR-034 AC1: progress read failure cannot replace authoritative upgrading status', async () => {
+      const digest = 'd'.repeat(64);
+      managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
+      const read = mockKV.get.getMockImplementation()!;
+      mockKV.get.mockImplementation((key, type) => (
+        key === 'managed-reconcile-progress:test-bucket'
+          ? Promise.reject(new Error('progress unavailable'))
+          : read(key, type)
+      ));
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+      expect(body.managedReleaseStatus).toBe('upgrading');
+      expect(body.preseedNeedsUpgrade).toBe(true);
+    });
+
+    it('REQ-STOR-034 AC1: malformed progress is omitted', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
@@ -614,7 +631,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.managedReleaseProgress).toBeUndefined();
     });
 
-    it('REQ-STOR-033 AC8: update-pending state omits progress', async () => {
+    it('REQ-STOR-034 AC1: update-pending state omits progress', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       const running = makeSession('aabbccdd11223344', 'running');
@@ -630,7 +647,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.managedReleaseProgress).toBeUndefined();
     });
 
-    it('REQ-STOR-033 AC8: applied target omits and opportunistically clears stale progress', async () => {
+    it('REQ-STOR-034 AC3: applied target omits and opportunistically clears stale progress', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', {

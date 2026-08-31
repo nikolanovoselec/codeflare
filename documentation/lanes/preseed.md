@@ -236,14 +236,17 @@ valid applied digest whose immutable cache object is unavailable plan the full
 target, then use the same marker checks. R2 markers govern execution; the
 expiring KV progress record is display-only.
 
-When both applied and target bundles are available, cleanup considers only
-paths present in the applied mode and absent from the target mode. Mutable
-cleanup deletes such a path only while it carries any valid Codeflare digest
-marker; markerless edits and every desired target path remain. The applied
-release identity is written only after reconciliation and a final target,
-mode, policy, SSE, session-ownership, and migration check. Implements
-[REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)
-and [REQ-STOR-033](../../sdd/spec/storage.md#req-stor-033-delta-and-resumable-managed-release-reconciliation).
+When both applied and target bundles are available, direct-delta cleanup
+considers paths present in the applied mode and absent from the target mode.
+Signed target retirements are a separate cleanup source and retain their
+existing provenance rule. Direct removals require a valid Codeflare digest;
+markerless edits and every desired target path remain. Conditional deletion
+also preserves an object replaced after its cleanup check. The applied release identity is
+written only after reconciliation and final target, mode, policy, SSE,
+session-ownership, and migration checks. Implements
+[REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed),
+[REQ-STOR-033](../../sdd/spec/storage.md#req-stor-033-delta-and-resumable-managed-release-reconciliation),
+and [REQ-STOR-034](../../sdd/spec/storage.md#req-stor-034-observational-managed-reconciliation-progress).
 
 <a id="preseed-components"></a>
 ## Artifact Inventory and Sources

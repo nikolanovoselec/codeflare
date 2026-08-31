@@ -155,6 +155,26 @@ async function reconcileAgentConfigsForRequest(
     const r2SseDisabled = await resolveBucketSseOnEnsure(c.env, bucketName, bucketResult.created === true);
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
     const contextModeEnabled = effectiveTier === 'unlimited' && mode === 'advanced';
+    const validateAutomaticTarget = activeManagedRelease && automatic
+      ? async (): Promise<void> => {
+          const currentActive = await getActiveManagedRelease(c.env);
+          const currentPreferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') ?? {};
+          const currentMode = await resolveEffectiveSessionMode(currentPreferences, user, c.env);
+          const currentSseDisabled = await resolveBucketSseOnEnsure(c.env, bucketName, false);
+          await assertNoOwningSession(c.env.KV, bucketName);
+          if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
+          if (
+            !currentActive
+            || currentActive.digest !== activeManagedRelease.digest
+            || currentActive.pointer.sequence !== activeManagedRelease.release.sequence
+            || currentActive.resourcePolicy !== resourcePolicy
+            || currentMode !== mode
+            || currentSseDisabled !== r2SseDisabled
+          ) {
+            throw new Error('Managed reconciliation target changed before finalization');
+          }
+        }
+      : undefined;
     const managedOptions = activeManagedRelease
       ? {
           managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release },
@@ -163,6 +183,7 @@ async function reconcileAgentConfigsForRequest(
           ...(automatic ? {
             automatic: {
               assumeEmpty: bucketResult.created === true,
+              beforeCleanup: validateAutomaticTarget,
               onProgress: async ({ completed, total }: { completed: number; total: number }) => {
                 if (completed === 0 || completed === total || completed % 25 === 0) {
                   await writeManagedReconcileProgress(c.env.KV, bucketName, {
@@ -223,24 +244,7 @@ async function reconcileAgentConfigsForRequest(
 
     await c.env.KV.delete(`storage-stats:${bucketName}`);
 
-    if (automatic && activeManagedRelease) {
-      const finalActive = await getActiveManagedRelease(c.env);
-      const finalPreferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') ?? {};
-      const finalMode = await resolveEffectiveSessionMode(finalPreferences, user, c.env);
-      const finalSseDisabled = await resolveBucketSseOnEnsure(c.env, bucketName, false);
-      await assertNoOwningSession(c.env.KV, bucketName);
-      if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
-      if (
-        !finalActive
-        || finalActive.digest !== activeManagedRelease.digest
-        || finalActive.pointer.sequence !== activeManagedRelease.release.sequence
-        || finalActive.resourcePolicy !== resourcePolicy
-        || finalMode !== mode
-        || finalSseDisabled !== r2SseDisabled
-      ) {
-        throw new Error('Managed reconciliation target changed before finalization');
-      }
-    }
+    await validateAutomaticTarget?.();
 
     // Re-read to preserve concurrent preference changes. The applied stamp is the
     // final side effect: no caller can observe current until all R2/context work and

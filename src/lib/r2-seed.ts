@@ -647,6 +647,7 @@ function managedExtensionsDocument(selection: ManagedReleaseSelection): SeedDocu
 export interface ManagedAutomaticReconcileOptions {
   assumeEmpty: boolean;
   onProgress?: (progress: { completed: number; total: number }) => Promise<void>;
+  beforeCleanup?: () => Promise<void>;
 }
 
 type ManagedDocumentFingerprint = {
@@ -763,7 +764,10 @@ async function deleteManagedConfigsByDigest(
       if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
       const marker = head.headers.get(PRESEED_MARKER_HEADER);
       if (acceptAnyManagedMarker ? !marker || !/^[0-9a-f]{64}$/.test(marker) : marker !== digest) return {};
-      const response = await client.fetch(url, { method: 'DELETE' });
+      const etag = head.headers.get('etag');
+      if (!etag) throw new Error(`HEAD ${key}: missing ETag`);
+      const response = await client.fetch(url, { method: 'DELETE', headers: { 'If-Match': etag } });
+      if (response.status === 412) throw new Error(`DELETE ${key}: object changed during cleanup`);
       if (!response.ok && response.status !== 404) throw new Error(`DELETE ${key}: HTTP ${response.status}`);
       return { deleted: key };
     } catch (error) {
@@ -813,14 +817,15 @@ async function deleteRetiredManagedConfigs(
   const outcomes = await mapWithConcurrency(release.retiredPaths, async (key) => {
     const url = getR2Url(endpoint, bucketName, key);
     try {
-      if (!deleteWithoutProvenance) {
-        const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
-        if (head.status === 404) return {};
-        if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
-        // Mutable mode retains AD118 ownership transfer when provenance is absent.
-        if (!head.headers.get(PRESEED_MARKER_HEADER)) return {};
-      }
-      const response = await client.fetch(url, { method: 'DELETE' });
+      const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
+      if (head.status === 404) return {};
+      if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
+      // Mutable mode retains AD118 ownership transfer when provenance is absent.
+      if (!deleteWithoutProvenance && !head.headers.get(PRESEED_MARKER_HEADER)) return {};
+      const etag = head.headers.get('etag');
+      if (!etag) throw new Error(`HEAD ${key}: missing ETag`);
+      const response = await client.fetch(url, { method: 'DELETE', headers: { 'If-Match': etag } });
+      if (response.status === 412) throw new Error(`DELETE ${key}: object changed during cleanup`);
       if (!response.ok && response.status !== 404) throw new Error(`DELETE ${key}: HTTP ${response.status}`);
       return { deleted: key };
     } catch (error) {
@@ -1130,6 +1135,7 @@ export async function reconcileAgentConfigs(
   let warnings: string[] = [];
 
   if (options.cleanup) {
+    await options.automatic?.beforeCleanup?.();
     if (managedRelease === undefined || managedRelease === null) {
       const protectedKeys = managedRelease === null && options.priorManagedRelease
         ? new Set([

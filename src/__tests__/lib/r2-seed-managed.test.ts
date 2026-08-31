@@ -114,7 +114,7 @@ describe('managed release user-bucket reconciliation', () => {
     fetchR2.mockImplementation((url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
         const marker = url.endsWith('/edited.md') ? 'someone-else' : priorDigest;
-        return Promise.resolve(new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': marker } }));
+        return Promise.resolve(new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': marker, etag: '"prior"' } }));
       }
       return Promise.resolve(new Response('', { status: 200 }));
     });
@@ -141,7 +141,7 @@ describe('managed release user-bucket reconciliation', () => {
     fetchR2.mockImplementation((url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
         const marker = url.endsWith(`/${advancedOnlyKey}`) ? priorDigest : 'user-owned';
-        return Promise.resolve(new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': marker } }));
+        return Promise.resolve(new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': marker, etag: '"cacheless"' } }));
       }
       return Promise.resolve(new Response('', { status: 200 }));
     });
@@ -170,7 +170,7 @@ describe('managed release user-bucket reconciliation', () => {
     fetchR2.mockImplementation((url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
         const marker = url.endsWith('/legacy-owned.ts') ? 'baked-digest' : null;
-        return Promise.resolve(new Response('', { status: 200, headers: marker ? { 'x-amz-meta-codeflare-preseed': marker } : {} }));
+        return Promise.resolve(new Response('', { status: 200, headers: marker ? { 'x-amz-meta-codeflare-preseed': marker, etag: '"retired"' } : {} }));
       }
       return Promise.resolve(new Response('', { status: 200 }));
     });
@@ -192,7 +192,7 @@ describe('managed release user-bucket reconciliation', () => {
     current.retiredPaths = ['.pi/agent/extensions/retired.ts'];
     let policyBytes: BodyInit | null | undefined;
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (init?.method === 'HEAD') return new Response('', { status: 200 });
+      if (init?.method === 'HEAD') return new Response('', { status: 200, headers: { etag: '"protected-retired"' } });
       if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT') policyBytes = init.body;
       if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'GET') return new Response(policyBytes, { status: 200 });
       return new Response('', { status: 200 });
@@ -550,6 +550,34 @@ describe('managed release user-bucket reconciliation', () => {
     expect(cleanupList).toBeGreaterThan(desiredPut);
   });
 
+  it('REQ-STOR-033 AC5: cleanup binds deletion to the HEAD-observed object version', async () => {
+    const prior = await selection('1'.repeat(64), release(40, [document('.claude/removed.md')]));
+    const target = await selection('2'.repeat(64), release(41, []));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD' && url.endsWith('/removed.md')) {
+        return new Response('', {
+          status: 200,
+          headers: { 'x-amz-meta-codeflare-preseed': '0'.repeat(64), etag: '"observed"' },
+        });
+      }
+      if (init?.method === 'DELETE' && url.endsWith('/removed.md')) return new Response('', { status: 412 });
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: target,
+      priorManagedRelease: { ...prior, mode: 'default' },
+      automatic: { assumeEmpty: false },
+    });
+
+    const deletion = fetchR2.mock.calls.find(([url, init]) => url.endsWith('/removed.md') && init?.method === 'DELETE');
+    expect(new Headers(deletion?.[1]?.headers).get('If-Match')).toBe('"observed"');
+    expect(result.deleted).not.toContain('.claude/removed.md');
+    expect(result.warnings).toContain('DELETE .claude/removed.md: object changed during cleanup');
+  });
+
   it('REQ-STOR-021 AC2 + REQ-STOR-033 AC5: direct delta cleanup accepts older valid markers and preserves markerless edits', async () => {
     const prior = await selection('1'.repeat(64), release(40, [
       document('.claude/markerless-edit.md'),
@@ -560,7 +588,7 @@ describe('managed release user-bucket reconciliation', () => {
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
         const marker = url.endsWith('/old-managed.md') ? '0'.repeat(64) : null;
-        return new Response('', { status: 200, headers: marker ? { 'x-amz-meta-codeflare-preseed': marker } : {} });
+        return new Response('', { status: 200, headers: marker ? { 'x-amz-meta-codeflare-preseed': marker, etag: '"old-managed"' } : {} });
       }
       return new Response('', { status: 200 });
     });

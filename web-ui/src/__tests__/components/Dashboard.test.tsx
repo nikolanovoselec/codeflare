@@ -1107,7 +1107,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(button).toHaveAttribute('aria-label', 'Session environment update pending until session stops');
   });
 
-  it('REQ-AGENT-049 AC8: whole-button managed upgrade progress preserves centered text and ordinary completion color', () => {
+  it('REQ-AGENT-175 AC4: whole-button managed upgrade progress preserves centered text and ordinary completion color', () => {
     (sessionStore as any)._setManagedReleaseStatus('upgrading');
     (sessionStore as any)._setManagedReleaseProgress({ phase: 'writing', completed: 25, total: 100 });
     render(() => <Dashboard {...defaultProps} />);
@@ -1128,7 +1128,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(complete.getAttribute('style')).toContain('var(--color-accent) 100%');
   });
 
-  it('REQ-AGENT-049 AC8: shows planning and finalizing managed upgrade phases', () => {
+  it('REQ-AGENT-175 AC4: shows planning and finalizing managed upgrade phases', () => {
     (sessionStore as any)._setManagedReleaseStatus('upgrading');
     (sessionStore as any)._setManagedReleaseProgress({ phase: 'planning', completed: 0, total: 0 });
     render(() => <Dashboard {...defaultProps} />);

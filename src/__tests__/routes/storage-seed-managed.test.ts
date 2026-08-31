@@ -401,15 +401,16 @@ describe('managed storage reconcile', () => {
     expect(reconcile).not.toHaveBeenCalled();
   });
 
-  it('REQ-STOR-033 AC6: target changes during automatic reconciliation and prevents applied stamping', async () => {
+  it('REQ-STOR-033 AC6: target changes before cleanup and prevents destructive finalization', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
-    reconcile.mockImplementationOnce(async () => {
+    reconcile.mockImplementationOnce(async (...args: any[]) => {
       state.active = {
         ...state.active!,
         digest: 'e'.repeat(64),
         pointer: { ...state.active!.pointer, digest: 'e'.repeat(64), sequence: 10 },
       };
+      await args[4].automatic.beforeCleanup();
       return { written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined };
     });
 
@@ -419,7 +420,7 @@ describe('managed storage reconcile', () => {
     expect(preferences.managedEnvironmentApplied).toBeUndefined();
   });
 
-  it('REQ-STOR-033 AC8: finalizing progress is persisted before cleanup begins', async () => {
+  it('REQ-STOR-034 AC2: finalizing progress is persisted before cleanup begins', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
     reconcile.mockImplementationOnce(async (...args: any[]) => {
@@ -434,7 +435,7 @@ describe('managed storage reconcile', () => {
     expect(response.status).toBe(200);
   });
 
-  it('REQ-STOR-033 AC8: automatic progress is bounded, observational, and cleared after stamping', async () => {
+  it('REQ-STOR-034 AC2/AC3: automatic progress is bounded, observational, and cleared after stamping', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
 

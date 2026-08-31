@@ -445,7 +445,7 @@ describe('Session Store', () => {
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
     });
 
-    it('REQ-AGENT-049 AC8: mirrors managed release progress from batch status', async () => {
+    it('REQ-AGENT-175 AC4: mirrors managed release progress from batch status', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {}, maxSessions: 3, managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: false,
         managedReleaseProgress: { phase: 'writing', completed: 25, total: 61 },
@@ -518,7 +518,7 @@ describe('Session Store', () => {
       expect(sessionStore.bucketMigrationPercent).toBeNull();
     });
 
-    it('REQ-AGENT-049 AC8: mirrors managed release progress on transient polling', async () => {
+    it('REQ-AGENT-175 AC4: mirrors managed release progress on transient polling', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,
