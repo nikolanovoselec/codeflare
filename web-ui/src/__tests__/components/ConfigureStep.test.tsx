@@ -455,6 +455,13 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
 
       fireEvent.click(screen.getByText('Continue'));
       expect((screen.getByText('Continue').closest('button') as HTMLButtonElement).disabled).toBe(false);
+
+      cleanup();
+      storeState.aigToken = '';
+      storeState.aigTokenSet = true;
+      render(() => <ConfigureStep />);
+      fireEvent.click(screen.getByText('Continue'));
+      expect((screen.getByText('Continue').closest('button') as HTMLButtonElement).disabled).toBe(false);
     });
   });
 
