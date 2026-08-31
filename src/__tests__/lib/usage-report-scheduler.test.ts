@@ -14,6 +14,10 @@ describe('usage report retention transaction (REQ-SUB-026, REQ-SUB-027)', () => 
     });
   });
 
+  it('starts ISO weeks on Monday for non-Sunday dates', () => {
+    expect(retentionCutoffs(new Date('2027-08-16T12:00:00.000Z')).week).toBe('2026-06-29');
+  });
+
   it('uses one token-guarded transactional batch', async () => {
     const statements: Array<{ sql: string; values: unknown[] }> = [];
     const db = {

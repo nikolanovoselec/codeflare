@@ -13,6 +13,8 @@ describe('usage report artifacts and email boundary (REQ-SUB-027)', () => {
     expect(report.html).toContain('&lt;ops&gt;@example.com');
     expect(report.html).not.toContain('<ops>');
     expect(report.csv).toBe('email,runtime_seconds,session_count\r\n<ops>@example.com,3600,1\r\na+one@example.com,61,2\r\n');
+    expect(buildReportArtifacts('2027-07', [{ email: 'ops,team@example.com', runtimeSeconds: 1, sessionCount: 1 }]).csv)
+      .toContain('"ops,team@example.com",1,1');
   });
 
   it('separates scheduled and repeated test dispatch identities', () => {
