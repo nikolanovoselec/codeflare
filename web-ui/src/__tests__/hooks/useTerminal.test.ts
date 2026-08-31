@@ -1006,12 +1006,13 @@ describe('useTerminal hook', () => {
   });
 
   describe('Herdr deterministic touch taps', () => {
-    it('REQ-MOB-022 AC1/AC3: snaps Pi fullscreen history to bottom before opening mobile input', async () => {
+    it('REQ-MOB-022 AC1/AC3: activates the pane and snaps Pi fullscreen history before opening mobile input', async () => {
       const { attachSwipeGestures } = await import('../../lib/touch-gestures');
       const { sendHerdrTap } = await import('../../lib/herdr-mouse');
       const { focusMobileTerminal } = await import('../../lib/terminal-mobile-input');
+      const onActivate = vi.fn();
       const dispose = createRoot((dispose) => {
-        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr' });
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr', onActivate });
         result.containerRef(containerEl);
         return dispose;
       });
@@ -1021,6 +1022,7 @@ describe('useTerminal hook', () => {
 
       tap?.(42, 57);
 
+      expect(onActivate).toHaveBeenCalledTimes(1);
       expect(sendHerdrTap).toHaveBeenCalledWith(
         mockXtermScreen,
         expect.anything(),
@@ -1030,9 +1032,11 @@ describe('useTerminal hook', () => {
       );
       expect(sendTerminalKey).toHaveBeenCalledWith(expect.anything(), '\x1b[F');
       expect(focusMobileTerminal).toHaveBeenCalled();
+      const activateOrder = onActivate.mock.invocationCallOrder;
       const tapOrder = vi.mocked(sendHerdrTap).mock.invocationCallOrder;
       const endOrder = vi.mocked(sendTerminalKey).mock.invocationCallOrder;
       const focusOrder = vi.mocked(focusMobileTerminal).mock.invocationCallOrder;
+      expect(activateOrder[activateOrder.length - 1]!).toBeLessThan(tapOrder[tapOrder.length - 1]!);
       expect(tapOrder[tapOrder.length - 1]!).toBeLessThan(endOrder[endOrder.length - 1]!);
       expect(endOrder[endOrder.length - 1]!).toBeLessThan(focusOrder[focusOrder.length - 1]!);
       dispose();

@@ -6,6 +6,7 @@ import {
   ContainerError,
   AuthError,
   QuotaExceededError,
+  ManagedEnvironmentUpdatePendingError,
 } from '../../lib/error-types';
 
 describe('AppError', () => {
@@ -152,6 +153,15 @@ describe('AuthError', () => {
     expect(json).toEqual({
       error: 'Authentication required',
       code: 'AUTH_ERROR',
+    });
+  });
+});
+
+describe('ManagedEnvironmentUpdatePendingError', () => {
+  it('keeps session-start guidance as the default surface', () => {
+    expect(new ManagedEnvironmentUpdatePendingError().toJSON()).toEqual({
+      error: 'Your managed environment must finish updating before another session can start.',
+      code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING',
     });
   });
 });

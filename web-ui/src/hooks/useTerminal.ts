@@ -36,6 +36,7 @@ export interface UseTerminalOptions {
   connect?: boolean;
   alwaysObserveResize?: boolean;
   hideInitProgress?: boolean;
+  onActivate?: () => void;
   onError?: (error: string) => void;
   onInitComplete?: () => void;
 }
@@ -285,6 +286,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
         cleanupHerdrMouse = attachHerdrMouseInput(screen, t, send);
         sendHerdrTouchTap = (clientX, clientY) => {
           const openingMobileInput = !isVirtualKeyboardOpen();
+          props.onActivate?.();
           sendHerdrTap(screen, t, send, clientX, clientY);
           if (openingMobileInput) send(FUNCTIONAL_KEY_MAP.End);
           focusMobileTerminal(t);

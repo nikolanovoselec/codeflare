@@ -129,14 +129,16 @@ export class BucketMigratingError extends AppError {
   }
 }
 
-/** A verified coding-environment release must converge before another container starts. */
+/** A verified coding-environment release must converge before another container starts or storage mutates. */
 export class ManagedEnvironmentUpdatePendingError extends AppError {
-  constructor() {
+  constructor(surface: 'session' | 'storage' = 'session') {
     super(
       'MANAGED_ENVIRONMENT_UPDATE_PENDING',
       409,
       'Managed environment update is pending',
-      'Your managed environment must finish updating before another session can start.',
+      surface === 'storage'
+        ? 'Uploads and deletions are blocked until your managed environment finishes updating. Wait for the update to finish, then try again.'
+        : 'Your managed environment must finish updating before another session can start.',
     );
   }
 }
