@@ -384,6 +384,11 @@ jobs:
         with:
           key-prefix: root
 
+      - name: Set environment log sampling
+        env:
+          ENVIRONMENT_NAME: ${{ needs.prepare.outputs.env_name }}
+        run: node scripts/ci/set-head-sampling.mjs wrangler.toml "$ENVIRONMENT_NAME"
+
       - name: Preflight deployment credentials and D1 access
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEPLOY_API_TOKEN }}

@@ -1,4 +1,7 @@
 import type { HistoryOutboxEntry, PeriodKind } from '../timekeeper/accounting';
+import { createLogger } from './logger';
+
+const logger = createLogger('usage-history');
 
 const PERIOD_KINDS = new Set<PeriodKind>(['day', 'week', 'month', 'year']);
 const PERIOD_START = /^(?:\d{4}-\d{2}-\d{2}|\d{4}-\d{2}|\d{4})$/;
@@ -235,6 +238,16 @@ WHERE u.user_key = ?1`;
 
   const results = await db.batch(statements);
   if (results.some((result) => result.success !== true)) throw new Error('D1 history batch failed');
+  const metrics = results.reduce((total, result) => ({
+    rowsRead: total.rowsRead + Number(result.meta?.rows_read ?? 0),
+    rowsWritten: total.rowsWritten + Number(result.meta?.rows_written ?? 0),
+    sqlDurationMs: total.sqlDurationMs + Number(result.meta?.duration ?? 0),
+  }), { rowsRead: 0, rowsWritten: 0, sqlDurationMs: 0 });
+  logger.info('D1 usage history batch', {
+    ...metrics,
+    backlogSeconds: Math.max(0, Math.floor((Date.now() - Date.parse(dataSince)) / 1_000)),
+    snapshotCount: snapshots.length,
+  });
   const rows = (results.at(-1)?.results ?? []) as unknown as AcknowledgementRow[];
   const deleted = rows.some((row) => row.account_status === 'deleted');
   const acknowledged = deleted || snapshots.every((snapshot) => rows.some((row) =>

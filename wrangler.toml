@@ -21,6 +21,9 @@ compatibility_flags = ["nodejs_compat"]
 [observability]
 enabled = true
 
+[observability.logs]
+head_sampling_rate = 1
+
 [triggers]
 crons = ["*/15 * * * *"]
 
