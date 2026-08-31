@@ -105,7 +105,7 @@ Plan Mode 0.52.0 and Goal 0.53.0 share upstream's session-scoped `workflow:mutex
 
 A malformed file is left byte-for-byte alone rather than being "repaired" by startup. There is no settings-panel patch for these Codeflare-owned startup values.
 
-On reload, `capability.ts` keeps those tools active when the session's latest canonical Goal state is unfinished or Goal's user-owned `always` policy already activated both tools, allowing the same Goal to restore without independently widening fresh or completed lazy sessions ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC4/AC5).
+On reload, `capability-helpers.ts` keeps those tools active when the session's latest canonical Goal state is unfinished or Goal's user-owned `always` policy already activated both tools, allowing the same Goal to restore without independently widening fresh or completed lazy sessions ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC4/AC5).
 
 Startup removes the retired `pi-goal-list-loop-audit` package from persisted settings, preventing its Explore ownership warning from surviving an image upgrade. Its replacement's runtime dependencies remain integrity-locked in the committed preseed lock.
 
