@@ -192,6 +192,36 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(await kv.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID)).toBeNull();
   });
 
+  it('REQ-SETUP-024: preserves saved OAuth secrets when replacements are blank', async () => {
+    const { app, kv } = createApp();
+    await kv.put(SETUP_KEYS.GITHUB_APP_CLIENT_SECRET, 'saved-github-app-secret');
+    await kv.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET, 'saved-github-oauth-secret');
+    await kv.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET, 'saved-cloudflare-oauth-secret');
+
+    const githubResponse = await post(app, {
+      section: 'github',
+      baseRevision: 0,
+      values: {
+        providerType: 'app',
+        appClientId: '',
+        appReplacementSecret: '',
+        oauthClientId: '',
+        oauthReplacementSecret: '',
+      },
+    });
+    expect(snapshots(await githubResponse.text()).at(-1).run.state).toBe('succeeded');
+    expect(await kv.get(SETUP_KEYS.GITHUB_APP_CLIENT_SECRET)).toBe('saved-github-app-secret');
+    expect(await kv.get(SETUP_KEYS.GITHUB_OAUTH_CLIENT_SECRET)).toBe('saved-github-oauth-secret');
+
+    const cloudflareResponse = await post(app, {
+      section: 'cloudflareConnection',
+      baseRevision: 1,
+      values: { clientId: '', replacementSecret: '' },
+    });
+    expect(snapshots(await cloudflareResponse.text()).at(-1).run.state).toBe('succeeded');
+    expect(await kv.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_SECRET)).toBe('saved-cloudflare-oauth-secret');
+  });
+
   it('continues persisted execution after the response observer disconnects', async () => {
     const { app, kv, env } = createApp();
     let background: Promise<unknown> | undefined;
