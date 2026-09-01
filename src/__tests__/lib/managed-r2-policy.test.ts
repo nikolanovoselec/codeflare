@@ -20,7 +20,6 @@ function release(overrides: Partial<ManagedReleaseIndex> = {}): ManagedReleaseIn
     runtimeDependencyHash: 'c'.repeat(64),
     documents: [
       { key: '.claude/extensions/company/index.ts', modes: ['advanced', 'default'] },
-      { key: '.pi/agent/AGENTS.md', modes: ['advanced', 'default'] },
       { key: '.pi/agent/extensions/company.ts', modes: ['advanced'] },
     ],
     retiredPaths: ['.codex/extensions/retired.ts'],
@@ -44,7 +43,6 @@ describe('REQ-STOR-028 managed R2 policy', () => {
         '.codeflare/managed-extensions.json',
         '.codeflare/managed-paths.json',
         '.codex/extensions/retired.ts',
-        '.pi/agent/AGENTS.md',
         '.pi/agent/extensions/company.ts',
       ],
       resourceRoots: [],

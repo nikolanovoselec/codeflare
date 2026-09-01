@@ -535,7 +535,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/` (Antigravity), `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
-The next managed design suite is owned in `codeflare-curation` PR #49 and remains pending publication. It selects one web, mobile, desktop, static, or incumbent authority and keeps motion, components, performance, and finishing subordinate. When published, the pinned compiler projects agent-neutral content to supported runtimes; Pi receives one compact routing rule, Copilot receives the documented non-skill fallback, and Canvas retains required Apache-2.0 attribution. Until then, this repository's baked preseed remains the fallback inventory. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
+The next managed design suite is owned in `codeflare-curation` PR #49 and remains pending publication. It selects one web, mobile, desktop, static, or incumbent authority and keeps motion, components, performance, and finishing subordinate. When published, the pinned compiler projects agent-neutral content to supported runtimes; Pi receives one compact routing rule, Copilot remains unsupported because it has no skill-directory contract, and Canvas retains required Apache-2.0 attribution. Until then, this repository's baked preseed remains the fallback inventory. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
 
 The release auto-upgrade check uses
 `GET /api/sessions/batch-status?includePreseedCheck=true` to compare

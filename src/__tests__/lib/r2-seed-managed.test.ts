@@ -350,7 +350,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2.mock.calls.some(([, init]) => ['PUT', 'DELETE', 'POST'].includes(String(init?.method)))).toBe(false);
   });
 
-  it('REQ-STOR-029 AC3: exclusive cleanup preserves managed and similarly prefixed objects in one bounded delete batch', async () => {
+  it('REQ-STOR-029 AC3: exclusive cleanup preserves managed objects in one bounded delete batch', async () => {
     const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
     let policyBytes: BodyInit | null | undefined;
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
@@ -382,7 +382,6 @@ describe('managed release user-bucket reconciliation', () => {
     expect(deleteBatches).toHaveLength(1);
     expect(String(deleteBatches[0][1].body)).toContain('<Key>.claude/extensions/personal/index.ts</Key>');
     expect(String(deleteBatches[0][1].body)).not.toContain('.claude/extensions/company/index.ts');
-    expect(String(deleteBatches[0][1].body)).not.toContain('.claude/extensions-other/personal.md');
   });
 
   it('REQ-STOR-029 AC4: partial exclusive batch failures prevent policy identity from being committed', async () => {

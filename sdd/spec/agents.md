@@ -2838,7 +2838,9 @@ None.
 
 **Verification:** Manual managed-manifest, projection, and fresh-context review
 
-**Status:** Implemented
+**Notes:** Pending curation PR #49 publication.
+
+**Status:** Planned
 
 ---
 
@@ -2862,7 +2864,9 @@ None.
 
 **Verification:** Manual source and routing review
 
-**Status:** Implemented
+**Notes:** Pending curation PR #49 publication.
+
+**Status:** Planned
 
 ---
 
@@ -2886,7 +2890,9 @@ None.
 
 **Verification:** Manual incumbent, redesign, and bounded-polish review
 
-**Status:** Implemented
+**Notes:** Pending curation PR #49 publication.
+
+**Status:** Planned
 
 ---
 
@@ -2910,7 +2916,9 @@ None.
 
 **Verification:** Manual repository inspection and fresh-context review
 
-**Status:** Implemented
+**Notes:** Pending curation PR #49 publication.
+
+**Status:** Planned
 
 ---
 
@@ -2940,7 +2948,9 @@ None.
 
 **Verification:** Manual managed-projection inspection and fresh-context activation review.
 
-**Status:** Implemented
+**Notes:** Pending curation PR #49 publication.
+
+**Status:** Planned
 
 ---
 
@@ -2976,7 +2986,9 @@ None.
 
 **Verification:** Manual portability inspection and fresh-context frontend review.
 
-**Status:** Implemented
+**Notes:** Pending curation PR #49 publication.
+
+**Status:** Planned
 
 ---
 
@@ -3007,7 +3019,9 @@ None.
 
 **Verification:** Manual compatibility, updater-boundary, and activation review.
 
-**Status:** Implemented
+**Notes:** Pending curation PR #49 publication.
+
+**Status:** Planned
 
 ---
 
@@ -3034,7 +3048,9 @@ None.
 
 **Verification:** Manual projection inspection and fresh-context dual-axis routing review.
 
-**Status:** Implemented
+**Notes:** Pending curation PR #49 publication.
+
+**Status:** Planned
 
 ---
 
@@ -3062,7 +3078,9 @@ None.
 
 **Verification:** Manual check
 
-**Status:** Implemented
+**Notes:** Pending curation PR #49 publication.
+
+**Status:** Planned
 
 ---
 
@@ -3140,7 +3158,9 @@ None.
 
 **Verification:** Manual check
 
-**Status:** Implemented
+**Notes:** Pending curation PR #49 publication.
+
+**Status:** Planned
 
 ---
 

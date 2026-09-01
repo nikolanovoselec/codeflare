@@ -574,9 +574,9 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
     // The per-prefix page guard cannot see this: neither prefix trips it. The
     // cross-prefix check after the merge is the only remaining bound on total
     // HEAD and DELETE subrequests.
-    const claudeExtensions = Array.from({ length: 150 }, (_, i) => `.claude/extensions/s${i}/index.ts`);
-    const piExtensions = Array.from({ length: 150 }, (_, i) => `.pi/agent/extensions/r${i}.ts`);
-    const all = [...claudeExtensions, ...piExtensions];
+    const extensions = Array.from({ length: 150 }, (_, i) => `.claude/extensions/s${i}/index.ts`);
+    const plugins = Array.from({ length: 150 }, (_, i) => `.claude/plugins/p${i}/index.js`);
+    const all = [...extensions, ...plugins];
     mockR2({ listed: all, markers: Object.fromEntries(all.map((k) => [k, 'an-older-build'])) });
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
