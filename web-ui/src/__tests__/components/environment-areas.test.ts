@@ -39,7 +39,7 @@ describe('Environment area summaries', () => {
     expect(environmentAreas(configuration)[0].summary).toBe('1 administrator · 1 user group');
   });
 
-  it('filters loaded areas by label, description, and current summary', () => {
+  it('REQ-SETUP-019 AC8: filters loaded areas by label, description, and current summary', () => {
     const configuration: AdminConfigurationResponse = {
       mode: 'enterprise', revision: 1, applicableSections: ['domain', 'usageReports'], activeRunId: null, latest: {},
       sections: { domain: { customDomain: 'enterprise.example.com' }, usageReports: { enabled: false } },

@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-01
+
+- **Administration polish makes bounded settings easier to find and recovery harder to misread** ([REQ-SETUP-019](setup.md#req-setup-019-administration-and-analytics-shell) AC8 and [REQ-SETUP-022](setup.md#req-setup-022-initialization-presentation-and-hydration) AC4 added; remain Implemented). Environment filters its already loaded areas by label, description, or current summary and reports an empty result for unmatched queries. Configured recovery offers Review initialization while an unconfigured deployment retains Start setup.
+
 ## 2026-08-31
 
 - **Enterprise first-run AI routing validates its complete credential boundary** ([REQ-ENTERPRISE-012](enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list) AC6 amended; remains Implemented). The progressive AI-routing stage requires at least one dynamic route, a Gateway URL, and either a saved or newly entered Gateway token before continuing.

@@ -562,6 +562,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 5. Loading, empty, failure, conflict, reconnect, and responsive states follow the approved Administration and Analytics design contract. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @impl: web-ui/src/styles/administration.css::.admin-shell --> <!-- @manual -->
 6. First-run Setup presents mode-applicable readiness, access, routing, platform, managed-environment, integration, review, apply, and result stages. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @manual -->
 7. Completed deployments expose bootstrap recovery through Administration instead of duplicating the action in workspace settings. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @manual -->
+8. Loaded Environment areas filter case-insensitively by label, area description, and current summary; a non-matching query shows an empty result. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentIndex --> <!-- @impl: web-ui/src/components/admin/environment-areas.ts::filterEnvironmentAreas --> <!-- @test: web-ui/src/__tests__/components/environment-areas.test.ts (REQ-SETUP-019 AC8: filters loaded areas by label, description, and current summary) -->
 
 **Constraints:** One authoritative response owns mode gating. No UI framework, chart package, icon package, or duplicate mode logic is added.
 
@@ -569,7 +570,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [REQ-SUB-009](subscription.md#req-sub-009-admin-tier-management)
 
-**Verification:** Automated backend mode gates and user-owned manual UI acceptance on Integration
+**Verification:** Automated backend mode gates and Environment filtering plus user-owned manual UI acceptance on Integration
 
 **Status:** Implemented
 
@@ -631,6 +632,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 1. Administration labels its bootstrap-recovery entry Initialization. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @manual -->
 2. A configured deployment keeps recovery hidden until existing values load, then shows Completed status with its effective deployment mode. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/stores/setup.ts::loadExistingConfig --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (REQ-SETUP-022 AC2: hydrates completed Enterprise initialization before rendering recovery) -->
 3. Failed configured-deployment hydration shows a retryable load error without rendering recovery defaults. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/stores/setup.ts::loadExistingConfig --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (REQ-SETUP-022 AC3: keeps configured recovery closed when hydration fails) --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (REQ-SETUP-022 AC3: reports hydration failure and permits retry) --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (REQ-SETUP-022 AC3: keeps configured recovery closed when provider prefill fails) -->
+4. Configured recovery offers Review initialization while unconfigured first-run offers Start setup. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/setup/WelcomeStep.tsx::WelcomeStep --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (REQ-SETUP-022 AC4: distinguishes configured recovery from first-run setup) -->
 
 **Constraints:** First-run Setup remains best-effort before any deployed configuration exists.
 
@@ -638,7 +640,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell)
 
-**Verification:** Automated hydration-order and failure-state behavior plus user-owned manual UI acceptance on Integration
+**Verification:** Automated hydration-order, recovery-action, and failure-state behavior plus user-owned manual UI acceptance on Integration
 
 **Status:** Implemented
 
