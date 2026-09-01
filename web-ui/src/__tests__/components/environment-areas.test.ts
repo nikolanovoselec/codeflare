@@ -39,7 +39,7 @@ describe('Environment area summaries', () => {
     expect(environmentAreas(configuration)[0].summary).toBe('1 administrator · 1 user group');
   });
 
-  it('REQ-SETUP-019 AC8: filters loaded areas by label, description, and current summary', () => {
+  it('REQ-SETUP-023 AC1: filters loaded areas by label, description, and current summary', () => {
     const configuration: AdminConfigurationResponse = {
       mode: 'enterprise', revision: 1, applicableSections: ['domain', 'usageReports'], activeRunId: null, latest: {},
       sections: { domain: { customDomain: 'enterprise.example.com' }, usageReports: { enabled: false } },
@@ -49,5 +49,6 @@ describe('Environment area summaries', () => {
     expect(filterEnvironmentAreas(areas, 'DNS').map((area) => area.section)).toEqual(['domain']);
     expect(filterEnvironmentAreas(areas, 'monthly delivery').map((area) => area.section)).toEqual(['usageReports']);
     expect(filterEnvironmentAreas(areas, 'ENTERPRISE.EXAMPLE.COM').map((area) => area.section)).toEqual(['domain']);
+    expect(filterEnvironmentAreas(areas, 'no matching area')).toEqual([]);
   });
 });

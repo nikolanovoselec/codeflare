@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-01
 
-- **Administration polish makes bounded settings easier to find and recovery harder to misread** ([REQ-SETUP-019](setup.md#req-setup-019-administration-and-analytics-shell) AC8 and [REQ-SETUP-022](setup.md#req-setup-022-initialization-presentation-and-hydration) AC4 added; remain Implemented). Environment filters its already loaded areas by label, description, or current summary and reports an empty result for unmatched queries. Configured recovery offers Review initialization while an unconfigured deployment retains Start setup.
+- **Administration polish makes bounded settings easier to find and recovery harder to misread** ([REQ-SETUP-023](setup.md#req-setup-023-environment-catalog-filtering) added and [REQ-SETUP-022](setup.md#req-setup-022-initialization-presentation-and-hydration) AC4-AC5 added; remain Implemented). Environment filters its already loaded areas by label, description, or current summary and reports an empty result for unmatched queries. Configured recovery offers Review initialization while an unconfigured deployment retains Start setup.
 
 ## 2026-08-31
 

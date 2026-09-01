@@ -75,7 +75,7 @@ describe('SetupWizard', () => {
       });
     });
 
-    it('REQ-SETUP-022 AC4: distinguishes configured recovery from first-run setup', async () => {
+    it('REQ-SETUP-022 AC4: labels configured recovery as initialization review', async () => {
       mockedGetSetupStatus.mockResolvedValue({ configured: true, enterpriseMode: true });
       Object.assign(setupStore, {
         enterpriseMode: true,
@@ -86,10 +86,14 @@ describe('SetupWizard', () => {
       render(() => <SetupWizard />);
       await waitFor(() => expect(document.body.textContent).toContain('Review initialization'));
       expect(document.body.textContent).not.toContain('Start setup');
+    });
 
-      cleanup();
-      mockedGetSetupStatus.mockResolvedValue({ configured: false });
-      Object.assign(setupStore, { enterpriseMode: false });
+    it('REQ-SETUP-022 AC5: retains the first-run setup action', async () => {
+      Object.assign(setupStore, {
+        tokenDetected: true,
+        accountInfo: { id: 'account-id', name: 'Enterprise account' },
+      });
+
       render(() => <SetupWizard />);
       await waitFor(() => expect(document.body.textContent).toContain('Start setup'));
       expect(document.body.textContent).not.toContain('Review initialization');
