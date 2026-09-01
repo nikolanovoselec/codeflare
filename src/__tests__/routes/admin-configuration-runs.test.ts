@@ -162,7 +162,7 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(JSON.parse(await kv.get(`admin:configuration:latest:github`) as string)).toMatchObject({ runId, state: 'succeeded' });
   });
 
-  it('REQ-SETUP-018: removes explicitly cleared non-secret OAuth client IDs', async () => {
+  it('REQ-SETUP-024: removes explicitly cleared non-secret OAuth client IDs', async () => {
     const { app, kv } = createApp();
     await kv.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, 'saved-github-app');
     await kv.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID, 'saved-github-oauth');

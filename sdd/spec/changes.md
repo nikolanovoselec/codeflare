@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-01
 
+- **Routine OAuth identifier updates distinguish removal from omission** ([REQ-SETUP-024](setup.md#req-setup-024-routine-oauth-identifier-persistence) added as Implemented). An explicitly blank GitHub App, GitHub OAuth, or Cloudflare OAuth client ID removes the saved identifier; omitted IDs in the internal Initialization compatibility submission preserve saved values, and blank replacement secrets remain no-clobber.
+
 - **Interactive Browser Run stays available through normal multi-step work** ([REQ-BROWSER-001](browser-run.md#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp) AC5 and [REQ-BROWSER-006](browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter) AC5 amended; remain Implemented). Claude and Pi now keep their shared interactive browser alive for three idle minutes instead of 30 seconds, reducing avoidable session loss during authentication, large snapshots, and responsive workflow checks without making browser state persistent.
 
 - **Administration polish makes bounded settings easier to find and recovery harder to misread** ([REQ-SETUP-023](setup.md#req-setup-023-environment-catalog-filtering) added and [REQ-SETUP-022](setup.md#req-setup-022-initialization-presentation-and-hydration) AC4-AC5 added; remain Implemented). Environment filters its already loaded areas by label, description, or current summary and reports an empty result for unmatched queries. Configured recovery offers Review initialization while an unconfigured deployment retains Start setup.

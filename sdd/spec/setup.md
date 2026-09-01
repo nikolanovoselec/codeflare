@@ -668,3 +668,26 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Status:** Implemented
 
 ---
+
+### REQ-SETUP-024: Routine OAuth identifier persistence
+
+**Intent:** Administrators can remove saved non-secret OAuth identifiers without an internal Initialization compatibility submission erasing omitted values.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. An explicitly blank GitHub App, GitHub OAuth, or Cloudflare OAuth client ID removes that saved identifier, while a blank replacement secret preserves the saved secret. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-SETUP-024: removes explicitly cleared non-secret OAuth client IDs) -->
+2. When the internal Initialization compatibility submission omits one of those client IDs, the saved identifier is preserved. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-SETUP-024: omitted client IDs preserve stored values during internal initialization compatibility calls) -->
+
+**Constraints:** Client IDs remain non-secret KV values. Secret replacement remains encrypted and no-clobber on blank.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SETUP-018](#req-setup-018-stateless-environment-preview-and-bounded-execution), [REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth)
+
+**Verification:** Automated Administration-run and Initialization compatibility tests
+
+**Status:** Implemented
+
+---
