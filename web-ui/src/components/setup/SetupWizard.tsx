@@ -92,7 +92,7 @@ const SetupWizard: Component = () => {
           </div>
           <div class="setup-content">
             <Switch>
-              <Match when={setupStore.step === 1}><WelcomeStep /></Match>
+              <Match when={setupStore.step === 1}><WelcomeStep initializationComplete={initializationComplete()} /></Match>
               <Match when={setupStore.step === 2}><ConfigureStep /></Match>
               <Match when={setupStore.step === 3}><ProgressStep /></Match>
             </Switch>

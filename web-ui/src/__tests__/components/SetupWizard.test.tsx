@@ -75,6 +75,20 @@ describe('SetupWizard', () => {
       });
     });
 
+    it('labels configured recovery as a review rather than a new setup', async () => {
+      mockedGetSetupStatus.mockResolvedValue({ configured: true, enterpriseMode: true });
+      Object.assign(setupStore, {
+        enterpriseMode: true,
+        tokenDetected: true,
+        accountInfo: { id: 'account-id', name: 'Enterprise account' },
+      });
+
+      render(() => <SetupWizard />);
+
+      await waitFor(() => expect(document.body.textContent).toContain('Review initialization'));
+      expect(document.body.textContent).not.toContain('Start setup');
+    });
+
     it('REQ-SETUP-022 AC3: keeps configured recovery closed when hydration fails', async () => {
       mockedGetSetupStatus.mockResolvedValue({ configured: true, enterpriseMode: true });
       vi.mocked(setupStore.loadExistingConfig).mockResolvedValueOnce(false);

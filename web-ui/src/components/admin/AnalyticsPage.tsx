@@ -84,7 +84,7 @@ const AnalyticsPage: Component = () => {
             <Show when={resolved().dataSince} fallback={
               <div class="admin-state-panel">
                 <h2>No historical usage yet</h2>
-                <p>History starts with the first successful accounting write. Existing totals are not backfilled.</p>
+                <p>No {query().period} history is available for {query().start} UTC. Collection starts with the first successful accounting write; existing totals are not backfilled.</p>
               </div>
             }>
               <section class="admin-metrics" aria-label="Usage summary">

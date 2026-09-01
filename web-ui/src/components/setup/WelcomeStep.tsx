@@ -10,7 +10,7 @@ import Button from '../ui/Button';
 import SetupJourneyNav from './SetupJourneyNav';
 import '../../styles/welcome-step.css';
 
-const WelcomeStep: Component = () => {
+const WelcomeStep: Component<{ initializationComplete?: boolean }> = (props) => {
   onMount(() => {
     setupStore.detectToken();
   });
@@ -64,7 +64,7 @@ const WelcomeStep: Component = () => {
 
             <div class="setup-actions setup-actions--end">
               <Button onClick={() => setupStore.nextStep()}>
-                Start setup
+                {props.initializationComplete ? 'Review initialization' : 'Start setup'}
               </Button>
             </div>
           </>

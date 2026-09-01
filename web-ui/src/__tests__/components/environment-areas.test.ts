@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { environmentAreas } from '../../components/admin/environment-areas';
+import { environmentAreas, filterEnvironmentAreas } from '../../components/admin/environment-areas';
 import type { AdminConfigurationResponse } from '../../types';
 
 function managedEnvironmentArea(section: unknown) {
@@ -28,5 +28,26 @@ describe('Environment area summaries', () => {
       summary: 'No managed release selected',
       status: 'Not configured',
     });
+  });
+
+  it('uses singular labels for one administrator and one user group', () => {
+    const configuration: AdminConfigurationResponse = {
+      mode: 'enterprise', revision: 1, applicableSections: ['access'], activeRunId: null, latest: {},
+      sections: { access: { adminUsers: ['admin@example.com'], userAccessGroups: ['employees'] } },
+    };
+
+    expect(environmentAreas(configuration)[0].summary).toBe('1 administrator · 1 user group');
+  });
+
+  it('filters loaded areas by label, description, and current summary', () => {
+    const configuration: AdminConfigurationResponse = {
+      mode: 'enterprise', revision: 1, applicableSections: ['domain', 'usageReports'], activeRunId: null, latest: {},
+      sections: { domain: { customDomain: 'enterprise.example.com' }, usageReports: { enabled: false } },
+    };
+    const areas = environmentAreas(configuration);
+
+    expect(filterEnvironmentAreas(areas, 'DNS').map((area) => area.section)).toEqual(['domain']);
+    expect(filterEnvironmentAreas(areas, 'monthly delivery').map((area) => area.section)).toEqual(['usageReports']);
+    expect(filterEnvironmentAreas(areas, 'ENTERPRISE.EXAMPLE.COM').map((area) => area.section)).toEqual(['domain']);
   });
 });

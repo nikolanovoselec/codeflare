@@ -3,6 +3,7 @@ import type { AdminConfigurationResponse, ConfigurationSection } from '../../typ
 export interface EnvironmentArea {
   section: ConfigurationSection;
   label: string;
+  description: string;
   summary: string;
   status: 'Configured' | 'Enabled' | 'Disabled' | 'Not configured';
 }
@@ -20,6 +21,24 @@ const LABELS: Record<ConfigurationSection, string> = {
   cloudflareConnection: 'Cloudflare connection',
   usageReports: 'Monthly usage reports',
 };
+
+const DESCRIPTIONS: Record<ConfigurationSection, string> = {
+  access: 'Administrators, users, and Access groups',
+  domain: 'Custom hostname and DNS ownership',
+  aiRouting: 'Gateway credentials, routes, and model defaults',
+  codingAgents: 'Agents available for new sessions',
+  browserRendering: 'Optional Browser Run credentials',
+  securityEgress: 'Outbound Gateway policy',
+  dataGovernance: 'Storage encryption and download controls',
+  managedEnvironment: 'Managed releases and resource policy',
+  github: 'GitHub App or OAuth provider',
+  cloudflareConnection: 'Cloudflare OAuth client',
+  usageReports: 'Recipients and monthly delivery schedule',
+};
+
+function countLabel(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
 
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -41,7 +60,7 @@ function describe(section: ConfigurationSection, raw: unknown): Pick<Environment
     case 'access': {
       const admins = list(value.adminUsers).length;
       const groups = list(value.userAccessGroups).length;
-      return { summary: groups ? `${admins} administrators · ${groups} user groups` : `${admins} administrators`, status: 'Configured' };
+      return { summary: groups ? `${countLabel(admins, 'administrator')} · ${countLabel(groups, 'user group')}` : countLabel(admins, 'administrator'), status: 'Configured' };
     }
     case 'domain': {
       const domain = text(value.customDomain);
@@ -50,7 +69,7 @@ function describe(section: ConfigurationSection, raw: unknown): Pick<Environment
     case 'aiRouting': {
       const routes = list(value.dynamicRoutes).length;
       const saved = value.tokenState === 'administration' || value.tokenState === 'deployment';
-      return { summary: `${routes} routes · ${saved ? 'API token saved' : 'API token required'}`, status: saved ? 'Configured' : 'Not configured' };
+      return { summary: `${countLabel(routes, 'route')} · ${saved ? 'API token saved' : 'API token required'}`, status: saved ? 'Configured' : 'Not configured' };
     }
     case 'codingAgents': {
       const agents = list(value.activeAgents).map(String);
@@ -96,6 +115,14 @@ export function environmentAreas(configuration: AdminConfigurationResponse): Env
   return configuration.applicableSections.map((section) => ({
     section,
     label: LABELS[section],
+    description: DESCRIPTIONS[section],
     ...describe(section, configuration.sections[section]),
   }));
+}
+
+export function filterEnvironmentAreas(areas: EnvironmentArea[], query: string): EnvironmentArea[] {
+  const normalized = query.trim().toLocaleLowerCase();
+  if (!normalized) return areas;
+  return areas.filter((area) => [area.label, area.description, area.summary]
+    .some((value) => value.toLocaleLowerCase().includes(normalized)));
 }
