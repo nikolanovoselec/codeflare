@@ -2828,7 +2828,7 @@ None.
 3. Canonical agent-neutral Markdown drives supported runtime projections; runtime adapters contain activation or path plumbing only. <!-- @manual: Compare managed projections after runtime-specific path adaptation. -->
 4. Canvas Design retains the required Apache-2.0 notice and pinned provenance without shipping repository-only provenance as model context. <!-- @manual: Inspect authoritative curation source and manifest. -->
 5. The unsafe UI UX Pro Max preset corpus, generator, and authoritative persistence path are absent from managed distribution. <!-- @manual: Inspect the authoritative curation manifest and router. -->
-6. Managed distribution does not project this design skill suite to Copilot; Copilot receives compact global routing only. <!-- @impl: scripts/agent-seed-core.mjs::AGENT_CONFIGS --> <!-- @manual: Inspect the generated Copilot output and confirm it contains the global route but no projected design-skill directory. -->
+6. Managed distribution does not project this design skill suite to Copilot; Copilot receives compact global routing only. <!-- @manual: Inspect the generated Copilot output and confirm it contains the global route but no projected design-skill directory. -->
 
 **Constraints:** Core methodology stays out of Pi's system prompt; Pi receives one minimal conditional route to `design`. Large references load only after selection. Optional capabilities never block an owner.
 
