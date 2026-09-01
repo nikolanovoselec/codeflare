@@ -1255,8 +1255,8 @@ None.
 3. Large discovery commands use Pi-native discovery tools when context-mode is absent. <!-- @impl: scripts/agent-seed-core.mjs::PI_SDD_COMPATIBILITY_NOTE --> <!-- @manual -->
 4. Pi-transformed SDD skills use Pi-native graphify tools and `Agent`/`Plan` terminology. <!-- @impl: scripts/agent-seed-core.mjs::PI_SDD_COMPATIBILITY_NOTE --> <!-- @manual -->
 5. The native `/sdd` command enforces command-file hard gates before workflow dispatch. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::sddRepoState --> <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddCommandDecision --> <!-- @manual -->
-6. `/sdd init` and `/sdd clean` are root-session mutation workflows and do not dispatch PR-boundary reviewer agents. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddWorkflowExecutionText --> <!-- @impl: preseed/agents/claude/commands/sdd.md::Execution ownership (binding) --> <!-- @manual -->
-7. `/sdd init` and `/sdd clean` run required specification and documentation enforcement inline in that order. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::rootSddExecution --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @manual -->
+6. `/sdd init` and `/sdd clean` are root-session mutation workflows and do not dispatch PR-boundary reviewer agents. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddWorkflowExecutionText --> <!-- @impl: preseed/agents/claude/commands/sdd.md::Execution ownership (binding) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-021/REQ-AGENT-037: keeps SDD mutation workflows in the root session) -->
+7. `/sdd init` and `/sdd clean` run required specification and documentation enforcement inline in that order. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::rootSddExecution --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-021/REQ-AGENT-037: keeps SDD mutation workflows in the root session) -->
 
 **Constraints:**
 
@@ -1269,7 +1269,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
 
-**Verification:** Manual review
+**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts))
 
 **Status:** Implemented
 
@@ -1767,7 +1767,7 @@ None.
 2. Evaluation resolves the checked-out branch and local full `HEAD`, then queries that branch's PR without deriving refs from command arguments. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::queryBranch --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (rejects delivery commands targeting another branch, PR, or repository) -->
 3. Review launches only when the PR is open, targets `main`, `master`, or `develop`, names the checked-out branch, and reports local `HEAD` as its exact head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD) -->
 4. Failed commands other than bounded ambiguous `gh pr create` reconciliation, quoted examples, absent PRs, detached HEAD, nonstandard worktrees, unsynchronized remote heads, and acknowledged heads request no work. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (fails closed for child sessions, GitHub outages, and unrelated pushes) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD) -->
-5. Root and nested SDD layouts suppress review only while transition is true and the layout-resolved `.init-triage.md` contains an open item; ordinary review queues never suspend transition review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @manual -->
+5. Root and nested SDD layouts suppress review only while transition is true and the layout-resolved `.init-triage.md` contains an open item; ordinary review queues never suspend transition review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 6. Passive lifecycle and child sessions cannot start or complete review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (fails closed for child sessions, GitHub outages, and unrelated pushes) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD) -->
 7. Each candidate remains paired with its executable shell segment and resolved repository. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::resolveShellInvocationRepo --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (rejects delivery commands targeting another branch, PR, or repository) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (resolves a successful clone destination before repository lookup) -->
 
@@ -1781,7 +1781,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection), [REQ-AGENT-168](#req-agent-168-review-boundary-classification)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -1801,7 +1801,7 @@ None.
 4. `unleashed` refuses when `enforce_tdd: false`; users must enable TDD or use `auto`. It creates no branch or PR, and per-category commits remain independently revertible. <!-- @manual -->
 5. `/sdd clean` rescues rotted specs with conservative JUDGMENT auto-resolution that never overwrites spec intent (mark Partial + Notes, move to Out of Scope, shrink in place). <!-- @manual -->
 6. A successful `auto` or `unleashed` cleanup leaves its resulting commits on the checked-out remote branch. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::rootSddExecution --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @manual -->
-7. Specification repair completes before documentation repair. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::rootSddExecution --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @manual -->
+7. Specification repair completes before documentation repair. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::rootSddExecution --> <!-- @impl: preseed/agents/claude/skills/sdd-clean/SKILL.md::Execution ownership (binding) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-021/REQ-AGENT-037: keeps SDD mutation workflows in the root session) -->
 
 **Constraints:**
 
@@ -1812,7 +1812,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Manual verification
+**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts))
 
 **Status:** Implemented
 
@@ -1890,13 +1890,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. Generated-only changes require no lane, documentation-only changes require `doc-updater`, SDD-only or SDD-plus-documentation changes require `spec-reviewer` and `doc-updater`, and source, test, configuration, workflow, preseed, mixed, or unknown changes require the code lane. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @manual -->
-2. Unusual filenames and source-to-documentation renames cannot reduce the required reviewer set or bypass code review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @manual -->
-3. An invalid or empty review range falls back to all three lanes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @manual -->
+1. Generated-only changes require no lane, documentation-only changes require `doc-updater`, SDD-only or SDD-plus-documentation changes require `spec-reviewer` and `doc-updater`, and source, test, configuration, workflow, preseed, mixed, or unknown changes require the code lane. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies generated, docs, spec, source, and mixed commit ranges into reviewer lanes) -->
+2. Unusual filenames and source-to-documentation renames cannot reduce the required reviewer set or bypass code review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies tricky filenames and source-to-doc renames without bypassing code review) -->
+3. An invalid or empty review range falls back to all three lanes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements) -->
 4. An acknowledged current head requires no reviewer lane. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (honors an existing user-scoped marker without prompting) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (acknowledges a valid zero-lane delta and emits only independent CI) -->
 5. A source delta proven to be comments or whitespace only requires the code lane alone. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/inert-source-delta.mjs::inert --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh::compute_required_lanes --> <!-- @test: host/__tests__/lane-classifier.test.js (compute_required_lanes - inert source deltas) -->
-6. When the prover cannot establish that a source delta is inert, the code lane remains required. Prover uncertainty does not invent spec or documentation ownership; those lanes are added only when their surfaces or source anchors independently require them. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh::compute_required_lanes --> <!-- @manual -->
-7. Both runtimes decide a given range identically. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::inertSourceDelta --> <!-- @manual -->
+6. When the prover cannot establish that a source delta is inert, the code lane remains required. Prover uncertainty does not invent spec or documentation ownership; those lanes are added only when their surfaces or source anchors independently require them. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-classifier.sh::compute_required_lanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: reduces a proven comment-only source delta to the code lane alone) -->
+7. Both runtimes decide a given range identically. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::inertSourceDelta --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: Pi and Claude resolve the same range to the same lanes) -->
 
 **Constraints:**
 
@@ -1908,7 +1908,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -1922,7 +1922,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A lane already at its round limit costs no model invocation in either runtime. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::roundLimitReached --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::roundCounter --> <!-- @manual -->
+1. A lane already at its round limit costs no model invocation in either runtime. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::roundLimitReached --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::roundCounter --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (drops a lane at its round limit instead of demanding it) -->
 
 **Constraints:**
 
@@ -1933,7 +1933,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** Manual verification
+**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -2064,7 +2064,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Only open Import Mode triage in the layout-resolved `.init-triage.md` suppresses Pi review lanes; `.review-queue.md` and `.review-needed.md` never do. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @manual -->
+1. Only open Import Mode triage in the layout-resolved `.init-triage.md` suppresses Pi review lanes; `.review-queue.md` and `.review-needed.md` never do. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 2. Open transition triage suppresses the Claude PR-review hooks. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::TRIAGE --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (suppresses review ingress only during an open SDD transition) -->
 
 **Constraints:**
@@ -2075,7 +2075,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-045](#req-agent-045-import-mode-triage-queue-and-transition-state)
 
-**Verification:** Automated test
+**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -2119,7 +2119,7 @@ None.
 3. Transition closure leaves `enforce_tdd` unchanged. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off --> <!-- @manual -->
 4. Transition closure preserves the triage file as its audit record. <!-- @impl: preseed/agents/claude/skills/sdd-init/SKILL.md::Resume Mode — picking up where you left off --> <!-- @manual -->
 5. Open transition triage suppresses the Claude PR-review hooks. <!-- @manual --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (suppresses review ingress only during an open SDD transition) -->
-6. Open transition triage suppresses Pi PR review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @manual -->
+6. Open transition triage suppresses Pi PR review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::isReviewTransitionSuspended --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-092/REQ-AGENT-047: suspends root and nested SDD layouts only during an open transition) -->
 
 **Constraints:** None.
 
@@ -2127,7 +2127,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-038](#req-agent-038-resume-mode-drain-workflow)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated tests and manual verification ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -2220,13 +2220,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. The Pi `/review` command injects a dedicated Pi-native `review` skill that mirrors the Claude `commands/review.md` workflow, instead of injecting the `git-review-pipeline` enforcement skill. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::dispatchReview --> <!-- @manual -->
+1. The Pi `/review` command injects a dedicated Pi-native `review` skill that mirrors the Claude `commands/review.md` workflow, instead of injecting the `git-review-pipeline` enforcement skill. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::dispatchReview --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-050 AC1/REQ-AGENT-088 AC1: dispatches the dedicated /review workflow contract) -->
 2. The Pi `review` skill is the user-invoked review workflow (multi-perspective specialist subagents, cross-reference, architecture-decision filter, optional external verification, interactive triage), explicitly distinct from PR-boundary enforcement; it does not run the `git-review-pipeline`. <!-- @manual: Start Pi from a workspace parent, run `/review --diff`, confirm the dedicated review workflow receives the absolute project root and report-only execution contract, then repeat in a fixture lacking `sdd/` or `documentation/` and confirm the documentation lane produces the stable no-op report. -->
 3. The skill scopes review by `--all` or `--diff` parsed from the appended command line, prints help and runs no phases when neither flag is present, and supports the `--deep` and `--verify-high` flags. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::dispatchReview --> <!-- @manual -->
 4. The skill is static-analysis only: it never runs builds, tests, or linters (the container is resource-constrained). <!-- @manual -->
 5. The skill maps Claude primitives to Pi-native ones: subagents spawn via Pi's `Agent` tool with `subagent_type`, graph queries use Pi-native `graphify_query`/`graphify_path`/`graphify_explain`, and plan entry uses the `Plan` agent or an explicit written-and-approved plan. <!-- @manual -->
 6. The skill is delivered advanced-only via the Pi manifest (`skills/review/SKILL.md`) through the standard seed pipeline. <!-- @manual -->
-7. When either `sdd/` or `documentation/` is absent, the documentation lane returns a stable no-op report instead of leaving a missing artifact. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewDocumentationSurfaceDecision --> <!-- @manual -->
+7. When either `sdd/` or `documentation/` is absent, the documentation lane returns a stable no-op report instead of leaving a missing artifact. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewDocumentationSurfaceDecision --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-050 AC7: resolves the documentation lane to a stable no-surface report) -->
 
 **Constraints:**
 
@@ -2236,7 +2236,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review)
 
-**Verification:** Manual verification
+**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts))
 
 **Status:** Implemented
 
@@ -2284,7 +2284,7 @@ None.
 3. The attribution guard does not match a bare `Claude`, so `git`/`gh` commands that name `preseed/agents/claude/` paths are not false-positives. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
 4. The local-build guard covers the package-manager build/test/lint/typecheck/dev verbs plus `pytest`, `vitest`, `go test`, `swift test`, `cargo test`, `tsc`, `eslint`, `oxlint`, `biome`, direct Node syntax checks, `prettier`, and `wrangler dev`. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isLocalBuildCommand --> <!-- @manual -->
 5. The local-build guard honors a user-only consume-on-use sentinel at `/tmp/local-build-bypass`: when present, the guard deletes it and allows the one command through; the block message names the override path. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::localBuildBlockReason --> <!-- @manual -->
-6. The seeded safe-local-check wrapper runs approved read-only analyzers or Node syntax checks from any repository through local binaries at low priority with one bounded deadline and no file-count limit. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::FORBIDDEN_ARGUMENTS --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::managedTimeout --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::runBounded --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @manual -->
+6. The seeded safe-local-check wrapper runs approved read-only analyzers or Node syntax checks from any repository through local binaries at low priority with one bounded deadline and no file-count limit. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::FORBIDDEN_ARGUMENTS --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::managedTimeout --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::runBounded --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
 
 **Constraints:**
 
@@ -2296,7 +2296,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers)
 
-**Verification:** Manual verification
+**Verification:** Automated tests and manual verification ([safe local check](../../host/__tests__/safe-local-check.test.js))
 
 **Status:** Implemented
 
@@ -2310,9 +2310,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. Only eligible public reviewer calls after the latest successful delivery-or-clone boundary can satisfy its review window; ordinary activity remains inside that window. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @manual -->
-2. A reviewer lane becomes terminal at its first correlated successful native notification or public result retrieval; later equivalent evidence does not reopen that completion boundary. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @manual -->
-3. A reviewer call without correlated successful terminal evidence remains in flight without an age timeout. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @manual -->
+1. Only eligible public reviewer calls after the latest successful delivery-or-clone boundary can satisfy its review window; ordinary activity remains inside that window. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055/REQ-AGENT-063: keeps ordinary GitHub activity inside the active delivery window) -->
+2. A reviewer lane becomes terminal at its first correlated successful native notification or public result retrieval; later equivalent evidence does not reopen that completion boundary. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-053/REQ-AGENT-059: correlates successful native notifications by XML tool-use-id) --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-098: first public reviewer result keeps triage complete after later terminal evidence) -->
+3. A reviewer call without correlated successful terminal evidence remains in flight without an age timeout. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-071/REQ-AGENT-074: keeps unmatched reviewer calls in flight until native terminal notification) -->
 4. Completion for an earlier reminder never acknowledges a replacement PR head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (does not emit FIX when exact head drifts before marker write) -->
 5. Delayed successful completion acknowledges its reviewed head only while that head remains authoritative. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (does not emit FIX when exact head drifts before marker write) -->
 
@@ -2324,7 +2324,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -2392,11 +2392,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. Tool-use-ID correlation leaves each native reviewer result intact for the main session. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @manual -->
+1. Tool-use-ID correlation leaves each native reviewer result intact for the main session. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-053/REQ-AGENT-059: correlates successful native notifications by XML tool-use-id) -->
 2. Correlated successful native notifications or public result retrievals are the completion proof. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (stamps completion only after terminal evidence and canonical triage, then emits FIX) -->
 3. Every ranged PR-boundary plan carries the executable diff work-set contract. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/pi/extensions/review-scope.ts::scopeContract --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) -->
-4. `/review` maps diff and all flags to their executable work sets. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewCommandDecision --> <!-- @impl: preseed/agents/pi/extensions/review-scope.ts::scopeContract --> <!-- @manual -->
-5. `/sdd clean` rejects invalid scope flags before dispatching its resolved work set. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddCommandDecision --> <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddWorkflowScopeText --> <!-- @manual -->
+4. `/review` maps diff and all flags to their executable work sets. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewCommandDecision --> <!-- @impl: preseed/agents/pi/extensions/review-scope.ts::scopeContract --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (AC3: resolves /review diff and all into executable work-set contracts) -->
+5. `/sdd clean` rejects invalid scope flags before dispatching its resolved work set. <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddCommandDecision --> <!-- @impl: preseed/agents/pi/extensions/sdd-helpers.ts::sddWorkflowScopeText --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (dispatches the resolved /sdd clean work set and rejects ambiguous scope flags) -->
 6. The shared packet builder validates diff ancestry and returns only lane-owned changed hunks. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @manual -->
 7. All scope returns the tracked lane tree without a diff patch. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs::buildReviewPacket --> <!-- @manual -->
 
@@ -2409,7 +2409,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts), [review helpers](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -2424,10 +2424,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Only successful supported shell tool results expose commands to candidate detection. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/boundary-classifier.cjs::boundaryOf --> <!-- @manual -->
+1. Only successful supported shell tool results expose commands to candidate detection. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/boundary-classifier.cjs::boundaryOf --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (classifies only planned marker-or-dialog exposures and keeps final relevant command) -->
 2. Commands are recognized only at executable shell command boundaries, so quoted text and heredoc bodies remain inert. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::executableShellCommands --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @manual -->
 3. Candidate detection never decides PR eligibility; [REQ-AGENT-121](#req-agent-121-checked-out-branch-boundary-synchronization) performs the authoritative branch-and-head check. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (rejects delivery commands targeting another branch, PR, or repository) -->
-4. Supported shell surfaces are Bash, shell `ctx_execute`, and `ctx_batch_execute`. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @manual -->
+4. Supported shell surfaces are Bash, shell `ctx_execute`, and `ctx_batch_execute`. <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::shellInvocations --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (classifies only planned marker-or-dialog exposures and keeps final relevant command) -->
 
 **Constraints:**
 
@@ -2438,7 +2438,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Automated and manual verification
+**Verification:** Automated tests and manual verification ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -2600,10 +2600,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. An eligible boundary resolves one public `ci-monitor` request only while its required full head equals the live protected-base PR head. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest --> <!-- @manual -->
-2. Valid check JSON remains usable when GitHub CLI returns a pending or failure exit status. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @manual -->
-3. A terminal CI result requires the same non-empty all-terminal fingerprint in two polls. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @manual -->
-4. An authoritative head mismatch reports `CI_RESULT timeout superseded`. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @manual -->
+1. An eligible boundary resolves one public `ci-monitor` request only while its required full head equals the live protected-base PR head. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::resolveCiMonitorRequest --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC1: eligible push resolves the affected PR exactly once) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC1: CI resolver rejects a live head that differs from the review plan) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC1: CI request requires explicit head, review launch state, and repository cwd) -->
+2. Valid check JSON remains usable when GitHub CLI returns a pending or failure exit status. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2: valid check JSON is parsed despite gh exit statuses 1 and 8) -->
+3. A terminal CI result requires the same non-empty all-terminal fingerprint in two polls. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2/AC3: pending checks wait for a stable pass and skipping fingerprint) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC1: a failed check waits for all checks and a stable terminal fingerprint) -->
+4. An authoritative head mismatch reports `CI_RESULT timeout superseded`. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC4: a superseded head stops before checks are queried) -->
 
 **Constraints:** Empty checks time out after five minutes; provider commands are bounded; total monitoring is bounded at thirty minutes; the root Pi Git workflow is the sole automatic trigger.
 
@@ -2611,7 +2611,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability)
 
-**Verification:** Manual verification
+**Verification:** Automated tests ([pi ci monitor](../../host/__tests__/pi-ci-monitor.test.js))
 
 **Status:** Implemented
 
@@ -2625,9 +2625,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. After every observed check is terminal, failed and cancelled checks report together in one `CI_RESULT failure` with provider evidence, including providers whose workflow label is empty. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @manual -->
-2. Monitoring creates no Codeflare state, log, or PID files. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @manual -->
-3. Malformed or transient provider responses never become success; every terminal check row has string provider fields, an HTTP(S) link, and a recognized bucket before evaluation. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::validCheckRow --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @manual -->
+1. After every observed check is terminal, failed and cancelled checks report together in one `CI_RESULT failure` with provider evidence, including providers whose workflow label is empty. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC1: a failed check waits for all checks and a stable terminal fingerprint) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC1: all failed and cancelled arbitrary providers report together with links) -->
+2. Monitoring creates no Codeflare state, log, or PID files. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC2: monitoring creates no Codeflare state, log, or PID files) -->
+3. Malformed or transient provider responses never become success; every terminal check row has string provider fields, an HTTP(S) link, and a recognized bucket before evaluation. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::validCheckRow --> <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC3: malformed and transient GitHub responses never become success) -->
 
 **Constraints:** The monitor is report-only and seeded in Standard and Pro modes; review handoffs and shutdown never restart it; later sessions do not repeat an unchanged checkpointed head; enabling review still requires its lanes.
 
@@ -2635,7 +2635,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-098](#req-agent-098-pi-review-triage-acknowledgement-barrier)
 
-**Verification:** Manual verification
+**Verification:** Automated tests ([pi ci monitor](../../host/__tests__/pi-ci-monitor.test.js))
 
 **Status:** Implemented
 
@@ -2709,11 +2709,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. Only public background reviewer calls with inherited context disabled count toward completion. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @manual -->
-2. Completion order does not change a lane's terminal state. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @manual -->
-3. A valid prior acknowledgement scopes lane selection to its acknowledged-to-current range. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @manual -->
-4. Each counted reviewer prompt carries the exact valid acknowledged-to-current range. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewRange --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @manual -->
-5. Missing, malformed, or non-ancestor acknowledgement requests full-PR review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewRange --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @manual -->
+1. Only public background reviewer calls with inherited context disabled count toward completion. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-071: rejects reviewer calls that inherit or omit parent context isolation) -->
+2. Completion order does not change a lane's terminal state. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-071/REQ-AGENT-074: keeps unmatched reviewer calls in flight until native terminal notification) -->
+3. A valid prior acknowledgement scopes lane selection to its acknowledged-to-current range. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies generated, docs, spec, source, and mixed commit ranges into reviewer lanes) -->
+4. Each counted reviewer prompt carries the exact valid acknowledged-to-current range. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewRange --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-071: counts reviewer calls only when their prompt carries the acknowledged-to-current range) -->
+5. Missing, malformed, or non-ancestor acknowledgement requests full-PR review. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewRange --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements) -->
 
 **Constraints:**
 
@@ -2728,7 +2728,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation)
 
-**Verification:** Manual verification
+**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -2741,7 +2741,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. An eligible boundary with invalid acknowledgement emits full-PR scope. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @manual -->
+1. An eligible boundary with invalid acknowledgement emits full-PR scope. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements) -->
 2. Unmatched public reviewer calls are not duplicated, while missing peers are requested together. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (launches current contextual reviewers and CI and suppresses dialogs while active) -->
 
 **Constraints:**
@@ -2754,7 +2754,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-055](#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-082](#req-agent-082-pi-review-range-selection), [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
 
-**Verification:** Automated test ([Pi review enforcement tests](../../src/__tests__/lib/review-enforcement.test.ts))
+**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -3270,9 +3270,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. Heredoc bodies never expose embedded boundary-looking commands to classification. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/boundary-classifier.cjs::boundaryOf --> <!-- @manual -->
-2. Punctuation-bearing heredoc delimiters match exactly. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/boundary-classifier.cjs::boundaryOf --> <!-- @manual -->
-3. Multiple heredoc bodies are consumed in declaration order. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/boundary-classifier.cjs::boundaryOf --> <!-- @manual -->
+1. Heredoc bodies never expose embedded boundary-looking commands to classification. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/boundary-classifier.cjs::boundaryOf --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (classifies only planned marker-or-dialog exposures and keeps final relevant command) -->
+2. Punctuation-bearing heredoc delimiters match exactly. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/boundary-classifier.cjs::boundaryOf --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (classifies only planned marker-or-dialog exposures and keeps final relevant command) -->
+3. Multiple heredoc bodies are consumed in declaration order. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::classifyReviewBoundaryCommand --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/boundary-classifier.cjs::boundaryOf --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (classifies only planned marker-or-dialog exposures and keeps final relevant command) -->
 
 **Constraints:** Supported shell surfaces remain defined by [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection).
 
@@ -3280,7 +3280,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection)
 
-**Verification:** Manual review
+**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -3294,7 +3294,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Transcript correlation recognizes a matching exact-head `ci-monitor` call independently from reviewer state. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @manual -->
+1. Transcript correlation recognizes a matching exact-head `ci-monitor` call independently from reviewer state. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-068: recognizes one matching CI launch independently of reviewer completion) -->
 2. After the final launch, the plan ends the turn without foreground waiting, polling, resuming, or retrieving in-flight agents; native terminal notifications drive later turns. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (launches current contextual reviewers and CI and suppresses dialogs while active) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (activates subagent and emits independent launch waves before ending the boundary turn) -->
 
 **Constraints:**
@@ -3310,7 +3310,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
 
-**Verification:** Automated and manual verification
+**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -3323,9 +3323,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. Missing, malformed, or non-ancestor acknowledgement falls back to all review lanes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewRange --> <!-- @manual -->
-2. Enforcement renders invalid acknowledgement as full protected-base PR scope. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @manual -->
-3. A valid ancestor acknowledgement classifies every changed path through the fresh PR head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @manual -->
+1. Missing, malformed, or non-ancestor acknowledgement falls back to all review lanes. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewRange --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements) -->
+2. Enforcement renders invalid acknowledgement as full protected-base PR scope. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-055: falls back to all lanes for malformed and non-ancestor acknowledgements) -->
+3. A valid ancestor acknowledgement classifies every changed path through the fresh PR head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::requiredReviewLanes --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-040: classifies tricky filenames and source-to-doc renames without bypassing code review) -->
 
 **Constraints:**
 
@@ -3337,7 +3337,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** Manual verification
+**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -3351,11 +3351,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. `/review` prefers a Git repository containing the command cwd, including a linked worktree. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewWorkflowDecision --> <!-- @impl: preseed/agents/pi/skills/review/scripts/resolve-project-root.mjs::resolveProjectRoot --> <!-- @manual -->
+1. `/review` prefers a Git repository containing the command cwd, including a linked worktree. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewWorkflowDecision --> <!-- @impl: preseed/agents/pi/skills/review/scripts/resolve-project-root.mjs::resolveProjectRoot --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-036/REQ-AGENT-083: resolves /review repository context and fails when absent) -->
 2. Outside Git, `/review` resolves the remembered active repository. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::reviewWorkflowDecision --> <!-- @manual: Start Pi outside Git, select a remembered repository whose path contains spaces, and confirm `/review --diff` targets that absolute root without changing the process cwd. -->
-3. The workflow contract carries the validated absolute repository root. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::dispatchReview --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Phase 1: Parse arguments + create run directory (main session) --> <!-- @manual -->
-4. `/review` fails before dispatch when neither repository source resolves. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::dispatchReview --> <!-- @manual -->
-5. Repository-root validation preserves valid whitespace in the resolved path. <!-- @impl: preseed/agents/pi/skills/review/scripts/resolve-project-root.mjs::replace(/\r?\n$/, '') --> <!-- @manual -->
+3. The workflow contract carries the validated absolute repository root. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::dispatchReview --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Phase 1: Parse arguments + create run directory (main session) --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-036/REQ-AGENT-083: resolves /review repository context and fails when absent) -->
+4. `/review` fails before dispatch when neither repository source resolves. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::dispatchReview --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-083: suppresses /review workflow dispatch when no repository resolves) -->
+5. Repository-root validation preserves valid whitespace in the resolved path. <!-- @impl: preseed/agents/pi/skills/review/scripts/resolve-project-root.mjs::replace(/\r?\n$/, '') --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-036/REQ-AGENT-083: resolves /review repository context and fails when absent) -->
 
 **Constraints:**
 
@@ -3365,7 +3365,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-059](#req-agent-059-pi-native-review-findings-handoff)
 
-**Verification:** Manual verification
+**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts))
 
 **Status:** Implemented
 
@@ -3435,12 +3435,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. Reference resolution costs a bounded pass over the tree regardless of how many names a document cites. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declarationIndex --> <!-- @manual -->
-2. A name declared only inside generated output is not a declaration. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declarationIndex --> <!-- @manual -->
-3. A documented name resolves by the strongest form holding it, never a weaker one: path tail, basename, directory, declaration in any repository language, exact npm dependency, registered string, then a token in a dependency manifest. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::trackedNames --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::quotedLiterals --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declaredDependencies --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::DECL_SHAPES --> <!-- @manual -->
-4. Notation that documents an interface rather than naming code is never a resolvable candidate. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::resolveDocReferences --> <!-- @manual -->
-5. The unresolved list carries an explicit bound, and a list reaching that bound is marked truncated so the remainder is known to be outstanding. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::summarise --> <!-- @manual -->
-6. A name resolved only on the weakest evidence the resolver accepts -- a registered string, or a token in a dependency manifest -- is reported in its own class rather than as an ordinary pass. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::summarise --> <!-- @manual -->
+1. Reference resolution costs a bounded pass over the tree regardless of how many names a document cites. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declarationIndex --> <!-- @test: host/__tests__/lane-evidence.test.js (answers two hundred names for the cost of reading the tree) --> <!-- @test: host/__tests__/lane-evidence.test.js (does not resolve a name by the identifier next to it) -->
+2. A name declared only inside generated output is not a declaration. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declarationIndex --> <!-- @test: host/__tests__/lane-evidence.test.js (does not let a generated tree declare a symbol) -->
+3. A documented name resolves by the strongest form holding it, never a weaker one: path tail, basename, directory, declaration in any repository language, exact npm dependency, registered string, then a token in a dependency manifest. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::trackedNames --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::quotedLiterals --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::declaredDependencies --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::DECL_SHAPES --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a file named by a path tail, a command by its registered name, and a declared package) --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a name that appears under more than one directory) --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves declarations and dependencies in a repo that is not JavaScript) --> <!-- @test: host/__tests__/lane-evidence.test.js (does not let a control keyword in another language declare a name) --> <!-- @test: host/__tests__/lane-evidence.test.js (does not demote a real declaration that a manifest happens to also mention) -->
+4. Notation that documents an interface rather than naming code is never a resolvable candidate. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::resolveDocReferences --> <!-- @test: host/__tests__/lane-evidence.test.js (resolves a file named by a path tail, a command by its registered name, and a declared package) -->
+5. The unresolved list carries an explicit bound, and a list reaching that bound is marked truncated so the remainder is known to be outstanding. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::summarise --> <!-- @test: host/__tests__/lane-evidence.test.js (reports every unresolved reference rather than a capped sample) --> <!-- @test: host/__tests__/lane-evidence.test.js (marks a list that reaches the bound as truncated) -->
+6. A name resolved only on the weakest evidence the resolver accepts -- a registered string, or a token in a dependency manifest -- is reported in its own class rather than as an ordinary pass. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::summarise --> <!-- @test: host/__tests__/lane-evidence.test.js (reports a name known only from a manifest as a weak resolution rather than a pass) --> <!-- @test: host/__tests__/lane-evidence.test.js (retries the last segment for a package but never for a version fragment) -->
 
 **Constraints:**
 
@@ -3453,7 +3453,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-105](#req-agent-105-review-lane-turn-economy)
 
-**Verification:** Manual verification
+**Verification:** Automated tests ([lane evidence](../../host/__tests__/lane-evidence.test.js))
 
 **Status:** Implemented
 
@@ -3521,7 +3521,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Every non-manual AC carries at least one `@test` anchor, and the canonical parser returns every adjacent anchor independently while preserving parentheses inside block titles. <!-- @impl: preseed/agents/claude/skills/spec-enforce-truth/references/parse-test-anchors.mjs::parseTestAnchors --> <!-- @manual -->
+1. Every non-manual AC carries at least one `@test` anchor, and the canonical parser returns every adjacent anchor independently while preserving parentheses inside block titles. <!-- @impl: preseed/agents/claude/skills/spec-enforce-truth/references/parse-test-anchors.mjs::parseTestAnchors --> <!-- @test: host/__tests__/test-anchor-parser.test.js (REQ-AGENT-094 AC1: accepts one or more anchors per AC in declaration order) -->
 2. Multiple anchors on one AC are valid, while every declared anchor remains subject to file, named-block, and behavioral-quality verification. <!-- @manual: Add one resolving and one orphaned anchor to a fixture AC, run specification enforcement, and confirm the resolving block counts as coverage while the orphan still emits `spec-test-anchor-orphaned`. -->
 
 **Constraints:**
@@ -3533,7 +3533,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
-**Verification:** Manual verification
+**Verification:** Automated tests and manual verification ([test anchor parser](../../host/__tests__/test-anchor-parser.test.js))
 
 **Status:** Implemented
 
@@ -3750,10 +3750,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Each Claude PR-boundary lane runs as a headless `claude -p` subprocess whose system prompt is the lane's own agent document. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::SYSTEM_PROMPT --> <!-- @manual -->
-2. A lane whose range contains no file it owns returns a no-op report without invoking a model. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::REQUIRED --> <!-- @manual -->
-3. The lane subprocess carries a validated, escalating time bound that a zero, empty, or non-numeric override cannot disable; an unavailable supervisor refuses launch. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::LANE_TIMEOUT --> <!-- @manual -->
-4. Guard re-injection fails closed on a missing guard, an absent JSON-processing dependency, an empty settings file, or a config path containing a space. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::GUARD_SETTINGS --> <!-- @manual -->
+1. Each Claude PR-boundary lane runs as a headless `claude -p` subprocess whose system prompt is the lane's own agent document. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::SYSTEM_PROMPT --> <!-- @test: host/__tests__/run-review-lane.test.js (forwards the model the lane document declares) -->
+2. A lane whose range contains no file it owns returns a no-op report without invoking a model. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::REQUIRED --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — no-op short-circuit) -->
+3. The lane subprocess carries a validated, escalating time bound that a zero, empty, or non-numeric override cannot disable; an unavailable supervisor refuses launch. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::LANE_TIMEOUT --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — timeout bound) --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — supervisor availability) -->
+4. Guard re-injection fails closed on a missing guard, an absent JSON-processing dependency, an empty settings file, or a config path containing a space. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::GUARD_SETTINGS --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — guard settings under a hostile config path) -->
 
 **Constraints:**
 
@@ -3770,7 +3770,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-086](#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff)
 
-**Verification:** Manual review
+**Verification:** Automated tests ([run review lane](../../host/__tests__/run-review-lane.test.js))
 
 **Status:** Implemented
 
@@ -3785,8 +3785,8 @@ None.
 
 1. Each lane's Phase 0 triage is resolved deterministically before the subprocess starts and handed to it. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @manual -->
 2. The pre-computed triage reproduces the bulk-op audit and round-limit gates the reviewer prose defines. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::bulkOpAudit --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::roundCounter --> <!-- @manual -->
-3. A lane whose triage resolves to a no-op returns without invoking a model only when the result carries positive evidence for a supported bootstrap, transition, or round-limit no-op. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::TRIAGE_JSON --> <!-- @manual -->
-4. Every triage condition that cannot be resolved, including malformed JSON or a wrong lane/decision/layout shape, resolves to running the review. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::TRIAGE_JSON --> <!-- @manual -->
+3. A lane whose triage resolves to a no-op returns without invoking a model only when the result carries positive evidence for a supported bootstrap, transition, or round-limit no-op. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::TRIAGE_JSON --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — triage no-op short-circuit) -->
+4. Every triage condition that cannot be resolved, including malformed JSON or a wrong lane/decision/layout shape, resolves to running the review. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::TRIAGE_JSON --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — triage no-op short-circuit) -->
 
 5. A config that never mentions `enforce_tdd` resolves to on, not to a silent opt-out. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/lane-triage.mjs::main --> <!-- @manual -->
 
@@ -3801,7 +3801,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-102](#req-agent-102-claude-reviewer-headless-lane-transport)
 
-**Verification:** Manual verification
+**Verification:** Automated tests and manual verification ([run review lane](../../host/__tests__/run-review-lane.test.js))
 
 **Status:** Implemented
 
@@ -3848,10 +3848,10 @@ None.
 1. Lane evidence gathering is structured as waves, each collecting every outstanding question in one call. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @manual: Inspect one completed reviewer transcript and confirm each evidence call batches all questions known at that point. -->
 2. Where a runtime fetches a sub-policy rather than carrying it, the read happens inside a wave that was already being made rather than on a turn of its own. <!-- @impl: preseed/agents/claude/skills/review-scope/SKILL.md::`scope=diff` execution --> <!-- @manual -->
 3. Policy that applies on almost every run is embedded in the reviewer document, whether or not it is nominally conditional. <!-- @impl: preseed/agents/claude/agents/code-reviewer.md::Embedded canonical policy --> <!-- @manual -->
-4. Every path that demands a lane passes an incremental range or protected PR base, so the demanded lane receives its packet and ownership short-circuit; the runner refuses a demand carrying neither. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::RANGE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @manual -->
-5. Inlined evidence over its byte cap degrades deterministically by named field, keeping compact resolved answers. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::shed_to_cap --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::bound --> <!-- @manual -->
-6. A lane exceeding its wave budget is reported without being stopped. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::rawBudget --> <!-- @manual -->
-7. The lookups a lane checklist would order — index presence, tree layout, anchor resolution, documented-reference resolution, call sites, the decision ledger — are resolved before the lane starts and handed to it. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::main --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::EVIDENCE_JSON --> <!-- @manual -->
+4. Every path that demands a lane passes an incremental range or protected PR base, so the demanded lane receives its packet and ownership short-circuit; the runner refuses a demand carrying neither. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::RANGE --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — scope contract) --> <!-- @test: host/__tests__/run-review-lane.test.js (keeps caller-supplied PR-boundary range authoritative) --> <!-- @test: host/__tests__/run-review-lane.test.js (rejects a lane launch with neither range nor protected base) -->
+5. Inlined evidence over its byte cap degrades deterministically by named field, keeping compact resolved answers. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::shed_to_cap --> <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::bound --> <!-- @test: host/__tests__/run-review-lane.test.js (sheds the verbatim indexes rather than the whole evidence block) -->
+6. A lane exceeding its wave budget is reported without being stopped. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::rawBudget --> <!-- @test: host/__tests__/run-review-lane.test.js (run-review-lane.sh — wave budget telemetry) -->
+7. The lookups a lane checklist would order — index presence, tree layout, anchor resolution, documented-reference resolution, call sites, the decision ledger — are resolved before the lane starts and handed to it. <!-- @impl: preseed/agents/claude/skills/review-scope/scripts/lane-evidence.mjs::main --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/run-review-lane.sh::EVIDENCE_JSON --> <!-- @test: host/__tests__/lane-evidence.test.js (reports an anchor whose symbol no longer exists as unresolved) --> <!-- @test: host/__tests__/lane-evidence.test.js (carries the diff of each cited file, not just the citation) --> <!-- @test: host/__tests__/lane-evidence.test.js (reports a tracked doc the index does not link, and passes one it does) --> <!-- @test: host/__tests__/run-review-lane.test.js (inlines the evidence block) --> <!-- @test: host/__tests__/run-review-lane.test.js (states the repository root so the lane does not spend a turn finding it) -->
 
 **Constraints:**
 
@@ -3870,7 +3870,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-102](#req-agent-102-claude-reviewer-headless-lane-transport)
 
-**Verification:** Manual verification
+**Verification:** Automated tests and manual verification ([lane evidence](../../host/__tests__/lane-evidence.test.js), [run review lane](../../host/__tests__/run-review-lane.test.js))
 
 **Status:** Implemented
 
@@ -3909,7 +3909,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pi `/review` dispatches a report-only execution contract whose reports belong to the root. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::REVIEW_EXECUTION --> <!-- @manual -->
+1. Pi `/review` dispatches a report-only execution contract whose reports belong to the root. <!-- @impl: preseed/agents/pi/extensions/review-command.ts::REVIEW_EXECUTION --> <!-- @test: src/__tests__/lib/pi-review-scope.test.ts (REQ-AGENT-050 AC1/REQ-AGENT-088 AC1: dispatches the dedicated /review workflow contract) -->
 2. Claude `/review` gives every subagent a binding report-only execution mode. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @manual: Run `/review --diff --deep` with at least two surfaced findings; confirm each subagent returns without writes, the root persists every report, triage records exactly one decision per finding, defer/ignore/debt decisions reach `sdd/.review-decisions.md`, and no fix is applied before explicit approval. -->
 3. The root session persists every returned review report. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Review ownership (binding) --> <!-- @manual -->
 4. The root applies a review fix only after the user approves it. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Review ownership (binding) --> <!-- @manual -->
@@ -3925,7 +3925,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-015](#req-agent-015-review-command-for-multi-perspective-codebase-review), [REQ-AGENT-050](#req-agent-050-pi-native-review-workflow-skill)
 
-**Verification:** Manual verification
+**Verification:** Automated tests and manual verification ([pi review scope](../../src/__tests__/lib/pi-review-scope.test.ts))
 
 **Status:** Implemented
 
@@ -3967,8 +3967,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. A 41-character hexadecimal head is corrected only when its first 40 characters exactly equal the authoritative PR head. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @manual -->
-2. Any malformed head that does not satisfy AC1 reports `invalid_request` before checks are queried. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @manual -->
+1. A 41-character hexadecimal head is corrected only when its first 40 characters exactly equal the authoritative PR head. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-090 AC1: one appended head character is corrected only against the authoritative PR head) -->
+2. Any malformed head that does not satisfy AC1 reports `invalid_request` before checks are queried. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-090 AC2: unrelated malformed heads remain invalid) -->
 
 **Constraints:**
 
@@ -3979,7 +3979,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
 
-**Verification:** Manual verification
+**Verification:** Automated tests ([pi ci monitor](../../host/__tests__/pi-ci-monitor.test.js))
 
 **Status:** Implemented
 
@@ -4426,8 +4426,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pi reviewer completion requires exact standalone `scope=diff`, expected `review_range` or `review_base`, and lane-specific `output_file` assignments; prefixed or suffixed lookalikes earn no credit. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @manual -->
-2. A Pi reviewer launch without a complete authoritative review window earns no completion credit. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @manual -->
+1. Pi reviewer completion requires exact standalone `scope=diff`, expected `review_range` or `review_base`, and lane-specific `output_file` assignments; prefixed or suffixed lookalikes earn no credit. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-177: counts full-PR reviewers only with exact scope, base, and output contract) -->
+2. A Pi reviewer launch without a complete authoritative review window earns no completion credit. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-176/REQ-AGENT-177: leaves reviewer launches uncredited without an authoritative window) -->
 3. Claude reviewer completion requires an assistant-originated background call through the canonical runner using only emitted head and boundary environment assignments. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::launches --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (rejects otherwise-complete rounds with noncanonical launch evidence) -->
 4. The Claude launch earns credit only after successful receipt with exact PR, lane, and range-or-base assignments. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/enforce-review-spawn.sh::launches --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (rejects otherwise-complete rounds with noncanonical launch evidence) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (does not reuse completed lane launches after the exact PR head advances) -->
 
@@ -4437,7 +4437,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Automated Pi transcript and Claude hook tests
+**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 
@@ -4785,7 +4785,7 @@ None.
 2. CI failure or timeout requires a dedicated `Exact-head CI` triage row with the exact matching `CI_RESULT` token before acknowledgement; one outer Markdown code span does not change that token. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::triageTableIncludesRequiredCiResult --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (requires exact CI failure and timeout rows and accepts directive formatting) -->
 3. The triage turn makes no mutation and ends before acknowledgement delivers FIX. Its plan requires evidence and scope validation, separate judgment of findings and proposed fixes, rejection of unsupported or overengineered proposals, and the smallest correction reusing existing machinery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (automatically emits review and CI launch instructions after push, PR creation, and PR reopen) -->
 4. Every Pi review plan emits each lane's exact scope, range or base, and deterministic temporary output-path assignments as standalone copy-ready lines, with no punctuation or Markdown added to assignment values. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewerPromptContract --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (emits copy-ready standalone reviewer assignment contracts without punctuation) -->
-5. A clean successful CI round may use an empty triage table. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::triageTableIncludesRequiredCiResult --> <!-- @manual -->
+5. A clean successful CI round may use an empty triage table. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::triageTableIncludesRequiredCiResult --> <!-- @test: src/__tests__/lib/review-helpers.test.ts (REQ-AGENT-053/REQ-AGENT-074/REQ-AGENT-098: requires exact-head CI terminal evidence before joint triage) -->
 6. After terminal failed or timed-out CI evidence, a structurally valid table with a malformed CI row receives one correction follow-up and no acknowledgement or FIX. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendTriageCorrectionFollowUp --> <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (requests one canonical triage correction when a terminal CI failure row is malformed) -->
 7. A later canonical table completes the same review round. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (requests one canonical triage correction when a terminal CI failure row is malformed) -->
 
@@ -4795,7 +4795,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-177](#req-agent-177-canonical-reviewer-launch-evidence)
 
-**Verification:** Automated Pi transcript and Claude hook tests
+**Verification:** Automated tests ([review helpers](../../src/__tests__/lib/review-helpers.test.ts))
 
 **Status:** Implemented
 

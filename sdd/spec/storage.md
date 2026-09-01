@@ -575,7 +575,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-010](#req-stor-010-agent-configs-auto-seeded-based-on-session-mode), [REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)
 
-**Verification:** Manual verification
+**Verification:** Automated tests ([R2 seed mode](../../src/__tests__/lib/r2-seed-mode.test.ts))
 
 **Status:** Implemented
 
