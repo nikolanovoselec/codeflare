@@ -535,7 +535,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/` (Antigravity), `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
-Advanced managed mode delivers a progressively disclosed design suite. `design` selects one web, mobile, desktop, static, or incumbent authority, then loads only justified references and support. Motion, components, performance, and finishing cannot redefine direction. The authoritative files live in `codeflare-curation`; its pinned compiler projects agent-neutral content to supported runtimes. Pi receives one minimal conditional routing sentence in `SYSTEM.md`, not another methodology. Copilot remains unsupported because the compiler has no skill-directory contract. Canvas keeps required Apache-2.0 attribution; repository-only provenance stays outside model context. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
+Advanced managed mode delivers a progressively disclosed design suite. `design` selects one web, mobile, desktop, static, or incumbent authority, then loads only justified references and support. Motion, components, performance, and finishing cannot redefine direction. The authoritative files live in `codeflare-curation`; its pinned compiler projects agent-neutral content to supported runtimes. Pi receives one compact design-routing rule in its provider-boundary instructions, not another methodology. Copilot remains unsupported because the compiler has no skill-directory contract. Canvas keeps required Apache-2.0 attribution; repository-only provenance stays outside model context. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
 
 The release auto-upgrade check uses
 `GET /api/sessions/batch-status?includePreseedCheck=true` to compare

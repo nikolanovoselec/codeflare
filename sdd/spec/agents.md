@@ -2922,7 +2922,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Pi instructions include one minimal conditional route from visual or interface work to the `design` skill when available. <!-- @manual: Inspect the authoritative curation Pi SYSTEM source. --> <!-- @manual -->
+1. Pi instructions include one minimal conditional route from visual or interface work to the `design` skill when available. <!-- @manual: Inspect the authoritative curation Pi design-routing rule. --> <!-- @manual -->
 2. The Pi routing entry contains no design methodology and does not activate for non-visual work. <!-- @manual: Ask advanced Pi for backend-only and prose-only changes; verify the visual router remains unloaded. -->
 3. `design` classifies visual work independently by mode, purpose, and delivery platform. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Classify --> <!-- @manual: Evaluate greenfield, redesign, polish, audit, Persuade, Operate, Read, and Experience prompts. -->
 4. Fixed-canvas work selects `canvas-design`. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @manual: Request a poster and social crop; verify frontend specialists remain unloaded. -->
