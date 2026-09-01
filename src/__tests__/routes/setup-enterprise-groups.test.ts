@@ -498,6 +498,30 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:github_oauth_client_secret', expect.anything());
       });
 
+      it('REQ-SETUP-024: omitted client IDs preserve stored values during internal initialization compatibility calls', async () => {
+        const app = createTestApp({ ENCRYPTION_KEY: ENC_KEY });
+        mockFullSuccessFlow();
+        await mockKV.put('setup:github_app_client_id', 'saved-github-app');
+        await mockKV.put('setup:github_oauth_client_id', 'saved-github-oauth');
+        await mockKV.put('setup:cloudflare_oauth_client_id', 'saved-cloudflare-oauth');
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...standardBody,
+            githubProviderType: 'app',
+            cloudflareOauthClientSecret: 'replacement-secret',
+          }),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(await mockKV.get('setup:github_app_client_id')).toBe('saved-github-app');
+        expect(await mockKV.get('setup:github_oauth_client_id')).toBe('saved-github-oauth');
+        expect(await mockKV.get('setup:cloudflare_oauth_client_id')).toBe('saved-cloudflare-oauth');
+      });
+
       it('REQ-GITHUB-008: rejects a client secret with no ENCRYPTION_KEY (fail closed, no write)', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' }); // no ENCRYPTION_KEY
 
