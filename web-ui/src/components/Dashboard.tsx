@@ -77,7 +77,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
     return Math.min(100, Math.max(0, (progress.completed / progress.total) * 100));
   });
   const managedUpgradeStyle = createMemo(() => {
-    if (sessionStore.managedReleaseStatus !== 'upgrading' || !sessionStore.managedReleaseProgress) return undefined;
+    if (sessionStore.managedReleaseStatus !== 'upgrading') return undefined;
     const percent = managedUpgradePercent();
     return `background: linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${percent}%, color-mix(in srgb, var(--color-accent) 72%, black) ${percent}%, color-mix(in srgb, var(--color-accent) 72%, black) 100%);`;
   });

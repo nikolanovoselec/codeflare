@@ -1109,6 +1109,13 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
   it('REQ-AGENT-175 AC7: whole-button managed upgrade progress preserves centered text and ordinary completion color', () => {
     (sessionStore as any)._setManagedReleaseStatus('upgrading');
+    render(() => <Dashboard {...defaultProps} />);
+
+    const starting = screen.getByTestId('dashboard-new-session');
+    expect(starting.textContent).toBe('Upgrading');
+    expect(starting.getAttribute('style')).toContain('color-mix(in srgb, var(--color-accent) 72%, black) 0%');
+
+    cleanup();
     (sessionStore as any)._setManagedReleaseProgress({ phase: 'writing', completed: 25, total: 100 });
     render(() => <Dashboard {...defaultProps} />);
 

@@ -365,7 +365,9 @@ describe('managed release user-bucket reconciliation', () => {
       }
       if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT') policyBytes = init.body;
       if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'GET') return new Response(policyBytes, { status: 200 });
-      if (url.endsWith('?delete') && init?.method === 'POST') return new Response('<DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></DeleteResult>', { status: 200 });
+      if (url.endsWith('?delete') && init?.method === 'POST') {
+        return new Response('<DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Deleted><Key>.claude/extensions/personal/index.ts</Key></Deleted></DeleteResult>', { status: 200 });
+      }
       return new Response('', { status: 200 });
     });
 
@@ -380,8 +382,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(result.deleted).toEqual(['.claude/extensions', '.claude/extensions/personal/index.ts']);
     const deleteBatches = fetchR2.mock.calls.filter(([url, init]) => String(url).endsWith('?delete') && init?.method === 'POST');
     expect(deleteBatches).toHaveLength(1);
-    expect(String(deleteBatches[0][1].body)).toContain('<Key>.claude/extensions/personal/index.ts</Key>');
-    expect(String(deleteBatches[0][1].body)).not.toContain('.claude/extensions/company/index.ts');
+    expect(String(deleteBatches[0][1].body)).toBe('<?xml version="1.0" encoding="UTF-8"?><Delete xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Object><Key>.claude/extensions/personal/index.ts</Key></Object><Quiet>true</Quiet></Delete>');
   });
 
   it('REQ-STOR-029 AC3: exclusive cleanup bounds each delete batch to 1,000 objects', async () => {
@@ -426,6 +427,34 @@ describe('managed release user-bucket reconciliation', () => {
     await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
       overwrite: true, cleanup: true, managedRelease, resourcePolicy: 'exclusive',
     })).rejects.toThrow(/per-object errors/);
+    expect(fetchR2.mock.calls.some(([url, init]) => url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT')).toBe(false);
+  });
+
+  it.each([
+    ['partial verbose success', '<DeleteResult><Deleted><Key>.claude/extensions/a.ts</Key></Deleted></DeleteResult>'],
+    ['unknown verbose key', '<DeleteResult><Deleted><Key>.claude/extensions/a.ts</Key></Deleted><Deleted><Key>.claude/extensions/unknown.ts</Key></Deleted></DeleteResult>'],
+    ['duplicate verbose key', '<DeleteResult><Deleted><Key>.claude/extensions/a.ts</Key></Deleted><Deleted><Key>.claude/extensions/a.ts</Key></Deleted></DeleteResult>'],
+    ['unexpected structure', '<DeleteResult><Deleted><Key>.claude/extensions/a.ts</Key></Deleted><Deleted><Key>.claude/extensions/b.ts</Key></Deleted><Extra /></DeleteResult>'],
+    ['malformed XML', '<DeleteResult><Deleted><Key>.claude/extensions/a.ts</Key></Deleted>'],
+  ])('REQ-STOR-029 AC4: %s cannot commit exclusive policy identity', async (_case, deleteResponse) => {
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      if (init?.method === 'GET' && url.includes('list-type=2')) {
+        return new Response([
+          '<ListBucketResult><IsTruncated>false</IsTruncated>',
+          '<Contents><Key>.claude/extensions/a.ts</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
+          '<Contents><Key>.claude/extensions/b.ts</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
+          '</ListBucketResult>',
+        ].join(''), { status: 200 });
+      }
+      if (url.endsWith('?delete') && init?.method === 'POST') return new Response(deleteResponse, { status: 200 });
+      return new Response('', { status: 200 });
+    });
+
+    await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true, cleanup: true, managedRelease, resourcePolicy: 'exclusive',
+    })).rejects.toThrow(/DeleteObjects response/);
     expect(fetchR2.mock.calls.some(([url, init]) => url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT')).toBe(false);
   });
 

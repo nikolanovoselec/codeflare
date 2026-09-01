@@ -9,7 +9,7 @@ import { SEEDED_DOCUMENTS } from './tutorial-seed.generated';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH, RETIRED_PRESEED_KEYS } from './agent-seed.generated';
 import { createLogger } from './logger';
 import { getSseHeaders } from './r2-sse';
-import { escapeXml } from './xml-utils';
+import { decodeXmlEntities, escapeXml } from './xml-utils';
 import { readBoundedResponse } from './bounded-stream';
 import {
   buildManagedR2Policy,
@@ -1029,15 +1029,45 @@ async function listExclusiveCleanupCandidates(
   return [...candidates].sort();
 }
 
-function verifyExclusiveDeleteResponse(xml: string): void {
+function verifyExclusiveDeleteResponse(xml: string, expectedKeys: readonly string[]): void {
   const result = xml.match(/^\s*(?:<\?xml(?:\s+[A-Za-z_][\w:.-]*=(?:"[^"]*"|'[^']*'))*\s*\?>\s*)?<DeleteResult(?:\s+[A-Za-z_][\w:.-]*=(?:"[^"]*"|'[^']*'))*\s*(?:\/>|>([\s\S]*)<\/DeleteResult>)\s*$/);
   if (!result) throw new Error('Exclusive managed-resource DeleteObjects response is malformed');
   const body = result[1] ?? '';
   if (/<Error(?:\s|\/?>)/.test(body)) {
     throw new Error('Exclusive managed-resource DeleteObjects response reported per-object errors');
   }
-  if (body.trim().length > 0) {
-    throw new Error('Exclusive managed-resource DeleteObjects response is malformed');
+  if (body.trim().length === 0) return;
+
+  const deletedKeys: string[] = [];
+  const deletedBlocks = /<Deleted>([\s\S]*?)<\/Deleted>/g;
+  let remaining = body;
+  let deletedBlock: RegExpExecArray | null;
+  while ((deletedBlock = deletedBlocks.exec(body)) !== null) {
+    remaining = remaining.replace(deletedBlock[0], '');
+    const fields: Array<{ name: string; value: string }> = [];
+    const fieldPattern = /<([A-Za-z_][\w:.-]*)>([^<]*)<\/\1>/g;
+    let field: RegExpExecArray | null;
+    let blockRemaining = deletedBlock[1];
+    while ((field = fieldPattern.exec(deletedBlock[1])) !== null) {
+      fields.push({ name: field[1], value: field[2] });
+      blockRemaining = blockRemaining.replace(field[0], '');
+    }
+    if (blockRemaining.trim().length > 0
+      || fields.some(({ name }) => !['DeleteMarker', 'DeleteMarkerVersionId', 'Key', 'VersionId'].includes(name))) {
+      throw new Error('Exclusive managed-resource DeleteObjects response is malformed');
+    }
+    const keys = fields.filter(({ name }) => name === 'Key');
+    if (keys.length !== 1) throw new Error('Exclusive managed-resource DeleteObjects response is malformed');
+    deletedKeys.push(decodeXmlEntities(keys[0].value));
+  }
+  if (remaining.trim().length > 0 || deletedKeys.length !== expectedKeys.length) {
+    throw new Error('Exclusive managed-resource DeleteObjects response does not match request');
+  }
+  const expected = new Set(expectedKeys);
+  const deleted = new Set(deletedKeys);
+  if (expected.size !== expectedKeys.length || deleted.size !== deletedKeys.length
+    || deleted.size !== expected.size || [...deleted].some(key => !expected.has(key))) {
+    throw new Error('Exclusive managed-resource DeleteObjects response does not match request');
   }
 }
 
@@ -1052,8 +1082,8 @@ async function deleteExclusiveCleanupCandidates(
     candidates.slice(index * 1_000, (index + 1) * 1_000)
   ));
   await mapWithConcurrency(batches, async (batch) => {
-    const body = `<?xml version="1.0" encoding="UTF-8"?><Delete><Quiet>true</Quiet>${batch
-      .map(key => `<Object><Key>${escapeXml(key)}</Key></Object>`).join('')}</Delete>`;
+    const body = `<?xml version="1.0" encoding="UTF-8"?><Delete xmlns="http://s3.amazonaws.com/doc/2006-03-01/">${batch
+      .map(key => `<Object><Key>${escapeXml(key)}</Key></Object>`).join('')}<Quiet>true</Quiet></Delete>`;
     const response = await client.fetch(`${getR2Url(endpoint, bucketName)}?delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/xml' },
@@ -1071,7 +1101,7 @@ async function deleteExclusiveCleanupCandidates(
     } catch {
       throw new Error('Exclusive managed-resource DeleteObjects response is not valid UTF-8');
     }
-    verifyExclusiveDeleteResponse(xml);
+    verifyExclusiveDeleteResponse(xml, batch);
   });
   return [...candidates];
 }
