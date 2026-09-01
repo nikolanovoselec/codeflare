@@ -588,15 +588,15 @@ app.post('/configure', async (c) => {
       if (githubProviderType || githubAppClientId || githubAppClientSecret || githubOauthClientId || githubOauthClientSecret) {
         await executeConfigurationTask(c.env, 'configure_github', {
           providerType: githubProviderType ?? await c.env.KV.get(SETUP_KEYS.GITHUB_PROVIDER_TYPE) ?? 'app',
-          appClientId: githubAppClientId ?? '',
+          appClientId: githubAppClientId ?? await c.env.KV.get(SETUP_KEYS.GITHUB_APP_CLIENT_ID) ?? '',
           appReplacementSecret: githubAppClientSecret ?? '',
-          oauthClientId: githubOauthClientId ?? '',
+          oauthClientId: githubOauthClientId ?? await c.env.KV.get(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID) ?? '',
           oauthReplacementSecret: githubOauthClientSecret ?? '',
         }, administrationContext);
       }
       if (cloudflareOauthClientId || cloudflareOauthClientSecret) {
         await executeConfigurationTask(c.env, 'configure_cloudflare_connection', {
-          clientId: cloudflareOauthClientId ?? '',
+          clientId: cloudflareOauthClientId ?? await c.env.KV.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID) ?? '',
           replacementSecret: cloudflareOauthClientSecret ?? '',
         }, administrationContext);
       }
