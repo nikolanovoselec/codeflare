@@ -681,7 +681,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 2. A blank GitHub App, GitHub OAuth, or Cloudflare OAuth replacement secret preserves the saved secret. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-SETUP-024: preserves saved OAuth secrets when replacements are blank) -->
 3. When the internal Initialization compatibility submission omits one of those client IDs, the saved identifier is preserved. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-SETUP-024: omitted client IDs preserve stored values during internal initialization compatibility calls) -->
 
-**Constraints:** Client IDs remain non-secret KV values. Secret replacement remains encrypted and no-clobber on blank.
+**Constraints:** Client IDs remain non-secret KV values; secret replacement remains encrypted and no-clobber on blank.
 
 **Priority:** P0
 
