@@ -9,6 +9,7 @@ import type { SessionWithStatus, SessionStatus } from '../types';
 // Type-only imports - erased at runtime, so they do NOT reintroduce the
 // circular dependency that the registerPollingDeps DI pattern guards against.
 import type { SessionState, SessionMetrics } from './session';
+import type { ManagedReleaseProgress } from '../api/client';
 
 /**
  * Session List Polling - extracted from session.ts (CF-013).
@@ -54,7 +55,7 @@ let updateSessionStatusFn: StatusUpdater;
 let isSessionInitializingFn: InitChecker;
 let setAuthExpiredFn: AuthExpiredSetter;
 let applyMetricsUpdateFn: MetricsUpdater;
-let applyManagedReleaseBatchFn: (status: 'current' | 'upgrading' | 'update_pending' | undefined, needsUpgrade: boolean | undefined) => void;
+let applyManagedReleaseBatchFn: (status: 'current' | 'upgrading' | 'update_pending' | undefined, needsUpgrade: boolean | undefined, progress?: ManagedReleaseProgress) => void;
 
 export function registerPollingDeps(deps: {
   getState: StateGetter;
@@ -64,7 +65,7 @@ export function registerPollingDeps(deps: {
   isSessionInitializing: InitChecker;
   setAuthExpired: AuthExpiredSetter;
   applyMetricsUpdate: MetricsUpdater;
-  applyManagedReleaseBatch: (status: 'current' | 'upgrading' | 'update_pending' | undefined, needsUpgrade: boolean | undefined) => void;
+  applyManagedReleaseBatch: (status: 'current' | 'upgrading' | 'update_pending' | undefined, needsUpgrade: boolean | undefined, progress?: ManagedReleaseProgress) => void;
 }): void {
   getState = deps.getState;
   setStateProduce = deps.setStateProduce;
@@ -177,7 +178,7 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
       setUsageState(batchResponse.usage.monthlySeconds, batchResponse.usage.monthlyQuotaSeconds);
     }
     if (batchResponse.managedReleaseStatus !== undefined) {
-      applyManagedReleaseBatchFn(batchResponse.managedReleaseStatus, batchResponse.preseedNeedsUpgrade);
+      applyManagedReleaseBatchFn(batchResponse.managedReleaseStatus, batchResponse.preseedNeedsUpgrade, batchResponse.managedReleaseProgress);
     }
 
     // REQ-ENTERPRISE-020: mirror the Governed Mode migration flags on EVERY background poll (not just the

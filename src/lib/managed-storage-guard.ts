@@ -1,6 +1,7 @@
 import type { AccessUser, Env, ManagedResourcePolicy, UserPreferences } from '../types';
 import { ForbiddenError, ManagedEnvironmentUpdatePendingError } from './error-types';
 import { getPreferencesKey } from './kv-keys';
+import { hasPendingManagedReconciliation } from './managed-release-active';
 import { readManagedEnvironmentSnapshot } from './remote-curation';
 import { resolveEffectiveSessionMode } from './session-mode';
 import { createR2Client, getR2Url } from './r2-client';
@@ -27,6 +28,9 @@ export async function guardManagedStorageMutation(input: {
     const preferences = await input.env.KV.get<UserPreferences>(getPreferencesKey(input.bucketName), 'json') ?? {};
     const snapshot = await readManagedEnvironmentSnapshot(input.env);
     const applied = preferences.managedEnvironmentApplied;
+    if (hasPendingManagedReconciliation(preferences.managedEnvironmentReconciliation)) {
+      throw new ManagedEnvironmentUpdatePendingError('storage');
+    }
     if (!snapshot.config || !snapshot.enabled) {
       if (applied) throw new ManagedEnvironmentUpdatePendingError('storage');
       return;

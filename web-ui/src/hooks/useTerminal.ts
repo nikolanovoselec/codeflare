@@ -7,8 +7,8 @@ import { sessionStore } from '../stores/session';
 import { logger } from '../lib/logger';
 import { isTouchDevice, isVirtualKeyboardOpen, getKeyboardHeight, enableVirtualKeyboardOverlay, disableVirtualKeyboardOverlay, resetKeyboardStateIfStale, forceResetKeyboardState, isFocusOnTerminalInput, isSamsungBrowser } from '../lib/mobile';
 import { attachSwipeGestures, sendTerminalKey } from '../lib/touch-gestures';
-import { attachHerdrMouseInput, sendHerdrTap } from '../lib/herdr-mouse';
-import { registerMultiLineLinkProvider } from '../lib/terminal-link-provider';
+import { attachHerdrMouseInput, sendHerdrTap, terminalCell } from '../lib/herdr-mouse';
+import { registerMultiLineLinkProvider, type TerminalLinkController } from '../lib/terminal-link-provider';
 import { isSpeechSupported, isListening, startListening, stopListening } from '../lib/speech-input';
 import { focusMobileTerminal, FUNCTIONAL_KEY_MAP, setupMobileInput } from '../lib/terminal-mobile-input';
 import { loadSettings } from '../lib/settings';
@@ -64,6 +64,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let cleanupGestures: (() => void) | undefined;
   let cleanupWheel: (() => void) | undefined;
   let cleanupHerdrMouse: (() => void) | undefined;
+  let linkController: TerminalLinkController | undefined;
   let dataDisposable: { dispose: () => void } | undefined;
   let bufferChangeDisposable: { dispose: () => void } | undefined;
   let cursorHideDisposable: { dispose: () => void } | undefined;
@@ -152,7 +153,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
 
     fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    registerMultiLineLinkProvider(term);
+    linkController = registerMultiLineLinkProvider(term);
 
     // Open terminal - on mobile, swap xterm's textarea for a password input
     // to suppress autocorrect at OS level. Voice input uses Web Speech API
@@ -283,10 +284,12 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       const screen = t.element?.querySelector<HTMLElement>('.xterm-screen');
       if (screen) {
         const send = (sequence: string) => sendTerminalKey(t, sequence);
-        cleanupHerdrMouse = attachHerdrMouseInput(screen, t, send);
+        cleanupHerdrMouse = attachHerdrMouseInput(screen, t, send, linkController);
         sendHerdrTouchTap = (clientX, clientY) => {
           const openingMobileInput = !isVirtualKeyboardOpen();
           props.onActivate?.();
+          const cell = terminalCell(screen, t, clientX, clientY);
+          if (cell && linkController?.activateLinkAt(cell.column, cell.row)) return;
           sendHerdrTap(screen, t, send, clientX, clientY);
           if (openingMobileInput) send(FUNCTIONAL_KEY_MAP.End);
           focusMobileTerminal(t);
@@ -818,6 +821,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     cleanupGestures?.();
     cleanupWheel?.();
     cleanupHerdrMouse?.();
+    linkController?.dispose();
     dataDisposable?.dispose();
     bufferChangeDisposable?.dispose();
     cursorHideDisposable?.dispose();

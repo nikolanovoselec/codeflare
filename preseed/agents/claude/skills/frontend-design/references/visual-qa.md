@@ -51,9 +51,10 @@ Use project requirements or agree on measurable budgets. Examples include LCP, C
 1. Capture one representative evidence set.
 2. Rank findings by product harm and thesis breakage.
 3. Fix related problems as one coherent pass.
-4. Confirm the changed areas once.
+4. Confirm the changed areas.
+5. Repeat only when confirmation exposes a remaining material defect, normally stopping within one to three passes.
 
-Do not enter an endless polish loop. If a foundational direction fails, return to direction rather than stacking effects on a broken composition.
+Do not enter an endless polish loop. Clear critical findings before completion; if capability, scope, or budget prevents that, report the work as blocked or incomplete. If a foundational direction fails, return to direction rather than stacking effects on a broken composition.
 
 ## Report evidence honestly
 

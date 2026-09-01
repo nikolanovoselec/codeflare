@@ -16,14 +16,33 @@ vi.mock('../../middleware/auth', () => ({
 }));
 
 // Mock r2-seed and r2-config for preseed reconciliation tests
-const { mockReconcileAgentConfigs } = vi.hoisted(() => ({
+const { mockReconcileAgentConfigs, mockManagedExtensionsDocumentDigest, managedReleaseState } = vi.hoisted(() => ({
   mockReconcileAgentConfigs: vi.fn(async () => ({ written: [], skipped: [], deleted: [], warnings: [] })),
+  mockManagedExtensionsDocumentDigest: vi.fn(async () => 'e'.repeat(64)),
+  managedReleaseState: {
+    active: null as any,
+    cachedByDigest: new Map<string, { compressed: Uint8Array; release: { sequence: number } }>(),
+  },
 }));
 vi.mock('../../lib/r2-seed', async () => {
   const actual = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
-  return { ...actual, reconcileAgentConfigs: mockReconcileAgentConfigs };
+  return {
+    ...actual,
+    reconcileAgentConfigs: mockReconcileAgentConfigs,
+    managedExtensionsDocumentDigest: mockManagedExtensionsDocumentDigest,
+  };
 });
 vi.mock('../../lib/r2-config', () => ({ getR2Config: vi.fn(async () => ({ accountId: 'test-account', endpoint: 'https://r2.test' })) }));
+vi.mock('../../lib/managed-release-active', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/managed-release-active')>()),
+  getActiveManagedRelease: vi.fn(async () => managedReleaseState.active ? ({
+    digest: managedReleaseState.active.digest,
+    pointer: { sequence: managedReleaseState.active.release.sequence },
+    resourcePolicy: 'mutable',
+  }) : null),
+  getActiveVerifiedManagedRelease: vi.fn(async () => managedReleaseState.active),
+  getCachedManagedReleaseByDigest: vi.fn(async (_env: Env, digest: string) => managedReleaseState.cachedByDigest.get(digest) ?? null),
+}));
 
 // REQ-AGENT-012: Fast CLI Start (Configurable)
 
@@ -33,6 +52,10 @@ describe('Preferences Routes', () => {
   beforeEach(() => {
     mockKV = createMockKV();
     mockReconcileAgentConfigs.mockClear();
+    mockManagedExtensionsDocumentDigest.mockReset();
+    mockManagedExtensionsDocumentDigest.mockResolvedValue('e'.repeat(64));
+    managedReleaseState.active = null;
+    managedReleaseState.cachedByDigest.clear();
   });
 
   function createTestApp(envOverrides: Partial<Env> = {}) {
@@ -87,6 +110,21 @@ describe('Preferences Routes', () => {
       expect(body.herdrEnabled).toBe(true);
     });
 
+    it('omits internal reconciliation targets from client preferences', async () => {
+      mockKV._set('user-prefs:codeflare-test-user', {
+        workspaceSyncEnabled: true,
+        managedEnvironmentReconciliation: {
+          targets: [{ digest: 'a'.repeat(64), sequence: 1, mode: 'default' }],
+        },
+      });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences');
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ workspaceSyncEnabled: true });
+    });
+
     it('omits the removed preset preference from legacy stored records', async () => {
       mockKV._set('user-prefs:codeflare-test-user', {
         lastPresetId: 'legacy-preset',
@@ -119,6 +157,28 @@ describe('Preferences Routes', () => {
       const body = await res.json() as { lastAgentType?: string; workspaceSyncEnabled?: boolean };
       expect(body.lastAgentType).toBe('antigravity');
       expect(body.workspaceSyncEnabled).toBe(true);
+    });
+
+    it('preserves internal reconciliation state without returning it to the client', async () => {
+      const pending = {
+        targets: [{ digest: 'a'.repeat(64), sequence: 1, mode: 'default' as const }],
+      };
+      mockKV._set('user-prefs:codeflare-test-user', {
+        managedEnvironmentReconciliation: pending,
+      });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceSyncEnabled: true }),
+      });
+
+      expect(await res.json()).toEqual({ workspaceSyncEnabled: true });
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toEqual({
+        workspaceSyncEnabled: true,
+        managedEnvironmentReconciliation: pending,
+      });
     });
 
     it('persists the Herdr preference without changing unrelated fields', async () => {
@@ -748,6 +808,294 @@ describe('Preferences Routes', () => {
       });
 
       expect(res.status).toBe(409);
+    });
+
+    it('REQ-STOR-035 AC3: mode-change disable repairs interrupted targets before clearing state', async () => {
+      managedReleaseState.cachedByDigest.set('a'.repeat(64), {
+        compressed: new Uint8Array(),
+        release: { sequence: 1 },
+      });
+      managedReleaseState.cachedByDigest.set('b'.repeat(64), {
+        compressed: new Uint8Array(),
+        release: { sequence: 2 },
+      });
+      mockKV._set('user-prefs:codeflare-test-user', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest: 'a'.repeat(64), managedExtensionsDigest: 'c'.repeat(64), sequence: 1,
+          mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z',
+        },
+        managedEnvironmentReconciliation: {
+          targets: [{ digest: 'b'.repeat(64), sequence: 2, mode: 'default' }],
+        },
+      });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(mockReconcileAgentConfigs).toHaveBeenCalledWith(
+        expect.anything(), 'codeflare-test-user', 'https://r2.test', 'advanced',
+        expect.objectContaining({
+          managedRelease: null,
+          interruptedManagedReleases: [expect.objectContaining({ digest: 'b'.repeat(64), mode: 'default' })],
+        }),
+      );
+      const stored = await mockKV.get('user-prefs:codeflare-test-user', 'json') as any;
+      expect(stored.managedEnvironmentApplied).toBeUndefined();
+      expect(stored.managedEnvironmentReconciliation).toBeUndefined();
+    });
+
+    it('REQ-STOR-035 AC2: unavailable interrupted history rejects a mode change and preserves pending state', async () => {
+      const pending = {
+        targets: [{ digest: 'b'.repeat(64), sequence: 2, mode: 'default' as const }],
+      };
+      mockKV._set('user-prefs:codeflare-test-user', {
+        sessionMode: 'default',
+        managedEnvironmentReconciliation: pending,
+      });
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(500);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toEqual({
+        sessionMode: 'default',
+        managedEnvironmentReconciliation: pending,
+      });
+    });
+
+    it('REQ-STOR-035 AC1/AC2: a failed managed mode change records and retains its active target', async () => {
+      managedReleaseState.active = {
+        digest: 'd'.repeat(64),
+        compressed: new Uint8Array(),
+        release: { sequence: 9 },
+      };
+      managedReleaseState.cachedByDigest.set('a'.repeat(64), {
+        compressed: new Uint8Array(),
+        release: { sequence: 8 },
+      });
+      mockKV._set('user-prefs:codeflare-test-user', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest: 'a'.repeat(64), managedExtensionsDigest: 'c'.repeat(64), sequence: 8,
+          mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z',
+        },
+      });
+      mockReconcileAgentConfigs.mockRejectedValueOnce(new Error('partial write'));
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(500);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({
+        sessionMode: 'default',
+        managedEnvironmentApplied: { digest: 'a'.repeat(64) },
+        managedEnvironmentReconciliation: {
+          targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' }],
+        },
+      });
+    });
+
+    it('REQ-MEM-011 AC5: target journaling preserves concurrent preference changes', async () => {
+      managedReleaseState.active = {
+        digest: 'd'.repeat(64),
+        compressed: new Uint8Array(),
+        release: { sequence: 9 },
+      };
+      managedReleaseState.cachedByDigest.set('a'.repeat(64), {
+        compressed: new Uint8Array(),
+        release: { sequence: 8 },
+      });
+      mockKV._set('user-prefs:codeflare-test-user', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest: 'a'.repeat(64), managedExtensionsDigest: 'c'.repeat(64), sequence: 8,
+          mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z',
+        },
+      });
+      let releaseLookupStarted!: () => void;
+      const lookupStarted = new Promise<void>((resolve) => { releaseLookupStarted = resolve; });
+      let releaseLookupContinue!: () => void;
+      const lookupContinue = new Promise<void>((resolve) => { releaseLookupContinue = resolve; });
+      const { getActiveVerifiedManagedRelease } = await import('../../lib/managed-release-active');
+      vi.mocked(getActiveVerifiedManagedRelease).mockImplementationOnce(async () => {
+        releaseLookupStarted();
+        await lookupContinue;
+        return managedReleaseState.active;
+      });
+      const app = createTestApp();
+
+      const response = app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+      await lookupStarted;
+      const concurrent = await mockKV.get('user-prefs:codeflare-test-user', 'json') as Record<string, unknown>;
+      await mockKV.put('user-prefs:codeflare-test-user', JSON.stringify({ ...concurrent, herdrEnabled: true }));
+      releaseLookupContinue();
+
+      expect((await response).status).toBe(200);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({
+        sessionMode: 'advanced',
+        herdrEnabled: true,
+        managedEnvironmentApplied: { digest: 'd'.repeat(64) },
+      });
+    });
+
+    it('REQ-MEM-011 AC5: preserves a preference update during applied digest preparation', async () => {
+      managedReleaseState.active = {
+        digest: 'd'.repeat(64),
+        compressed: new Uint8Array(),
+        release: { sequence: 9 },
+      };
+      managedReleaseState.cachedByDigest.set('a'.repeat(64), {
+        compressed: new Uint8Array(),
+        release: { sequence: 8 },
+      });
+      mockKV._set('user-prefs:codeflare-test-user', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest: 'a'.repeat(64), managedExtensionsDigest: 'c'.repeat(64), sequence: 8,
+          mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z',
+        },
+      });
+      let digestStarted!: () => void;
+      const digestIsRunning = new Promise<void>((resolve) => { digestStarted = resolve; });
+      let finishDigest!: (digest: string) => void;
+      mockManagedExtensionsDocumentDigest.mockImplementationOnce(() => new Promise<string>((resolve) => {
+        finishDigest = resolve;
+        digestStarted();
+      }));
+      const app = createTestApp();
+
+      const response = app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+      await digestIsRunning;
+      const concurrent = await mockKV.get('user-prefs:codeflare-test-user', 'json') as Record<string, unknown>;
+      await mockKV.put('user-prefs:codeflare-test-user', JSON.stringify({ ...concurrent, herdrEnabled: true }));
+      finishDigest('e'.repeat(64));
+
+      expect((await response).status).toBe(200);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({
+        sessionMode: 'advanced',
+        herdrEnabled: true,
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64) },
+      });
+    });
+
+    it('REQ-MEM-011 AC6: final publication snapshot rejects a concurrent mode change', async () => {
+      managedReleaseState.active = {
+        digest: 'd'.repeat(64),
+        compressed: new Uint8Array(),
+        release: { sequence: 9 },
+      };
+      managedReleaseState.cachedByDigest.set('a'.repeat(64), {
+        compressed: new Uint8Array(),
+        release: { sequence: 8 },
+      });
+      mockKV._set('user-prefs:codeflare-test-user', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest: 'a'.repeat(64), managedExtensionsDigest: 'c'.repeat(64), sequence: 8,
+          mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z',
+        },
+      });
+      let digestStarted!: () => void;
+      const digestIsRunning = new Promise<void>((resolve) => { digestStarted = resolve; });
+      let finishDigest!: (digest: string) => void;
+      mockManagedExtensionsDocumentDigest.mockImplementationOnce(() => new Promise<string>((resolve) => {
+        finishDigest = resolve;
+        digestStarted();
+      }));
+      const app = createTestApp();
+
+      const response = app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+      await digestIsRunning;
+      const concurrent = await mockKV.get('user-prefs:codeflare-test-user', 'json') as Record<string, unknown>;
+      await mockKV.put('user-prefs:codeflare-test-user', JSON.stringify({ ...concurrent, sessionMode: 'default' }));
+      finishDigest('e'.repeat(64));
+
+      expect((await response).status).toBe(500);
+      expect(mockReconcileAgentConfigs).toHaveBeenCalledTimes(1);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({
+        sessionMode: 'default',
+        managedEnvironmentApplied: { digest: 'a'.repeat(64), mode: 'default' },
+        managedEnvironmentReconciliation: {
+          targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' }],
+        },
+      });
+    });
+
+    it('REQ-MEM-011 AC6: aborts stale reconciliation without reverting a concurrent mode update', async () => {
+      managedReleaseState.active = {
+        digest: 'd'.repeat(64),
+        compressed: new Uint8Array(),
+        release: { sequence: 9 },
+      };
+      managedReleaseState.cachedByDigest.set('a'.repeat(64), {
+        compressed: new Uint8Array(),
+        release: { sequence: 8 },
+      });
+      mockKV._set('user-prefs:codeflare-test-user', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest: 'a'.repeat(64), managedExtensionsDigest: 'c'.repeat(64), sequence: 8,
+          mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z',
+        },
+      });
+      let firstLookupStarted!: () => void;
+      const lookupStarted = new Promise<void>((resolve) => { firstLookupStarted = resolve; });
+      let continueFirstLookup!: () => void;
+      const lookupContinue = new Promise<void>((resolve) => { continueFirstLookup = resolve; });
+      const { getActiveVerifiedManagedRelease } = await import('../../lib/managed-release-active');
+      vi.mocked(getActiveVerifiedManagedRelease).mockImplementationOnce(async () => {
+        firstLookupStarted();
+        await lookupContinue;
+        return managedReleaseState.active;
+      });
+      const app = createTestApp();
+
+      const firstResponse = app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+      await lookupStarted;
+      const secondResponse = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'default' }),
+      });
+      expect(secondResponse.status).toBe(200);
+      continueFirstLookup();
+
+      expect((await firstResponse).status).toBe(500);
+      expect(mockReconcileAgentConfigs).toHaveBeenCalledTimes(1);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({
+        sessionMode: 'default',
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), mode: 'default' },
+      });
     });
 
     it('REQ-STOR-024: a failed managed reconciliation is reported instead of returning success', async () => {

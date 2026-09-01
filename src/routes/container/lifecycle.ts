@@ -26,7 +26,7 @@ import { setupR2Credentials, ensureBucketAndSeed, configureContainerDO } from '.
 import { resolveSessionAccessGroup, loadEnterpriseRouteConfig } from '../../lib/access';
 import { applyEnterpriseBrowserToken } from '../../lib/browser-render-token';
 import { applyCloudflareOAuthToken } from '../../lib/cloudflare-token';
-import { getCachedActiveManagedRelease } from '../../lib/managed-release-active';
+import { getCachedActiveManagedRelease, hasPendingManagedReconciliation } from '../../lib/managed-release-active';
 import { hasStrictGatewayEgress } from '../../lib/controller-egress';
 import { createR2Client, getR2Url } from '../../lib/r2-client';
 import { getSseHeaders } from '../../lib/r2-sse';
@@ -213,7 +213,10 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       const applied = preferences.managedEnvironmentApplied;
       const desiredPolicy = activeManagedRelease?.resourcePolicy ?? 'mutable';
       const appliedPolicy = applied?.resourcePolicy ?? 'mutable';
-      const mismatch = activeManagedRelease
+      const hasInterruptedTargets = hasPendingManagedReconciliation(
+        preferences.managedEnvironmentReconciliation,
+      );
+      const mismatch = hasInterruptedTargets || (activeManagedRelease
         ? applied?.digest !== activeManagedRelease.digest
           || applied.mode !== sessionMode
           || applied.sequence !== activeManagedRelease.pointer.sequence
@@ -221,7 +224,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
           || appliedPolicy !== desiredPolicy
           || (desiredPolicy !== 'mutable' && !/^[0-9a-f]{64}$/.test(applied.managedPathsDigest ?? ''))
           || (desiredPolicy === 'mutable' && applied.managedPathsDigest !== undefined)
-        : applied !== undefined;
+        : applied !== undefined);
       if (mismatch) throw new ManagedEnvironmentUpdatePendingError();
       remoteCurationActive = activeManagedRelease !== null;
       remoteCurationReleaseDigest = activeManagedRelease?.digest;
@@ -234,7 +237,8 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       // previously applied verified release. A fresh bucket has no trustworthy
       // managed state and must remain behind the same typed update gate.
       if (
-        !preferences.managedEnvironmentApplied
+        hasPendingManagedReconciliation(preferences.managedEnvironmentReconciliation)
+        || !preferences.managedEnvironmentApplied
         || preferences.managedEnvironmentApplied.mode !== sessionMode
         || !/^[0-9a-f]{64}$/.test(preferences.managedEnvironmentApplied.managedExtensionsDigest ?? '')
       ) {

@@ -116,12 +116,12 @@ describe('REQ-ENTERPRISE-018: rclone.conf under Governed Mode (entrypoint.sh cre
 function runLayDown({ r2SseDisabled, sessionMode = 'default', seedModes = ['default'], preExisting = false }) {
   const home = mkdtempSync(join(tmpdir(), 'gov-home-'));
   const bakeRoot = mkdtempSync(join(tmpdir(), 'gov-bake-'));
-  // Build a baked tree per requested mode: a hook (.mjs) + a skill file.
+  // Build a baked tree per requested mode: a hook (.mjs) + an extension file.
   for (const mode of seedModes) {
     mkdirSync(join(bakeRoot, mode, '.claude/hooks'), { recursive: true });
-    mkdirSync(join(bakeRoot, mode, '.claude/skills/demo'), { recursive: true });
+    mkdirSync(join(bakeRoot, mode, '.claude/extensions'), { recursive: true });
     writeFileSync(join(bakeRoot, mode, '.claude/hooks/cap.mjs'), `// ${mode} hook\n`);
-    writeFileSync(join(bakeRoot, mode, '.claude/skills/demo/SKILL.md'), `# ${mode} skill\n`);
+    writeFileSync(join(bakeRoot, mode, '.claude/extensions/demo.ts'), `// ${mode} extension\n`);
   }
   if (preExisting) {
     mkdirSync(join(home, '.claude/hooks'), { recursive: true });
@@ -145,10 +145,10 @@ describe('REQ-STOR-017 / AD90: image-baked agent-seed lay-down (entrypoint.sh la
     const { code, stderr, home } = runLayDown({ r2SseDisabled: true, sessionMode: 'default' });
     assert.equal(code, 0, `lay-down exited non-zero: ${stderr}`);
     const hook = join(home, '.claude/hooks/cap.mjs');
-    const skill = join(home, '.claude/skills/demo/SKILL.md');
+    const extension = join(home, '.claude/extensions/demo.ts');
     assert.ok(existsSync(hook), 'hook not laid down');
-    assert.ok(existsSync(skill), 'skill not laid down');
-    assert.equal(readFileSync(skill, 'utf8'), '# default skill\n', 'skill content not laid down verbatim');
+    assert.ok(existsSync(extension), 'extension not laid down');
+    assert.equal(readFileSync(extension, 'utf8'), '// default extension\n', 'extension content not laid down verbatim');
   });
 
   it('does NOT lay down anything outside Governed Mode (R2_SSE_DISABLED unset)', () => {
@@ -164,14 +164,14 @@ describe('REQ-STOR-017 / AD90: image-baked agent-seed lay-down (entrypoint.sh la
       seedModes: ['default', 'advanced'],
     });
     assert.equal(code, 0, `lay-down exited non-zero: ${stderr}`);
-    assert.equal(readFileSync(join(home, '.claude/skills/demo/SKILL.md'), 'utf8'), '# advanced skill\n');
+    assert.equal(readFileSync(join(home, '.claude/extensions/demo.ts'), 'utf8'), '// advanced extension\n');
   });
 
   it('is idempotent — a second lay-down over existing files succeeds', () => {
     // First lay-down onto a home that already has a stale copy.
     const { code, stderr, home } = runLayDown({ r2SseDisabled: true, sessionMode: 'default', preExisting: true });
     assert.equal(code, 0, `idempotent lay-down exited non-zero: ${stderr}`);
-    assert.ok(existsSync(join(home, '.claude/skills/demo/SKILL.md')), 'skill missing after re-lay-down');
+    assert.ok(existsSync(join(home, '.claude/extensions/demo.ts')), 'extension missing after re-lay-down');
   });
 });
 

@@ -8,6 +8,7 @@ import {
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+import * as storageApi from '../../api/storage';
 import {
   browseStorage,
   uploadFile,
@@ -308,12 +309,25 @@ describe('Storage API Client', () => {
   // recreateAgentConfigs
   // ==========================================================================
   describe('recreateAgentConfigs', () => {
+    it('REQ-STOR-033 AC7: calls the separate automatic managed upgrade endpoint', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({
+        success: true, bucketCreated: false, written: [], skipped: [], deleted: [], warnings: [],
+      }));
+
+      await (storageApi as typeof storageApi & { upgradeAgentConfigs: () => Promise<unknown> }).upgradeAgentConfigs();
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/storage/seed/agent-configs/upgrade',
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+
     it('calls POST /api/storage/seed/agent-configs', async () => {
       mockFetch.mockResolvedValueOnce(
         mockResponse({
           success: true,
           bucketCreated: false,
-          written: ['.claude/rules/cloudflare-environment.md', '.claude/skills/ship/SKILL.md'],
+          written: ['.claude/extensions/cloudflare-environment.md', '.claude/extensions/ship/index.ts'],
           skipped: [],
         })
       );
@@ -331,9 +345,9 @@ describe('Storage API Client', () => {
         mockResponse({
           success: true,
           bucketCreated: false,
-          written: ['.claude/rules/cloudflare-environment.md'],
+          written: ['.claude/extensions/cloudflare-environment.md'],
           skipped: [],
-          deleted: ['.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json', '.claude/skills/consult-llm/SKILL.md'],
+          deleted: ['.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json', '.claude/extensions/consult-llm/index.ts'],
           warnings: [],
         })
       );

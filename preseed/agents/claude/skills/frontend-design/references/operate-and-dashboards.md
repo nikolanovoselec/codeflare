@@ -29,6 +29,8 @@ Choose representations from the user's question:
 - topology or graph for relationships;
 - text when it communicates the result more accurately than visualization.
 
+For important visualizations, provide non-color encoding, units, axes, legends, precise-value access, relevant time zones, keyboard/focus behavior, and a table or equivalent data view when needed. Live updates must not steal focus, reset selection, or move targets unpredictably; expose refresh timing and control when it affects the task.
+
 Do not turn every metric into a card or every dataset into a chart. Map coherent information architecture to components only after these decisions hold together.
 
 ## Design operational states

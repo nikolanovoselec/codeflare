@@ -234,11 +234,11 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
   // Implements REQ-AGENT-005
   const handleSessionModeChange = async (mode: 'default' | 'advanced') => {
-    if (mode === currentSessionMode()) return;
+    if (mode === currentSessionMode() || sessionStore.preseedUpgrading) return;
     try {
-      await sessionStore.updatePreferences(mode === 'default'
+      await sessionStore.runPreseedUpdate(() => sessionStore.updatePreferences(mode === 'default'
         ? { sessionMode: mode, defaultWorkspace: 'terminal' }
-        : { sessionMode: mode });
+        : { sessionMode: mode }));
       // Show feedback — auto-reconcile runs server-side as part of the PATCH
       if (currentSessionMode() === mode) {
         setRecreateAgentMessage(`Agent skills updated for ${mode === 'advanced' ? 'Pro' : 'Standard'} mode. Takes effect in new sessions.`);
@@ -296,14 +296,14 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   };
 
   const handleRecreateAgentConfigs = async () => {
-    if (recreateAgentLoading()) return;
+    if (recreateAgentLoading() || sessionStore.preseedUpgrading) return;
 
     setRecreateAgentLoading(true);
     setRecreateAgentMessage(null);
     setRecreateAgentError(null);
 
     try {
-      const result = await recreateAgentConfigs();
+      const result = await sessionStore.runPreseedUpdate(recreateAgentConfigs);
       const parts = [`Recreated ${result.written.length} agent config file(s).`];
       if (result.deleted && result.deleted.length > 0) {
         parts.push(`Removed ${result.deleted.length} file(s) from previous mode.`);
@@ -405,6 +405,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               recreateDocsMessage={recreateDocsMessage}
               recreateDocsError={recreateDocsError}
               recreateAgentLoading={recreateAgentLoading}
+              seedUpdateActive={() => sessionStore.preseedUpgrading}
               recreateAgentMessage={recreateAgentMessage}
               recreateAgentError={recreateAgentError}
               onSessionModeChange={handleSessionModeChange}

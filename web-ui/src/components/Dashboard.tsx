@@ -70,6 +70,31 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [userMenuPos, setUserMenuPos] = createSignal<{ top: number; right: number }>({ top: 0, right: 0 });
   let userBtnRef: HTMLButtonElement | undefined;
   const [newSessionBtnRef, setNewSessionBtnRef] = createSignal<HTMLButtonElement>();
+  const managedUpgradePercent = createMemo(() => {
+    const progress = sessionStore.managedReleaseProgress;
+    if (!progress) return 0;
+    if (progress.total === 0) return 0;
+    return Math.min(100, Math.max(0, (progress.completed / progress.total) * 100));
+  });
+  const managedUpgradeStyle = createMemo(() => {
+    if (sessionStore.managedReleaseStatus !== 'upgrading') return undefined;
+    const percent = managedUpgradePercent();
+    return `background: linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${percent}%, color-mix(in srgb, var(--color-accent) 72%, black) ${percent}%, color-mix(in srgb, var(--color-accent) 72%, black) 100%);`;
+  });
+  const managedUpgradeLabel = createMemo(() => {
+    if (sessionStore.managedReleaseStatus !== 'upgrading') return undefined;
+    const progress = sessionStore.managedReleaseProgress;
+    if (progress?.phase === 'finalizing') return 'Finalizing';
+    if (progress?.phase === 'writing') return `Upgrading ${progress.completed} / ${progress.total}`;
+    return 'Upgrading';
+  });
+  const managedUpgradeAriaLabel = createMemo(() => {
+    if (sessionStore.managedReleaseStatus !== 'upgrading') return undefined;
+    const progress = sessionStore.managedReleaseProgress;
+    if (progress?.phase === 'finalizing') return 'Finalizing managed resources';
+    if (progress?.phase === 'writing') return `Upgrading managed resources, ${progress.completed} of ${progress.total} complete`;
+    return 'Upgrading managed resources';
+  });
   const [menuState, setMenuState] = createSignal<{ isOpen: boolean; position: { x: number; y: number }; session: SessionWithStatus | null }>({
     isOpen: false,
     position: { x: 0, y: 0 },
@@ -400,8 +425,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   ref={setNewSessionBtnRef}
                   class={`dashboard-new-session-btn ${sessionStore.isAtSessionLimit() ? 'dashboard-new-session-btn--limited' : ''}`}
                   data-testid="dashboard-new-session"
+                  style={managedUpgradeStyle()}
                   disabled={!sessionStore.r2Ready || isAtUsageQuota() || sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' || sessionStore.managedReleaseStatus === 'update_pending' || sessionStore.bucketMigrating}
-                  aria-label={sessionStore.bucketMigrating ? 'Storage is migrating' : sessionStore.managedReleaseStatus === 'update_pending' ? 'Session environment update pending until session stops' : sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' ? 'Updating session environment' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session'}
+                  aria-label={sessionStore.bucketMigrating ? 'Storage is migrating' : sessionStore.managedReleaseStatus === 'update_pending' ? 'Session environment update pending until session stops' : managedUpgradeAriaLabel() ?? (sessionStore.preseedUpgrading ? 'Updating session environment' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session')}
                   onClick={() => {
                     if (sessionStore.isAtSessionLimit()) {
                       setShowLimitPopup(!showLimitPopup());
@@ -414,7 +440,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     ? (sessionStore.bucketMigrationPercent != null ? `Migrating ${sessionStore.bucketMigrationPercent}%` : 'Migrating')
                     : sessionStore.managedReleaseStatus === 'update_pending'
                       ? 'Update pending'
-                      : sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' ? 'Updating' : '+ New Session'}
+                      : managedUpgradeLabel() ?? (sessionStore.preseedUpgrading ? 'Updating' : '+ New Session')}
                 </button>
                 <Show when={multiViewWorkspace()}>
                   <button

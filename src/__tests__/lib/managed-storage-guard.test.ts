@@ -15,7 +15,7 @@ vi.mock('../../lib/managed-r2-policy', async (importOriginal) => ({
     pathsDigest: 'f'.repeat(64),
     resourcePolicy: 'exclusive',
     paths: ['.codeflare/managed-paths.json'],
-    resourceRoots: ['.claude/skills/'],
+    resourceRoots: ['.claude/extensions/'],
   })),
 }));
 vi.mock('../../lib/r2-config', () => ({ getR2Config: vi.fn(async () => ({ accountId: 'account', endpoint: 'https://r2.example.com' })) }));
@@ -75,6 +75,20 @@ describe('REQ-ENTERPRISE-030 Storage mutation guard', () => {
     };
     mutate(state.snapshot, applied);
     kv._set('user-prefs:bucket', { managedEnvironmentApplied: applied });
+
+    await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, keys: ['Vault/personal.md'] }))
+      .rejects.toMatchObject({ code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING' });
+    expect(readVerifiedManagedR2Policy).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-030 AC5: blocks storage mutation while interrupted targets remain pending', async () => {
+    const preferences = await kv.get('user-prefs:bucket', 'json') as Record<string, unknown>;
+    kv._set('user-prefs:bucket', {
+      ...preferences,
+      managedEnvironmentReconciliation: {
+        targets: [{ digest: 'c'.repeat(64), sequence: 3, mode: 'default' }],
+      },
+    });
 
     await expect(guardManagedStorageMutation({ env, bucketName: 'bucket', user, keys: ['Vault/personal.md'] }))
       .rejects.toMatchObject({ code: 'MANAGED_ENVIRONMENT_UPDATE_PENDING' });

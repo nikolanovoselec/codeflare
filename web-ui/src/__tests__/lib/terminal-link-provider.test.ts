@@ -25,8 +25,8 @@ function createMockBuffer(lines: XTermLine[]): XTermBuffer {
   };
 }
 
-function createMockTerminal(lines: XTermLine[], cols: number) {
-  const buffer = createMockBuffer(lines);
+function createMockTerminal(lines: XTermLine[], cols: number, viewportY = 0) {
+  const buffer = { ...createMockBuffer(lines), viewportY };
   let registeredProvider: any = null;
 
   return {
@@ -52,6 +52,41 @@ describe('terminal-link-provider', () => {
 
       expect(disposable).toBeTruthy();
       expect(typeof disposable.dispose).toBe('function');
+    });
+
+    it('activates a link at a viewport cell through the shared controller', () => {
+      const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+      const terminal = createMockTerminal(
+        [createMockLine('history'), createMockLine('https://example.com/path')],
+        80,
+        1,
+      );
+
+      const controller = registerMultiLineLinkProvider(terminal as any);
+
+      expect(controller.hasLinkAt(5, 1)).toBe(true);
+      expect(controller.activateLinkAt(5, 1)).toBe(true);
+      expect(open).toHaveBeenCalledOnce();
+      expect(open).toHaveBeenCalledWith('https://example.com/path', '_blank', 'noopener');
+      expect(controller.hasLinkAt(40, 1)).toBe(false);
+      expect(controller.activateLinkAt(40, 1)).toBe(false);
+      open.mockRestore();
+    });
+
+    it('finds a link from a wrapped continuation viewport row', () => {
+      const terminal = createMockTerminal(
+        [
+          createMockLine('history'),
+          createMockLine('https://example.com/' + 'a'.repeat(20)),
+          createMockLine('b'.repeat(20), true),
+        ],
+        40,
+        1,
+      );
+
+      const controller = registerMultiLineLinkProvider(terminal as any);
+
+      expect(controller.hasLinkAt(5, 2)).toBe(true);
     });
 
     it('detects a simple URL on a single line', () => {

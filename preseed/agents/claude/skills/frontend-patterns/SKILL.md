@@ -28,7 +28,7 @@ Do not parallelize operations that depend on one another, mutate shared state, o
 
 ## 2. Reduce shipped JavaScript
 
-- Prefer server components and server data access until browser state, events, or APIs require a client boundary.
+- When the installed framework and incumbent architecture support Server Components, prefer server components and server data access until browser state, events, or APIs require a client boundary. Generic React or Vite applications may not have this lane.
 - Import the narrow module actually used. Avoid broad barrel imports when they pull large dependency graphs or inhibit tree shaking.
 - Keep import paths statically analyzable. Dynamic path construction can force bundlers and deployment tracers to include whole directories.
 - Dynamically import heavy, optional UI that is not needed for the initial interaction.
@@ -69,7 +69,7 @@ Do not add a dynamic boundary to tiny, always-needed modules; it adds another re
 - Use transitions or deferred values for non-urgent expensive rendering when responsiveness evidence warrants them.
 - Hoist stable non-primitive default props instead of allocating a new object or array each render.
 
-Memoize only when calculation cost or child rerender evidence exceeds memoization complexity. Do not wrap simple expressions, callbacks, or components mechanically.
+Inspect installed React, framework, router, cache model, and compiler configuration before version-sensitive advice. Account for React Compiler when present. Memoize only when calculation cost or child rerender evidence exceeds memoization complexity; do not wrap simple expressions, callbacks, or components mechanically.
 
 ## 6. Render efficiently
 
@@ -93,7 +93,9 @@ In measured hot paths:
 
 Do not trade readability for micro-optimizations outside a demonstrated hot path.
 
-## Verification
+## Scope and verification
+
+This skill covers React and Next.js performance where those technologies are present. It does not claim Vue, Svelte, Solid, Astro, native, or general application-architecture authority. Route those stacks to their own measured performance guidance.
 
 Before changing code, state the suspected bottleneck and evidence. After the smallest change:
 

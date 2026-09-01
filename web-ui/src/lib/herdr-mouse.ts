@@ -1,4 +1,5 @@
 import type { Terminal } from '@xterm/xterm';
+import type { TerminalLinkController } from './terminal-link-provider';
 
 export type TerminalInputSender = (sequence: string) => void;
 
@@ -8,7 +9,7 @@ function modifierBits(event: MouseEvent | WheelEvent): number {
     + (event.ctrlKey ? 16 : 0);
 }
 
-function terminalCell(
+export function terminalCell(
   screen: HTMLElement,
   terminal: Terminal,
   clientX: number,
@@ -51,8 +52,10 @@ export function attachHerdrMouseInput(
   screen: HTMLElement,
   terminal: Terminal,
   send: TerminalInputSender,
+  links?: Pick<TerminalLinkController, 'hasLinkAt' | 'activateLinkAt'>,
 ): () => void {
   let pressedButton: number | null = null;
+  let linkPress: { column: number; row: number; canceled: boolean } | null = null;
   const document = screen.ownerDocument;
 
   const own = (event: Event): void => {
@@ -64,6 +67,15 @@ export function attachHerdrMouseInput(
     if (event.button < 0 || event.button > 2) return;
     const cell = terminalCell(screen, terminal, event.clientX, event.clientY);
     if (!cell) return;
+    if (
+      event.button === 0
+      && (event.ctrlKey || event.metaKey)
+      && links?.hasLinkAt(cell.column, cell.row)
+    ) {
+      linkPress = { ...cell, canceled: false };
+      own(event);
+      return;
+    }
     pressedButton = event.button;
     send(sgrMouse(event.button + modifierBits(event), cell.column, cell.row));
     terminal.focus();
@@ -71,6 +83,14 @@ export function attachHerdrMouseInput(
   };
 
   const onMouseMove = (event: MouseEvent): void => {
+    if (linkPress) {
+      const cell = terminalCell(screen, terminal, event.clientX, event.clientY);
+      if (!cell || cell.column !== linkPress.column || cell.row !== linkPress.row) {
+        linkPress.canceled = true;
+      }
+      own(event);
+      return;
+    }
     if (pressedButton === null || event.buttons === 0) return;
     const cell = terminalCell(screen, terminal, event.clientX, event.clientY);
     if (!cell) return;
@@ -79,6 +99,16 @@ export function attachHerdrMouseInput(
   };
 
   const onMouseUp = (event: MouseEvent): void => {
+    if (linkPress) {
+      const cell = terminalCell(screen, terminal, event.clientX, event.clientY);
+      const start = linkPress;
+      linkPress = null;
+      if (!start.canceled && cell?.column === start.column && cell.row === start.row) {
+        links?.activateLinkAt(start.column, start.row);
+      }
+      own(event);
+      return;
+    }
     if (pressedButton === null) return;
     const cell = terminalCell(screen, terminal, event.clientX, event.clientY);
     if (cell) {
@@ -107,6 +137,7 @@ export function attachHerdrMouseInput(
 
   return () => {
     pressedButton = null;
+    linkPress = null;
     screen.removeEventListener('mousedown', onMouseDown, { capture: true });
     document.removeEventListener('mousemove', onMouseMove, { capture: true });
     document.removeEventListener('mouseup', onMouseUp, { capture: true });
