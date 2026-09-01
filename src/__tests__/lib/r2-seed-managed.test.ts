@@ -384,6 +384,32 @@ describe('managed release user-bucket reconciliation', () => {
     expect(String(deleteBatches[0][1].body)).not.toContain('.claude/extensions/company/index.ts');
   });
 
+  it('REQ-STOR-029 AC3: exclusive cleanup bounds each delete batch to 1,000 objects', async () => {
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
+    const obsolete = Array.from({ length: 1_001 }, (_, index) => `.claude/extensions/obsolete-${index}.ts`);
+    let policyBytes: BodyInit | null | undefined;
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      if (init?.method === 'GET' && url.includes('list-type=2')) {
+        const contents = obsolete.map((key) => `<Contents><Key>${key}</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>`).join('');
+        return new Response(`<ListBucketResult><IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`, { status: 200 });
+      }
+      if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT') policyBytes = init.body;
+      if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'GET') return new Response(policyBytes, { status: 200 });
+      if (url.endsWith('?delete') && init?.method === 'POST') return new Response('<DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></DeleteResult>', { status: 200 });
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true, cleanup: true, managedRelease, resourcePolicy: 'exclusive',
+    });
+
+    const deleteBatches = fetchR2.mock.calls.filter(([url, init]) => String(url).endsWith('?delete') && init?.method === 'POST');
+    expect(deleteBatches).toHaveLength(2);
+    expect(deleteBatches.map(([, init]) => (String(init?.body).match(/<Key>/g) ?? []).length)).toEqual([1_000, 1]);
+    expect(result.deleted).toHaveLength(1_001);
+  });
+
   it('REQ-STOR-029 AC4: partial exclusive batch failures prevent policy identity from being committed', async () => {
     const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
