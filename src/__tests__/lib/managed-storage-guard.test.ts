@@ -15,7 +15,7 @@ vi.mock('../../lib/managed-r2-policy', async (importOriginal) => ({
     pathsDigest: 'f'.repeat(64),
     resourcePolicy: 'exclusive',
     paths: ['.codeflare/managed-paths.json'],
-    resourceRoots: ['.claude/skills/'],
+    resourceRoots: ['.claude/extensions/'],
   })),
 }));
 vi.mock('../../lib/r2-config', () => ({ getR2Config: vi.fn(async () => ({ accountId: 'account', endpoint: 'https://r2.example.com' })) }));

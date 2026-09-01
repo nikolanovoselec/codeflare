@@ -74,7 +74,7 @@ function release(overrides: Partial<ManagedRelease> = {}): ManagedRelease {
     runtimeDependencyHash: 'c'.repeat(64),
     documents: [
       {
-        key: '.claude/skills/company/SKILL.md',
+        key: '.claude/extensions/company/index.ts',
         contentType: 'text/markdown; charset=utf-8',
         content: '# Company\n',
         modes: ['advanced', 'default'],
@@ -138,7 +138,7 @@ describe('managed environment release verification', () => {
   it('REQ-AGENT-151 AC1+AC3+AC4: retains bounded metadata and streams identical documents', async () => {
     const documents = [
       { key: '.claude/common.md', contentType: 'text/markdown; charset=utf-8', content: '# Common\n', modes: ['advanced', 'default'] as const },
-      { key: '.pi/agent/skills/company/SKILL.md', contentType: 'text/markdown; charset=utf-8', content: '# Advanced\n', modes: ['advanced'] as const },
+      { key: '.pi/agent/extensions/company/index.ts', contentType: 'text/markdown; charset=utf-8', content: '// advanced extension\n', modes: ['advanced'] as const },
     ];
     const fixture = await signedFixture(release({ documents: documents.map((document) => ({ ...document, modes: [...document.modes] })) }));
 
@@ -163,7 +163,7 @@ describe('managed environment release verification', () => {
     const documentCount = 20;
     const fixture = await signedFixture(release({
       documents: Array.from({ length: documentCount }, (_, index) => ({
-        key: `.claude/rules/${String(index).padStart(2, '0')}.md`,
+        key: `.claude/extensions/${String(index).padStart(2, '0')}.md`,
         contentType: 'text/markdown; charset=utf-8',
         content: `# Rule ${index}`,
         modes: ['advanced'],
