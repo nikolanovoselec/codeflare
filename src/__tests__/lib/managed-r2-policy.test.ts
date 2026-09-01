@@ -23,7 +23,7 @@ function release(overrides: Partial<ManagedReleaseIndex> = {}): ManagedReleaseIn
       { key: '.pi/agent/AGENTS.md', modes: ['advanced', 'default'] },
       { key: '.pi/agent/extensions/company.ts', modes: ['advanced'] },
     ],
-    retiredPaths: ['.codex/config/retired.md'],
+    retiredPaths: ['.codex/extensions/retired.ts'],
     managedExtensions: [],
     ...overrides,
   };
@@ -43,7 +43,7 @@ describe('REQ-STOR-028 managed R2 policy', () => {
         '.claude/extensions/company/index.ts',
         '.codeflare/managed-extensions.json',
         '.codeflare/managed-paths.json',
-        '.codex/config/retired.md',
+        '.codex/extensions/retired.ts',
         '.pi/agent/AGENTS.md',
         '.pi/agent/extensions/company.ts',
       ],
@@ -54,7 +54,7 @@ describe('REQ-STOR-028 managed R2 policy', () => {
     expect((await buildManagedR2Policy(digest, release(), 'immutable')).digest).toBe(built.digest);
 
     const changed = await buildManagedR2Policy(digest, release({
-      retiredPaths: ['.codex/config/retired.md', '.pi/agent/extensions/retired.ts'],
+      retiredPaths: ['.codex/extensions/retired.ts', '.pi/agent/extensions/retired.ts'],
     }), 'immutable');
     expect(changed.bytes).not.toEqual(built.bytes);
     expect(changed.digest).not.toBe(built.digest);
@@ -65,12 +65,12 @@ describe('REQ-STOR-028 managed R2 policy', () => {
 
     expect(built.value.resourceRoots).toEqual([
       '.claude/extensions/',
-      '.codex/config/',
+      '.codex/extensions/',
       '.pi/agent/extensions/',
     ]);
-    expect(isManagedMutationProtected(built.value, '.claude/skills')).toBe(true);
+    expect(isManagedMutationProtected(built.value, '.claude/extensions')).toBe(true);
     expect(isManagedMutationProtected(built.value, '.claude/extensions/personal/index.ts')).toBe(true);
-    expect(isManagedMutationProtected(built.value, '.claude/skills-other/personal.md')).toBe(false);
+    expect(isManagedMutationProtected(built.value, '.claude/extensions-other/personal.md')).toBe(false);
     expect(isManagedMutationProtected(built.value, '.pi/agent/sessions/session.jsonl')).toBe(false);
     expect(canPrefixIntersectManagedPolicy(built.value, '.claude/')).toBe(true);
     expect(canPrefixIntersectManagedPolicy(built.value, 'Vault/')).toBe(false);

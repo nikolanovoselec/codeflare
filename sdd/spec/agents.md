@@ -836,7 +836,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated test
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -1073,7 +1073,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated test
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -1099,7 +1099,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline)
 
-**Verification:** Automated test
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -1269,7 +1269,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-025](#req-agent-025-post-clone-graph-triage)
 
-**Verification:** Automated test
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -1469,7 +1469,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** Automated test
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -1781,7 +1781,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-021](#req-agent-021-pro-mode-sdd-workflow-preseed-and-tool-surface-portability), [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection), [REQ-AGENT-168](#req-agent-168-review-boundary-classification)
 
-**Verification:** Manual verification
+**Verification:** Automated and manual verification
 
 **Status:** Implemented
 
@@ -1908,7 +1908,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Manual verification
+**Verification:** Automated and manual verification
 
 **Status:** Implemented
 
@@ -1987,7 +1987,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
-**Verification:** Automated test
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -2127,7 +2127,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-038](#req-agent-038-resume-mode-drain-workflow)
 
-**Verification:** Manual verification
+**Verification:** Automated and manual verification
 
 **Status:** Implemented
 
@@ -2324,7 +2324,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-040](#req-agent-040-pr-boundary-lane-classification-and-agent-dispatch)
 
-**Verification:** Manual verification
+**Verification:** Automated and manual verification
 
 **Status:** Implemented
 
@@ -2378,7 +2378,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Manual verification
+**Verification:** Automated and manual verification
 
 **Status:** Implemented
 
@@ -2409,7 +2409,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Manual verification
+**Verification:** Automated and manual verification
 
 **Status:** Implemented
 
@@ -2438,7 +2438,7 @@ None.
 
 **Dependencies:** None.
 
-**Verification:** Manual verification
+**Verification:** Automated and manual verification
 
 **Status:** Implemented
 
@@ -2695,7 +2695,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
 
-**Verification:** Manual verification
+**Verification:** Automated and manual verification
 
 **Status:** Implemented
 
@@ -3087,7 +3087,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-180](#req-agent-180-portable-frontend-design-authority)
 
-**Verification:** Generated projection tests and expert-versus-occasional dashboard evaluations.
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -3229,7 +3229,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Manual verification
+**Verification:** Automated and manual verification
 
 **Status:** Implemented
 
@@ -3256,7 +3256,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
 
-**Verification:** Automated generated-seed delivery test for AC3; direct skill review for AC1 and AC2.
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -3280,7 +3280,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection)
 
-**Verification:** Automated review-helper tests
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -3310,7 +3310,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions), [REQ-AGENT-053](#req-agent-053-pi-native-review-result-correlation), [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring), [REQ-AGENT-170](#req-agent-170-joint-review-and-ci-triage)
 
-**Verification:** Manual verification
+**Verification:** Automated and manual verification
 
 **Status:** Implemented
 
@@ -3701,7 +3701,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch), [REQ-AGENT-084](#req-agent-084-reviewer-policy-contract)
 
-**Verification:** Manual verification
+**Verification:** Automated and manual verification
 
 **Status:** Implemented
 
@@ -3770,7 +3770,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-086](#req-agent-086-claude-reviewer-direct-evidence-and-root-handoff)
 
-**Verification:** Automated test ([Review spawn gate tests](../../host/__tests__/enforce-review-spawn.test.js))
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -4089,7 +4089,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-139](#req-agent-139-optimized-documentation-lane-rendering-and-delivery), [REQ-AGENT-140](#req-agent-140-lossless-documentation-lane-cleanup-and-enforcement), [REQ-AGENT-142](#req-agent-142-unambiguous-documentation-decision-history)
 
-**Verification:** Automated documentation-shape and template-contract tests
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -4387,7 +4387,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-173](#req-agent-173-pi-can-orchestrate-coding-agents-through-herdr), [REQ-TERM-006](terminal.md#req-term-006-herdr-owns-in-session-terminal-topology)
 
-**Verification:** Executable skill contract tests and manual safety checks
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -4474,7 +4474,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated contract, compiler, real-resource-loader, public fallback, and signed managed projection tests
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -4557,7 +4557,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Spawned CLI lifecycle tests for both vendored runtime copies
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -4584,7 +4584,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-163](#req-agent-163-impeccable-browser-question-idle-lifecycle)
 
-**Verification:** Spawned CLI lifecycle tests for both vendored runtime copies
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -4609,7 +4609,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Spawned CLI filesystem tests for both vendored runtime copies
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -4632,7 +4632,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal)
 
-**Verification:** Spawned CLI filesystem tests for both vendored runtime copies
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -4655,7 +4655,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-166](#req-agent-166-impeccable-raster-prompt-recovery)
 
-**Verification:** Spawned CLI filesystem tests for both vendored runtime copies
+**Verification:** Manual review
 
 **Status:** Implemented
 
@@ -4672,7 +4672,7 @@ None.
 1. Pi accepts the seeded Pi or Claude managed-wrapper invocation either directly or after one leading `cd … &&`; all other shell composition and redirection around it is rejected. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand --> <!-- @manual -->
 2. Direct analyzer and syntax commands remain blocked without consuming the user-only local-build bypass when the managed wrapper is used. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::localBuildBlockReason --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh::PATTERNS --> <!-- @manual -->
 3. Each runtime receives one managed safe-check skill and wrapper in both modes. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
-4. Claude's permanently loaded safe-check rule remains below 400 characters. <!-- @impl: scripts/agent-seed-core.mjs::MAX_CLAUDE_SAFE_CHECK_POLICY_CHARS=400 --> <!-- @test: host/__tests__/agent-seed-core.test.js (REQ-AGENT-157 AC4: accepts 399 and rejects 400 Claude safe-check policy characters) -->
+4. Claude's permanently loaded safe-check rule remains below 400 characters. <!-- @impl: scripts/agent-seed-core.mjs::MAX_CLAUDE_SAFE_CHECK_POLICY_CHARS=400 --> <!-- @manual -->
 5. Pi's pre-skill policy remains below 4,500 characters. <!-- @impl: scripts/agent-seed-core.mjs::renderInstructionsFile --> <!-- @manual -->
 6. Canonical operational guidance reaches each lazy skill projection. <!-- @impl: scripts/agent-seed-core.mjs::adaptSkillContent --> <!-- @manual -->
 7. Pi keeps the safe-check skill explicitly invocable without duplicate native catalog injection. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @manual -->
@@ -4686,7 +4686,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-052](#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening)
 
-**Verification:** Automated guard, hook, seed, and wrapper tests
+**Verification:** Manual review
 
 **Status:** Implemented
 

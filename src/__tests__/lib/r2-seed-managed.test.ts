@@ -354,7 +354,7 @@ describe('managed release user-bucket reconciliation', () => {
     const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
     let policyBytes: BodyInit | null | undefined;
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (init?.method === 'HEAD' && url.endsWith('/.claude/skills')) return new Response(null, { status: 200, headers: { 'content-length': '0' } });
+      if (init?.method === 'HEAD' && url.endsWith('/.claude/extensions')) return new Response(null, { status: 200, headers: { 'content-length': '0' } });
       if (init?.method === 'GET' && url.includes('list-type=2')) {
         return new Response([
           '<ListBucketResult><IsTruncated>false</IsTruncated>',
@@ -376,13 +376,13 @@ describe('managed release user-bucket reconciliation', () => {
       resourcePolicy: 'exclusive',
     });
 
-    expect(fetchR2.mock.calls.find(([url]) => String(url).includes('list-type=2'))?.[0]).toContain('prefix=.claude%2Fskills%2F');
-    expect(result.deleted).toEqual(['.claude/skills', '.claude/extensions/personal/index.ts']);
+    expect(fetchR2.mock.calls.find(([url]) => String(url).includes('list-type=2'))?.[0]).toContain('prefix=.claude%2Fextensions%2F');
+    expect(result.deleted).toEqual(['.claude/extensions', '.claude/extensions/personal/index.ts']);
     const deleteBatches = fetchR2.mock.calls.filter(([url, init]) => String(url).endsWith('?delete') && init?.method === 'POST');
     expect(deleteBatches).toHaveLength(1);
     expect(String(deleteBatches[0][1].body)).toContain('<Key>.claude/extensions/personal/index.ts</Key>');
     expect(String(deleteBatches[0][1].body)).not.toContain('.claude/extensions/company/index.ts');
-    expect(String(deleteBatches[0][1].body)).not.toContain('.claude/skills-other/personal.md');
+    expect(String(deleteBatches[0][1].body)).not.toContain('.claude/extensions-other/personal.md');
   });
 
   it('REQ-STOR-029 AC4: partial exclusive batch failures prevent policy identity from being committed', async () => {

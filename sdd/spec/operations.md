@@ -1356,7 +1356,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-VAULT-004](vault.md#req-vault-004-unified-global-knowledge-graph), [REQ-AGENT-070](agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy)
 
-**Verification:** Context-mode, graph-lock, memory-publication, and attached-monitor tests
+**Verification:** Automated and manual verification
 
 **Status:** Implemented
 

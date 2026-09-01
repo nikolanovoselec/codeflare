@@ -33,7 +33,7 @@ describe('REQ-ENTERPRISE-028 managed R2 request classifier', () => {
 
   it.each([
     ['PUT', 'https://account.r2.cloudflarestorage.com/user-bucket/.claude/extensions/company/index.ts'],
-    ['DELETE', 'https://user-bucket.account.r2.cloudflarestorage.com/.claude/skills'],
+    ['DELETE', 'https://user-bucket.account.r2.cloudflarestorage.com/.claude/extensions'],
     ['PUT', 'https://account.r2.cloudflarestorage.com/user-bucket/.claude/extensions/personal/index.ts?tagging'],
     ['POST', 'https://account.r2.cloudflarestorage.com/user-bucket/.claude/extensions/personal/index.ts?uploads'],
     ['POST', 'https://account.r2.cloudflarestorage.com/user-bucket/.claude/extensions/personal/index.ts?uploadId=upload'],
@@ -42,7 +42,7 @@ describe('REQ-ENTERPRISE-028 managed R2 request classifier', () => {
   });
 
   it('allows adjacent mutation and protected-source copy when the destination is adjacent', async () => {
-    expect((await classify('PUT', 'https://account.r2.cloudflarestorage.com/user-bucket/.claude/skills-other/personal.md')).action).toBe('allow');
+    expect((await classify('PUT', 'https://account.r2.cloudflarestorage.com/user-bucket/.claude/extensions-other/personal.md')).action).toBe('allow');
     expect((await classify('PUT', 'https://account.r2.cloudflarestorage.com/user-bucket/Vault/copy.md', {
       headers: { 'x-amz-copy-source': '/user-bucket/.claude/extensions/company/index.ts' },
     })).action).toBe('allow');
