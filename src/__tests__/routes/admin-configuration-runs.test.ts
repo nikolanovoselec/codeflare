@@ -162,6 +162,36 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(JSON.parse(await kv.get(`admin:configuration:latest:github`) as string)).toMatchObject({ runId, state: 'succeeded' });
   });
 
+  it('REQ-SETUP-018: removes explicitly cleared non-secret OAuth client IDs', async () => {
+    const { app, kv } = createApp();
+    await kv.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, 'saved-github-app');
+    await kv.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID, 'saved-github-oauth');
+    await kv.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID, 'saved-cloudflare-oauth');
+
+    const githubResponse = await post(app, {
+      section: 'github',
+      baseRevision: 0,
+      values: {
+        providerType: 'app',
+        appClientId: '',
+        appReplacementSecret: '',
+        oauthClientId: '',
+        oauthReplacementSecret: '',
+      },
+    });
+    expect(snapshots(await githubResponse.text()).at(-1).run.state).toBe('succeeded');
+    expect(await kv.get(SETUP_KEYS.GITHUB_APP_CLIENT_ID)).toBeNull();
+    expect(await kv.get(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID)).toBeNull();
+
+    const cloudflareResponse = await post(app, {
+      section: 'cloudflareConnection',
+      baseRevision: 1,
+      values: { clientId: '', replacementSecret: '' },
+    });
+    expect(snapshots(await cloudflareResponse.text()).at(-1).run.state).toBe('succeeded');
+    expect(await kv.get(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID)).toBeNull();
+  });
+
   it('continues persisted execution after the response observer disconnects', async () => {
     const { app, kv, env } = createApp();
     let background: Promise<unknown> | undefined;
