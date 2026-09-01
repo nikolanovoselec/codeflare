@@ -657,7 +657,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 1. Loaded Environment areas filter case-insensitively by label, area description, and current summary. <!-- @impl: web-ui/src/components/admin/environment-areas.ts::filterEnvironmentAreas --> <!-- @test: web-ui/src/__tests__/components/environment-areas.test.ts (REQ-SETUP-023 AC1: filters loaded areas by label, description, and current summary) -->
 2. A query with no matching loaded area shows an empty result. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentIndex --> <!-- @manual -->
 
-**Constraints:** Filtering stays client-side over the authoritative loaded response. It adds no request, index, or persisted search state.
+**Constraints:** Filtering remains client-side over the authoritative loaded response without requests, indexes, or persisted search state.
 
 **Priority:** P1
 
