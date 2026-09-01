@@ -2828,7 +2828,7 @@ None.
 3. Canonical agent-neutral Markdown drives supported runtime projections; runtime adapters contain activation or path plumbing only. <!-- @manual: Compare managed projections after runtime-specific path adaptation. -->
 4. Canvas Design retains the required Apache-2.0 notice and pinned provenance without shipping repository-only provenance as model context. <!-- @manual: Inspect authoritative curation source and manifest. -->
 5. The unsafe UI UX Pro Max preset corpus, generator, and authoritative persistence path are absent from managed distribution. <!-- @manual: Inspect the authoritative curation manifest and router. -->
-6. Copilot is explicitly unsupported because the compiler has no skill-directory contract for that runtime.
+6. Copilot is explicitly unsupported because the compiler has no skill-directory contract for that runtime. <!-- @manual: Inspect compiler target definitions and the generated Copilot projection; confirm it emits no projected skill directory. -->
 
 **Constraints:** Core methodology stays out of Pi's system prompt; Pi receives one minimal conditional route to `design`. Large references load only after selection. Optional capabilities never block an owner.
 
@@ -2852,7 +2852,7 @@ None.
 
 1. Managed manifests contain no UI UX Pro Max corpus, generator, or persistence files. <!-- @manual: Inspect the authoritative curation manifest. -->
 2. The design router has no route to the removed preset corpus. <!-- @manual: Inspect the authoritative managed router. -->
-3. Canonical owners derive direction from the brief, product evidence, examples, and incumbent system instead of category defaults.
+3. Canonical owners derive direction from the brief, product evidence, examples, and incumbent system instead of category defaults. <!-- @manual: Review fresh-context web, mobile, desktop, and static prompts; confirm each direction cites supplied or incumbent evidence rather than a category preset. -->
 
 **Constraints:** Removing the unsafe utility does not create a replacement preset library or network dependency.
 
@@ -2875,8 +2875,8 @@ None.
 **Acceptance Criteria:**
 
 1. The router resolves conflicts in the order: user brief, product behavior/accessibility/platform, incumbent implementation and confirmed design contract, selected owner direction, evidence, then specialist preference. <!-- @manual: Inspect the authoritative managed router. -->
-2. Missing `DESIGN.md` does not make an established product greenfield.
-3. Impeccable sidecars and surface briefs record or extend decisions without becoming a competing thesis.
+2. Missing `DESIGN.md` does not make an established product greenfield. <!-- @manual: Review an established-product prompt without DESIGN.md; confirm the incumbent implementation remains authoritative. -->
+3. Impeccable sidecars and surface briefs record or extend decisions without becoming a competing thesis. <!-- @manual: Review a bounded Impeccable or sidecar prompt; confirm it preserves the selected owner's direction. -->
 
 **Constraints:** A user may explicitly authorize a redesign or invoke a bounded specialist command.
 
@@ -2898,9 +2898,9 @@ None.
 
 **Acceptance Criteria:**
 
-1. Codeflare and curation contain no tests that judge skill or rule wording, headings, inventories, projections, or runtime semantics.
-2. Generic compiler, ABI, signature, path-safety, release-integrity, and runtime-compatibility checks remain independent of managed content semantics.
-3. Representative fresh-context prompts are reviewed manually for owner selection, interview behavior, product specificity, capability honesty, and specialist boundaries.
+1. Codeflare and curation contain no tests that judge skill or rule wording, headings, inventories, projections, or runtime semantics. <!-- @manual: Inspect both repositories' test inventories and search test sources for managed skill, rule, prompt, routing, projection, and inventory assertions. -->
+2. Generic compiler, ABI, signature, path-safety, release-integrity, and runtime-compatibility checks remain independent of managed content semantics. <!-- @manual: Inspect retained suites and confirm their assertions remain content-neutral. -->
+3. Representative fresh-context prompts are reviewed manually for owner selection, interview behavior, product specificity, capability honesty, and specialist boundaries. <!-- @manual: Run representative web, mobile, desktop, static, refinement, and nonvisual prompts in fresh contexts and review those five behaviors. -->
 
 **Constraints:** Manual review does not claim rendered, device, accessibility, or performance evidence unless those capabilities were used.
 
