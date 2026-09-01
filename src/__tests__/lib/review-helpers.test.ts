@@ -264,6 +264,43 @@ describe('Claude-equivalent review boundary helpers', () => {
       .toEqual(cases.map(([command, expected]) => [command, expected, expected]));
   });
 
+  it('REQ-AGENT-063 AC1/AC4: exposes boundary commands only from successful supported shell results', async () => {
+    const { reviewTranscriptFacts } = await plannedHelpers();
+    const command = 'git push origin feature';
+    const surfaces = [
+      { name: 'bash', args: { command } },
+      { name: 'functions.ctx_execute', args: { language: 'shell', code: command } },
+      { name: 'functions.ctx_batch_execute', args: { commands: [{ label: 'push', command }] } },
+    ];
+
+    for (const [index, surface] of surfaces.entries()) {
+      const toolUseId = `supported-shell-${index}`;
+      const successful = reviewTranscriptFacts({
+        sessionFile: '/missing',
+        entries: [assistantTool(toolUseId, surface.name, surface.args), toolResult(toolUseId, surface.name)],
+        requiredLanes: [],
+      });
+      expect(successful.boundary).toMatchObject({ toolUseId, command, toolName: surface.name });
+
+      const failed = reviewTranscriptFacts({
+        sessionFile: '/missing',
+        entries: [assistantTool(toolUseId, surface.name, surface.args), toolResult(toolUseId, surface.name, true)],
+        requiredLanes: [],
+      });
+      expect(failed.boundary).toBeUndefined();
+    }
+
+    const unsupported = reviewTranscriptFacts({
+      sessionFile: '/missing',
+      entries: [
+        assistantTool('unsupported-surface', 'functions.ctx_execute', { language: 'javascript', code: command }),
+        toolResult('unsupported-surface', 'functions.ctx_execute'),
+      ],
+      requiredLanes: [],
+    });
+    expect(unsupported.boundary).toBeUndefined();
+  });
+
   it('recognizes executable PR merges without turning quoted mentions into transitions', async () => {
     const { isReviewMergeCommand } = await plannedHelpers();
     expect(isReviewMergeCommand('gh pr merge 976 --merge --delete-branch')).toBe(true);

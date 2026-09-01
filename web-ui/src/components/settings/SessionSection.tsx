@@ -37,6 +37,7 @@ interface SessionSectionProps {
   recreateDocsMessage: Accessor<string | null>;
   recreateDocsError: Accessor<string | null>;
   recreateAgentLoading: Accessor<boolean>;
+  seedUpdateActive: Accessor<boolean>;
   recreateAgentMessage: Accessor<string | null>;
   recreateAgentError: Accessor<string | null>;
   onSessionModeChange: (mode: 'default' | 'advanced') => void;
@@ -81,6 +82,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
               value="default"
               checked={props.currentSessionMode() === 'default'}
               onChange={() => props.onSessionModeChange('default')}
+              disabled={props.seedUpdateActive()}
               role="radio"
               aria-checked={props.currentSessionMode() === 'default'}
               data-testid="session-mode-default"
@@ -96,7 +98,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
               value="advanced"
               checked={props.currentSessionMode() === 'advanced'}
               onChange={() => props.onSessionModeChange('advanced')}
-              disabled={!props.canUseAdvanced()}
+              disabled={!props.canUseAdvanced() || props.seedUpdateActive()}
               role="radio"
               aria-checked={props.currentSessionMode() === 'advanced'}
               data-testid="session-mode-advanced"
@@ -312,7 +314,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
             tone="--color-action-agents"
             icon={mdiRobotOutline}
             label={props.recreateAgentLoading() ? 'Recreating...' : 'Recreate Agent Skills & Rules'}
-            disabled={props.recreateAgentLoading()}
+            disabled={props.recreateAgentLoading() || props.seedUpdateActive()}
             onClick={props.onRecreateAgentConfigs}
             testId="settings-recreate-agent-label"
           />

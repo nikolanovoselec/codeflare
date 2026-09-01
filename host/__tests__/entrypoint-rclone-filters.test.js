@@ -86,7 +86,7 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
   mkdirSync(join(fx, 'workspace/repo/graphify-out'), { recursive: true });
   mkdirSync(join(fx, '.cache/rclone'), { recursive: true });
   mkdirSync(join(fx, '.config/rclone'), { recursive: true });
-  mkdirSync(join(fx, '.config/opencode/skills/personal'), { recursive: true });
+  mkdirSync(join(fx, '.config/opencode/extensions/personal'), { recursive: true });
   mkdirSync(join(fx, '.codex/plugins/cache/catalog'), { recursive: true });
   mkdirSync(join(fx, '.codex/cache'), { recursive: true });
   mkdirSync(join(fx, '.copilot'), { recursive: true });
@@ -115,7 +115,7 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
     'workspace/repo/graphify-out/g.json': 'repo graph artifact',
     '.cache/rclone/junk': 'ephemeral cache',
     '.config/rclone/rclone.conf': 'r2 secrets config',
-    '.config/opencode/skills/personal/SKILL.md': 'opencode personal resource',
+    '.config/opencode/extensions/personal/index.ts': 'opencode personal resource',
     '.codex/plugins/cache/catalog/plugin.json': 'regenerable plugin catalog',
     '.codex/cache/index.json': 'regenerable codex cache',
     '.codex/logs_2.sqlite': 'regenerable codex log database',
@@ -293,7 +293,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
       assert.equal(v['.codeflare/managed-extensions.json'], 'INCLUDED');
       assert.equal(v['.codeflare/managed-paths.json'], 'INCLUDED');
       assert.equal(v['.codeflare/private-runtime.json'], 'EXCLUDED');
-      assert.equal(v['.config/opencode/skills/personal/SKILL.md'], 'INCLUDED');
+      assert.equal(v['.config/opencode/extensions/personal/index.ts'], 'INCLUDED');
     }
   });
 
@@ -360,19 +360,19 @@ describe('REQ-STOR-031 managed-resource rclone filter', () => {
     const filterPath = join(runtime, 'managed-resources.filter');
     mkdirSync(dirname(policyPath), { recursive: true });
     mkdirSync(runtime, { recursive: true });
-    mkdirSync(join(fx, '.claude/skills/personal'), { recursive: true });
+    mkdirSync(join(fx, '.claude/extensions/personal'), { recursive: true });
     mkdirSync(join(fx, '.claude/skills-other'), { recursive: true });
     const releaseDigest = 'd'.repeat(64);
     const policy = {
       schemaVersion: 1,
       releaseDigest,
       resourcePolicy: 'exclusive',
-      paths: ['.claude/skills/company/SKILL.md', '.codeflare/managed-paths.json'],
-      resourceRoots: ['.claude/skills/'],
+      paths: ['.claude/extensions/company/index.ts', '.codeflare/managed-paths.json'],
+      resourceRoots: ['.claude/extensions/'],
     };
     const bytes = Buffer.from(`${JSON.stringify(policy)}\n`);
     writeFileSync(policyPath, bytes);
-    writeFileSync(join(fx, '.claude/skills/personal/SKILL.md'), 'personal');
+    writeFileSync(join(fx, '.claude/extensions/personal/index.ts'), 'personal');
     writeFileSync(join(fx, '.claude/skills-other/personal.md'), 'adjacent');
     const digest = createHash('sha256').update(bytes).digest('hex');
     const script = `${functionSource}\nprepare_managed_resource_filter`;
@@ -391,7 +391,7 @@ describe('REQ-STOR-031 managed-resource rclone filter', () => {
 
     const listed = spawnSync('rclone', ['lsf', '-R', '--files-only', '--filter-from', filterPath, fx], { encoding: 'utf8' });
     assert.equal(listed.status, 0, listed.stderr);
-    assert.equal(listed.stdout.includes('.claude/skills/personal/SKILL.md'), false);
+    assert.equal(listed.stdout.includes('.claude/extensions/personal/index.ts'), false);
     assert.equal(listed.stdout.includes('.codeflare/managed-paths.json'), false);
     assert.equal(listed.stdout.includes('.claude/skills-other/personal.md'), true);
   });

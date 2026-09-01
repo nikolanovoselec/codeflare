@@ -12,7 +12,7 @@ Each of these is a check on the built result, not an intention. Run them togethe
 - **Type:** body measure 65–75ch, display max 6rem, tracking floor -0.04em, balanced headings, obvious scale and weight steps. Run the real copy at every breakpoint and fix what overflows.
 - **Motion:** one authored moment, not scattered effects and not one identical entrance on every section. Exponential ease-out from an already-visible default. Reach past transform and opacity: blur, backdrop-filter, clip-path, mask, and shadow belong to the palette when they stay smooth.
 - **States:** hover, disabled, loading, error, empty. Plus real content, working controls, responsive composition, keyboard focus.
-- **Browser surfaces:** the parts you did not draw still carry the design. Text selection, the caret, custom scrollbars, focus rings, underline offset, and the numerals in tabular data all ship with browser defaults that belong to no design system. Theme them from the palette. This is the cheapest signal that a page was built rather than assembled, and the one models skip most reliably.
+- **Browser surfaces:** inspect text selection, caret, scrollbars, focus rings, underline offset, and tabular numerals where they affect the product. Theme them only when doing so improves coherence without obscuring native affordances, contrast, input behavior, or platform expectations.
 - **Copy:** the product's own language. Controls name their action; errors name the problem and the recovery.
 - **Coverage:** every brief requirement present and findable within seconds.
 
@@ -22,15 +22,15 @@ These are the category's defaults, not bans: the brief's own words can earn any 
 
 Page scaffolds:
 
-- Same-size cards of icon plus heading plus text as the page structure. Cards are the lazy container; nested cards are always wrong.
+- Same-size cards of icon plus heading plus text used as interchangeable page structure. Nested cards are a warning when hierarchy or semantics do not justify them.
 - The hero-metric template: big number, small label, supporting stats, accent.
-- A kicker or eyebrow above a heading. This one is a ban, not a default: no brief earns it back. The heading carries its own weight; delete the label and let the heading speak.
+- A kicker or eyebrow above every heading by habit. Keep one only when it carries real category, sequence, or context information.
 - Section numbers (01 / 02 / 03) unless the sequence itself carries information the reader needs.
 - A modal for a task that needs neither interruption nor protected focus.
 
 Surface habits:
 
-- Gradient text. Emphasis comes from weight or size.
+- Gradient text used as default emphasis. Keep it only when the selected thesis, contrast, and legibility justify it.
 - Glass and blur as decoration rather than as a specific effect.
 - A colored `border-left` or `border-right` above 1px on cards, list items, callouts, or alerts.
 - Hard offset shadows (`box-shadow: 4px 4px 0`) outside a world that is actually neobrutalist. The zero-blur block shadow is a costume, not a depth system; a world that did not choose it never earns it as a default.

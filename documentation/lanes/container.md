@@ -115,7 +115,7 @@ OpenCode uses SQLite with Goose migrations that run on first startup ("Performin
 
 ### Browser Shims
 
-CLI tools (Claude Code, OpenCode, Antigravity) try to open a browser for OAuth. The Dockerfile installs shims (`open-url` for `BROWSER` env var, `xdg-open-shim` for `xdg-open`) that exit 1, forcing CLIs to print auth URLs as plain text in the PTY. The xterm.js link provider then detects and makes these URLs clickable.
+CLI tools (Claude Code, OpenCode, Antigravity) try to open a browser for OAuth. The Dockerfile installs shims (`open-url` for `BROWSER` env var, `xdg-open-shim` for `xdg-open`) that exit 1, forcing CLIs to print auth URLs as plain text in the PTY. The shared xterm.js link controller detects those URLs. Classic uses its existing activation path; Herdr reserves Ctrl-click, Cmd-click, or a stationary mobile tap from terminal SGR forwarding and opens the same detected link. See [REQ-TERM-042](../../sdd/spec/terminal.md#req-term-042-browser-terminal-link-activation).
 
 ### code-server Browser IDE Binary
 

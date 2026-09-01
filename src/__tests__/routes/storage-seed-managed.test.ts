@@ -16,6 +16,7 @@ const state = vi.hoisted(() => ({
   active: null as ActiveVerifiedManagedRelease | null,
   activeError: null as Error | null,
   cached: null as VerifiedManagedReleaseContent | null,
+  cachedByDigest: new Map<string, VerifiedManagedReleaseContent>(),
   resourcePolicy: 'mutable' as 'mutable' | 'immutable' | 'exclusive',
 }));
 const reconcile = vi.hoisted(() => vi.fn(async () => ({ written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined as string | undefined })));
@@ -23,12 +24,18 @@ const reseedContext = vi.hoisted(() => vi.fn(async () => ({ written: [], skipped
 const createBucket = vi.hoisted(() => vi.fn(async () => ({ success: true, created: false })));
 const fetchR2 = vi.hoisted(() => vi.fn(async () => new Response('', { status: 200 })));
 
-vi.mock('../../lib/managed-release-active', () => ({
+vi.mock('../../lib/managed-release-active', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/managed-release-active')>()),
   getActiveVerifiedManagedRelease: vi.fn(async () => {
     if (state.activeError) throw state.activeError;
     return state.active;
   }),
-  getCachedManagedReleaseByDigest: vi.fn(async () => state.cached),
+  getActiveManagedRelease: vi.fn(async () => state.active ? ({
+    digest: state.active.digest,
+    pointer: state.active.pointer,
+    resourcePolicy: state.resourcePolicy,
+  }) : null),
+  getCachedManagedReleaseByDigest: vi.fn(async (_env: Env, digest: string) => state.cachedByDigest.get(digest) ?? state.cached),
 }));
 vi.mock('../../lib/remote-curation', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/remote-curation')>()),
@@ -110,6 +117,7 @@ describe('managed storage reconcile', () => {
     };
     state.activeError = null;
     state.cached = null;
+    state.cachedByDigest.clear();
     state.resourcePolicy = 'mutable';
     fetchR2.mockClear();
   });
@@ -271,7 +279,7 @@ describe('managed storage reconcile', () => {
     expect(preferences.lastPreseedHash).toBeUndefined();
   });
 
-  it('REQ-STOR-024 AC5: reconciles from current release when disposable cache history is absent', async () => {
+  it('REQ-STOR-024 AC5 + REQ-STOR-033 AC5: reconciles from current release when disposable cache history is absent', async () => {
     state.cached = null;
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', {
@@ -349,5 +357,280 @@ describe('managed storage reconcile', () => {
     expect(preferences.managedEnvironmentApplied).toBeUndefined();
     expect(preferences.workspaceSyncEnabled).toBe(true);
     expect(preferences.lastPreseedHash).toBe('baked-hash');
+  });
+
+  it('REQ-STOR-033 AC7: automatic endpoint is separate and manual Recreate remains full overwrite', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentApplied: {
+        digest: '1'.repeat(64), managedExtensionsDigest: '2'.repeat(64), sequence: 8,
+        mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+    const prior = { ...release, sequence: 8 };
+    const priorCompressed = await gzipBytes(new TextEncoder().encode(JSON.stringify(prior)));
+    state.cached = { compressed: priorCompressed, release: await parseManagedReleaseStream(priorCompressed) };
+
+    const automatic = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+    expect(automatic.status).toBe(200);
+    expect(reconcile).toHaveBeenLastCalledWith(
+      expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced',
+      expect.objectContaining({ automatic: expect.objectContaining({ assumeEmpty: false }) }),
+    );
+
+    reconcile.mockClear();
+    const manual = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
+    expect(manual.status).toBe(200);
+    expect(reconcile).toHaveBeenCalledWith(
+      expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced',
+      expect.not.objectContaining({ automatic: expect.anything() }),
+    );
+  });
+
+  it('REQ-STOR-035 AC1/AC2: failed manual Recreate records and retains its active target', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentApplied: {
+        digest: '1'.repeat(64), managedExtensionsDigest: '4'.repeat(64), sequence: 8,
+        mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+    reconcile.mockRejectedValueOnce(new Error('partial write'));
+
+    const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
+
+    expect(response.status).toBe(500);
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentReconciliation).toEqual({
+      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' }],
+    });
+  });
+
+  it('REQ-STOR-035 AC3: manual Recreate repairs interrupted targets before clearing their state', async () => {
+    const appliedRelease = { ...release, sequence: 8 };
+    const appliedCompressed = await gzipBytes(new TextEncoder().encode(JSON.stringify(appliedRelease)));
+    state.cachedByDigest.set('1'.repeat(64), {
+      compressed: appliedCompressed,
+      release: await parseManagedReleaseStream(appliedCompressed),
+    });
+    const interruptedRelease = { ...release, sequence: 7 };
+    const interruptedCompressed = await gzipBytes(new TextEncoder().encode(JSON.stringify(interruptedRelease)));
+    state.cachedByDigest.set('2'.repeat(64), {
+      compressed: interruptedCompressed,
+      release: await parseManagedReleaseStream(interruptedCompressed),
+    });
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentApplied: {
+        digest: '1'.repeat(64), managedExtensionsDigest: '4'.repeat(64), sequence: 8,
+        mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+      managedEnvironmentReconciliation: {
+        targets: [{ digest: '2'.repeat(64), sequence: 7, mode: 'advanced' }],
+      },
+    });
+
+    const response = await appFor(kv).request('/seed/agent-configs', { method: 'POST' });
+
+    expect(response.status).toBe(200);
+    expect(reconcile).toHaveBeenCalledWith(
+      expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced',
+      expect.objectContaining({
+        interruptedManagedReleases: [expect.objectContaining({ digest: '2'.repeat(64), mode: 'advanced' })],
+      }),
+    );
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentReconciliation).toBeUndefined();
+  });
+
+  it('REQ-STOR-035 AC3: managed disable cleans interrupted targets before clearing their state', async () => {
+    state.active = null;
+    const appliedRelease = { ...release, sequence: 8 };
+    const appliedCompressed = await gzipBytes(new TextEncoder().encode(JSON.stringify(appliedRelease)));
+    state.cachedByDigest.set('1'.repeat(64), {
+      compressed: appliedCompressed,
+      release: await parseManagedReleaseStream(appliedCompressed),
+    });
+    const interruptedRelease = { ...release, sequence: 7 };
+    const interruptedCompressed = await gzipBytes(new TextEncoder().encode(JSON.stringify(interruptedRelease)));
+    state.cachedByDigest.set('2'.repeat(64), {
+      compressed: interruptedCompressed,
+      release: await parseManagedReleaseStream(interruptedCompressed),
+    });
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentApplied: {
+        digest: '1'.repeat(64), managedExtensionsDigest: '4'.repeat(64), sequence: 8,
+        mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+      managedEnvironmentReconciliation: {
+        targets: [{ digest: '2'.repeat(64), sequence: 7, mode: 'advanced' }],
+      },
+    });
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+
+    expect(response.status).toBe(200);
+    expect(reconcile).toHaveBeenCalledWith(
+      expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced',
+      expect.objectContaining({
+        managedRelease: null,
+        interruptedManagedReleases: [expect.objectContaining({ digest: '2'.repeat(64), mode: 'advanced' })],
+      }),
+    );
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentApplied).toBeUndefined();
+    expect(preferences.managedEnvironmentReconciliation).toBeUndefined();
+  });
+
+  it('REQ-STOR-033 AC6: invalid applied identity fails closed before bucket mutation', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentApplied: {
+        digest: 'invalid', managedExtensionsDigest: '2'.repeat(64), sequence: 8,
+        mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+    expect(response.status).toBe(500);
+    expect(createBucket).not.toHaveBeenCalled();
+    expect(reconcile).not.toHaveBeenCalled();
+  });
+
+  it('REQ-STOR-035 AC2: unavailable interrupted history fails before bucket mutation and retains state', async () => {
+    const kv = createMockKV();
+    const pending = {
+      targets: [{ digest: '2'.repeat(64), sequence: 8, mode: 'advanced' as const }],
+    };
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentReconciliation: pending,
+    });
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+
+    expect(response.status).toBe(500);
+    expect(createBucket).not.toHaveBeenCalled();
+    expect(reconcile).not.toHaveBeenCalled();
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentReconciliation).toEqual(pending);
+  });
+
+  it('REQ-STOR-035 AC1: rejects unbounded interrupted target state before bucket mutation', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentReconciliation: {
+        targets: Array.from({ length: 33 }, (_, index) => ({
+          digest: (index + 1).toString(16).padStart(64, '0'),
+          sequence: index + 1,
+          mode: 'advanced',
+        })),
+      },
+    });
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+
+    expect(response.status).toBe(500);
+    expect(createBucket).not.toHaveBeenCalled();
+    expect(reconcile).not.toHaveBeenCalled();
+  });
+
+  it('REQ-STOR-035 AC1/AC3: records automatic target ownership before writes and clears it with applied publication', async () => {
+    const interruptedRelease = { ...release, sequence: 8 };
+    const interruptedCompressed = await gzipBytes(new TextEncoder().encode(JSON.stringify(interruptedRelease)));
+    state.cachedByDigest.set('2'.repeat(64), {
+      compressed: interruptedCompressed,
+      release: await parseManagedReleaseStream(interruptedCompressed),
+    });
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentApplied: {
+        digest: '1'.repeat(64), managedExtensionsDigest: '4'.repeat(64), sequence: 7,
+        mode: 'advanced', appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+      managedEnvironmentReconciliation: {
+        targets: [{ digest: '2'.repeat(64), sequence: 8, mode: 'advanced' }],
+      },
+    });
+    state.cached = {
+      compressed: interruptedCompressed,
+      release: { ...(await parseManagedReleaseStream(interruptedCompressed)), sequence: 7 },
+    };
+    reconcile.mockImplementationOnce(async (...args: any[]) => {
+      const during = await kv.get('user-prefs:user-bucket', 'json') as any;
+      expect(during.managedEnvironmentReconciliation.targets).toEqual([
+        { digest: '2'.repeat(64), sequence: 8, mode: 'advanced' },
+        { digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' },
+      ]);
+      expect(args[4].interruptedManagedReleases).toEqual([
+        expect.objectContaining({ digest: '2'.repeat(64), mode: 'advanced' }),
+      ]);
+      return { written: [], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined };
+    });
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+
+    expect(response.status).toBe(200);
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentApplied.digest).toBe('d'.repeat(64));
+    expect(preferences.managedEnvironmentReconciliation).toBeUndefined();
+  });
+
+  it('REQ-STOR-035 AC2/AC7: target changes before cleanup, preserves pending ownership, and prevents finalization', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+    reconcile.mockImplementationOnce(async (...args: any[]) => {
+      state.active = {
+        ...state.active!,
+        digest: 'e'.repeat(64),
+        pointer: { ...state.active!.pointer, digest: 'e'.repeat(64), sequence: 10 },
+      };
+      await args[4].automatic.beforeCleanup();
+      return { written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined };
+    });
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+    expect(response.status).toBe(500);
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentApplied).toBeUndefined();
+    expect(preferences.managedEnvironmentReconciliation).toEqual({
+      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' }],
+    });
+  });
+
+  it('REQ-STOR-034 AC2: finalizing progress is persisted before cleanup begins', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+    reconcile.mockImplementationOnce(async (...args: any[]) => {
+      const options = args[4] as { automatic: { onProgress: (value: { completed: number; total: number }) => Promise<void> } };
+      await options.automatic.onProgress({ completed: 0, total: 0 });
+      const progress = await kv.get('managed-reconcile-progress:user-bucket', 'json') as { phase?: string };
+      expect(progress.phase).toBe('finalizing');
+      return { written: [], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined };
+    });
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+    expect(response.status).toBe(200);
+  });
+
+  it('REQ-STOR-034 AC4/AC5: automatic progress is bounded, observational, and cleared after stamping', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+    expect(response.status).toBe(200);
+    const progressWrites = kv.put.mock.calls.filter(([key]) => key === 'managed-reconcile-progress:user-bucket');
+    expect(progressWrites.length).toBeGreaterThan(0);
+    expect(progressWrites.every(([, , options]) => options?.expirationTtl === 86_400)).toBe(true);
+    expect(kv.put.mock.calls.some(([key]) => key === 'user-prefs:user-bucket')).toBe(true);
+    expect(kv.delete.mock.calls.some(([key]) => key === 'managed-reconcile-progress:user-bucket')).toBe(true);
   });
 });

@@ -179,6 +179,11 @@ export const BatchSessionStatusResponseSchema = z.object({
   }).optional(),
   preseedNeedsUpgrade: z.boolean().optional(),
   managedReleaseStatus: z.enum(['current', 'upgrading', 'update_pending']).optional(),
+  managedReleaseProgress: z.object({
+    phase: z.enum(['planning', 'writing', 'finalizing']),
+    completed: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    total: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  }).refine((progress) => progress.completed <= progress.total).optional(),
   // REQ-ENTERPRISE-020: Governed Mode regime migration flags.
   bucketMigrating: z.boolean().optional(),
   bucketMigrationPending: z.boolean().optional(),

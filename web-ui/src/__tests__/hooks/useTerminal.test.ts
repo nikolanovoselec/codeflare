@@ -27,6 +27,13 @@ const mockAgentEventDisposition = vi.hoisted(() => vi.fn(
 ));
 const mockShowGrantedAgentEvent = vi.hoisted(() => vi.fn(async () => true));
 const mockAttachHerdrMouseInput = vi.hoisted(() => vi.fn(() => vi.fn()));
+const mockTerminalCell = vi.hoisted(() => vi.fn(() => ({ column: 3, row: 2 })));
+const mockActivateLinkAt = vi.hoisted(() => vi.fn(() => false));
+const mockLinkController = vi.hoisted(() => ({
+  hasLinkAt: vi.fn(() => false),
+  activateLinkAt: mockActivateLinkAt,
+  dispose: vi.fn(),
+}));
 const mockXtermElement = document.createElement('div');
 const mockXtermScreen = document.createElement('div');
 mockXtermScreen.className = 'xterm-screen';
@@ -151,10 +158,11 @@ vi.mock('../../lib/touch-gestures', () => ({
 vi.mock('../../lib/herdr-mouse', () => ({
   attachHerdrMouseInput: mockAttachHerdrMouseInput,
   sendHerdrTap: vi.fn(),
+  terminalCell: mockTerminalCell,
 }));
 
 vi.mock('../../lib/terminal-link-provider', () => ({
-  registerMultiLineLinkProvider: vi.fn(),
+  registerMultiLineLinkProvider: vi.fn(() => mockLinkController),
 }));
 
 vi.mock('../../lib/terminal-mobile-input', async (importOriginal) => {
@@ -897,6 +905,7 @@ describe('useTerminal hook', () => {
         mockXtermScreen,
         expect.objectContaining({ cols: 80, rows: 24 }),
         expect.any(Function),
+        mockLinkController,
       );
       dispose();
     });
@@ -1006,6 +1015,31 @@ describe('useTerminal hook', () => {
   });
 
   describe('Herdr deterministic touch taps', () => {
+    it('REQ-TERM-042 AC3/AC4: opens a touched link without terminal touch side effects', async () => {
+      mockActivateLinkAt.mockReturnValueOnce(true);
+      const { attachSwipeGestures, sendTerminalKey } = await import('../../lib/touch-gestures');
+      const { sendHerdrTap } = await import('../../lib/herdr-mouse');
+      const { focusMobileTerminal } = await import('../../lib/terminal-mobile-input');
+      const onActivate = vi.fn();
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal({ ...defaultProps, terminalMode: 'herdr', onActivate });
+        result.containerRef(containerEl);
+        return dispose;
+      });
+      const gestureCalls = vi.mocked(attachSwipeGestures).mock.calls;
+      const tap = gestureCalls[gestureCalls.length - 1]?.[4];
+
+      tap?.(42, 57);
+
+      expect(onActivate).toHaveBeenCalledOnce();
+      expect(mockTerminalCell).toHaveBeenCalledWith(mockXtermScreen, expect.anything(), 42, 57);
+      expect(mockActivateLinkAt).toHaveBeenCalledWith(3, 2);
+      expect(sendHerdrTap).not.toHaveBeenCalled();
+      expect(sendTerminalKey).not.toHaveBeenCalled();
+      expect(focusMobileTerminal).not.toHaveBeenCalled();
+      dispose();
+    });
+
     it('REQ-MOB-022 AC1/AC3: activates the pane and snaps Pi fullscreen history before opening mobile input', async () => {
       const { attachSwipeGestures } = await import('../../lib/touch-gestures');
       const { sendHerdrTap } = await import('../../lib/herdr-mouse');

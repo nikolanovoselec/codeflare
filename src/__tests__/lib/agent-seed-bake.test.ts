@@ -41,8 +41,8 @@ describe('agent-seed bake byte-identity (REQ-STOR-017 / AD90)', () => {
     // PRESEED_CONTENT_HASH string above, the typed array literal below). fs-free so it
     // runs in the Workers pool; the real-file parse is exercised by the Docker build.
     const docs = [
-      { key: '.claude/rules/x.md', contentType: 'text/markdown; charset=utf-8', content: '# x', modes: ['default', 'advanced'] },
-      { key: '.pi/agent/skills/y/SKILL.md', contentType: 'text/markdown; charset=utf-8', content: '# y', modes: ['advanced'] },
+      { key: '.claude/extensions/x.ts', contentType: 'text/markdown; charset=utf-8', content: '# x', modes: ['default', 'advanced'] },
+      { key: '.pi/agent/extensions/y.ts', contentType: 'text/markdown; charset=utf-8', content: '# y', modes: ['advanced'] },
     ];
     const source =
       `export const PRESEED_CONTENT_HASH = 'abc123';\n\n` +

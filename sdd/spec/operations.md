@@ -1349,7 +1349,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. Context-mode preload scratch remains under the protected runtime temporary root. <!-- @impl: entrypoint.sh::configure_pi_jiti_runtime_cache --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (REQ-OPS-049 AC1: routes context-mode preload scratch through protected runtime TMPDIR) -->
 2. Claude active-repository publication acquires the protected global graph lock. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-active-repo.sh::/run/codeflare/locks/graphify-global.lock --> <!-- @test: host/__tests__/graphify-active-repo.test.js (REQ-VAULT-014 AC1/AC2 / REQ-OPS-049 AC2: reconciles a repo switch under one protected lock) -->
 3. Pi memory and Vault publication acquires the protected global graph lock. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::GLOBAL_GRAPH_LOCK --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-004 / REQ-OPS-049 AC3: memory-vault.ts publishes through the protected global graph lock) -->
-4. Attached Claude CI monitoring creates no script, PID, or result-log artifact in disposable storage. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/ci-monitoring-skill.test.js (REQ-OPS-049 AC4: attached Claude CI monitoring creates no script, PID, or result-log artifact) -->
+4. Attached Claude CI monitoring creates no script, PID, or result-log artifact in disposable storage. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @manual -->
 
 **Constraints:** Coordination locks remain container-scoped and are not synced to R2; attached monitor state remains task-scoped.
 
@@ -1357,7 +1357,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-VAULT-004](vault.md#req-vault-004-unified-global-knowledge-graph), [REQ-AGENT-070](agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy)
 
-**Verification:** Context-mode, graph-lock, memory-publication, and attached-monitor tests
+**Verification:** Automated and manual verification
 
 **Status:** Implemented
 

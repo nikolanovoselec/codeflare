@@ -21,7 +21,7 @@ const {
     mockParseListObjectsXml: vi.fn(),
     mockCreateBucketIfNotExists: vi.fn(async () => ({ success: true, created: true })),
     mockSeedGettingStartedDocs: vi.fn(async () => ({ written: ['Getting-Started.md'], skipped: [] })),
-    mockSeedAgentConfigs: vi.fn(async () => ({ written: ['.claude/rules/env.md'], skipped: [] })),
+    mockSeedAgentConfigs: vi.fn(async () => ({ written: ['.claude/extensions/env.md'], skipped: [] })),
   };
 });
 

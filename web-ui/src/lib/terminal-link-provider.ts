@@ -118,114 +118,112 @@ function findLogicalLineStart(
   return start;
 }
 
-/**
- * Registers a custom ILinkProvider that reconstructs logical lines from
- * isWrapped buffer rows AND applies a column-saturation heuristic for
- * application-inserted newlines. This replaces the WebLinksAddon to
- * correctly detect URLs that span multiple terminal rows.
- *
- * For each line, it looks both UP and DOWN to find the full logical block,
- * ensuring URLs are clickable on every line they span — not just the first.
- */
-export function registerMultiLineLinkProvider(terminal: XTerm): IDisposable {
+export interface TerminalLinkController extends IDisposable {
+  hasLinkAt(column: number, viewportRow: number): boolean;
+  activateLinkAt(column: number, viewportRow: number): boolean;
+}
+
+function linksForBufferLine(terminal: XTerm, y: number): ILink[] | undefined {
+  const buffer = terminal.buffer.active as unknown as XTermBuffer;
+  const cols = terminal.cols;
+  const lineIndex = y - 1;
+  const line = buffer.getLine(lineIndex);
+  if (!line) return undefined;
+
+  const startIdx = findLogicalLineStart(buffer, lineIndex, cols);
+  const joinedLines: number[] = [startIdx];
+  const startLine = buffer.getLine(startIdx);
+  if (!startLine) return undefined;
+  let fullText = startLine.translateToString(true);
+  let nextIdx = startIdx + 1;
+
+  while (nextIdx < buffer.length) {
+    const nextLine = buffer.getLine(nextIdx);
+    if (!nextLine?.isWrapped) break;
+    fullText += nextLine.translateToString(true);
+    joinedLines.push(nextIdx);
+    nextIdx++;
+  }
+
+  let heuristicCount = 0;
+  while (nextIdx < buffer.length && heuristicCount < MAX_URL_CONTINUATION_ROWS) {
+    const nextLine = buffer.getLine(nextIdx);
+    if (!nextLine) break;
+    const nextText = nextLine.translateToString(true);
+    const lastLine = buffer.getLine(joinedLines[joinedLines.length - 1]);
+    if (!lastLine) break;
+    const cleanedForCheck = fullText.replace(TRAILING_NON_URL, '');
+    const midUrl = /https?:\/\/[^\s]*$/.test(cleanedForCheck);
+    if (!isLikelyUrlContinuation(lastLine.translateToString(true), nextText, cols, midUrl)) break;
+    fullText = midUrl
+      ? cleanedForCheck + nextText.replace(LEADING_NON_URL, '').replace(TRAILING_NON_URL, '')
+      : fullText + nextText;
+    joinedLines.push(nextIdx);
+    nextIdx++;
+    heuristicCount++;
+    while (nextIdx < buffer.length) {
+      const wrapped = buffer.getLine(nextIdx);
+      if (!wrapped?.isWrapped) break;
+      fullText += wrapped.translateToString(true);
+      joinedLines.push(nextIdx);
+      nextIdx++;
+    }
+  }
+
+  const links: ILink[] = [];
   const urlRegex = /https?:\/\/[^\s"'<>]+/g;
+  let match: RegExpExecArray | null;
+  while ((match = urlRegex.exec(fullText)) !== null) {
+    const startPos = mapStringToBuffer(buffer, joinedLines, match.index);
+    const endPos = mapStringToBuffer(buffer, joinedLines, match.index + match[0].length);
+    if (!startPos || !endPos || lineIndex < startPos.y || lineIndex > endPos.y) continue;
+    links.push({
+      range: {
+        start: { x: startPos.x + 1, y: startPos.y + 1 },
+        end: { x: endPos.x, y: endPos.y + 1 },
+      },
+      text: match[0],
+      activate: (event: MouseEvent, text: string) => {
+        if (isTouchDevice() || event.ctrlKey || event.metaKey) {
+          window.open(text, '_blank', 'noopener');
+        }
+      },
+    });
+  }
+  return links.length > 0 ? links : undefined;
+}
 
-  return terminal.registerLinkProvider({
+function linkContains(link: ILink, column: number, bufferRow: number): boolean {
+  const { start, end } = link.range;
+  if (bufferRow < start.y || bufferRow > end.y) return false;
+  if (start.y === end.y) return column >= start.x && column <= end.x;
+  if (bufferRow === start.y) return column >= start.x;
+  if (bufferRow === end.y) return column <= end.x;
+  return true;
+}
+
+/**
+ * Register multiline URL detection and expose the same links to Herdr's
+ * browser-owned hardware and touch pointer paths.
+ */
+export function registerMultiLineLinkProvider(terminal: XTerm): TerminalLinkController {
+  const disposable = terminal.registerLinkProvider({
     provideLinks(y: number, callback: (links: ILink[] | undefined) => void) {
-      const buffer = terminal.buffer.active as unknown as XTermBuffer;
-      const cols = terminal.cols;
-      const lineIndex = y - 1; // xterm passes 1-based line numbers
-      const line = buffer.getLine(lineIndex);
-      if (!line) { callback(undefined); return; }
-
-      // Find the start of the logical block by looking upward
-      const startIdx = findLogicalLineStart(buffer, lineIndex, cols);
-
-      // Track which buffer lines were joined, for coordinate mapping
-      const joinedLines: number[] = [startIdx];
-
-      // Build full text downward: isWrapped + heuristic expansion
-      const startLine = buffer.getLine(startIdx);
-      if (!startLine) { callback(undefined); return; }
-      let fullText = startLine.translateToString(true);
-      let nextIdx = startIdx + 1;
-
-      // Phase 1: Join isWrapped continuation rows
-      while (nextIdx < buffer.length) {
-        const nextLine = buffer.getLine(nextIdx);
-        if (!nextLine?.isWrapped) break;
-        fullText += nextLine.translateToString(true);
-        joinedLines.push(nextIdx);
-        nextIdx++;
-      }
-
-      // Phase 2: Heuristic expansion for application-inserted newlines
-      let heuristicCount = 0;
-      while (nextIdx < buffer.length && heuristicCount < MAX_URL_CONTINUATION_ROWS) {
-        const nextLine = buffer.getLine(nextIdx);
-        if (!nextLine) break;
-        const nextText = nextLine.translateToString(true);
-        const lastLineIdx = joinedLines[joinedLines.length - 1];
-        const lastLine = buffer.getLine(lastLineIdx);
-        if (!lastLine) break;
-        const lastLineText = lastLine.translateToString(true);
-        // Strip trailing TUI decoration (│, padding) before checking if we're mid-URL
-        const cleanedForCheck = fullText.replace(TRAILING_NON_URL, '');
-        const midUrl = /https?:\/\/[^\s]*$/.test(cleanedForCheck);
-        if (!isLikelyUrlContinuation(lastLineText, nextText, cols, midUrl)) break;
-        if (midUrl) {
-          // Strip TUI border decoration from join points
-          fullText = cleanedForCheck;
-          fullText += nextText.replace(LEADING_NON_URL, '').replace(TRAILING_NON_URL, '');
-        } else {
-          fullText += nextText;
-        }
-        joinedLines.push(nextIdx);
-        nextIdx++;
-        heuristicCount++;
-        // Also consume any isWrapped lines following this heuristic line
-        while (nextIdx < buffer.length) {
-          const wrapped = buffer.getLine(nextIdx);
-          if (!wrapped?.isWrapped) break;
-          fullText += wrapped.translateToString(true);
-          joinedLines.push(nextIdx);
-          nextIdx++;
-        }
-      }
-
-      // Find all URLs in the joined text
-      const links: ILink[] = [];
-      urlRegex.lastIndex = 0;
-      let match: RegExpExecArray | null;
-      while ((match = urlRegex.exec(fullText)) !== null) {
-        const url = match[0];
-        const matchStart = match.index;
-        const matchEnd = matchStart + url.length;
-
-        const startPos = mapStringToBuffer(buffer, joinedLines, matchStart);
-        const endPos = mapStringToBuffer(buffer, joinedLines, matchEnd);
-        if (!startPos || !endPos) continue;
-
-        // Only return links that intersect with the requested line
-        const linkStartY = startPos.y;
-        const linkEndY = endPos.y;
-        if (lineIndex < linkStartY || lineIndex > linkEndY) continue;
-
-        links.push({
-          range: {
-            start: { x: startPos.x + 1, y: startPos.y + 1 },
-            end: { x: endPos.x, y: endPos.y + 1 },
-          },
-          text: url,
-          activate: (event: MouseEvent, text: string) => {
-            if (isTouchDevice() || event.ctrlKey || event.metaKey) {
-              window.open(text, '_blank', 'noopener');
-            }
-          },
-        });
-      }
-
-      callback(links.length > 0 ? links : undefined);
+      callback(linksForBufferLine(terminal, y));
     },
   });
+  const linkAt = (column: number, viewportRow: number): ILink | undefined => {
+    const bufferRow = terminal.buffer.active.viewportY + viewportRow;
+    return linksForBufferLine(terminal, bufferRow)?.find(link => linkContains(link, column, bufferRow));
+  };
+  return {
+    dispose: () => disposable.dispose(),
+    hasLinkAt: (column, viewportRow) => linkAt(column, viewportRow) !== undefined,
+    activateLinkAt: (column, viewportRow) => {
+      const link = linkAt(column, viewportRow);
+      if (!link) return false;
+      window.open(link.text, '_blank', 'noopener');
+      return true;
+    },
+  };
 }

@@ -23,12 +23,12 @@ vi.mock('../../lib/agent-seed.generated', () => ({
 
 import { managedExtensionsDocumentDigest, reconcileAgentConfigs } from '../../lib/r2-seed';
 
-const document = (key: string, modes: Array<'default' | 'advanced'> = ['default']) => ({
-  key,
-  contentType: 'text/markdown; charset=utf-8',
-  content: `# ${key}`,
-  modes,
-});
+const document = (
+  key: string,
+  modes: Array<'default' | 'advanced'> = ['default'],
+  content = `# ${key}`,
+  contentType = 'text/markdown; charset=utf-8',
+) => ({ key, contentType, content, modes });
 const release = (sequence: number, documents: ReturnType<typeof document>[], managedExtensions: ManagedRelease['managedExtensions'] = []): ManagedRelease => ({
   seedAbi: 1,
   sequence,
@@ -114,7 +114,7 @@ describe('managed release user-bucket reconciliation', () => {
     fetchR2.mockImplementation((url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
         const marker = url.endsWith('/edited.md') ? 'someone-else' : priorDigest;
-        return Promise.resolve(new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': marker } }));
+        return Promise.resolve(new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': marker, etag: '"prior"' } }));
       }
       return Promise.resolve(new Response('', { status: 200 }));
     });
@@ -136,12 +136,12 @@ describe('managed release user-bucket reconciliation', () => {
 
   it('REQ-STOR-024 AC6: cacheless application cleans only current-release paths outside the effective mode', async () => {
     const priorDigest = '1'.repeat(64);
-    const advancedOnlyKey = '.claude/skills/advanced/SKILL.md';
-    const userOwnedKey = '.claude/skills/personal/SKILL.md';
+    const advancedOnlyKey = '.claude/extensions/advanced/index.ts';
+    const userOwnedKey = '.claude/extensions/personal/index.ts';
     fetchR2.mockImplementation((url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
         const marker = url.endsWith(`/${advancedOnlyKey}`) ? priorDigest : 'user-owned';
-        return Promise.resolve(new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': marker } }));
+        return Promise.resolve(new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': marker, etag: '"cacheless"' } }));
       }
       return Promise.resolve(new Response('', { status: 200 }));
     });
@@ -151,7 +151,7 @@ describe('managed release user-bucket reconciliation', () => {
       cleanup: true,
       managedRelease: await selection('2'.repeat(64), release(2, [
         document(advancedOnlyKey, ['advanced']),
-        document('.claude/skills/current/SKILL.md'),
+        document('.claude/extensions/current/index.ts'),
         document(userOwnedKey, ['advanced']),
       ])),
       priorManagedDigest: priorDigest,
@@ -170,7 +170,7 @@ describe('managed release user-bucket reconciliation', () => {
     fetchR2.mockImplementation((url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
         const marker = url.endsWith('/legacy-owned.ts') ? 'baked-digest' : null;
-        return Promise.resolve(new Response('', { status: 200, headers: marker ? { 'x-amz-meta-codeflare-preseed': marker } : {} }));
+        return Promise.resolve(new Response('', { status: 200, headers: marker ? { 'x-amz-meta-codeflare-preseed': marker, etag: '"retired"' } : {} }));
       }
       return Promise.resolve(new Response('', { status: 200 }));
     });
@@ -192,7 +192,7 @@ describe('managed release user-bucket reconciliation', () => {
     current.retiredPaths = ['.pi/agent/extensions/retired.ts'];
     let policyBytes: BodyInit | null | undefined;
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (init?.method === 'HEAD') return new Response('', { status: 200 });
+      if (init?.method === 'HEAD') return new Response('', { status: 200, headers: { etag: '"protected-retired"' } });
       if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT') policyBytes = init.body;
       if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'GET') return new Response(policyBytes, { status: 200 });
       return new Response('', { status: 200 });
@@ -220,7 +220,7 @@ describe('managed release user-bucket reconciliation', () => {
     });
     const documents = Array.from(
       { length: 5_000 },
-      (_, index) => document(`.claude/skills/company-${String(index).padStart(4, '0')}/SKILL.md`),
+      (_, index) => document(`.claude/extensions/company-${String(index).padStart(4, '0')}/index.ts`),
     );
 
     await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
@@ -242,7 +242,7 @@ describe('managed release user-bucket reconciliation', () => {
     };
     const managedRelease = await selection(
       'f'.repeat(64),
-      release(3, [document('.pi/agent/skills/company/SKILL.md', ['advanced'])], [extension]),
+      release(3, [document('.pi/agent/extensions/company/index.ts', ['advanced'])], [extension]),
     );
     await reconcileAgentConfigs(env, 'bucket', endpoint, 'advanced', {
       overwrite: true,
@@ -262,7 +262,7 @@ describe('managed release user-bucket reconciliation', () => {
   it('REQ-STOR-029 AC1: writes and read-verifies canonical protected policy after managed content', async () => {
     const digest = 'd'.repeat(64);
     const managedRelease = await selection(digest, release(2, [
-      document('.claude/skills/company/SKILL.md', ['advanced']),
+      document('.claude/extensions/company/index.ts', ['advanced']),
       document('.pi/agent/AGENTS.md', ['default']),
     ]));
     let policyBytes: BodyInit | null | undefined;
@@ -286,7 +286,7 @@ describe('managed release user-bucket reconciliation', () => {
       resourcePolicy: 'immutable',
       resourceRoots: [],
     });
-    expect(policy.paths).toContain('.claude/skills/company/SKILL.md');
+    expect(policy.paths).toContain('.claude/extensions/company/index.ts');
     expect(policy.paths).toContain('.pi/agent/AGENTS.md');
     expect(result.managedPathsDigest).toMatch(/^[0-9a-f]{64}$/);
     const policyPut = fetchR2.mock.calls.find(([url, init]) => url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT');
@@ -297,9 +297,9 @@ describe('managed release user-bucket reconciliation', () => {
   });
 
   it('REQ-STOR-029 AC2: exclusive cleanup bounds fail before every mutation', async () => {
-    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
     const objects = Array.from({ length: 10_001 }, (_, index) => (
-      `<Contents><Key>.claude/skills/personal-${index}.md</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>`
+      `<Contents><Key>.claude/extensions/personal-${index}.md</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>`
     )).join('');
     fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === 'HEAD'
       ? new Response('', { status: 404 })
@@ -315,10 +315,10 @@ describe('managed release user-bucket reconciliation', () => {
   });
 
   it('REQ-STOR-029 AC2: exclusive cleanup rejects summed object size above 1 GiB with zero mutations', async () => {
-    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
     fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === 'HEAD'
       ? new Response('', { status: 404 })
-      : new Response('<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>.claude/skills/a</Key><Size>1073741824</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents><Contents><Key>.claude/skills/b</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>', { status: 200 }));
+      : new Response('<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>.claude/extensions/a</Key><Size>1073741824</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents><Contents><Key>.claude/extensions/b</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>', { status: 200 }));
 
     await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
       overwrite: true, cleanup: true, managedRelease, resourcePolicy: 'exclusive',
@@ -327,10 +327,10 @@ describe('managed release user-bucket reconciliation', () => {
   });
 
   it('REQ-STOR-029 AC2: exact root object size contributes to the exclusive cleanup bound', async () => {
-    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
     fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === 'HEAD'
       ? new Response(null, { status: 200, headers: { 'content-length': '1073741824' } })
-      : new Response('<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>.claude/skills/personal</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>', { status: 200 }));
+      : new Response('<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>.claude/extensions/personal</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>', { status: 200 }));
 
     await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
       overwrite: true, cleanup: true, managedRelease, resourcePolicy: 'exclusive',
@@ -339,7 +339,7 @@ describe('managed release user-bucket reconciliation', () => {
   });
 
   it.each([null, 'invalid', '-1', '9007199254740992'])('REQ-STOR-029 AC5: invalid exact root size %s causes zero mutations', async (contentLength) => {
-    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
     fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === 'HEAD'
       ? new Response(null, { status: 200, headers: contentLength === null ? {} : { 'content-length': contentLength } })
       : new Response('<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>', { status: 200 }));
@@ -350,22 +350,24 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2.mock.calls.some(([, init]) => ['PUT', 'DELETE', 'POST'].includes(String(init?.method)))).toBe(false);
   });
 
-  it('REQ-STOR-029 AC3: exclusive cleanup preserves managed and similarly prefixed objects in one bounded delete batch', async () => {
-    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
+  it('REQ-STOR-029 AC3: exclusive cleanup preserves managed objects in one bounded delete batch', async () => {
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
     let policyBytes: BodyInit | null | undefined;
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (init?.method === 'HEAD' && url.endsWith('/.claude/skills')) return new Response(null, { status: 200, headers: { 'content-length': '0' } });
+      if (init?.method === 'HEAD' && url.endsWith('/.claude/extensions')) return new Response(null, { status: 200, headers: { 'content-length': '0' } });
       if (init?.method === 'GET' && url.includes('list-type=2')) {
         return new Response([
           '<ListBucketResult><IsTruncated>false</IsTruncated>',
-          '<Contents><Key>.claude/skills/company/SKILL.md</Key><Size>10</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
-          '<Contents><Key>.claude/skills/personal/SKILL.md</Key><Size>10</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
+          '<Contents><Key>.claude/extensions/company/index.ts</Key><Size>10</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
+          '<Contents><Key>.claude/extensions/personal/index.ts</Key><Size>10</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
           '</ListBucketResult>',
         ].join(''), { status: 200 });
       }
       if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT') policyBytes = init.body;
       if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'GET') return new Response(policyBytes, { status: 200 });
-      if (url.endsWith('?delete') && init?.method === 'POST') return new Response('<DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></DeleteResult>', { status: 200 });
+      if (url.endsWith('?delete') && init?.method === 'POST') {
+        return new Response('<DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Deleted><Key>.claude/extensions</Key></Deleted><Deleted><Key>.claude/extensions/personal/index.ts</Key></Deleted></DeleteResult>', { status: 200 });
+      }
       return new Response('', { status: 200 });
     });
 
@@ -376,24 +378,77 @@ describe('managed release user-bucket reconciliation', () => {
       resourcePolicy: 'exclusive',
     });
 
-    expect(fetchR2.mock.calls.find(([url]) => String(url).includes('list-type=2'))?.[0]).toContain('prefix=.claude%2Fskills%2F');
-    expect(result.deleted).toEqual(['.claude/skills', '.claude/skills/personal/SKILL.md']);
+    expect(fetchR2.mock.calls.find(([url]) => String(url).includes('list-type=2'))?.[0]).toContain('prefix=.claude%2Fextensions%2F');
+    expect(result.deleted).toEqual(['.claude/extensions', '.claude/extensions/personal/index.ts']);
     const deleteBatches = fetchR2.mock.calls.filter(([url, init]) => String(url).endsWith('?delete') && init?.method === 'POST');
     expect(deleteBatches).toHaveLength(1);
-    expect(String(deleteBatches[0][1].body)).toContain('<Key>.claude/skills/personal/SKILL.md</Key>');
-    expect(String(deleteBatches[0][1].body)).not.toContain('.claude/skills/company/SKILL.md');
-    expect(String(deleteBatches[0][1].body)).not.toContain('.claude/skills-other/personal.md');
+    expect(String(deleteBatches[0][1].body)).toBe('<?xml version="1.0" encoding="UTF-8"?><Delete xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Object><Key>.claude/extensions</Key></Object><Object><Key>.claude/extensions/personal/index.ts</Key></Object><Quiet>true</Quiet></Delete>');
   });
 
-  it('REQ-STOR-029 AC4: partial exclusive batch failures prevent policy identity from being committed', async () => {
-    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
+  it('REQ-STOR-029 AC4: verbose delete confirmation decodes valid numeric XML character references', async () => {
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
+    let policyBytes: BodyInit | null | undefined;
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') return new Response('', { status: 404 });
       if (init?.method === 'GET' && url.includes('list-type=2')) {
-        return new Response('<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>.claude/skills/personal/SKILL.md</Key><Size>10</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>', { status: 200 });
+        return new Response([
+          '<ListBucketResult><IsTruncated>false</IsTruncated>',
+          '<Contents><Key>.claude/extensions/line\nbreak.ts</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
+          '<Contents><Key>.claude/extensions/literal&amp;lt;.ts</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
+          '<Contents><Key>.claude/extensions/tab\tbreak.ts</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
+          '</ListBucketResult>',
+        ].join(''), { status: 200 });
+      }
+      if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT') policyBytes = init.body;
+      if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'GET') return new Response(policyBytes, { status: 200 });
+      if (url.endsWith('?delete') && init?.method === 'POST') {
+        return new Response('<DeleteResult><Deleted><Key>.claude/extensions/line&#10;break.ts</Key></Deleted><Deleted><Key>.claude/extensions/literal&#38;lt;.ts</Key></Deleted><Deleted><Key>.claude/extensions/tab&#x9;break.ts</Key></Deleted></DeleteResult>', { status: 200 });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true, cleanup: true, managedRelease, resourcePolicy: 'exclusive',
+    });
+
+    expect(result.deleted).toEqual(['.claude/extensions/line\nbreak.ts', '.claude/extensions/literal&lt;.ts', '.claude/extensions/tab\tbreak.ts']);
+  });
+
+  it('REQ-STOR-029 AC3: exclusive cleanup bounds each delete batch to 1,000 objects', async () => {
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
+    const obsolete = Array.from({ length: 1_001 }, (_, index) => `.claude/extensions/obsolete-${index}.ts`);
+    let policyBytes: BodyInit | null | undefined;
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      if (init?.method === 'GET' && url.includes('list-type=2')) {
+        const contents = obsolete.map((key) => `<Contents><Key>${key}</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>`).join('');
+        return new Response(`<ListBucketResult><IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`, { status: 200 });
+      }
+      if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT') policyBytes = init.body;
+      if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'GET') return new Response(policyBytes, { status: 200 });
+      if (url.endsWith('?delete') && init?.method === 'POST') return new Response('<DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></DeleteResult>', { status: 200 });
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true, cleanup: true, managedRelease, resourcePolicy: 'exclusive',
+    });
+
+    const deleteBatches = fetchR2.mock.calls.filter(([url, init]) => String(url).endsWith('?delete') && init?.method === 'POST');
+    expect(deleteBatches).toHaveLength(2);
+    expect(deleteBatches.map(([, init]) => (String(init?.body).match(/<Key>/g) ?? []).length)).toEqual([1_000, 1]);
+    expect(result.deleted).toHaveLength(1_001);
+  });
+
+  it('REQ-STOR-029 AC4: partial exclusive batch failures prevent policy identity from being committed', async () => {
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      if (init?.method === 'GET' && url.includes('list-type=2')) {
+        return new Response('<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>.claude/extensions/personal/index.ts</Key><Size>10</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>', { status: 200 });
       }
       if (url.endsWith('?delete') && init?.method === 'POST') {
-        return new Response('<DeleteResult><Error><Key>.claude/skills/personal/SKILL.md</Key><Code>AccessDenied</Code><Message>Denied</Message></Error></DeleteResult>', { status: 200 });
+        return new Response('<DeleteResult><Error><Key>.claude/extensions/personal/index.ts</Key><Code>AccessDenied</Code><Message>Denied</Message></Error></DeleteResult>', { status: 200 });
       }
       return new Response('', { status: 200 });
     });
@@ -404,11 +459,40 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2.mock.calls.some(([url, init]) => url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT')).toBe(false);
   });
 
+  it.each([
+    ['partial verbose success', '<DeleteResult><Deleted><Key>.claude/extensions/a.ts</Key></Deleted></DeleteResult>'],
+    ['unknown verbose key', '<DeleteResult><Deleted><Key>.claude/extensions/a.ts</Key></Deleted><Deleted><Key>.claude/extensions/unknown.ts</Key></Deleted></DeleteResult>'],
+    ['duplicate verbose key', '<DeleteResult><Deleted><Key>.claude/extensions/a.ts</Key></Deleted><Deleted><Key>.claude/extensions/a.ts</Key></Deleted></DeleteResult>'],
+    ['unexpected structure', '<DeleteResult><Deleted><Key>.claude/extensions/a.ts</Key></Deleted><Deleted><Key>.claude/extensions/b.ts</Key></Deleted><Extra /></DeleteResult>'],
+    ['invalid numeric reference', '<DeleteResult><Deleted><Key>.claude/extensions/a&#0;.ts</Key></Deleted><Deleted><Key>.claude/extensions/b.ts</Key></Deleted></DeleteResult>'],
+    ['malformed XML', '<DeleteResult><Deleted><Key>.claude/extensions/a.ts</Key></Deleted>'],
+  ])('REQ-STOR-029 AC4: %s cannot commit exclusive policy identity', async (_case, deleteResponse) => {
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      if (init?.method === 'GET' && url.includes('list-type=2')) {
+        return new Response([
+          '<ListBucketResult><IsTruncated>false</IsTruncated>',
+          '<Contents><Key>.claude/extensions/a.ts</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
+          '<Contents><Key>.claude/extensions/b.ts</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
+          '</ListBucketResult>',
+        ].join(''), { status: 200 });
+      }
+      if (url.endsWith('?delete') && init?.method === 'POST') return new Response(deleteResponse, { status: 200 });
+      return new Response('', { status: 200 });
+    });
+
+    await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true, cleanup: true, managedRelease, resourcePolicy: 'exclusive',
+    })).rejects.toThrow(/DeleteObjects response/);
+    expect(fetchR2.mock.calls.some(([url, init]) => url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT')).toBe(false);
+  });
+
   it('REQ-STOR-029 AC5: malformed exclusive listings cause zero mutations', async () => {
-    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/skills/company/SKILL.md')]));
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
     fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === 'HEAD'
       ? new Response('', { status: 404 })
-      : new Response('<ListBucketResult><Contents><Key>.claude/skills/personal.md</Key></Contents></ListBucketResult>', { status: 200 }));
+      : new Response('<ListBucketResult><Contents><Key>.claude/extensions/personal.md</Key></Contents></ListBucketResult>', { status: 200 }));
 
     await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
       overwrite: true,
@@ -461,5 +545,345 @@ describe('managed release user-bucket reconciliation', () => {
     expect(await managedExtensionsDocumentDigest(managedRelease)).toBe(
       createHash('sha256').update(manifestBody).digest('hex'),
     );
+  });
+
+  it('REQ-STOR-033 AC1/AC2: direct delta handles a fifteen-release gap and writes only added or changed release paths', async () => {
+    const prior = await selection('1'.repeat(64), release(26, [
+      document('.claude/added-later.md', ['default'], 'old removed'),
+      document('.claude/changed.md', ['default'], 'old content'),
+      document('.claude/stable.md', ['default'], 'same content'),
+      document('.claude/type.md', ['default'], 'same bytes', 'text/plain; charset=utf-8'),
+    ]));
+    const target = await selection('2'.repeat(64), release(41, [
+      document('.claude/changed.md', ['default'], 'new content'),
+      document('.claude/new.md', ['default'], 'new file'),
+      document('.claude/stable.md', ['default'], 'same content'),
+      document('.claude/type.md', ['default'], 'same bytes', 'text/markdown; charset=utf-8'),
+    ]));
+    fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => (
+      init?.method === 'HEAD' ? new Response('', { status: 404 }) : new Response('', { status: 200 })
+    ));
+
+    await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: target,
+      priorManagedRelease: { ...prior, mode: 'default' },
+      automatic: { assumeEmpty: false },
+    } as Parameters<typeof reconcileAgentConfigs>[4] & { automatic: { assumeEmpty: boolean } });
+
+    const putUrls = fetchR2.mock.calls
+      .filter(([, init]) => init?.method === 'PUT')
+      .map(([url]) => String(url));
+    expect(putUrls).toEqual([
+      `${endpoint}/bucket/.claude/changed.md`,
+      `${endpoint}/bucket/.claude/new.md`,
+      `${endpoint}/bucket/.claude/type.md`,
+      `${endpoint}/bucket/.codeflare/managed-extensions.json`,
+    ]);
+    expect(putUrls).not.toContain(`${endpoint}/bucket/.claude/stable.md`);
+  });
+
+  it('REQ-STOR-033 AC3 + REQ-STOR-034 AC3: target provenance resumes and increments progress', async () => {
+    const targetDigest = '2'.repeat(64);
+    const progress: Array<{ completed: number; total: number }> = [];
+    fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        return new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': targetDigest } });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: await selection(targetDigest, release(41, [document('.claude/already-done.md')])),
+      automatic: {
+        assumeEmpty: false,
+        onProgress: async (value) => { progress.push(value); },
+      },
+    } as Parameters<typeof reconcileAgentConfigs>[4] & { automatic: { assumeEmpty: boolean } });
+
+    expect(result.written).toEqual([]);
+    expect(result.skipped).toContain('.claude/already-done.md');
+    expect(progress[progress.length - 1]).toEqual({ completed: 2, total: 2 });
+    expect(fetchR2.mock.calls.some(([url, init]) => (
+      String(url).endsWith('/.claude/already-done.md') && init?.method === 'PUT'
+    ))).toBe(false);
+  });
+
+  it('REQ-STOR-033 AC4 + REQ-STOR-035 AC5: full-target fallback sweeps stale managed markers only after desired writes', async () => {
+    const targetDigest = '2'.repeat(64);
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        const marker = url.endsWith('/obsolete.md') ? '1'.repeat(64) : null;
+        return new Response('', { status: marker ? 200 : 404, headers: marker ? { 'x-amz-meta-codeflare-preseed': marker, etag: '"stale"' } : {} });
+      }
+      if (!init?.method && url.includes('list-type=2')) {
+        return new Response('<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>.claude/extensions/obsolete.md</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>', { status: 200 });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: await selection(targetDigest, release(41, [document('.claude/extensions/current.md')])),
+      automatic: { assumeEmpty: false },
+    });
+
+    expect(result.deleted).toContain('.claude/extensions/obsolete.md');
+    const desiredPut = fetchR2.mock.calls.findIndex(([url, init]) => url.endsWith('/current.md') && init?.method === 'PUT');
+    const cleanupList = fetchR2.mock.calls.findIndex(([url]) => String(url).includes('list-type=2'));
+    expect(desiredPut).toBeGreaterThanOrEqual(0);
+    expect(cleanupList).toBeGreaterThan(desiredPut);
+  });
+
+  it('REQ-STOR-035 AC6: fallback cleanup preserves an object replaced after inspection', async () => {
+    const targetDigest = '2'.repeat(64);
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        if (url.endsWith('/obsolete.md')) {
+          return new Response('', {
+            status: 200,
+            headers: { 'x-amz-meta-codeflare-preseed': '1'.repeat(64), etag: '"observed-stale"' },
+          });
+        }
+        return new Response('', { status: 404 });
+      }
+      if (!init?.method && url.includes('list-type=2')) {
+        return new Response('<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>.claude/extensions/obsolete.md</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>', { status: 200 });
+      }
+      if (init?.method === 'DELETE' && url.endsWith('/obsolete.md')) return new Response('', { status: 412 });
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: await selection(targetDigest, release(41, [document('.claude/extensions/current.md')])),
+      automatic: { assumeEmpty: false },
+    });
+
+    const deletion = fetchR2.mock.calls.find(([url, init]) => url.endsWith('/obsolete.md') && init?.method === 'DELETE');
+    expect(new Headers(deletion?.[1]?.headers).get('If-Match')).toBe('"observed-stale"');
+    expect(result.deleted).not.toContain('.claude/extensions/obsolete.md');
+    expect(result.warnings).toContain('DELETE .claude/extensions/obsolete.md: object changed during cleanup');
+  });
+
+  it('REQ-STOR-035 AC4: interrupted target drift repairs only objects carrying interrupted provenance', async () => {
+    const applied = await selection('1'.repeat(64), release(40, [
+      document('.claude/reverted.md', ['default'], 'applied bytes'),
+      document('.claude/user-edit.md', ['default'], 'applied bytes'),
+    ]));
+    const interrupted = await selection('2'.repeat(64), release(41, [
+      document('.claude/interrupted-only.md', ['default'], 'interrupted only'),
+      document('.claude/reverted.md', ['default'], 'interrupted bytes'),
+      document('.claude/user-edit.md', ['default'], 'interrupted bytes'),
+    ]));
+    const target = await selection('3'.repeat(64), release(42, [
+      document('.claude/reverted.md', ['default'], 'applied bytes'),
+      document('.claude/user-edit.md', ['default'], 'applied bytes'),
+    ]));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD' && url.endsWith('/reverted.md')) {
+        return new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': interrupted.digest } });
+      }
+      if (init?.method === 'HEAD' && url.endsWith('/user-edit.md')) {
+        return new Response('', { status: 200 });
+      }
+      if (init?.method === 'HEAD' && url.endsWith('/interrupted-only.md')) {
+        return new Response('', {
+          status: 200,
+          headers: { 'x-amz-meta-codeflare-preseed': interrupted.digest, etag: '"interrupted"' },
+        });
+      }
+      if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: target,
+      priorManagedRelease: { ...applied, mode: 'default' },
+      interruptedManagedReleases: [{ ...interrupted, mode: 'default' }],
+      automatic: { assumeEmpty: false },
+    });
+
+    expect(fetchR2.mock.calls.some(([url, init]) => (
+      String(url).endsWith('/reverted.md') && init?.method === 'PUT'
+    ))).toBe(true);
+    expect(fetchR2.mock.calls.some(([url, init]) => (
+      String(url).endsWith('/user-edit.md') && init?.method === 'PUT'
+    ))).toBe(false);
+    const interruptedDelete = fetchR2.mock.calls.find(([url, init]) => (
+      String(url).endsWith('/interrupted-only.md') && init?.method === 'DELETE'
+    ));
+    expect(new Headers(interruptedDelete?.[1]?.headers).get('If-Match')).toBe('"interrupted"');
+    expect(result.deleted).toContain('.claude/interrupted-only.md');
+  });
+
+  it('REQ-STOR-035 AC4: repairs markers from repeated interrupted targets', async () => {
+    const applied = await selection('1'.repeat(64), release(40, [
+      document('.claude/from-b.md', ['default'], 'applied B bytes'),
+      document('.claude/from-c.md', ['default'], 'applied C bytes'),
+    ]));
+    const interruptedB = await selection('2'.repeat(64), release(41, [
+      document('.claude/from-b.md', ['default'], 'interrupted B bytes'),
+      document('.claude/from-c.md', ['default'], 'applied C bytes'),
+    ]));
+    const interruptedC = await selection('3'.repeat(64), release(42, [
+      document('.claude/from-b.md', ['default'], 'applied B bytes'),
+      document('.claude/from-c.md', ['default'], 'interrupted C bytes'),
+    ]));
+    const target = await selection('4'.repeat(64), release(43, [
+      document('.claude/from-b.md', ['default'], 'applied B bytes'),
+      document('.claude/from-c.md', ['default'], 'applied C bytes'),
+    ]));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD' && url.endsWith('/from-b.md')) {
+        return new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': interruptedB.digest } });
+      }
+      if (init?.method === 'HEAD' && url.endsWith('/from-c.md')) {
+        return new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': interruptedC.digest } });
+      }
+      if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      return new Response('', { status: 200 });
+    });
+
+    await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: target,
+      priorManagedRelease: { ...applied, mode: 'default' },
+      interruptedManagedReleases: [
+        { ...interruptedB, mode: 'default' },
+        { ...interruptedC, mode: 'default' },
+      ],
+      automatic: { assumeEmpty: false },
+    });
+
+    const putUrls = fetchR2.mock.calls
+      .filter(([, init]) => init?.method === 'PUT')
+      .map(([url]) => String(url));
+    expect(putUrls).toContain(`${endpoint}/bucket/.claude/from-b.md`);
+    expect(putUrls).toContain(`${endpoint}/bucket/.claude/from-c.md`);
+  });
+
+  it('REQ-STOR-035 AC4: repairs an interrupted extensions manifest when applied already matches target', async () => {
+    const target = await selection('3'.repeat(64), release(42, []));
+    const interrupted = await selection('2'.repeat(64), release(41, []));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD' && url.endsWith('/.codeflare/managed-extensions.json')) {
+        return new Response('', {
+          status: 200,
+          headers: { 'x-amz-meta-codeflare-preseed': interrupted.digest },
+        });
+      }
+      if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      return new Response('', { status: 200 });
+    });
+
+    await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: target,
+      priorManagedRelease: { ...target, mode: 'default' },
+      interruptedManagedReleases: [{ ...interrupted, mode: 'default' }],
+      automatic: { assumeEmpty: false },
+    });
+
+    expect(fetchR2.mock.calls.some(([url, init]) => (
+      String(url).endsWith('/.codeflare/managed-extensions.json') && init?.method === 'PUT'
+    ))).toBe(true);
+  });
+
+  it('REQ-STOR-035 AC5: managed disable removes interrupted-only objects with matching provenance', async () => {
+    const interrupted = await selection('2'.repeat(64), release(41, [
+      document('.claude/interrupted-only.md', ['default'], 'interrupted only'),
+    ]));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD' && url.endsWith('/interrupted-only.md')) {
+        return new Response('', {
+          status: 200,
+          headers: { 'x-amz-meta-codeflare-preseed': interrupted.digest, etag: '"interrupted"' },
+        });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: null,
+      interruptedManagedReleases: [{ ...interrupted, mode: 'default' }],
+    });
+
+    const deletion = fetchR2.mock.calls.find(([url, init]) => (
+      String(url).endsWith('/interrupted-only.md') && init?.method === 'DELETE'
+    ));
+    expect(new Headers(deletion?.[1]?.headers).get('If-Match')).toBe('"interrupted"');
+    expect(result.deleted).toContain('.claude/interrupted-only.md');
+  });
+
+  it('REQ-STOR-035 AC6: cleanup preserves an object replaced after inspection', async () => {
+    const prior = await selection('1'.repeat(64), release(40, [document('.claude/removed.md')]));
+    const target = await selection('2'.repeat(64), release(41, []));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD' && url.endsWith('/removed.md')) {
+        return new Response('', {
+          status: 200,
+          headers: { 'x-amz-meta-codeflare-preseed': '0'.repeat(64), etag: '"observed"' },
+        });
+      }
+      if (init?.method === 'DELETE' && url.endsWith('/removed.md')) return new Response('', { status: 412 });
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: target,
+      priorManagedRelease: { ...prior, mode: 'default' },
+      automatic: { assumeEmpty: false },
+    });
+
+    const deletion = fetchR2.mock.calls.find(([url, init]) => url.endsWith('/removed.md') && init?.method === 'DELETE');
+    expect(new Headers(deletion?.[1]?.headers).get('If-Match')).toBe('"observed"');
+    expect(result.deleted).not.toContain('.claude/removed.md');
+    expect(result.warnings).toContain('DELETE .claude/removed.md: object changed during cleanup');
+  });
+
+  it('REQ-STOR-021 AC2 + REQ-STOR-035 AC5: direct delta cleanup accepts older valid markers and preserves markerless edits', async () => {
+    const prior = await selection('1'.repeat(64), release(40, [
+      document('.claude/markerless-edit.md'),
+      document('.claude/old-managed.md'),
+      document('.claude/stable.md'),
+    ]));
+    const target = await selection('2'.repeat(64), release(41, [document('.claude/stable.md')]));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        const marker = url.endsWith('/old-managed.md') ? '0'.repeat(64) : null;
+        return new Response('', { status: 200, headers: marker ? { 'x-amz-meta-codeflare-preseed': marker, etag: '"old-managed"' } : {} });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: target,
+      priorManagedRelease: { ...prior, mode: 'default' },
+      automatic: { assumeEmpty: false },
+    } as Parameters<typeof reconcileAgentConfigs>[4] & { automatic: { assumeEmpty: boolean } });
+
+    expect(result.deleted).toEqual(['.claude/old-managed.md']);
+    expect(fetchR2.mock.calls.some(([url, init]) => (
+      String(url).endsWith('/markerless-edit.md') && init?.method === 'DELETE'
+    ))).toBe(false);
+    expect(fetchR2.mock.calls.some(([url, init]) => (
+      String(url).endsWith('/stable.md') && ['HEAD', 'DELETE', 'PUT'].includes(String(init?.method))
+    ))).toBe(false);
   });
 });

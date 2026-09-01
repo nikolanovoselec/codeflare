@@ -13,6 +13,8 @@ const mobileState = vi.hoisted(() => ({ mobile: false, samsung: false, iosInstal
 const sessionStoreState = vi.hoisted(() => ({
   preferences: { workspaceSyncEnabled: false, fastStartEnabled: undefined, sessionMode: undefined } as UserPreferences,
   updatePreferences: vi.fn(async () => undefined),
+  runPreseedUpdate: vi.fn(async (operation: () => Promise<unknown>) => operation()),
+  preseedUpgrading: false,
   // The Standard/Pro session-mode selector is SaaS-gated (REQ-ENTERPRISE-008 AC3);
   // these tests exercise its behavior, so default to SaaS mode.
   saasMode: true as boolean,
@@ -80,8 +82,13 @@ vi.mock('../../stores/session', () => ({
     get saasMode() {
       return sessionStoreState.saasMode;
     },
+    get preseedUpgrading() {
+      return sessionStoreState.preseedUpgrading;
+    },
     updatePreferences: (...args: Parameters<typeof sessionStoreState.updatePreferences>) =>
       sessionStoreState.updatePreferences(...args),
+    runPreseedUpdate: (...args: Parameters<typeof sessionStoreState.runPreseedUpdate>) =>
+      sessionStoreState.runPreseedUpdate(...args),
   },
 }));
 
@@ -122,7 +129,9 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
     });
     sessionStoreState.preferences = { workspaceSyncEnabled: false, fastStartEnabled: undefined };
     sessionStoreState.saasMode = true;
+    sessionStoreState.preseedUpgrading = false;
     sessionStoreState.updatePreferences.mockResolvedValue(undefined);
+    sessionStoreState.runPreseedUpdate.mockImplementation(async (operation) => operation());
     mockGetUser.mockResolvedValue({ email: 'test@example.com', authenticated: true, bucketName: 'test', subscribedMode: 'advanced', hasSubscribed: true });
     mockGetLlmKeys.mockResolvedValue({});
     mockUpdateLlmKeys.mockResolvedValue({});

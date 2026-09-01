@@ -42,9 +42,11 @@ Read only the references the task needs:
 
 ## Commit to one direction
 
-Before implementation, define one contract: thesis; hierarchy and action; palette and type; geometry and rhythm; material, imagery, and motion; product-derived signature; restraint.
+Before substantial implementation, define a compact contract: product, audience, and job; thesis and intended effect; primary hierarchy and action; product-derived signature; typography roles and palette logic; geometry, rhythm, density, and material; imagery and assets; interaction and motion character; responsive transformation; platform commitments; deliberate restraint; and evidence of success.
 
-For greenfield work or substantial redesign, directions must differ in composition, hierarchy, typography, palette logic, imagery, material, rhythm, and interaction, not merely accent color. Once the user selects or delegates a direction, stop mixing alternatives.
+When examples exist, extract their composition, hierarchy, type, palette logic, material, imagery, rhythm, and interaction character. Preserve what the user points to without copying layouts, branding, or proprietary elements.
+
+For greenfield work or substantial redesign, directions must differ materially in composition or hierarchy plus several supporting dimensions, not merely accent color or adjectives. Once the user selects or delegates a direction, stop mixing alternatives.
 
 Apply the substitution test: if another company's name, logo, and copy could replace this product without the design feeling wrong, the direction is still generic.
 
@@ -52,7 +54,7 @@ Apply the substitution test: if another company's name, logo, and copy could rep
 
 Preserve the incumbent framework, build system, routes, semantics, content, data flow, behavior, tokens, component conventions, icon system, and dependencies unless change is authorized. Make the smallest architectural change that enables the design.
 
-Use authentic content and working controls. Cover relevant states, long content, localization, and asset failure. Accessibility belongs to composition and interaction, not cleanup.
+Use authentic content and working controls. Cover relevant initial, loading, empty, partial, stale, error, offline, permission, disabled, success, destructive, undo/recovery, long-content, localization, and asset-failure states without forcing irrelevant states into every surface. Accessibility belongs to composition and interaction, not cleanup.
 
 For component work, inspect incumbent components, tokens, and registries first. Establish required behavior, accessibility, information architecture, and the visual thesis before choosing implementation material. Reuse or adapt compatible components; create new ones only when the incumbent system cannot cleanly express required behavior. A component source never chooses the thesis.
 
@@ -60,10 +62,19 @@ Keep simple transitions in CSS or the incumbent framework. Delegate only when th
 
 Choose techniques from the concept and repository, never habit. Do not mandate a framework, library, component registry, palette, icon set, font source, asset workflow, motion runtime, or rendering technique.
 
+## Judge success by purpose
+
+- **Persuade:** proposition comprehension, relevance, trust, authentic evidence, action hierarchy, and a coherent commitment path.
+- **Operate:** situation awareness, prioritization, decision speed, safe action, recovery, auditability, and task-appropriate density.
+- **Read:** navigation, scanning, sustained readability, comprehension, semantic structure, references, and print/share behavior where relevant.
+- **Experience:** narrative progression, interaction legibility, sensory restraint, meaningful payoff, performance, and an accessible alternative path.
+
+These are judgment criteria, not permission to invent analytics or claim outcomes that were not measured.
+
 ## Inspect, critique, revise
 
 When browser, preview, screenshot, or rendering capability is available, render representative viewport sizes, inspect the actual interface, exercise important interaction and keyboard paths, and revise observed weaknesses. When visual inspection is unavailable, inspect structure and styles, run available non-visual checks, state the limitation, and do not claim visual validation.
 
-Use a bounded loop: implement, inspect once, fix findings as one coherent pass, then confirm. Measure performance against stated budgets where measurement exists. Never translate “make it fast” into a fabricated score.
+Use one to three severity-driven passes: inspect, rank findings, fix a coherent set, and confirm. Stop when critical findings are cleared or report the unresolved blocker; a pass budget never converts a critical defect into success. Measure performance against stated budgets where measurement exists. Never translate “make it fast” into a fabricated score.
 
 Finish only when the result preserves product truth, expresses the selected thesis, works at required sizes, handles relevant states, and reports validation evidence honestly.

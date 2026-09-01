@@ -9,7 +9,7 @@ Own one product-specific visual thesis while respecting genuine platform behavio
 
 ## Start with product and platform evidence
 
-Inspect product goals, audience, tasks, content, brand, incumbent screens, navigation, components, tokens, assets, accessibility, target devices, repository stack, platform versions, and current changes. Identify whether delivery is native iOS, native Android, or cross-platform native mobile.
+Inspect product goals, audience, tasks, content, brand, incumbent screens, navigation, components, tokens, assets, accessibility, repository stack, platform versions, and current changes. Establish a support matrix covering target OS versions, phones/tablets/foldables, orientations or window sizes, input methods, accessibility commitments, offline/high-latency behavior, and permitted cross-platform divergence. Identify whether delivery is native iOS, native Android, or cross-platform native mobile.
 
 Treat SwiftUI, UIKit, Jetpack Compose, Android Views, React Native, Expo, and Flutter as implementation contexts, not design styles. Do not infer a visual identity from the framework.
 
@@ -25,7 +25,7 @@ For an Operate surface, read [../frontend-design/references/operate-and-dashboar
 
 ## Commit to one native direction
 
-Define one contract before substantial implementation: product thesis, hierarchy and action, platform commitments, navigation, typography, color, geometry, material, imagery, motion, product signature, and restraint.
+Define one contract before substantial implementation: product thesis, hierarchy and action, platform commitments, navigation, typography, color, geometry, material, imagery, motion, product signature, adaptive transformation, lifecycle/recovery, and restraint.
 
 Platform conventions constrain behavior and accessibility. They do not erase product identity. Apple Human Interface Guidelines are conditional Apple guidance, not a reason to imitate Apple's visual identity. Material Design is conditional Android or Material guidance, not a universal aesthetic.
 
@@ -41,6 +41,6 @@ Keep simple transitions native. Add animation tooling only when the selected mot
 
 ## Validate native behavior
 
-Inspect representative phones plus relevant tablets, foldables, orientations, and window sizes when capabilities exist. Exercise navigation and back behavior, gestures, safe areas, system UI, keyboard avoidance, dynamic type, screen readers, touch targets, permissions, deep links, offline and high-latency states, interruption, background and foreground transitions, reduced motion, and destructive recovery.
+Inspect representative phones plus relevant tablets, foldables, orientations, and window sizes when capabilities exist. Exercise navigation and back behavior, gestures, safe areas, system UI, keyboard avoidance, Dynamic Type or font scaling, localization and bidirectional text, screen readers, touch targets, permissions and denial recovery, deep links, offline and high-latency states, process recreation or termination, interruption, background and foreground transitions, state restoration, reduced motion, and destructive recovery.
 
 For cross-platform work, verify each platform separately. Preserve shared product identity while allowing genuine behavioral differences. When rendering or device access is unavailable, inspect source and platform contracts, state the limitation, and do not claim device evidence.

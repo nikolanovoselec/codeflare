@@ -59,7 +59,8 @@ const managedReleaseState = vi.hoisted(() => ({
   active: null as null | { digest: string; pointer: { sequence: number }; resourcePolicy: 'mutable' | 'immutable' | 'exclusive' },
   error: null as Error | null,
 }));
-vi.mock('../../lib/managed-release-active', () => ({
+vi.mock('../../lib/managed-release-active', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/managed-release-active')>()),
   getActiveManagedRelease: vi.fn(async () => {
     if (managedReleaseState.error) throw managedReleaseState.error;
     return managedReleaseState.active;
@@ -584,6 +585,109 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
       expect(body.managedReleaseStatus).toBe('current');
       expect(body.preseedNeedsUpgrade).toBe(false);
+    });
+
+    it('REQ-STOR-023 AC5: pending target state retries even when applied identity matches active', async () => {
+      const digest = 'd'.repeat(64);
+      managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      mockKV._set('user-prefs:test-bucket', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest, managedExtensionsDigest: 'e'.repeat(64), sequence: 4,
+          mode: 'default', appliedAt: '2026-01-01T00:00:00.000Z',
+        },
+        managedEnvironmentReconciliation: {
+          targets: [{ digest: 'c'.repeat(64), sequence: 3, mode: 'default' }],
+        },
+      });
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+
+      expect(body.managedReleaseStatus).toBe('upgrading');
+      expect(body.preseedNeedsUpgrade).toBe(true);
+    });
+
+    it('REQ-STOR-036 AC2: batch status exposes only matching pending progress', async () => {
+      const digest = 'd'.repeat(64);
+      managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
+      mockKV._set('managed-reconcile-progress:test-bucket', {
+        schemaVersion: 1, targetDigest: digest, phase: 'writing', completed: 25, total: 61,
+        updatedAt: '2026-08-31T12:00:00.000Z',
+      });
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseProgress?: unknown };
+      expect(body.managedReleaseProgress).toEqual({ phase: 'writing', completed: 25, total: 61 });
+    });
+
+    it('REQ-STOR-036 AC3: progress read failure cannot replace authoritative upgrading status', async () => {
+      const digest = 'd'.repeat(64);
+      managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
+      const read = mockKV.get.getMockImplementation()!;
+      mockKV.get.mockImplementation((key, type) => (
+        key === 'managed-reconcile-progress:test-bucket'
+          ? Promise.reject(new Error('progress unavailable'))
+          : read(key, type)
+      ));
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+      expect(body.managedReleaseStatus).toBe('upgrading');
+      expect(body.preseedNeedsUpgrade).toBe(true);
+    });
+
+    it('REQ-STOR-036 AC1: malformed progress is omitted', async () => {
+      const digest = 'd'.repeat(64);
+      managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
+      mockKV._set('managed-reconcile-progress:test-bucket', {
+        schemaVersion: 1, targetDigest: digest, phase: 'writing', completed: 62, total: 61,
+        updatedAt: '2026-08-31T12:00:00.000Z',
+      });
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseProgress?: unknown };
+      expect(body.managedReleaseProgress).toBeUndefined();
+    });
+
+    it('REQ-STOR-036 AC2: update-pending state omits progress', async () => {
+      const digest = 'd'.repeat(64);
+      managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      const running = makeSession('aabbccdd11223344', 'running');
+      mockKV._set('session:test-bucket:aabbccdd11223344', running, buildSessionMetadata(running));
+      mockKV._set('managed-reconcile-progress:test-bucket', {
+        schemaVersion: 1, targetDigest: digest, phase: 'writing', completed: 25, total: 61,
+        updatedAt: '2026-08-31T12:00:00.000Z',
+      });
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; managedReleaseProgress?: unknown };
+      expect(body.managedReleaseStatus).toBe('update_pending');
+      expect(body.managedReleaseProgress).toBeUndefined();
+    });
+
+    it('REQ-STOR-036 AC4: applied target omits and opportunistically clears stale progress', async () => {
+      const digest = 'd'.repeat(64);
+      managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      mockKV._set('user-prefs:test-bucket', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest, managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'default',
+          appliedAt: '2026-01-01T00:00:00.000Z',
+        },
+      });
+      mockKV._set('managed-reconcile-progress:test-bucket', {
+        schemaVersion: 1, targetDigest: digest, phase: 'finalizing', completed: 61, total: 61,
+        updatedAt: '2026-08-31T12:00:00.000Z',
+      });
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseProgress?: unknown };
+      expect(body.managedReleaseProgress).toBeUndefined();
+      expect(mockKV.delete).toHaveBeenCalledWith('managed-reconcile-progress:test-bucket');
     });
   });
 

@@ -316,8 +316,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Constraints:**
 
-- Mode takes effect on an explicit re-seed, a mode-change reconcile, or the release-upgrade reconcile ([REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)), and currently-seeded keys are build-authoritative and overwritten by those reconciles.
-- Only files the build never seeded are preserved as the user's own ([REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
+- Reconciliation activation and ownership semantics follow [REQ-STOR-033](#req-stor-033-managed-release-delta-planning-and-resume): explicit re-seed and mode changes overwrite desired keys, while automatic upgrades preserve release-identical keys.
+- Only files the build never seeded are preserved as the user's own outside automatic managed-release delta semantics ([REQ-STOR-019](#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
 - No duplicate preseed source files exist on disk; all agent variants are generated from the Claude Code preseed as the single source of truth.
 - Preseed configuration must validate that no two entries within a single mode share the same key.
 
@@ -558,8 +558,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. An object with no provenance marker is never deleted by the sweep, which is what makes a user-created file and a user-edited seed file equally safe. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (keeps an unmarked object as the user file) -->
 4. Listing is confined to the two-segment prefixes the seed writes, keeping both the getting-started documents and the large runtime trees outside the sweep's reach. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (lists only inside the seed two-segment prefixes) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (never HEADs a key under a runtime tree outside those prefixes) -->
 5. A prefix that is not listed completely, or a candidate set past the fan-out cap, produces a warning and withholds deletion over the scope it cannot vouch for — that prefix for an incomplete listing, the whole sweep for the cap. <!-- @impl: src/lib/r2-seed.ts::deleteNonModeConfigs --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (warns and deletes nothing when a prefix cannot be listed) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (deletes nothing from a prefix whose listing failed part-way) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (treats a truncated page with no continuation token as a failed listing) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (skips the sweep and warns when the candidate set is implausibly large) --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (skips the sweep when two prefixes are each under the cap but over it combined) -->
-6. The generated seed enumerates every key no marker can identify — those shipped before the marker existed, recovered by walking the seed module's history, and product-generated files that were never seeded keys at all — and cleanup deletes them by name. <!-- @impl: src/lib/agent-seed.generated.ts::RETIRED_PRESEED_KEYS --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (sweeps the pre-marker list even when no key is out of mode) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (retires the legacy ~/.claude/hooks/ copies the seed no longer owns) -->
-7. A key the current build still seeds is never deleted, by the by-name path or by the sweep. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (never deletes a key the current build still seeds, by name or by sweep) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (never lists a key the current build still seeds) -->
+6. The generated seed enumerates every key no marker can identify — those shipped before the marker existed, recovered by walking the seed module's history, and product-generated files that were never seeded keys at all — and cleanup deletes them by name. <!-- @impl: src/lib/agent-seed.generated.ts::RETIRED_PRESEED_KEYS --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (sweeps the pre-marker list even when no key is out of mode) -->
+7. A key the current build still seeds is never deleted, by the by-name path or by the sweep. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (never deletes a key the current build still seeds, by name or by sweep) -->
 
 **Constraints:**
 
@@ -575,7 +575,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-010](#req-stor-010-agent-configs-auto-seeded-based-on-session-mode), [REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)
 
-**Verification:** Automated test ([r2-seed mode tests](../../src/__tests__/lib/r2-seed-mode.test.ts), [agent seed manifest tests](../../src/__tests__/lib/agent-seed-manifest.test.ts))
+**Verification:** Automated tests ([R2 seed mode](../../src/__tests__/lib/r2-seed-mode.test.ts))
 
 **Status:** Implemented
 
@@ -618,7 +618,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. Managed writes carry active release provenance. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC1 + REQ-STOR-024 AC2: Default and Advanced stream identical mode payloads with active release provenance) -->
-2. Obsolete content is deleted only while its marker matches the prior release. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC2: prior release markers guard managed cleanup) -->
+2. A path proven obsolete by direct applied-to-target comparison is deleted in mutable mode only while it retains a valid Codeflare provenance marker; marker equality with the immediately applied release is not required. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC2 + REQ-STOR-035 AC5: direct delta cleanup accepts older valid markers and preserves markerless edits) -->
 3. In mutable mode, signed retirements delete earlier seeded content only while a Codeflare ownership marker remains. <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC3: signed retirements delete only Codeflare-owned paths) -->
 4. Image-owned runtime files, user roots, transcripts, Vault content, and company package bytes remain outside managed documents. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/lib/r2-seed.ts::reseedContextModePlugin --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC4: image-owned and user-owned roots remain outside managed documents) -->
 5. In protected modes, signed retirements delete prior content without requiring an ownership marker. <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC5: protected signed retirement deletes markerless prior content) -->
@@ -645,7 +645,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. A release mismatch performs no bucket mutation while any user session owns the bucket. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022 AC1+AC2: a running session defers mutation and reports pending status) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022 AC1+AC2: initializing metadata also defers reconciliation) -->
 2. A release mismatch reports pending status while any user session owns the bucket. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022 AC1+AC2: a running session defers mutation and reports pending status) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022 AC1+AC2: initializing metadata also defers reconciliation) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-022 AC2: maps update_pending without invoking reconciliation) -->
-3. The backend rejects another start until managed reconciliation succeeds. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (returns a typed 409 before user-bucket or container work when the active release is not applied) -->
+3. The backend rejects another start until release mismatch or pending-target reconciliation succeeds. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (returns a typed 409 before user-bucket or container work when the active release is not applied) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-STOR-022 AC3: blocks container start while interrupted targets remain pending) -->
 4. Disabling curation restores baked reconciliation expectations. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
 5. Disabling curation clears company applied state. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
 6. Disabling curation preserves personal extension intent. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
@@ -675,6 +675,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. An unchanged release status check does not load payload bytes. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1+AC2: initial status compares descriptor and mode without payload bytes) -->
 3. After the five-minute freshness window, the resolver may fetch and activate a newly discovered release. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (uses the stored ETag after five minutes and treats 304 as a fresh no-op) -->
 4. During cache failure, last-known-good startup is allowed only when its applied mode matches the resolved mode. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC4: an outage rejects last-known-good state for another mode) -->
+5. Pending target identities report upgrading even when applied identity matches the active release. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC5: pending target state retries even when applied identity matches active) -->
 
 **Constraints:** Polling does not parse or decompress a managed payload.
 
@@ -825,8 +826,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. Managed-seed reconciliation writes and read-verifies protected policy after managed content. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC1: writes and read-verifies canonical protected policy after managed content) -->
 2. Exclusive cleanup prevalidates the 10,000-object and 1-GiB object-size bounds, including exact root objects. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC2: exclusive cleanup bounds fail before every mutation) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC2: exclusive cleanup rejects summed object size above 1 GiB with zero mutations) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC2: exact root object size contributes to the exclusive cleanup bound) -->
-3. Exclusive cleanup uses bounded delete batches without touching managed or similarly prefixed objects. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC3: exclusive cleanup preserves managed and similarly prefixed objects in one bounded delete batch) -->
-4. Exclusive reconciliation writes canonical policy only after every delete response confirms error-free completion. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC4: partial exclusive batch failures prevent policy identity from being committed) -->
+3. Exclusive cleanup uses bounded delete batches without touching managed or similarly prefixed objects. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC3: exclusive cleanup preserves managed objects in one bounded delete batch) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC3: exclusive cleanup bounds each delete batch to 1,000 objects) -->
+4. Exclusive reconciliation writes canonical policy only after every requested deletion is confirmed and no per-object error is reported. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC4: verbose delete confirmation decodes valid numeric XML character references) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC4: partial exclusive batch failures prevent policy identity from being committed) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC4: %s cannot commit exclusive policy identity) -->
 5. Malformed or over-bound exclusive listing or root metadata fails before every cleanup mutation. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC5: invalid exact root size %s causes zero mutations) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC5: malformed exclusive listings cause zero mutations) -->
 6. Mutable transition removes stale R2 policy. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC6: mutable transition removes stale canonical policy) -->
 7. Applied release, mode, and policy identity are stamped only after successful reconciliation. <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-029 AC7: transports configured policy and stamps verified identity last) -->
@@ -914,6 +915,142 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** [REQ-STOR-028](#req-stor-028-canonical-managed-resource-persistence-policy), [REQ-SETUP-015](setup.md#req-setup-015-managed-resource-persistence-controls)
 
 **Verification:** Automated root-boundary and category tests
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-033: Managed-release delta planning and resume
+
+**Intent:** Automatic upgrades write the release-required target objects and resume same-target work from R2 provenance.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Automatic reconciliation compares the exact applied release directly with the active target without replaying intermediate releases. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC1/AC2: direct delta handles a fifteen-release gap and writes only added or changed release paths) -->
+2. The direct plan includes only target paths whose release content or content type changed, so release-identical markerless edits remain untouched. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC1/AC2: direct delta handles a fifteen-release gap and writes only added or changed release paths) -->
+3. A same-target retry skips objects that already carry the target marker. <!-- @impl: src/lib/r2-seed.ts::seedManagedDocuments --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC3 + REQ-STOR-034 AC3: target provenance resumes and increments progress) -->
+4. Fresh or missing-history fallback plans every target path before stale-marker cleanup. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC4 + REQ-STOR-035 AC5: full-target fallback sweeps stale managed markers only after desired writes) -->
+5. Fallback accepts absent applied identity or unavailable valid history. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC5 + REQ-STOR-033 AC5: reconciles from current release when disposable cache history is absent) -->
+6. Malformed or conflicting applied identity fails before bucket mutation. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC6: invalid applied identity fails closed before bucket mutation) -->
+7. Manual Recreate and non-dashboard callers retain full-overwrite behavior. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC7: automatic endpoint is separate and manual Recreate remains full overwrite) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-033 AC7: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true) -->
+
+**Constraints:**
+
+- No more than six R2 operations run concurrently.
+- Same-target retries do not replay completed target objects.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-021](#req-stor-021-managed-content-ownership), [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)
+
+**Verification:** Automated delta and route tests plus Enterprise Integration interruption verification
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-034: Observational managed reconciliation progress writes
+
+**Intent:** Automatic reconciliation reports bounded progress without making telemetry an execution authority.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Progress write failures never block reconciliation. <!-- @impl: src/lib/managed-reconcile-progress.ts::writeManagedReconcileProgress --> <!-- @test: src/__tests__/lib/managed-reconcile-progress.test.ts (REQ-STOR-034 AC1: progress write failure remains observational) -->
+2. Stored progress distinguishes planning, writing, and finalizing. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-034 AC2: finalizing progress is persisted before cleanup begins) -->
+3. Completed counts include objects recovered from matching target provenance. <!-- @impl: src/lib/r2-seed.ts::seedManagedDocuments --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC3 + REQ-STOR-034 AC3: target provenance resumes and increments progress) -->
+4. Stored progress expires within 24 hours. <!-- @impl: src/lib/managed-reconcile-progress.ts::writeManagedReconcileProgress --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-034 AC4/AC5: automatic progress is bounded, observational, and cleared after stamping) -->
+5. Successful applied publication clears matching progress. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: src/lib/managed-reconcile-progress.ts::clearMatchingManagedReconcileProgress --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-034 AC4/AC5: automatic progress is bounded, observational, and cleared after stamping) -->
+6. Progress cleanup failure cannot change the reconciliation outcome. <!-- @impl: src/lib/managed-reconcile-progress.ts::clearMatchingManagedReconcileProgress --> <!-- @test: src/__tests__/lib/managed-reconcile-progress.test.ts (REQ-STOR-034 AC6: progress cleanup failure cannot change applied reconciliation outcome) -->
+
+**Constraints:** Progress is observational and never an execution checkpoint.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-023](#req-stor-023-managed-release-status-and-discovery), [REQ-STOR-033](#req-stor-033-managed-release-delta-planning-and-resume)
+
+**Verification:** Automated progress-helper and reconciliation-route tests
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-035: Managed reconciliation cleanup and finalization
+
+**Intent:** Interrupted targets and obsolete managed paths converge without deleting user-owned or concurrently replaced objects.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Before managed-release R2 writes, at most 32 target identities are recorded. <!-- @impl: src/lib/managed-release-active.ts::appendManagedReconciliationTarget --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: src/routes/preferences.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1: rejects unbounded interrupted target state before bucket mutation) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC2: failed manual Recreate records and retains its active target) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-035 AC1/AC2: a failed managed mode change records and retains its active target) -->
+2. A failed reconciliation retains its recorded pending target identities. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: src/routes/preferences.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC2/AC7: target changes before cleanup, preserves pending ownership, and prevents finalization) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC2: unavailable interrupted history fails before bucket mutation and retains state) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC2: failed manual Recreate records and retains its active target) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-035 AC1/AC2: a failed managed mode change records and retains its active target) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-035 AC2: unavailable interrupted history rejects a mode change and preserves pending state) -->
+3. Successful publication clears pending identities only after every recorded target has been repaired or superseded by a complete full-target reconcile. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: src/routes/preferences.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC3: records automatic target ownership before writes and clears it with applied publication) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC3: manual Recreate repairs interrupted targets before clearing their state) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC3: managed disable cleans interrupted targets before clearing their state) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-035 AC3: mode-change disable repairs interrupted targets before clearing state) -->
+4. After target drift, desired paths are repaired only when they carry an interrupted target marker; markerless paths remain untouched. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @impl: src/lib/r2-seed.ts::seedManagedDocuments --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-035 AC4: interrupted target drift repairs only objects carrying interrupted provenance) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-035 AC4: repairs markers from repeated interrupted targets) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-035 AC4: repairs an interrupted extensions manifest when applied already matches target) -->
+5. Cleanup removes source-absent, interrupted-only, or signed-retired paths only when they meet the active ownership rule. <!-- @impl: src/lib/r2-seed.ts::deleteManagedConfigsByDigest --> <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC2 + REQ-STOR-035 AC5: direct delta cleanup accepts older valid markers and preserves markerless edits) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-035 AC5: managed disable removes interrupted-only objects with matching provenance) -->
+6. Cleanup does not delete an object replaced after cleanup inspection. <!-- @impl: src/lib/r2-seed.ts::deleteManagedConfigsByDigest --> <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-035 AC6: cleanup preserves an object replaced after inspection) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-035 AC6: fallback cleanup preserves an object replaced after inspection) -->
+7. Applied publication requires unchanged target identity, mode, resource policy, storage encryption, session ownership, migration state, and pending target set. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC2/AC7: target changes before cleanup, preserves pending ownership, and prevents finalization) -->
+
+**Constraints:**
+
+- Interrupted target state never uses observational progress as authority.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-021](#req-stor-021-managed-content-ownership), [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-STOR-033](#req-stor-033-managed-release-delta-planning-and-resume)
+
+**Verification:** Automated drift, cleanup, replacement, and publication tests
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-036: Managed reconciliation progress reads
+
+**Intent:** Batch status exposes current progress without letting malformed or unavailable telemetry replace release truth.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Malformed progress is omitted. <!-- @impl: src/lib/managed-reconcile-progress.ts::readManagedReconcileProgress --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-036 AC1: malformed progress is omitted) -->
+2. Progress is exposed only for the matching target while authoritative status is upgrading. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-036 AC2: batch status exposes only matching pending progress) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-036 AC2: update-pending state omits progress) -->
+3. Progress read failure cannot replace authoritative release status. <!-- @impl: src/lib/managed-reconcile-progress.ts::readManagedReconcileProgress --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-036 AC3: progress read failure cannot replace authoritative upgrading status) -->
+4. Status observation clears matching progress after the target is already applied. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @impl: src/lib/managed-reconcile-progress.ts::clearMatchingManagedReconcileProgress --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-036 AC4: applied target omits and opportunistically clears stale progress) -->
+
+**Constraints:** Batch status does not infer reconciliation completion from progress.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-023](#req-stor-023-managed-release-status-and-discovery), [REQ-STOR-034](#req-stor-034-observational-managed-reconciliation-progress-writes)
+
+**Verification:** Automated batch-status and progress-reader tests
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-037: Page-local managed seed-action coordination
+
+**Intent:** One dashboard page does not start overlapping managed seed updates.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. While a managed seed update is active, another managed seed action started from the same page does not run. <!-- @impl: web-ui/src/stores/session.ts::sessionStore --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-037 AC1: blocks a second managed seed action within one page) -->
+2. Session-mode and Manual Recreate controls are disabled while that page has a managed seed update active. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-STOR-037 AC2: blocks managed seed controls while an in-page update is active) -->
+
+**Constraints:** Coordination is page-local; cross-client serialization is tracked in [issue #1006](https://github.com/nikolanovoselec/codeflare/issues/1006) and is not claimed here.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-035](#req-stor-035-managed-reconciliation-cleanup-and-finalization), [REQ-AGENT-049](agents.md#req-agent-049-auto-upgrade-preseed-on-release)
+
+**Verification:** Automated session-store and settings-control tests
 
 **Status:** Implemented
 

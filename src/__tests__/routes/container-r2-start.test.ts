@@ -79,7 +79,8 @@ vi.mock('../../lib/circuit-breakers', () => ({
 }));
 
 vi.mock('../../lib/onboarding', () => ({ isSaasModeActive: vi.fn(() => testState.saasMode) }));
-vi.mock('../../lib/managed-release-active', () => ({
+vi.mock('../../lib/managed-release-active', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/managed-release-active')>()),
   getCachedActiveManagedRelease: vi.fn(async () => {
     if (testState.managedReleaseError) throw testState.managedReleaseError;
     return testState.activeManagedRelease;
@@ -181,6 +182,28 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
         managedResourcePolicy: 'mutable',
         managedResourcePathsDigest: null,
       }));
+    });
+
+    it('REQ-STOR-022 AC3: blocks container start while interrupted targets remain pending', async () => {
+      testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      mockKV._set('user-prefs:test-bucket', {
+        managedEnvironmentApplied: {
+          digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4,
+          mode: 'default', appliedAt: '2026-08-18T00:00:00.000Z',
+        },
+        managedEnvironmentReconciliation: {
+          targets: [{ digest: 'c'.repeat(64), sequence: 3, mode: 'default' }],
+        },
+      });
+      const fetch = createApp();
+
+      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+      const body = await response.json() as { code: string };
+
+      expect(response.status).toBe(409);
+      expect(body.code).toBe('MANAGED_ENVIRONMENT_UPDATE_PENDING');
+      expect(createBucketIfNotExists).not.toHaveBeenCalled();
+      expect(testState.container!.fetch).not.toHaveBeenCalled();
     });
 
     it('blocks an old applied mode during a cache outage when Enterprise resolves advanced mode', async () => {

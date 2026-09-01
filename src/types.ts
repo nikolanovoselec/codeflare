@@ -321,6 +321,14 @@ export interface UserPreferences {
   userTimezone?: string;
   /** REQ-AGENT-049: hash of last applied preseed content, for auto-upgrade detection. */
   lastPreseedHash?: string;
+  /** Automatic targets that may have written R2 objects before applied publication. */
+  managedEnvironmentReconciliation?: {
+    targets: Array<{
+      digest: string;
+      sequence: number;
+      mode: SessionMode;
+    }>;
+  };
   /** Last verified managed release fully reconciled into this user's bucket. */
   managedEnvironmentApplied?: {
     digest: string;

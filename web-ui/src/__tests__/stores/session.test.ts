@@ -48,6 +48,7 @@ vi.mock('../../api/client', () => ({
 
 vi.mock('../../api/storage', () => ({
   recreateAgentConfigs: vi.fn().mockResolvedValue({ success: true, written: [], skipped: [], deleted: [], warnings: [] }),
+  upgradeAgentConfigs: vi.fn().mockResolvedValue({ success: true, written: [], skipped: [], deleted: [], warnings: [] }),
 }));
 
 vi.mock('../../lib/vault-cache', () => ({
@@ -77,6 +78,7 @@ const mockGetBatchSessionStatus = vi.mocked(api.getBatchSessionStatus);
 const mockGetStartupStatus = vi.mocked(api.getStartupStatus);
 const mockStopSession = vi.mocked(api.stopSession);
 const mockRecreateAgentConfigs = vi.mocked(storageApi.recreateAgentConfigs);
+const mockUpgradeAgentConfigs = vi.mocked((storageApi as typeof storageApi & { upgradeAgentConfigs: typeof storageApi.recreateAgentConfigs }).upgradeAgentConfigs);
 const mockCleanupSessionVaultCache = vi.mocked(vaultCache.cleanupSessionVaultCache);
 const mockSweepOrphanVaultCaches = vi.mocked(vaultCache.sweepOrphanVaultCaches);
 
@@ -228,9 +230,9 @@ describe('Session Store', () => {
     });
 
     it('REQ-AGENT-049 AC4: reconciles upgrading and returns to current after success', async () => {
-      let resolveRecreate: (value: any) => void;
-      mockRecreateAgentConfigs.mockReturnValueOnce(new Promise((resolve) => {
-        resolveRecreate = resolve;
+      let resolveUpgrade: (value: any) => void;
+      mockUpgradeAgentConfigs.mockReturnValueOnce(new Promise((resolve) => {
+        resolveUpgrade = resolve;
       }));
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
@@ -242,9 +244,9 @@ describe('Session Store', () => {
       await sessionStore.loadSessions();
 
       expect(sessionStore.managedReleaseStatus).toBe('upgrading');
-      expect(mockRecreateAgentConfigs).toHaveBeenCalledTimes(1);
+      expect(mockUpgradeAgentConfigs).toHaveBeenCalledTimes(1);
 
-      resolveRecreate!({ success: true, written: [], skipped: [], deleted: [], warnings: [] });
+      resolveUpgrade!({ success: true, written: [], skipped: [], deleted: [], warnings: [] });
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       expect(sessionStore.managedReleaseStatus).toBe('current');
     });
@@ -384,7 +386,7 @@ describe('Session Store', () => {
     });
 
     // REQ-AGENT-049: auto-upgrade preseed on stale hash
-    it('should trigger recreateAgentConfigs when preseedNeedsUpgrade is true', async () => {
+    it('REQ-STOR-033 AC7: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,
@@ -393,7 +395,8 @@ describe('Session Store', () => {
 
       await sessionStore.loadSessions();
 
-      expect(mockRecreateAgentConfigs).toHaveBeenCalledOnce();
+      expect(mockUpgradeAgentConfigs).toHaveBeenCalledOnce();
+      expect(mockRecreateAgentConfigs).not.toHaveBeenCalled();
     });
 
     it('should not trigger recreateAgentConfigs when preseedNeedsUpgrade is false', async () => {
@@ -410,7 +413,7 @@ describe('Session Store', () => {
 
     it('should set preseedUpgrading during upgrade and clear after', async () => {
       let resolveRecreate: (value: any) => void;
-      mockRecreateAgentConfigs.mockReturnValue(
+      mockUpgradeAgentConfigs.mockReturnValue(
         new Promise((resolve) => { resolveRecreate = resolve; })
       );
       mockGetBatchSessionStatus.mockResolvedValue({
@@ -429,8 +432,21 @@ describe('Session Store', () => {
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
     });
 
+    it('REQ-STOR-037 AC1: blocks a second managed seed action within one page', async () => {
+      let finish!: () => void;
+      const first = sessionStore.runPreseedUpdate(() => new Promise<void>((resolve) => { finish = resolve; }));
+
+      expect(sessionStore.preseedUpgrading).toBe(true);
+      await expect(sessionStore.runPreseedUpdate(async () => undefined))
+        .rejects.toThrow('Session environment update already in progress');
+
+      finish();
+      await first;
+      expect(sessionStore.preseedUpgrading).toBe(false);
+    });
+
     it('REQ-AGENT-049 AC7: should clear preseedUpgrading on failure so dashboard remains usable', async () => {
-      mockRecreateAgentConfigs.mockRejectedValue(new Error('Network failure'));
+      mockUpgradeAgentConfigs.mockRejectedValue(new Error('Network failure'));
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,
@@ -440,6 +456,17 @@ describe('Session Store', () => {
       await sessionStore.loadSessions();
 
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+    });
+
+    it('REQ-AGENT-175 AC5: mirrors managed release progress from batch status', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {}, maxSessions: 3, managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: false,
+        managedReleaseProgress: { phase: 'writing', completed: 25, total: 61 },
+      } as any);
+
+      await sessionStore.loadSessions();
+
+      expect((sessionStore as any).managedReleaseProgress).toEqual({ phase: 'writing', completed: 25, total: 61 });
     });
 
     // REQ-ENTERPRISE-020: mirror the backend Governed Mode migration flag so the New Session
@@ -502,6 +529,19 @@ describe('Session Store', () => {
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: false });
       await sessionStore.refreshSessionStatuses();
       expect(sessionStore.bucketMigrationPercent).toBeNull();
+    });
+
+    it('REQ-AGENT-175 AC5: mirrors managed release progress on transient polling', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        managedReleaseStatus: 'upgrading',
+        managedReleaseProgress: { phase: 'writing', completed: 50, total: 61 },
+      });
+
+      await sessionStore.refreshSessionStatuses();
+
+      expect(sessionStore.managedReleaseProgress).toEqual({ phase: 'writing', completed: 50, total: 61 });
     });
 
     it('REQ-STOR-023 AC3: checks for a later managed release while status is current', async () => {

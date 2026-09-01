@@ -420,10 +420,10 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. The tier-configuration lookup exposes the list of session modes allowed for any tier. <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes --> <!-- @test: src/__tests__/lib/pro-mode-gating.test.ts (REQ-MEM-006 AC3: memory + vault rules and plugins are advanced-only / REQ-SUB-014 (session mode gating by tier: advanced-only preseed content delivered only to tiers permitting advanced mode)) -->
-2. Free and trial tiers only allow Standard mode. <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes --> <!-- @test: src/__tests__/lib/pro-mode-gating.test.ts (REQ-MEM-006 AC3: memory + vault rules and plugins are advanced-only / REQ-SUB-014 (session mode gating by tier: advanced-only preseed content delivered only to tiers permitting advanced mode)) -->
-3. Standard, advanced, max, and unlimited tiers allow both Standard and Pro modes. <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes --> <!-- @test: src/__tests__/lib/pro-mode-gating.test.ts (REQ-MEM-006 AC3: memory + vault rules and plugins are advanced-only / REQ-SUB-014 (session mode gating by tier: advanced-only preseed content delivered only to tiers permitting advanced mode)) -->
-4. Explicit preference mode changes that the tier does not allow are rejected. Container startup clamps an unsupported stored mode to the tier's allowed default so stale preferences cannot retain advanced entitlement. <!-- @impl: src/lib/session-mode.ts::clampSessionModeToTier --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/lib/pro-mode-gating.test.ts (REQ-MEM-006 AC3: memory + vault rules and plugins are advanced-only / REQ-SUB-014 (session mode gating by tier: advanced-only preseed content delivered only to tiers permitting advanced mode)) -->
+1. The tier-configuration lookup exposes the list of session modes allowed for any tier. <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes --> <!-- @manual -->
+2. Free and trial tiers only allow Standard mode. <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes --> <!-- @manual -->
+3. Standard, advanced, max, and unlimited tiers allow both Standard and Pro modes. <!-- @impl: src/lib/subscription.ts::getAllowedSessionModes --> <!-- @manual -->
+4. Explicit preference mode changes that the tier does not allow are rejected. Container startup clamps an unsupported stored mode to the tier's allowed default so stale preferences cannot retain advanced entitlement. <!-- @impl: src/lib/session-mode.ts::clampSessionModeToTier --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @manual -->
 
 **Constraints:**
 
@@ -434,7 +434,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Dependencies:** [REQ-SUB-001](#req-sub-001-eight-tier-subscription-system), [REQ-AGENT-004](agents.md#req-agent-004-two-session-modes-standard-and-pro)
 
-**Verification:** Automated test ([pro-mode-gating](../../src/__tests__/lib/pro-mode-gating.test.ts))
+**Verification:** Manual verification
 
 **Status:** Implemented
 

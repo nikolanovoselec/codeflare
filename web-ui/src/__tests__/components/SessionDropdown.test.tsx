@@ -213,7 +213,7 @@ describe('SessionDropdown', () => {
       expect(btn).toHaveAttribute('aria-label', 'Updating session environment');
     });
 
-    it('REQ-AGENT-175 AC1: disables New Session button and shows Updating during managed reconciliation', () => {
+    it('REQ-AGENT-175 AC4: disables New Session button and shows Updating during managed reconciliation', () => {
       (sessionStore as any)._setManagedReleaseStatus('upgrading');
       render(() => <SessionDropdown {...defaultProps} />);
       const btn = screen.getByTestId('session-dropdown-new');

@@ -2,7 +2,8 @@ import { createStore, produce } from 'solid-js/store';
 import { createSignal } from 'solid-js';
 import type { SessionWithStatus, SessionStatus, InitProgress, SessionTerminals, AgentType, TabConfig, UserPreferences } from '../types';
 import * as api from '../api/client';
-import { recreateAgentConfigs } from '../api/storage';
+import { upgradeAgentConfigs } from '../api/storage';
+import type { ManagedReleaseProgress } from '../api/client';
 import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
 import { cleanupSessionVaultCache, sweepOrphanVaultCaches } from '../lib/vault-cache';
@@ -119,6 +120,7 @@ export interface SessionState {
   maxSessions: number;
   preseedUpgrading: boolean;
   managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null;
+  managedReleaseProgress: ManagedReleaseProgress | null;
   /** REQ-ENTERPRISE-020: the bucket's encryption regime is migrating (Governed Mode flip). Reuses the Upgrading affordance to disable New Session. */
   bucketMigrating: boolean;
   /** REQ-ENTERPRISE-020: a Governed Mode flip is wanted but deferred until the user's running sessions stop (D1: no force-kill). */
@@ -145,6 +147,7 @@ const [state, setState] = createStore<SessionState>({
   maxSessions: 3,
   preseedUpgrading: false,
   managedReleaseStatus: null,
+  managedReleaseProgress: null,
   bucketMigrating: false,
   bucketMigrationPending: false,
   bucketMigrationPercent: null,
@@ -199,19 +202,34 @@ function isSessionInitializing(sessionId: string): boolean {
   return state.initializingSessionIds[sessionId] === true;
 }
 
+async function runPreseedUpdate<T>(operation: () => Promise<T>): Promise<T> {
+  if (state.preseedUpgrading) throw new Error('Session environment update already in progress');
+  setState('preseedUpgrading', true);
+  try {
+    return await operation();
+  } finally {
+    setState('preseedUpgrading', false);
+  }
+}
+
 function applyManagedReleaseBatch(
   status: 'current' | 'upgrading' | 'update_pending' | undefined,
   needsUpgrade: boolean | undefined,
+  progress?: ManagedReleaseProgress,
 ): void {
-  if (status !== undefined) setState('managedReleaseStatus', status);
+  if (status !== undefined) {
+    setState('managedReleaseStatus', status);
+    setState('managedReleaseProgress', status === 'upgrading' ? progress ?? null : null);
+  }
   if (!needsUpgrade || state.preseedUpgrading) return;
-  setState('preseedUpgrading', true);
-  recreateAgentConfigs()
+  void runPreseedUpdate(upgradeAgentConfigs)
     .then(() => {
-      if (status === 'upgrading') setState('managedReleaseStatus', 'current');
+      if (status === 'upgrading') {
+        setState('managedReleaseStatus', 'current');
+        setState('managedReleaseProgress', null);
+      }
     })
-    .catch((err) => logger.warn('[SessionStore] preseed auto-upgrade failed:', err))
-    .finally(() => setState('preseedUpgrading', false));
+    .catch((err) => logger.warn('[SessionStore] preseed auto-upgrade failed:', err));
 }
 
 // Register polling dependencies (extracted to session-polling.ts)
@@ -259,11 +277,17 @@ async function loadSessions(): Promise<void> {
     const managedReleaseStatus = 'managedReleaseStatus' in batchResponse
       ? batchResponse.managedReleaseStatus
       : undefined;
-    if (managedReleaseStatus === undefined) setState('managedReleaseStatus', null);
+    if (managedReleaseStatus === undefined) {
+      setState('managedReleaseStatus', null);
+      setState('managedReleaseProgress', null);
+    }
     const preseedNeedsUpgrade = 'preseedNeedsUpgrade' in batchResponse
       ? batchResponse.preseedNeedsUpgrade
       : undefined;
-    applyManagedReleaseBatch(managedReleaseStatus, preseedNeedsUpgrade);
+    const managedReleaseProgress = 'managedReleaseProgress' in batchResponse
+      ? batchResponse.managedReleaseProgress
+      : undefined;
+    applyManagedReleaseBatch(managedReleaseStatus, preseedNeedsUpgrade, managedReleaseProgress);
 
     // REQ-ENTERPRISE-020: mirror the backend Governed Mode migration flag so the New Session
     // button disables (reusing the Upgrading affordance) while the bucket re-encrypts. Every
@@ -670,11 +694,13 @@ export const sessionStore = {
   get preferences() { return state.preferences; },
   loadPreferences,
   updatePreferences: updateUserPreferences,
+  runPreseedUpdate,
   get maxSessions() { return state.maxSessions; },
   isAtSessionLimit,
   hasRecentContext,
   get preseedUpgrading() { return state.preseedUpgrading; },
   get managedReleaseStatus() { return state.managedReleaseStatus; },
+  get managedReleaseProgress() { return state.managedReleaseProgress; },
   get bucketMigrating() { return state.bucketMigrating; },
   get bucketMigrationPending() { return state.bucketMigrationPending; },
   get bucketMigrationPercent() { return state.bucketMigrationPercent; },

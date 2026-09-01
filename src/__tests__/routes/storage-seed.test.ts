@@ -6,7 +6,7 @@ import { createMockKV } from '../helpers/mock-kv';
 const testState = vi.hoisted(() => ({
   createBucketResult: { success: true, created: false } as { success: boolean; created?: boolean; error?: string },
   seedResult: { written: ['Getting-Started.md', 'Documentation/README.md'], skipped: [] as string[] },
-  agentSeedResult: { written: ['.claude/rules/cloudflare-environment.md', '.claude/skills/ship/SKILL.md'], skipped: [] as string[] },
+  agentSeedResult: { written: ['.claude/extensions/cloudflare-environment.md', '.claude/extensions/ship/index.ts'], skipped: [] as string[] },
 }));
 
 vi.mock('../../lib/r2-admin', () => ({
@@ -40,7 +40,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   testState.createBucketResult = { success: true, created: false };
   testState.seedResult = { written: ['Getting-Started.md', 'Documentation/README.md'], skipped: [] };
-  testState.agentSeedResult = { written: ['.claude/rules/cloudflare-environment.md', '.claude/skills/ship/SKILL.md'], skipped: [] };
+  testState.agentSeedResult = { written: ['.claude/extensions/cloudflare-environment.md', '.claude/extensions/ship/index.ts'], skipped: [] };
 });
 
 // REQ-STOR-009: Getting-Started Docs Auto-Seeded on First Session
@@ -161,7 +161,7 @@ describe('Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recrea
 
     expect(body.success).toBe(true);
     expect(body.bucketCreated).toBe(false);
-    expect(body.written).toEqual(['.claude/rules/cloudflare-environment.md', '.claude/skills/ship/SKILL.md']);
+    expect(body.written).toEqual(['.claude/extensions/cloudflare-environment.md', '.claude/extensions/ship/index.ts']);
     expect(createBucketIfNotExists).toHaveBeenCalledWith('test-account', 'test-token', 'my-bucket');
     expect(reconcileAgentConfigs).toHaveBeenCalledWith(
       expect.any(Object),
@@ -257,7 +257,7 @@ describe('Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recrea
     expect(mockKV.delete).toHaveBeenCalledWith('storage-stats:my-bucket');
   });
 
-  it('REQ-AGENT-049 AC8: propagates advanced mode and contextModeEnabled for unlimited tier', async () => {
+  it('REQ-AGENT-049 AC7: propagates advanced mode and contextModeEnabled for unlimited tier', async () => {
     mockKV = createMockKV();
     mockKV._set('user-prefs:adv-bucket', { sessionMode: 'advanced' });
     const app = createTestApp({

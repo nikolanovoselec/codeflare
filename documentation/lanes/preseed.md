@@ -222,12 +222,40 @@ because the same request has already issued one PUT per live key. The HEAD
 fan-out is batched, and a candidate count past the cap skips the sweep with
 a warning rather than issuing the requests.
 
-**Upgrade semantics**: currently-seeded keys are build-authoritative. A
-release that changes preseed content changes `PRESEED_CONTENT_HASH`, which
-triggers the upgrade reconcile (REQ-AGENT-049) on next dashboard load; that
-reconcile overwrites live keys and removes retired ones. Files the build
-never seeded are never touched. Implements
-[REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed).
+**Upgrade semantics**: the dashboard uses the dedicated automatic upgrade
+endpoint. For a managed release, it compares the exact applied signed bundle
+directly with the active target bundle. It writes only target paths whose
+release content or content type changed, plus newly added paths. An unchanged
+release path is not written, so a markerless user edit at that path survives.
+Manual Recreate and mode-change callers still overwrite every desired path.
+
+Each planned automatic write first checks the target object's provenance
+marker. A target-digest match counts as complete and skips the PUT, so a later
+dashboard visit resumes work paused by browser closure. Fresh buckets and a
+valid applied digest whose immutable cache object is unavailable plan the full
+target, then use the same marker checks. R2 markers govern execution; the
+expiring KV progress record is display-only.
+
+Before managed-release writes, preferences record the bounded set of targets
+that may have written managed objects. If the active target changes, the next run
+repairs a desired path only when it still carries an interrupted target marker.
+It removes interrupted-only paths only while they retain that provenance. The
+state survives another interruption and clears with successful applied
+publication. See [REQ-STOR-035](../../sdd/spec/storage.md#req-stor-035-managed-reconciliation-cleanup-and-finalization).
+
+When both applied and target bundles are available, direct-delta cleanup
+considers paths present in the applied mode and absent from the target mode.
+Signed target retirements are a separate cleanup source and retain their
+existing provenance rule. Direct removals require a valid Codeflare digest;
+markerless edits and every desired target path remain. Conditional deletion
+also preserves an object replaced after its cleanup check. The applied release identity is
+written only after reconciliation and final target, mode, policy, SSE,
+session-ownership, and migration checks. Implements
+[REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed),
+[REQ-STOR-033](../../sdd/spec/storage.md#req-stor-033-managed-release-delta-planning-and-resume),
+[REQ-STOR-034](../../sdd/spec/storage.md#req-stor-034-observational-managed-reconciliation-progress-writes),
+[REQ-STOR-035](../../sdd/spec/storage.md#req-stor-035-managed-reconciliation-cleanup-and-finalization),
+and [REQ-STOR-036](../../sdd/spec/storage.md#req-stor-036-managed-reconciliation-progress-reads).
 
 <a id="preseed-components"></a>
 ## Artifact Inventory and Sources
@@ -281,7 +309,7 @@ anchor per non-manual AC, parses multiple anchors independently, and validates
 every declared block ([AD108](../decisions/README.md#ad108-per-ac-test-evidence-permits-multiple-resolving-anchors)). The git-workflow family is `ci-monitoring`,
 `git-review-pipeline` (advanced-only), `pr-workflow`, and `deploy-credentials`.
 
-The advanced design family uses `design` as a compact router across independent purpose and delivery-platform axes. `frontend-design` owns responsive-web and web-product art direction; `native-mobile-design` owns native iOS, Android, and cross-platform mobile direction. Static work keeps `canvas-design`. Routing permits at most one canonical art-direction authority per task, while operational information design, platform behavior, component implementation, accessibility, motion, framework engineering, and final critique remain orthogonal concerns. `design-taste-frontend` stays a compatibility redirect; `ui-ux-pro-max`, `frontend-components`, `frontend-patterns`, and `emil-design-eng` retain bounded advisory or engineering roles. ([REQ-AGENT-179](../../sdd/spec/agents.md#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](../../sdd/spec/agents.md#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility), [REQ-AGENT-182](../../sdd/spec/agents.md#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-183](../../sdd/spec/agents.md#req-agent-183-native-mobile-design-authority))
+Managed [`seed-v43`](https://github.com/nikolanovoselec/codeflare-curation/releases/tag/seed-v43), built from immutable curation commit [`67142ebd`](https://github.com/nikolanovoselec/codeflare-curation/commit/67142ebd70631e0602abc0a50818e087e376f6c5), and the aligned baked fallback provide the advanced design family: `design` routes by work mode, purpose, platform, and available direction to one web, mobile, desktop, static, or incumbent authority, while components, performance, motion, and finishing remain subordinate. The inventory includes `desktop-native-design` and `motion-design` and excludes UI UX Pro Max and `emil-design-eng`. ([REQ-AGENT-179](../../sdd/spec/agents.md#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](../../sdd/spec/agents.md#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility), [REQ-AGENT-182](../../sdd/spec/agents.md#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-183](../../sdd/spec/agents.md#req-agent-183-native-mobile-design-authority))
 
 Operational dashboards establish operator decisions, density, data quality, workflow, and responsive scope before selecting components. Component registries provide implementation material only after information architecture and visual direction exist. External skills, registries, MCP servers, presets, and package commands remain untrusted until reviewed and never execute merely to determine applicability. Simple motion stays in CSS or the incumbent system; specialist choreography activates only for demonstrated complexity. Missing registries, MCP access, or animation tooling do not block the owning workflow. ([REQ-AGENT-184](../../sdd/spec/agents.md#req-agent-184-operational-information-design), [REQ-AGENT-185](../../sdd/spec/agents.md#req-agent-185-component-system-and-registry-boundaries), [REQ-AGENT-186](../../sdd/spec/agents.md#req-agent-186-conditional-complex-motion-delegation), [REQ-AGENT-188](../../sdd/spec/agents.md#req-agent-188-external-design-dependency-safety))
 
@@ -507,7 +535,7 @@ All preseed content is deployed via the manifest pipeline:
    (`~/.claude/`, `~/.codex/`, `~/.gemini/` (Antigravity), `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
 
-Advanced mode also delivers a progressively disclosed design suite. `design` classifies work mode and surface, then loads only the relevant specialist. Static PNG/PDF work belongs to `canvas-design`; `frontend-design` owns frontend art direction; UI UX Pro Max supplies optional local evidence; Impeccable supplies critique and finishing where installed; engineering specialists do not redefine direction. The canonical files live under `preseed/agents/claude/skills/`; the generator projects the same tool-neutral methodology to each skill-capable runtime. UI UX Pro Max is vendored under MIT and Canvas Design under Apache-2.0 with provenance and modification notices. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch --> <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Select the workflow --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
+Managed [`seed-v43`](https://github.com/nikolanovoselec/codeflare-curation/releases/tag/seed-v43) is built from immutable curation commit [`67142ebd`](https://github.com/nikolanovoselec/codeflare-curation/commit/67142ebd70631e0602abc0a50818e087e376f6c5). It selects one web, mobile, desktop, static, or incumbent authority and keeps motion, components, performance, and finishing subordinate. The pinned compiler projects agent-neutral content to supported runtimes; Pi receives one compact routing rule, Copilot receives compact global routing without projected skill directories, and Canvas retains required Apache-2.0 attribution. The baked fallback inventory includes `design`, `frontend-design`, `native-mobile-design`, `desktop-native-design`, `canvas-design`, and `motion-design`, and excludes UI UX Pro Max and `emil-design-eng`. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
 
 The release auto-upgrade check uses
 `GET /api/sessions/batch-status?includePreseedCheck=true` to compare
@@ -520,7 +548,7 @@ retries. Implements
 
 Managed curation reuses that flow. Status polls compare the verified active digest, sequence, and resolved mode with `managedEnvironmentApplied`. Unchanged-release polls do not expand payload bytes, while the five-minute resolver still verifies and caches a newly discovered release. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease -->
 
-An idle mismatch makes the existing `POST /api/storage/seed/agent-configs` route download the content-addressed `seed-v1.json.gz` once from deployment R2, verify its signature and complete contract as a bounded stream, then stream the same downloaded bytes into the ordinary mode/provenance/cleanup writer with no more than six concurrent R2 operations. User-bucket keys, contents, content types, ownership markers, cleanup, context-mode pass, and applied stamp remain unchanged. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+An idle mismatch sends the dashboard through `POST /api/storage/seed/agent-configs/upgrade`. The Worker loads the exact applied and target signed bundles from deployment R2, verifies them as bounded streams, and writes only added or release-changed target paths with no more than six concurrent R2 operations. Target markers resume interrupted writes. A fresh bucket or unavailable valid applied history uses a marker-resumable full-target pass. Manual `POST /api/storage/seed/agent-configs` remains the full-overwrite Recreate path. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest -->
 
 New Session controls follow [REQ-AGENT-175](../../sdd/spec/agents.md#req-agent-175-environment-update-ui-lockdown), while managed admission follows [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission). The canonical explanation of Mutable, Immutable, Exclusive, release-delta cleanup, and retirement tombstones lives in [Managed-resource persistence modes](storage-and-sync.md#managed-resource-persistence-modes). Repository trust, signed release rollout, persistence-mode selection, acceptance, and recovery belong to the private [Managed Environment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/managed-environment.md).
 
@@ -547,9 +575,9 @@ no file-count limit, and runs them at low priority for at most three minutes; No
 syntax checks use the same deadline.
 
 Under [REQ-AGENT-157 AC6–AC7](../../sdd/spec/agents.md#req-agent-157-managed-local-check-delivery-policy),
-canonical guidance projects to both runtime skill paths. <!-- @impl: scripts/agent-seed-core.mjs::adaptSkillContent --> <!-- @test: host/__tests__/pi-native-review-assets.test.js (REQ-AGENT-157 AC6: canonical safe-check guidance reaches each lazy skill projection) -->
+canonical guidance projects to both runtime skill paths. <!-- @impl: scripts/agent-seed-core.mjs::adaptSkillContent -->
 Pi keeps the skill in its compact instruction index for explicit invocation while
-suppressing duplicate native catalog injection. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @test: src/__tests__/lib/pi-compact-context.test.ts (keeps indexed skills explicitly invocable while omitting duplicate native XML entries) -->
+suppressing duplicate native catalog injection. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex -->
 
 Mutation, watch, output-file, cache-writing, and analyzer-concurrency flags fail
 closed. Shell composition beyond one optional leading `cd … &&` prefix, or any
@@ -557,7 +585,7 @@ redirection, cannot turn an allowed wrapper invocation into a write. Builds, tes
 type checks, Knip and other dependency-graph analysis, installs, servers, and
 authoritative verification remain CI-only. Both Pi and Claude guards allow only the
 exact wrapper path, and direct blocked commands point agents to the skill; the
-user-only one-shot bypass remains unchanged. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh::PATTERNS --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-157 AC1: allows only a managed safe-check wrapper invocation with an optional leading cd) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-157 AC2: the managed wrapper bypasses the local-lint block without consuming the user sentinel) --> <!-- @test: src/__tests__/lib/agent-seed-manifest.test.ts (REQ-AGENT-157 AC3: seeds one managed safe-check skill and wrapper for each runtime and mode) -->
+user-only one-shot bypass remains unchanged. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh::PATTERNS --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand -->
 
 The `agents/` tree is advanced-only: architect, build-error-resolver,
 code-reviewer, deep-reviewer, doc-updater, memory-capture, refactor-cleaner,
@@ -577,7 +605,7 @@ git-review-pipeline, graphify, and browser-run + browser-e2e. Pi owns native
 reviewer and spec/doc enforcement overrides; Claude retains its original agents
 and enforcement skills.
 
-Advanced design uses `design` as the lazy router and `frontend-design` as the one frontend art-direction authority. Six focused references disclose new-work, redesign, art-direction, asset/motion, visual-QA, and conditional Astro/Cloudflare guidance only when needed. `design-taste-frontend` redirects legacy callers; UI UX Pro Max and Emil remain advisory. `impeccable` remains available for Claude + Pi only with explicit commands intact, a narrowed discovery boundary, and Pi's dedicated verbatim tool bundle. ([REQ-AGENT-134](../../sdd/spec/agents.md#req-agent-134-advanced-design-skill-suite), [REQ-AGENT-179](../../sdd/spec/agents.md#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](../../sdd/spec/agents.md#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility))
+Managed [`seed-v43`](https://github.com/nikolanovoselec/codeflare-curation/releases/tag/seed-v43), from immutable curation commit [`67142ebd`](https://github.com/nikolanovoselec/codeflare-curation/commit/67142ebd70631e0602abc0a50818e087e376f6c5), and the baked fallback use `design` as the lazy router and `frontend-design` as the web art-direction authority, with separate mobile, desktop, and static owners. They replace the Emil monolith with subordinate `motion-design` and narrow Impeccable to explicit audit and finishing work. ([REQ-AGENT-134](../../sdd/spec/agents.md#req-agent-134-managed-design-skill-suite), [REQ-AGENT-179](../../sdd/spec/agents.md#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](../../sdd/spec/agents.md#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility))
 
 The `plugins/` tree includes known_marketplaces.json for default+advanced mode.
 Advanced-only plugins are codeflare-memory (plugin.json, memory-capture.sh,
