@@ -2838,8 +2838,6 @@ None.
 
 **Verification:** Manual managed-manifest, projection, and fresh-context review
 
-**Notes:** Pending curation PR #49 publication.
-
 **Status:** Planned
 
 ---
@@ -2863,8 +2861,6 @@ None.
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
 **Verification:** Manual source and routing review
-
-**Notes:** Pending curation PR #49 publication.
 
 **Status:** Planned
 
@@ -2890,8 +2886,6 @@ None.
 
 **Verification:** Manual incumbent, redesign, and bounded-polish review
 
-**Notes:** Pending curation PR #49 publication.
-
 **Status:** Planned
 
 ---
@@ -2915,8 +2909,6 @@ None.
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
 **Verification:** Manual repository inspection and fresh-context review
-
-**Notes:** Pending curation PR #49 publication.
 
 **Status:** Planned
 
@@ -2947,8 +2939,6 @@ None.
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
 **Verification:** Manual managed-projection inspection and fresh-context activation review.
-
-**Notes:** Pending curation PR #49 publication.
 
 **Status:** Planned
 
@@ -2986,8 +2976,6 @@ None.
 
 **Verification:** Manual portability inspection and fresh-context frontend review.
 
-**Notes:** Pending curation PR #49 publication.
-
 **Status:** Planned
 
 ---
@@ -3019,8 +3007,6 @@ None.
 
 **Verification:** Manual compatibility, updater-boundary, and activation review.
 
-**Notes:** Pending curation PR #49 publication.
-
 **Status:** Planned
 
 ---
@@ -3047,8 +3033,6 @@ None.
 **Dependencies:** [REQ-AGENT-179](#req-agent-179-portable-visual-design-routing)
 
 **Verification:** Manual projection inspection and fresh-context dual-axis routing review.
-
-**Notes:** Pending curation PR #49 publication.
 
 **Status:** Planned
 
@@ -3077,8 +3061,6 @@ None.
 **Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing)
 
 **Verification:** Manual check
-
-**Notes:** Pending curation PR #49 publication.
 
 **Status:** Planned
 
@@ -3157,8 +3139,6 @@ None.
 **Dependencies:** [REQ-AGENT-180](#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing)
 
 **Verification:** Manual check
-
-**Notes:** Pending curation PR #49 publication.
 
 **Status:** Planned
 
