@@ -7,21 +7,33 @@ import {
 import Icon from '../Icon';
 import { setupStore } from '../../stores/setup';
 import Button from '../ui/Button';
+import SetupJourneyNav from './SetupJourneyNav';
 import '../../styles/welcome-step.css';
 
-const WelcomeStep: Component = () => {
+const WelcomeStep: Component<{ initializationComplete?: boolean }> = (props) => {
   onMount(() => {
     setupStore.detectToken();
   });
 
   return (
-    <div class="welcome-step">
-      <h2 class="welcome-title">Welcome to Codeflare</h2>
-      <p class="welcome-description">
-        Let's configure your personal Claude Code environment.
-      </p>
+    <div class="setup-journey-layout">
+      <SetupJourneyNav active="readiness" enterprise={setupStore.enterpriseMode} />
+      <div class="welcome-step setup-journey-main">
+        <div class="setup-page-heading">
+          <div>
+            <span class="setup-page-eyebrow">Provisioning</span>
+            <h2 class="welcome-title">Deployment readiness</h2>
+            <p class="welcome-description">Verify control boundaries before creating resources.</p>
+          </div>
+          <span class="setup-page-status">Complete sequence</span>
+        </div>
 
-      <div class="token-detect-section">
+        <div class="token-detect-section">
+        <div class="readiness-facts">
+          <div><span>Deployment mode</span><strong>{setupStore.enterpriseMode ? 'Enterprise' : setupStore.saasMode ? 'SaaS' : 'Standard'}</strong></div>
+          <div><span>Routine changes</span><strong>Bounded by area</strong></div>
+        </div>
+
         {/* Detecting state */}
         <Show when={setupStore.tokenDetecting}>
           <div class="token-status token-status--detecting">
@@ -50,9 +62,11 @@ const WelcomeStep: Component = () => {
               </div>
             </div>
 
-            <Button onClick={() => setupStore.nextStep()}>
-              Get Started
-            </Button>
+            <div class="setup-actions setup-actions--end">
+              <Button onClick={() => setupStore.nextStep()}>
+                {props.initializationComplete ? 'Review initialization' : 'Start setup'}
+              </Button>
+            </div>
           </>
         }</Show>
 
@@ -94,8 +108,8 @@ const WelcomeStep: Component = () => {
           </div>
 
         </Show>
+        </div>
       </div>
-
     </div>
   );
 };

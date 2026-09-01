@@ -66,7 +66,7 @@ import * as vaultCache from '../../lib/vault-cache';
 import {
   MAX_STOP_POLL_ATTEMPTS,
   MAX_STOP_POLL_ERRORS,
-  SESSION_LIST_POLL_INTERVAL_MS,
+  SESSION_POLL_STABLE_MS,
   STOP_POLL_INTERVAL_MS,
 } from '../../lib/constants';
 
@@ -1670,7 +1670,7 @@ describe('Session Store', () => {
       mockGetBatchSessionStatus.mockClear();
 
       sessionStore.startSessionListPolling();
-      await vi.advanceTimersByTimeAsync(SESSION_LIST_POLL_INTERVAL_MS - 1);
+      await vi.advanceTimersByTimeAsync(SESSION_POLL_STABLE_MS - 1);
       expect(mockGetBatchSessionStatus).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(1);

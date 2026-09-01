@@ -3,8 +3,8 @@ import {
   mdiClose,
   mdiCogOutline,
   mdiChevronDown,
-  mdiWrenchOutline,
   mdiAccountGroupOutline,
+  mdiViewDashboardOutline,
 } from '@mdi/js';
 import Icon from './Icon';
 import { loadSettings, saveSettings, defaultSettings } from '../lib/settings';
@@ -461,18 +461,17 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               <section class="settings-section">
                 <div class="settings-section-header">
                   <Icon path={mdiCogOutline} size={16} />
-                  <h3 class="settings-section-title type-section-header">Setup & Users</h3>
+                  <h3 class="settings-section-title type-section-header">Administration &amp; Analytics</h3>
                 </div>
                 <p class="settings-hint type-hint" style={{ "margin-bottom": "var(--space-2)" }}>
-                  Configure custom domain and admin users in the Setup Wizard.
-                  Manage user roles and access tiers in User Management.
+                  Inspect routine Environment settings, organization data, and setup recovery in Administration.
                 </p>
                 <div class="settings-admin-actions">
                   <AdminActionButton
                     tone="--color-action-setup"
-                    icon={mdiWrenchOutline}
-                    label="Setup Wizard"
-                    onClick={() => { window.location.href = '/setup'; }}
+                    icon={mdiViewDashboardOutline}
+                    label="Open Administration"
+                    href="/admin"
                   />
                   {/* REQ-ENTERPRISE-008 AC2: user administration is delegated to
                       Cloudflare Access in enterprise mode — hide the entry. */}
@@ -486,7 +485,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   </Show>
                 </div>
                 <span class="settings-hint type-hint" data-testid="settings-r2-warning">
-                  If you rotate your Cloudflare API token, redeploy with the new token and re-run the Setup Wizard.
+                  If you rotate your Cloudflare API token, redeploy with the new token, then use Initialization in Administration.
                 </span>
               </section>
               {/* REQ-ENTERPRISE-008 AC1: subscription-tier config is a SaaS-billing

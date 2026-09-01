@@ -184,7 +184,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
   };
 
   const handleDeleteUser = async (email: string) => {
-    if (!confirm(`Delete ${email} and all their data (sessions, storage, credentials)? This cannot be undone.`)) {
+    if (!confirm(`Delete ${email}'s live account data, including sessions, storage, and credentials? Named aggregate usage remains for up to 60 months. This cannot be undone.`)) {
       return;
     }
 
@@ -410,7 +410,7 @@ const UserManagement: Component<UserManagementProps> = (props) => {
                                   class="user-mgmt-btn--delete"
                                   disabled={deletingEmails().has(user.email)}
                                   onClick={() => { void handleDeleteUser(user.email); }}
-                                  title="Delete user and all data"
+                                  title="Delete live user data"
                                 >
                                   {deletingEmails().has(user.email) ? '...' : '\u00D7'}
                                 </button>

@@ -25,6 +25,7 @@ vi.mock('../../lib/logger', () => ({
 
 import { Timekeeper, resetUserRecordCache } from '../../timekeeper/index';
 import { getUtcDateString, getUtcMonthString, getIsoWeekStart } from '../../lib/kv-keys';
+import { createAccountingState } from '../../timekeeper/accounting';
 
 // Dynamic dates so tests never go stale
 const NOW = new Date();
@@ -249,20 +250,12 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
     });
 
     it('REQ-SUB-007 AC5 + REQ-SUB-022 AC1: accumulates the durable monthly total without enforcing quota outside SaaS', async () => {
-      const usageRecord = {
-        today: { date: TODAY, seconds: 0 },
-        thisWeek: { weekStart: THIS_WEEK_START, seconds: 0 },
-        thisMonth: { month: THIS_MONTH, seconds: 14300 },
-        thisYear: { year: THIS_YEAR, seconds: 14300 },
-        allTime: { seconds: 14300 },
-        lastUpdatedAt: YESTERDAY,
-      };
-      mockKV.get.mockImplementation(async (key: string, type?: string) => {
-        if (key === 'tiers:config') return null;
-        if (key.startsWith('user:')) return JSON.stringify({ subscriptionTier: 'free', role: 'user' });
-        if (key.startsWith('timekeeper:')) return type === 'json' ? usageRecord : JSON.stringify(usageRecord);
-        return null;
+      const accounting = await createAccountingState(NOW, {
+        pendingSeconds: 0,
+        sessionTotals: {},
+        lastFlushedMonthlyTotal: 14300,
       });
+      mockStorage.get.mockImplementation(async (key: string) => key === 'accountingState:v2' ? accounting : undefined);
       const tk = createTimekeeper({ SAAS_MODE: undefined });
       const res = await tk.fetch(pingRequest({
         bucketName: 'cf-alice',
@@ -306,7 +299,10 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
         totalSeconds: 60,
         email: 'alice@example.com',
       }));
-      expect(mockStorage.put).toHaveBeenCalledWith('pendingSeconds', 60);
+      expect(mockStorage.put).toHaveBeenCalledWith(
+        'accountingState:v2',
+        expect.objectContaining({ pendingSeconds: 60 }),
+      );
     });
   });
 
@@ -426,8 +422,11 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
 
       await tk.alarm();
 
-      // pendingSeconds should be reset to 0
-      expect(mockStorage.put).toHaveBeenCalledWith('pendingSeconds', 0);
+      // pendingSeconds should be reset to 0 in the unified state.
+      expect(mockStorage.put).toHaveBeenCalledWith(
+        'accountingState:v2',
+        expect.objectContaining({ pendingSeconds: 0 }),
+      );
     });
 
     it('does NOT re-arm if pendingSeconds = 0 after flush', async () => {
@@ -528,11 +527,12 @@ describe('Timekeeper DO / REQ-SUB-008 (activity-based usage tracking via Timekee
 
       // Should re-arm alarm for retry (30s)
       expect(mockStorage.setAlarm).toHaveBeenCalledWith(expect.any(Number));
-      // pendingSeconds should NOT be reset to 0 (preserved for retry)
-      const lastPendingWrite = mockStorage.put.mock.calls
-        .filter((c: unknown[]) => c[0] === 'pendingSeconds')
+      // Unified state remains at 60; failed KV work never checkpoints it to 0.
+      const lastStateWrite = mockStorage.put.mock.calls
+        .filter((c: unknown[]) => c[0] === 'accountingState:v2')
         .pop();
-      expect(lastPendingWrite?.[1]).toBe(60); // still 60, not 0
+      expect(lastStateWrite).toBeDefined();
+      expect((lastStateWrite![1] as { pendingSeconds: number }).pendingSeconds).toBe(60);
     });
   });
 

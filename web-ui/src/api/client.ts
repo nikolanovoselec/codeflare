@@ -1,4 +1,4 @@
-import type { Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, AuthStatus, AuthProvider } from '../types';
+import type { Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, AuthStatus, AuthProvider, AdminConfigurationResponse, ConfigurationSection } from '../types';
 import { logger } from '../lib/logger';
 import { STARTUP_POLL_INTERVAL_MS, SESSION_ID_DISPLAY_LENGTH, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, SESSION_ID_RE } from '../lib/constants';
 import { z } from 'zod';
@@ -43,6 +43,186 @@ async function fetchApi<T>(
 // User API
 export async function getUser(): Promise<UserInfo> {
   return fetchApi('/user', {}, UserResponseSchema);
+}
+
+const ConfigurationSectionSchema = z.enum([
+  'access', 'domain', 'aiRouting', 'codingAgents', 'browserRendering', 'securityEgress',
+  'dataGovernance', 'managedEnvironment', 'github', 'cloudflareConnection', 'usageReports',
+]);
+
+const AdminConfigurationResponseSchema: z.ZodType<AdminConfigurationResponse> = z.object({
+  mode: z.enum(['default', 'onboarding', 'saas', 'enterprise']),
+  revision: z.number().int().nonnegative(),
+  applicableSections: z.array(ConfigurationSectionSchema),
+  sections: z.record(z.string(), z.unknown()),
+  activeRunId: z.string().nullable(),
+  latest: z.record(z.string(), z.record(z.string(), z.unknown())),
+});
+
+export async function getAdminConfiguration(): Promise<AdminConfigurationResponse> {
+  return fetchApi('/admin/configuration', {}, AdminConfigurationResponseSchema);
+}
+
+const AdminUsageUserSchema = z.object({
+  userKey: z.string().regex(/^[0-9a-f]{64}$/),
+  email: z.string().email(),
+  accountStatus: z.enum(['active', 'deleted']),
+  dataSince: z.string(),
+  deletedAt: z.string().nullable(),
+  runtimeSeconds: z.number().nonnegative(),
+  sessionCount: z.number().int().nonnegative(),
+  historyUpdatedAt: z.string(),
+});
+
+const AdminUsageResponseSchema = z.object({
+  period: z.enum(['day', 'week', 'month', 'year']),
+  start: z.string(),
+  timezone: z.literal('UTC'),
+  sort: z.enum(['runtimeSeconds', 'sessionCount', 'email']),
+  direction: z.enum(['asc', 'desc']),
+  summary: z.object({
+    runtimeSeconds: z.number().nonnegative(),
+    sessionCount: z.number().int().nonnegative(),
+    activeUsers: z.number().int().nonnegative(),
+  }),
+  dataSince: z.string().nullable(),
+  historyUpdatedAt: z.string().nullable(),
+  users: z.array(AdminUsageUserSchema),
+  nextCursor: z.string().nullable(),
+});
+
+type AdminUsageResponse = z.infer<typeof AdminUsageResponseSchema>;
+export type AdminUsageUser = z.infer<typeof AdminUsageUserSchema>;
+
+export interface AdminUsageQuery {
+  period: 'day' | 'week' | 'month' | 'year';
+  start: string;
+  sort?: 'runtimeSeconds' | 'sessionCount' | 'email';
+  direction?: 'asc' | 'desc';
+  cursor?: string;
+  limit?: number;
+}
+
+export async function getAdminUsage(query: AdminUsageQuery): Promise<AdminUsageResponse> {
+  const params = new URLSearchParams(Object.entries(query)
+    .filter((entry): entry is [string, string | number] => entry[1] !== undefined)
+    .map(([key, value]) => [key, String(value)]));
+  return fetchApi(`/admin/usage?${params}`, {}, AdminUsageResponseSchema);
+}
+
+const AdminUsageDetailSchema = AdminUsageUserSchema.extend({
+  period: z.enum(['day', 'week', 'month', 'year']),
+  start: z.string(),
+  timezone: z.literal('UTC'),
+});
+
+export async function getAdminUsageUser(
+  userKey: string,
+  period: AdminUsageQuery['period'],
+  start: string,
+): Promise<z.infer<typeof AdminUsageDetailSchema>> {
+  return fetchApi(
+    `/admin/usage/users/${encodeURIComponent(userKey)}?period=${period}&start=${encodeURIComponent(start)}`,
+    {},
+    AdminUsageDetailSchema,
+  );
+}
+
+const ConfigurationPreviewSchema = z.object({
+  section: ConfigurationSectionSchema,
+  baseRevision: z.number().int(),
+  currentRevision: z.number().int(),
+  changes: z.array(z.object({ field: z.string(), before: z.unknown().optional(), after: z.unknown().optional(), secret: z.object({ willReplace: z.boolean() }).optional() })),
+  tasks: z.array(z.object({ id: z.string(), dependsOn: z.array(z.string()) })),
+  warnings: z.array(z.object({ code: z.string(), message: z.string() })),
+  exclusions: z.array(z.string()),
+});
+export type ConfigurationPreview = z.infer<typeof ConfigurationPreviewSchema>;
+
+export class ConfigurationRequestError extends Error {
+  constructor(public status: number, public body: Record<string, unknown>) {
+    super(typeof body.error === 'string' ? body.error : 'Environment request failed');
+  }
+}
+
+export async function previewConfiguration(section: ConfigurationSection, baseRevision: number, values: unknown): Promise<ConfigurationPreview> {
+  return fetchApi('/admin/configuration-previews', {
+    method: 'POST', body: JSON.stringify({ section, baseRevision, values }),
+  }, ConfigurationPreviewSchema);
+}
+
+export async function startConfigurationRun(section: ConfigurationSection, baseRevision: number, values: unknown): Promise<Response> {
+  const response = await fetch('/api/admin/configuration-runs', {
+    method: 'POST', credentials: 'same-origin', redirect: 'manual',
+    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    body: JSON.stringify({ section, baseRevision, values }),
+  });
+  if (!response.ok) {
+    let body: Record<string, unknown> = {};
+    try { body = await response.json() as Record<string, unknown>; } catch { /* response had no JSON body */ }
+    throw new ConfigurationRequestError(response.status, body);
+  }
+  return response;
+}
+
+const ConfigurationRunErrorSchema = z.object({
+  code: z.string(), message: z.string(), retryable: z.boolean(), operatorAction: z.string().optional(),
+});
+const ConfigurationRunTaskSchema = z.object({
+  id: z.string(), state: z.enum(['waiting', 'running', 'succeeded', 'failed', 'skipped']),
+  startedAt: z.string().optional(), completedAt: z.string().optional(), error: ConfigurationRunErrorSchema.optional(),
+});
+const ConfigurationRunSchema = z.object({
+  version: z.literal(1), runId: z.string(), section: ConfigurationSectionSchema,
+  baseRevision: z.number().int(), resultingRevision: z.number().int().optional(), initiatedBy: z.string(),
+  state: z.enum(['queued', 'running', 'succeeded', 'failed', 'interrupted']), tasks: z.array(ConfigurationRunTaskSchema),
+  createdAt: z.string(), updatedAt: z.string(), completedAt: z.string().optional(), error: ConfigurationRunErrorSchema.optional(),
+});
+const ConfigurationRunsSchema = z.object({ items: z.array(ConfigurationRunSchema), nextCursor: z.string().nullable() });
+export type ConfigurationRun = z.infer<typeof ConfigurationRunSchema>;
+
+export async function getConfigurationRuns(cursor?: string): Promise<z.infer<typeof ConfigurationRunsSchema>> {
+  const query = new URLSearchParams({ limit: '50' });
+  if (cursor) query.set('cursor', cursor);
+  return fetchApi(`/admin/configuration-runs?${query}`, {}, ConfigurationRunsSchema);
+}
+
+export async function getConfigurationRun(runId: string): Promise<ConfigurationRun> {
+  return fetchApi(`/admin/configuration-runs/${encodeURIComponent(runId)}`, {}, ConfigurationRunSchema);
+}
+
+const UsageReportDeliverySchema = z.object({
+  id: z.string(),
+  deliveryKind: z.enum(['scheduled', 'test']),
+  dispatchId: z.string(),
+  settingsRevision: z.number().int(),
+  reportMonth: z.string(),
+  recipient: z.string().email(),
+  state: z.enum(['pending', 'sending', 'accepted', 'failed']),
+  attempt: z.number().int(),
+  reason: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  acceptedAt: z.string().nullable().optional(),
+});
+
+const UsageReportDeliveriesSchema = z.object({
+  deliveries: z.array(UsageReportDeliverySchema),
+  nextCursor: z.string().nullable(),
+});
+
+export type UsageReportDelivery = z.infer<typeof UsageReportDeliverySchema>;
+
+export async function getUsageReportDeliveries(cursor?: string): Promise<z.infer<typeof UsageReportDeliveriesSchema>> {
+  const query = new URLSearchParams({ limit: '50' });
+  if (cursor) query.set('cursor', cursor);
+  return fetchApi(`/admin/usage-report-deliveries?${query}`, {}, UsageReportDeliveriesSchema);
+}
+
+export async function sendUsageReportTest(): Promise<{ dispatchId: string; deliveryKind: 'test'; state: 'pending' }> {
+  return fetchApi('/admin/usage-report-tests', { method: 'POST' }, z.object({
+    dispatchId: z.string(), deliveryKind: z.literal('test'), state: z.literal('pending'),
+  }));
 }
 
 // Per-device agent notification enrollment (REQ-TERM-025 AC1-AC5)
@@ -150,8 +330,11 @@ export interface ManagedReleaseProgress {
  * Get status for all sessions in a single batch call
  * Returns statuses map, maxSessions limit, and optional storageStats
  */
-export async function getBatchSessionStatus(options?: { includePreseedCheck?: boolean }): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }; preseedNeedsUpgrade?: boolean; managedReleaseStatus?: 'current' | 'upgrading' | 'update_pending'; managedReleaseProgress?: ManagedReleaseProgress; bucketMigrating?: boolean; bucketMigrationPending?: boolean; bucketMigrationPercent?: number }> {
-  const path = options?.includePreseedCheck ? '/sessions/batch-status?includePreseedCheck=true' : '/sessions/batch-status';
+export async function getBatchSessionStatus(options?: { includePreseedCheck?: boolean; include?: readonly ('usage' | 'storage')[] }): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }; preseedNeedsUpgrade?: boolean; managedReleaseStatus?: 'current' | 'upgrading' | 'update_pending'; managedReleaseProgress?: ManagedReleaseProgress; bucketMigrating?: boolean; bucketMigrationPending?: boolean; bucketMigrationPercent?: number }> {
+  const query = new URLSearchParams();
+  if (options?.includePreseedCheck) query.set('includePreseedCheck', 'true');
+  if (options?.include?.length) query.set('include', [...new Set(options.include)].sort().join(','));
+  const path = `/sessions/batch-status${query.size ? `?${query}` : ''}`;
   const response = await fetchApi(path, {}, BatchSessionStatusResponseSchema);
   return { statuses: response.statuses, maxSessions: response.maxSessions, storageStats: response.storageStats, usage: response.usage, preseedNeedsUpgrade: response.preseedNeedsUpgrade, managedReleaseStatus: response.managedReleaseStatus, managedReleaseProgress: response.managedReleaseProgress, bucketMigrating: response.bucketMigrating, bucketMigrationPending: response.bucketMigrationPending, bucketMigrationPercent: response.bucketMigrationPercent };
 }

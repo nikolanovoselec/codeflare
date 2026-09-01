@@ -1,4 +1,4 @@
-import { Component, JSX } from 'solid-js';
+import { Component, JSX, Show } from 'solid-js';
 import Icon from '../Icon';
 
 // The button's identity colour, as a token name rather than a colour: a literal
@@ -16,7 +16,8 @@ interface AdminActionButtonProps {
   /** MDI path. */
   icon: string;
   label: JSX.Element;
-  onClick: () => void;
+  onClick?: () => void;
+  href?: string;
   disabled?: boolean;
   testId?: string;
 }
@@ -25,18 +26,34 @@ interface AdminActionButtonProps {
 // copies of this markup existed across SettingsPanel and SessionSection, each
 // with its own inline hex, so retuning one meant finding all of them.
 const AdminActionButton: Component<AdminActionButtonProps> = (props) => (
-  <button
-    type="button"
-    class="provider-row-connect-btn"
-    style={{ background: `var(${props.tone})` }}
-    disabled={props.disabled}
-    onClick={props.onClick}
-    data-testid={props.testId}
+  <Show
+    when={props.href}
+    fallback={
+      <button
+        type="button"
+        class="provider-row-connect-btn"
+        style={{ background: `var(${props.tone})` }}
+        disabled={props.disabled}
+        onClick={props.onClick}
+        data-testid={props.testId}
+      >
+        <Icon path={props.icon} size={24} />
+        <span>{props.label}</span>
+      </button>
+    }
   >
-    {/* The icon fills with currentColor, which the button class already sets. */}
-    <Icon path={props.icon} size={24} />
-    <span>{props.label}</span>
-  </button>
+    {(href) => (
+      <a
+        class="provider-row-connect-btn"
+        style={{ background: `var(${props.tone})` }}
+        href={href()}
+        data-testid={props.testId}
+      >
+        <Icon path={props.icon} size={24} />
+        <span>{props.label}</span>
+      </a>
+    )}
+  </Show>
 );
 
 export default AdminActionButton;

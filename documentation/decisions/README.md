@@ -168,6 +168,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD147](#ad147-active-managed-resource-policy-supersedes-provenance-ownership) | Enforce active managed-resource policy before scoped R2 signing | Canonical release-derived paths remain immutable at the Worker boundary; provenance ownership still governs paths outside the active policy. | Architecture, Security, Storage | Active |
 | [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) | Schedule memory and Vault work from successful prompt high-water marks | Memory captures every 50 real prompts; Vault checks resume tails and crossed 100-prompt epochs without polling or consuming failed scans. | Agents, Memory, Storage | Active |
 | [AD149](#ad149-herdr-semantic-status-owns-completion-notification-timing) | Let Herdr status own completion notification timing | A ten-minute timer starts when every tracked agent pane becomes ready; renewed work cancels timing and queued completion. | Architecture, Agents | Active |
+| [AD150](#ad150-d1-owns-historical-usage-and-report-delivery-records) | Keep live quota state in Timekeeper and historical set queries in D1 | One database owns historical periods, report claims, and retention while live quota enforcement remains independent. | Architecture, Usage, Operations | Active |
 ---
 
 ## Decisions
@@ -4104,5 +4105,21 @@ Pi no longer infers completion from `agent_settled`, stop reasons, interactive l
 **Consequences:** Pi and Claude share one Herdr completion authority. Herdr status does not distinguish successful and failed turns, so completion means only that the configured agent is ready again ([REQ-TERM-039](../../sdd/spec/terminal.md#req-term-039-herdr-completion-delivery-is-readiness-oriented)). Socket failure drops pending completion and reconnects without exposing the socket or pane identity to the browser. Input-required delivery and away-only suppression stay unchanged ([REQ-TERM-038](../../sdd/spec/terminal.md#req-term-038-herdr-semantic-status-owns-completion-readiness)). <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor -->
 
 **Related REQs:** [REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-pi-native-terminal-notification-producer), [REQ-TERM-029](../../sdd/spec/terminal.md#req-term-029-herdr-status-gated-terminal-completion), [REQ-TERM-038](../../sdd/spec/terminal.md#req-term-038-herdr-semantic-status-owns-completion-readiness), [REQ-TERM-039](../../sdd/spec/terminal.md#req-term-039-herdr-completion-delivery-is-readiness-oriented).
+
+---
+
+### AD150: D1 owns historical usage and report delivery records
+
+**Category:** Architecture, Usage, Operations
+
+**Status:** Accepted (2026-08-30)
+
+**Context:** Live quota enforcement needs per-user sequential state, while organization totals, stable ranking, CSV export, deleted-user retention, report claims, and retention need indexed set queries. Rebuilding those reads through KV list-and-read scans would increase cost and code. Moving live quota state into D1 would make a historical feature part of session admission. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory -->
+
+**Decision:** Keep Timekeeper Durable Objects and Workers KV as the live quota authority. Add one D1 database per deployment environment for historical `usage_users`, absolute sequence-guarded `usage_periods`, `report_deliveries`, and daily `maintenance_claims`. Timekeeper writes bounded absolute snapshots through its existing alarm. Administration reads D1 directly through closed prepared queries. The established deployment credential creates the database and applies additive migrations before Worker deployment ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary)). <!-- @impl: .github/workflows/deploy.yml::deploy -->
+
+**Consequences:** History starts empty with no backfill. D1 outages do not block quota enforcement, while deleted-user tombstone failure blocks destructive live cleanup so a late writer cannot recreate history. Reporting and retention reuse the same database and transaction boundary. The design adds no ORM, queue, workflow, cache, coordinator Durable Object, or second database. Account-specific database IDs stay outside Git.
+
+**Related REQs:** [REQ-SUB-025](../../sdd/spec/subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary).
 
 ---

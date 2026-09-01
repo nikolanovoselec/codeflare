@@ -7,6 +7,7 @@ import { isSaasModeActive, isSessionOidcMode } from './onboarding';
 import { isEnterpriseMode } from './subscription';
 import { parseUserRecord } from './user-record';
 import { listAllKvKeys, SETUP_KEYS } from './kv-keys';
+import { reactivateUsageUser } from './admin-usage';
 
 const logger = createLogger('access');
 
@@ -524,6 +525,17 @@ async function queueWelcomeEmail(
  *
  * Throws ForbiddenError when the user is not in KV and SaaS mode is off.
  */
+async function retryUsageReactivation(env: Env, email: string): Promise<void> {
+  if (!env.USAGE_DB) return;
+  try {
+    await reactivateUsageUser(env.USAGE_DB, email);
+  } catch (error) {
+    logger.warn('Historical usage reactivation will retry on a later login', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export async function resolveOrProvisionUser(
   kv: KVNamespace,
   email: string,
@@ -534,6 +546,7 @@ export async function resolveOrProvisionUser(
   const kvEntry = await resolveUserFromKV(kv, normalizedEmail);
 
   if (kvEntry) {
+    await retryUsageReactivation(env, normalizedEmail);
     if (kvEntry.addedBy === 'jit') {
       await queueWelcomeEmail(kv, env, bucketName, normalizedEmail);
     }
@@ -558,6 +571,8 @@ export async function resolveOrProvisionUser(
       accessTier: 'pending',
       subscriptionTier: 'pending',
     }));
+
+    await retryUsageReactivation(env, normalizedEmail);
 
     // The caller awaits the existing per-user Timekeeper delivery claim; the
     // Timekeeper serializes acceptance and retries rejected sends on later login.

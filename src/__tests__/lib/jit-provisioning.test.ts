@@ -30,6 +30,16 @@ describe('resolveOrProvisionUser()', () => {
     } as Env;
   }
 
+  it('reactivates historical ownership for every existing user source', async () => {
+    await mockKV.put('user:admin-added@example.com', JSON.stringify({ role: 'user', accessTier: 'advanced', addedBy: 'admin' }));
+    const run = vi.fn(async () => ({ success: true }));
+    const prepare = vi.fn(() => ({ bind: () => ({ run }) }));
+    await resolveOrProvisionUser(mockKV as unknown as KVNamespace, 'admin-added@example.com', makeEnv({
+      USAGE_DB: { prepare } as unknown as D1Database,
+    }));
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it('creates user with pending tier when SAAS_MODE=active and user not in KV', async () => {
     const env = makeEnv({ SAAS_MODE: 'active' });
 

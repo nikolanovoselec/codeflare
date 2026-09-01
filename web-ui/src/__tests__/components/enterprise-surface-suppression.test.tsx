@@ -155,8 +155,9 @@ describe('REQ-ENTERPRISE-008 AC1-AC3: SettingsPanel and session mode', () => {
     expect(screen.queryByText('Manage Users')).not.toBeInTheDocument();
     expect(screen.queryByText('Manage Subscriptions')).not.toBeInTheDocument();
     expect(screen.queryByTestId('session-mode-control')).not.toBeInTheDocument();
-    // Setup Wizard stays — admins still configure the deployment.
-    expect(screen.getByText('Setup Wizard')).toBeInTheDocument();
+    // Routine access enters Administration; setup recovery lives in its navigation.
+    expect(screen.getByText('Open Administration')).toBeInTheDocument();
+    expect(screen.queryByText('Setup Wizard')).not.toBeInTheDocument();
   });
 
   it('keeps Manage Users but hides Manage Subscriptions + the mode selector in onboarding/default mode', () => {

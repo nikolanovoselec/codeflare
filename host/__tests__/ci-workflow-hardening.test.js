@@ -29,6 +29,42 @@ describe('deployment workflow safety', () => {
     assert.equal(deploy.concurrency['cancel-in-progress'], false);
   });
 
+  it('REQ-OPS-056 AC7: preserves the established credential through deployment and Worker secret upload', () => {
+    const preflight = step(deploy.jobs.deploy, 'Preflight deployment credentials and D1 access');
+    const secrets = step(deploy.jobs.deploy, 'Set worker secrets (bulk)');
+    const established = '${{ secrets.CLOUDFLARE_API_TOKEN }}';
+    assert.equal(preflight.env.CLOUDFLARE_API_TOKEN, established);
+    assert.equal(secrets.env.CLOUDFLARE_API_TOKEN, established);
+
+    const directory = mkdtempSync(join(tmpdir(), 'codeflare-secret-bulk-'));
+    const capture = join(directory, 'payload.json');
+    const fakeNpx = join(directory, 'npx');
+    try {
+      writeFileSync(fakeNpx, '#!/bin/sh\n[ "$1 $2 $3" = "wrangler secret bulk" ] || exit 2\ncat "$4" > "$CAPTURE_FILE"\n');
+      chmodSync(fakeNpx, 0o755);
+      const blankSecrets = Object.fromEntries(Object.keys(secrets.env).map((name) => [name, '']));
+      const result = spawnSync('bash', ['-e', '-c', secrets.run], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          ...blankSecrets,
+          PATH: `${directory}:${process.env.PATH}`,
+          CAPTURE_FILE: capture,
+          CLOUDFLARE_API_TOKEN: 'established-token',
+          WORKER_NAME: 'test-worker',
+          ONBOARDING_MODE: 'inactive',
+          SAAS_MODE_VAR: 'inactive',
+        },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(JSON.parse(readFileSync(capture, 'utf8')), {
+        CLOUDFLARE_API_TOKEN: 'established-token',
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('wires deployment to the behaviorally tested service-user seed boundary', () => {
     const seed = step(deploy.jobs.deploy, 'Seed service user in KV (stress-test identity, optional)');
     assert.equal(seed.run, 'scripts/ci/seed-service-user.sh');
@@ -360,6 +396,20 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
     assert.equal(evaluateChangedLineCoverage({ diff: testOnly, lcov: null, packageRoot: '.', threshold: 80 }).ok, true);
   });
 
+  it('REQ-OPS-022 AC6: omits only explicitly manual-validation production files', () => {
+    const diff = `${productionDiff('web-ui/src/components/admin/ReportsPage.tsx')}\n${productionDiff('web-ui/src/api/client.ts')}`;
+    const result = evaluateChangedLineCoverage({
+      diff,
+      lcov: lcov('web-ui/src/api/client.ts', [[1, 1], [2, 1], [3, 1], [4, 1], [5, 1]]),
+      packageRoot: 'web-ui',
+      threshold: 70,
+      excludedFiles: ['web-ui/src/components/admin/ReportsPage.tsx'],
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.files, ['web-ui/src/api/client.ts']);
+  });
+
   it('REQ-OPS-022 AC6: fails closed on missing, malformed, or file-incomplete LCOV required by a production change', () => {
     const diff = productionDiff('src/example.ts');
     const cases = [
@@ -590,6 +640,7 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
         'package-root': 'web-ui',
         'changed-base': '${{ github.event.pull_request.base.sha }}',
         'changed-line-threshold': '70',
+        'changed-line-exclusions': 'web-ui/src/components/admin/ActivityPage.tsx, web-ui/src/components/admin/AdministrationLayout.tsx, web-ui/src/components/admin/AdministrationOverview.tsx, web-ui/src/components/admin/AnalyticsPage.tsx, web-ui/src/components/admin/AnalyticsUserDetail.tsx, web-ui/src/components/admin/EnvironmentAreaFields.tsx, web-ui/src/components/admin/EnvironmentIndex.tsx, web-ui/src/components/admin/ReportsPage.tsx, web-ui/src/components/admin/environment-areas.ts',
         'statements-threshold': '75',
         'branches-threshold': '63',
         'functions-threshold': '75',

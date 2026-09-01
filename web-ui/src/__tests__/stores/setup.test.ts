@@ -1409,6 +1409,44 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
   });
 
   describe('loadExistingConfig', () => {
+    it('REQ-SETUP-022 AC3: reports hydration failure and permits retry', async () => {
+      mockFetch.mockResolvedValue(new Response('Unavailable', { status: 503 }));
+
+      expect(await setupStore.loadExistingConfig()).toBe(false);
+      expect(await setupStore.loadExistingConfig()).toBe(false);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('REQ-SETUP-022 AC3: keeps configured recovery closed when provider prefill fails', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(JSON.stringify({ configured: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }));
+        }
+        if (url === '/api/users') {
+          return Promise.resolve(new Response(JSON.stringify({ users: [] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }));
+        }
+        if (url === '/api/setup/prefill') return Promise.resolve(new Response('Unavailable', { status: 503 }));
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+      expect(await setupStore.loadExistingConfig()).toBe(false);
+    });
+
+    it('shares the result of overlapping hydration calls', async () => {
+      mockFetch.mockResolvedValue(new Response('Unavailable', { status: 503 }));
+
+      const first = setupStore.loadExistingConfig();
+      const second = setupStore.loadExistingConfig();
+      await expect(Promise.all([first, second])).resolves.toEqual([false, false]);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
     it('uses setup prefill endpoint when setup is not configured', async () => {
       mockFetch.mockImplementation((url: string) => {
         if (url === '/api/setup/status') {
@@ -1456,10 +1494,13 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
             { status: 200, headers: { 'Content-Type': 'application/json' } }
           ));
         }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        }
         return Promise.reject(new Error(`Unexpected URL: ${url}`));
       });
 
-      await setupStore.loadExistingConfig();
+      expect(await setupStore.loadExistingConfig()).toBe(true);
 
       expect(setupStore.customDomain).toBe('claude.example.com');
       expect(setupStore.adminUsers).toEqual(['admin@example.com']);
@@ -1603,10 +1644,13 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
             { status: 200, headers: { 'Content-Type': 'application/json' } }
           ));
         }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        }
         return Promise.reject(new Error(`Unexpected URL: ${url}`));
       });
 
-      await setupStore.loadExistingConfig();
+      expect(await setupStore.loadExistingConfig()).toBe(true);
 
       expect(setupStore.customDomain).toBe('my-app.example.com');
     });
@@ -1625,10 +1669,13 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
             { status: 200, headers: { 'Content-Type': 'application/json' } }
           ));
         }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        }
         return Promise.reject(new Error(`Unexpected URL: ${url}`));
       });
 
-      await setupStore.loadExistingConfig();
+      expect(await setupStore.loadExistingConfig()).toBe(true);
 
       // Should remain as default empty string
       expect(setupStore.customDomain).toBe('');

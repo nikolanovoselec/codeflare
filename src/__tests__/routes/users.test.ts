@@ -66,6 +66,10 @@ function setAuthUser(user: Partial<AccessUser> & { email: string }) {
 
 // Mock global fetch for CF API calls
 const mockFetch = vi.fn();
+const mockUsageDb = {
+  prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
+  batch: vi.fn(async () => [{ success: true }]),
+} as unknown as D1Database;
 
 describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
   let mockKV: ReturnType<typeof createMockKV>;
@@ -100,6 +104,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
     app.use('*', async (c, next) => {
       c.env = {
         KV: mockKV as unknown as KVNamespace,
+        USAGE_DB: mockUsageDb,
         CLOUDFLARE_API_TOKEN: 'test-api-token',
       } as unknown as Env;
       return next();
@@ -352,6 +357,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
       app.use('*', async (c, next) => {
         c.env = {
           KV: mockKV as unknown as KVNamespace,
+          USAGE_DB: mockUsageDb,
           CLOUDFLARE_API_TOKEN: 'test-api-token',
         } as unknown as Env;
         return next();
@@ -444,6 +450,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
       saasApp.use('*', async (c, next) => {
         c.env = {
           KV: mockKV as unknown as KVNamespace,
+          USAGE_DB: mockUsageDb,
           CLOUDFLARE_API_TOKEN: 'test-api-token',
           SAAS_MODE: 'active',
         } as unknown as Env;
@@ -480,6 +487,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
       saasApp.use('*', async (c, next) => {
         c.env = {
           KV: mockKV as unknown as KVNamespace,
+          USAGE_DB: mockUsageDb,
           CLOUDFLARE_API_TOKEN: 'test-api-token',
           SAAS_MODE: 'active',
         } as unknown as Env;
@@ -517,6 +525,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
       saasApp.use('*', async (c, next) => {
         c.env = {
           KV: mockKV as unknown as KVNamespace,
+          USAGE_DB: mockUsageDb,
           CLOUDFLARE_API_TOKEN: 'test-api-token',
           SAAS_MODE: 'active',
           CLOUDFLARE_WORKER_NAME: 'codeflare',
@@ -558,6 +567,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
       saasApp.use('*', async (c, next) => {
         c.env = {
           KV: mockKV as unknown as KVNamespace,
+          USAGE_DB: mockUsageDb,
           CLOUDFLARE_API_TOKEN: 'test-api-token',
           SAAS_MODE: 'active',
           CLOUDFLARE_WORKER_NAME: 'codeflare',
@@ -604,6 +614,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
       saasApp.use('*', async (c, next) => {
         c.env = {
           KV: mockKV as unknown as KVNamespace,
+          USAGE_DB: mockUsageDb,
           CLOUDFLARE_API_TOKEN: 'test-api-token',
           SAAS_MODE: 'active',
           CLOUDFLARE_WORKER_NAME: 'codeflare',
@@ -645,6 +656,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
       saasApp.use('*', async (c, next) => {
         c.env = {
           KV: mockKV as unknown as KVNamespace,
+          USAGE_DB: mockUsageDb,
           CLOUDFLARE_API_TOKEN: 'test-api-token',
           SAAS_MODE: 'active',
           CLOUDFLARE_WORKER_NAME: 'codeflare',
@@ -684,6 +696,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
       onboardingApp.use('*', async (c, next) => {
         c.env = {
           KV: mockKV as unknown as KVNamespace,
+          USAGE_DB: mockUsageDb,
           CLOUDFLARE_API_TOKEN: 'test-api-token',
           CLOUDFLARE_WORKER_NAME: 'codeflare',
           ONBOARDING_LANDING_PAGE: 'active',
@@ -723,6 +736,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
       defaultApp.use('*', async (c, next) => {
         c.env = {
           KV: mockKV as unknown as KVNamespace,
+          USAGE_DB: mockUsageDb,
           CLOUDFLARE_API_TOKEN: 'test-api-token',
         } as unknown as Env;
         return next();
@@ -782,6 +796,7 @@ describe('Users Routes / REQ-AUTH-018 (user management admin panel)', () => {
       app.use('*', async (c, next) => {
         c.env = {
           KV: mockKV as unknown as KVNamespace,
+          USAGE_DB: mockUsageDb,
           CLOUDFLARE_API_TOKEN: 'test-api-token',
           ...envOverrides,
         } as unknown as Env;
