@@ -2838,7 +2838,7 @@ None.
 
 **Verification:** Manual managed-manifest, projection, and fresh-context review
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -2862,7 +2862,7 @@ None.
 
 **Verification:** Manual source and routing review
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -2886,7 +2886,7 @@ None.
 
 **Verification:** Manual incumbent, redesign, and bounded-polish review
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -2910,7 +2910,7 @@ None.
 
 **Verification:** Manual repository inspection and fresh-context review
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -2940,7 +2940,7 @@ None.
 
 **Verification:** Manual managed-projection inspection and fresh-context activation review.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -2976,7 +2976,7 @@ None.
 
 **Verification:** Manual portability inspection and fresh-context frontend review.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3007,7 +3007,7 @@ None.
 
 **Verification:** Manual compatibility, updater-boundary, and activation review.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3034,7 +3034,7 @@ None.
 
 **Verification:** Manual projection inspection and fresh-context dual-axis routing review.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3062,7 +3062,7 @@ None.
 
 **Verification:** Manual check
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -3140,7 +3140,7 @@ None.
 
 **Verification:** Manual check
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 

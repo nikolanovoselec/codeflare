@@ -26,10 +26,10 @@ Inspect existing imagery, illustration, icons, fonts, data, and media before cre
 
 Define semantic roles for color, type, spacing, radii, borders, elevation, and motion. Choose one canonical token source. Components should preserve the direction without forcing unrelated content into identical containers.
 
-Plan responsive transformation, not only scale reduction. Decide what reorders, collapses, becomes scrollable, changes density, or disappears at smaller sizes. Account for content expansion and localization before fixed geometry hardens.
+Plan responsive transformation, not only scale reduction. Decide what reflows or reorders, becomes progressive disclosure, changes priority or interaction model, remains visible for safety or continuity, changes density, or becomes scrollable because it is genuinely two-dimensional. Account for touch and pointer input, long and localized content, text spacing, and asset failure before fixed geometry hardens.
 
 For Operate surfaces, familiar task behavior and state legibility outrank spectacle. For Read, comprehension and wayfinding lead. For Persuade, the offer, proof, and action must become clear quickly. For Experience, the work or story leads and interface chrome recedes.
 
 ## Implement and finish
 
-Build working controls and relevant states. Keep media and motion within explicit budgets. Use [visual-qa.md](visual-qa.md) for the final inspection.
+Build working controls and relevant initial, loading, empty, partial, stale, error, offline, permission, disabled, success, destructive, undo/recovery, long-content, localization, and asset-failure states. Include only states applicable to the product. Keep media and motion within explicit budgets. Use [visual-qa.md](visual-qa.md) for final inspection.
