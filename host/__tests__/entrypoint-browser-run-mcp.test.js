@@ -12,7 +12,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
 
 function extractBrowserRunBlock() {
-  const start = entrypoint.indexOf('# Browser Run: real-browser fallback');
+  const start = entrypoint.indexOf(
+    '# Configure Browser Run (Cloudflare Browser Rendering) as a real-browser'
+  );
   if (start === -1) throw new Error('Browser Run block marker not found in entrypoint.sh');
   const end = entrypoint.indexOf('# Configure Claude Code settings.json', start);
   if (end === -1) throw new Error('Browser Run block end marker not found');
