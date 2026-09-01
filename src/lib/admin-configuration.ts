@@ -604,7 +604,9 @@ export async function executeConfigurationTask(
       const appClientId = (values.appClientId as string).trim();
       const oauthClientId = (values.oauthClientId as string).trim();
       if (appClientId) await env.KV.put(SETUP_KEYS.GITHUB_APP_CLIENT_ID, appClientId);
+      else await env.KV.delete(SETUP_KEYS.GITHUB_APP_CLIENT_ID);
       if (oauthClientId) await env.KV.put(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID, oauthClientId);
+      else await env.KV.delete(SETUP_KEYS.GITHUB_OAUTH_CLIENT_ID);
       const appSecret = (values.appReplacementSecret as string).trim();
       const oauthSecret = (values.oauthReplacementSecret as string).trim();
       if (appSecret || oauthSecret) {
@@ -618,6 +620,7 @@ export async function executeConfigurationTask(
     case 'configure_cloudflare_connection': {
       const clientId = (values.clientId as string).trim();
       if (clientId) await env.KV.put(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID, clientId);
+      else await env.KV.delete(SETUP_KEYS.CLOUDFLARE_OAUTH_CLIENT_ID);
       const secret = (values.replacementSecret as string).trim();
       if (secret) {
         const key = await getOrImportKey(env);
