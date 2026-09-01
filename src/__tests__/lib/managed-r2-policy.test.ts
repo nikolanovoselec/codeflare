@@ -19,11 +19,10 @@ function release(overrides: Partial<ManagedReleaseIndex> = {}): ManagedReleaseIn
     },
     runtimeDependencyHash: 'c'.repeat(64),
     documents: [
-      { key: '.claude/skills/company/SKILL.md', modes: ['advanced', 'default'] },
-      { key: '.pi/agent/AGENTS.md', modes: ['advanced', 'default'] },
+      { key: '.claude/extensions/company/index.ts', modes: ['advanced', 'default'] },
       { key: '.pi/agent/extensions/company.ts', modes: ['advanced'] },
     ],
-    retiredPaths: ['.codex/rules/retired.md'],
+    retiredPaths: ['.codex/extensions/retired.ts'],
     managedExtensions: [],
     ...overrides,
   };
@@ -40,11 +39,10 @@ describe('REQ-STOR-028 managed R2 policy', () => {
       releaseDigest: digest,
       resourcePolicy: 'immutable',
       paths: [
-        '.claude/skills/company/SKILL.md',
+        '.claude/extensions/company/index.ts',
         '.codeflare/managed-extensions.json',
         '.codeflare/managed-paths.json',
-        '.codex/rules/retired.md',
-        '.pi/agent/AGENTS.md',
+        '.codex/extensions/retired.ts',
         '.pi/agent/extensions/company.ts',
       ],
       resourceRoots: [],
@@ -54,7 +52,7 @@ describe('REQ-STOR-028 managed R2 policy', () => {
     expect((await buildManagedR2Policy(digest, release(), 'immutable')).digest).toBe(built.digest);
 
     const changed = await buildManagedR2Policy(digest, release({
-      retiredPaths: ['.codex/rules/retired.md', '.pi/agent/extensions/retired.ts'],
+      retiredPaths: ['.codex/extensions/retired.ts', '.pi/agent/extensions/retired.ts'],
     }), 'immutable');
     expect(changed.bytes).not.toEqual(built.bytes);
     expect(changed.digest).not.toBe(built.digest);
@@ -64,20 +62,20 @@ describe('REQ-STOR-028 managed R2 policy', () => {
     const built = await buildManagedR2Policy(digest, release(), 'exclusive');
 
     expect(built.value.resourceRoots).toEqual([
-      '.claude/skills/',
-      '.codex/rules/',
+      '.claude/extensions/',
+      '.codex/extensions/',
       '.pi/agent/extensions/',
     ]);
-    expect(isManagedMutationProtected(built.value, '.claude/skills')).toBe(true);
-    expect(isManagedMutationProtected(built.value, '.claude/skills/personal/SKILL.md')).toBe(true);
-    expect(isManagedMutationProtected(built.value, '.claude/skills-other/personal.md')).toBe(false);
+    expect(isManagedMutationProtected(built.value, '.claude/extensions')).toBe(true);
+    expect(isManagedMutationProtected(built.value, '.claude/extensions/personal/index.ts')).toBe(true);
+    expect(isManagedMutationProtected(built.value, '.claude/extensions-other/personal.md')).toBe(false);
     expect(isManagedMutationProtected(built.value, '.pi/agent/sessions/session.jsonl')).toBe(false);
     expect(canPrefixIntersectManagedPolicy(built.value, '.claude/')).toBe(true);
     expect(canPrefixIntersectManagedPolicy(built.value, 'Vault/')).toBe(false);
   });
 
   it('REQ-STOR-032 AC3: exclusive generation rejects a novel or later nested managed category', async () => {
-    for (const key of ['.claude/toolboxes/company/tool.md', '.claude/toolboxes/skills/tool.md']) {
+    for (const key of ['.claude/toolboxes/company/tool.md', '.claude/toolboxes/extensions/tool.md']) {
       await expect(buildManagedR2Policy(digest, release({
         documents: [{ key, modes: ['default'] }],
       }), 'exclusive')).rejects.toThrow(/recognized managed resource category/);

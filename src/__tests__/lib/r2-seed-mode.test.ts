@@ -12,7 +12,7 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
     testState: {
       agentDocs: [
         {
-          key: '.claude/rules/common.md',
+          key: '.claude/extensions/common.md',
           contentType: 'text/markdown; charset=utf-8',
           content: '# Common',
           modes: ['default', 'advanced'] as ('default' | 'advanced')[],
@@ -24,7 +24,7 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
           modes: ['advanced'] as ('default' | 'advanced')[],
         },
         {
-          key: '.claude/skills/consult-llm/SKILL.md',
+          key: '.claude/extensions/consult-llm/index.ts',
           contentType: 'text/markdown; charset=utf-8',
           content: '# Consult',
           modes: ['advanced'] as ('default' | 'advanced')[],
@@ -39,17 +39,17 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
         {
           key: '.codex/AGENTS.md',
           contentType: 'text/markdown; charset=utf-8',
-          content: '# Advanced instructions with more rules',
+          content: '// advanced extension instructions with more rules',
           modes: ['advanced'] as ('default' | 'advanced')[],
         },
         {
-          key: '.codex/skills/ship/SKILL.md',
+          key: '.codex/config/ship/index.ts',
           contentType: 'text/markdown; charset=utf-8',
           content: '# Ship',
           modes: ['default', 'advanced'] as ('default' | 'advanced')[],
         },
       ],
-      retiredKeys: ['.claude/rules/karpathy.md'] as readonly string[],
+      retiredKeys: ['.claude/extensions/karpathy.md'] as readonly string[],
     },
   };
 });
@@ -98,9 +98,9 @@ describe('getConfigsForMode', () => {
     const docs = getConfigsForMode('default');
     expect(docs).toHaveLength(3);
     const keys = docs.map((d) => d.key);
-    expect(keys).toContain('.claude/rules/common.md');
+    expect(keys).toContain('.claude/extensions/common.md');
     expect(keys).toContain('.codex/AGENTS.md');
-    expect(keys).toContain('.codex/skills/ship/SKILL.md');
+    expect(keys).toContain('.codex/config/ship/index.ts');
   });
 
   it('returns all documents for "advanced"', () => {
@@ -117,7 +117,7 @@ describe('getConfigsForMode', () => {
     const advancedDocs = getConfigsForMode('advanced');
     const codexInstructionsAdv = advancedDocs.filter((d) => d.key === '.codex/AGENTS.md');
     expect(codexInstructionsAdv).toHaveLength(1);
-    expect(codexInstructionsAdv[0].content).toBe('# Advanced instructions with more rules');
+    expect(codexInstructionsAdv[0].content).toBe('// advanced extension instructions with more rules');
   });
 
   it('throws on duplicate keys within a mode', () => {
@@ -139,7 +139,7 @@ describe('getPreseedKeysNotInMode', () => {
     const keys = getPreseedKeysNotInMode('default');
     expect(keys).toEqual([
       '.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json',
-      '.claude/skills/consult-llm/SKILL.md',
+      '.claude/extensions/consult-llm/index.ts',
     ]);
   });
 
@@ -286,7 +286,7 @@ const deleteRequests = (): string[] =>
 describe('deleteNonModeConfigs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    testState.retiredKeys = ['.claude/rules/karpathy.md'];
+    testState.retiredKeys = ['.claude/extensions/karpathy.md'];
   });
 
   it('deletes advanced-only keys for "default" mode', async () => {
@@ -298,8 +298,8 @@ describe('deleteNonModeConfigs', () => {
     // no mode in this build and so is swept in every mode.
     expect(result.deleted).toEqual([
       '.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json',
-      '.claude/skills/consult-llm/SKILL.md',
-      '.claude/rules/karpathy.md',
+      '.claude/extensions/consult-llm/index.ts',
+      '.claude/extensions/karpathy.md',
     ]);
     expect(result.warnings).toEqual([]);
   });
@@ -309,7 +309,7 @@ describe('deleteNonModeConfigs', () => {
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
 
-    expect(result.deleted).toEqual(['.claude/rules/karpathy.md']);
+    expect(result.deleted).toEqual(['.claude/extensions/karpathy.md']);
     expect(result.warnings).toEqual([]);
   });
 
@@ -318,7 +318,7 @@ describe('deleteNonModeConfigs', () => {
     // missing a live file. The generator rejects such a list; this is the
     // runtime backstop, exercised through both paths at once -- the key is on
     // the frozen list AND listed carrying a foreign marker.
-    const live = '.claude/rules/common.md';
+    const live = '.claude/extensions/common.md';
     testState.retiredKeys = [live];
     mockR2({ listed: [live], markers: { [live]: 'an-older-build' } });
 
@@ -338,7 +338,7 @@ describe('deleteNonModeConfigs', () => {
   });
 
   it('returns warnings for partial delete failure', async () => {
-    const failing = '.claude/skills/consult-llm/SKILL.md';
+    const failing = '.claude/extensions/consult-llm/index.ts';
     mockFetch.mockImplementation((url: string, init?: { method?: string }) => {
       const method = init?.method ?? 'GET';
       if (method === 'GET') return Promise.resolve(new Response(listXml(), { status: 200 }));
@@ -362,7 +362,7 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
   });
 
   it('deletes an object carrying a different build marker', async () => {
-    const orphan = '.claude/skills/retired-later/SKILL.md';
+    const orphan = '.claude/extensions/retired-later/index.ts';
     mockR2({ listed: [orphan], markers: { [orphan]: 'an-older-build' } });
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
@@ -374,7 +374,7 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
   it('keeps an unmarked object as the user file', async () => {
     // Both cases land here: a file they created, and one of ours they edited
     // (the rewrite drops the metadata).
-    const theirs = '.claude/skills/my-own/SKILL.md';
+    const theirs = '.claude/extensions/my-own/index.ts';
     mockR2({ listed: [theirs] });
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
@@ -384,7 +384,7 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
   });
 
   it('does not touch a key the current build just seeded', async () => {
-    const live = '.claude/rules/common.md';
+    const live = '.claude/extensions/common.md';
     mockR2({ listed: [live], markers: { [live]: 'an-older-build' } });
 
     await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
@@ -404,8 +404,8 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
 
     const listed = listedPrefixes();
     expect(listed.length).toBeGreaterThan(0);
-    expect(listed).toContain('.claude/rules/');
-    expect(listed).toContain('.claude/skills/');
+    expect(listed).toContain('.claude/extensions/');
+    expect(listed).toContain('.claude/extensions/');
     // Never a bare runtime root, and never an unbounded listing.
     expect(listed).not.toContain('.claude/');
     expect(listed).not.toContain('');
@@ -444,7 +444,7 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
     // Written by this very reconcile under a key the mode does not list. The
     // by-name paths own that case; deleting on marker presence alone would make
     // any future key stamped by the shared writer disappear.
-    const current = '.claude/skills/other/SKILL.md';
+    const current = '.claude/extensions/other/index.ts';
     mockR2({ listed: [current], markers: { [current]: 'testhash00000000' } });
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
@@ -456,13 +456,13 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
   it('follows the continuation token across pages', async () => {
     // Page one is truncated; the orphan only appears on page two, so a sweep
     // that stopped at the first page would silently never see it.
-    const orphan = '.claude/skills/page-two/SKILL.md';
+    const orphan = '.claude/extensions/page-two/index.ts';
     let page = 0;
     mockFetch.mockImplementation((url: string, init?: { method?: string }) => {
       const method = init?.method ?? 'GET';
       if (method === 'GET') {
         const prefix = new URL(String(url)).searchParams.get('prefix') ?? '';
-        if (prefix !== '.claude/skills/') return Promise.resolve(new Response(listXml(), { status: 200 }));
+        if (prefix !== '.claude/extensions/') return Promise.resolve(new Response(listXml(), { status: 200 }));
         page += 1;
         return Promise.resolve(
           new Response(
@@ -494,12 +494,12 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
     // The parser sets IsTruncated and the token independently, so deriving
     // completeness from the token would read this as a finished listing and
     // sweep the partial view it returned.
-    const partial = '.claude/skills/seen-before-truncation/SKILL.md';
+    const partial = '.claude/extensions/seen-before-truncation/index.ts';
     mockFetch.mockImplementation((url: string, init?: { method?: string }) => {
       const method = init?.method ?? 'GET';
       if (method === 'GET') {
         const prefix = new URL(String(url)).searchParams.get('prefix') ?? '';
-        if (prefix !== '.claude/skills/') return Promise.resolve(new Response(listXml(), { status: 200 }));
+        if (prefix !== '.claude/extensions/') return Promise.resolve(new Response(listXml(), { status: 200 }));
         return Promise.resolve(
           new Response(
             `<?xml version="1.0"?><ListBucketResult><IsTruncated>true</IsTruncated><Contents><Key>${partial}</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified><ETag>"x"</ETag></Contents></ListBucketResult>`,
@@ -537,13 +537,13 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
     // Page one succeeded and named a marked orphan, page two failed. Acting on
     // that is deleting on the strength of not having looked, so the whole
     // prefix is discarded.
-    const partial = '.claude/skills/seen-on-page-one/SKILL.md';
+    const partial = '.claude/extensions/seen-on-page-one/index.ts';
     let page = 0;
     mockFetch.mockImplementation((url: string, init?: { method?: string }) => {
       const method = init?.method ?? 'GET';
       if (method === 'GET') {
         const prefix = new URL(String(url)).searchParams.get('prefix') ?? '';
-        if (prefix !== '.claude/skills/') return Promise.resolve(new Response(listXml(), { status: 200 }));
+        if (prefix !== '.claude/extensions/') return Promise.resolve(new Response(listXml(), { status: 200 }));
         page += 1;
         if (page === 1) {
           return Promise.resolve(
@@ -574,9 +574,9 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
     // The per-prefix page guard cannot see this: neither prefix trips it. The
     // cross-prefix check after the merge is the only remaining bound on total
     // HEAD and DELETE subrequests.
-    const skills = Array.from({ length: 150 }, (_, i) => `.claude/skills/s${i}/SKILL.md`);
-    const rules = Array.from({ length: 150 }, (_, i) => `.claude/rules/r${i}.md`);
-    const all = [...skills, ...rules];
+    const extensions = Array.from({ length: 150 }, (_, i) => `.claude/extensions/s${i}/index.ts`);
+    const plugins = Array.from({ length: 150 }, (_, i) => `.claude/plugins/p${i}/index.js`);
+    const all = [...extensions, ...plugins];
     mockR2({ listed: all, markers: Object.fromEntries(all.map((k) => [k, 'an-older-build'])) });
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');
@@ -590,7 +590,7 @@ describe('deleteNonModeConfigs stale-marker sweep', () => {
   it('skips the sweep and warns when the candidate set is implausibly large', async () => {
     // The caller has already spent a PUT per live key in this request, so an
     // unbounded fan-out is what would hit the subrequest ceiling.
-    const many = Array.from({ length: 250 }, (_, i) => `.claude/skills/x${i}/SKILL.md`);
+    const many = Array.from({ length: 250 }, (_, i) => `.claude/extensions/x${i}/index.ts`);
     mockR2({ listed: many, markers: Object.fromEntries(many.map((k) => [k, 'an-older-build'])) });
 
     const result = await deleteNonModeConfigs(env, bucket, endpoint, 'advanced');

@@ -1,65 +1,85 @@
 ---
 name: design
-description: "Route visual work by purpose and delivery platform to one canonical art-direction owner plus the smallest orthogonal specialist set. Use for web, native mobile, desktop-native, static, operational, and ambiguous visual requests. Exclude API or backend design, prose, and non-visual engineering."
+description: "Route visual work by work mode, purpose, platform, and available direction to exactly one art-direction owner. Use for web, native mobile, desktop-native, static, operational, and ambiguous visual requests. Exclude backend, API, data, prose-only, and non-visual engineering work."
 ---
 
 # Design router
 
-Classify, dispatch, and stop. Do not repeat specialist methodology.
+Classify, dispatch, and stop. Do not perform owner methodology here.
 
-## Classify on two independent axes
+## Classify the request
 
-Choose one work mode: **greenfield**, **full redesign**, **incremental redesign**, **polish**, or **audit**.
+Choose one **work mode**: greenfield, full redesign, incremental redesign, polish, or audit.
 
-Choose one purpose:
+Choose one primary **purpose**:
 
-- **Persuade:** marketing, launch, conversion, campaign, portfolio.
-- **Operate:** dashboards, consoles, internal tools, workflows.
-- **Read:** documentation, editorial, knowledge, reports.
-- **Experience:** immersive, expressive, storytelling, experimental.
+- **Persuade:** help an audience understand, trust, decide, or act.
+- **Operate:** help a person monitor, decide, control, or recover.
+- **Read:** help a person navigate and understand sustained content.
+- **Experience:** make interaction, narrative, or expression the product.
 
-Choose one delivery platform:
+Choose one **platform**: responsive web content, web product, native iOS, native Android, cross-platform native mobile, desktop-native, or static/fixed artifact.
 
-- **Responsive web content or marketing**
-- **Web product or application**
-- **Native iOS**
-- **Native Android**
-- **Cross-platform native mobile**
-- **Desktop-native application**
-- **Static or canvas artifact**
+Choose one **input state**:
 
-Purpose controls hierarchy, density, emotional intent, and success criteria. Platform controls interaction, navigation, accessibility, lifecycle, and implementation constraints. Never treat native mobile as responsive web at a smaller width.
+- Requirements are complete: preserve them and proceed.
+- Examples or direction exist: infer the system behind them; do not copy surfaces.
+- Material decisions are missing: inspect first, then ask one focused batch whose answers change the result.
+- Direction is delegated: choose from product evidence and state only consequential assumptions.
 
-Examples include Persuade + Native iOS for onboarding, Operate + Web application for a security console, Experience + Responsive web for an immersive campaign, and Persuade + Static or canvas for an event poster.
+Purpose controls hierarchy, density, emotional intent, and success. Platform controls behavior, input, navigation, accessibility, lifecycle, and implementation. Work mode controls how much incumbent direction may change.
 
-## Dispatch one art-direction owner
+## Dispatch exactly one owner
 
-| Platform and request | Canonical authority | Add only when needed |
+| Request | Art-direction owner | Boundary |
 |---|---|---|
-| Responsive web or web product creation, redesign, or thesis-changing polish | `frontend-design` | Operational information design, component implementation, accessibility, motion, framework engineering, or final critique |
-| Native iOS, native Android, or cross-platform native mobile | `native-mobile-design` | Component, accessibility, or motion implementation after native direction exists |
-| Poster, cover, artwork, or fixed canvas | `canvas-design` | No frontend or native owner unless artifact also contains an interface |
-| Desktop-native application | Use an installed desktop-native specialist | If absent, state the capability gap and ask before selecting a substitute |
-| Existing-interface audit or bounded finishing inside an established direction | Incumbent product direction | `impeccable` as audit or finishing owner where installed; otherwise use the platform authority as fallback |
-| Backend, infrastructure, data, prose, or non-visual refactor | No design skill | Use the relevant non-design owner |
+| Responsive web or web product creation, redesign, or thesis-changing refinement | `frontend-design` | Includes Persuade, Operate, Read, and Experience |
+| Native iOS, Android, or cross-platform mobile | `native-mobile-design` | Shared identity; platform-correct behavior |
+| macOS, Windows, Linux, or cross-platform desktop-native product | `desktop-native-design` | Desktop behavior, not wide responsive web |
+| Standalone poster, cover, graphic, artwork, or fixed production artifact | `canvas-design` | Select communication or expressive lane |
+| Bounded polish or audit of an established interface | Incumbent product direction | Impeccable may critique or finish without replacing thesis |
+| Backend, API, infrastructure, data, prose-only, or non-visual refactor | No design owner | Use the relevant engineering or writing owner |
 
-For “make this look better,” inspect first. Route thesis, hierarchy, composition, or visual-language changes to the platform authority. For bounded correction, preserve the incumbent thesis and route execution to `impeccable` where installed; critique and finishing never become replacement art direction. Honor explicit specialist invocation unless the artifact belongs elsewhere. `design-taste-frontend` redirects to `frontend-design`; never load both.
+For “make this better,” inspect first. Route thesis, hierarchy, composition, or visual-language changes to the platform owner. Preserve incumbent direction for bounded correction.
 
-## Compose orthogonal specialists only
+An explicit specialist command is a user override for that bounded command. It does not grant authority over unrelated art direction. `design-taste-frontend` is a compatibility redirect to `frontend-design`; never load both as owners.
 
-Select exactly one canonical art-direction authority. Add specialists only for operational information architecture, platform-native behavior, component-system implementation, accessibility, complex motion, static composition, framework engineering, or final critique.
+## Handle mixed artifacts
 
-A component specialist cannot redefine art direction. An animation specialist implements the selected motion language rather than inventing one. A platform specialist may impose genuine behavior and accessibility constraints without erasing product identity. Never stack taste presets.
+Classify each deliverable separately. A web product and its downloadable poster have different owners. A static screenshot of UI remains an interface task. Interactive canvas or WebGL remains web. An illustration, texture, or hero asset created for an existing interface is delegated work: `canvas-design` inherits the platform owner’s thesis and cannot invent another one.
 
-For repeated component structure, use `frontend-components`. For React or Next.js performance, use `frontend-patterns`. For focused interaction craft after direction exists, use `emil-design-eng`. For operational web surfaces, the frontend authority loads its dashboard reference before selecting components.
+Non-visual specialists may work without any art-direction owner. A React performance request with no visual change may use `frontend-patterns` directly.
 
-When an external skill, registry, preset, MCP server, or executable package command may be used, read [references/external-dependencies.md](references/external-dependencies.md) before adoption. Missing optional registries, MCP capabilities, or specialists do not block the owning workflow.
+## Add only orthogonal specialists
 
-## Execute
+Select the smallest useful set after the owner establishes direction:
 
-1. Inspect enough project context to classify mode, purpose, and platform.
-2. Select one authority and only necessary orthogonal specialists.
-3. Load detailed guidance progressively after routing.
-4. Resolve conflicts by user constraints, product truth and behavior, accessibility, platform commitments, incumbent contracts, selected thesis, then specialist preference.
+- `frontend-components` for repeated component structure and bounded state ownership;
+- `frontend-patterns` for measured React or Next.js performance work;
+- `motion-design` for motion, continuity, gesture, or direct-manipulation engineering;
+- `impeccable` for explicit commands, audit, hardening, critique, or bounded finishing.
 
-Never claim rendering, research, package inspection, registry access, installation, or delegated review unless that capability was available and used.
+A specialist cannot choose a competing palette, typography, geometry, imagery system, or motion character. Component libraries, registries, presets, datasets, and generated recommendations provide material or evidence, never art direction.
+
+## Resolve truth and conflicts
+
+Use this order:
+
+1. current user brief and non-negotiable constraints;
+2. product truth, required behavior, accessibility, and platform commitments;
+3. incumbent implementation and confirmed project design contract;
+4. selected owner’s direction for this work mode;
+5. research evidence;
+6. specialist preference.
+
+An established product remains established without a formal design file. `DESIGN.md`, sidecars, and surface briefs may record decisions; generated research cannot silently replace them.
+
+## Execute honestly
+
+1. Inspect enough project evidence to classify request and avoid repeated questions.
+2. Select one owner and only necessary specialists.
+3. Load detailed references progressively.
+4. State material assumptions or ask one focused batch when foundational choices remain unresolved.
+5. Verify with available capabilities and report unavailable rendering, browsing, simulation, measurement, or review plainly.
+
+For external skills, registries, packages, assets, fonts, MCP servers, or executable commands, read [references/external-dependencies.md](references/external-dependencies.md) first. Missing optional capabilities never block the owning design workflow.

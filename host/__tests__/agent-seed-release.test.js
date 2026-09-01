@@ -16,19 +16,19 @@ function compiledSeed(overrides = {}) {
   return {
     documents: [
       {
-        key: '.pi/agent/skills/zeta/SKILL.md',
+        key: '.pi/agent/extensions/zeta.ts',
         contentType: 'text/markdown; charset=utf-8',
         content: 'zeta\n',
         modes: ['advanced'],
       },
       {
-        key: '.claude/AGENTS.md',
+        key: '.claude/settings.json',
         contentType: 'text/markdown; charset=utf-8',
         content: 'shared\n',
         modes: ['advanced', 'default'],
       },
     ],
-    retiredKeys: ['.pi/agent/skills/old/SKILL.md'],
+    retiredKeys: ['.pi/agent/extensions/old.ts'],
     preseedHash: '0123456789abcdef',
     runtimeHash: HASH_64,
     ...overrides,
@@ -80,8 +80,8 @@ describe('REQ-AGENT-147 AC3: fixed managed seed release contract', () => {
     assert.deepEqual(
       release.documents.map(({ key, modes }) => `${key}:${modes.join(',')}`),
       [
-        '.claude/AGENTS.md:advanced,default',
-        '.pi/agent/skills/zeta/SKILL.md:advanced',
+        '.claude/settings.json:advanced,default',
+        '.pi/agent/extensions/zeta.ts:advanced',
       ],
     );
     assert.deepEqual(release, {
@@ -95,7 +95,7 @@ describe('REQ-AGENT-147 AC3: fixed managed seed release contract', () => {
       },
       runtimeDependencyHash: HASH_64,
       documents: release.documents,
-      retiredPaths: ['.pi/agent/skills/old/SKILL.md'],
+      retiredPaths: ['.pi/agent/extensions/old.ts'],
       managedExtensions: [],
     });
   });
@@ -104,14 +104,14 @@ describe('REQ-AGENT-147 AC3: fixed managed seed release contract', () => {
     const { buildAgentSeedRelease } = await import(releaseUrl);
     const release = await buildAgentSeedRelease(releaseOptions(compiledSeed({
       retiredKeys: [
-        '.agents/skills/legacy/SKILL.md',
+        '.agents/config/legacy.md',
         '.claude/plugins/context-mode/hooks.json',
         '.pi/agent/extensions/review-jobs.ts',
       ],
     })));
 
     assert.deepEqual(release.retiredPaths, [
-      '.agents/skills/legacy/SKILL.md',
+      '.agents/config/legacy.md',
       '.pi/agent/extensions/review-jobs.ts',
     ]);
   });

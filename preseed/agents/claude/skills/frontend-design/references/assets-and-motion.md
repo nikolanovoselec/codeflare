@@ -20,7 +20,7 @@ Prefer transparent assets, alpha channels, masks, SVG, deliberately graded media
 
 ## Build loops as assets first
 
-Do not reverse ordinary video by continuously seeking `currentTime`. Repeated seeking can damage decoding, frame pacing, CPU use, and memory behavior.
+Do not reverse ordinary video by continuously seeking `currentTime`. Repeated seeking can cause seek/decode churn, stalls, frame drops, and unnecessary CPU or memory cost.
 
 Preferred order:
 

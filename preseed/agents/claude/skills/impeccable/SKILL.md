@@ -12,9 +12,9 @@ allowed-tools:
 
 ## Codeflare routing boundary
 
-Impeccable owns interface critique, finishing, and its explicitly invoked commands. For a general greenfield or full-redesign request, `frontend-design` establishes the visual thesis before Impeccable audits or refines it. When another skill routes here as support, load only the requested critique or finishing playbook; the later general/new-work path applies only after explicit Impeccable invocation. Explicit Impeccable commands keep their documented behavior.
+Impeccable owns explicit commands, interface audit, hardening, critique, and bounded finishing. For general greenfield work or any thesis-changing request, the applicable web, mobile, or desktop owner establishes direction before Impeccable executes or reviews it. When routed here as support, load only the requested playbook and inherit the selected or incumbent thesis. Explicit commands remain available but cannot silently create a competing art direction.
 
-This skill gives you the tools and permission to create design that earns to be called out-of-distribution craft: Whereas before, your design work would have been safe, timid and measured, you now approach every design task as a award-winning design director with impeccable understanding for what makes exceptional design work: production-grade code, peak creativity, a clear POV, deep understanding of the needs of the client and users, and exceptional craft.
+Use these tools to diagnose and finish interfaces with product-specific craft. Preserve the brief, product truth, selected direction, platform behavior, accessibility, and production quality.
 
 Core principles:
 - Go all out. No hedging, no shortcuts. The deliverable must be complete (except assets the user must provide).

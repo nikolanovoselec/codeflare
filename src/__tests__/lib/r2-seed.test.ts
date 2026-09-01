@@ -24,15 +24,15 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
       ],
       agentDocs: [
         {
-          key: '.claude/rules/cloudflare-environment.md',
+          key: '.claude/extensions/cloudflare-environment.md',
           contentType: 'text/markdown; charset=utf-8',
           content: '# Environment Rules',
           modes: ['default', 'advanced'],
         },
         {
-          key: '.claude/skills/ship/SKILL.md',
+          key: '.claude/extensions/ship/index.ts',
           contentType: 'text/markdown; charset=utf-8',
-          content: '# Ship Skill',
+          content: '// ship extension',
           modes: ['default', 'advanced'],
         },
       ],
@@ -191,15 +191,15 @@ describe('seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on sta
     vi.clearAllMocks();
     testState.agentDocs = [
       {
-        key: '.claude/rules/cloudflare-environment.md',
+        key: '.claude/extensions/cloudflare-environment.md',
         contentType: 'text/markdown; charset=utf-8',
         content: '# Environment Rules',
         modes: ['default', 'advanced'],
       },
       {
-        key: '.claude/skills/ship/SKILL.md',
+        key: '.claude/extensions/ship/index.ts',
         contentType: 'text/markdown; charset=utf-8',
-        content: '# Ship Skill',
+        content: '// ship extension',
         modes: ['default', 'advanced'],
       },
     ];
@@ -218,8 +218,8 @@ describe('seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on sta
       { overwrite: false }
     );
 
-    expect(result.written).toEqual(['.claude/skills/ship/SKILL.md']);
-    expect(result.skipped).toEqual(['.claude/rules/cloudflare-environment.md']);
+    expect(result.written).toEqual(['.claude/extensions/ship/index.ts']);
+    expect(result.skipped).toEqual(['.claude/extensions/cloudflare-environment.md']);
 
     const calls = mockFetch.mock.calls.map((call) => ({
       url: call[0] as string,
@@ -228,15 +228,15 @@ describe('seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on sta
 
     expect(calls).toEqual([
       {
-        url: 'https://test.r2.cloudflarestorage.com/test-bucket/.claude/rules/cloudflare-environment.md',
+        url: 'https://test.r2.cloudflarestorage.com/test-bucket/.claude/extensions/cloudflare-environment.md',
         method: 'HEAD',
       },
       {
-        url: 'https://test.r2.cloudflarestorage.com/test-bucket/.claude/skills/ship/SKILL.md',
+        url: 'https://test.r2.cloudflarestorage.com/test-bucket/.claude/extensions/ship/index.ts',
         method: 'HEAD',
       },
       {
-        url: 'https://test.r2.cloudflarestorage.com/test-bucket/.claude/skills/ship/SKILL.md',
+        url: 'https://test.r2.cloudflarestorage.com/test-bucket/.claude/extensions/ship/index.ts',
         method: 'PUT',
       },
     ]);
@@ -255,8 +255,8 @@ describe('seedAgentConfigs / REQ-AGENT-008 (preseed deployed to container on sta
     );
 
     expect(result.written).toEqual([
-      '.claude/rules/cloudflare-environment.md',
-      '.claude/skills/ship/SKILL.md',
+      '.claude/extensions/cloudflare-environment.md',
+      '.claude/extensions/ship/index.ts',
     ]);
     expect(result.skipped).toEqual([]);
     expect(mockFetch).toHaveBeenCalledTimes(2);

@@ -1,22 +1,32 @@
 {
-  "SYSTEM.md": {
+  "agents/ci-monitor.md": {
     "modes": [
       "default",
       "advanced"
     ]
   },
-  "extensions/codeflare-pi.ts": {
+  "agents/code-reviewer.md": {
     "modes": [
       "advanced"
     ]
   },
-  "extensions/review-completion-state.ts": {
+  "agents/doc-updater.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/Explore.md": {
     "modes": [
       "default",
       "advanced"
     ]
   },
-  "extensions/inline-edit.ts": {
+  "agents/memory-capture.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/spec-reviewer.md": {
     "modes": [
       "advanced"
     ]
@@ -27,31 +37,13 @@
       "advanced"
     ]
   },
-  "extensions/native-notifications.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "rules/git-workflow.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "rules/engineering-constitution.md": {
+  "extensions/browser-run-helpers.ts": {
     "modes": [
       "advanced"
     ]
   },
-  "rules/design-routing.md": {
+  "extensions/browser-run.ts": {
     "modes": [
-      "advanced"
-    ]
-  },
-  "extensions/capability.ts": {
-    "modes": [
-      "default",
       "advanced"
     ]
   },
@@ -61,13 +53,28 @@
       "advanced"
     ]
   },
-  "extensions/zz-tool-exposure-finalizer.ts": {
+  "extensions/capability.ts": {
     "modes": [
       "default",
       "advanced"
     ]
   },
-  "extensions/subagent-resume-guard.ts": {
+  "extensions/codeflare-commands.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/codeflare-pi.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/commands-helpers.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/context-mode-runtime.ts": {
     "modes": [
       "default",
       "advanced"
@@ -79,67 +86,7 @@
       "advanced"
     ]
   },
-  "extensions/browser-run.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "extensions/browser-run-helpers.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/browser-run/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/browser-e2e/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/herdr/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "extensions/startup-header.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "extensions/local-statusline.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "extensions/context-mode-runtime.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "extensions/codeflare-commands.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "extensions/guard-helpers.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "extensions/commands-helpers.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "package.json": {
+  "extensions/graphify-helpers.ts": {
     "modes": [
       "default",
       "advanced"
@@ -151,60 +98,24 @@
       "advanced"
     ]
   },
-  "agents/Explore.md": {
+  "extensions/guard-helpers.ts": {
     "modes": [
       "default",
       "advanced"
     ]
   },
-  "agents/code-reviewer.md": {
+  "extensions/inline-edit.ts": {
     "modes": [
       "advanced"
     ]
   },
-  "agents/spec-reviewer.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "agents/doc-updater.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "agents/ci-monitor.md": {
+  "extensions/local-statusline.ts": {
     "modes": [
       "default",
       "advanced"
     ]
   },
-  "agents/memory-capture.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "extensions/graphify-helpers.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "extensions/sdd-helpers.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "extensions/memory-vault.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "extensions/memory-vault-helpers.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "extensions/vault-manifest-fs.ts": {
+  "extensions/memory-inject-helpers.ts": {
     "modes": [
       "advanced"
     ]
@@ -214,7 +125,23 @@
       "advanced"
     ]
   },
-  "extensions/memory-inject-helpers.ts": {
+  "extensions/memory-vault-helpers.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/memory-vault.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/native-notifications.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "extensions/post-compaction-recall-helpers.ts": {
     "modes": [
       "advanced"
     ]
@@ -224,162 +151,14 @@
       "advanced"
     ]
   },
-  "extensions/post-compaction-recall-helpers.ts": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/graphify/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/graphify/references/build.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/graphify/references/labels.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/graphify/references/query.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/git-review-pipeline/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/review-scope/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ci-monitoring/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/ci-monitoring/scripts/monitor-ci.mjs": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/pr-workflow/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/review/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/review/scripts/resolve-project-root.mjs": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/rpiv-ask-user-question/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/rpiv-todo/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/advisor/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/pi-web-access/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/librarian/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/pi-mcp-adapter/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/consult-llm/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "scripts/safe-graphify-update.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "scripts/build-graphify-ast.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "scripts/build-graphify-architecture.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "scripts/local-graphify-labels.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "scripts/merge-vault-graph.py": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "scripts/build-memory-graph.py": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "prompts/memory-agent-prompt.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "prompts/vault-extract-prompt.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "extensions/review-command.ts": {
     "modes": [
       "advanced"
     ]
   },
-  "extensions/review-tool-guard.ts": {
+  "extensions/review-completion-state.ts": {
     "modes": [
-      "advanced"
-    ]
-  },
-  "extensions/sidebar-approval.ts": {
-    "modes": [
+      "default",
       "advanced"
     ]
   },
@@ -401,19 +180,173 @@
       "advanced"
     ]
   },
+  "extensions/review-tool-guard.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/sdd-helpers.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/sidebar-approval.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/startup-header.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "extensions/subagent-resume-guard.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "extensions/vault-manifest-fs.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/zz-tool-exposure-finalizer.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "package-lock.json": {
     "modes": [
       "default",
       "advanced"
     ]
   },
-  "skills/frontend-components/SKILL.md": {
+  "package.json": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "prompts/memory-agent-prompt.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/impeccable/SKILL.md": {
+  "prompts/vault-extract-prompt.md": {
     "modes": [
+      "advanced"
+    ]
+  },
+  "rules/design-routing.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/engineering-constitution.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/git-workflow.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "scripts/build-graphify-architecture.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "scripts/build-graphify-ast.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "scripts/build-memory-graph.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "scripts/local-graphify-labels.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "scripts/merge-vault-graph.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "scripts/safe-graphify-update.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/advisor/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/browser-e2e/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/browser-run/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ci-monitoring/scripts/monitor-ci.mjs": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/ci-monitoring/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/consult-llm/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/git-review-pipeline/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/graphify/references/build.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/graphify/references/labels.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/graphify/references/query.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/graphify/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/herdr/SKILL.md": {
+    "modes": [
+      "default",
       "advanced"
     ]
   },
@@ -1149,6 +1082,68 @@
   },
   "skills/impeccable/scripts/surface-brief.mjs": {
     "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/librarian/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/pi-mcp-adapter/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/pi-web-access/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/pr-workflow/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/review-scope/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/review/scripts/resolve-project-root.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/review/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/rpiv-ask-user-question/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/rpiv-todo/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "SYSTEM.md": {
+    "modes": [
+      "default",
       "advanced"
     ]
   }

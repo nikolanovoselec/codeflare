@@ -16,14 +16,14 @@ Account for:
 - safe areas, status and navigation system UI, cutouts, home indicators, and edge-to-edge content;
 - thumb reach, touch targets, touch feedback, haptics, and gesture discoverability;
 - software keyboard appearance, input avoidance, validation, autofill, and focus restoration;
-- dynamic type or font scaling, screen readers, contrast, reduced motion, and switch or keyboard access where applicable;
+- Dynamic Type or font scaling, localization, text expansion, bidirectional text, screen readers, contrast, reduced motion, high contrast, and switch or keyboard access where applicable;
 - orientation, window-size changes, tablets, split view, foldables, and resizable app windows;
 - permission requests with clear timing, rationale, denial, limited access, and settings recovery;
 - offline, high-latency, stale, partial, and conflicting data;
 - background, interruption, termination, restoration, task resumption, and platform lifecycle;
 - native transitions that preserve spatial and navigation understanding.
 
-Do not hide essential behavior behind an undiscoverable gesture. Do not assume a phone is always portrait, online, one-handed, or uninterrupted.
+Do not hide essential behavior behind an undiscoverable gesture. Do not assume a phone is always portrait, online, one-handed, or uninterrupted. Keep units and standards distinct: iOS points, Android density-independent pixels, CSS pixels, and WCAG criteria are not interchangeable.
 
 ## Choose cross-platform compromises deliberately
 
@@ -37,4 +37,4 @@ Adapt information hierarchy and interaction to available window size. Tablets an
 
 ## Validate interruption and recovery
 
-Exercise cold start, warm resume, deep-link entry, permission denial, offline start, network loss during action, keyboard-open navigation, orientation change, background during pending work, destructive confirmation, failed optimistic action, and restored state. Verify platform back behavior and assistive technology independently on iOS and Android.
+Exercise cold start, warm resume, deep-link entry, permission denial and settings recovery, offline start, network loss during action, keyboard-open navigation, orientation or window change, background during pending work, process recreation or termination, destructive confirmation, failed optimistic action, and restored state. Verify platform back behavior and assistive technology independently on iOS and Android.

@@ -18,19 +18,20 @@ Registry material must fit the framework, styling and tokens, accessibility, bun
 
 ## Extract only real repetition
 
-- Extract a structure when it appears more than twice. Keep a true one-off inline instead of inventing speculative abstraction.
-- One component owns each repeated structure. Specialized forms share a stable shell and compose their distinct body.
-- Pages compose sections and features; they do not duplicate the implementation of cards, navigation, section headers, dialogs, tables, or repeated chrome.
-- A change to repeated behavior must require one implementation edit.
+Repeated use is evidence, not a numeric law. Extract when semantic ownership, change coupling, interaction or state complexity, reuse, testability, or maintenance becomes clearer. Keep a true one-off inline instead of inventing speculative abstraction.
+
+- One component owns each genuinely repeated behavior or structure. Specialized forms may share a stable shell and compose distinct bodies.
+- Pages compose sections and features; they should not duplicate established cards, navigation, section headers, dialogs, tables, or repeated chrome.
+- A change to shared behavior should require one implementation edit.
 
 Do not use file length alone as the reason to split a component. Split where ownership, reuse, state, loading boundaries, or testing contracts become clearer.
 
 ## Separate structure, content, and style
 
 - **Structure** belongs in components: typed inputs, semantic markup, behavior, and slots.
-- **Content** belongs in typed data or the owning domain module when several instances share the same shape. Components should not embed repeated product copy.
+- **Content** belongs in structured or validated data, or the owning domain module, when several instances share the same shape. Stable one-off copy may remain with its owner.
 - **Style** belongs to the project's single established styling convention and shared design tokens.
-- Components consume tokens rather than hardcoding repeated brand colors, spacing, type scales, radii, or motion curves.
+- Components consume shared tokens for values whose consistency, theming, reuse, or coordinated tuning matters. A justified one-off value need not become a global token.
 
 The practical test is simple: changing a repeated value or behavior everywhere should require one edit.
 
@@ -64,7 +65,7 @@ Do not put all application state in one provider. Ownership follows the smallest
 
 A componentization refactor is structural unless the user requested behavior changes.
 
-- Preserve semantic elements, accessibility relationships, public props, event ordering, class hooks, and state transitions.
+- Preserve semantics, accessibility relationships, public behavior, event ordering, state transitions, and meaningful integration hooks. DOM shape may improve when authorized and behavior remains correct.
 - Keep immutable updates; do not mutate caller-owned arrays or objects.
 - Separate refactoring from new behavior so regression evidence identifies the causal change.
 - Add no fallback, variant, setting, or recovery state that the existing contract does not require.
@@ -88,7 +89,7 @@ Do not substitute source-text, prompt-text, class-string, or UI-copy matching fo
 
 Before completion, verify:
 
-1. Structures used more than twice have one owner.
+1. Genuinely shared structures and behavior have one owner.
 2. Content and repeated style values have one source of truth.
 3. APIs use explicit variants or composition instead of conflicting flags.
 4. Shared state has one bounded owner and a narrow consumer interface.

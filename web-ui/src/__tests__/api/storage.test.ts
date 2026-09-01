@@ -327,7 +327,7 @@ describe('Storage API Client', () => {
         mockResponse({
           success: true,
           bucketCreated: false,
-          written: ['.claude/rules/cloudflare-environment.md', '.claude/skills/ship/SKILL.md'],
+          written: ['.claude/extensions/cloudflare-environment.md', '.claude/extensions/ship/index.ts'],
           skipped: [],
         })
       );
@@ -345,9 +345,9 @@ describe('Storage API Client', () => {
         mockResponse({
           success: true,
           bucketCreated: false,
-          written: ['.claude/rules/cloudflare-environment.md'],
+          written: ['.claude/extensions/cloudflare-environment.md'],
           skipped: [],
-          deleted: ['.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json', '.claude/skills/consult-llm/SKILL.md'],
+          deleted: ['.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json', '.claude/extensions/consult-llm/index.ts'],
           warnings: [],
         })
       );

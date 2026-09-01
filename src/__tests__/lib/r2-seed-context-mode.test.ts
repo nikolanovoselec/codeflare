@@ -17,7 +17,7 @@ const { mockFetch, mockCreateR2Client, mockGetR2Url, testState } = vi.hoisted(()
       //   - context-mode README (advanced, IS context-mode)
       agentDocs: [
         {
-          key: '.claude/rules/common.md',
+          key: '.claude/extensions/common.md',
           contentType: 'text/markdown; charset=utf-8',
           content: '# Common',
           modes: ['default', 'advanced'] as ('default' | 'advanced')[],
@@ -89,7 +89,7 @@ describe('getConfigsForMode tier gating', () => {
     expect(keys).toContain('.claude/plugins/context-mode/.claude-plugin/plugin.json');
     expect(keys).toContain('.claude/plugins/context-mode/README.md');
     expect(keys).toContain('.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json');
-    expect(keys).toContain('.claude/rules/common.md');
+    expect(keys).toContain('.claude/extensions/common.md');
     expect(docs).toHaveLength(4);
   });
 
@@ -100,7 +100,7 @@ describe('getConfigsForMode tier gating', () => {
     expect(keys).not.toContain('.claude/plugins/context-mode/README.md');
     // Non-context-mode advanced files still present:
     expect(keys).toContain('.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json');
-    expect(keys).toContain('.claude/rules/common.md');
+    expect(keys).toContain('.claude/extensions/common.md');
     expect(docs).toHaveLength(2);
   });
 
@@ -108,8 +108,8 @@ describe('getConfigsForMode tier gating', () => {
     const enabled = getConfigsForMode('default', true);
     const disabled = getConfigsForMode('default', false);
     // No context-mode files in default mode regardless - they are advanced-only
-    expect(enabled.map((d) => d.key)).toEqual(['.claude/rules/common.md']);
-    expect(disabled.map((d) => d.key)).toEqual(['.claude/rules/common.md']);
+    expect(enabled.map((d) => d.key)).toEqual(['.claude/extensions/common.md']);
+    expect(disabled.map((d) => d.key)).toEqual(['.claude/extensions/common.md']);
   });
 
   it('default contextModeEnabled is false (fail-closed: callers must opt in to ship the gated subtree)', () => {
@@ -132,7 +132,7 @@ describe('getPreseedKeysNotInMode tier gating', () => {
     expect(keys).toContain('.claude/plugins/context-mode/README.md');
     // Non-context-mode advanced files NOT flagged for cleanup:
     expect(keys).not.toContain('.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json');
-    expect(keys).not.toContain('.claude/rules/common.md');
+    expect(keys).not.toContain('.claude/extensions/common.md');
   });
 
   it('contextModeEnabled=true in advanced mode returns empty (everything is in scope)', () => {
@@ -155,7 +155,7 @@ describe('reconcileAgentConfigs tier gating', () => {
     });
 
     expect(result.written).toHaveLength(2);
-    expect(result.written).toContain('.claude/rules/common.md');
+    expect(result.written).toContain('.claude/extensions/common.md');
     expect(result.written).toContain('.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json');
     expect(result.written).not.toContain('.claude/plugins/context-mode/.claude-plugin/plugin.json');
   });
@@ -199,7 +199,7 @@ describe('reconcileAgentConfigs tier gating', () => {
       cleanup: false,
       contextModeEnabled: true,
     });
-    expect(enabled.written).toEqual(['.claude/rules/common.md']);
+    expect(enabled.written).toEqual(['.claude/extensions/common.md']);
 
     vi.clearAllMocks();
     mockFetch.mockResolvedValue(new Response('', { status: 200 }));
@@ -208,7 +208,7 @@ describe('reconcileAgentConfigs tier gating', () => {
       cleanup: false,
       contextModeEnabled: false,
     });
-    expect(disabled.written).toEqual(['.claude/rules/common.md']);
+    expect(disabled.written).toEqual(['.claude/extensions/common.md']);
   });
 });
 

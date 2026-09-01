@@ -1,14 +1,4 @@
 {
-  "skills/browser-run/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/browser-e2e/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "agents/architect.md": {
     "modes": [
       "advanced"
@@ -19,23 +9,13 @@
       "advanced"
     ]
   },
-  "agents/code-reviewer.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "agents/ci-monitor.md": {
     "modes": [
       "default",
       "advanced"
     ]
   },
-  "agents/memory-capture.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "agents/vault-extract.md": {
+  "agents/code-reviewer.md": {
     "modes": [
       "advanced"
     ]
@@ -46,6 +26,11 @@
     ]
   },
   "agents/doc-updater.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "agents/memory-capture.md": {
     "modes": [
       "advanced"
     ]
@@ -70,7 +55,22 @@
       "advanced"
     ]
   },
+  "agents/vault-extract.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "commands/brainstorm.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "commands/cloudflare-build-agent.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "commands/cloudflare-build-mcp.md": {
     "modes": [
       "advanced"
     ]
@@ -120,17 +120,7 @@
       "advanced"
     ]
   },
-  "plugins/codeflare-hooks/scripts/run-review-lane.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "plugins/codeflare-hooks/scripts/lib/boundary-classifier.cjs": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs": {
     "modes": [
       "advanced"
     ]
@@ -150,7 +140,22 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-hooks/scripts/run-review-lane.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-memory/.claude-plugin/plugin.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-memory/scripts/assert-iso-ts.sh": {
     "modes": [
       "advanced"
     ]
@@ -170,26 +175,6 @@
       "advanced"
     ]
   },
-  "plugins/codeflare-memory/scripts/run-memory-capture.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-memory/scripts/publish-memory-capture.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-memory/scripts/prefilter-transcript.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-memory/scripts/assert-iso-ts.sh": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "plugins/codeflare-memory/scripts/memory-context-inject.sh": {
     "modes": [
       "advanced"
@@ -200,17 +185,22 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-memory/scripts/prefilter-transcript.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-memory/scripts/publish-memory-capture.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-memory/scripts/run-memory-capture.sh": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-vault/.claude-plugin/plugin.json": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-vault/scripts/vault-extract-prompt.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "plugins/codeflare-vault/scripts/vault-monitor-hook.sh": {
     "modes": [
       "advanced"
     ]
@@ -220,7 +210,17 @@
       "advanced"
     ]
   },
+  "plugins/codeflare-vault/scripts/vault-extract-prompt.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "plugins/codeflare-vault/scripts/vault-manifest.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "plugins/codeflare-vault/scripts/vault-monitor-hook.sh": {
     "modes": [
       "advanced"
     ]
@@ -287,6 +287,16 @@
   "rules/cloudflare-environment.md": {
     "modes": [
       "default",
+      "advanced"
+    ]
+  },
+  "rules/cloudflare-workers.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/design-routing.md": {
+    "modes": [
       "advanced"
     ]
   },
@@ -417,6 +427,116 @@
       "advanced"
     ]
   },
+  "skills/_licenses/anthropic-skills-Apache-2.0.txt": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/_licenses/vercel-agent-skills-MIT.txt": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/browse-the-web.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/callable.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/client-sdk.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/codemode.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/configuration.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/durable-execution.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/email.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/human-in-the-loop.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/mcp.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/observability.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/queue-retries.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/routing.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/server-driven-messages.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/state-scheduling.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/streaming-chat.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/think.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/voice.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/webhooks-push.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/references/workflows.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/agents-sdk/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/api-design/SKILL.md": {
     "modes": [
       "advanced"
@@ -427,9 +547,28 @@
       "advanced"
     ]
   },
-  "skills/ci-monitoring/SKILL.md": {
+  "skills/browser-e2e/SKILL.md": {
     "modes": [
-      "default",
+      "advanced"
+    ]
+  },
+  "skills/browser-run/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/canvas-design/references/communication-production.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/canvas-design/references/expressive-art.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/canvas-design/SKILL.md": {
+    "modes": [
       "advanced"
     ]
   },
@@ -439,9 +578,70 @@
       "advanced"
     ]
   },
+  "skills/ci-monitoring/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-email-service/references/cli-and-mcp.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-email-service/references/deliverability.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-email-service/references/rest-api.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-email-service/references/routing.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-email-service/references/sending.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-email-service/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-one-migrations/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare-one/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/cloudflare-stack/SKILL.md": {
     "modes": [
       "default",
+      "advanced"
+    ]
+  },
+  "skills/cloudflare/LICENSE": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/cloudflare/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/code-review-checklist/SKILL.md": {
+    "modes": [
       "advanced"
     ]
   },
@@ -471,17 +671,42 @@
       "advanced"
     ]
   },
+  "skills/design-taste-frontend/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/design/references/external-dependencies.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/design/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/desktop-native-design/references/platform-behavior.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/desktop-native-design/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/doc-enforce-lanes/SKILL.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/doc-enforce-shape/SKILL.md": {
+  "skills/doc-enforce-shape/scripts/check-shape.mjs": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/doc-enforce-shape/scripts/check-shape.mjs": {
+  "skills/doc-enforce-shape/SKILL.md": {
     "modes": [
       "advanced"
     ]
@@ -496,35 +721,87 @@
       "advanced"
     ]
   },
+  "skills/durable-objects/references/rules.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/durable-objects/references/testing.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/durable-objects/references/workers.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/durable-objects/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-components/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/art-direction.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/assets-and-motion.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/astro-cloudflare.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/complex-motion.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/component-systems.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/new-work.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/operate-and-dashboards.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/redesign.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/references/visual-qa.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-design/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/frontend-patterns/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/git-review-pipeline/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ship/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/ship/references/workflow-templates.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/ship/references/wrangler-templates.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/graphify/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/graphify/references/extraction-spec.md": {
     "modes": [
       "advanced"
     ]
@@ -534,7 +811,7 @@
       "advanced"
     ]
   },
-  "skills/graphify/references/update.md": {
+  "skills/graphify/references/extraction-spec.md": {
     "modes": [
       "advanced"
     ]
@@ -544,220 +821,12 @@
       "advanced"
     ]
   },
-  "skills/iterative-retrieval/SKILL.md": {
+  "skills/graphify/references/update.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/pr-workflow/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/sdd-clean/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/sdd-init/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/sdd-init/references/render-documentation-templates.mjs": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/sdd-init/references/verify-source-anchors.py": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/safe-local-checks/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/safe-local-checks/scripts/safe-local-check.mjs": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/sdd-init/references/verify-enumeration-coverage.py": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/search-first/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-api-reference.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-architecture.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-configuration.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-decisions-readme.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-deployment.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-observability.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-project-lane.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-readme.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/documentation-troubleshooting.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/req-shape-example.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/root-readme.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/sdd-changes.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/sdd-config.yml": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/sdd-constraints.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/sdd-glossary.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-driven-development/references/templates/sdd-readme.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-enforce-ac/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-enforce-truth/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-enforce-truth/references/parse-test-anchors.mjs": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-enforce/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/review-scope/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/review-scope/scripts/lane-evidence.mjs": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/review-scope/scripts/build-review-packet.mjs": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/review-scope/scripts/inert-source-delta.mjs": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-enforce/scripts/round-limit.mjs": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/spec-enforce/scripts/validate-import-triage.mjs": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/tdd-enforce/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/code-review-checklist/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/vault-note-capture/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/vault-operations/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/impeccable/SKILL.md": {
+  "skills/graphify/SKILL.md": {
     "modes": [
       "advanced"
     ]
@@ -1497,207 +1566,90 @@
       "advanced"
     ]
   },
-  "skills/emil-design-eng/SKILL.md": {
+  "skills/impeccable/SKILL.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/design-taste-frontend/SKILL.md": {
+  "skills/iterative-retrieval/SKILL.md": {
     "modes": [
       "advanced"
     ]
   },
-  "commands/cloudflare-build-agent.md": {
+  "skills/motion-design/references/accessibility-performance-validation.md": {
     "modes": [
       "advanced"
     ]
   },
-  "commands/cloudflare-build-mcp.md": {
+  "skills/motion-design/references/gestures-input.md": {
     "modes": [
       "advanced"
     ]
   },
-  "rules/cloudflare-workers.md": {
+  "skills/motion-design/references/motion-decisions.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/agents-sdk/SKILL.md": {
+  "skills/motion-design/references/transitions-continuity.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/agents-sdk/references/browse-the-web.md": {
+  "skills/motion-design/SKILL.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/agents-sdk/references/callable.md": {
+  "skills/native-mobile-design/references/platform-behavior.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/agents-sdk/references/client-sdk.md": {
+  "skills/native-mobile-design/SKILL.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/agents-sdk/references/codemode.md": {
+  "skills/pr-workflow/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/review-scope/scripts/build-review-packet.mjs": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/agents-sdk/references/configuration.md": {
+  "skills/review-scope/scripts/inert-source-delta.mjs": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/agents-sdk/references/durable-execution.md": {
+  "skills/review-scope/scripts/lane-evidence.mjs": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/agents-sdk/references/email.md": {
+  "skills/review-scope/SKILL.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/agents-sdk/references/human-in-the-loop.md": {
+  "skills/safe-local-checks/scripts/safe-local-check.mjs": {
     "modes": [
+      "default",
       "advanced"
     ]
   },
-  "skills/agents-sdk/references/mcp.md": {
+  "skills/safe-local-checks/SKILL.md": {
     "modes": [
-      "advanced"
-    ]
-  },
-  "skills/agents-sdk/references/observability.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/agents-sdk/references/queue-retries.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/agents-sdk/references/routing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/agents-sdk/references/server-driven-messages.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/agents-sdk/references/state-scheduling.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/agents-sdk/references/streaming-chat.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/agents-sdk/references/think.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/agents-sdk/references/voice.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/agents-sdk/references/webhooks-push.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/agents-sdk/references/workflows.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/cloudflare-email-service/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/cloudflare-email-service/references/cli-and-mcp.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/cloudflare-email-service/references/deliverability.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/cloudflare-email-service/references/rest-api.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/cloudflare-email-service/references/routing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/cloudflare-email-service/references/sending.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/cloudflare-one-migrations/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/cloudflare-one/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/cloudflare/LICENSE": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/cloudflare/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/durable-objects/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/durable-objects/references/rules.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/durable-objects/references/testing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/durable-objects/references/workers.md": {
-    "modes": [
+      "default",
       "advanced"
     ]
   },
   "skills/sandbox-migrate-to-next/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/sandbox-next/SKILL.md": {
     "modes": [
       "advanced"
     ]
@@ -1712,17 +1664,207 @@
       "advanced"
     ]
   },
+  "skills/sandbox-next/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/sandbox-stable/SKILL.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/turnstile-spin/README.md": {
+  "skills/sdd-clean/SKILL.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/turnstile-spin/SKILL.md": {
+  "skills/sdd-init/references/render-documentation-templates.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/sdd-init/references/verify-enumeration-coverage.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/sdd-init/references/verify-source-anchors.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/sdd-init/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/search-first/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/ship/references/workflow-templates.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/ship/references/wrangler-templates.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/ship/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/skill-authoring/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-api-reference.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-architecture.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-configuration.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-decisions-readme.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-deployment.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-observability.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-project-lane.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-readme.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-security.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/documentation-troubleshooting.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/req-shape-example.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/root-readme.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/sdd-changes.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/sdd-config.yml": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/sdd-constraints.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/sdd-glossary.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/references/templates/sdd-readme.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-driven-development/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce-ac/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce-truth/references/parse-test-anchors.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce-truth/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce/scripts/round-limit.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce/scripts/validate-import-triage.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/spec-enforce/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/systematic-debugging/LICENSE": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/systematic-debugging/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/tdd-enforce/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/turnstile-spin/README.md": {
     "modes": [
       "advanced"
     ]
@@ -1777,17 +1919,27 @@
       "advanced"
     ]
   },
+  "skills/turnstile-spin/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/turnstile-spin/tests/validation.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/web-perf/SKILL.md": {
+  "skills/vault-note-capture/SKILL.md": {
     "modes": [
       "advanced"
     ]
   },
-  "skills/workers-best-practices/SKILL.md": {
+  "skills/vault-operations/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/web-perf/SKILL.md": {
     "modes": [
       "advanced"
     ]
@@ -1802,344 +1954,12 @@
       "advanced"
     ]
   },
+  "skills/workers-best-practices/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/wrangler/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/design/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/design/references/external-dependencies.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/frontend-design/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/frontend-design/references/art-direction.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/frontend-design/references/assets-and-motion.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/frontend-design/references/astro-cloudflare.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/frontend-design/references/component-systems.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/frontend-design/references/complex-motion.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/frontend-design/references/new-work.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/frontend-design/references/operate-and-dashboards.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/frontend-design/references/redesign.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/frontend-design/references/visual-qa.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/native-mobile-design/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/native-mobile-design/references/platform-behavior.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/LICENSE": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/ORIGIN.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/app-interface.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/charts.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/colors.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/google-fonts.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/icons.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/landing.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/motion.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/products.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/react-performance.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/angular.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/astro.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/avalonia.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/flutter.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/html-tailwind.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/javafx.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/jetpack-compose.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/laravel.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/nextjs.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/nuxt-ui.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/nuxtjs.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/react-native.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/react.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/shadcn.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/svelte.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/swiftui.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/threejs.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/uno.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/uwp.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/vue.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/winui.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/stacks/wpf.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/styles.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/typography.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/ui-reasoning.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/data/ux-guidelines.csv": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/references/pro-rules.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/references/quick-reference.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/scripts/core.py": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/scripts/design_system.py": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/scripts/search.py": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/ui-ux-pro-max/scripts/validate_data.py": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/canvas-design/ORIGIN.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/canvas-design/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/frontend-components/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/_licenses/vercel-agent-skills-MIT.txt": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/frontend-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/skill-authoring/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/systematic-debugging/LICENSE": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/systematic-debugging/SKILL.md": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/_licenses/anthropic-skills-Apache-2.0.txt": {
     "modes": [
       "advanced"
     ]
