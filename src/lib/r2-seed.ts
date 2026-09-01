@@ -9,7 +9,7 @@ import { SEEDED_DOCUMENTS } from './tutorial-seed.generated';
 import { AGENTS_SEEDED_CONFIGS, PRESEED_CONTENT_HASH, RETIRED_PRESEED_KEYS } from './agent-seed.generated';
 import { createLogger } from './logger';
 import { getSseHeaders } from './r2-sse';
-import { decodeXmlEntities, escapeXml } from './xml-utils';
+import { escapeXml } from './xml-utils';
 import { readBoundedResponse } from './bounded-stream';
 import {
   buildManagedR2Policy,
@@ -1033,7 +1033,20 @@ function decodeExclusiveDeleteKey(text: string): string {
   if (/&(?!(?:amp|lt|gt|quot|apos);|#(?:[0-9]+|x[0-9A-Fa-f]+);)/.test(text)) {
     throw new Error('Exclusive managed-resource DeleteObjects response is malformed');
   }
-  const numericDecoded = text.replace(/&#(?:([0-9]+)|x([0-9A-Fa-f]+));/g, (_match, decimal: string | undefined, hexadecimal: string | undefined) => {
+  const namedReferences: Record<string, string> = {
+    amp: '&',
+    lt: '<',
+    gt: '>',
+    quot: '"',
+    apos: "'",
+  };
+  return text.replace(/&(?:(amp|lt|gt|quot|apos);|#([0-9]+);|#x([0-9A-Fa-f]+);)/g, (
+    _match,
+    named: string | undefined,
+    decimal: string | undefined,
+    hexadecimal: string | undefined,
+  ) => {
+    if (named) return namedReferences[named];
     const codePoint = Number.parseInt(decimal ?? hexadecimal!, decimal ? 10 : 16);
     const valid = codePoint === 0x9 || codePoint === 0xa || codePoint === 0xd
       || (codePoint >= 0x20 && codePoint <= 0xd7ff)
@@ -1042,7 +1055,6 @@ function decodeExclusiveDeleteKey(text: string): string {
     if (!valid) throw new Error('Exclusive managed-resource DeleteObjects response is malformed');
     return String.fromCodePoint(codePoint);
   });
-  return decodeXmlEntities(numericDecoded);
 }
 
 function verifyExclusiveDeleteResponse(xml: string, expectedKeys: readonly string[]): void {

@@ -394,6 +394,7 @@ describe('managed release user-bucket reconciliation', () => {
         return new Response([
           '<ListBucketResult><IsTruncated>false</IsTruncated>',
           '<Contents><Key>.claude/extensions/line\nbreak.ts</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
+          '<Contents><Key>.claude/extensions/literal&amp;lt;.ts</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
           '<Contents><Key>.claude/extensions/tab\tbreak.ts</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
           '</ListBucketResult>',
         ].join(''), { status: 200 });
@@ -401,7 +402,7 @@ describe('managed release user-bucket reconciliation', () => {
       if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT') policyBytes = init.body;
       if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'GET') return new Response(policyBytes, { status: 200 });
       if (url.endsWith('?delete') && init?.method === 'POST') {
-        return new Response('<DeleteResult><Deleted><Key>.claude/extensions/line&#10;break.ts</Key></Deleted><Deleted><Key>.claude/extensions/tab&#x9;break.ts</Key></Deleted></DeleteResult>', { status: 200 });
+        return new Response('<DeleteResult><Deleted><Key>.claude/extensions/line&#10;break.ts</Key></Deleted><Deleted><Key>.claude/extensions/literal&#38;lt;.ts</Key></Deleted><Deleted><Key>.claude/extensions/tab&#x9;break.ts</Key></Deleted></DeleteResult>', { status: 200 });
       }
       return new Response('', { status: 200 });
     });
@@ -410,7 +411,7 @@ describe('managed release user-bucket reconciliation', () => {
       overwrite: true, cleanup: true, managedRelease, resourcePolicy: 'exclusive',
     });
 
-    expect(result.deleted).toEqual(['.claude/extensions/line\nbreak.ts', '.claude/extensions/tab\tbreak.ts']);
+    expect(result.deleted).toEqual(['.claude/extensions/line\nbreak.ts', '.claude/extensions/literal&lt;.ts', '.claude/extensions/tab\tbreak.ts']);
   });
 
   it('REQ-STOR-029 AC3: exclusive cleanup bounds each delete batch to 1,000 objects', async () => {
