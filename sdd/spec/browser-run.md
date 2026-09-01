@@ -18,7 +18,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 - **Scripted test-runner / fixed-assertion e2e** -- Browser Run is not a Playwright/Cypress replacement for deterministic, repeatable assertions; those stay in the CI suite. Agent-driven *semantic* e2e (drive the user's own deployed app and judge it against intent) IS in scope -- see [REQ-BROWSER-004](#req-browser-004-agent-semantic-e2e-via-browser-run).
 - **In-browser code-execution sandbox** -- The browser loads public web targets only; it is not a sandbox for executing user or agent code.
 - **Authenticated / private targets** -- Only public targets are loaded; the fallback does not log in to walled sites on the user's behalf.
-- **Persistent browser sessions** -- No long-lived browser state, cookie jars, or profiles are retained across sessions. The REST read surface (native Pi tools / Claude `browser-run` MCP server) performs one-shot fetches; the interactive `chrome-devtools` surface holds a session only for the duration of a task and closes after 30 seconds of inactivity, never persisting across sessions.
+- **Persistent browser sessions** -- No long-lived browser state, cookie jars, or profiles are retained across sessions. The REST read surface (native Pi tools / Claude `browser-run` MCP server) performs one-shot fetches; the interactive `chrome-devtools` surface holds a session only for the duration of a task and closes after three minutes of inactivity, never persisting across sessions.
 - **GitHub Copilot wiring** -- Browser Run for Copilot is deferred to a later iteration; this domain wires Claude Code and Pi only.
 
 ### Domain Dependencies
@@ -42,7 +42,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 2. Claude's registered interactive browser targets Cloudflare Browser Run. <!-- @impl: entrypoint.sh::CDP_WS_ENDPOINT --> <!-- @manual -->
 3. A `browser-run` skill is seeded (advanced mode) that positions the browser as a retry path for WebFetch failures caused by bot protection, login walls, redirect chains, or JS-only pages. <!-- @manual -->
 4. The one-shot Browser Run read tools accept only public HTTP(S) targets. Separately authorized interactive Browser Run and deployed `browser-e2e` workflows may navigate, interact, evaluate page scripts, and verify rendered behavior through the credential-gated browser surface. <!-- @impl: preseed/agents/claude/skills/browser-run/SKILL.md::Decision order (cheapest that does the job) --> <!-- @impl: preseed/agents/claude/skills/browser-e2e/SKILL.md::How to use --> <!-- @manual: Exercise one public one-shot read and one authorized interactive verification; confirm private or credential-bearing initial targets remain rejected. -->
-5. Claude's interactive browser closes after 30 seconds of inactivity. <!-- @impl: entrypoint.sh::CDP_WS_ENDPOINT --> <!-- @manual -->
+5. Claude's interactive browser closes after three minutes of inactivity. <!-- @impl: entrypoint.sh::CDP_WS_ENDPOINT --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-001 AC5: Claude keeps interactive Browser Run idle for three minutes) -->
 6. Claude's interactive browser authenticates with the configured Browser Rendering credential. <!-- @impl: entrypoint.sh::CDP_WS_HEADERS --> <!-- @manual -->
 7. Claude's interactive browser becomes available without downloading or resolving packages during session startup. <!-- @impl: entrypoint.sh::CDP_MCP_BIN --> <!-- @manual -->
 
@@ -187,7 +187,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 2. Pi reaches the `chrome-devtools` tools through the `pi-mcp-adapter` `mcp` proxy; the `pi-mcp-adapter` skill is seeded so Pi knows how to drive a bridged server. <!-- @manual -->
 3. The Pi `browser-run` and `browser-e2e` skills name the interactive `chrome-devtools` surface (navigate / click / screenshot / `resize_page`) alongside the native read tools, establishing parity with Claude. <!-- @manual -->
 4. Standard mode and token-less deploys remove a restored Codeflare-owned Pi `chrome-devtools` registration while preserving unrelated user servers; Pi's native read tools ([REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper)) remain unchanged and gated. <!-- @impl: entrypoint.sh::remove_owned_browser_mcp_servers --> <!-- @manual -->
-5. Pi's interactive browser closes after 30 seconds of inactivity. <!-- @impl: entrypoint.sh::CDP_WS_ENDPOINT --> <!-- @manual -->
+5. Pi's interactive browser closes after three minutes of inactivity. <!-- @impl: entrypoint.sh::CDP_WS_ENDPOINT --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-006 AC5: Pi keeps interactive Browser Run idle for three minutes) -->
 6. Pi's interactive tools control the same authenticated Browser Run browser surface as Claude. <!-- @impl: entrypoint.sh::BROWSER_MCP_PI --> <!-- @manual -->
 7. Pi starts interactive browser resources only on first use. <!-- @impl: entrypoint.sh::BROWSER_MCP_PI --> <!-- @manual -->
 
