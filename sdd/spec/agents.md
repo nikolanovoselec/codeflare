@@ -2828,7 +2828,7 @@ None.
 3. Canonical agent-neutral Markdown drives supported runtime projections; runtime adapters contain activation or path plumbing only. <!-- @manual: Compare managed projections after runtime-specific path adaptation. -->
 4. Canvas Design retains the required Apache-2.0 notice and pinned provenance without shipping repository-only provenance as model context. <!-- @manual: Inspect authoritative curation source and manifest. -->
 5. The unsafe UI UX Pro Max preset corpus, generator, and authoritative persistence path are absent from managed distribution. <!-- @manual: Inspect the authoritative curation manifest and router. -->
-6. Copilot is explicitly unsupported because the compiler has no skill-directory contract for that runtime. <!-- @manual: Inspect compiler target definitions and the generated Copilot projection; confirm it emits no projected skill directory. -->
+6. Managed distribution does not project this design skill suite to Copilot; Copilot receives compact global routing only. <!-- @impl: scripts/agent-seed-core.mjs::AGENT_CONFIGS --> <!-- @manual: Inspect the generated Copilot output and confirm it contains the global route but no projected design-skill directory. -->
 
 **Constraints:** Core methodology stays out of Pi's system prompt; Pi receives one minimal conditional route to `design`. Large references load only after selection. Optional capabilities never block an owner.
 
@@ -2875,7 +2875,7 @@ None.
 **Acceptance Criteria:**
 
 1. The router resolves conflicts in the order: user brief, product behavior/accessibility/platform, incumbent implementation and confirmed design contract, selected owner direction, evidence, then specialist preference. <!-- @manual: Inspect the authoritative managed router. -->
-2. Missing `DESIGN.md` does not make an established product greenfield. <!-- @manual: Review an established-product prompt without DESIGN.md; confirm the incumbent implementation remains authoritative. -->
+2. Absence of a formal design contract does not make an established product greenfield. <!-- @manual: Review an established-product prompt without a formal design contract; confirm the incumbent implementation remains authoritative. -->
 3. Impeccable sidecars and surface briefs record or extend decisions without becoming a competing thesis. <!-- @manual: Review a bounded Impeccable or sidecar prompt; confirm it preserves the selected owner's direction. -->
 
 **Constraints:** A user may explicitly authorize a redesign or invoke a bounded specialist command.
