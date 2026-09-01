@@ -366,7 +366,7 @@ describe('managed release user-bucket reconciliation', () => {
       if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT') policyBytes = init.body;
       if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'GET') return new Response(policyBytes, { status: 200 });
       if (url.endsWith('?delete') && init?.method === 'POST') {
-        return new Response('<DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Deleted><Key>.claude/extensions/personal/index.ts</Key></Deleted></DeleteResult>', { status: 200 });
+        return new Response('<DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Deleted><Key>.claude/extensions</Key></Deleted><Deleted><Key>.claude/extensions/personal/index.ts</Key></Deleted></DeleteResult>', { status: 200 });
       }
       return new Response('', { status: 200 });
     });
@@ -382,7 +382,35 @@ describe('managed release user-bucket reconciliation', () => {
     expect(result.deleted).toEqual(['.claude/extensions', '.claude/extensions/personal/index.ts']);
     const deleteBatches = fetchR2.mock.calls.filter(([url, init]) => String(url).endsWith('?delete') && init?.method === 'POST');
     expect(deleteBatches).toHaveLength(1);
-    expect(String(deleteBatches[0][1].body)).toBe('<?xml version="1.0" encoding="UTF-8"?><Delete xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Object><Key>.claude/extensions/personal/index.ts</Key></Object><Quiet>true</Quiet></Delete>');
+    expect(String(deleteBatches[0][1].body)).toBe('<?xml version="1.0" encoding="UTF-8"?><Delete xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Object><Key>.claude/extensions</Key></Object><Object><Key>.claude/extensions/personal/index.ts</Key></Object><Quiet>true</Quiet></Delete>');
+  });
+
+  it('REQ-STOR-029 AC4: verbose delete confirmation decodes valid numeric XML character references', async () => {
+    const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));
+    let policyBytes: BodyInit | null | undefined;
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      if (init?.method === 'GET' && url.includes('list-type=2')) {
+        return new Response([
+          '<ListBucketResult><IsTruncated>false</IsTruncated>',
+          '<Contents><Key>.claude/extensions/line\nbreak.ts</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
+          '<Contents><Key>.claude/extensions/tab\tbreak.ts</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>',
+          '</ListBucketResult>',
+        ].join(''), { status: 200 });
+      }
+      if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT') policyBytes = init.body;
+      if (url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'GET') return new Response(policyBytes, { status: 200 });
+      if (url.endsWith('?delete') && init?.method === 'POST') {
+        return new Response('<DeleteResult><Deleted><Key>.claude/extensions/line&#10;break.ts</Key></Deleted><Deleted><Key>.claude/extensions/tab&#x9;break.ts</Key></Deleted></DeleteResult>', { status: 200 });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true, cleanup: true, managedRelease, resourcePolicy: 'exclusive',
+    });
+
+    expect(result.deleted).toEqual(['.claude/extensions/line\nbreak.ts', '.claude/extensions/tab\tbreak.ts']);
   });
 
   it('REQ-STOR-029 AC3: exclusive cleanup bounds each delete batch to 1,000 objects', async () => {
@@ -435,6 +463,7 @@ describe('managed release user-bucket reconciliation', () => {
     ['unknown verbose key', '<DeleteResult><Deleted><Key>.claude/extensions/a.ts</Key></Deleted><Deleted><Key>.claude/extensions/unknown.ts</Key></Deleted></DeleteResult>'],
     ['duplicate verbose key', '<DeleteResult><Deleted><Key>.claude/extensions/a.ts</Key></Deleted><Deleted><Key>.claude/extensions/a.ts</Key></Deleted></DeleteResult>'],
     ['unexpected structure', '<DeleteResult><Deleted><Key>.claude/extensions/a.ts</Key></Deleted><Deleted><Key>.claude/extensions/b.ts</Key></Deleted><Extra /></DeleteResult>'],
+    ['invalid numeric reference', '<DeleteResult><Deleted><Key>.claude/extensions/a&#0;.ts</Key></Deleted><Deleted><Key>.claude/extensions/b.ts</Key></Deleted></DeleteResult>'],
     ['malformed XML', '<DeleteResult><Deleted><Key>.claude/extensions/a.ts</Key></Deleted>'],
   ])('REQ-STOR-029 AC4: %s cannot commit exclusive policy identity', async (_case, deleteResponse) => {
     const managedRelease = await selection('d'.repeat(64), release(2, [document('.claude/extensions/company/index.ts')]));

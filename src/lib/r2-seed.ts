@@ -1029,6 +1029,22 @@ async function listExclusiveCleanupCandidates(
   return [...candidates].sort();
 }
 
+function decodeExclusiveDeleteKey(text: string): string {
+  if (/&(?!(?:amp|lt|gt|quot|apos);|#(?:[0-9]+|x[0-9A-Fa-f]+);)/.test(text)) {
+    throw new Error('Exclusive managed-resource DeleteObjects response is malformed');
+  }
+  const numericDecoded = text.replace(/&#(?:([0-9]+)|x([0-9A-Fa-f]+));/g, (_match, decimal: string | undefined, hexadecimal: string | undefined) => {
+    const codePoint = Number.parseInt(decimal ?? hexadecimal!, decimal ? 10 : 16);
+    const valid = codePoint === 0x9 || codePoint === 0xa || codePoint === 0xd
+      || (codePoint >= 0x20 && codePoint <= 0xd7ff)
+      || (codePoint >= 0xe000 && codePoint <= 0xfffd)
+      || (codePoint >= 0x10000 && codePoint <= 0x10ffff);
+    if (!valid) throw new Error('Exclusive managed-resource DeleteObjects response is malformed');
+    return String.fromCodePoint(codePoint);
+  });
+  return decodeXmlEntities(numericDecoded);
+}
+
 function verifyExclusiveDeleteResponse(xml: string, expectedKeys: readonly string[]): void {
   const result = xml.match(/^\s*(?:<\?xml(?:\s+[A-Za-z_][\w:.-]*=(?:"[^"]*"|'[^']*'))*\s*\?>\s*)?<DeleteResult(?:\s+[A-Za-z_][\w:.-]*=(?:"[^"]*"|'[^']*'))*\s*(?:\/>|>([\s\S]*)<\/DeleteResult>)\s*$/);
   if (!result) throw new Error('Exclusive managed-resource DeleteObjects response is malformed');
@@ -1040,27 +1056,33 @@ function verifyExclusiveDeleteResponse(xml: string, expectedKeys: readonly strin
 
   const deletedKeys: string[] = [];
   const deletedBlocks = /<Deleted>([\s\S]*?)<\/Deleted>/g;
-  let remaining = body;
+  let bodyCursor = 0;
   let deletedBlock: RegExpExecArray | null;
   while ((deletedBlock = deletedBlocks.exec(body)) !== null) {
-    remaining = remaining.replace(deletedBlock[0], '');
+    if (body.slice(bodyCursor, deletedBlock.index).trim().length > 0) {
+      throw new Error('Exclusive managed-resource DeleteObjects response is malformed');
+    }
+    bodyCursor = deletedBlock.index + deletedBlock[0].length;
     const fields: Array<{ name: string; value: string }> = [];
     const fieldPattern = /<([A-Za-z_][\w:.-]*)>([^<]*)<\/\1>/g;
+    let fieldCursor = 0;
     let field: RegExpExecArray | null;
-    let blockRemaining = deletedBlock[1];
     while ((field = fieldPattern.exec(deletedBlock[1])) !== null) {
+      if (deletedBlock[1].slice(fieldCursor, field.index).trim().length > 0) {
+        throw new Error('Exclusive managed-resource DeleteObjects response is malformed');
+      }
       fields.push({ name: field[1], value: field[2] });
-      blockRemaining = blockRemaining.replace(field[0], '');
+      fieldCursor = field.index + field[0].length;
     }
-    if (blockRemaining.trim().length > 0
+    if (deletedBlock[1].slice(fieldCursor).trim().length > 0
       || fields.some(({ name }) => !['DeleteMarker', 'DeleteMarkerVersionId', 'Key', 'VersionId'].includes(name))) {
       throw new Error('Exclusive managed-resource DeleteObjects response is malformed');
     }
     const keys = fields.filter(({ name }) => name === 'Key');
     if (keys.length !== 1) throw new Error('Exclusive managed-resource DeleteObjects response is malformed');
-    deletedKeys.push(decodeXmlEntities(keys[0].value));
+    deletedKeys.push(decodeExclusiveDeleteKey(keys[0].value));
   }
-  if (remaining.trim().length > 0 || deletedKeys.length !== expectedKeys.length) {
+  if (body.slice(bodyCursor).trim().length > 0 || deletedKeys.length !== expectedKeys.length) {
     throw new Error('Exclusive managed-resource DeleteObjects response does not match request');
   }
   const expected = new Set(expectedKeys);
