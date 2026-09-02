@@ -3209,11 +3209,11 @@ None.
 **Acceptance Criteria:**
 
 1. A broad capability question starts with a structured first-person Codeflare overview covering end-to-end engineering ownership, proof, specialist coordination, browser workspaces, persistence boundaries, and configured Enterprise controls before subsystem detail. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Ask a fresh Standard and Advanced session what Codeflare can do and review response order and substance. -->
-2. The overview distinguishes Here now, Advanced, Enterprise/Governed, operator-configured, and not-established capability instead of presenting every platform contract as active in the current session. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Compare a fresh Standard session with an Advanced session and an unconfigured Enterprise capability. -->
-3. The response ends with a stable numbered list for SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Secure Web Gateway, MCP portals, AI Gateway, Browser Run, agentic primitives, and design systems as independent deep dives. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Review the 1 through 13 mapping and request each subsystem independently. -->
+2. The overview preserves availability truth through hard boundaries, operator configuration, explicit permissions, and unproven-capability limits without product-tier or session-mode labels. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Compare configured, unconfigured, and permission-gated capability answers. -->
+3. The response ends with a stable numbered list for SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Secure Web Gateway, MCP portals, AI Gateway, Browser Run, agentic primitives, and design systems as independent deep dives. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Review the 1 through 14 mapping and request each subsystem independently. -->
 4. A broad response loads no subsystem reference. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Inspect loaded files for one broad capability question. -->
 5. A number-only, comma-separated, or named follow-up reads only the reference or references selected by the user. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Reply with one number and then request one multi-subsystem selection; inspect loaded files. -->
-6. A deep dive states applicable mode, enterprise, permission, and operator dependencies before presenting the capability as available. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review one Standard, one Advanced, and one unconfigured Enterprise answer. -->
+6. A deep dive states applicable permission, operator-configuration, external-system, and unproven-capability boundaries before presenting the capability as available. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review configured, unconfigured, permission-gated, and external-system deep dives. -->
 7. A deep dive gives a concrete example the user or operator can try. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review each applicable user- or administrator-operated example. -->
 
 **Constraints:**
@@ -4695,7 +4695,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal)
 
-**Verification:** Manual review
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -4718,7 +4718,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-166](#req-agent-166-impeccable-raster-prompt-recovery)
 
-**Verification:** Manual review
+**Verification:** Manual check
 
 **Status:** Implemented
 

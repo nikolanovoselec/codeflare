@@ -299,6 +299,15 @@ export function compare({ comp, build, spec = null, align = 'top', label = '', k
   return { label, align, whole: strip(whole), regions, aligned: asCaptured, alignedShifted: aligned, shift, compPalette, buildPalette, _whole: whole };
 }
 
+const REGION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
+
+function regionArtifactName(id) {
+  if (typeof id !== 'string' || !REGION_ID_RE.test(id)) {
+    throw new Error(`region id ${id || '(empty)'} must use only letters, numbers, underscores, or hyphens`);
+  }
+  return `${id}.png`;
+}
+
 function strip(s) {
   const { _detail, _bands, ...rest } = s;
   return rest;
@@ -311,7 +320,7 @@ export function writeArtifacts(result, comp, outDir) {
   fs.writeFileSync(path.join(outDir, 'heatmap.png'), encodePng(renderHeatmap(comp, result.aligned)));
   const regionFiles = [];
   for (const r of result.regions) {
-    const file = path.join(outDir, 'regions', `${r.id}.png`);
+    const file = path.join(outDir, 'regions', regionArtifactName(r.id));
     fs.writeFileSync(file, encodePng(renderRegionPair(r._a, r._b, r.id, r.score)));
     regionFiles.push(file);
   }

@@ -243,16 +243,16 @@ export function measureRegions(comp, regionsInput, compPath) {
   const seen = new Set();
   const pageGround = medianGray(comp);
   for (const raw of regionsInput.regions || []) {
-    if (!raw.id) throw new Error('every region needs an id');
-    if (seen.has(raw.id)) throw new Error(`duplicate region id ${raw.id}`);
-    seen.add(raw.id);
+    const id = assertRegionId(raw.id);
+    if (seen.has(id)) throw new Error(`duplicate region id ${id}`);
+    seen.add(id);
     const kind = raw.kind && KINDS.has(raw.kind) ? raw.kind : 'band';
     // Every region says what it is. The note is what the plate prompt, the
     // gate messages, and the painted-material check read; a regions file of
     // bare ids and kinds is a list of boxes, and a session that named a
     // carburetor drawing "chrome" with no note was caught by nothing.
     if (kind !== 'band' && !(raw.note && String(raw.note).trim().length >= 8)) {
-      throw new Error(`region ${raw.id} has no note. Say in a few words what the comp shows there (the element, its material, its role): the note drives the plate prompt and the gate's messages, and a drawing named as chrome is only caught by what its note says.`);
+      throw new Error(`region ${id} has no note. Say in a few words what the comp shows there (the element, its material, its role): the note drives the plate prompt and the gate's messages, and a drawing named as chrome is only caught by what its note says.`);
     }
     // The note is the model's own reading of the region. A note that names
     // painted material (a drawing, diagram, photo, illustration, texture)
@@ -265,10 +265,10 @@ export function measureRegions(comp, regionsInput, compPath) {
     // the ninth sweep, where both carburetor illustrations were filed as
     // chrome behind codeDrawn: true).
     for (const key of ['codeDrawn', 'container', 'bleed']) {
-      if (raw[key]) warnings.push(`region ${raw.id}: "${key}": true set in the regions file${key === 'codeDrawn' ? ' (the painted-material refusal is overridden: code draws this region)' : key === 'container' ? ' (the region-size refusal is overridden: one undivided element)' : ' (the clipped-artwork refusal is overridden: the page crops it there)'}`);
+      if (raw[key]) warnings.push(`region ${id}: "${key}": true set in the regions file${key === 'codeDrawn' ? ' (the painted-material refusal is overridden: code draws this region)' : key === 'container' ? ' (the region-size refusal is overridden: one undivided element)' : ' (the clipped-artwork refusal is overridden: the page crops it there)'}`);
     }
     if (raw.note && !RASTER_KINDS.has(kind) && kind !== 'band' && PAINTED_NOTE.test(raw.note) && !raw.codeDrawn) {
-      throw new Error(`region ${raw.id} is kind "${kind}" but its note describes painted material ("${raw.note}"). Anything drawn, photographed, or textured ships as a raster plate: set kind to plate (illustration, diagram, figure), image (photograph), or texture (ground). If the note is wrong and code really draws it (a table, a rule, a chrome bar), reword the note or set "codeDrawn": true on the region.`);
+      throw new Error(`region ${id} is kind "${kind}" but its note describes painted material ("${raw.note}"). Anything drawn, photographed, or textured ships as a raster plate: set kind to plate (illustration, diagram, figure), image (photograph), or texture (ground). If the note is wrong and code really draws it (a table, a rule, a chrome bar), reword the note or set "codeDrawn": true on the region.`);
     }
     let box = raw.box && typeof raw.box.x === 'number' ? raw.box : gridToBox(raw.grid);
     // A grid span over-covers: a headline named B1:E4 carries the deck below
@@ -292,7 +292,7 @@ export function measureRegions(comp, regionsInput, compPath) {
     // Raster regions may be as large as the material; a texture is a sample.
     const area = box.w * box.h;
     if (!RASTER_KINDS.has(kind) && kind !== 'band' && area > MAX_CODE_REGION_AREA && !raw.container) {
-      throw new Error(`region ${raw.id} (${kind}) covers ${Math.round(area * 100)}% of the comp; a code region is one element (a headline, a table, a control, a rule, a bar), and one this large is a column holding several. Name each element inside it as its own region (every illustration or photo as a plate), or set "container": true on the region if it truly is one undivided element.`);
+      throw new Error(`region ${id} (${kind}) covers ${Math.round(area * 100)}% of the comp; a code region is one element (a headline, a table, a control, a rule, a bar), and one this large is a column holding several. Name each element inside it as its own region (every illustration or photo as a plate), or set "container": true on the region if it truly is one undivided element.`);
     }
     const px = { x: Math.round(box.x * comp.width), y: Math.round(box.y * comp.height), w: Math.round(box.w * comp.width), h: Math.round(box.h * comp.height) };
     const c = crop(comp, px.x, px.y, px.w, px.h);
@@ -306,9 +306,9 @@ export function measureRegions(comp, regionsInput, compPath) {
     // sides on the comp's own edge do not count: the comp crops there too
     const atCompEdge = { left: px.x <= 1, top: px.y <= 1, right: px.x + px.w >= comp.width - 1, bottom: px.y + px.h >= comp.height - 1 };
     const clipped = raster && kind !== 'texture' && !raw.bleed ? artworkTouchesEdges(c, { ground: pageGround }).filter((side) => !atCompEdge[side]) : [];
-    if (clipped.length) warnings.push(`region ${raw.id}: the artwork runs off the box on the ${clipped.join(' and ')} (its ink reaches the edge over ${EDGE_CONTACT_MIN * 100}% of that side). Widen the region so the box holds the whole shape with a margin; a plate placed with object-fit: cover on this box would be cut there.`);
+    if (clipped.length) warnings.push(`region ${id}: the artwork runs off the box on the ${clipped.join(' and ')} (its ink reaches the edge over ${EDGE_CONTACT_MIN * 100}% of that side). Widen the region so the box holds the whole shape with a margin; a plate placed with object-fit: cover on this box would be cut there.`);
     regions.push({
-      id: raw.id,
+      id,
       kind,
       note: raw.note || null,
       grid: raw.grid || null,
@@ -324,7 +324,7 @@ export function measureRegions(comp, regionsInput, compPath) {
       detail: { energy: r4(energy) },
       medium: raw.medium || (raster ? 'raster' : 'semantic'),
       clipped: clipped.length ? clipped : undefined,
-      plate: raster ? (raw.plate || path.join(PLATES_DIR, `${raw.id}.png`)) : null,
+      plate: raster ? (raw.plate || path.join(PLATES_DIR, `${id}.png`)) : null,
       text: raw.text || null,
     });
   }
@@ -356,6 +356,15 @@ export function autoRegions(comp) {
   const regions = [];
   for (let i = 0; i + 1 < cuts.length; i++) regions.push({ id: `band-${i + 1}`, kind: 'band', box: { x: 0, y: cuts[i], w: 1, h: cuts[i + 1] - cuts[i] } });
   return { regions };
+}
+
+const REGION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
+
+function assertRegionId(id) {
+  if (typeof id !== 'string' || !REGION_ID_RE.test(id)) {
+    throw new Error(`region id ${id || '(empty)'} must use only letters, numbers, underscores, or hyphens`);
+  }
+  return id;
 }
 
 const r4 = (v) => Math.round(v * 10000) / 10000;
