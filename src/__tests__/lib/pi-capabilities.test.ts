@@ -64,6 +64,17 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     expect(resolveAgentDir(undefined, '/different-home')).toBe('/different-home/.pi/agent');
   });
 
+  it('reads the Pi agent-directory override from the environment', () => {
+    const previous = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = '/configured/agent';
+    try {
+      expect(resolveAgentDir()).toBe('/configured/agent');
+    } finally {
+      if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+      else process.env.PI_CODING_AGENT_DIR = previous;
+    }
+  });
+
   it('exposes startup, search, and activation through Pi public APIs', async () => {
     const base = fakePi({
       active: ['read', 'subagent'],
