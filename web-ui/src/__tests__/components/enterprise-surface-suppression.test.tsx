@@ -145,9 +145,9 @@ describe('REQ-SUB-023 AC1/AC3-AC7: Header username dropdown', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC1–AC3 — SettingsPanel Administration + session-mode selector
+// REQ-ENTERPRISE-008 AC1-AC2 + REQ-SETUP-026 AC1-AC2 — Settings Administration + session mode
 // ---------------------------------------------------------------------------
-describe('REQ-ENTERPRISE-008 AC1-AC3: SettingsPanel and session mode', () => {
+describe('REQ-ENTERPRISE-008 AC1-AC2 and REQ-SETUP-026 AC1-AC2: SettingsPanel and session mode', () => {
   const panelProps = { isOpen: true, onClose: () => {}, currentUserEmail: 'admin@example.com', currentUserRole: 'admin' as const };
 
   it('hides Manage Users, Manage Subscriptions, and the mode selector in enterprise mode', () => {
@@ -184,9 +184,9 @@ describe('REQ-ENTERPRISE-008 AC1-AC3: SettingsPanel and session mode', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC3 — SessionSection mode selector (isolated)
+// AC2 — SessionSection mode selector (isolated)
 // ---------------------------------------------------------------------------
-describe('REQ-ENTERPRISE-008 AC3: SessionSection mode selector', () => {
+describe('REQ-ENTERPRISE-008 AC2: SessionSection mode selector', () => {
   const sectionProps = {
     currentSessionMode: () => 'default' as const,
     defaultWorkspace: () => 'terminal' as const,

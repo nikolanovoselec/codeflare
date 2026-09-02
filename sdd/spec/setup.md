@@ -561,7 +561,6 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 4. User-facing routine copy says Environment; Configuration remains internal API and storage vocabulary. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentIndex --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @manual -->
 5. Loading, empty, failure, conflict, and reconnect states follow the approved design. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @manual -->
 6. First-run Setup presents mode-applicable readiness, access, routing, platform, managed-environment, integration, review, apply, and result stages. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @manual -->
-7. Completed deployments expose one workspace-settings entry into Administration; user management and bootstrap recovery remain inside Administration instead of appearing as duplicate workspace actions. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (REQ-SETUP-019 AC7: routes all admin access through one Administration entry) -->
 
 **Constraints:** One authoritative response owns mode gating. No UI framework, chart package, icon package, or duplicate mode logic is added.
 
@@ -712,6 +711,29 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Dependencies:** [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell)
 
 **Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-026: Workspace Administration entry
+
+**Intent:** Administrators have one workspace route into routine administration and recovery.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Completed deployments expose one workspace Settings entry linking to `/admin` in every deployment mode. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (REQ-SETUP-026 AC1-AC2: routes all admin access through one Administration entry) -->
+2. Workspace Settings exposes no duplicate user-management or bootstrap-recovery action. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (REQ-SETUP-026 AC1-AC2: routes all admin access through one Administration entry) -->
+
+**Constraints:** Administration route contents remain mode-gated by [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell) AC2.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management)
+
+**Verification:** Automated Settings composition tests
 
 **Status:** Implemented
 
