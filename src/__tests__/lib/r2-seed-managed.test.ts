@@ -8,9 +8,35 @@ import {
 } from '../../lib/remote-curation';
 
 const fetchR2 = vi.hoisted(() => vi.fn());
+const acknowledgedWrites = vi.hoisted(() => new Map<string, { body: string; contentType: string; marker: string }>());
 vi.mock('../../lib/r2-client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/r2-client')>()),
-  createR2Client: () => ({ fetch: fetchR2 }),
+  createR2Client: () => ({
+    fetch: async (url: string, init?: RequestInit) => {
+      const response = await fetchR2(url, init);
+      if (init?.method === 'PUT' && response.ok) {
+        const headers = new Headers(init.headers);
+        acknowledgedWrites.set(url, {
+          body: String(init.body ?? ''),
+          contentType: headers.get('Content-Type') ?? '',
+          marker: headers.get('x-amz-meta-codeflare-preseed') ?? '',
+        });
+      }
+      if (
+        init?.method === 'GET'
+        && response.ok
+        && !response.headers.has('x-amz-meta-codeflare-preseed')
+        && acknowledgedWrites.has(url)
+      ) {
+        const stored = acknowledgedWrites.get(url)!;
+        return new Response(stored.body, { status: 200, headers: {
+          'Content-Type': stored.contentType,
+          'x-amz-meta-codeflare-preseed': stored.marker,
+        } });
+      }
+      return response;
+    },
+  }),
   getR2Url: (endpoint: string, bucket: string, key?: string) =>
     key ? `${endpoint}/${bucket}/${key}` : `${endpoint}/${bucket}`,
 }));
@@ -55,6 +81,7 @@ async function selection(digest: string, value: ManagedRelease) {
 
 beforeEach(() => {
   fetchR2.mockReset();
+  acknowledgedWrites.clear();
   fetchR2.mockResolvedValue(new Response('', { status: 200 }));
 });
 
@@ -584,9 +611,161 @@ describe('managed release user-bucket reconciliation', () => {
     expect(putUrls).not.toContain(`${endpoint}/bucket/.claude/stable.md`);
   });
 
+  it('REQ-STOR-033 AC1/AC2: arbitrary-gap delta materializes exact target R2 bytes and content types', async () => {
+    const priorDigest = '3'.repeat(64);
+    const targetDigest = '4'.repeat(64);
+    const priorDocuments = [
+      document('.claude/unchanged.md', ['default'], 'unchanged'),
+      document('.claude/removed.md', ['default'], 'remove me'),
+      document('.claude/same-size.md', ['default'], 'AAAA'),
+      document('.claude/different-size.md', ['default'], 'short'),
+      document('.claude/type-only.md', ['default'], 'same bytes', 'text/plain; charset=utf-8'),
+    ];
+    const targetDocuments = [
+      document('.claude/unchanged.md', ['default'], 'unchanged'),
+      document('.claude/added.md', ['default'], 'added'),
+      document('.claude/same-size.md', ['default'], 'BBBB'),
+      document('.claude/different-size.md', ['default'], 'different target bytes'),
+      document('.claude/type-only.md', ['default'], 'same bytes', 'text/markdown; charset=utf-8'),
+    ];
+    const objects = new Map(priorDocuments.map((item) => [item.key, {
+      body: item.content,
+      contentType: item.contentType,
+      marker: priorDigest,
+      etag: `"${item.key}"`,
+    }]));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      const key = decodeURIComponent(new URL(url).pathname.replace('/bucket/', ''));
+      const existing = objects.get(key);
+      if (init?.method === 'HEAD') {
+        return existing
+          ? new Response('', { status: 200, headers: {
+              'Content-Type': existing.contentType,
+              'x-amz-meta-codeflare-preseed': existing.marker,
+              etag: existing.etag,
+            } })
+          : new Response('', { status: 404 });
+      }
+      if (init?.method === 'PUT') {
+        const headers = new Headers(init.headers);
+        objects.set(key, {
+          body: String(init.body ?? ''),
+          contentType: headers.get('Content-Type') ?? '',
+          marker: headers.get('x-amz-meta-codeflare-preseed') ?? '',
+          etag: `"target-${key}"`,
+        });
+        return new Response('', { status: 200 });
+      }
+      if (init?.method === 'GET') {
+        return existing
+          ? new Response(existing.body, { status: 200, headers: {
+              'Content-Type': existing.contentType,
+              'x-amz-meta-codeflare-preseed': existing.marker,
+            } })
+          : new Response('', { status: 404 });
+      }
+      if (init?.method === 'DELETE') {
+        objects.delete(key);
+        return new Response(null, { status: 204 });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: await selection(targetDigest, release(42, targetDocuments)),
+      priorManagedRelease: { ...await selection(priorDigest, release(33, priorDocuments)), mode: 'default' },
+      automatic: { assumeEmpty: false },
+    });
+
+    for (const target of targetDocuments) {
+      expect(objects.get(target.key)).toMatchObject({
+        body: target.content,
+        contentType: target.contentType,
+      });
+    }
+    expect(objects.has('.claude/removed.md')).toBe(false);
+    expect(objects.get('.claude/unchanged.md')?.marker).toBe(priorDigest);
+  });
+
+  it('REQ-STOR-033 AC2: automatic reconciliation rejects an acknowledged PUT whose R2 bytes differ', async () => {
+    const priorDigest = '5'.repeat(64);
+    const targetDigest = '6'.repeat(64);
+    const key = '.claude/same-size.md';
+    let stored = { body: 'AAAA', contentType: 'text/markdown; charset=utf-8', marker: priorDigest };
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (!String(url).endsWith(`/${key}`)) return new Response('', { status: 200 });
+      if (init?.method === 'HEAD') {
+        return new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': stored.marker } });
+      }
+      if (init?.method === 'PUT') {
+        const headers = new Headers(init.headers);
+        stored = {
+          body: 'WRNG',
+          contentType: headers.get('Content-Type') ?? '',
+          marker: headers.get('x-amz-meta-codeflare-preseed') ?? '',
+        };
+        return new Response('', { status: 200 });
+      }
+      if (init?.method === 'GET') {
+        return new Response(stored.body, { status: 200, headers: {
+          'Content-Type': stored.contentType,
+          'x-amz-meta-codeflare-preseed': stored.marker,
+        } });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: await selection(targetDigest, release(42, [document(key, ['default'], 'BBBB')])),
+      priorManagedRelease: {
+        ...await selection(priorDigest, release(33, [document(key, ['default'], 'AAAA')])),
+        mode: 'default',
+      },
+      automatic: { assumeEmpty: false },
+    })).rejects.toThrow(/verification/i);
+  });
+
+  it('REQ-STOR-033 AC2: automatic reconciliation rejects an acknowledged deletion that remains in R2', async () => {
+    const priorDigest = '7'.repeat(64);
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/.claude/removed.md') && init?.method === 'HEAD') {
+        return new Response('', { status: 200, headers: {
+          'x-amz-meta-codeflare-preseed': priorDigest,
+          etag: '"still-present"',
+        } });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: await selection('8'.repeat(64), release(42, [])),
+      priorManagedRelease: {
+        ...await selection(priorDigest, release(33, [document('.claude/removed.md')])),
+        mode: 'default',
+      },
+      automatic: { assumeEmpty: false },
+    })).rejects.toThrow(/deletion verification/i);
+  });
+
   it('REQ-STOR-033 AC3 + REQ-STOR-034 AC3: target provenance resumes and increments progress', async () => {
     const targetDigest = '2'.repeat(64);
     const progress: Array<{ completed: number; total: number }> = [];
+    acknowledgedWrites.set(`${endpoint}/bucket/.claude/already-done.md`, {
+      body: '# .claude/already-done.md',
+      contentType: 'text/markdown; charset=utf-8',
+      marker: targetDigest,
+    });
+    acknowledgedWrites.set(`${endpoint}/bucket/.codeflare/managed-extensions.json`, {
+      body: JSON.stringify({ schemaVersion: 1, release: { digest: targetDigest, sequence: 41 }, extensions: [] }),
+      contentType: 'application/json; charset=utf-8',
+      marker: targetDigest,
+    });
     fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
         return new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': targetDigest } });
@@ -614,14 +793,16 @@ describe('managed release user-bucket reconciliation', () => {
 
   it('REQ-STOR-033 AC4 + REQ-STOR-035 AC5: full-target fallback sweeps stale managed markers only after desired writes', async () => {
     const targetDigest = '2'.repeat(64);
+    let obsoleteDeleted = false;
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
-        const marker = url.endsWith('/obsolete.md') ? '1'.repeat(64) : null;
+        const marker = url.endsWith('/obsolete.md') && !obsoleteDeleted ? '1'.repeat(64) : null;
         return new Response('', { status: marker ? 200 : 404, headers: marker ? { 'x-amz-meta-codeflare-preseed': marker, etag: '"stale"' } : {} });
       }
       if (!init?.method && url.includes('list-type=2')) {
         return new Response('<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>.claude/extensions/obsolete.md</Key><Size>1</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>', { status: 200 });
       }
+      if (init?.method === 'DELETE' && url.endsWith('/obsolete.md')) obsoleteDeleted = true;
       return new Response('', { status: 200 });
     });
 
@@ -685,6 +866,7 @@ describe('managed release user-bucket reconciliation', () => {
       document('.claude/reverted.md', ['default'], 'applied bytes'),
       document('.claude/user-edit.md', ['default'], 'applied bytes'),
     ]));
+    let interruptedOnlyDeleted = false;
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD' && url.endsWith('/reverted.md')) {
         return new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': interrupted.digest } });
@@ -693,12 +875,15 @@ describe('managed release user-bucket reconciliation', () => {
         return new Response('', { status: 200 });
       }
       if (init?.method === 'HEAD' && url.endsWith('/interrupted-only.md')) {
-        return new Response('', {
-          status: 200,
-          headers: { 'x-amz-meta-codeflare-preseed': interrupted.digest, etag: '"interrupted"' },
-        });
+        return interruptedOnlyDeleted
+          ? new Response('', { status: 404 })
+          : new Response('', {
+              status: 200,
+              headers: { 'x-amz-meta-codeflare-preseed': interrupted.digest, etag: '"interrupted"' },
+            });
       }
       if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      if (init?.method === 'DELETE' && url.endsWith('/interrupted-only.md')) interruptedOnlyDeleted = true;
       return new Response('', { status: 200 });
     });
 
@@ -862,11 +1047,14 @@ describe('managed release user-bucket reconciliation', () => {
       document('.claude/stable.md'),
     ]));
     const target = await selection('2'.repeat(64), release(41, [document('.claude/stable.md')]));
+    let oldManagedDeleted = false;
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
+        if (url.endsWith('/old-managed.md') && oldManagedDeleted) return new Response('', { status: 404 });
         const marker = url.endsWith('/old-managed.md') ? '0'.repeat(64) : null;
         return new Response('', { status: 200, headers: marker ? { 'x-amz-meta-codeflare-preseed': marker, etag: '"old-managed"' } : {} });
       }
+      if (init?.method === 'DELETE' && url.endsWith('/old-managed.md')) oldManagedDeleted = true;
       return new Response('', { status: 200 });
     });
 

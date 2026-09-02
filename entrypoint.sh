@@ -724,22 +724,22 @@ NODE
 # IMPORTANT: Uses timeout to prevent infinite hangs on network issues
 initial_sync_from_r2() {
     local SYNC_TIMEOUT=120  # 2 minutes max for initial sync
-    # REQ-STOR-017 / AD90: under Governed Mode (SSE-C off) R2 keeps usable MD5 ETags, so
-    # compare by --checksum — combined with the image-baked seed laid down below, this
-    # skips the unchanged seed files and transfers only user deltas, catching even
-    # same-size edits the bake can't. Under SSE-C (default) ETags are opaque, so keep the
-    # historical --size-only behavior (byte-identical to today). See create_rclone_config.
-    local COMPARE_FLAG="--size-only"
+    # REQ-STOR-017 / AD90: use checksums when R2 exposes usable hashes. Under SSE-C,
+    # use rclone's default size + modification-time comparison: unlike --size-only,
+    # it materializes same-size managed-release changes without forcing full copies.
+    local COMPARE_FLAGS=()
+    local COMPARE_LABEL="size+modtime"
     if [ "${R2_SSE_DISABLED:-}" = "true" ]; then
-        COMPARE_FLAG="--checksum"
+        COMPARE_FLAGS=("--checksum")
+        COMPARE_LABEL="checksum"
     fi
-    echo "[entrypoint] Step 1: One-way sync R2 → local (max ${SYNC_TIMEOUT}s, compare ${COMPARE_FLAG})..." | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+    echo "[entrypoint] Step 1: One-way sync R2 → local (max ${SYNC_TIMEOUT}s, compare ${COMPARE_LABEL})..." | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
 
     if timeout $SYNC_TIMEOUT rclone sync "r2:$R2_BUCKET_NAME/" "$USER_HOME/" \
         --config "$RCLONE_CONFIG" \
         "${RCLONE_FILTERS[@]}" \
         --fast-list \
-        "$COMPARE_FLAG" \
+        "${COMPARE_FLAGS[@]}" \
         --min-size 1B \
         --multi-thread-streams 4 \
         --transfers 32 \
@@ -780,9 +780,9 @@ repair_hook_exec_bits() {
 # $USER_HOME before the initial R2 sync. Only in Governed Mode (R2_SSE_DISABLED=true),
 # where the subsequent --checksum sync can prove the laid-down files match R2 and skip
 # them — transferring only the user's deltas instead of re-downloading the whole ~9 MB
-# seed every boot. Under SSE-C the bake is NOT laid down (a same-size seed edit could not
-# be detected by --size-only, so honoring "preserve in-container edits" keeps today's
-# full download). Idempotent and mode-aware.
+# seed every boot. Under SSE-C the bake is not laid down; initial restore compares size
+# plus modification time so same-size R2 changes still materialize without letting the
+# image bake overwrite an in-container edit. Idempotent and mode-aware.
 lay_down_agent_seed_preseed() {
     if [ "${REMOTE_CURATION_ACTIVE:-false}" = "true" ]; then
         echo "[entrypoint] Managed release active: skipping baked agent seed lay-down" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log

@@ -729,6 +729,28 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(stored.metrics!.cpu).toBe('45%');
     });
 
+    it('re-asserts running when a stale KV read has no status and the container is alive', async () => {
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      });
+      testState.containerRunning = true;
+
+      await containerInstance.collectMetrics();
+
+      const putCall = mockKV.put.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
+      );
+      expect(putCall).toBeDefined();
+      const stored = JSON.parse(putCall![1] as string) as Session;
+      expect(stored.status).toBe('running');
+      expect(stored.lastAccessedAt).toBe('2024-01-15T09:30:00.000Z');
+      expect(putCall![2]).toMatchObject({ metadata: expect.objectContaining({ s: 'r' }) });
+    });
+
     // REQ-SESSION-020: the watchdog must survive the failure it exists to detect.
     // A wedged container accepts the TCP connect and never answers /activity. The
     // re-arm is the last statement of doCollectMetrics and schedule() is one-shot,

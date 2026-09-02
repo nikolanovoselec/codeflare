@@ -230,11 +230,13 @@ release path is not written, so a markerless user edit at that path survives.
 Manual Recreate and mode-change callers still overwrite every desired path.
 
 Each planned automatic write first checks the target object's provenance
-marker. A target-digest match counts as complete and skips the PUT, so a later
-dashboard visit resumes work paused by browser closure. Fresh buckets and a
-valid applied digest whose immutable cache object is unavailable plan the full
-target, then use the same marker checks. R2 markers govern execution; the
-expiring KV progress record is display-only.
+marker. A target-digest match skips the PUT only after a GET verifies exact
+bytes and content type. New PUTs receive the same read-back verification, and
+successful removals receive a final absence check. Any mismatch leaves applied
+state unpublished, so a later dashboard visit retries from retained target
+ownership. Fresh buckets and a valid applied digest whose immutable cache
+object is unavailable plan the full target, then use the same marker checks.
+R2 markers govern execution; the expiring KV progress record is display-only.
 
 Before managed-release writes, preferences record the bounded set of targets
 that may have written managed objects. If the active target changes, the next run
@@ -1416,9 +1418,9 @@ In addition to seeding the agent config into R2 at session start, the container 
   - The initial sync then compares by `--checksum`, using MD5 ETags available only when SSE-C is off.
   - Unchanged seed files are skipped and only user deltas transfer.
 - **Gated.** Both the lay-down and `--checksum` activate only when `R2_SSE_DISABLED=true`.
-  - Under SSE-C, the default path remains byte-identical to before: no lay-down and `--size-only`.
-  - This avoids relying on `--size-only`, which could not detect a same-size edit to a seed file.
-  - It also prevents the bake from overwriting an in-container edit.
+  - Under SSE-C, no bake is laid down and initial restore uses rclone's size plus modification-time comparison because opaque ETags cannot support `--checksum`.
+  - The prior `--size-only` comparison was removed because it retained stale local bytes for same-size release changes.
+  - Avoiding the bake under SSE-C also prevents it from overwriting an in-container edit.
 
 ---
 

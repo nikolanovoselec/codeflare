@@ -117,9 +117,13 @@ export async function startOrRestartContainer(params: {
     }
   }
 
-  // If container is already running/healthy with correct bucket, return immediately.
-  // This preserves readiness for the live editor and avoids an unnecessary KV write.
+  // A verified-running container owns liveness. Reconcile legacy or stale KV
+  // records that lost status during an eventually-consistent activity write.
   if (currentState.status === 'running' || currentState.status === 'healthy') {
+    const base = (await env.KV.get<Session>(sessionKey, 'json')) ?? sessionData;
+    if (base.status !== 'running') {
+      await putSessionWithMetadata(env.KV, sessionKey, { ...base, status: 'running' as const });
+    }
     return {
       status: 'already_running',
       containerState: currentState.status,

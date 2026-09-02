@@ -388,6 +388,21 @@ describe('managed storage reconcile', () => {
     );
   });
 
+  it('REQ-STOR-033 AC2: failed automatic byte verification does not publish applied state', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+    reconcile.mockRejectedValueOnce(new Error('Managed object verification failed'));
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+
+    expect(response.status).toBe(500);
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentApplied).toBeUndefined();
+    expect(preferences.managedEnvironmentReconciliation).toEqual({
+      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' }],
+    });
+  });
+
   it('REQ-STOR-035 AC1/AC2: failed manual Recreate records and retains its active target', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', {
