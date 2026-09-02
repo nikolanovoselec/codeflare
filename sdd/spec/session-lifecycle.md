@@ -418,7 +418,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. Only the latest in-flight session-list load may update batch-derived frontend state or errors; stale success and failure completions have no observable effect. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC1: stale success cannot overwrite latest batch state) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC1: stale failure cannot overwrite latest error state) -->
+1. Only the latest in-flight session-list load may update batch-derived frontend state; a stale success has no observable effect. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC1: stale success cannot overwrite latest batch state) -->
+2. A stale session-list or batch-status failure cannot replace the latest load's error state. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC2: stale failure cannot overwrite latest error state) -->
 
 **Constraints:** Background status polling remains independently serialized by its existing one-request-in-flight guard.
 

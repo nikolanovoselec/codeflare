@@ -404,7 +404,7 @@ describe('Session Store', () => {
       expect(getUsageState()).toEqual({ monthlySeconds: 200, monthlyQuotaSeconds: 600 });
     });
 
-    it('REQ-SESSION-029 AC1: stale failure cannot overwrite latest error state', async () => {
+    it('REQ-SESSION-029 AC2: stale failure cannot overwrite latest error state', async () => {
       let rejectFirstBatch: (reason: Error) => void;
       mockGetSessions
         .mockResolvedValueOnce([{ id: 'session-old', name: 'Old', createdAt: 'then', lastAccessedAt: 'then' }])
