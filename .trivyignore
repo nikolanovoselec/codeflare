@@ -682,10 +682,9 @@ CVE-2026-56862
 CVE-2026-39244
 
 # 2026-07-22 — CVEs in transitive deps vendored inside the agent CLIs
-# (claude-code/codex/copilot/opencode npm trees) and the apt-installed
-# gh binary. All fixable upstream, none rebuilt into a vendored release yet
-# (agent-CLI pins bumped to latest same-day — current pins live in the
-# Dockerfile ARGs — entries stay until scans confirm clean,
+# (claude-code/codex/copilot/opencode npm trees) and the official gh binary.
+# All fixable upstream; entries stay until scans confirm the pinned releases
+# are clean (current pins live in the Dockerfile),
 # reviewed monthly per policy). The npm-tree entries are DoS-class and
 # reached-but-confined: worst case is DoS of the user's own CLI process
 # inside their single-tenant ephemeral container. The grpc-go entry rests
@@ -706,16 +705,16 @@ CVE-2026-14257
 # missing copy, or extra occurrence fails.
 # shell-quote 1.8.3 — inefficient-parse DoS; fixed 1.9.0 (npm has no 1.8.x fix release):
 CVE-2026-13311
-# grpc-go in the apt-distributed gh binary — bundles an xDS RBAC fail-open
+# grpc-go in the official gh binary — bundles an xDS RBAC fail-open
 # auth-bypass (HIGH, not DoS-class) plus two server-side DoS issues (an
 # HTTP/2 rapid-reset bypass and an xDS RBAC engine panic). All
 # three are server-side surfaces and UNREACHABLE here: gh is an outbound-only
-# CLI with no listening gRPC/xDS server. apt re-resolves gh on every deploy,
-# entry drops once Debian ships a rebuilt gh:
+# CLI with no listening gRPC/xDS server. Entry drops once the pinned gh release
+# no longer reports it:
 GHSA-hrxh-6v49-42gf
 
-# golang.org/x/mod v0.37.0 vendored in the apt-distributed gh binary — two Go
-# module supply-chain verification flaws, both fixed in x/mod 0.40.0:
+# golang.org/x/mod vendored in the official gh binary — two Go module
+# supply-chain verification flaws, both fixed in x/mod 0.40.0:
 #
 # CVE-2026-56864 (GO-2026-6180): sumdb Client.Lookup accepted unrelated,
 # unauthenticated hashes, so a malicious GOSUMDB could serve arbitrary module
@@ -728,7 +727,7 @@ GHSA-hrxh-6v49-42gf
 # Both reach only the Go module download/verification path (GOPROXY/GOSUMDB
 # during `go mod`). gh is a GitHub API client that never downloads or verifies
 # Go modules at runtime, so neither Client.Lookup nor tileHashReader.ReadHashes
-# is reachable in the shipped binary. apt re-resolves gh on every deploy, entry
-# drops once Debian ships a gh rebuilt against x/mod 0.40.0:
+# is reachable in the shipped binary. Entries drop once the pinned gh release
+# embeds x/mod 0.40.0 or newer:
 CVE-2026-56864
 CVE-2026-56865
