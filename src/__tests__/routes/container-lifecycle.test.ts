@@ -136,7 +136,7 @@ describe('Container Lifecycle Routes', () => {
       expect(body.status).toBe('starting');
     });
 
-    it('returns already_running and reconciles missing KV status when the container is running', async () => {
+    it('returns already_running without an unowned KV lifecycle repair', async () => {
       const fetch = createLifecycleApp('test-bucket');
       const key = 'session:test-bucket:abcdef1234567890abcdef12';
       mockKV._set(key, {
@@ -161,11 +161,11 @@ describe('Container Lifecycle Routes', () => {
       expect(body.status).toBe('already_running');
       expect(body.containerState).toBe('running');
       expect(await mockKV.get(key, 'json')).toMatchObject({
-        status: 'running',
         lastAccessedAt: '2024-01-01T00:05:00.000Z',
       });
+      expect((await mockKV.get(key, 'json') as Session).status).toBeUndefined();
       const listed = await mockKV.list({ prefix: key });
-      expect(listed.keys[0]?.metadata).toMatchObject({ s: 'r' });
+      expect(listed.keys[0]?.metadata).toMatchObject({ s: 's' });
     });
 
     it('returns already_running when container is healthy with correct bucket', async () => {

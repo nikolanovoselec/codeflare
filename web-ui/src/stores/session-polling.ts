@@ -43,6 +43,7 @@ type ProduceSetter = (fn: (s: SessionState) => void) => void;
 type RawSetter = (...args: any[]) => void;
 type StatusUpdater = (id: string, status: SessionStatus) => void;
 type InitChecker = (id: string) => boolean;
+type NegativeKvGuard = (id: string) => boolean;
 type AuthExpiredSetter = (expired: boolean) => void;
 type MetricsUpdater = (
   sessionMetrics: Record<string, SessionMetrics>,
@@ -55,6 +56,7 @@ let setStateProduce: ProduceSetter;
 let setStateRaw: RawSetter;
 let updateSessionStatusFn: StatusUpdater;
 let isSessionInitializingFn: InitChecker;
+let shouldRetainNegativeKvFn: NegativeKvGuard;
 let setAuthExpiredFn: AuthExpiredSetter;
 let applyMetricsUpdateFn: MetricsUpdater;
 let applyManagedReleaseBatchFn: (status: 'current' | 'upgrading' | 'update_pending' | undefined, needsUpgrade: boolean | undefined, progress?: ManagedReleaseProgress) => void;
@@ -65,6 +67,7 @@ export function registerPollingDeps(deps: {
   setStateRaw: RawSetter;
   updateSessionStatus: StatusUpdater;
   isSessionInitializing: InitChecker;
+  shouldRetainNegativeKv: NegativeKvGuard;
   setAuthExpired: AuthExpiredSetter;
   applyMetricsUpdate: MetricsUpdater;
   applyManagedReleaseBatch: (status: 'current' | 'upgrading' | 'update_pending' | undefined, needsUpgrade: boolean | undefined, progress?: ManagedReleaseProgress) => void;
@@ -74,6 +77,7 @@ export function registerPollingDeps(deps: {
   setStateRaw = deps.setStateRaw;
   updateSessionStatusFn = deps.updateSessionStatus;
   isSessionInitializingFn = deps.isSessionInitializing;
+  shouldRetainNegativeKvFn = deps.shouldRetainNegativeKv;
   setAuthExpiredFn = deps.setAuthExpired;
   applyMetricsUpdateFn = deps.applyMetricsUpdate;
   applyManagedReleaseBatchFn = deps.applyManagedReleaseBatch;
@@ -102,13 +106,18 @@ export function clearSessionStartedGuard(sessionId: string): void {
 }
 
 /** Check if a session is within the startup protection window. */
-function isWithinStartupGuard(sessionId: string): boolean {
+export function isWithinStartupGuard(sessionId: string): boolean {
   const startedAt = sessionStartedAt.get(sessionId);
   if (!startedAt) return false;
   if (Date.now() - startedAt < STARTUP_GUARD_MS) return true;
   // Guard expired - clean up
   sessionStartedAt.delete(sessionId);
   return false;
+}
+
+/** Test-only: clear process-local startup guards between cases. */
+export function resetStartupGuards(): void {
+  sessionStartedAt.clear();
 }
 
 // ============================================================================
@@ -199,7 +208,10 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
     const removedIds: string[] = [];
     for (const session of state.sessions) {
       if (!batchStatuses[session.id]) {
-        if (session.status === 'initializing' || session.id === state.activeSessionId) continue;
+        if (shouldRetainNegativeKvFn(session.id)) {
+          sessionMissCounters.delete(session.id);
+          continue;
+        }
         const count = (sessionMissCounters.get(session.id) || 0) + 1;
         sessionMissCounters.set(session.id, count);
         if (count >= REMOVAL_THRESHOLD) {
@@ -249,13 +261,12 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
       // the 'initializing' status. KV may still show 'stopped' during container start.
       if (session.status === 'initializing' || isSessionInitializingFn(session.id)) continue;
 
-      // Guard 3: Recently-started session - protect from stale KV 'stopped'
-      // for 3 minutes after first reaching 'running'. Only 4503 (from Container
-      // DO) and manual stopSession() can stop a guarded session. This guard
-      // persists even if the user navigates to the dashboard.
-      if (remote.status === 'stopped' && isWithinStartupGuard(session.id)) continue;
+      // Guard 3: Negative KV evidence cannot stop a newly started session or a
+      // session whose terminal transport still owns a socket/retry loop. Manual
+      // stop and persisted-state 4503 bypass this path in session.ts/terminal.ts.
+      if (remote.status === 'stopped' && shouldRetainNegativeKvFn(session.id)) continue;
 
-      // KV is source of truth for non-active, non-starting sessions.
+      // KV is the dashboard projection for unguarded, transport-free sessions.
       if (remote.status === 'running' && session.status !== 'running') {
         updateSessionStatusFn(session.id, 'running');
       } else if (remote.status === 'stopped' && session.status !== 'stopped') {

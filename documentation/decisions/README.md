@@ -2031,7 +2031,7 @@ Mitigated by integration-only rollout and keeping the shim available as a one-li
 
 **Category:** Architecture
 
-**Status:** Accepted (2026-06-02)
+**Status:** Accepted (2026-06-02); authority model refined by [AD151](#ad151-container-lifecycle-and-terminal-transport-outrank-negative-eventual-kv-evidence).
 
 **Context:** Two user-facing symptoms shared one defect. (1) A live session was falsely flipped to `stopped` and the user bounced to the dashboard; reopening showed "Starting session" then instantly green. (2) A container that exited unexpectedly (crash, deploy-roll, or platform idle-reap) dangled as `running` in KV forever and had to be deleted by hand. Production observability (96h) proved the chain: when a container exits via an unexpected path the SDK (`@cloudflare/containers` v0.3.5) calls `onError()`, **not** `onStop()`; `onError` only logged, `collectMetrics`'s `!running` branch only logged-and-returned, and `onStop` (which does write `stopped`) was never invoked. So KV dangled at `running` and the heartbeat `metrics.updatedAt` froze.
 
@@ -4123,5 +4123,21 @@ Pi no longer infers completion from `agent_settled`, stop reasons, interactive l
 **Consequences:** History starts empty with no backfill. D1 outages do not block quota enforcement, while deleted-user tombstone failure blocks destructive live cleanup so a late writer cannot recreate history. Reporting and retention reuse the same database and transaction boundary. The design adds no ORM, queue, workflow, cache, coordinator Durable Object, or second database. Account-specific database IDs stay outside Git.
 
 **Related REQs:** [REQ-SUB-025](../../sdd/spec/subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-SUB-028](../../sdd/spec/subscription.md#req-sub-028-historical-usage-and-report-retention), [REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary).
+
+---
+
+### AD151: Container lifecycle and terminal transport outrank negative eventual-KV evidence
+
+**Category:** Architecture, Session lifecycle
+
+**Status:** Accepted (2026-09-02)
+
+**Context:** Session records and their compact LIST metadata are stored in eventually-consistent KV. Whole-record read/modify/write paths can expose stale values independently from LIST metadata or temporarily omit a record. The dashboard treated `stopped` and missing KV observations as runtime truth, disposed terminal ownership, and redirected users even while containers and WebSockets remained live. Terminal admission compounded the fault by converting stale KV `stopped` into close code 4503. Container start also issued two immediate whole-record writes, allowing its second stale read to restore pre-start status.
+
+**Decision:** Keep KV as the no-wake dashboard projection, not live-container authority. Frontend full-list hydration and incremental polling use one negative-evidence gate: retain a session while it is initializing, inside its three-minute startup guard, or owned by a terminal connection, attempt, or retry loop. Manual stop and terminal 4503 bypass this gate. Terminal admission ignores KV liveness, reads persisted Container SDK state without waking the container, emits 4503 only for `stopping`, `stopped`, or `stopped_with_code`, and emits retryable 1013 when state/readiness is unavailable. `onStart()` publishes `running`, `lastStartedAt`, and `lastActiveAt` from one KV snapshot. Only marker-aware metrics repairs stale running status; the start route cannot inspect `shutdownRequested` and does not rewrite KV for an already-running container.
+
+**Consequences:** Stale KV can delay an unowned dashboard-only stopped/removal transition only within existing startup protection; terminal-owned sessions cannot be falsely kicked. Confirmed SDK stop reaches the session store directly instead of waiting for KV propagation. Unknown container state fails closed to retry without forwarding or consuming WebSocket rate-limit budget. No coordinator, new storage key, or container wake path is added. Explicit stop, configurable idle timeout, multi-tick exit confirmation, and durable `shutdownRequested` protection remain intact.
+
+**Related REQs:** [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SEC-020](../../sdd/spec/security.md#req-sec-020-ws-upgrade-rate-limit-short-circuits).
 
 ---

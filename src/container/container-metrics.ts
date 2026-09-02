@@ -233,10 +233,14 @@ export async function updateKvStatus(
       logger.info('updateKvStatus: session not found in KV', { key, status, field });
       return 'absent';
     }
+    const timestamp = new Date().toISOString();
     const updated = {
       ...session,
       ...(status !== null ? { status } : {}),
-      [field]: new Date().toISOString(),
+      [field]: timestamp,
+      // A start owns both timestamps. Publishing them from this same snapshot
+      // prevents an immediate second KV read from restoring pre-start status.
+      ...(status === 'running' && field === 'lastStartedAt' ? { lastActiveAt: timestamp } : {}),
     };
     await putSessionWithMetadata(env.KV, key, updated);
     logger.info('updateKvStatus: wrote to KV', { key, status, field });

@@ -647,20 +647,21 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-SEC-020: WS-upgrade rate-limit short-circuits
 
-**Intent:** WebSocket reconnect storms during container hibernation or warm-up must not exhaust the user's 30/60s WS budget. Two pre-rate-limit gates short-circuit the upgrade with explicit close codes so the client can back off without losing its budget, and the container forward itself is time-bounded so a hung or unreachable container fails fast with the same retryable close instead of leaving the client connecting for tens of seconds.
+**Intent:** WebSocket reconnect storms during container hibernation or warm-up must not exhaust the user's 30/60s WS budget. Persisted Container SDK state and current readiness—not eventually-consistent KV status—drive pre-rate-limit close codes, and the container forward is time-bounded so a hung or unreachable container fails fast instead of leaving the client connecting for tens of seconds.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. WebSocket upgrade requests for stopped sessions are rejected before the WS rate-limit check runs, so a reconnect storm against a hibernated container does not consume the user's 30/60s WS budget. The close code conveys "container stopped" to the client. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (CF-015: Stopped session returns 4503 close code / REQ-SEC-020 AC1 (4503 short-circuit BEFORE WS rate-limit check)) -->
-2. WebSocket upgrade requests are rejected before the rate-limit check when the container's terminal service is not yet ready; the close code conveys "container warming up". The readiness probe is best-effort: probe errors fall through to the normal rate-limit + forward path. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (container-warming-up gate (PR #365) / REQ-SEC-020 AC2 (1013 close BEFORE WS rate-limit when terminalServiceReady=false; /health probe error falls through)) -->
+1. WebSocket upgrades return container-stopped close code 4503 before the WS rate-limit check only when persisted Container SDK state is `stopping`, `stopped`, or `stopped_with_code`; stale KV `stopped` cannot reject a running or healthy container. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/rate-limit-core.ts::checkRateLimit --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (REQ-SEC-020 AC1: persisted stopped states return 4503 before rate limiting; stale KV stopped with live SDK state proceeds) -->
+2. WebSocket upgrades return retryable close code 1013 before the rate-limit check and forward when a running/healthy container's terminal service is not ready or when persisted state/readiness is unavailable. Probe failures fail closed to retry rather than forwarding or consuming rate-limit budget. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (REQ-SEC-020 AC2: warming, unavailable, and unknown state return 1013 before rate limiting and forwarding) -->
 3. The container WebSocket forward is bounded by `CONTAINER_WS_FORWARD_TIMEOUT_MS`: a healthy container answers the upgrade in under a second. <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @impl: src/lib/constants.ts::CONTAINER_WS_FORWARD_TIMEOUT_MS --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (fast-fails with a 101 close (not an indefinite hang) when the container WS forward never answers) -->
 4. Terminal-ID authorization runs only after authentication and persisted session lookup: classic permits IDs `1` through `6`, Herdr permits only `1`, and missing/invalid mode resolves classic. <!-- @impl: src/routes/terminal.ts::isTerminalIdAllowed --> <!-- @test: src/__tests__/routes/terminal-route-validate.test.ts (mode-aware terminal authorization) -->
 
 **Constraints:**
 
-- The order is load-bearing: the two pre-rate-limit short-circuits run BEFORE the rate limiter so the user budget is preserved across hibernation/warm-up; the forward timeout (AC3) runs after the rate-limit check at the forward step.
+- The order is load-bearing: persisted-state and readiness short-circuits run BEFORE the rate limiter so the user budget is preserved across hibernation/warm-up; the forward timeout (AC3) runs after the rate-limit check at the forward step.
+- Reading persisted Container SDK state must not start or wake the container.
 
 **Priority:** P0
 

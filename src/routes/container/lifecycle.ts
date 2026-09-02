@@ -117,13 +117,10 @@ export async function startOrRestartContainer(params: {
     }
   }
 
-  // A verified-running container owns liveness. Reconcile legacy or stale KV
-  // records that lost status during an eventually-consistent activity write.
+  // If container is already running/healthy with correct bucket, return immediately.
+  // Marker-protected metrics owns KV convergence; this request path cannot inspect
+  // shutdownRequested and must not race a deliberate stop or recreate a deletion.
   if (currentState.status === 'running' || currentState.status === 'healthy') {
-    const base = (await env.KV.get<Session>(sessionKey, 'json')) ?? sessionData;
-    if (base.status !== 'running') {
-      await putSessionWithMetadata(env.KV, sessionKey, { ...base, status: 'running' as const });
-    }
     return {
       status: 'already_running',
       containerState: currentState.status,

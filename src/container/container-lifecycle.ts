@@ -61,10 +61,10 @@ export async function onStart(host: LifecycleHost): Promise<void> {
   // new lifecycle inherit an exhausted record or a near-abort failure streak.
   await host.ctx.storage.delete([TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY]);
   updateEnvVars(host);
+  // updateKvStatus publishes running plus both startup timestamps from one KV
+  // snapshot, so an immediate eventually-consistent read cannot restore the
+  // pre-start record.
   await updateKvStatus(host.ctx, host.env, host._bucketName, 'running', 'lastStartedAt');
-  // Also set lastActiveAt to start time so the frontend timer icon
-  // has a reference timestamp even before any user input occurs.
-  await updateKvStatus(host.ctx, host.env, host._bucketName, null, 'lastActiveAt');
   host.logger.info('Container started');
   // Clear any stale schedule rows from previous runs before arming fresh
   try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
