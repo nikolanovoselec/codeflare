@@ -7,7 +7,7 @@
     "@github/copilot": "1.0.80",
     "@openai/codex": "0.149.1",
     "bun": "1.4.0",
-    "chrome-devtools-mcp": "1.7.0",
+    "chrome-devtools-mcp": "1.8.0",
     "consult-llm-mcp": "2.13.4",
     "context-mode": "1.0.169",
     "opencode-ai": "1.18.18"
