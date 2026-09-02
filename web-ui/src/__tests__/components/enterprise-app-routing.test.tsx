@@ -1,5 +1,5 @@
 /**
- * REQ-ENTERPRISE-008 AC5: a first-time (auto-provisioned) enterprise user is routed
+ * REQ-ENTERPRISE-008 AC4: a first-time (auto-provisioned) enterprise user is routed
  * to the app home, never to /app/subscribe or the self-serve onboarding flow.
  *
  * App.tsx performs the first-login redirect imperatively via `window.location.href`.
@@ -99,7 +99,7 @@ describe('REQ-AGENT-124: legacy profile agent fallback', () => {
   });
 });
 
-describe('REQ-ENTERPRISE-008 AC5: enterprise first-login routing', () => {
+describe('REQ-ENTERPRISE-008 AC4: enterprise first-login routing', () => {
   it('does not redirect an un-onboarded enterprise user to onboarding/subscribe', async () => {
     getUserMock.mockResolvedValue({
       email: 'new@example.com', authenticated: true, bucketName: 'b', role: 'user',

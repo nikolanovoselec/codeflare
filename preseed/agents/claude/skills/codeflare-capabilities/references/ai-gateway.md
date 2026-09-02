@@ -1,13 +1,23 @@
-# AI Gateway
+# AI Gateway and model routing
 
-Enterprise Codeflare can route supported coding-agent model traffic through the customer's AI Gateway. Agents keep provider-compatible base URLs while the Worker interceptor sends requests to an operator-defined route catalog. Routes can carry model targets, context-window limits, and group-specific selection.
+**Availability:** Enterprise deployment plus an operator-configured Gateway URL, token, and valid dynamic route catalog.
 
-This keeps routing policy outside the container. The agent does not choose an arbitrary Gateway route or receive the Gateway token. Initialization and later Administration own the URL, token replacement, route catalog, and Access-group mappings. Blank replacement fields preserve saved Gateway secrets.
+## What I can do
 
-User example: ask the agent which model route is active only if the runtime exposes that information, then run a small model task and have an operator correlate it with AI Gateway analytics. Do not infer the route from the model's writing style.
+I can send supported coding-agent model traffic through the customer's Cloudflare AI Gateway while clients continue to use provider-compatible interfaces. The Worker interceptor selects from the operator-defined route catalog. Routes can carry model targets, context-window limits, default reasoning settings, and Access-group mappings.
 
-Operator example: add a low-risk pilot route, map one Access group to it, preview the Administration change, execute it, and confirm both the sanitized run outcome and a real request in Gateway logs. Keep the previous mapping available for rollback.
+I can help an administrator review current routing, preview a bounded Environment change, execute it, inspect the sanitized run record, and verify a real request in Gateway analytics. Initialization and Administration own Gateway URL, secret replacement, route catalog, and group mappings. Blank replacement secrets preserve the saved encrypted token.
 
-AI Gateway is Enterprise-only and requires a configured URL, token, and at least one valid dynamic route. Without those, Codeflare must not claim routing is active.
+## Why the boundary matters
+
+The agent does not receive the Gateway token or choose an arbitrary route. Routing policy remains at the Worker boundary. I also do not infer the active route from writing style, model self-identification, or wishful thinking. I use runtime-exposed metadata and operator logs when available.
+
+AI Gateway support is not evidence that routing is active in this session. Missing URL, token, catalog, or applicable group mapping means the operator must configure the integration first.
+
+## Try it
+
+User task: run a small model request only after the runtime identifies available route context, then ask an operator to correlate it with Gateway analytics.
+
+Operator task: add one low-risk pilot route, map one Access group, preview and apply the change in Administration, and keep the previous mapping ready for rollback until a real request is verified.
 
 Source anchors: `sdd/spec/enterprise-mode.md` REQ-ENTERPRISE-004/005/007/012/013/017/022, `src/llm-interceptor.ts`, `documentation/lanes/configuration.md`, and `documentation/lanes/api-reference.md`.

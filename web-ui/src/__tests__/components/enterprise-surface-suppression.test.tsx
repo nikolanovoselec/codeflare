@@ -145,9 +145,9 @@ describe('REQ-SUB-023 AC1/AC3-AC7: Header username dropdown', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC1–AC3 — SettingsPanel Administration + session-mode selector
+// REQ-ENTERPRISE-008 AC1-AC2 + REQ-SETUP-026 AC1-AC2 — Settings Administration + session mode
 // ---------------------------------------------------------------------------
-describe('REQ-ENTERPRISE-008 AC1-AC3: SettingsPanel and session mode', () => {
+describe('REQ-ENTERPRISE-008 AC1-AC2 and REQ-SETUP-026 AC1-AC2: SettingsPanel and session mode', () => {
   const panelProps = { isOpen: true, onClose: () => {}, currentUserEmail: 'admin@example.com', currentUserRole: 'admin' as const };
 
   it('hides Manage Users, Manage Subscriptions, and the mode selector in enterprise mode', () => {
@@ -160,28 +160,33 @@ describe('REQ-ENTERPRISE-008 AC1-AC3: SettingsPanel and session mode', () => {
     expect(screen.queryByText('Setup Wizard')).not.toBeInTheDocument();
   });
 
-  it('keeps Manage Users but hides Manage Subscriptions + the mode selector in onboarding/default mode', () => {
+  it('routes user administration through Administration in onboarding/default mode', () => {
     render(() => <SettingsPanel {...panelProps} />);
-    // Manage Users is admin, not billing — it stays outside enterprise.
-    expect(screen.getByText('Manage Users')).toBeInTheDocument();
+    const actions = screen.getByTestId('settings-administration-actions');
+    expect(actions.children).toHaveLength(1);
+    expect(actions.querySelector('a')).toHaveAttribute('href', '/admin');
+    expect(actions.querySelector('button')).not.toBeInTheDocument();
     // SaaS-billing surfaces are gated on saasMode.
     expect(screen.queryByText('Manage Subscriptions')).not.toBeInTheDocument();
     expect(screen.queryByTestId('session-mode-control')).not.toBeInTheDocument();
   });
 
-  it('renders all admin surfaces and the mode selector in SaaS mode', () => {
+  it('routes user administration through Administration and shows SaaS surfaces in SaaS mode', () => {
     sessionStoreState.saasMode = true;
     render(() => <SettingsPanel {...panelProps} />);
-    expect(screen.getByText('Manage Users')).toBeInTheDocument();
+    const actions = screen.getByTestId('settings-administration-actions');
+    expect(actions.children).toHaveLength(1);
+    expect(actions.querySelector('a')).toHaveAttribute('href', '/admin');
+    expect(actions.querySelector('button')).not.toBeInTheDocument();
     expect(screen.getByText('Manage Subscriptions')).toBeInTheDocument();
     expect(screen.getByTestId('session-mode-control')).toBeInTheDocument();
   });
 });
 
 // ---------------------------------------------------------------------------
-// AC3 — SessionSection mode selector (isolated)
+// AC2 — SessionSection mode selector (isolated)
 // ---------------------------------------------------------------------------
-describe('REQ-ENTERPRISE-008 AC3: SessionSection mode selector', () => {
+describe('REQ-ENTERPRISE-008 AC2: SessionSection mode selector', () => {
   const sectionProps = {
     currentSessionMode: () => 'default' as const,
     defaultWorkspace: () => 'terminal' as const,

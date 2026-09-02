@@ -1,7 +1,7 @@
 /**
- * REQ-ENTERPRISE-008 AC4 + prop threading.
+ * REQ-ENTERPRISE-008 AC3 + prop threading.
  *
- * AC4: the monthly-quota warning banners and their "Upgrade" CTAs never render in
+ * AC3: the monthly-quota warning banners and their "Upgrade" CTAs never render in
  * enterprise mode. This file also verifies Layout threads `enterpriseMode` into the
  * children that own the remaining suppressed surfaces (Header dropdown, Dashboard
  * dropdown via TerminalArea, SettingsPanel admin buttons), with the children stubbed
@@ -92,7 +92,7 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
-describe('REQ-ENTERPRISE-008 AC4: quota banners render only in SaaS mode', () => {
+describe('REQ-ENTERPRISE-008 AC3: quota banners render only in SaaS mode', () => {
   it('does not render the 100% banner in enterprise mode', () => {
     usageState.warning = '100';
     render(() => <Layout enterpriseMode />);

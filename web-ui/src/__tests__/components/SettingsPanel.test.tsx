@@ -15,7 +15,7 @@ const sessionStoreState = vi.hoisted(() => ({
   updatePreferences: vi.fn(async () => undefined),
   runPreseedUpdate: vi.fn(async (operation: () => Promise<unknown>) => operation()),
   preseedUpgrading: false,
-  // The Standard/Pro session-mode selector is SaaS-gated (REQ-ENTERPRISE-008 AC3);
+  // The Standard/Pro session-mode selector is SaaS-gated (REQ-ENTERPRISE-008 AC2);
   // these tests exercise its behavior, so default to SaaS mode.
   saasMode: true as boolean,
 }));
@@ -763,7 +763,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(screen.queryByTestId('accordion-header-admin')).not.toBeInTheDocument();
     });
 
-    it('routes routine admin access through Administration without a duplicate Setup button', () => {
+    it('REQ-SETUP-026 AC1-AC2: routes all admin access through one Administration entry', () => {
       render(() => (
         <SettingsPanel
           isOpen={true}
@@ -776,7 +776,9 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
 
       const administrationLink = screen.getByRole('link', { name: /Open Administration/ });
       expect(administrationLink).toHaveAttribute('href', '/admin');
-      expect(screen.queryByRole('button', { name: /Setup Wizard/ })).not.toBeInTheDocument();
+      const actions = screen.getByTestId('settings-administration-actions');
+      expect(actions.children).toHaveLength(1);
+      expect(actions.querySelector('button')).not.toBeInTheDocument();
     });
   });
 

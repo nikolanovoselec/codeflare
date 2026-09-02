@@ -35,6 +35,7 @@ const initialState: SetupState = {
   customDomainUrl: null,
   accountId: null,
   saasMode: false,
+  onboardingMode: false,
   enterpriseMode: false,
   enterpriseAccessGroups: [],
   adminAccessGroups: [],
@@ -406,6 +407,9 @@ async function hydrateExistingConfig(): Promise<boolean> {
     if (statusRes.enterpriseMode) {
       setState('enterpriseMode', true);
     }
+    if (statusRes.onboardingMode) {
+      setState('onboardingMode', true);
+    }
 
     if (statusRes.configured) {
       // Enterprise reconfiguration: GET /api/users returns 403 in enterprise mode
@@ -623,6 +627,9 @@ export const setupStore = {
   },
   get saasMode() {
     return state.saasMode;
+  },
+  get onboardingMode() {
+    return state.onboardingMode;
   },
   get enterpriseMode() {
     return state.enterpriseMode;

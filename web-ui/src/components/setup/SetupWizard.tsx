@@ -88,6 +88,9 @@ const SetupWizard: Component = () => {
           <div class="setup-header">
             <Icon path={mdiXml} size={24} class="setup-logo-icon" />
             <h1 class="setup-title">Administration &amp; Analytics</h1>
+            <Show when={initializationComplete()}>
+              <a class="setup-header-return" href="/admin" data-testid="initialization-return" aria-label="Back to Administration">Administration</a>
+            </Show>
             <span class="setup-header-status">{initializationComplete() ? 'Completed' : 'First-run setup'}</span>
           </div>
           <div class="setup-content">

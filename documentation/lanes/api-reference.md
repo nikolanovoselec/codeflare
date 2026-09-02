@@ -605,10 +605,10 @@ This applies to `POST /api/setup/configure`, `GET /api/setup/detect-token`, and 
 
 **`GET /api/setup/status`**
 
-Always public. Returns whether setup is complete and the custom domain if configured.
+Always public. Returns whether setup is complete, the custom domain when configured, and deploy-time SaaS, Enterprise, and Onboarding mode flags. <!-- @impl: src/routes/setup/handlers.ts::default -->
 
 ```json
-{"configured": true, "customDomain": "claude.example.com", "saasMode": false}
+{"configured": true, "customDomain": "claude.example.com", "saasMode": false, "enterpriseMode": false, "onboardingMode": true}
 ```
 
 **`GET /api/setup/detect-token`**

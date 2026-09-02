@@ -22,6 +22,7 @@ function state(): SetupState {
     customDomainUrl: null,
     accountId: null,
     saasMode: false,
+    onboardingMode: false,
     enterpriseMode: false,
     enterpriseAccessGroups: [],
     adminAccessGroups: [],

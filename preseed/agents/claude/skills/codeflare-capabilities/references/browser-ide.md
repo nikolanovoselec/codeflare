@@ -1,16 +1,19 @@
 # Browser IDE and VS Code
 
-An Advanced session can open a browser-hosted VS Code surface through the Worker proxy. The IDE belongs to that backend session, not to a bucket-stable editor machine. Codeflare prepares a clean workspace, selects the configured agent integration, and keeps browser IDE traffic behind the same authenticated session boundary as the terminal.
+**Availability:** Core Browser IDE is available in Advanced sessions when enabled. Selected-agent editor integration is available only when visible in the current session; its owning Pi integration requirements remain Partial pending completed exact-head review, CI, and deployed verification.
 
-The editor supports ordinary code navigation plus Codeflare-owned review entry points. Depending on the selected agent and mode, the sidebar can pass the active selection, diagnostics, native diffs, or an Inline Chat request to the session agent. Browser IDE integrated terminals remain separate from Classic and Herdr terminal topology.
+## What I can do
 
-Try it when Browser IDE is available in the current Advanced session:
+I can open a browser-hosted VS Code workspace through the authenticated Worker proxy. The editor belongs to the backend session, not to a separate bucket-stable workstation. I can navigate code, edit files, use integrated terminals, inspect diffs, and invoke Codeflare-owned review entry points.
 
-1. Create or open a session with the VS Code workspace.
-2. Open a source file and select the smallest relevant block.
-3. Use the Codeflare review or agent action exposed by the sidebar.
-4. Inspect the proposed diff before accepting it.
+Depending on the selected agent and mode, the sidebar can pass the active selection, diagnostics, native diffs, or an Inline Chat request to the session agent. When visibly enabled in the current session, Pi can expose Codeflare Chat, Inline Chat, and Review with Codeflare. Claude sessions use the pinned official panel. Browser IDE integrated terminals remain separate from Classic and Herdr terminal topology.
 
-Some editor continuity is durable, but the boundary is intentionally narrow. Open files, theme, keyboard layout, Explorer expansion, and a bounded extension-intent manifest may restore. Live editor databases, authentication, SecretStorage, extension bytes, chat state, and arbitrary settings remain ephemeral.
+## Why the boundary matters
 
-Source anchors: `sdd/spec/browser-ide.md` REQ-IDE-001 through REQ-IDE-016 and `documentation/lanes/container.md` Browser IDE sections.
+Continuity is deliberately narrow. Theme, selected web keyboard layout, Explorer expansion, open files, and a bounded extension-intent manifest may restore. Authentication, SecretStorage, extension bytes, editor databases, chat history, logs, and arbitrary User settings remain ephemeral. The fixed workspace confines browser navigation. It does not sandbox trusted terminal commands or extensions.
+
+## Try it
+
+Create or open an Advanced session with the VS Code workspace. Select the smallest relevant source block, invoke the available Codeflare review or agent action, and inspect the native diff before accepting anything. Then restart the session and compare which approved continuity fields return and which ephemeral state correctly disappears.
+
+Source anchors: `sdd/spec/browser-ide.md` REQ-IDE-001 through REQ-IDE-016 and the Browser IDE sections in `documentation/lanes/container.md`.

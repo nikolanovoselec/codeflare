@@ -15,6 +15,7 @@ vi.mock('../../stores/setup', () => ({
     step: 1,
     enterpriseMode: false,
     saasMode: false,
+    onboardingMode: false,
     tokenDetecting: false,
     tokenDetected: false,
     tokenDetectError: null,
@@ -38,7 +39,7 @@ describe('SetupWizard', () => {
     mockedGetSetupStatus.mockResolvedValue({ configured: false });
     mockedGetUser.mockResolvedValue({ role: 'admin', authenticated: true } as any);
     vi.mocked(setupStore.loadExistingConfig).mockResolvedValue(true);
-    Object.assign(setupStore, { enterpriseMode: false, tokenDetected: false, accountInfo: null });
+    Object.assign(setupStore, { enterpriseMode: false, saasMode: false, onboardingMode: false, tokenDetected: false, accountInfo: null });
   });
 
   afterEach(() => {
@@ -72,6 +73,30 @@ describe('SetupWizard', () => {
       await waitFor(() => {
         expect(document.body.textContent).toContain('Completed');
         expect(document.body.textContent).toContain('Enterprise');
+      });
+    });
+
+    it('REQ-SETUP-022 AC6: shows the hydrated Onboarding deployment mode', async () => {
+      mockedGetSetupStatus.mockResolvedValue({ configured: true, onboardingMode: true });
+      vi.mocked(setupStore.loadExistingConfig).mockImplementationOnce(async () => {
+        Object.assign(setupStore, { onboardingMode: true });
+        return true;
+      });
+
+      render(() => <SetupWizard />);
+
+      await waitFor(() => {
+        expect(document.querySelector('[data-deployment-mode="onboarding"]')).toBeInTheDocument();
+      });
+    });
+
+    it('REQ-SETUP-022 AC7: returns configured Initialization to Administration', async () => {
+      mockedGetSetupStatus.mockResolvedValue({ configured: true });
+
+      render(() => <SetupWizard />);
+
+      await waitFor(() => {
+        expect(document.querySelector('[data-testid="initialization-return"]')).toHaveAttribute('href', '/admin');
       });
     });
 

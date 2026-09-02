@@ -38,7 +38,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 2. The deployer needs only a Cloudflare API token configured as a Worker secret; no other pre-configuration is required. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (Setup AC Coverage) -->
 3. The Cloudflare API token is read from a Worker environment binding, not from the request body. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-001 AC3: CLOUDFLARE_API_TOKEN is read from environment binding not from request body) -->
 4. The setup wizard provisions all necessary Cloudflare resources (R2 credentials, DNS records, Access applications, Turnstile widgets) from scratch. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-001 AC4: setup wizard creates R2 credentials, DNS records, and Access app resources) -->
-5. The setup-status endpoint is always public and returns the configured flag, optional custom domain, and SaaS mode flag. <!-- @impl: src/routes/setup/handlers.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-001 AC5: GET /api/setup/status is always public and returns configured, customDomain, saasMode shape) -->
+5. The setup-status endpoint is always public and returns the configured flag, optional custom domain, and SaaS, Enterprise, and Onboarding mode flags. <!-- @impl: src/routes/setup/handlers.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-001 AC5: GET /api/setup/status is always public and returns configured, customDomain, saasMode shape) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (REQ-SETUP-001 AC5: returns onboarding mode from the deployment flag) -->
 
 **Constraints:**
 
@@ -559,9 +559,8 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 2. Default and Onboarding add Users; SaaS adds Users and Subscription Tiers; Enterprise exposes neither. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @test: web-ui/src/__tests__/components/AdministrationLayout.test.tsx (REQ-SETUP-019 AC2: gates navigation by deployment mode) -->
 3. Existing Users and Subscription Tiers components are embedded in their Administration routes. <!-- @impl: web-ui/src/App.tsx::AdministrationUsers --> <!-- @impl: web-ui/src/App.tsx::AdministrationSubscriptions --> <!-- @test: web-ui/src/__tests__/components/App.test.tsx (REQ-SETUP-019 AC3: embeds existing administration components) -->
 4. User-facing routine copy says Environment; Configuration remains internal API and storage vocabulary. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentIndex --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @manual -->
-5. Loading, empty, failure, conflict, reconnect, and responsive states follow the approved Administration and Analytics design contract. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @impl: web-ui/src/styles/administration.css::.admin-shell --> <!-- @manual -->
+5. Loading, empty, failure, conflict, and reconnect states follow the approved design. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @manual -->
 6. First-run Setup presents mode-applicable readiness, access, routing, platform, managed-environment, integration, review, apply, and result stages. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @manual -->
-7. Completed deployments expose bootstrap recovery through Administration instead of duplicating the action in workspace settings. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @manual -->
 
 **Constraints:** One authoritative response owns mode gating. No UI framework, chart package, icon package, or duplicate mode logic is added.
 
@@ -633,6 +632,8 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 3. Failed configured-deployment hydration shows a retryable load error without rendering recovery defaults. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/stores/setup.ts::loadExistingConfig --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (REQ-SETUP-022 AC3: keeps configured recovery closed when hydration fails) --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (REQ-SETUP-022 AC3: reports hydration failure and permits retry) --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (REQ-SETUP-022 AC3: keeps configured recovery closed when provider prefill fails) -->
 4. Configured recovery offers Review initialization. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/setup/WelcomeStep.tsx::WelcomeStep --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (REQ-SETUP-022 AC4: labels configured recovery as initialization review) -->
 5. Unconfigured first-run offers Start setup. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/setup/WelcomeStep.tsx::WelcomeStep --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (REQ-SETUP-022 AC5: retains the first-run setup action) -->
+6. Configured recovery displays the effective Default, Onboarding, SaaS, or Enterprise deployment mode from the setup-status response. <!-- @impl: src/routes/setup/handlers.ts::default --> <!-- @impl: web-ui/src/stores/setup.ts::loadExistingConfig --> <!-- @impl: web-ui/src/components/setup/WelcomeStep.tsx::WelcomeStep --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (REQ-SETUP-022 AC6: hydrates onboarding deployment mode from setup status) --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (REQ-SETUP-022 AC6: shows the hydrated Onboarding deployment mode) -->
+7. Configured recovery provides a direct return to Administration. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (REQ-SETUP-022 AC7: returns configured Initialization to Administration) -->
 
 **Constraints:** First-run Setup remains best-effort before any deployed configuration exists.
 
@@ -688,6 +689,51 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Dependencies:** [REQ-SETUP-018](#req-setup-018-stateless-environment-preview-and-bounded-execution), [REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth)
 
 **Verification:** Automated Administration-run and Initialization compatibility tests
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-025: Responsive Administration scrolling
+
+**Intent:** Administrators can reach routine controls at every supported viewport size.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Administration remains vertically scrollable at supported mobile, tablet, and desktop viewport sizes. <!-- @impl: web-ui/src/styles/administration.css::.admin-shell --> <!-- @manual -->
+
+**Constraints:** Application-shell overflow behavior remains unchanged.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-026: Workspace Administration entry
+
+**Intent:** Administrators have one workspace route into routine administration and recovery.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Completed deployments expose one workspace Settings entry linking to `/admin` in every deployment mode. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (REQ-SETUP-026 AC1-AC2: routes all admin access through one Administration entry) -->
+2. Workspace Settings exposes no duplicate user-management or bootstrap-recovery action. <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (REQ-SETUP-026 AC1-AC2: routes all admin access through one Administration entry) -->
+
+**Constraints:** Administration route contents remain mode-gated by [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell) AC2.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management)
+
+**Verification:** Automated Settings composition tests
 
 **Status:** Implemented
 

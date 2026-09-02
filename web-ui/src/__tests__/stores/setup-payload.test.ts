@@ -26,6 +26,7 @@ function baseState(overrides: Partial<SetupState> = {}): SetupState {
     customDomainUrl: null,
     accountId: null,
     saasMode: false,
+    onboardingMode: false,
     enterpriseMode: false,
     enterpriseAccessGroups: ['eng'],
     adminAccessGroups: ['admins'],

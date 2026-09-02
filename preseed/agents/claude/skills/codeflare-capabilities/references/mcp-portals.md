@@ -1,11 +1,21 @@
-# MCP portals
+# MCP tools and portal boundary
 
-Codeflare's product model describes MCP portals as a governed bridge between an agent and customer-connected tool servers. The intended shape puts many MCP servers behind one portal, applies signed-in-user and group policy, attributes calls, and may reduce a large tool surface to one code-mode entry point.
+**Availability:** A configured MCP server is available only when it appears in the current tool index and its authentication succeeds. Codeflare's broader MCP portal presentation is **not established** as a runtime contract by the active repository.
 
-The active repository does not yet establish that description as a runtime implementation contract. It contains the product presentation and an administrative `mcp-portals.write` OAuth scope, but no SDD requirement or operator flow that proves a portal is deployed. Do not present MCP portals as available from those two facts.
+## What I can do now
 
-What a user can try today is capability discovery. Inspect the current tool or MCP index. If a configured MCP server appears, make a read-only call such as fetching one assigned issue and confirm which identity and server handled it. That proves the visible integration, not an unseen portal. Move to a write only after reviewing the exact target and payload.
+I can inspect the current MCP or tool index, connect to a configured server through the available gateway, describe its tools, and make a bounded call under that server's actual identity and permissions. I start read-only where possible. Before a write, I show the exact target and payload because “the MCP can do it” is not an authorization model.
 
-If the user asks how to deploy or administer an MCP portal, say that the current Codeflare repository does not contain a verified procedure. Use the customer's approved portal documentation and live configuration as authority, or report that the capability is not configured here.
+A useful proof is concrete: fetch one assigned issue, document, or record and confirm which server and signed-in identity handled the call. That proves the visible integration. It does not prove an unseen shared portal, group policy, code-mode sandbox, or universal audit path.
 
-Source anchors: `landing/src/content/site.ts` MCP product description, `landing/src/pages/index.astro`, `src/lib/oauth-scopes.ts`, and `documentation/lanes/configuration.md` MCP portal scope table.
+## What is not established
+
+The product presentation describes an MCP portal that could put many tool servers behind one endpoint, apply user and group policy, attribute calls, and reduce a large surface to one code-mode entry point. The active Codeflare repository contains that presentation and an administrative `mcp-portals.write` OAuth scope, but no owning SDD runtime requirement or operator procedure proves that such a portal is deployed.
+
+If you ask me to administer one, I will use the customer's approved portal documentation and live configuration. If neither exists, I will report that boundary instead of improvising a deployment procedure.
+
+## Try it
+
+Ask me to list currently configured MCP servers. Choose one visible server and request one read-only operation. Then inspect returned identity and provenance before allowing a mutation.
+
+Source anchors: `landing/src/content/site.ts`, `landing/src/pages/index.astro`, `src/lib/oauth-scopes.ts`, and the MCP portal scope table in `documentation/lanes/configuration.md`.

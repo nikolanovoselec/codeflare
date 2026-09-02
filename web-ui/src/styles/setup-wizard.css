@@ -35,6 +35,15 @@
 .setup-logo-icon { color: var(--color-accent); flex: 0 0 auto; }
 .setup-logo-icon--error { color: var(--color-error); }
 .setup-title { margin: 0; font-size: var(--text-lg); font-weight: var(--font-semibold); color: var(--color-text-primary); }
+.setup-header-return {
+  margin-left: auto;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  text-decoration: none;
+}
+.setup-header-return:hover { color: var(--color-text-primary); }
+.setup-header-return + .setup-header-status { margin-left: 0; }
 .setup-header-status {
   margin-left: auto;
   padding: 4px 10px;

@@ -35,8 +35,9 @@ export interface SetupState {
   // Result URLs
   customDomainUrl: string | null;
   accountId: string | null;
-  // SaaS mode
+  // SaaS and Onboarding modes (deploy-time flags, from /api/setup/status)
   saasMode: boolean;
+  onboardingMode: boolean;
   // Enterprise mode (deploy-time flag, from /api/setup/status)
   enterpriseMode: boolean;
   // Enterprise-only: customer-managed Cloudflare Access group NAMES (chip list)

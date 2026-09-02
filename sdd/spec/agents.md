@@ -3202,17 +3202,17 @@ None.
 
 ### REQ-AGENT-189: Layered Codeflare Capability Discovery
 
-**Intent:** A user asking what Codeflare can do receives a concise, source-backed overview first and can then request practical subsystem guidance without loading the complete platform inventory.
+**Intent:** A user asking what Codeflare can do receives a substantial, source-backed first-person account of end-to-end engineering ownership and can then select practical subsystem guidance without loading the complete platform inventory.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A broad capability question starts with a high-impact Codeflare overview before subsystem detail. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Ask a fresh Standard and Advanced session what Codeflare can do and review response order. -->
-2. The overview distinguishes platform capability from the current session's mode and configuration. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Compare a fresh Standard session with an Advanced session. -->
-3. The user can choose SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Secure Web Gateway, MCP portals, AI Gateway, Browser Run, or agentic primitives as an independent deep dive. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Request each named subsystem independently. -->
+1. A broad capability question starts with a structured first-person Codeflare overview covering end-to-end engineering ownership, proof, specialist coordination, browser workspaces, persistence boundaries, and configured Enterprise controls before subsystem detail. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Ask a fresh Standard and Advanced session what Codeflare can do and review response order and substance. -->
+2. The overview distinguishes Here now, Advanced, Enterprise/Governed, operator-configured, and not-established capability instead of presenting every platform contract as active in the current session. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Compare a fresh Standard session with an Advanced session and an unconfigured Enterprise capability. -->
+3. The response ends with a stable numbered list for SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Secure Web Gateway, MCP portals, AI Gateway, Browser Run, and agentic primitives as independent deep dives. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Review the 1 through 13 mapping and request each subsystem independently. -->
 4. A broad response loads no subsystem reference. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Inspect loaded files for one broad capability question. -->
-5. A follow-up reads only the references the user requested. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Inspect loaded files for one multi-subsystem follow-up. -->
+5. A number-only, comma-separated, or named follow-up reads only the reference or references selected by the user. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Reply with one number and then request one multi-subsystem selection; inspect loaded files. -->
 6. A deep dive states applicable mode, enterprise, permission, and operator dependencies before presenting the capability as available. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review one Standard, one Advanced, and one unconfigured Enterprise answer. -->
 7. A deep dive gives a concrete example the user or operator can try. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review each applicable user- or administrator-operated example. -->
 

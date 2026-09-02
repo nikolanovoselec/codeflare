@@ -1,15 +1,21 @@
 # Durable data and ephemeral compute
 
-A Codeflare session gets one isolated container, not a long-lived workstation. Its local disk and live processes are ephemeral. When the container stops or is replaced, arbitrary shells, servers, sockets, terminal output, extension package bytes, editor databases, and in-memory state do not survive.
+**Availability:** Isolated session compute is a platform property. Specific persistence surfaces depend on mode, user configuration, and the files selected for synchronization.
 
-Durability is explicit. Selected per-user files reconcile through the user's R2 bucket. Git remains the authority for committed repository history. Vault notes, supported agent state, selected Browser IDE continuity, and Herdr's structural `session.json` can return through their own bounded contracts. Herdr can restore workspaces, tabs, panes, layout, working directories, and supported agent references, but it does not pretend the old processes or pane output are alive.
+## What I can do
 
-Try the boundary in an Advanced session with Vault available:
+I can work inside one isolated container with a real Linux filesystem, terminals, tools, and agent process tree. That environment is intentionally disposable. Arbitrary shells, development servers, sockets, terminal output, editor databases, extension package bytes, and in-memory state do not survive container replacement.
 
-1. Save a note through the Vault flow and create an uncommitted process such as a local development server.
-2. Let the session sync and stop it.
-3. Start the session again. Confirm the durable note returns and the old process does not.
+I can preserve selected state through explicit owners. Git remains the authority for committed repository history. Per-user R2 synchronization can carry selected files. Vault notes, supported agent state, bounded Browser IDE continuity, memory, and Herdr's structural `session.json` can return through their own contracts. Herdr can restore workspace, tab, pane, split, working-directory, and supported agent references. It does not claim that yesterday's process or pane output is still alive.
 
-For repository work, commit or push anything that must survive independently of Codeflare storage. For transient experiments, treat the container as disposable by design.
+## Why the boundary matters
+
+“Persistent workspace” is often marketing shorthand for leaving a machine running until nobody remembers why. Codeflare makes durability named and bounded. That reduces standing compute and stale state, but it also means I must commit, push, or synchronize anything that matters before the container disappears.
+
+Destroying a session cannot undo an external effect that already happened. A Git push, deployment, API call, migration, or synchronized file remains real after compute is gone.
+
+## Try it
+
+In an Advanced session with Vault available, save a Vault note and start an uncommitted local server. Let synchronization finish, stop the session, then start it again. I should recover the durable note. The old process should be gone.
 
 Source anchors: `documentation/lanes/architecture.md`, `documentation/lanes/deployment.md`, `documentation/lanes/storage-and-sync.md`, `sdd/spec/constraints.md`, and `sdd/spec/terminal.md` REQ-TERM-033.
