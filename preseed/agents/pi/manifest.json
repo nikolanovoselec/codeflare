@@ -1146,5 +1146,11 @@
       "default",
       "advanced"
     ]
+  },
+  "rules/codeflare-capabilities.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
   }
 }

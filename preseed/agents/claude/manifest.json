@@ -1963,5 +1963,89 @@
     "modes": [
       "advanced"
     ]
+  },
+  "skills/codeflare-capabilities/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/codeflare-capabilities/references/sdd.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/codeflare-capabilities/references/boundary-reviews.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/codeflare-capabilities/references/curation.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/codeflare-capabilities/references/durable-ephemeral.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/codeflare-capabilities/references/terminals.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/codeflare-capabilities/references/browser-ide.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/codeflare-capabilities/references/zero-trust.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/codeflare-capabilities/references/interceptors.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/codeflare-capabilities/references/secure-web-gateway.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/codeflare-capabilities/references/mcp-portals.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/codeflare-capabilities/references/ai-gateway.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/codeflare-capabilities/references/browser-run.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/codeflare-capabilities/references/agentic-primitives.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
   }
 }

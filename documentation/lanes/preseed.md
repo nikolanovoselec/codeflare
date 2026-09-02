@@ -301,6 +301,8 @@ screen and exits without running.
 `sdd-init`, `sdd-clean`, `vault-operations`, `vault-note-capture`, and `graphify`.
 The SDD skill set covers the Import/Resume legacy-codebase transition below.
 
+Standard and Advanced managed sessions include `codeflare-capabilities`. A broad capability question loads only its router, which gives the platform overview and offers named follow-ups. Thirteen dedicated references load only when the user asks about their subsystem: SDD, boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Secure Web Gateway, MCP portals, AI Gateway, Browser Run, and agentic primitives. Each deep dive qualifies mode or configuration dependencies and includes something the user or operator can try. Pi reaches the router through one 11-token rule; no platform inventory enters its always-loaded prompt. The private curation tree owns managed delivery and the image carries the same files as its baked fallback. ([REQ-AGENT-189](../../sdd/spec/agents.md#req-agent-189-layered-codeflare-capability-discovery))
+
 The SDD enforcement family is advanced-only: `spec-enforce` +
 `spec-enforce-ac` + `spec-enforce-truth`, `doc-enforce` +
 `doc-enforce-lanes` + `doc-enforce-shape` + `doc-enforce-truth`, and

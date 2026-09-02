@@ -3197,6 +3197,34 @@ None.
 
 ---
 
+### REQ-AGENT-189: Layered Codeflare Capability Discovery
+
+**Intent:** A user asking what Codeflare can do receives a concise, source-backed overview first and can then request practical subsystem guidance without loading the complete platform inventory.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Standard and Advanced managed sessions deliver one portable `codeflare-capabilities` router to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Capability discovery router --> <!-- @manual: Inspect the authoritative curation manifests and compiled release. -->
+2. A broad capability question starts with a high-impact Codeflare overview, distinguishes platform capability from the current session's mode and configuration, and offers named deeper dives instead of expanding every subsystem. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Ask a fresh Standard and Advanced session what Codeflare can do and review factual scope, layering, and mode honesty. -->
+3. SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Secure Web Gateway, MCP portals, AI Gateway, Browser Run, and agentic primitives each have one dedicated reference that is read only when that subsystem is requested. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Request each subsystem independently and inspect loaded skill files. -->
+4. A subsystem answer gives concrete examples the user can try and qualifies any mode, enterprise, permission, or operator dependency before presenting it as available. <!-- @manual: Review each applicable user- or administrator-operated example. -->
+5. Standard and Advanced Pi receive one capability-routing rule of no more than 20 whitespace-delimited tokens; the rule points to the router and carries no subsystem guidance. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @manual: Inspect the authoritative Pi rule and count its tokens. -->
+6. Private curation owns the managed source and the Codeflare image carries a matching baked fallback through the existing manifest compiler; no new runtime, transform, package, or delivery path is introduced. <!-- @manual: Compare curation and baked-fallback files, modes, and compiled target inventory. -->
+7. Capability prose, routing text, headings, inventories, projections, and managed-content semantics remain outside automated source-matching tests; generic compiler, ABI, path-safety, release-integrity, and runtime-compatibility checks remain content-neutral. <!-- @manual: Inspect both repositories' changed tests and retained generic checks. -->
+
+**Constraints:** Claims must be traceable to active Codeflare requirements, implementation, or operator documentation. References stay lazy. Examples do not claim a configured enterprise integration when the current environment cannot prove it.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-AGENT-137](#req-agent-137-design-skill-review-boundary), [REQ-STOR-021](storage.md#req-stor-021-managed-content-ownership)
+
+**Verification:** Manual source, managed-projection, activation, and fresh-context review
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-076: Pi Context-Mode Enablement and Tool-Extension Defaults
 
 **Intent:** Pi's own default runtime behavior — independent of which Pro/Standard content [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) delivers — must stay predictable out of the box: context-mode is installed but disabled on fresh container startup while explicit `/ctx on` and `/ctx off` remain available, the five always-on Pi tool extensions install without duplication, context-mode's own npm update-check probe is neutralized at build time, and `web_search` defaults to the headless-safe non-interactive workflow.
