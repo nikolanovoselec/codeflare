@@ -264,7 +264,7 @@ async function loadSessions(): Promise<void> {
   try {
     const [sessions, batchResponse] = await Promise.all([
       api.getSessions(),
-      api.getBatchSessionStatus({ includePreseedCheck: true }).catch((err) => {
+      api.getBatchSessionStatus({ includePreseedCheck: true, include: ['storage', 'usage'] }).catch((err) => {
         logger.warn('[SessionStore] getBatchSessionStatus failed:', err);
         setState('error', err instanceof Error ? err.message : 'Failed to fetch session statuses');
         return { statuses: {} as Record<string, BatchStatusEntry>, maxSessions: state.maxSessions };

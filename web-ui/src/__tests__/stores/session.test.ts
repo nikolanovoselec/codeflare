@@ -130,6 +130,10 @@ describe('Session Store', () => {
       expect(sessionStore.sessions.length).toBe(2);
       expect(sessionStore.sessions[0].id).toBe('session-1');
       expect(sessionStore.sessions[1].id).toBe('session-2');
+      expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({
+        includePreseedCheck: true,
+        include: ['storage', 'usage'],
+      });
     });
 
     it('sweeps orphan Vault caches after an authoritative session-list fetch succeeds', async () => {
@@ -555,7 +559,7 @@ describe('Session Store', () => {
 
       await sessionStore.refreshSessionStatuses();
 
-      expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true });
+      expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true, include: ['storage', 'usage'] });
     });
 
     it('REQ-STOR-023 AC3: a failed batch-status call does not consume the managed-release check window', async () => {
@@ -571,8 +575,8 @@ describe('Session Store', () => {
       await sessionStore.refreshSessionStatuses();
       await sessionStore.refreshSessionStatuses();
 
-      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true });
-      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: true });
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true, include: ['storage', 'usage'] });
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: true, include: ['storage', 'usage'] });
     });
 
     it('REQ-STOR-023 AC3: an overlapping poll does not duplicate the managed-release check', async () => {
@@ -596,8 +600,8 @@ describe('Session Store', () => {
       release?.();
       await Promise.all([first, second]);
 
-      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true });
-      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: false });
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true, include: ['storage', 'usage'] });
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: false, include: ['storage', 'usage'] });
     });
   });
 
@@ -1055,7 +1059,7 @@ describe('Session Store', () => {
       const rejected = expect(starting).rejects.toThrow(/update is pending/i);
       rejectStart?.('Container start failed: Managed environment update is pending', 'MANAGED_ENVIRONMENT_UPDATE_PENDING');
       await rejected;
-      await vi.waitFor(() => expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true }));
+      await vi.waitFor(() => expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true, include: ['storage', 'usage'] }));
     });
   });
 

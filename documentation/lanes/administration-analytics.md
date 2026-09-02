@@ -38,11 +38,11 @@ D1 and KV must be restored as separate systems. A KV restore recovers live setti
 
 Deployment continues to use the established `CLOUDFLARE_API_TOKEN`. It needs D1 Edit together with its existing Worker deployment permissions so the workflow can resolve the database, apply migrations, deploy, and preserve the same Worker secret. ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary)) <!-- @impl: .github/workflows/deploy.yml::deploy -->
 
-Store the token and `CLOUDFLARE_ACCOUNT_ID` in the existing repository or target-environment Actions secret scope. Neither value enters source, D1, Activity, report history, or a session container. ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary)) <!-- @impl: .github/workflows/deploy.yml::deploy -->
+Store the deployment token and deployment account ID in the existing repository or target-environment Actions secret scope. They do not enter source, D1, Activity, or report history. These deployment values are distinct from session credentials: a non-Enterprise connected Cloudflare token and account ID enter that user's container, while Enterprise emits only the non-secret Browser Run token placeholder and configured account ID; the real Enterprise Browser Rendering token remains Worker-side. ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary)) <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @impl: src/container/container-env.ts::buildContainerEnv -->
 
 ## Retention and reports
 
-Historical rows use UTC periods. Active day rows retain the current day plus 399 preceding days, week rows retain 59 preceding ISO weeks, month rows retain 59 preceding months, and year rows retain four preceding years. Deleted users and their named aggregate rows remain for 60 calendar months. Report delivery records remain for 60 calendar months. Maintenance claims remain for 35 UTC days. ([REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports)) <!-- @impl: src/lib/usage-report-scheduler.ts::retentionCutoffs -->
+Historical rows use UTC periods. Active day rows retain the current day plus 399 preceding days, week rows retain 59 preceding ISO weeks, month rows retain 59 preceding months, and year rows retain four preceding years. Deleted users and their named aggregate rows remain for 60 calendar months. Report delivery records remain for 60 calendar months. Maintenance claims remain for 35 UTC days. ([REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-028](../../sdd/spec/subscription.md#req-sub-028-historical-usage-and-report-retention)) <!-- @impl: src/lib/usage-report-scheduler.ts::retentionCutoffs -->
 
 One 15-minute scheduler owns report dispatch, recovery, and a once-daily token-guarded retention transaction. Reports are disabled by default. When enabled, each recipient gets a separate claimed delivery with at most three attempts. `accepted` means Resend accepted the request. It does not claim inbox delivery, and no provider ID is invented. ([REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports)) <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler -->
 
@@ -50,7 +50,7 @@ CSV attachments stop at 8 MiB. Scheduled messages use deterministic idempotency;
 
 ## Operation envelope and logging
 
-At 2,000 active developers with three sessions each, positive Timekeeper pings perform one sub-4-KB Durable Object state write and no KV reads. Historical D1 writes run once per user on a hash-phased 15-minute duty, not once per session. Stable visible session status polls run every 60 seconds; transitions use five seconds; hidden pages stop polling. ([REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope)) <!-- @impl: src/timekeeper/accounting.ts::applyPositiveDelta -->
+At 2,000 active developers with three sessions each, a steady-state non-SaaS positive Timekeeper ping with cached period markers performs one sub-4-KB accounting-state write and no KV reads. A first marker observation can read Durable Object marker state and write up to four marker keys plus rollover outbox entries. SaaS pings additionally read the KV usage record, tier configuration, and user record for quota enforcement. Historical D1 writes run once per user on a hash-phased 15-minute duty, not once per session. Stable visible session status polls run every 60 seconds; transitions use five seconds; hidden pages stop polling. ([REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope)) <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
 
 Integration and Enterprise Integration retain `head_sampling_rate = 1`. Production and Enterprise use `0.05`. D1 history metrics record rows read, rows written, SQL duration, backlog age, and snapshot count without email addresses or secrets. Before Production history is enabled, operators must add account-level D1 operation and spend alerts and verify caught structured errors plus uncaught exceptions remain discoverable under the intended sampling policy. ([REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope)) <!-- @impl: scripts/ci/set-head-sampling.mjs::setHeadSampling -->
 
@@ -87,7 +87,7 @@ Browser and visual acceptance belongs to the operator on Integration. CI does no
 | Administration UI and demand-driven reads | `web-ui/src/components/admin/`, `web-ui/src/api/client.ts` |
 | Deployment boundary | `scripts/ci/prepare-usage-d1.mjs`, `.github/workflows/deploy.yml` |
 
-Owning requirements are [REQ-SETUP-017 through REQ-SETUP-023](../../sdd/spec/setup.md), [REQ-SUB-025 through REQ-SUB-027](../../sdd/spec/subscription.md), and [REQ-OPS-056 through REQ-OPS-057](../../sdd/spec/operations.md).
+Owning requirements are [REQ-SETUP-017 through REQ-SETUP-023](../../sdd/spec/setup.md), [REQ-SUB-025 through REQ-SUB-028](../../sdd/spec/subscription.md), and [REQ-OPS-056 through REQ-OPS-057](../../sdd/spec/operations.md).
 
 ## Related Documentation
 

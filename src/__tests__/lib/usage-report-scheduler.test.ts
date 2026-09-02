@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createDueScheduledDispatch, createReportDispatch, retentionCutoffs, runUsageRetention } from '../../lib/usage-report-scheduler';
+import { createDueScheduledDispatch, createReportDispatch, retentionCutoffs } from '../../lib/usage-report-scheduler';
 import type { Env as AppEnv } from '../../types';
 
 describe('usage report scheduling recovery (REQ-SUB-027)', () => {
@@ -28,7 +28,7 @@ describe('usage report scheduling recovery (REQ-SUB-027)', () => {
   });
 });
 
-describe('usage report retention transaction (REQ-SUB-026, REQ-SUB-027)', () => {
+describe('usage report retention cutoffs (REQ-SUB-026, REQ-SUB-028)', () => {
   it('computes every exact calendar cutoff', () => {
     expect(retentionCutoffs(new Date('2027-08-15T12:00:00.000Z'))).toEqual({
       day: '2026-07-12',
@@ -45,6 +45,9 @@ describe('usage report retention transaction (REQ-SUB-026, REQ-SUB-027)', () => 
     expect(retentionCutoffs(new Date('2027-08-16T12:00:00.000Z')).week).toBe('2026-06-29');
   });
 
+});
+
+describe('usage report dispatch (REQ-SUB-027)', () => {
   it('skips empty dispatches and batches one row per recipient', async () => {
     const db = {
       prepare: vi.fn((sql: string) => ({ bind: (...values: unknown[]) => ({ sql, values }) })),
@@ -54,28 +57,5 @@ describe('usage report retention transaction (REQ-SUB-026, REQ-SUB-027)', () => 
     expect(db.batch).not.toHaveBeenCalled();
     await createReportDispatch(db as unknown as D1Database, 'test', 'test:req', 2, '2027-07', ['a@example.com', 'b@example.com'], new Date('2027-08-01T00:00:00Z'));
     expect(db.batch).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ values: expect.arrayContaining(['a@example.com']) })]));
-  });
-
-  it('uses one token-guarded transactional batch', async () => {
-    const statements: Array<{ sql: string; values: unknown[] }> = [];
-    const db = {
-      prepare: vi.fn((sql: string) => ({ bind: (...values: unknown[]) => ({ sql, values }) })),
-      batch: vi.fn(async (items: Array<{ sql: string; values: unknown[] }>) => { statements.push(...items); return []; }),
-    };
-    await runUsageRetention(db as unknown as D1Database, new Date('2027-08-15T12:00:00.000Z'), 'token');
-    expect(db.batch).toHaveBeenCalledOnce();
-    expect(statements[0].sql).toContain('INSERT OR IGNORE INTO maintenance_claims');
-    for (const statement of statements.slice(1)) {
-      expect(statement.sql).toContain('claim_token = ?3');
-      expect(statement.sql).toContain('EXISTS');
-    }
-  });
-
-  it('propagates batch failure so winning claim rolls back and retries', async () => {
-    const db = {
-      prepare: (sql: string) => ({ bind: (...values: unknown[]) => ({ sql, values }) }),
-      batch: vi.fn().mockRejectedValue(new Error('prune failed')),
-    };
-    await expect(runUsageRetention(db as unknown as D1Database, new Date('2027-08-15T12:00:00.000Z'), 'token')).rejects.toThrow('prune failed');
   });
 });

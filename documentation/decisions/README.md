@@ -4120,6 +4120,6 @@ Pi no longer infers completion from `agent_settled`, stop reasons, interactive l
 
 **Consequences:** History starts empty with no backfill. D1 outages do not block quota enforcement, while deleted-user tombstone failure blocks destructive live cleanup so a late writer cannot recreate history. Reporting and retention reuse the same database and transaction boundary. The design adds no ORM, queue, workflow, cache, coordinator Durable Object, or second database. Account-specific database IDs stay outside Git.
 
-**Related REQs:** [REQ-SUB-025](../../sdd/spec/subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary).
+**Related REQs:** [REQ-SUB-025](../../sdd/spec/subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-SUB-028](../../sdd/spec/subscription.md#req-sub-028-historical-usage-and-report-retention), [REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary).
 
 ---
