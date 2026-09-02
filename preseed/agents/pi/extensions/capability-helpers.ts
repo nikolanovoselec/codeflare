@@ -42,7 +42,6 @@ const CORE_TOOL_NAMES = [
 const TOOL_ACTIVATION_GROUPS: Readonly<Record<string, readonly string[]>> = {
   subagent: ["subagent", "get_subagent_result", "steer_subagent"],
 };
-const DEFAULT_AGENT_DIR = join(homedir(), ".pi", "agent");
 const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const INLINE_EDIT_RESULT_TOOL = "codeflare_submit_inline_result";
 const GOAL_TERMINAL_TOOLS = ["goal_complete", "goal_blocked"] as const;
@@ -70,9 +69,21 @@ export function isExclusiveActiveTool(activeTools: ReadonlySet<string>, toolName
 
 type GoalToolVisibility = "always" | "after-first-goal";
 
+export function resolveAgentDir(
+  override = process.env.PI_CODING_AGENT_DIR,
+  home = homedir(),
+): string {
+  if (!override) return join(home, ".pi", "agent");
+  if (override === "~") return home;
+  if (override.startsWith("~/") || (process.platform === "win32" && override.startsWith("~\\"))) {
+    return join(home, override.slice(2));
+  }
+  return override;
+}
+
 function configuredGoalToolVisibility(): GoalToolVisibility | undefined {
   try {
-    const agentDir = process.env.PI_AGENT_DIR || DEFAULT_AGENT_DIR;
+    const agentDir = resolveAgentDir();
     const parsed = JSON.parse(readFileSync(join(agentDir, "pi-goal.json"), "utf8"));
     return parsed?.toolVisibility === "always" || parsed?.toolVisibility === "after-first-goal"
       ? parsed.toolVisibility

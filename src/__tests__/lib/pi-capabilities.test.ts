@@ -6,6 +6,7 @@ import capabilityHelpersExtension, {
   activateRegisteredTools,
   activationGroup,
   initialActiveTools,
+  resolveAgentDir,
   searchCapabilities,
   type ToolActivationPi,
 } from '../../../preseed/agents/pi/extensions/capability-helpers';
@@ -55,6 +56,12 @@ function fakePi(input?: {
 describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
   it('loads the helper module as a side-effect-free standalone extension', () => {
     expect(capabilityHelpersExtension()).toBeUndefined();
+  });
+
+  it('resolves Pi agent-directory overrides with home expansion', () => {
+    expect(resolveAgentDir('~/custom-agent', '/different-home')).toBe('/different-home/custom-agent');
+    expect(resolveAgentDir('/configured/agent', '/different-home')).toBe('/configured/agent');
+    expect(resolveAgentDir(undefined, '/different-home')).toBe('/different-home/.pi/agent');
   });
 
   it('exposes startup, search, and activation through Pi public APIs', async () => {
