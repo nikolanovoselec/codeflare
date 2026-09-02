@@ -616,7 +616,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(putUrls).not.toContain(`${endpoint}/bucket/.claude/stable.md`);
   });
 
-  it('REQ-STOR-039 AC1/AC2 + REQ-STOR-033 AC1/AC2: arbitrary-gap delta materializes exact target R2 bytes and content types', async () => {
+  it('REQ-STOR-039 AC1/AC3 + REQ-STOR-033 AC1/AC2: arbitrary-gap delta materializes exact target R2 bytes and content types', async () => {
     const priorDigest = '3'.repeat(64);
     const targetDigest = '4'.repeat(64);
     const priorDocuments = [
@@ -734,7 +734,7 @@ describe('managed release user-bucket reconciliation', () => {
     })).rejects.toThrow(/verification/i);
   });
 
-  it('REQ-STOR-039 AC2: automatic reconciliation rejects an acknowledged deletion that remains in R2', async () => {
+  it('REQ-STOR-039 AC3: automatic reconciliation rejects an acknowledged deletion that remains in R2', async () => {
     const priorDigest = '7'.repeat(64);
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).endsWith('/.claude/removed.md') && init?.method === 'HEAD') {
@@ -758,7 +758,7 @@ describe('managed release user-bucket reconciliation', () => {
     })).rejects.toThrow(/deletion verification/i);
   });
 
-  it('REQ-STOR-039 AC1 + REQ-STOR-033 AC3 + REQ-STOR-034 AC3: target provenance resumes and increments progress', async () => {
+  it('REQ-STOR-039 AC2 + REQ-STOR-033 AC3 + REQ-STOR-034 AC3: target provenance resumes and increments progress', async () => {
     const targetDigest = '2'.repeat(64);
     const progress: Array<{ completed: number; total: number }> = [];
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
@@ -801,7 +801,7 @@ describe('managed release user-bucket reconciliation', () => {
     ))).toBe(false);
   });
 
-  it('REQ-STOR-039 AC1 + REQ-STOR-033 AC3: target provenance is not accepted when read-back bytes differ', async () => {
+  it('REQ-STOR-039 AC2 + REQ-STOR-033 AC3: target provenance is not accepted when read-back bytes differ', async () => {
     const priorDigest = '9'.repeat(64);
     const targetDigest = 'a'.repeat(64);
     const key = '.claude/target-marked.md';

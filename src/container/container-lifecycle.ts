@@ -54,7 +54,7 @@ export async function onStart(host: LifecycleHost): Promise<void> {
   host.containerStartedAt = Date.now();
   // A fresh start means no deliberate stop is in flight: clear any stale
   // shutdown marker a prior destroy() left in storage, so a later transient
-  // false-stopped on this run can self-heal (REQ-SESSION-018 AC4).
+  // false-stopped on this run can self-heal (REQ-SESSION-018 AC5).
   try { await host.ctx.storage.delete(SHUTDOWN_REQUESTED_KEY); } catch { /* best-effort */ }
   // Recovery residue is one startup prerequisite. A batch delete prevents a
   // partial clear, and a failure leaves metrics unarmed rather than letting the

@@ -611,7 +611,7 @@ function successorRuntimeHarness(minIntervalMs) {
 
 function readFixturePackage(root, sessionSourceName = 'lifecycle') {
   return Object.fromEntries(
-    ['package.json', 'src/commands.ts', 'src/goal.ts', `src/${sessionSourceName}.ts`, 'src/prompts.ts', 'src/runtime.ts', 'src/settings.ts']
+    ['package.json', 'src/commands.ts', 'src/goal.ts', `src/${sessionSourceName}.ts`, 'src/prompts.ts', 'src/runtime.ts', 'src/settings.ts', 'src/tool-policy.ts']
       .map((path) => [path, readFileSync(join(root, path), 'utf8')]),
   );
 }
@@ -753,7 +753,7 @@ function createExtensionHarness() {
 }
 
 describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
-  it('REQ-AGENT-111 AC2 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership', async () => {
+  it('REQ-AGENT-111 AC2/AC7 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership', async () => {
     const goalRoot = mkdtempSync(join(tmpdir(), 'pi-goal-integration-'));
     const planRoot = mkdtempSync(join(tmpdir(), 'pi-plan-integration-'));
     extractPinnedFixturePackage(goalRoot);
@@ -767,6 +767,8 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     goalExtension(harness.api, { settingsPath: join(goalRoot, 'settings.json') });
     planExtension(harness.api, { settingsPath: join(planRoot, 'settings.json') });
     await harness.startSession();
+    harness.api.setActiveTools(['read']);
+    assert.ok(!harness.activeTools().includes('goal_complete'));
 
     await harness.commands.get('goal').handler('first integration objective', harness.ctx);
     assert.ok(harness.activeTools().includes('goal_complete'));

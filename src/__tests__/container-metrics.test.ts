@@ -664,7 +664,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toEqual([]);
     });
 
-    // REQ-SESSION-018 AC4: a deliberate stop (persisted shutdown marker set by
+    // REQ-SESSION-018 AC5: a deliberate stop (persisted shutdown marker set by
     // destroy()/user Stop) must NOT be self-healed back to running. The marker
     // is persisted (DO storage), not an in-memory field, so it survives a DO
     // eviction mid-shutdown that would reset an in-memory flag.
@@ -699,7 +699,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toEqual([]);
     });
 
-    // REQ-SESSION-018 AC4: a live container whose KV was wrongly flipped to
+    // REQ-SESSION-018 AC5: a live container whose KV was wrongly flipped to
     // stopped (e.g. by onError on a transient error) self-heals back to running
     // rather than hanging falsely-stopped on the dashboard until a restart.
     it('re-asserts running when the container is alive but KV reads stopped and no shutdown marker is set (self-heal)', async () => {

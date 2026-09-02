@@ -89,7 +89,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     };
 
     capabilityExtension(pi);
-    toolExposureFinalizer(pi);
+    toolExposureFinalizer(pi, () => 'after-first-goal');
     handlers.get('before_agent_start')?.({}, {});
 
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
@@ -146,6 +146,33 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
   });
 
+  it('REQ-AGENT-111: hides registered Goal tools for a fresh lazy session', () => {
+    const base = fakePi({
+      active: ['read', 'goal_complete', 'goal_blocked'],
+      tools: [
+        { name: 'read', description: 'Read files' },
+        { name: 'bash', description: 'Run shell commands' },
+        { name: 'goal_complete', description: 'Complete Goal' },
+        { name: 'goal_blocked', description: 'Block Goal' },
+      ],
+    });
+    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
+    const pi = {
+      ...base,
+      registerTool() {},
+      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
+        handlers.set(event, handler);
+      },
+    };
+    toolExposureFinalizer(pi, () => 'after-first-goal');
+
+    handlers.get('before_agent_start')?.({}, {
+      sessionManager: { getBranch: () => [] },
+    });
+
+    expect(pi.getActiveTools()).toEqual(['read', 'bash']);
+  });
+
   it('REQ-AGENT-111: restores terminal Goal tools only for an unfinished session Goal', () => {
     const base = fakePi({
       active: ['read'],
@@ -165,7 +192,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
       },
     };
     capabilityExtension(pi);
-    toolExposureFinalizer(pi);
+    toolExposureFinalizer(pi, () => 'after-first-goal');
     const session = (status: string | null) => ({
       sessionManager: {
         getBranch: () => [{
@@ -199,7 +226,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
       },
     };
     capabilityExtension(pi);
-    toolExposureFinalizer(pi);
+    toolExposureFinalizer(pi, () => 'always');
 
     handlers.get('before_agent_start')?.({}, {
       sessionManager: { getBranch: () => [] },
@@ -278,7 +305,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     pi.on('before_agent_start', () => {
       pi.setActiveTools([...pi.getActiveTools(), 'ctx_search']);
     });
-    toolExposureFinalizer(pi);
+    toolExposureFinalizer(pi, () => 'after-first-goal');
     for (const handler of handlers) await handler({}, {});
 
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);

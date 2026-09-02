@@ -182,7 +182,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(writtenSession.status).toBe('running');
     });
 
-    // REQ-SESSION-018 AC4: a fresh start clears any stale deliberate-stop marker
+    // REQ-SESSION-018 AC5: a fresh start clears any stale deliberate-stop marker
     // a prior destroy() left in storage, so a later transient false-stopped on
     // this run can self-heal instead of being mistaken for a deliberate stop.
     it('onStart clears the persisted shutdown marker', async () => {

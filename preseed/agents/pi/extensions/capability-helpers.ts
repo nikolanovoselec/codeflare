@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+
 export type RegisteredTool = { name: string; description?: string };
 
 export type ToolActivationPi = {
@@ -63,6 +67,19 @@ export function isExclusiveActiveTool(activeTools: ReadonlySet<string>, toolName
   return activeTools.size === 1 && activeTools.has(toolName);
 }
 
+type GoalToolVisibility = "always" | "after-first-goal";
+
+function configuredGoalToolVisibility(): GoalToolVisibility | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(join(getAgentDir(), "pi-goal.json"), "utf8"));
+    return parsed?.toolVisibility === "always" || parsed?.toolVisibility === "after-first-goal"
+      ? parsed.toolVisibility
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function hasUnfinishedGoal(ctx: SessionContext): boolean {
   let entries: SessionEntry[];
   try {
@@ -84,15 +101,18 @@ function hasUnfinishedGoal(ctx: SessionContext): boolean {
     && UNFINISHED_GOAL_STATUSES.has(status);
 }
 
-export function registerInitialToolFilter(pi: InitialToolFilterPi): void {
+export function registerInitialToolFilter(
+  pi: InitialToolFilterPi,
+  goalToolVisibility: () => GoalToolVisibility | undefined = configuredGoalToolVisibility,
+): void {
+  const alwaysVisible = goalToolVisibility() === "always";
   pi.on("before_agent_start", (_event, ctx) => {
     const activeBeforeFilter = new Set(pi.getActiveTools());
     // Inline Chat deliberately narrows the provider to one host-owned result tool.
     // The final exposure filter runs later and must not replace that exclusive mode
     // with the normal read/bash/edit/write/capability set.
     if (isExclusiveActiveTool(activeBeforeFilter, INLINE_EDIT_RESULT_TOOL)) return;
-    const keepGoalTools = hasUnfinishedGoal(ctx)
-      || GOAL_TERMINAL_TOOLS.every((name) => activeBeforeFilter.has(name));
+    const keepGoalTools = hasUnfinishedGoal(ctx) || alwaysVisible;
     const initial = initialActiveTools(pi);
     if (!keepGoalTools) {
       pi.setActiveTools(initial);
