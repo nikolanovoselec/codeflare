@@ -1,5 +1,5 @@
 import { cleanup, render, screen, waitFor } from '@solidjs/testing-library';
-import { Router } from '@solidjs/router';
+import { Route, Router } from '@solidjs/router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const getAdminConfigurationMock = vi.fn();
@@ -32,7 +32,7 @@ describe('REQ-SETUP-019 AC2: gates navigation by deployment mode', () => {
     window.history.replaceState({}, '', '/admin');
     getAdminConfigurationMock.mockResolvedValue(response(mode));
 
-    render(() => <Router><AdministrationLayout /></Router>);
+    render(() => <Router><Route path="/admin" component={AdministrationLayout} /></Router>);
 
     await waitFor(() => expect(screen.getByRole('link', { name: 'Overview' })).toBeInTheDocument());
     expect(screen.getByRole('link', { name: 'Environment' })).toHaveAttribute('href', '/admin/environment');

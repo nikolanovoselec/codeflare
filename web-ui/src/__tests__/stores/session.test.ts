@@ -371,7 +371,15 @@ describe('Session Store', () => {
       mockGetSessions
         .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }))
         .mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve; }));
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
+      mockGetBatchSessionStatus
+        .mockResolvedValueOnce({
+          statuses: {}, maxSessions: 3,
+          usage: { dailySeconds: 10, monthlySeconds: 100, monthlyQuotaSeconds: 600, tier: 'advanced' },
+        })
+        .mockResolvedValueOnce({
+          statuses: {}, maxSessions: 3,
+          usage: { dailySeconds: 20, monthlySeconds: 200, monthlyQuotaSeconds: 600, tier: 'advanced' },
+        });
 
       const firstCall = sessionStore.loadSessions();
       const secondCall = sessionStore.loadSessions();
@@ -393,6 +401,7 @@ describe('Session Store', () => {
       expect(sessionStore.sessions.some(s => s.id === 'session-old')).toBe(false);
       expect(mockSweepOrphanVaultCaches).toHaveBeenCalledTimes(1);
       expect(mockSweepOrphanVaultCaches).toHaveBeenCalledWith(['session-new']);
+      expect(getUsageState()).toEqual({ monthlySeconds: 200, monthlyQuotaSeconds: 600 });
     });
 
     // REQ-AGENT-049: auto-upgrade preseed on stale hash

@@ -108,9 +108,10 @@ For a live repository tree, run `tree -L 2 -I node_modules` rather than relying 
 - `session-polling.ts`: refreshSessionStatuses, miss counters, start/stop polling. Uses dependency injection via `registerPollingDeps()`.
 - `session-usage.ts`: UsageState, warning levels, localStorage cache, `getDismissedQuotaLevel`/`setDismissedQuotaLevel` for per-UTC-month banner dismissal. Self-contained, no circular deps.
 - `session.ts`: facade re-exports the consumer-facing members; `setUsageState` is
-  consumed directly from `session-usage.ts` by its sole caller (`session-polling.ts`),
-  and the `UsageWarningLevel`/`UsageState` types have no consumers outside
-  `session-usage.ts` itself. Neither is re-exported (knip 6.29 dead-export removal).
+  consumed directly from `session-usage.ts` by initial loading in `session.ts` and
+  recurring refreshes in `session-polling.ts`. The `UsageWarningLevel`/`UsageState`
+  types have no consumers outside `session-usage.ts` itself. Neither is re-exported
+  (knip 6.29 dead-export removal).
 
 **Type safety fixes (CF-007):** `countPaidSlots` typed (no more `any[]`). Admin PATCH user uses `updateUserRecord` (not raw `KV.put`). `maxUsers` added to frontend `GetUsersResponseSchema` (no more double cast).
 

@@ -146,9 +146,8 @@ describe('REQ-SETUP-019 AC1: exposes Administration routes', () => {
   it('does not expose an Administration configuration page', async () => {
     window.history.replaceState({}, '', '/admin/configuration');
     render(() => <App />);
-    await waitFor(() => expect(getSetupStatusMock).toHaveBeenCalled());
-    expect(screen.queryByTestId('administration-environment')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('administration-overview')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('layout')).toBeInTheDocument();
+    expect(screen.queryByTestId('administration-shell')).not.toBeInTheDocument();
   });
 });
 

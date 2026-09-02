@@ -83,13 +83,22 @@ describe('REQ-SUB-028 AC1: daily retention claim', () => {
 
 describe('REQ-SUB-028 AC2: retention rollback', () => {
   it('rolls back the daily claim when a prune fails', async () => {
+    await db.prepare(`INSERT INTO usage_users (user_key, email, account_status, data_since)
+      VALUES ('rollback-user', 'rollback@example.com', 'active', '2020-01-01T00:00:00.000Z')`).run();
+    await db.prepare(`INSERT INTO usage_periods
+      (user_key, period_kind, period_start, runtime_seconds, session_count, source_sequence, updated_at)
+      VALUES ('rollback-user', 'day', '2020-01-01', 60, 1, 1, '2020-01-01T00:00:00.000Z')`).run();
     await db.exec("CREATE TRIGGER reject_report_prune BEFORE DELETE ON report_deliveries BEGIN SELECT RAISE(ABORT, 'prune failed'); END");
     await db.prepare(`INSERT INTO report_deliveries
       (id, delivery_kind, dispatch_id, settings_revision, report_month, recipient, state, attempt, created_at, updated_at)
       VALUES ('blocked', 'scheduled', 'blocked', 1, '2020-01', 'blocked@example.com', 'accepted', 1, '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z')`).run();
-    await expect(runUsageRetention(db, now, 'retryable')).rejects.toThrow();
+    await expect(runUsageRetention(db, now, 'failed-attempt')).rejects.toThrow();
     expect(await db.prepare("SELECT claim_token FROM maintenance_claims WHERE task = 'usage-retention'").first()).toBeNull();
+    expect(await db.prepare("SELECT user_key FROM usage_periods WHERE user_key = 'rollback-user'").first()).not.toBeNull();
+
     await db.exec('DROP TRIGGER reject_report_prune');
+    await runUsageRetention(db, now, 'retry');
+    expect(await db.prepare("SELECT user_key FROM usage_periods WHERE user_key = 'rollback-user'").first()).toBeNull();
   });
 });
 

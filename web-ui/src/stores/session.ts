@@ -271,6 +271,8 @@ async function loadSessions(): Promise<void> {
         return { statuses: {} as Record<string, BatchStatusEntry>, maxSessions: state.maxSessions };
       }),
     ]);
+    if (thisGen !== loadSessionsGeneration) return;
+
     const batchStatuses = batchResponse.statuses;
     if (batchResponse.maxSessions !== undefined) setState('maxSessions', batchResponse.maxSessions);
     if ('storageStats' in batchResponse && batchResponse.storageStats) updateStatsFromBatch(batchResponse.storageStats);
@@ -299,8 +301,6 @@ async function loadSessions(): Promise<void> {
     setState('bucketMigrating', 'bucketMigrating' in batchResponse && batchResponse.bucketMigrating === true);
     setState('bucketMigrationPending', 'bucketMigrationPending' in batchResponse && batchResponse.bucketMigrationPending === true);
     setState('bucketMigrationPercent', 'bucketMigrationPercent' in batchResponse && typeof batchResponse.bucketMigrationPercent === 'number' ? batchResponse.bucketMigrationPercent : null);
-
-    if (thisGen !== loadSessionsGeneration) return;
 
     const existingStatuses = new Map(
       state.sessions.map(s => [s.id, s.status])
