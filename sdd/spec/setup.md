@@ -711,7 +711,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell)
 
-**Verification:** User-owned responsive acceptance on Integration
+**Verification:** Manual check
 
 **Status:** Implemented
 
