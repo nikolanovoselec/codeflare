@@ -1,23 +1,29 @@
-# Managed curation
-
-**Availability:** Standard and Advanced managed deployments after an operator configures a private curation repository, scoped read credential, and signing key.
+# Managed skills, policy, and curation
 
 ## What I can do
 
-I can receive updated skills, rules, specialist agents, hooks, extensions, scripts, plugins, and runtime manifests without waiting for a new container image. The private curation repository owns that managed source. Codeflare keeps an independently built image fallback for startup and recovery.
+I can work with an agent environment whose skills, rules, specialists, hooks, extensions, and runtime projections are delivered as reviewed managed content. The curation repository owns that source. One compiler projects portable content into Claude, Pi, Codex, OpenCode, Antigravity, and the supported rule surfaces without pretending every runtime has identical APIs.
 
-I can help an operator prepare a portable change in the canonical Claude tree, update runtime manifests, inspect deterministic compiled outputs, open the protected curation pull request, and follow publication of the next immutable `seed-vN` release. Ordinary user-bucket upgrades write added or changed paths while idle. Recreate remains the explicit full-overwrite recovery action.
+A content change can ship as a signed immutable seed without rebuilding the container image when it stays inside the existing compiler and runtime contract. Publication compiles every target, rebuilds the bundle twice, compares the bytes, signs the exact gzip payload, and publishes a monotonically increasing release. Each running image selects the newest verified release compatible with its runtime dependency hash.
 
-## Why the boundary matters
+This lets an organization update engineering policy or a specialist workflow without rebuilding an entire workstation image. It also keeps the update auditable. “The prompt changed somewhere” is not release management.
 
-The publication workflow compiles every supported runtime, verifies deterministic bytes, signs release assets with Ed25519, and publishes immutable artifacts. The Worker checks repository identity, release metadata, digests, signature, sequence, ABI, path limits, and runtime dependency hash before managed bytes reach user storage. Curation credentials do not enter session containers.
+## Where the boundary sits
 
-Do not hand-edit generated Pi copies or release archives. That creates bytes no canonical source can reproduce, which is exactly the sort of clever shortcut that becomes an incident six months later.
+Curation may ship content that the installed runtime already understands. A new package, native binary, compiler transform, seed ABI, or image-owned path belongs in the Codeflare image first.
+
+The managed source is authoritative for managed sessions. A separately versioned baked fallback may lag when a task explicitly excludes a Codeflare image change. Signatures prove release identity and integrity; they do not make incompatible content executable.
 
 ## Try it
 
-Stop active sessions, let an available Environment update complete, then start a new session and inspect the skill index. The published content should appear without a Codeflare image redeploy.
+Ask me:
 
-Operator task: add one portable skill under the canonical curation tree, list every delivered runtime file in its manifest, and verify the signed release plus image fallback through their existing integrity paths.
+> Add this organization-wide engineering skill, keep it portable, measure its runtime footprint, run managed-seed CI, and publish the next immutable release.
 
-Source anchors: `documentation/lanes/preseed.md#managed-curation-ownership`, the managed-curation section in `documentation/lanes/architecture.md`, and the curation repository `README.md` plus `docs/operator-runbook.md`.
+Other useful requests:
+
+- “Add a new portable skill and show which runtimes receive it.”
+- “Update this preseeded skill in curation, then align Codeflare’s embedded preseed.”
+- “Prepare a managed seed release and verify the compiled bundle is reproducible.”
+
+Source anchors: `sdd/spec/storage.md` REQ-STOR-021/024/025/026, `sdd/spec/agents.md` managed-seed requirements, and the codeflare-curation operator runbook.
