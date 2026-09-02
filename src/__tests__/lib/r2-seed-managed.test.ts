@@ -16,8 +16,13 @@ vi.mock('../../lib/r2-client', async (importOriginal) => ({
       const response = await fetchR2(url, init);
       if (init?.method === 'PUT' && response.ok) {
         const headers = new Headers(init.headers);
+        const body = init.body;
         acknowledgedWrites.set(url, {
-          body: String(init.body ?? ''),
+          body: typeof body === 'string'
+            ? body
+            : body instanceof Uint8Array
+              ? new TextDecoder().decode(body)
+              : String(body ?? ''),
           contentType: headers.get('Content-Type') ?? '',
           marker: headers.get('x-amz-meta-codeflare-preseed') ?? '',
         });
@@ -611,7 +616,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(putUrls).not.toContain(`${endpoint}/bucket/.claude/stable.md`);
   });
 
-  it('REQ-STOR-033 AC1/AC2: arbitrary-gap delta materializes exact target R2 bytes and content types', async () => {
+  it('REQ-STOR-024 AC4 + REQ-STOR-033 AC1/AC2: arbitrary-gap delta materializes exact target R2 bytes and content types', async () => {
     const priorDigest = '3'.repeat(64);
     const targetDigest = '4'.repeat(64);
     const priorDocuments = [
@@ -620,14 +625,14 @@ describe('managed release user-bucket reconciliation', () => {
       document('.claude/same-size.md', ['default'], 'AAAA'),
       document('.claude/different-size.md', ['default'], 'short'),
       document('.claude/type-only.md', ['default'], 'same bytes', 'text/plain; charset=utf-8'),
-    ];
+    ].sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
     const targetDocuments = [
       document('.claude/unchanged.md', ['default'], 'unchanged'),
       document('.claude/added.md', ['default'], 'added'),
       document('.claude/same-size.md', ['default'], 'BBBB'),
       document('.claude/different-size.md', ['default'], 'different target bytes'),
       document('.claude/type-only.md', ['default'], 'same bytes', 'text/markdown; charset=utf-8'),
-    ];
+    ].sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
     const objects = new Map(priorDocuments.map((item) => [item.key, {
       body: item.content,
       contentType: item.contentType,
@@ -689,7 +694,7 @@ describe('managed release user-bucket reconciliation', () => {
     expect(objects.get('.claude/unchanged.md')?.marker).toBe(priorDigest);
   });
 
-  it('REQ-STOR-033 AC2: automatic reconciliation rejects an acknowledged PUT whose R2 bytes differ', async () => {
+  it('REQ-STOR-024 AC4: automatic reconciliation rejects an acknowledged PUT whose R2 bytes differ', async () => {
     const priorDigest = '5'.repeat(64);
     const targetDigest = '6'.repeat(64);
     const key = '.claude/same-size.md';
@@ -729,7 +734,7 @@ describe('managed release user-bucket reconciliation', () => {
     })).rejects.toThrow(/verification/i);
   });
 
-  it('REQ-STOR-033 AC2: automatic reconciliation rejects an acknowledged deletion that remains in R2', async () => {
+  it('REQ-STOR-024 AC4: automatic reconciliation rejects an acknowledged deletion that remains in R2', async () => {
     const priorDigest = '7'.repeat(64);
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).endsWith('/.claude/removed.md') && init?.method === 'HEAD') {
@@ -756,19 +761,24 @@ describe('managed release user-bucket reconciliation', () => {
   it('REQ-STOR-033 AC3 + REQ-STOR-034 AC3: target provenance resumes and increments progress', async () => {
     const targetDigest = '2'.repeat(64);
     const progress: Array<{ completed: number; total: number }> = [];
-    acknowledgedWrites.set(`${endpoint}/bucket/.claude/already-done.md`, {
-      body: '# .claude/already-done.md',
-      contentType: 'text/markdown; charset=utf-8',
-      marker: targetDigest,
-    });
-    acknowledgedWrites.set(`${endpoint}/bucket/.codeflare/managed-extensions.json`, {
-      body: JSON.stringify({ schemaVersion: 1, release: { digest: targetDigest, sequence: 41 }, extensions: [] }),
-      contentType: 'application/json; charset=utf-8',
-      marker: targetDigest,
-    });
-    fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => {
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD') {
         return new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': targetDigest } });
+      }
+      if (init?.method === 'GET' && url.endsWith('/.claude/already-done.md')) {
+        return new Response('# .claude/already-done.md', { status: 200, headers: {
+          'Content-Type': 'text/markdown; charset=utf-8',
+          'x-amz-meta-codeflare-preseed': targetDigest,
+        } });
+      }
+      if (init?.method === 'GET' && url.endsWith('/.codeflare/managed-extensions.json')) {
+        return new Response(JSON.stringify({ schemaVersion: 1, release: { digest: targetDigest, sequence: 41 }, extensions: [] }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'x-amz-meta-codeflare-preseed': targetDigest,
+          },
+        });
       }
       return new Response('', { status: 200 });
     });
@@ -789,6 +799,35 @@ describe('managed release user-bucket reconciliation', () => {
     expect(fetchR2.mock.calls.some(([url, init]) => (
       String(url).endsWith('/.claude/already-done.md') && init?.method === 'PUT'
     ))).toBe(false);
+  });
+
+  it('REQ-STOR-033 AC3: target provenance is not accepted when read-back bytes differ', async () => {
+    const priorDigest = '9'.repeat(64);
+    const targetDigest = 'a'.repeat(64);
+    const key = '.claude/target-marked.md';
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith(`/${key}`) && init?.method === 'HEAD') {
+        return new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': targetDigest } });
+      }
+      if (url.endsWith(`/${key}`) && init?.method === 'GET') {
+        return new Response('WRNG', { status: 200, headers: {
+          'Content-Type': 'text/markdown; charset=utf-8',
+          'x-amz-meta-codeflare-preseed': targetDigest,
+        } });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: await selection(targetDigest, release(42, [document(key, ['default'], 'BBBB')])),
+      priorManagedRelease: {
+        ...await selection(priorDigest, release(33, [document(key, ['default'], 'AAAA')])),
+        mode: 'default',
+      },
+      automatic: { assumeEmpty: false },
+    })).rejects.toThrow(/verification/i);
   });
 
   it('REQ-STOR-033 AC4 + REQ-STOR-035 AC5: full-target fallback sweeps stale managed markers only after desired writes', async () => {

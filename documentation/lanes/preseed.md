@@ -237,6 +237,7 @@ state unpublished, so a later dashboard visit retries from retained target
 ownership. Fresh buckets and a valid applied digest whose immutable cache
 object is unavailable plan the full target, then use the same marker checks.
 R2 markers govern execution; the expiring KV progress record is display-only.
+<!-- @impl: src/lib/r2-seed.ts::verifyManagedDocument --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 
 Before managed-release writes, preferences record the bounded set of targets
 that may have written managed objects. If the active target changes, the next run
@@ -1420,7 +1421,7 @@ In addition to seeding the agent config into R2 at session start, the container 
 - **Gated.** Both the lay-down and `--checksum` activate only when `R2_SSE_DISABLED=true`.
   - Under SSE-C, no bake is laid down and initial restore uses rclone's size plus modification-time comparison because opaque ETags cannot support `--checksum`.
   - The prior `--size-only` comparison was removed because it retained stale local bytes for same-size release changes.
-  - Avoiding the bake under SSE-C also prevents it from overwriting an in-container edit.
+  - Avoiding the bake under SSE-C also prevents it from overwriting an in-container edit. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed -->
 
 ---
 
