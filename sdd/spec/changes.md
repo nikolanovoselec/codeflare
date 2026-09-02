@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-02
 
+- **The latest dashboard session load owns batch-derived state** ([REQ-SESSION-029](session-lifecycle.md#req-session-029-latest-session-load-owns-batch-derived-state) added as Implemented). Concurrent full session loads now discard stale status, quota, storage, managed-release, migration, and error results before they can replace a newer response.
+
 - **The Codeflare source graph keeps durable query data without generated HTML artifacts** ([REQ-AGENT-127](agents.md#req-agent-127-graph-publication-artifacts-and-optional-labels) AC4 and [REQ-AGENT-026](agents.md#req-agent-026-knowledge-graph-persistence-via-git) AC5 added, with REQ-AGENT-026 AC3 amended; remain Implemented). The repository refresh uses local AST extraction only, commits `graph.json` plus `GRAPH_REPORT.md`, and ignores regenerable `graph.html` and `callflow.html`. Generic Graphify build paths may still produce those local views.
 
 - **Capability discovery leads with the platform and loads subsystem detail only on request** ([REQ-AGENT-189](agents.md#req-agent-189-layered-codeflare-capability-discovery) and [REQ-AGENT-190](agents.md#req-agent-190-portable-capability-discovery-delivery) added as Implemented). Standard and Advanced managed sessions receive one portable Codeflare capability router with dedicated lazy references for SDD, boundary reviews, curation, compute and persistence, terminal and Browser IDE surfaces, enterprise traffic controls, governed tools, web research, and agent orchestration. Pi spends no more than 20 rule tokens on discovery. Examples remain mode-aware and source-backed, while prose-semantic tests remain excluded.

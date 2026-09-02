@@ -410,6 +410,28 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+### REQ-SESSION-029: Latest session load owns batch-derived state
+
+**Intent:** Concurrent dashboard session loads cannot replace newer status context with stale data or errors.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Only the latest in-flight session-list load may update batch-derived frontend state or errors; stale success and failure completions have no observable effect. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC1: stale success cannot overwrite latest batch state) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC1: stale failure cannot overwrite latest error state) -->
+
+**Constraints:** Background status polling remains independently serialized by its existing one-request-in-flight guard.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)
+
+**Verification:** Automated concurrent-load tests
+
+**Status:** Implemented
+
+---
+
 ### REQ-SESSION-012: Wake-loop prevention
 
 **Intent:** A browser's automatic WebSocket reconnect must not wake a hibernated container in an infinite stop/start cycle.

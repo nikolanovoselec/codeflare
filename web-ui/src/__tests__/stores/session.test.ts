@@ -365,7 +365,7 @@ describe('Session Store', () => {
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
     });
 
-    it('should discard stale results from concurrent loadSessions calls', async () => {
+    it('REQ-SESSION-029 AC1: stale success cannot overwrite latest batch state', async () => {
       let resolveFirst: (value: any) => void;
       let resolveSecond: (value: any) => void;
       mockGetSessions
@@ -402,6 +402,27 @@ describe('Session Store', () => {
       expect(mockSweepOrphanVaultCaches).toHaveBeenCalledTimes(1);
       expect(mockSweepOrphanVaultCaches).toHaveBeenCalledWith(['session-new']);
       expect(getUsageState()).toEqual({ monthlySeconds: 200, monthlyQuotaSeconds: 600 });
+    });
+
+    it('REQ-SESSION-029 AC1: stale failure cannot overwrite latest error state', async () => {
+      let rejectFirstBatch: (reason: Error) => void;
+      mockGetSessions
+        .mockResolvedValueOnce([{ id: 'session-old', name: 'Old', createdAt: 'then', lastAccessedAt: 'then' }])
+        .mockResolvedValueOnce([{ id: 'session-new', name: 'New', createdAt: 'now', lastAccessedAt: 'now' }]);
+      mockGetBatchSessionStatus
+        .mockReturnValueOnce(new Promise((_, reject) => { rejectFirstBatch = reject; }))
+        .mockResolvedValueOnce({ statuses: {}, maxSessions: 3 });
+
+      const firstCall = sessionStore.loadSessions();
+      const secondCall = sessionStore.loadSessions();
+      await secondCall;
+
+      rejectFirstBatch!(new Error('stale batch failure'));
+      await firstCall;
+
+      expect(sessionStore.error).toBeNull();
+      expect(sessionStore.sessions.map((session) => session.id)).toContain('session-new');
+      expect(sessionStore.sessions.map((session) => session.id)).not.toContain('session-old');
     });
 
     // REQ-AGENT-049: auto-upgrade preseed on stale hash

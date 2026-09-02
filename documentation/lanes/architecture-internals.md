@@ -107,11 +107,9 @@ For a live repository tree, run `tree -L 2 -I node_modules` rather than relying 
 **Session store extraction (CF-013):** `web-ui/src/stores/session.ts` split into focused modules:
 - `session-polling.ts`: refreshSessionStatuses, miss counters, start/stop polling. Uses dependency injection via `registerPollingDeps()`.
 - `session-usage.ts`: UsageState, warning levels, localStorage cache, `getDismissedQuotaLevel`/`setDismissedQuotaLevel` for per-UTC-month banner dismissal. Self-contained, no circular deps.
-- `session.ts`: facade re-exports the consumer-facing members; `setUsageState` is
-  consumed directly from `session-usage.ts` by initial loading in `session.ts` and
-  recurring refreshes in `session-polling.ts`. The `UsageWarningLevel`/`UsageState`
-  types have no consumers outside `session-usage.ts` itself. Neither is re-exported
-  (knip 6.29 dead-export removal).
+- `session.ts`: facade re-exports the consumer-facing usage members; initial loading
+  in `session.ts` and recurring refreshes in `session-polling.ts` call the shared
+  `setUsageState` owner directly. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @impl: web-ui/src/stores/session-usage.ts::setUsageState -->
 
 **Type safety fixes (CF-007):** `countPaidSlots` typed (no more `any[]`). Admin PATCH user uses `updateUserRecord` (not raw `KV.put`). `maxUsers` added to frontend `GetUsersResponseSchema` (no more double cast).
 
