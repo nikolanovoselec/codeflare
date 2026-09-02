@@ -2127,5 +2127,11 @@
       "default",
       "advanced"
     ]
+  },
+  "skills/codeflare-capabilities/references/design.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
   }
 }

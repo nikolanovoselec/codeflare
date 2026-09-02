@@ -382,7 +382,7 @@ export function unreferencedPlates(spec, artifact = null) {
 export function organicClipRegions(artifactFile, spec) {
   let scan;
   try {
-    const mod = require(path.join(HERE, '..', '..', 'cli', 'engine', 'rules', 'checks.mjs'));
+    const mod = require(path.join(HERE, 'detector', 'rules', 'checks.mjs'));
     scan = mod.scanCssTextForOrganicClipPath;
   } catch { scan = null; }
   if (!scan) return [];

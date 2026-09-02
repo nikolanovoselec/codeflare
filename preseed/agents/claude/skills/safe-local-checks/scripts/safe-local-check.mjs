@@ -246,6 +246,9 @@ async function checkLockFile(lockPath) {
   const manifest = JSON.parse(await readFile(packagePath, 'utf8'));
   const manifestDeps = dependencyMaps(manifest);
   const lockDeps = dependencyMaps(lock.packages[''] ?? {});
+  for (const name of Object.keys(lockDeps)) {
+    if (!(name in manifestDeps)) throw new Error(`${lockPath}: extra root dependency ${name}`);
+  }
   for (const [name, spec] of Object.entries(manifestDeps)) {
     if (lockDeps[name] !== spec) throw new Error(`${lockPath}: root dependency ${name} mismatch`);
     if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u.test(spec)) continue;

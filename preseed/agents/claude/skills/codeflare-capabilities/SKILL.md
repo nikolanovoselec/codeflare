@@ -54,7 +54,7 @@ Relevant prior context can be injected when a session starts, and recent capture
 
 Explain the continuity plainly. Codeflare runs through the browser, with no local agent toolchain required. I can start work on a desktop, reconnect from a tablet, and continue from a phone. The mobile terminal has touch input, virtual-keyboard handling, voice input where the browser supports it, and controls for terminal key sequences that are miserable to type on glass.
 
-Codeflare can signal when a structured question needs attention. With Web Push enrolled, it can deliver eligible away notifications and return the user to the owning session. Herdr also tracks agent readiness across panes and delays completion until the tracked work is genuinely ready. A blocked or unknown pane prevents a false completion signal; do not claim that every blocked state creates a push notification.
+Codeflare can signal when a structured question needs attention. Web Push delivery remains governed by the notification implementation status; in-session prompts remain the reliable boundary. Herdr also tracks agent readiness across panes and delays completion until the tracked work is genuinely ready. A blocked or unknown pane prevents a false completion signal; do not claim that every blocked state creates a push notification.
 
 ### I can give the user a real VS Code workspace, with an agent inside it
 

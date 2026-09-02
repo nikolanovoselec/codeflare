@@ -43,8 +43,15 @@ if (args.includes('--scan')) {
   if (targets.length === 0) { console.error('embed-prompt: --scan needs at least one directory'); process.exit(1); }
   const RASTER = /\.(png|jpe?g|webp)$/i;
   const rasters = [];
+  const isSymbolicLink = (p) => {
+    try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; }
+  };
   const walk = (p, isRoot) => {
-    const stat = fs.statSync(p);
+    const stat = fs.lstatSync(p);
+    if (stat.isSymbolicLink()) {
+      if (isRoot) { console.error(`embed-prompt: scan target cannot be a symbolic link ${p}`); process.exit(1); }
+      return;
+    }
     if (stat.isDirectory()) {
       const base = p.replace(/\/+$/, '').split('/').pop();
       // Skip installed deps and hidden dirs found during the walk, but honor a
@@ -56,6 +63,7 @@ if (args.includes('--scan')) {
     }
   };
   for (const target of targets) {
+    if (isSymbolicLink(target)) { console.error(`embed-prompt: scan target cannot be a symbolic link ${target}`); process.exit(1); }
     if (!fs.existsSync(target)) { console.error(`embed-prompt: no such path ${target}`); process.exit(1); }
     walk(target, true);
   }

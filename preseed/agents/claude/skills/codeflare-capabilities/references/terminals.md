@@ -8,7 +8,7 @@ Classic gives me up to six outer terminal tabs with labels, ordering, tiling, an
 
 The mobile terminal handles touch, virtual-keyboard geometry, orientation changes, sticky control sequences, and voice input where the browser supports it. It is a real terminal adapted to glass, not a desktop screenshot shrunk until the text loses the will to live.
 
-When a structured question needs attention, Codeflare can emit an immediate input-required signal. With Web Push enrolled, eligible away notifications can reach the device and return to the owning session. Herdr watches agent state across panes and delays completion until tracked work has actually become ready.
+When a structured question needs attention, Codeflare can emit an immediate input-required signal. Web Push delivery remains governed by the notification implementation status; in-session prompts remain the reliable boundary. Herdr watches agent state across panes and delays completion until tracked work has actually become ready.
 
 ## Where the boundary sits
 
