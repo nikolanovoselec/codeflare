@@ -388,7 +388,7 @@ describe('managed storage reconcile', () => {
     );
   });
 
-  it('REQ-STOR-024 AC4: failed automatic byte verification does not publish applied state', async () => {
+  it('REQ-STOR-024 AC4 + REQ-STOR-039 AC1: failed automatic byte verification does not publish applied state', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
     reconcile.mockRejectedValueOnce(new Error('Managed object verification failed'));

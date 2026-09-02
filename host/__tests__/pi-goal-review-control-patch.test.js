@@ -705,10 +705,13 @@ function createExtensionHarness() {
       },
     },
     registerCommand: (name, definition) => commands.set(name, definition),
-    registerTool: (definition) => tools.push({
-      ...definition,
-      sourceInfo: { source: 'extension', path: 'pinned-fixture' },
-    }),
+    registerTool: (definition) => {
+      tools.push({
+        ...definition,
+        sourceInfo: { source: 'extension', path: 'pinned-fixture' },
+      });
+      activeTools.push(definition.name);
+    },
     registerFlag: () => undefined,
     getFlag: () => false,
     on(name, listener) {
