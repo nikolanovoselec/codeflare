@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export type RegisteredTool = { name: string; description?: string };
 
@@ -42,6 +42,7 @@ const CORE_TOOL_NAMES = [
 const TOOL_ACTIVATION_GROUPS: Readonly<Record<string, readonly string[]>> = {
   subagent: ["subagent", "get_subagent_result", "steer_subagent"],
 };
+const DEFAULT_AGENT_DIR = join(homedir(), ".pi", "agent");
 const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const INLINE_EDIT_RESULT_TOOL = "codeflare_submit_inline_result";
 const GOAL_TERMINAL_TOOLS = ["goal_complete", "goal_blocked"] as const;
@@ -71,7 +72,8 @@ type GoalToolVisibility = "always" | "after-first-goal";
 
 function configuredGoalToolVisibility(): GoalToolVisibility | undefined {
   try {
-    const parsed = JSON.parse(readFileSync(join(getAgentDir(), "pi-goal.json"), "utf8"));
+    const agentDir = process.env.PI_AGENT_DIR || DEFAULT_AGENT_DIR;
+    const parsed = JSON.parse(readFileSync(join(agentDir, "pi-goal.json"), "utf8"));
     return parsed?.toolVisibility === "always" || parsed?.toolVisibility === "after-first-goal"
       ? parsed.toolVisibility
       : undefined;
