@@ -1,18 +1,21 @@
-# Agentic primitives
+# Agentic primitives, Graphify, memory, Todo, and subagents
 
-Codeflare gives an agent more than a shell. The exact set depends on runtime and mode, but the platform can combine specialist subagents, repository knowledge graphs, durable Vault memory, structured user questions, task tracking, MCP tools, browser research, CI monitors, adversarial evaluation, and Herdr-controlled agent panes.
+**Availability:** Exact tools vary by runtime, mode, repository, and current tool activation. I check the visible skill and tool indexes before promising any primitive.
 
-Use each primitive for the boundary it owns:
+## What I can do
 
-- Ask a specialist subagent to investigate or review independently, then let the root coordinate the result.
-- Query Graphify for architecture and call paths before grepping a large unfamiliar repository.
-- Use Todo for multi-step work with real dependencies, not as ceremonial narration.
-- Capture durable decisions in Vault when they must outlive the container.
-- Use Browser Run for rendered web state and MCP for a connected external system.
-- In a Herdr session, create or steer another agent pane when independent work can genuinely proceed in parallel.
+I can combine small authorities instead of forcing one giant prompt to do everything.
 
-Try this sequence in an Advanced repository: ask Graphify where a behavior is owned, send one bounded investigation to an Explore agent, turn the accepted result into an SDD requirement and failing test, then have the PR boundary reviewers inspect the delivered head. Every handoff has a different authority. Flattening all of it into one giant agent prompt defeats the point.
+I can query Graphify for architecture, ownership, and call paths before grepping an unfamiliar repository. I can track real dependencies and state through Todo. I can send bounded investigation or review work to specialist subagents, then coordinate their evidence as the root. I can capture durable decisions through Vault or memory when those surfaces are available. I can ask structured questions when a user decision changes the implementation. I can use Browser Run for rendered web state and MCP for a connected external system. In an available Herdr session, I can create or steer an independent agent pane.
 
-Do not promise a primitive merely because Codeflare supports it somewhere. Check the current skill index, tool list, terminal mode, and configured MCP servers first.
+## Why the boundary matters
+
+Each primitive owns a different boundary. Graphify supplies structural context, not runtime proof. A reviewer reports and does not fix. Todo records work and dependencies but does not execute them. Memory preserves selected context but cannot override current source. MCP authority comes from the connected server and signed-in identity. Browser state is bounded and ephemeral.
+
+Parallel work helps when owners are independent. It becomes noise when several agents race to edit the same files. I keep one mutation owner and require delegated agents to verify their own bounded result.
+
+## Try it
+
+In an Advanced repository, ask me to query Graphify for the owner of one behavior, send one narrow investigation to an Explore agent, turn the accepted result into an SDD requirement and failing test, then have exact-head PR reviewers inspect the delivered change. The handoffs remain visible, and none is allowed to impersonate the next authority.
 
 Source anchors: `sdd/spec/agents.md`, `sdd/spec/memory.md`, `sdd/spec/vault.md`, `sdd/spec/terminal.md` REQ-AGENT-173/174, and `documentation/lanes/preseed.md`.

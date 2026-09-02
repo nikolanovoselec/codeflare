@@ -1,15 +1,25 @@
-# Browser Run
+# Browser Run and deployed UI verification
 
-In an Advanced session with Browser Rendering credentials configured, Browser Run gives the agent a real isolated Chromium session for pages that plain HTTP fetching cannot read well. It handles JavaScript-rendered content, navigation, interaction, screenshots, and structured extraction through chrome-devtools. One-shot reads retain no browser session. Interactive Claude and Pi browser state has a bounded idle lifetime set by the shipped runtime, so continue multi-step work promptly and never treat it as persistent.
+**Availability:** Advanced session with Browser Run tooling visible and Browser Rendering credentials configured. General private or authenticated targets remain unsupported, apart from explicitly authorized deployed-app verification flows through the interactive browser.
 
-Use it when a page is public and dynamic, bot-blocked, visually stateful, or blocked to ordinary fetches. General authenticated and private targets are unsupported. The narrower exception is an explicitly authorized deployed-app verification flow through the interactive browser. Do not use Browser Run for every documentation page. A simple static URL belongs on the cheaper web-fetch path.
+## What I can do
 
-Try it with a concrete request:
+I can fetch a static public page through the ordinary web path first. When that fails because the page depends on JavaScript, interaction, rendering state, or a browser gate, I can open isolated Chromium. I can navigate, wait for rendered state, interact with controls, extract clean content, capture screenshots, and exercise a deployed flow at named desktop, tablet, or mobile viewports.
 
-> Open the release page in Browser Run, wait for the assets table to render, and return the release tag plus asset names with the source URL.
+One-shot reads retain no browser session. Interactive Claude and Pi browser state has a bounded idle lifetime. I continue multi-step work promptly and never treat browser state as durable context.
 
-For UI verification, ask it to open the deployed page at a named viewport, exercise one flow, and report observable state. A screenshot proves only what was rendered at that moment. It does not prove accessibility, performance, backend persistence, or another device size.
+## Why the boundary matters
 
-Browser Run is available only when its skill and browser tooling appear in the current Advanced session and the deployment has configured Browser Rendering credentials. Enterprise Browser Rendering tokens are injected at the boundary and never placed in the container.
+Browser evidence is specific. A screenshot proves what one viewport rendered at one moment. It does not prove backend persistence, accessibility, performance, another device size, or that a later deployment kept the same behavior. Deterministic assertions remain in CI. Deployed acceptance adds the live evidence CI cannot supply.
+
+Enterprise Browser Rendering tokens stay at the interception boundary instead of entering the container.
+
+## Try it
+
+Ask me:
+
+> Open this deployed page at 390 by 844, complete the named flow, capture the relevant states, and compare the observable result with these acceptance criteria.
+
+For research, ask me to open a JavaScript-rendered release page and return the rendered tag and asset names with the source URL.
 
 Source anchors: `sdd/spec/browser-run.md` REQ-BROWSER-001/003/005/006/007/008, `preseed/agents/claude/browser-run-mcp/`, and `host/__tests__/entrypoint-browser-run-mcp.test.js`.
