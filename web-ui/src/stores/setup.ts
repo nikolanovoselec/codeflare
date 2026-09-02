@@ -2,8 +2,9 @@ import { createStore, produce } from 'solid-js/store';
 import { batch } from 'solid-js';
 import * as api from '../api/client';
 
-/** Whether loadExistingConfig has already been called (prevents duplicate fetches). */
+/** Whether existing configuration has loaded, plus any shared in-flight hydration. */
 let configLoaded = false;
+let configLoadPromise: Promise<boolean> | null = null;
 
 const TOTAL_STEPS = 3;
 
@@ -395,9 +396,7 @@ function goToStep(step: number): void {
  * Pre-fill the store from the existing backend configuration.
  * Called when setup is already configured (re-configuration flow).
  */
-async function loadExistingConfig(): Promise<void> {
-  if (configLoaded) return;
-  configLoaded = true;
+async function hydrateExistingConfig(): Promise<boolean> {
   try {
     const statusRes = await api.getSetupStatus();
 
@@ -419,37 +418,46 @@ async function loadExistingConfig(): Promise<void> {
         setState(
           produce((s) => applyEnterprisePrefill(s, prefill, statusRes.customDomain))
         );
-        return;
+        return true;
       }
       // Reconfiguration: load existing config so admin can see what's set.
       const { users: usersRes } = await api.getUsers();
-      // The admin provider config (GitHub + Cloudflare) round-trips via the setup
-      // prefill (masked secrets) in non-enterprise too — the Setup wizard is admin-
-      // gated in every mode. Best-effort: a prefill failure must not abort the
-      // admin/users load above.
-      let reconfigPrefill: Awaited<ReturnType<typeof api.getSetupPrefill>> | null = null;
-      try {
-        reconfigPrefill = await api.getSetupPrefill();
-      } catch { /* prefill is best-effort */ }
+      // Provider and managed-environment values are part of configured recovery.
+      // Fail closed rather than presenting defaults as deployed values.
+      const reconfigPrefill = await api.getSetupPrefill();
       setState(
         produce((s) => applyReconfigPrefill(s, usersRes, reconfigPrefill, statusRes.customDomain, statusRes.saasMode))
       );
-      return;
+      return true;
     }
 
     // Initial setup: in SaaS mode, admin enters everything manually (no prefill)
     if (statusRes.saasMode) {
-      return;
+      return true;
     }
 
     const prefill = await api.getSetupPrefill();
     setState(
       produce((s) => applyInitialPrefill(s, prefill))
     );
+    return true;
   } catch {
-    // Silently fail — pre-fill is best-effort
-    configLoaded = false;
+    return false;
   }
+}
+
+async function loadExistingConfig(): Promise<boolean> {
+  if (configLoaded) return true;
+  if (configLoadPromise) return configLoadPromise;
+
+  const hydration = hydrateExistingConfig();
+  configLoadPromise = hydration;
+  const loaded = await hydration;
+  if (configLoadPromise === hydration) {
+    configLoadPromise = null;
+    configLoaded = loaded;
+  }
+  return loaded;
 }
 
 async function configure(): Promise<boolean> {
@@ -562,6 +570,7 @@ async function configure(): Promise<boolean> {
 
 function reset(): void {
   configLoaded = false;
+  configLoadPromise = null;
   setState({ ...initialState, adminUsers: [], allowedUsers: [], enterpriseAccessGroups: [], adminAccessGroups: [], dynamicRoutes: [], configureSteps: [], groupRouting: {} });
 }
 

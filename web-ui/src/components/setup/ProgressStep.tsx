@@ -13,6 +13,7 @@ import {
 import Icon from '../Icon';
 import Button from '../ui/Button';
 import { setupStore } from '../../stores/setup';
+import SetupJourneyNav from './SetupJourneyNav';
 import '../../styles/progress-step.css';
 
 const ProgressStep: Component = () => {
@@ -33,6 +34,12 @@ const ProgressStep: Component = () => {
     configure_ai_gateway: 'Configuring AI Gateway',
     configure_browser_rendering: 'Enabling Browser Rendering',
     configure_strict_egress: 'Enabling strict Gateway egress',
+    configure_r2_sse: 'Applying data-governance policy',
+    configure_downloads_disabled: 'Applying storage policy',
+    configure_active_agents: 'Configuring coding agents',
+    configure_managed_environment: 'Configuring managed environment',
+    configure_github: 'Configuring GitHub integration',
+    configure_cloudflare_connection: 'Configuring Cloudflare connection',
     finalize: 'Finalizing setup',
   };
 
@@ -69,7 +76,9 @@ const ProgressStep: Component = () => {
   };
 
   return (
-    <div class="progress-step">
+    <div class="setup-journey-layout">
+      <SetupJourneyNav active="apply" enterprise={setupStore.enterpriseMode} />
+      <div class="progress-step setup-journey-main">
       <Show
         when={setupStore.setupComplete}
         fallback={
@@ -181,7 +190,7 @@ const ProgressStep: Component = () => {
           </Show>
         </div>
       </Show>
-
+      </div>
     </div>
   );
 };

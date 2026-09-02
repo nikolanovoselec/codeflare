@@ -301,6 +301,8 @@ screen and exits without running.
 `sdd-init`, `sdd-clean`, `vault-operations`, `vault-note-capture`, and `graphify`.
 The SDD skill set covers the Import/Resume legacy-codebase transition below.
 
+Standard and Advanced managed sessions include `codeflare-capabilities`. A broad capability question loads only its router, which gives the platform overview and offers named follow-ups. Thirteen dedicated references load only when the user asks about their subsystem: SDD, boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Secure Web Gateway, MCP portals, AI Gateway, Browser Run, and agentic primitives. Each deep dive qualifies mode or configuration dependencies and includes something the user or operator can try. Pi reaches the router through one 11-token rule; no platform inventory enters its always-loaded prompt. The private curation tree owns managed delivery and the image carries the same files as its baked fallback. ([REQ-AGENT-189](../../sdd/spec/agents.md#req-agent-189-layered-codeflare-capability-discovery), [REQ-AGENT-190](../../sdd/spec/agents.md#req-agent-190-portable-capability-discovery-delivery))
+
 The SDD enforcement family is advanced-only: `spec-enforce` +
 `spec-enforce-ac` + `spec-enforce-truth`, `doc-enforce` +
 `doc-enforce-lanes` + `doc-enforce-shape` + `doc-enforce-truth`, and
@@ -1194,9 +1196,10 @@ semantic, and an explicit no-graph option.
 
 Pi's local build/merge wrappers pass the scanned repo root into Graphify's manifest
 writer, so `graphify-out/manifest.json` stays portable if a repo is moved or
-recloned. Durable graph commits include `graphify-out/graph.html` and
-`graphify-out/callflow.html`; labels are applied first only when community naming
-was requested.
+recloned. Build paths generate `graphify-out/graph.html` and
+`graphify-out/callflow.html` locally; labels are applied first only when community
+naming was requested. The Codeflare source repository does not persist either HTML
+artifact.
 
 Model selection is runtime-specific. Claude Code's graphify skill pins its own reliable extraction model and never escalates to Opus from this workflow. Pi does not name or pin provider-specific models: Pi `Agent` semantic subagents omit a `model` override and inherit whatever model the main Pi session is using unless the user explicitly asks for a different model.
 
@@ -1205,14 +1208,15 @@ Subagents are dispatched in bounded waves to avoid flooding agent concurrency. E
 ### Git persistence ([REQ-AGENT-026](../../sdd/spec/agents.md#req-agent-026-knowledge-graph-persistence-via-git))
 
 Graphify repo outputs persist in git when the user can push to the repository.
-The durable committed surface is:
+The Codeflare source repository keeps this durable committed surface:
 
 - `graphify-out/graph.json` — queryable graph data, with `.gitattributes` wiring `graphify-out/graph.json merge=graphify`
 - `graphify-out/GRAPH_REPORT.md` — human-readable graph report
-- `graphify-out/graph.html` — interactive visualization, using optional named communities when `.graphify_labels.json` was requested
-- `graphify-out/callflow.html` — generated call-flow visualization
 - optional `.graphify_labels.json` when the user requests community naming
 - optional `graphify-out/wiki/` if the user requests a wiki export
+
+`graphify-out/graph.html` and `graphify-out/callflow.html` remain regenerable local
+views and are ignored here.
 
 The Pi graphify skill mirrors the Claude skill's persistence rule: never
 blanket-ignore `graphify-out/`.
@@ -1223,6 +1227,7 @@ Repo ignore rules must ignore only regenerable build outputs:
 - `graphify-out/.chunks/`
 - `graphify-out/manifest.json`
 - `graphify-out/.graphify_*`
+- repository-policy local views such as `graphify-out/graph.html` and `graphify-out/callflow.html`
 - root `.graphify_*` intermediates
 
 During `/sdd init`, a graph built for enrichment is still a repo artifact. The

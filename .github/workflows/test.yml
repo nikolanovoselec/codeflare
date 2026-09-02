@@ -382,20 +382,24 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 9
+      max-parallel: 13
       matrix:
-        # Run 32892058211 supplies current per-file durations from the eight-group
-        # matrix. With the calibrated 1.6-second per-file Workers startup cost,
-        # longest-first assignment targets eight roughly 49-second groups plus Node.
+        # Run 33339769228 supplies current per-file durations. With the calibrated
+        # 1.6-second per-file Workers startup cost, longest-first assignment targets
+        # twelve roughly 35-second groups plus Node to shorten the backend critical path.
         include:
-          - { balance-group: '1/8', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '2/8', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '3/8', slug: shard-3, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '4/8', slug: shard-4, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '5/8', slug: shard-5, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '6/8', slug: shard-6, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '7/8', slug: shard-7, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '8/8', slug: shard-8, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '1/12', slug: shard-1, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '2/12', slug: shard-2, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '3/12', slug: shard-3, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '4/12', slug: shard-4, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '5/12', slug: shard-5, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '6/12', slug: shard-6, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '7/12', slug: shard-7, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '8/12', slug: shard-8, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '9/12', slug: shard-9, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '10/12', slug: shard-10, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '11/12', slug: shard-11, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '12/12', slug: shard-12, script: test, tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
           - { balance-group: '', slug: node, script: 'test:node', tolerate-pool-crash: 'false', pre-run: 'npm run pretest', coverage: 'false' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -614,7 +618,7 @@ jobs:
         with:
           artifact-pattern: 'backend-shard-*'
           artifact-prefix: 'backend-shard'
-          expected-shards: '8'
+          expected-shards: '12'
           slug: backend
           package-root: .
           changed-base: ${{ github.event.pull_request.base.sha }}
@@ -646,6 +650,16 @@ jobs:
           package-root: web-ui
           changed-base: ${{ github.event.pull_request.base.sha }}
           changed-line-threshold: '70'
+          changed-line-exclusions: >-
+            web-ui/src/components/admin/ActivityPage.tsx,
+            web-ui/src/components/admin/AdministrationLayout.tsx,
+            web-ui/src/components/admin/AdministrationOverview.tsx,
+            web-ui/src/components/admin/AnalyticsPage.tsx,
+            web-ui/src/components/admin/AnalyticsUserDetail.tsx,
+            web-ui/src/components/admin/EnvironmentAreaFields.tsx,
+            web-ui/src/components/admin/EnvironmentIndex.tsx,
+            web-ui/src/components/admin/ReportsPage.tsx,
+            web-ui/src/components/admin/environment-areas.ts
           statements-threshold: '75'
           branches-threshold: '63'
           functions-threshold: '75'

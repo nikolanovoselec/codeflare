@@ -18,7 +18,7 @@ import type { Env } from '../types';
 import { ValidationError, SetupError, ForbiddenError } from '../lib/error-types';
 import { resetAuthConfigCache } from '../lib/access';
 import { createMockKV } from './helpers/mock-kv';
-import { SETUP_KEYS } from '../lib/kv-keys';
+import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS } from '../lib/kv-keys';
 vi.mock('../lib/access', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/access')>();
   return {
@@ -534,7 +534,10 @@ describe('Setup AC Coverage', () => {
       //   - user-prefs:      per-user preferences (onboarded during setup)
       //   - preferences:     legacy per-user prefs key
       //   - setup-configure: rate-limit middleware bookkeeping (separate domain)
-      const NON_SETUP_PREFIXES = ['user:', 'user-prefs:', 'preferences:', 'setup-configure:'];
+      //   - admin:configuration:revision: administration state initialized on first success
+      const NON_SETUP_PREFIXES = [
+        'user:', 'user-prefs:', 'preferences:', 'setup-configure:', 'admin:configuration:revision',
+      ];
       const kvPutCalls = mockKV.put.mock.calls as [string, string][];
       const setupPuts = kvPutCalls.filter(([key]) =>
         !NON_SETUP_PREFIXES.some((p) => key.startsWith(p))
@@ -1047,5 +1050,31 @@ describe('Setup AC Coverage', () => {
         expect.objectContaining({ step: 'set_secrets', status: 'success' })
       );
     });
+  });
+
+  it('REQ-SETUP-018 AC7: Setup refuses to overlap an active Environment run', async () => {
+    const app = createTestApp();
+    await mockKV.put(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN, JSON.stringify({
+      runId: 'active-environment-run',
+      updatedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+    }));
+    vi.mocked(mockKV.put).mockClear();
+
+    const response = await app.request(
+      'https://codeflare.test.workers.dev/api/setup/configure',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(standardBody),
+      },
+    );
+    expect(response.status).toBe(200);
+    const summary = getNdjsonSummary(await readNdjson(response));
+    expect(summary).toMatchObject({
+      success: false,
+      error: 'An Environment settings change is already in progress. Please wait and try again.',
+    });
+    expect(mockKV.put).not.toHaveBeenCalledWith(SETUP_KEYS.CONFIGURING, expect.anything(), expect.anything());
   });
 });

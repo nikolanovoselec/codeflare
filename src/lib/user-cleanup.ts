@@ -14,7 +14,8 @@ import { getR2Config } from './r2-config';
 import { deleteScopedR2Token } from './r2-admin';
 import { CF_API_BASE } from './constants';
 import { createLogger } from './logger';
-import { toError } from './error-types';
+import { AppError, toError } from './error-types';
+import { tombstoneUsageUser } from './admin-usage';
 import { getAndDecrypt, getOrImportKey } from './kv-crypto';
 import { disconnectGithub } from './github-token';
 import { disconnectCloudflare } from './cloudflare-token';
@@ -190,6 +191,16 @@ async function deleteR2Bucket(
 export async function cleanupUserData(email: string, env: Env): Promise<CleanupResult> {
   const normalizedEmail = normalizeCleanupEmail(email);
   const bucketName = await resolveCleanupBucket(normalizedEmail, env);
+  try {
+    await tombstoneUsageUser(env.USAGE_DB, normalizedEmail, new Date().toISOString());
+  } catch {
+    throw new AppError(
+      'history_delete_unavailable',
+      503,
+      'Historical usage could not be retained before live account deletion',
+      'Account deletion is temporarily unavailable. No live data was removed.',
+    );
+  }
 
   // --- Block A: Session + Container cleanup ---
   const deletedSessions = await deleteSessionsAndContainers(bucketName, env);

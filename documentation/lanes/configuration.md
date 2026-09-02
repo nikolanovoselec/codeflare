@@ -43,7 +43,7 @@ Every table below identifies default, required state, consumer, and requirement.
 | Variable | Purpose | Default | Required | Consumed by | Implements |
 |----------|---------|---------|----------|-------------|------------|
 | `SERVICE_TOKEN_EMAIL` | Email for service token auth | - | no | Optional | [REQ-AUTH-003](../../sdd/spec/authentication.md#req-auth-003-cf-access-mode-for-all-other-deployments), [REQ-SETUP-003](../../sdd/spec/setup.md#req-setup-003-three-deployment-modes) |
-| `CLOUDFLARE_API_TOKEN` | R2 bucket creation | - | yes | Wrangler secret | [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
+| `CLOUDFLARE_API_TOKEN` | GitHub Actions deployment, D1 provisioning and migrations, plus runtime R2 bucket creation | - | yes | Repository or deployment-environment secret; uploaded as the existing Worker secret | [REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary), [REQ-SETUP-001](../../sdd/spec/setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
 | `R2_ACCESS_KEY_ID` | R2 auth for containers | setup-generated | runtime-required; not preconfigured | Setup-generated Worker secret | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
 | `R2_SECRET_ACCESS_KEY` | R2 auth for containers | setup-generated | runtime-required; not preconfigured | Setup-generated Worker secret | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
 | `R2_ACCOUNT_ID` | R2 endpoint construction | - | no | Dynamic (env with KV fallback) | [REQ-STOR-001](../../sdd/spec/storage.md#req-stor-001-dedicated-per-user-r2-bucket), [REQ-SETUP-002](../../sdd/spec/setup.md#req-setup-002-setup-wizard-configures-domain-auth-r2-credentials-and-turnstile) |
@@ -146,7 +146,7 @@ Base image: Node.js 24 Debian (bookworm-slim).
 
 ### Cloudflare API Token (Operator)
 
-These are the permissions required for the Cloudflare API token used by the deploy workflow and worker runtime. Codeflare recommends using the **"Edit Cloudflare Workers"** template when creating the token, then adding the additional scopes listed below.
+The established `CLOUDFLARE_API_TOKEN` continues to authenticate GitHub Actions deployment and the Worker runtime. Add D1 Edit to its existing permissions so deployment can create and migrate the usage database. Start from the **"Edit Cloudflare Workers"** template, then add only the scopes required by this repository. Database identity, migration order, restore limits, and rollout checks are in [Administration and historical usage](administration-analytics.md) and [REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary).
 
 #### Account Permissions
 
@@ -176,7 +176,7 @@ If your agent asks for additional permissions, you can add them by editing your 
 
 | Permission | Level | When Needed |
 |---|---|---|
-| D1 | Edit | Creating and managing D1 databases |
+| D1 | Edit | Required on `CLOUDFLARE_API_TOKEN` for usage-database creation and migrations |
 | DNS | Edit | Managing DNS records for custom domains |
 | Zone | Read | Required alongside DNS for zone resolution |
 | Turnstile | Edit | Creating CAPTCHA widgets |
@@ -190,7 +190,7 @@ Cloudflare API tokens do not expire by default but can be set to expire during c
 
 In non-enterprise modes a user connects their own Cloudflare account via OAuth (mirroring the GitHub connect), so the per-user deploy token is obtained without pasting a dashboard-created API token ([REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth)). `GET /api/cloudflare/connect` + its callback + `POST /api/cloudflare/disconnect` are `authMiddleware`-only (reachable from Guided Setup + the Settings accordion, not tier-gated). The token/refresh/expiry persist across the existing `deploy-keys:<bucket>` Cloudflare fields (source `'oauth'`, encrypted); `getValidCloudflareToken` refreshes on expiry and fails closed; `applyCloudflareOAuthToken` injects the valid token into the container env on session start. **Enterprise has no Cloudflare OAuth** — `getCloudflareProvider` returns null there and the routes fail closed; enterprise keeps the admin-global Browser Rendering token ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
 
-**Operator OAuth client (Setup wizard → KV; admin).** The operator registers one Cloudflare OAuth Application and enters its client id + secret in the admin-gated Setup wizard; each user then authorizes their own account.
+**Operator OAuth client (Initialization within Administration → KV; admin).** The operator registers one Cloudflare OAuth Application and enters its client ID and secret in Initialization; each user then authorizes their own account. Saving an explicitly blank client ID in Administration removes the saved ID. An omitted ID in the internal Initialization compatibility submission preserves it, and a blank replacement secret preserves the saved secret.
 
 | KV key | Purpose |
 |--------|---------|
@@ -211,9 +211,9 @@ The GitHub panel lets a connected user browse and clone their repositories and l
 
 Connect uses one of two providers, selected by precedence ([REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage)): a configured **GitHub App** takes precedence over the **OAuth App**. With neither configured the integration is unavailable and `/api/github/connect` returns `503 GITHUB_NOT_CONFIGURED`.
 
-**Provider configuration (Setup wizard → KV; admin, any mode)** ([REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup)). The provider + credentials are configured in the admin-gated Setup wizard in **every** mode (originally enterprise-only; enterprise admins additionally have no GitHub-Actions/Cloudflare-secret access). An admin picks GitHub App or OAuth App and enters the client id (stored plain) + client secret (stored encrypted) under dedicated KV keys. `getGithubProvider` (async) resolves these KV values first in every mode, falling back to the env-var pairs below only when KV is unconfigured. Separate key pairs per provider mean switching providers in the wizard preserves the other's credentials.
+**Provider configuration (Initialization within Administration → KV; admin, any mode)** ([REQ-GITHUB-008](../../sdd/spec/github.md#req-github-008-enterprise-github-provider-configuration-via-setup)). The provider and credentials are configured in Initialization in **every** mode (originally enterprise-only; enterprise admins additionally have no GitHub-Actions/Cloudflare-secret access). An admin picks GitHub App or OAuth App and enters the client ID (stored plain) and client secret (stored encrypted) under dedicated KV keys. `getGithubProvider` (async) resolves these KV values first in every mode, falling back to the env-var pairs below only when KV is unconfigured. Separate key pairs per provider mean switching providers preserves the other's credentials.
 
-A blank secret on re-save keeps the stored one; a secret submitted with no `ENCRYPTION_KEY` is rejected (`400`) rather than written in plaintext, and a stored secret that cannot be decrypted is treated as unconfigured (fails closed). `GET /api/setup/prefill` echoes the provider type, both client ids, and a per-provider `…ClientSecretSet` flag, never the secret. Mirrors the admin-global Browser Rendering token ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
+Saving an explicitly blank client ID in Administration removes the saved ID. An omitted ID in the internal Initialization compatibility submission preserves it. A blank replacement secret keeps the saved secret; a secret submitted with no `ENCRYPTION_KEY` is rejected (`400`) rather than written in plaintext, and a stored secret that cannot be decrypted is treated as unconfigured (fails closed). `GET /api/setup/prefill` echoes the provider type, both client IDs, and a per-provider `…ClientSecretSet` flag, never the secret. Mirrors the admin-global Browser Rendering token ([REQ-BROWSER-007](../../sdd/spec/browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)).
 
 | KV key | Purpose |
 |--------|---------|

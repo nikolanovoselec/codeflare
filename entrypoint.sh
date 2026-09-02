@@ -3437,7 +3437,7 @@ echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAP
 #   - GitHub Copilot: deferred (not wired yet).
 #
 # CDP endpoint (Claude):
-#   wss://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/browser-rendering/devtools/browser?keep_alive=30000
+#   wss://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/browser-rendering/devtools/browser?keep_alive=180000
 # The Cloudflare API token is passed as an Authorization: Bearer header via
 # --wsHeaders (per Cloudflare's MCP-clients doc; --wsHeaders only works with
 # --wsEndpoint). The token must carry the "Browser Rendering - Edit" scope -
@@ -3472,7 +3472,7 @@ remove_owned_browser_mcp_servers() {
 if [ "${SESSION_MODE:-default}" = "advanced" ] \
    && [ -n "${CLOUDFLARE_API_TOKEN:-}" ] \
    && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
-    CDP_WS_ENDPOINT="wss://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/browser-rendering/devtools/browser?keep_alive=30000"
+    CDP_WS_ENDPOINT="wss://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/browser-rendering/devtools/browser?keep_alive=180000"
     # --wsHeaders takes a JSON string; build it with jq so the bearer token is
     # safely encoded, then pass it as a single --wsHeaders=<json> arg.
     CDP_WS_HEADERS=$(jq -nc --arg auth "Bearer $CLOUDFLARE_API_TOKEN" '{Authorization:$auth}')

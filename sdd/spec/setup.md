@@ -491,3 +491,204 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Status:** Implemented
 
 ---
+
+### REQ-SETUP-017: Mode-aware Administration configuration read
+
+**Intent:** Administrators need one authoritative routine-settings response without rerunning first-time provisioning.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. `GET /api/admin/configuration` requires shared authentication and administrator authorization in every deployment mode. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (rejects unauthenticated and non-admin requests) -->
+2. The response returns effective mode, revision, applicable closed sections, non-secret values, active run identity, and direct latest terminal summaries. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @impl: src/lib/admin-configuration.ts::applicableConfigurationSections --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns one non-enterprise mode contract for %s) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (prefers Administration secret state and reads direct latest summaries without listing Activity) -->
+3. Secret fields return only `administration`, `deployment`, or `none`; no secret bytes, expiry claims, or submitted values are returned. <!-- @impl: src/routes/admin/configuration.ts::secretState --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) -->
+4. Enterprise AI Gateway reports effective URL and API-token source, resolving Administration values independently before deployment fallbacks. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (prefers Administration secret state and reads direct latest summaries without listing Activity) -->
+5. Browser Run remains optional with no enable flag: no stored pair is valid, while a configured state requires account ID plus saved token. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (prefers Administration secret state and reads direct latest summaries without listing Activity) -->
+6. Default, Onboarding, and SaaS preserve existing Users behavior; SaaS preserves Subscription Tiers; Enterprise continues rejecting both backend resources. <!-- @impl: src/routes/users.ts::app --> <!-- @impl: src/routes/admin/tiers.ts::app --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC1: /api/users fails closed in enterprise mode) --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC5: admin tier config routes 403 in enterprise mode) -->
+
+**Constraints:** Reuse Setup readers and existing mode owners. Configuration reads do not list Activity records.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-ENTERPRISE-017](enterprise-mode.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard), [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)
+
+**Verification:** Automated route and mode-hardening tests
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-018: Stateless Environment preview and bounded execution
+
+**Intent:** An administrator can review and apply one known Environment area without rerunning unrelated Setup work.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Preview accepts one closed section, complete values, and base revision; it persists nothing and returns normalized changes, exact tasks, warnings, and exclusions. <!-- @impl: src/routes/admin/configuration-previews.ts::default --> <!-- @impl: src/lib/admin-configuration.ts::buildConfigurationPreview --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (POST /admin/configuration-previews (REQ-SETUP-018)) -->
+2. Apply recomputes validation, uses best-effort KV admission, rechecks revision before external work, and returns typed `409` conflicts before streaming. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
+3. Runs persist sanitized versioned state, named task transitions, initiator, revisions, and terminal outcomes for 90 days; values and secrets never enter records, streams, or logs. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
+4. Reconnect returns the same run shape, and Activity lists newest-first with a stable cursor. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
+5. Task failure stops dependent work, marks remaining tasks skipped, records operator action, and never performs automatic rollback or replay. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
+6. A stale 15-minute active pointer is recovered as `interrupted`; the accepted cross-isolate KV race remains bounded by idempotent operations and revision checks. <!-- @impl: src/routes/admin/configuration-runs.ts::recoverInterruptedRun --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
+7. Setup and routine execution check each other's existing admission pointers, while first-run `POST /api/setup/configure` keeps its observable sequence and outcome. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-018 AC7: Setup refuses to overlap an active Environment run) -->
+
+**Constraints:** Eleven known sections use one discriminated union. No JSON Patch, stored preview, workflow engine, coordinator Durable Object, or generic rollback layer.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SETUP-004](#req-setup-004-setup-is-idempotent), [REQ-SETUP-006](#req-setup-006-setup-streams-progress-via-ndjson), [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read)
+
+**Verification:** Automated request, persistence, conflict, redaction, executor-boundary, and first-run compatibility tests
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-019: Administration and Analytics shell
+
+**Intent:** First-run provisioning and routine administration use one coherent mode-aware operator experience while Setup remains the bootstrap orchestrator.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. The shell exposes `/admin`, `/admin/environment`, `/admin/analytics`, `/admin/reports`, and `/admin/activity`; no user-facing `/admin/configuration` route exists. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @test: web-ui/src/__tests__/components/App.test.tsx (REQ-SETUP-019 AC1: exposes Administration routes) -->
+2. Default and Onboarding add Users; SaaS adds Users and Subscription Tiers; Enterprise exposes neither. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @test: web-ui/src/__tests__/components/AdministrationLayout.test.tsx (REQ-SETUP-019 AC2: gates navigation by deployment mode) -->
+3. Existing Users and Subscription Tiers components are embedded in their Administration routes. <!-- @impl: web-ui/src/App.tsx::AdministrationUsers --> <!-- @impl: web-ui/src/App.tsx::AdministrationSubscriptions --> <!-- @test: web-ui/src/__tests__/components/App.test.tsx (REQ-SETUP-019 AC3: embeds existing administration components) -->
+4. User-facing routine copy says Environment; Configuration remains internal API and storage vocabulary. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentIndex --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @manual -->
+5. Loading, empty, failure, conflict, reconnect, and responsive states follow the approved Administration and Analytics design contract. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @impl: web-ui/src/styles/administration.css::.admin-shell --> <!-- @manual -->
+6. First-run Setup presents mode-applicable readiness, access, routing, platform, managed-environment, integration, review, apply, and result stages. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @manual -->
+7. Completed deployments expose bootstrap recovery through Administration instead of duplicating the action in workspace settings. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @manual -->
+
+**Constraints:** One authoritative response owns mode gating. No UI framework, chart package, icon package, or duplicate mode logic is added.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [REQ-SUB-009](subscription.md#req-sub-009-admin-tier-management)
+
+**Verification:** Automated route, mode, composition, and backend mode-gate tests; user-owned manual terminology and responsive acceptance on Integration
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-020: Administration report timezone selection
+
+**Intent:** An administrator can select a report timezone without losing an accepted deployed schedule value.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Administration presents report timezones as a dropdown populated with canonical IANA choices. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (REQ-SETUP-020 AC1: renders canonical IANA timezone choices as a select) -->
+2. An accepted stored timezone remains selected when it is absent from the bundled choices. <!-- @impl: web-ui/src/lib/iana-timezones.ts::ianaTimezoneOptions --> <!-- @test: web-ui/src/__tests__/lib/iana-timezones.test.ts (REQ-SETUP-020 AC2: preserves accepted stored timezone values) --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (REQ-SETUP-020 AC2: retains an accepted stored timezone outside bundled choices) -->
+
+**Constraints:** Backend report-setting validation remains authoritative.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-027](subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-SETUP-018](#req-setup-018-stateless-environment-preview-and-bounded-execution)
+
+**Verification:** Automated timezone-option behavior and user-owned manual UI acceptance on Integration
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-021: Administration managed-environment status
+
+**Intent:** Administration reports the deployed managed-environment state without confusing configuration with release freshness.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Managed-environment summaries distinguish configured release, configured-disabled, and unconfigured states. <!-- @impl: web-ui/src/components/admin/environment-areas.ts::environmentAreas --> <!-- @test: web-ui/src/__tests__/components/environment-areas.test.ts (REQ-SETUP-021 AC1: reports configured, disabled, and unconfigured managed-environment states) -->
+
+**Constraints:** The authoritative managed-environment prefill remains the status source.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SETUP-013](#req-setup-013-managed-environment-configuration), [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read)
+
+**Verification:** Automated summary-state mapping and user-owned manual UI acceptance on Integration
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-022: Initialization presentation and hydration
+
+**Intent:** Administrators can identify Initialization and cannot mistake unloaded recovery defaults for deployed configuration.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Administration labels its bootstrap-recovery entry Initialization. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @manual -->
+2. A configured deployment keeps recovery hidden until existing values load, then shows Completed status with its effective deployment mode. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/stores/setup.ts::loadExistingConfig --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (REQ-SETUP-022 AC2: hydrates completed Enterprise initialization before rendering recovery) -->
+3. Failed configured-deployment hydration shows a retryable load error without rendering recovery defaults. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/stores/setup.ts::loadExistingConfig --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (REQ-SETUP-022 AC3: keeps configured recovery closed when hydration fails) --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (REQ-SETUP-022 AC3: reports hydration failure and permits retry) --> <!-- @test: web-ui/src/__tests__/stores/setup.test.ts (REQ-SETUP-022 AC3: keeps configured recovery closed when provider prefill fails) -->
+4. Configured recovery offers Review initialization. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/setup/WelcomeStep.tsx::WelcomeStep --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (REQ-SETUP-022 AC4: labels configured recovery as initialization review) -->
+5. Unconfigured first-run offers Start setup. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/setup/WelcomeStep.tsx::WelcomeStep --> <!-- @test: web-ui/src/__tests__/components/SetupWizard.test.tsx (REQ-SETUP-022 AC5: retains the first-run setup action) -->
+
+**Constraints:** First-run Setup remains best-effort before any deployed configuration exists.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell)
+
+**Verification:** Automated hydration-order, recovery-action, and failure-state behavior plus user-owned manual UI acceptance on Integration
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-023: Environment catalog filtering
+
+**Intent:** Administrators can narrow the loaded Environment catalog without adding another configuration read path.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Loaded Environment areas filter case-insensitively by label, area description, and current summary. <!-- @impl: web-ui/src/components/admin/environment-areas.ts::filterEnvironmentAreas --> <!-- @test: web-ui/src/__tests__/components/environment-areas.test.ts (REQ-SETUP-023 AC1: filters loaded areas by label, description, and current summary) -->
+2. A query with no matching loaded area shows an empty result. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentIndex --> <!-- @manual -->
+
+**Constraints:** Filtering remains client-side over the authoritative loaded response without requests, indexes, or persisted search state.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell)
+
+**Verification:** Automated filtering behavior and user-owned manual empty-result acceptance on Integration
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-024: Routine OAuth identifier persistence
+
+**Intent:** Administrators can remove saved non-secret OAuth identifiers without an internal Initialization compatibility submission erasing omitted values.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. An explicitly blank GitHub App, GitHub OAuth, or Cloudflare OAuth client ID removes that saved identifier. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-SETUP-024: removes explicitly cleared non-secret OAuth client IDs) -->
+2. A blank GitHub App, GitHub OAuth, or Cloudflare OAuth replacement secret preserves the saved secret. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-SETUP-024: preserves saved OAuth secrets when replacements are blank) -->
+3. When the internal Initialization compatibility submission omits one of those client IDs, the saved identifier is preserved. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (REQ-SETUP-024: omitted client IDs preserve stored values during internal initialization compatibility calls) -->
+
+**Constraints:** Client IDs remain non-secret KV values; secret replacement remains encrypted and no-clobber on blank.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SETUP-018](#req-setup-018-stateless-environment-preview-and-bounded-execution), [REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth)
+
+**Verification:** Automated Administration-run and Initialization compatibility tests
+
+**Status:** Implemented
+
+---

@@ -24,6 +24,15 @@ const storeState = vi.hoisted(() => ({
   strictGatewayEgress: false,
   r2SseDisabled: false,
   downloadsDisabled: false,
+  activeAgents: ['copilot'] as string[],
+  configurableAgents: ['copilot', 'pi'] as string[],
+  managedEnvironmentEnabled: false,
+  managedEnvironmentRepository: '',
+  managedEnvironmentPersonalAccessToken: '',
+  managedEnvironmentPersonalAccessTokenSet: false,
+  managedEnvironmentPublicKey: '',
+  managedEnvironmentPublicKeyFingerprint: '',
+  managedEnvironmentImmutableResources: false,
   githubProviderType: 'app' as 'app' | 'oauth',
   githubAppClientId: '',
   githubAppClientSecret: '',
@@ -73,7 +82,7 @@ const storeMethods = vi.hoisted(() => ({
   applyGroupRoutingToAll: vi.fn(),
   nextStep: vi.fn(),
   prevStep: vi.fn(),
-  loadExistingConfig: vi.fn().mockResolvedValue(undefined),
+  loadExistingConfig: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('../../stores/setup', () => ({
@@ -98,6 +107,15 @@ vi.mock('../../stores/setup', () => ({
     get strictGatewayEgress() { return storeState.strictGatewayEgress; },
     get r2SseDisabled() { return storeState.r2SseDisabled; },
     get downloadsDisabled() { return storeState.downloadsDisabled; },
+    get activeAgents() { return storeState.activeAgents; },
+    get configurableAgents() { return storeState.configurableAgents; },
+    get managedEnvironmentEnabled() { return storeState.managedEnvironmentEnabled; },
+    get managedEnvironmentRepository() { return storeState.managedEnvironmentRepository; },
+    get managedEnvironmentPersonalAccessToken() { return storeState.managedEnvironmentPersonalAccessToken; },
+    get managedEnvironmentPersonalAccessTokenSet() { return storeState.managedEnvironmentPersonalAccessTokenSet; },
+    get managedEnvironmentPublicKey() { return storeState.managedEnvironmentPublicKey; },
+    get managedEnvironmentPublicKeyFingerprint() { return storeState.managedEnvironmentPublicKeyFingerprint; },
+    get managedEnvironmentImmutableResources() { return storeState.managedEnvironmentImmutableResources; },
     get githubProviderType() { return storeState.githubProviderType; },
     get githubAppClientId() { return storeState.githubAppClientId; },
     get githubAppClientSecret() { return storeState.githubAppClientSecret; },
@@ -148,6 +166,15 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
     storeState.strictGatewayEgress = false;
     storeState.r2SseDisabled = false;
     storeState.downloadsDisabled = false;
+    storeState.activeAgents = ['copilot'];
+    storeState.configurableAgents = ['copilot', 'pi'];
+    storeState.managedEnvironmentEnabled = false;
+    storeState.managedEnvironmentRepository = '';
+    storeState.managedEnvironmentPersonalAccessToken = '';
+    storeState.managedEnvironmentPersonalAccessTokenSet = false;
+    storeState.managedEnvironmentPublicKey = '';
+    storeState.managedEnvironmentPublicKeyFingerprint = '';
+    storeState.managedEnvironmentImmutableResources = false;
     storeState.githubProviderType = 'app';
     storeState.githubAppClientId = '';
     storeState.githubAppClientSecret = '';
@@ -397,26 +424,44 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
       expect(optionValues).not.toContain('');
     });
 
-    it('keeps Continue disabled in enterprise mode until a dynamic route is added (AC6)', () => {
-      storeState.enterpriseMode = true;
-      storeState.customDomain = 'claude.example.com';
-      storeState.adminUsers = ['admin@test.com'];
-      storeState.dynamicRoutes = [];
-      render(() => <ConfigureStep />);
-
-      const continueBtn = screen.getByText('Continue').closest('button') as HTMLButtonElement;
-      expect(continueBtn.disabled).toBe(true);
+    it('blocks AI-routing Continue when route, Gateway URL, or token is missing (REQ-ENTERPRISE-012 AC6)', () => {
+      const cases = [
+        { routes: [] as string[], url: 'https://gateway.ai.cloudflare.com/v1/account/gateway', token: 'token' },
+        { routes: ['development'], url: '', token: 'token' },
+        { routes: ['development'], url: 'https://gateway.ai.cloudflare.com/v1/account/gateway', token: '' },
+      ];
+      for (const values of cases) {
+        cleanup();
+        storeState.enterpriseMode = true;
+        storeState.customDomain = 'claude.example.com';
+        storeState.adminUsers = ['admin@test.com'];
+        storeState.dynamicRoutes = values.routes;
+        storeState.aigGatewayUrl = values.url;
+        storeState.aigToken = values.token;
+        render(() => <ConfigureStep />);
+        fireEvent.click(screen.getByText('Continue'));
+        expect((screen.getByText('Continue').closest('button') as HTMLButtonElement).disabled).toBe(true);
+      }
     });
 
-    it('enables Continue in enterprise mode once domain, admin, and a route exist (AC6)', () => {
+    it('enables AI-routing Continue once route, Gateway URL, and token exist (REQ-ENTERPRISE-012 AC6)', () => {
       storeState.enterpriseMode = true;
       storeState.customDomain = 'claude.example.com';
       storeState.adminUsers = ['admin@test.com'];
       storeState.dynamicRoutes = ['development'];
+      storeState.aigGatewayUrl = 'https://gateway.ai.cloudflare.com/v1/account/gateway';
+      storeState.aigToken = 'token';
       render(() => <ConfigureStep />);
 
-      const continueBtn = screen.getByText('Continue').closest('button') as HTMLButtonElement;
-      expect(continueBtn.disabled).toBe(false);
+      fireEvent.click(screen.getByText('Continue'));
+      expect((screen.getByText('Continue').closest('button') as HTMLButtonElement).disabled).toBe(false);
+
+      cleanup();
+      storeState.aigToken = '';
+      storeState.aigTokenSet = true;
+      render(() => <ConfigureStep />);
+      fireEvent.click(screen.getByText('Continue'));
+      expect((screen.getByText('Continue').closest('button') as HTMLButtonElement).disabled).toBe(false);
     });
   });
 
@@ -698,12 +743,37 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
       expect(storeMethods.prevStep).toHaveBeenCalled();
     });
 
-    it('calls nextStep when Continue is clicked', () => {
+    it('calls nextStep after the mode-applicable pages reach review', () => {
       storeState.customDomain = 'app.example.com';
       storeState.adminUsers = ['admin@example.com'];
       render(() => <ConfigureStep />);
-      fireEvent.click(screen.getByText('Continue'));
-      expect(storeMethods.nextStep).toHaveBeenCalled();
+      fireEvent.click(screen.getByText('Continue')); // access → managed environment
+      fireEvent.click(screen.getByText('Continue')); // managed environment → integrations
+      fireEvent.click(screen.getByText('Continue')); // integrations → review
+      expect(storeMethods.nextStep).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByText('Initialize Codeflare'));
+      expect(storeMethods.nextStep).toHaveBeenCalledOnce();
+    });
+
+    it('validates a managed-environment replacement key even when a saved fingerprint exists', () => {
+      const cases = [
+        { replacement: 'invalid', disabled: true },
+        { replacement: '', disabled: false },
+        { replacement: 'a'.repeat(64), disabled: false },
+      ];
+      for (const values of cases) {
+        cleanup();
+        storeState.customDomain = 'app.example.com';
+        storeState.adminUsers = ['admin@example.com'];
+        storeState.managedEnvironmentEnabled = true;
+        storeState.managedEnvironmentRepository = 'company/resources';
+        storeState.managedEnvironmentPersonalAccessTokenSet = true;
+        storeState.managedEnvironmentPublicKeyFingerprint = 'saved-fingerprint';
+        storeState.managedEnvironmentPublicKey = values.replacement;
+        render(() => <ConfigureStep />);
+        fireEvent.click(screen.getByText('Continue'));
+        expect((screen.getByText('Continue').closest('button') as HTMLButtonElement).disabled).toBe(values.disabled);
+      }
     });
 
     it('disables Continue when custom domain is empty', () => {

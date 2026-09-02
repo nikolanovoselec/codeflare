@@ -50,6 +50,8 @@ const mockFetch = vi.fn();
 
 describe('cleanupUserData', () => {
   let mockKV: ReturnType<typeof createMockKV>;
+  let mockUsageDb: D1Database;
+  let mockUsageBatch: ReturnType<typeof vi.fn>;
   const originalFetch = globalThis.fetch;
 
   const email = 'target@example.com';
@@ -63,6 +65,7 @@ describe('cleanupUserData', () => {
       CLOUDFLARE_WORKER_NAME: undefined,
       R2_ACCESS_KEY_ID: 'test-r2-access-key',
       R2_SECRET_ACCESS_KEY: 'test-r2-secret-key',
+      USAGE_DB: mockUsageDb,
       ...overrides,
     } as unknown as Env;
   }
@@ -76,11 +79,46 @@ describe('cleanupUserData', () => {
     mockEmptyR2Bucket.mockResolvedValue(0);
     mockCreateR2Client.mockReturnValue({});
     mockResolveBucketName.mockResolvedValue(bucketName);
+    mockUsageBatch = vi.fn(async () => [{ success: true }]);
+    mockUsageDb = {
+      prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
+      batch: mockUsageBatch,
+    } as unknown as D1Database;
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.clearAllMocks();
+  });
+
+  it('resolves ownership, then writes a D1 tombstone before live cleanup', async () => {
+    mockKV._store.set(`user:${email}`, JSON.stringify({ role: 'user' }));
+    await cleanupUserData(email, createEnv());
+
+    expect(mockUsageBatch).toHaveBeenCalledOnce();
+    expect(mockResolveBucketName.mock.invocationCallOrder[0]).toBeLessThan(mockUsageBatch.mock.invocationCallOrder[0]);
+    expect(mockUsageBatch.mock.invocationCallOrder[0]).toBeLessThan(mockKV.delete.mock.invocationCallOrder[0]);
+  });
+
+  it('does not tombstone when verified bucket resolution fails before cleanup', async () => {
+    mockKV._store.set(`user:${email}`, JSON.stringify({ role: 'user' }));
+    mockResolveBucketName.mockRejectedValueOnce(new Error('ownership unavailable'));
+    await expect(cleanupUserData(email, createEnv())).rejects.toThrow('ownership unavailable');
+    expect(mockUsageBatch).not.toHaveBeenCalled();
+    expect(await mockKV.get(`user:${email}`)).not.toBeNull();
+  });
+
+  it('fails closed with typed 503 evidence and leaves live data unchanged when tombstoning fails', async () => {
+    mockKV._store.set(`user:${email}`, JSON.stringify({ role: 'user' }));
+    mockUsageBatch.mockRejectedValueOnce(new Error('D1 unavailable'));
+
+    await expect(cleanupUserData(email, createEnv())).rejects.toMatchObject({
+      code: 'history_delete_unavailable',
+      statusCode: 503,
+    });
+    expect(await mockKV.get(`user:${email}`)).not.toBeNull();
+    expect(mockKV.delete).not.toHaveBeenCalled();
+    expect(mockContainerDestroy).not.toHaveBeenCalled();
   });
 
   it('resolves verified bucket ownership before deleting user state', async () => {

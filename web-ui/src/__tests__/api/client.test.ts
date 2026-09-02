@@ -18,6 +18,15 @@ import {
   getLlmKeys,
   updateLlmKeys,
   deleteLlmKeys,
+  getAdminConfiguration,
+  getAdminUsage,
+  getAdminUsageUser,
+  getConfigurationRun,
+  getConfigurationRuns,
+  getUsageReportDeliveries,
+  previewConfiguration,
+  sendUsageReportTest,
+  startConfigurationRun,
 } from '../../api/client';
 
 // REQ-AUTH-014: Auth expiry detection mid-session
@@ -1303,6 +1312,82 @@ describe('API Client', () => {
   // ==========================================================================
   // LLM Keys API Tests
   // ==========================================================================
+  describe('Administration API contracts', () => {
+    const response = (body: unknown) => ({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve(JSON.stringify(body)),
+    });
+    const run = {
+      version: 1 as const,
+      runId: 'run-1',
+      section: 'domain' as const,
+      baseRevision: 1,
+      initiatedBy: 'admin@example.com',
+      state: 'succeeded' as const,
+      tasks: [],
+      createdAt: '2026-08-30T00:00:00.000Z',
+      updatedAt: '2026-08-30T00:01:00.000Z',
+    };
+
+    it('requests bounded administration reads with their supplied cursors', async () => {
+      mockFetch
+        .mockResolvedValueOnce(response({ mode: 'default', revision: 1, applicableSections: ['domain'], sections: {}, activeRunId: null, latest: {} }))
+        .mockResolvedValueOnce(response({ period: 'day', start: '2026-08-30', timezone: 'UTC', sort: 'runtimeSeconds', direction: 'desc', summary: { runtimeSeconds: 0, sessionCount: 0, activeUsers: 0 }, dataSince: null, historyUpdatedAt: null, users: [], nextCursor: 'usage-next' }))
+        .mockResolvedValueOnce(response({ userKey: 'a'.repeat(64), email: 'user@example.com', accountStatus: 'active', dataSince: '2026-08-30', deletedAt: null, runtimeSeconds: 1, sessionCount: 1, historyUpdatedAt: '2026-08-30T00:00:00.000Z', period: 'day', start: '2026-08-30', timezone: 'UTC' }))
+        .mockResolvedValueOnce(response({ items: [run], nextCursor: 'run-next' }))
+        .mockResolvedValueOnce(response(run))
+        .mockResolvedValueOnce(response({ deliveries: [], nextCursor: 'delivery-next' }));
+
+      await getAdminConfiguration();
+      await getAdminUsage({ period: 'day', start: '2026-08-30', cursor: 'usage-cursor', limit: 50 });
+      await getAdminUsageUser('a'.repeat(64), 'day', '2026-08-30');
+      await getConfigurationRuns('run-cursor');
+      await getConfigurationRun('run-1');
+      await getUsageReportDeliveries('delivery-cursor');
+
+      expect(mockFetch.mock.calls.map(([url]) => url)).toEqual([
+        '/api/admin/configuration',
+        '/api/admin/usage?period=day&start=2026-08-30&cursor=usage-cursor&limit=50',
+        `/api/admin/usage/users/${'a'.repeat(64)}?period=day&start=2026-08-30`,
+        '/api/admin/configuration-runs?limit=50&cursor=run-cursor',
+        '/api/admin/configuration-runs/run-1',
+        '/api/admin/usage-report-deliveries?limit=50&cursor=delivery-cursor',
+      ]);
+      expect(mockFetch.mock.calls.every(([, options]) => options.credentials === 'same-origin')).toBe(true);
+    });
+
+    it('submits exact preview, run, and report-test contracts', async () => {
+      mockFetch
+        .mockResolvedValueOnce(response({ section: 'domain', baseRevision: 1, currentRevision: 1, changes: [], tasks: [], warnings: [], exclusions: [] }))
+        .mockResolvedValueOnce({ ok: true, status: 202 })
+        .mockResolvedValueOnce(response({ dispatchId: 'test-1', deliveryKind: 'test', state: 'pending' }));
+      const values = { customDomain: 'example.com' };
+      const body = JSON.stringify({ section: 'domain', baseRevision: 1, values });
+
+      await previewConfiguration('domain', 1, values);
+      await expect(startConfigurationRun('domain', 1, values)).resolves.toMatchObject({ status: 202 });
+      await sendUsageReportTest();
+
+      expect(mockFetch).toHaveBeenNthCalledWith(1, '/api/admin/configuration-previews', expect.objectContaining({ method: 'POST', body }));
+      expect(mockFetch).toHaveBeenNthCalledWith(2, '/api/admin/configuration-runs', expect.objectContaining({ method: 'POST', body, credentials: 'same-origin' }));
+      expect(mockFetch).toHaveBeenNthCalledWith(3, '/api/admin/usage-report-tests', expect.objectContaining({ method: 'POST' }));
+    });
+
+    it('returns a typed configuration conflict from a failed run request', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: () => Promise.resolve({ error: 'revision_conflict', currentRevision: 2 }),
+      });
+
+      await expect(startConfigurationRun('domain', 1, {})).rejects.toMatchObject({
+        status: 409,
+        body: { error: 'revision_conflict', currentRevision: 2 },
+      });
+    });
+  });
+
   describe('LLM Keys API', () => {
     it('getLlmKeys calls GET /api/llm-keys', async () => {
       mockFetch.mockResolvedValueOnce({

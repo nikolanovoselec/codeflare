@@ -4,6 +4,7 @@ interface SetupSectionProps {
   title: string;
   description?: JSX.Element;
   children: JSX.Element;
+  page?: 'access' | 'ai' | 'platform' | 'integrations';
 }
 
 /**
@@ -16,7 +17,7 @@ interface SetupSectionProps {
  */
 const SetupSection: Component<SetupSectionProps> = (props) => {
   return (
-    <section class="setup-section">
+    <section class={`setup-section${props.page ? ` setup-page setup-page--${props.page}` : ''}`}>
       <div class="setup-section-header">
         <h3 class="setup-section-title">{props.title}</h3>
         <Show when={props.description}>

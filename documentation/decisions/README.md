@@ -168,6 +168,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD147](#ad147-active-managed-resource-policy-supersedes-provenance-ownership) | Enforce active managed-resource policy before scoped R2 signing | Canonical release-derived paths remain immutable at the Worker boundary; provenance ownership still governs paths outside the active policy. | Architecture, Security, Storage | Active |
 | [AD148](#ad148-memory-and-vault-capture-follow-successful-prompt-cadence) | Schedule memory and Vault work from successful prompt high-water marks | Memory captures every 50 real prompts; Vault checks resume tails and crossed 100-prompt epochs without polling or consuming failed scans. | Agents, Memory, Storage | Active |
 | [AD149](#ad149-herdr-semantic-status-owns-completion-notification-timing) | Let Herdr status own completion notification timing | A ten-minute timer starts when every tracked agent pane becomes ready; renewed work cancels timing and queued completion. | Architecture, Agents | Active |
+| [AD150](#ad150-d1-owns-historical-usage-and-report-delivery-records) | Keep live quota state in Timekeeper and historical set queries in D1 | One database owns historical periods, report claims, and retention while live quota enforcement remains independent. | Architecture, Usage, Operations | Active |
 ---
 
 ## Decisions
@@ -1385,14 +1386,14 @@ Graphify's own subagent-chunking model is the load-bearing context-bounding mech
 - The MCP server registration is keyed on `GRAPHIFY_MANIFEST` presence rather than `SESSION_MODE`, so the "capability everywhere" half is enforced by the manifest gate rather than a mode check.
 - Persistence model: graphify artifacts (`graphify-out/`) live in the repo, not in R2.
 
-  Repo owners commit `graphify-out/graph.json`, `GRAPH_REPORT.md`, and `graph.html` to git; the working tree gets them on clone and contributors inherit both the graph and a browser-openable interactive visualization for free. Repos without push permission keep the graph local-only and ephemeral. R2 bisync explicitly excludes `**/graphify-out/**`.
+  Repo owners commit `graphify-out/graph.json` and `GRAPH_REPORT.md` to git, so contributors inherit the queryable graph on clone. The Codeflare source repository ignores regenerable `graph.html` and `callflow.html`; local Graphify generation still produces both views. Repos without push permission keep the graph local-only and ephemeral. R2 bisync explicitly excludes `**/graphify-out/**`.
 
   The container image registers the graphify semantic merge driver globally (`git config --global merge.graphify.driver`) so any repo that wires `graphify-out/graph.json merge=graphify` in its `.gitattributes` gets auto-resolution of concurrent `graph.json` edits without manual JSON intervention.
 
   SKILL guidance instructs the agent on first build to add the canonical `.gitignore` block (regenerable build outputs under `graphify-out/`, the `.graphify_*` working-tree intermediates the build creates mid-run, and per-machine markers) and the merge-driver attribute line to `.gitattributes`. The full pattern list and rationale live in `/graphify` SKILL.md note 3; `documentation/container.md` mirrors the explanation.
 - Obsidian stub vault is deliberately gitignored: `graphify-out/obsidian/` is a per-node markdown vault that gives an Obsidian-app user a familiar graph-browse UI.
 
-  Every `graphify update .` rerun rewrites centrality + community-label frontmatter across all those files, producing PR diffs in the thousands of files for one structural change. The standalone `graph.html` covers the casual-browse use case in any browser without needing Obsidian installed, and a developer who actually wants the Obsidian workflow can regenerate the stub vault locally from `graph.json` in seconds. The trade-off keeps PR signal clean at the cost of one local command for the rare power-user.
+  Every `graphify update .` rerun rewrites centrality + community-label frontmatter across all those files, producing PR diffs in the thousands of files for one structural change. Locally generated `graph.html` covers the casual-browse use case in any browser without needing Obsidian installed, and a developer who actually wants the Obsidian workflow can regenerate the stub vault locally from `graph.json` in seconds. Keeping generated views out of the Codeflare source repository preserves PR signal at the cost of one local command for the rare power-user.
 
 **Alternative considered:** Match context-mode ([AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install)) and gate the whole thing on custom tier. Rejected: graphify's MCP query tools are cheap, structurally bounded, and useful even when no discipline rule pushes the agent toward them. Hiding the capability behind a tier wall would have been more conservative but would have wasted the build-time install for the 99% of paid users who are not on custom tier.
 
@@ -4104,5 +4105,21 @@ Pi no longer infers completion from `agent_settled`, stop reasons, interactive l
 **Consequences:** Pi and Claude share one Herdr completion authority. Herdr status does not distinguish successful and failed turns, so completion means only that the configured agent is ready again ([REQ-TERM-039](../../sdd/spec/terminal.md#req-term-039-herdr-completion-delivery-is-readiness-oriented)). Socket failure drops pending completion and reconnects without exposing the socket or pane identity to the browser. Input-required delivery and away-only suppression stay unchanged ([REQ-TERM-038](../../sdd/spec/terminal.md#req-term-038-herdr-semantic-status-owns-completion-readiness)). <!-- @impl: host/src/herdr-agent-status.ts::HerdrAgentStatusMonitor -->
 
 **Related REQs:** [REQ-TERM-024](../../sdd/spec/terminal.md#req-term-024-pi-native-terminal-notification-producer), [REQ-TERM-029](../../sdd/spec/terminal.md#req-term-029-herdr-status-gated-terminal-completion), [REQ-TERM-038](../../sdd/spec/terminal.md#req-term-038-herdr-semantic-status-owns-completion-readiness), [REQ-TERM-039](../../sdd/spec/terminal.md#req-term-039-herdr-completion-delivery-is-readiness-oriented).
+
+---
+
+### AD150: D1 owns historical usage and report delivery records
+
+**Category:** Architecture, Usage, Operations
+
+**Status:** Accepted (2026-08-30)
+
+**Context:** Live quota enforcement needs per-user sequential state, while organization totals, stable ranking, CSV export, deleted-user retention, report claims, and retention need indexed set queries. Rebuilding those reads through KV list-and-read scans would increase cost and code. Moving live quota state into D1 would make a historical feature part of session admission. <!-- @impl: src/timekeeper/index.ts::Timekeeper --> <!-- @impl: src/lib/admin-usage.ts::writeUsageHistory -->
+
+**Decision:** Keep Timekeeper Durable Objects and Workers KV as the live quota authority. Add one D1 database per deployment environment for historical `usage_users`, absolute sequence-guarded `usage_periods`, `report_deliveries`, and daily `maintenance_claims`. Timekeeper writes bounded absolute snapshots through its existing alarm. Administration reads D1 directly through closed prepared queries. The established deployment credential creates the database and applies additive migrations before Worker deployment ([REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary)). <!-- @impl: .github/workflows/deploy.yml::deploy -->
+
+**Consequences:** History starts empty with no backfill. D1 outages do not block quota enforcement, while deleted-user tombstone failure blocks destructive live cleanup so a late writer cannot recreate history. Reporting and retention reuse the same database and transaction boundary. The design adds no ORM, queue, workflow, cache, coordinator Durable Object, or second database. Account-specific database IDs stay outside Git.
+
+**Related REQs:** [REQ-SUB-025](../../sdd/spec/subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-SUB-028](../../sdd/spec/subscription.md#req-sub-028-historical-usage-and-report-retention), [REQ-OPS-056](../../sdd/spec/operations.md#req-ops-056-non-destructive-d1-deployment-boundary).
 
 ---

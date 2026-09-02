@@ -2,7 +2,7 @@ import * as api from '../api/client';
 import { ApiError } from '../api/fetch-helper';
 import { terminalStore } from './terminal';
 import { logger } from '../lib/logger';
-import { SESSION_LIST_POLL_INTERVAL_MS } from '../lib/constants';
+import { SESSION_POLL_STABLE_MS, SESSION_POLL_TRANSITION_MS } from '../lib/constants';
 import { updateStatsFromBatch } from './storage';
 import { setUsageState } from './session-usage';
 import type { SessionWithStatus, SessionStatus } from '../types';
@@ -33,6 +33,8 @@ interface PollingStateView {
   activeSessionId: string | null;
   sessionMetrics: Record<string, SessionMetrics>;
   managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null;
+  bucketMigrating: boolean;
+  bucketMigrationPending: boolean;
 }
 
 type StateGetter = () => PollingStateView;
@@ -117,10 +119,13 @@ export const sessionMissCounters = new Map<string, number>();
 const REMOVAL_THRESHOLD = 3;
 
 // ============================================================================
-// Poll interval handle
+// Recursive poll handle
 // ============================================================================
 
-let sessionListPollInterval: ReturnType<typeof setInterval> | null = null;
+let sessionListPollTimeout: ReturnType<typeof setTimeout> | null = null;
+let pollingActive = false;
+let visibilityListenerInstalled = false;
+let pollInFlight: Promise<void> | null = null;
 
 // ============================================================================
 // refreshSessionStatuses
@@ -141,10 +146,11 @@ export function resetManagedCheckState(): void {
 
 /** Issue the batch-status call, counting an outstanding managed-release probe. */
 async function fetchBatchSessionStatus(includePreseedCheck: boolean) {
-  if (!includePreseedCheck) return api.getBatchSessionStatus({ includePreseedCheck });
+  const include = ['storage', 'usage'] as const;
+  if (!includePreseedCheck) return api.getBatchSessionStatus({ includePreseedCheck, include });
   managedChecksInFlight += 1;
   try {
-    return await api.getBatchSessionStatus({ includePreseedCheck });
+    return await api.getBatchSessionStatus({ includePreseedCheck, include });
   } finally {
     managedChecksInFlight -= 1;
   }
@@ -274,16 +280,59 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
 // start / stop polling
 // ============================================================================
 
+function transitioning(): boolean {
+  const state = getState();
+  return state.sessions.some((session) => session.status === 'initializing' || session.status === 'stopping')
+    || state.managedReleaseStatus === 'upgrading'
+    || state.bucketMigrating
+    || state.bucketMigrationPending;
+}
+
+function clearPollTimeout(): void {
+  if (sessionListPollTimeout !== null) {
+    clearTimeout(sessionListPollTimeout);
+    sessionListPollTimeout = null;
+  }
+}
+
+function pollWithoutOverlap(): Promise<void> {
+  if (pollInFlight) return pollInFlight;
+  pollInFlight = refreshSessionStatuses().finally(() => { pollInFlight = null; });
+  return pollInFlight;
+}
+
+function scheduleNextPoll(): void {
+  clearPollTimeout();
+  if (!pollingActive || document.visibilityState === 'hidden') return;
+  sessionListPollTimeout = setTimeout(async () => {
+    sessionListPollTimeout = null;
+    if (!pollingActive || document.visibilityState === 'hidden') return;
+    await pollWithoutOverlap();
+    scheduleNextPoll();
+  }, transitioning() ? SESSION_POLL_TRANSITION_MS : SESSION_POLL_STABLE_MS);
+}
+
+function handlePollingVisibilityChange(): void {
+  clearPollTimeout();
+  if (!pollingActive || document.visibilityState === 'hidden') return;
+  void pollWithoutOverlap().then(scheduleNextPoll);
+}
+
 export function startSessionListPolling(): void {
-  if (sessionListPollInterval !== null) return;
-  sessionListPollInterval = setInterval(() => {
-    refreshSessionStatuses();
-  }, SESSION_LIST_POLL_INTERVAL_MS);
+  if (pollingActive) return;
+  pollingActive = true;
+  if (!visibilityListenerInstalled) {
+    document.addEventListener('visibilitychange', handlePollingVisibilityChange);
+    visibilityListenerInstalled = true;
+  }
+  scheduleNextPoll();
 }
 
 export function stopSessionListPolling(): void {
-  if (sessionListPollInterval !== null) {
-    clearInterval(sessionListPollInterval);
-    sessionListPollInterval = null;
+  pollingActive = false;
+  clearPollTimeout();
+  if (visibilityListenerInstalled) {
+    document.removeEventListener('visibilitychange', handlePollingVisibilityChange);
+    visibilityListenerInstalled = false;
   }
 }

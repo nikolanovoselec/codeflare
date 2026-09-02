@@ -1376,9 +1376,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. The published graph surface includes the queryable graph, human-readable report, visual exploration page, generated callflow, and optional wiki tree. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::graphify-out/graph.json --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::graphify-out/graph.json --> <!-- @manual -->
+1. The default published graph surface includes the queryable graph, human-readable report, visual exploration page, generated callflow, and optional wiki tree. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::graphify-out/graph.json --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::graphify-out/graph.json --> <!-- @manual -->
 2. Community labels are published only when the user requests community naming. <!-- @manual -->
 3. Skipping community labels never blocks graph publication. <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::graphify_labels --> <!-- @manual -->
+4. A repository-specific persistence policy may omit regenerable HTML and callflow artifacts while retaining the queryable graph and report. <!-- @manual: Inspect the Codeflare repository graph outputs and ignore policy. -->
 
 **Constraints:** Optional labels never replace the official graph artifacts.
 
@@ -1485,12 +1486,14 @@ None.
 
 1. Knowledge-graph artefacts are excluded from R2 sync, so they never round-trip through user-bucket storage. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (statically excludes ephemeral caches, repo graphify-out, and R2 secrets in both modes (REQ-STOR-004 AC6 / REQ-AGENT-026 AC1)) -->
 2. The container image registers the graphify semantic merge driver globally, independent of session mode. <!-- @impl: Dockerfile::merge.graphify.driver --> <!-- @manual -->
-3. Repo owners with push permission commit the knowledge-graph artefacts to git so contributors inherit the graph and the visualization on clone; concurrent edits to the graph artefact are auto-resolved by the registered merge driver without manual JSON conflict resolution. <!-- @manual -->
+3. Repo owners with push permission commit the queryable graph and report so contributors inherit the graph on clone. <!-- @manual -->
 4. For repos without push permission, the graph lives in the working tree only and is ephemeral. <!-- @manual -->
+5. Concurrent edits to the graph artefact are auto-resolved by the registered merge driver without manual JSON conflict resolution. <!-- @manual -->
 
 **Constraints:**
 
 - Per-repo ignore and merge-attribute wiring is the responsibility of the graphify skill ([REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline) AC4); this REQ covers only the platform-level pieces (sync exclusion, global merge-driver registration).
+- Repository-specific policy may omit regenerable HTML and callflow outputs.
 
 **Priority:** P1
 
@@ -3190,6 +3193,66 @@ None.
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-182](#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-181](#req-agent-181-design-specialist-compatibility)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-189: Layered Codeflare Capability Discovery
+
+**Intent:** A user asking what Codeflare can do receives a concise, source-backed overview first and can then request practical subsystem guidance without loading the complete platform inventory.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A broad capability question starts with a high-impact Codeflare overview before subsystem detail. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Ask a fresh Standard and Advanced session what Codeflare can do and review response order. -->
+2. The overview distinguishes platform capability from the current session's mode and configuration. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Compare a fresh Standard session with an Advanced session. -->
+3. The user can choose SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Secure Web Gateway, MCP portals, AI Gateway, Browser Run, or agentic primitives as an independent deep dive. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Request each named subsystem independently. -->
+4. A broad response loads no subsystem reference. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Inspect loaded files for one broad capability question. -->
+5. A follow-up reads only the references the user requested. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Inspect loaded files for one multi-subsystem follow-up. -->
+6. A deep dive states applicable mode, enterprise, permission, and operator dependencies before presenting the capability as available. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review one Standard, one Advanced, and one unconfigured Enterprise answer. -->
+7. A deep dive gives a concrete example the user or operator can try. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review each applicable user- or administrator-operated example. -->
+
+**Constraints:**
+
+- Claims trace to active requirements, implementation, or operator documentation.
+- References remain lazy.
+- Unproven integrations remain unavailable.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-190](#req-agent-190-portable-capability-discovery-delivery)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-190: Portable Capability Discovery Delivery
+
+**Intent:** Every skill-capable runtime receives the same capability router while Pi discovers it without carrying the platform inventory in its always-loaded rule.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Standard and Advanced sessions expose `codeflare-capabilities` to every supported skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Capability discovery router --> <!-- @manual: Inspect the authoritative curation manifests and compiled release. -->
+2. Standard and Advanced Pi route Codeflare capability questions to `codeflare-capabilities` without embedding subsystem guidance in the always-loaded rule. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @manual: Inspect the authoritative Pi rule and generated Standard and Advanced outputs. -->
+3. Managed curation and the image fallback expose matching capability files and mode membership. <!-- @manual: Compare curation seed-v44 with the baked fallback and generated target inventory. -->
+
+**Constraints:**
+
+- The Pi routing rule remains at most 20 whitespace-delimited tokens.
+- Private curation owns managed source.
+- Delivery reuses the existing compiler and fallback path without a new runtime package, transform, or delivery path.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-AGENT-137](#req-agent-137-design-skill-review-boundary), [REQ-STOR-021](storage.md#req-stor-021-managed-content-ownership)
 
 **Verification:** Manual check
 

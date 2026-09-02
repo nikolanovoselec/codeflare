@@ -245,6 +245,18 @@ One validation job constrains `PENTEST_TARGET` to an HTTPS DNS origin, then fans
 
 Measured 2026-07-20 on the first run that ever executed them: backend 90.2% statements / 82.7% branches, web-ui 77.4% / 66.0%. Thresholds sit ~2 points under those, because the previous 53/43 and 32/27 sat 37 and 45 points below actual and would have passed a suite with most of its tests deleted. Pull requests also check changed executable production lines represented in LCOV at practical package floors (80% backend, 70% frontend), never 100% per file. The checker ignores deletions and test-only changes, follows rename destinations, bounds diff/report size and changed-line count, and fails closed when a changed production file has no report record.
 
+The frontend coverage job reserves these Administration material-state owners for user-owned Integration validation; backend contracts, shared frontend infrastructure, and every other production file remain gated ([REQ-OPS-022](../../sdd/spec/operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)):
+
+- `web-ui/src/components/admin/ActivityPage.tsx`
+- `web-ui/src/components/admin/AdministrationLayout.tsx`
+- `web-ui/src/components/admin/AdministrationOverview.tsx`
+- `web-ui/src/components/admin/AnalyticsPage.tsx`
+- `web-ui/src/components/admin/AnalyticsUserDetail.tsx`
+- `web-ui/src/components/admin/EnvironmentAreaFields.tsx`
+- `web-ui/src/components/admin/EnvironmentIndex.tsx`
+- `web-ui/src/components/admin/ReportsPage.tsx`
+- `web-ui/src/components/admin/environment-areas.ts`
+
 **Protected rendered verification:** Browser-only visual claims are not represented by CSS-source regexes or a repository-owned browser framework. The deployment-time `browser-e2e` agent verifies the protected deployment at phone, tablet, and desktop widths. For the Wave 9 contracts it records: login core content visible before auth promises settle; the armed Vault control retaining its success computed color under sticky touch hover; the Kitt scanner remaining unclipped with its beam inside the dashboard panel overflow geometry; and WebGL context loss retiring SplashCursor while the dark app-root surface remains visible. The deploy/PR evidence links the protected target and browser-run artifact; no Playwright package, config, workflow, or scripted E2E suite is added.
 
 **CI workerd crash guard (fail-closed):** `@cloudflare/vitest-pool-workers` crashes `workerd` at pool teardown after all tests pass — a known upstream limitation of WebSockets + Durable Objects under per-file storage isolation, still present on 0.18.x/vitest 4 (the documented alternative `--max-workers=1 --no-isolate` crashes this suite at collection). Serializing the pool never fixed it — the crash is at teardown, not a concurrency race — so the pool runs parallel and the gate, not serialization, is what makes the result trustworthy. The shared coverage action tolerates that fingerprint for backend coverage only after it has confirmed a coverage table was produced, no test failed, and no threshold was missed ([REQ-OPS-022](../../sdd/spec/operations.md#req-ops-022-coverage-threshold-gate-fails-closed-on-missing-evidence)).

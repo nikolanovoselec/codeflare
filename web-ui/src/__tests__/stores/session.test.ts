@@ -58,7 +58,7 @@ vi.mock('../../lib/vault-cache', () => ({
 
 // Import after mocks
 import { sessionStore } from '../../stores/session';
-import { applyMetricsUpdate } from '../../stores/session';
+import { applyMetricsUpdate, getUsageState } from '../../stores/session';
 import * as api from '../../api/client';
 import * as storageApi from '../../api/storage';
 import * as terminal from '../../stores/terminal';
@@ -66,7 +66,7 @@ import * as vaultCache from '../../lib/vault-cache';
 import {
   MAX_STOP_POLL_ATTEMPTS,
   MAX_STOP_POLL_ERRORS,
-  SESSION_LIST_POLL_INTERVAL_MS,
+  SESSION_POLL_STABLE_MS,
   STOP_POLL_INTERVAL_MS,
 } from '../../lib/constants';
 
@@ -124,12 +124,22 @@ describe('Session Store', () => {
         },
       ];
       mockGetSessions.mockResolvedValue(mockSessions);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        usage: { dailySeconds: 12, monthlySeconds: 321, monthlyQuotaSeconds: 600, tier: 'advanced' },
+      });
 
       await sessionStore.loadSessions();
 
       expect(sessionStore.sessions.length).toBe(2);
       expect(sessionStore.sessions[0].id).toBe('session-1');
       expect(sessionStore.sessions[1].id).toBe('session-2');
+      expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({
+        includePreseedCheck: true,
+        include: ['storage', 'usage'],
+      });
+      expect(getUsageState()).toEqual({ monthlySeconds: 321, monthlyQuotaSeconds: 600 });
     });
 
     it('sweeps orphan Vault caches after an authoritative session-list fetch succeeds', async () => {
@@ -355,13 +365,21 @@ describe('Session Store', () => {
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
     });
 
-    it('should discard stale results from concurrent loadSessions calls', async () => {
+    it('REQ-SESSION-029 AC1: stale success cannot overwrite latest batch state', async () => {
       let resolveFirst: (value: any) => void;
       let resolveSecond: (value: any) => void;
       mockGetSessions
         .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }))
         .mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve; }));
-      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
+      mockGetBatchSessionStatus
+        .mockResolvedValueOnce({
+          statuses: {}, maxSessions: 3,
+          usage: { dailySeconds: 10, monthlySeconds: 100, monthlyQuotaSeconds: 600, tier: 'advanced' },
+        })
+        .mockResolvedValueOnce({
+          statuses: {}, maxSessions: 3,
+          usage: { dailySeconds: 20, monthlySeconds: 200, monthlyQuotaSeconds: 600, tier: 'advanced' },
+        });
 
       const firstCall = sessionStore.loadSessions();
       const secondCall = sessionStore.loadSessions();
@@ -383,6 +401,46 @@ describe('Session Store', () => {
       expect(sessionStore.sessions.some(s => s.id === 'session-old')).toBe(false);
       expect(mockSweepOrphanVaultCaches).toHaveBeenCalledTimes(1);
       expect(mockSweepOrphanVaultCaches).toHaveBeenCalledWith(['session-new']);
+      expect(getUsageState()).toEqual({ monthlySeconds: 200, monthlyQuotaSeconds: 600 });
+    });
+
+    it('REQ-SESSION-029 AC3: stale batch-status failure cannot overwrite latest error state', async () => {
+      let rejectFirstBatch: (reason: Error) => void;
+      mockGetSessions
+        .mockResolvedValueOnce([{ id: 'session-old', name: 'Old', createdAt: 'then', lastAccessedAt: 'then' }])
+        .mockResolvedValueOnce([{ id: 'session-new', name: 'New', createdAt: 'now', lastAccessedAt: 'now' }]);
+      mockGetBatchSessionStatus
+        .mockReturnValueOnce(new Promise((_, reject) => { rejectFirstBatch = reject; }))
+        .mockResolvedValueOnce({ statuses: {}, maxSessions: 3 });
+
+      const firstCall = sessionStore.loadSessions();
+      const secondCall = sessionStore.loadSessions();
+      await secondCall;
+
+      rejectFirstBatch!(new Error('stale batch failure'));
+      await firstCall;
+
+      expect(sessionStore.error).toBeNull();
+      expect(sessionStore.sessions.map((session) => session.id)).toContain('session-new');
+      expect(sessionStore.sessions.map((session) => session.id)).not.toContain('session-old');
+    });
+
+    it('REQ-SESSION-029 AC2: stale session-list failure cannot overwrite latest error state', async () => {
+      let rejectFirstSessions: (reason: Error) => void;
+      mockGetSessions
+        .mockReturnValueOnce(new Promise((_, reject) => { rejectFirstSessions = reject; }))
+        .mockResolvedValueOnce([{ id: 'session-new', name: 'New', createdAt: 'now', lastAccessedAt: 'now' }]);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
+
+      const firstCall = sessionStore.loadSessions();
+      const secondCall = sessionStore.loadSessions();
+      await secondCall;
+
+      rejectFirstSessions!(new Error('stale session-list failure'));
+      await firstCall;
+
+      expect(sessionStore.error).toBeNull();
+      expect(sessionStore.sessions.map((session) => session.id)).toContain('session-new');
     });
 
     // REQ-AGENT-049: auto-upgrade preseed on stale hash
@@ -514,6 +572,18 @@ describe('Session Store', () => {
       expect(sessionStore.bucketMigrating).toBe(false);
     });
 
+    it('updates usage from the background poll', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        usage: { dailySeconds: 20, monthlySeconds: 456, monthlyQuotaSeconds: 900, tier: 'advanced' },
+      });
+
+      await sessionStore.refreshSessionStatuses();
+
+      expect(getUsageState()).toEqual({ monthlySeconds: 456, monthlyQuotaSeconds: 900 });
+    });
+
     it('mirrors the migration percent from the background poll for the button label', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3, bucketMigrating: true, bucketMigrationPercent: 42 });
       await sessionStore.refreshSessionStatuses();
@@ -555,7 +625,7 @@ describe('Session Store', () => {
 
       await sessionStore.refreshSessionStatuses();
 
-      expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true });
+      expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true, include: ['storage', 'usage'] });
     });
 
     it('REQ-STOR-023 AC3: a failed batch-status call does not consume the managed-release check window', async () => {
@@ -571,8 +641,8 @@ describe('Session Store', () => {
       await sessionStore.refreshSessionStatuses();
       await sessionStore.refreshSessionStatuses();
 
-      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true });
-      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: true });
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true, include: ['storage', 'usage'] });
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: true, include: ['storage', 'usage'] });
     });
 
     it('REQ-STOR-023 AC3: an overlapping poll does not duplicate the managed-release check', async () => {
@@ -596,8 +666,8 @@ describe('Session Store', () => {
       release?.();
       await Promise.all([first, second]);
 
-      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true });
-      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: false });
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true, include: ['storage', 'usage'] });
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: false, include: ['storage', 'usage'] });
     });
   });
 
@@ -1055,7 +1125,7 @@ describe('Session Store', () => {
       const rejected = expect(starting).rejects.toThrow(/update is pending/i);
       rejectStart?.('Container start failed: Managed environment update is pending', 'MANAGED_ENVIRONMENT_UPDATE_PENDING');
       await rejected;
-      await vi.waitFor(() => expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true }));
+      await vi.waitFor(() => expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true, include: ['storage', 'usage'] }));
     });
   });
 
@@ -1670,7 +1740,7 @@ describe('Session Store', () => {
       mockGetBatchSessionStatus.mockClear();
 
       sessionStore.startSessionListPolling();
-      await vi.advanceTimersByTimeAsync(SESSION_LIST_POLL_INTERVAL_MS - 1);
+      await vi.advanceTimersByTimeAsync(SESSION_POLL_STABLE_MS - 1);
       expect(mockGetBatchSessionStatus).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(1);

@@ -20,6 +20,12 @@ import cloudflareRoutes from './routes/cloudflare';
 import publicRoutes from './routes/public/index';
 import usageRoutes from './routes/usage';
 import adminTiersRoutes from './routes/admin/tiers';
+import adminConfigurationRoutes from './routes/admin/configuration';
+import adminConfigurationPreviewRoutes from './routes/admin/configuration-previews';
+import adminConfigurationRunRoutes from './routes/admin/configuration-runs';
+import adminUsageRoutes from './routes/admin/usage';
+import adminUsageReportRoutes from './routes/admin/usage-reports';
+import { runUsageReportScheduler } from './lib/usage-report-scheduler';
 import billingRoutes from './routes/billing';
 import notificationRoutes from './routes/notifications';
 import stripeWebhookRoute from './routes/stripe-webhook';
@@ -284,6 +290,11 @@ app.route('/api/github', githubRoutes);
 app.route('/api/cloudflare', cloudflareRoutes);
 app.route('/api/usage', usageRoutes);
 app.route('/api/admin/tiers', adminTiersRoutes);
+app.route('/api/admin/configuration', adminConfigurationRoutes);
+app.route('/api/admin/configuration-previews', adminConfigurationPreviewRoutes);
+app.route('/api/admin/configuration-runs', adminConfigurationRunRoutes);
+app.route('/api/admin/usage', adminUsageRoutes);
+app.route('/api/admin', adminUsageReportRoutes);
 app.route('/api/billing', billingRoutes);
 app.route('/api/notifications', notificationRoutes);
 
@@ -520,7 +531,10 @@ export default {
       `default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https://cloudflareinsights.com; img-src 'self' data: https://www.gravatar.com; script-src 'self' '${DESIGN_READY_CSP_HASH}' https://challenges.cloudflare.com https://static.cloudflareinsights.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`
     );
     return secureResponse;
-  }
+  },
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runUsageReportScheduler(env));
+  },
 };
 
 // Export Durable Objects

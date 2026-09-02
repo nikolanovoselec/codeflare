@@ -29,6 +29,7 @@ import {
   cleanupTerminalsForSession,
 } from './session-tabs';
 import { updateStatsFromBatch } from './storage';
+import { setUsageState } from './session-usage';
 import {
   registerR2ReadinessDeps,
   startR2Polling,
@@ -261,18 +262,25 @@ async function loadSessions(): Promise<void> {
   setState('loading', true);
   setState('error', null);
 
+  let batchError: string | null = null;
   try {
     const [sessions, batchResponse] = await Promise.all([
       api.getSessions(),
-      api.getBatchSessionStatus({ includePreseedCheck: true }).catch((err) => {
+      api.getBatchSessionStatus({ includePreseedCheck: true, include: ['storage', 'usage'] }).catch((err) => {
         logger.warn('[SessionStore] getBatchSessionStatus failed:', err);
-        setState('error', err instanceof Error ? err.message : 'Failed to fetch session statuses');
+        batchError = err instanceof Error ? err.message : 'Failed to fetch session statuses';
         return { statuses: {} as Record<string, BatchStatusEntry>, maxSessions: state.maxSessions };
       }),
     ]);
+    if (thisGen !== loadSessionsGeneration) return;
+    if (batchError) setState('error', batchError);
+
     const batchStatuses = batchResponse.statuses;
     if (batchResponse.maxSessions !== undefined) setState('maxSessions', batchResponse.maxSessions);
     if ('storageStats' in batchResponse && batchResponse.storageStats) updateStatsFromBatch(batchResponse.storageStats);
+    if ('usage' in batchResponse && batchResponse.usage) {
+      setUsageState(batchResponse.usage.monthlySeconds, batchResponse.usage.monthlyQuotaSeconds);
+    }
 
     const managedReleaseStatus = 'managedReleaseStatus' in batchResponse
       ? batchResponse.managedReleaseStatus
@@ -295,8 +303,6 @@ async function loadSessions(): Promise<void> {
     setState('bucketMigrating', 'bucketMigrating' in batchResponse && batchResponse.bucketMigrating === true);
     setState('bucketMigrationPending', 'bucketMigrationPending' in batchResponse && batchResponse.bucketMigrationPending === true);
     setState('bucketMigrationPercent', 'bucketMigrationPercent' in batchResponse && typeof batchResponse.bucketMigrationPercent === 'number' ? batchResponse.bucketMigrationPercent : null);
-
-    if (thisGen !== loadSessionsGeneration) return;
 
     const existingStatuses = new Map(
       state.sessions.map(s => [s.id, s.status])

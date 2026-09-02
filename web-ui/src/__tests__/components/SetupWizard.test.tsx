@@ -9,19 +9,24 @@ vi.mock('../../api/client', () => ({
   getUser: vi.fn(),
 }));
 
-// Mock the SplashCursor component (WebGL-based, not testable in jsdom)
-vi.mock('../../components/SplashCursor', () => ({
-  default: () => <div data-testid="splash-cursor" />,
-}));
-
 // Mock the setup store
 vi.mock('../../stores/setup', () => ({
   setupStore: {
     step: 1,
+    enterpriseMode: false,
+    saasMode: false,
+    tokenDetecting: false,
+    tokenDetected: false,
+    tokenDetectError: null,
+    accountInfo: null,
+    detectToken: vi.fn(),
+    loadExistingConfig: vi.fn().mockResolvedValue(true),
+    nextStep: vi.fn(),
   },
 }));
 
 import { getSetupStatus, getUser } from '../../api/client';
+import { setupStore } from '../../stores/setup';
 const mockedGetSetupStatus = vi.mocked(getSetupStatus);
 const mockedGetUser = vi.mocked(getUser);
 
@@ -32,46 +37,93 @@ describe('SetupWizard', () => {
     // Default: not yet configured (first-time setup, authorized immediately)
     mockedGetSetupStatus.mockResolvedValue({ configured: false });
     mockedGetUser.mockResolvedValue({ role: 'admin', authenticated: true } as any);
+    vi.mocked(setupStore.loadExistingConfig).mockResolvedValue(true);
+    Object.assign(setupStore, { enterpriseMode: false, tokenDetected: false, accountInfo: null });
   });
 
   afterEach(() => {
     cleanup();
   });
 
-  describe('KittScanner', () => {
-    it('should render KittScanner inside setup-container when authorized', async () => {
+  describe('operator shell states', () => {
+    it('renders the first-run operator shell when authorized', async () => {
       render(() => <SetupWizard />);
-
       await waitFor(() => {
-        const container = document.querySelector('.setup-container');
-        expect(container).toBeInTheDocument();
-        const kittScanner = container?.querySelector('.kitt-scanner');
-        expect(kittScanner).toBeInTheDocument();
+        expect(document.querySelector('.setup-journey-layout')).toBeInTheDocument();
+        expect(document.body.textContent).toContain('Deployment readiness');
       });
     });
 
-    it('should render KittScanner inside setup-container during loading state', () => {
-      // Before onMount resolves, authState is 'loading'
-      mockedGetSetupStatus.mockReturnValue(new Promise(() => {})); // never resolves
-      render(() => <SetupWizard />);
-
-      const container = document.querySelector('.setup-container');
-      expect(container).toBeInTheDocument();
-      const kittScanner = container?.querySelector('.kitt-scanner');
-      expect(kittScanner).toBeInTheDocument();
-    });
-
-    it('should render KittScanner inside setup-container when denied', async () => {
-      mockedGetSetupStatus.mockResolvedValue({ configured: true });
-      mockedGetUser.mockResolvedValue({ role: 'viewer', authenticated: true } as any);
+    it('REQ-SETUP-022 AC2: hydrates completed Enterprise initialization before rendering recovery', async () => {
+      mockedGetSetupStatus.mockResolvedValue({ configured: true, enterpriseMode: true });
+      let resolveHydration!: (loaded: boolean) => void;
+      vi.mocked(setupStore.loadExistingConfig).mockReturnValueOnce(new Promise<boolean>((resolve) => {
+        resolveHydration = resolve;
+      }));
 
       render(() => <SetupWizard />);
+      await waitFor(() => expect(setupStore.loadExistingConfig).toHaveBeenCalledOnce());
+      expect(document.body.textContent).toContain('Loading');
+      expect(document.querySelector('.setup-journey-layout')).not.toBeInTheDocument();
+
+      Object.assign(setupStore, { enterpriseMode: true });
+      resolveHydration(true);
 
       await waitFor(() => {
-        const container = document.querySelector('.setup-container');
-        expect(container).toBeInTheDocument();
-        const kittScanner = container?.querySelector('.kitt-scanner');
-        expect(kittScanner).toBeInTheDocument();
+        expect(document.body.textContent).toContain('Completed');
+        expect(document.body.textContent).toContain('Enterprise');
+      });
+    });
+
+    it('REQ-SETUP-022 AC4: labels configured recovery as initialization review', async () => {
+      mockedGetSetupStatus.mockResolvedValue({ configured: true, enterpriseMode: true });
+      Object.assign(setupStore, {
+        enterpriseMode: true,
+        tokenDetected: true,
+        accountInfo: { id: 'account-id', name: 'Enterprise account' },
+      });
+
+      render(() => <SetupWizard />);
+      await waitFor(() => expect(document.body.textContent).toContain('Review initialization'));
+      expect(document.body.textContent).not.toContain('Start setup');
+    });
+
+    it('REQ-SETUP-022 AC5: retains the first-run setup action', async () => {
+      Object.assign(setupStore, {
+        tokenDetected: true,
+        accountInfo: { id: 'account-id', name: 'Enterprise account' },
+      });
+
+      render(() => <SetupWizard />);
+      await waitFor(() => expect(document.body.textContent).toContain('Start setup'));
+      expect(document.body.textContent).not.toContain('Review initialization');
+    });
+
+    it('REQ-SETUP-022 AC3: keeps configured recovery closed when hydration fails', async () => {
+      mockedGetSetupStatus.mockResolvedValue({ configured: true, enterpriseMode: true });
+      vi.mocked(setupStore.loadExistingConfig).mockResolvedValueOnce(false);
+
+      render(() => <SetupWizard />);
+      await waitFor(() => expect(document.body.textContent).toContain('Initialization settings could not be loaded'));
+      expect(document.body.textContent).not.toContain('Completed');
+      expect(document.querySelector('.setup-journey-layout')).not.toBeInTheDocument();
+      expect(document.body.textContent).toContain('Retry');
+    });
+
+    it('renders a bounded loading shell while setup status resolves', () => {
+      mockedGetSetupStatus.mockReturnValue(new Promise(() => {}));
+      render(() => <SetupWizard />);
+      expect(document.querySelector('.setup-container--message')).toBeInTheDocument();
+      expect(document.body.textContent).toContain('Loading');
+    });
+
+    it('renders the denied recovery shell for non-admins', async () => {
+      mockedGetSetupStatus.mockResolvedValue({ configured: true });
+      mockedGetUser.mockResolvedValue({ role: 'viewer', authenticated: true } as any);
+      render(() => <SetupWizard />);
+      await waitFor(() => {
+        expect(document.body.textContent).toContain('Access denied');
+        expect(document.body.textContent).toContain('Only administrators');
       });
     });
   });

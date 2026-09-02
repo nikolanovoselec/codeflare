@@ -383,7 +383,7 @@ Per-branch graphs are not supported - the wrapper reads `<repo>/.git/HEAD` only 
 
 **Pi native tools exposed:** `graphify_query`, `graphify_path`, and `graphify_explain` are registered by `graphify-native.ts`. They shell the same Graphify CLI and resolve the cwd repo graph, then the active-repo sentinel graph, then the merged global graph.
 
-**Persistence:** `graphify-out/` lives in the repo, not in R2. Repo owners commit `graph.json`, `GRAPH_REPORT.md`, `graph.html`, and `callflow.html`; `.graphify_labels.json` is included only when community naming was requested. Contributors get the graph and browser-openable visualizations on clone. Repos without push permission keep the graph local-only and ephemeral. R2 bisync explicitly excludes `**/graphify-out/**`.
+**Persistence:** `graphify-out/` lives in the repo, not in R2. Repo owners commit `graph.json` and `GRAPH_REPORT.md`; `.graphify_labels.json` is included only when community naming was requested. The Codeflare source repository ignores regenerable `graph.html` and `callflow.html`, which remain available from local Graphify generation. Contributors inherit the queryable graph on clone. Repos without push permission keep the graph local-only and ephemeral. R2 bisync explicitly excludes `**/graphify-out/**`.
 
 The SKILL's `.gitignore` block adds regenerable build outputs under `graphify-out/` (`cache/`, `.cache/`, `.chunks/`, `manifest.json`, `obsidian/` - the Obsidian-app stub vault that rewrites on every update and would drown PRs), the `.graphify_*` working-tree intermediates the protocol creates mid-run (cleaned by the build's Step 9, gitignored as the safety net for runs interrupted before cleanup), and per-machine markers such as `.graphify_root` with an absolute path.
 

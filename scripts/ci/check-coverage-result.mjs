@@ -171,6 +171,7 @@ export function evaluateChangedLineCoverage({
   maxLcovBytes = CHANGED_COVERAGE_LIMITS.maxLcovBytes,
   maxChangedFiles = CHANGED_COVERAGE_LIMITS.maxChangedFiles,
   maxChangedLines = CHANGED_COVERAGE_LIMITS.maxChangedLines,
+  excludedFiles = [],
 }) {
   if (!['.', 'web-ui'].includes(packageRoot)) {
     return { ok: false, message: `unsupported coverage package root: ${packageRoot}` };
@@ -182,13 +183,18 @@ export function evaluateChangedLineCoverage({
     return { ok: false, message: `changed-line diff exceeds the ${maxDiffBytes}-byte bound` };
   }
 
+  const exclusions = new Set(excludedFiles.map(normalizePath));
+  if ([...exclusions].some((file) => !isProductionPath(file, packageRoot))) {
+    return { ok: false, message: 'changed-line exclusions must name production files inside the package root' };
+  }
+
   let changed;
   try {
     changed = parseChangedProduction(diff, packageRoot, { maxChangedFiles, maxChangedLines });
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
-  const files = [...changed.files].sort();
+  const files = [...changed.files].filter((file) => !exclusions.has(file)).sort();
   if (files.length === 0) {
     return { ok: true, message: 'no changed production files require LCOV evidence', files, covered: 0, total: 0, percentage: 100 };
   }
@@ -242,7 +248,7 @@ export function evaluateChangedLineCoverage({
   };
 }
 
-function changedCoverageFromGit(lcovPath, changedBase, packageRoot, threshold) {
+function changedCoverageFromGit(lcovPath, changedBase, packageRoot, threshold, rawExclusions = '') {
   if (!/^[0-9a-f]{40}$/i.test(changedBase)) {
     return { ok: false, message: 'changed-line base must be a full 40-character commit SHA' };
   }
@@ -285,11 +291,12 @@ function changedCoverageFromGit(lcovPath, changedBase, packageRoot, threshold) {
     packageRoot,
     threshold,
     repoRoot,
+    excludedFiles: rawExclusions.split(',').map((file) => file.trim()).filter(Boolean),
   });
 }
 
 function main() {
-  const [logPath, rawStatus, rawTolerance, lcovPath, changedBase, packageRoot, rawChangedThreshold] = process.argv.slice(2);
+  const [logPath, rawStatus, rawTolerance, lcovPath, changedBase, packageRoot, rawChangedThreshold, rawExclusions = ''] = process.argv.slice(2);
   const status = Number(rawStatus);
   if (!logPath || !Number.isInteger(status) || status < 0 || status > 255 || !['true', 'false'].includes(rawTolerance)) {
     throw new Error('Usage: check-coverage-result.mjs <log-path> <status:0-255> <tolerate-pool-crash:true|false> [<lcov-path> <changed-base-sha> <package-root:.|web-ui> <changed-line-threshold>]');
@@ -308,7 +315,7 @@ function main() {
     throw new Error('changed-line coverage requires lcov path, base SHA, package root, and threshold together');
   }
   if (changedArgs.every(Boolean)) {
-    const changed = changedCoverageFromGit(resolve(lcovPath), changedBase, packageRoot, Number(rawChangedThreshold));
+    const changed = changedCoverageFromGit(resolve(lcovPath), changedBase, packageRoot, Number(rawChangedThreshold), rawExclusions);
     const stream = changed.ok ? process.stdout : process.stderr;
     stream.write(`${changed.ok ? '' : '::error::'}${changed.message}\n`);
     if (!changed.ok) process.exitCode = 1;

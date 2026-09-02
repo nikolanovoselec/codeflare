@@ -302,7 +302,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 1. The batch-status endpoint returns status for all user sessions from one storage list call without container wake; metadata-bearing records use the list result directly. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC1: batch-status uses KV list metadata, no DO contact) -->
 2. Persistent storage holds two statuses (running and stopped); the frontend adds ephemeral states (initializing, stopping, error) that are never persisted. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC2: only running/stopped persisted to KV) -->
-3. The frontend polls batch-status on a fixed cadence (about every 5 seconds). <!-- @impl: web-ui/src/stores/session-polling.ts::startSessionListPolling --> <!-- @manual -->
+3. The frontend polls batch status every five seconds during transitions and every 60 seconds while stable and visible; hidden pages stop polling, visible pages refresh immediately, and recursive scheduling prevents overlap. <!-- @impl: web-ui/src/stores/session-polling.ts::startSessionListPolling --> <!-- @manual -->
 4. Dashboard session cards display a three-color status dot: green (running + WebSocket connected), yellow (running + WebSocket disconnected), gray (stopped). <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (SessionStatCard) -->
 5. Session cards surface CPU, memory, and disk metrics with up to ~60s staleness; selectable cards omit the internal agent/process and sync-status diagnostic line. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx::SelectableSessionCard --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC5: metrics included in list metadata) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (SessionStatCard) --> <!-- @test: web-ui/src/__tests__/components/SelectableSessionCard.test.tsx (REQ-SESSION-010 AC5: retains CPU, memory, and storage metrics without an internal agent/sync diagnostic line) -->
 6. Last-active and last-started timestamps are available for sleep-timer countdown display. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC6: lastActiveAt and lastStartedAt in batch-status response) -->
@@ -405,6 +405,30 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Dependencies:** [REQ-SESSION-007](#req-session-007-running-session-count-limited-per-tier), [REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)
 
 **Verification:** Automated lifecycle-limit and batch-status tests
+
+**Status:** Implemented
+
+---
+
+### REQ-SESSION-029: Latest session load owns batch-derived state
+
+**Intent:** Concurrent dashboard session loads cannot replace newer status context with stale data or errors.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Only the latest in-flight session-list load may update batch-derived frontend state; a stale success has no observable effect. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC1: stale success cannot overwrite latest batch state) -->
+2. A stale session-list failure cannot replace the latest load's error state. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC2: stale session-list failure cannot overwrite latest error state) -->
+3. A stale batch-status failure cannot replace the latest load's error state. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC3: stale batch-status failure cannot overwrite latest error state) -->
+
+**Constraints:** Background status polling remains independently serialized by its existing one-request-in-flight guard.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)
+
+**Verification:** Automated concurrent-load tests
 
 **Status:** Implemented
 
