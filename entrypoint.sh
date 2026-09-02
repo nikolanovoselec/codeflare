@@ -2666,7 +2666,7 @@ const required = [
   'npm:@juicesharp/rpiv-advisor@2.6.0',
   'npm:@juicesharp/rpiv-ask-user-question@2.6.0',
   'npm:@juicesharp/rpiv-todo@2.6.0',
-  'npm:pi-web-access@0.23.0',
+  'npm:pi-web-access@0.25.0',
   'npm:pi-mcp-adapter@2.26.0',
   'npm:pi-caveman@1.0.8',
   'npm:pi-evaluate@0.1.5',
