@@ -2670,7 +2670,7 @@ const required = [
   'npm:pi-mcp-adapter@2.26.0',
   'npm:pi-caveman@1.0.8',
   'npm:pi-evaluate@0.1.5',
-  'npm:@narumitw/pi-goal@0.53.0',
+  'npm:@narumitw/pi-goal@0.54.2',
   'npm:@narumitw/pi-plan-mode@0.52.0',
   'npm:@narumitw/pi-usage@0.52.0',
 ];

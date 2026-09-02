@@ -617,8 +617,8 @@ function readFixturePackage(root, sessionSourceName = 'lifecycle') {
 }
 
 const FIXTURES_DIRECTORY = join(dirname(fileURLToPath(import.meta.url)), '..', '__fixtures__');
-const PINNED_PACKAGE_ARCHIVE = join(FIXTURES_DIRECTORY, 'pi-goal-0.53.0.tgz');
-const PINNED_PACKAGE_INTEGRITY = 'sha512-cmWowqAzlkgRLKYp2hFnUZvEEs6G6aGjEOazBWNW88T7LB9cd/AzOFOGYvA1QxxsGtIdOuFRZJVhfAJDGsAcjw==';
+const PINNED_PACKAGE_ARCHIVE = join(FIXTURES_DIRECTORY, 'pi-goal-0.54.2.tgz');
+const PINNED_PACKAGE_INTEGRITY = 'sha512-RbrArj7OoP/6FGMZ+yBtKiRyz1r1PjTFdPJv+23MhoGxsyNB6suJk8VDni9jOk6lS5lwsJhaj/S1s1AT8urtnw==';
 const PINNED_PLAN_ARCHIVE = join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.52.0.tgz');
 const PINNED_PLAN_INTEGRITY = 'sha512-h2mye4GFa9slqP17NhInBHv2GW3pYwMY76HHENHuwrMr/dOGXRdNacxfwbJSy1njozxlcnWvgdG6a7pE8UPBiw==';
 
@@ -1189,7 +1189,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     const root = mkdtempSync(join(tmpdir(), 'pi-goal-latest-review-control-'));
     extractPinnedFixturePackage(root);
 
-    assert.equal(EXPECTED_PI_GOAL_VERSION, '0.53.0');
+    assert.equal(EXPECTED_PI_GOAL_VERSION, '0.54.2');
     patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, root);
     const first = readFixturePackage(root, 'lifecycle');
     assert.deepEqual(JSON.parse(first['package.json']).pi.extensions, ['./src/index.ts']);
