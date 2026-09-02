@@ -305,9 +305,9 @@ async function main() {
     return 0;
   }
   if (mode === 'syntax') {
-    if (args.length === 0) throw new Error('syntax requires at least one file');
+    const { files } = await repositoryFiles(args, 'syntax');
     const deadline = Date.now() + managedTimeout();
-    for (const file of args) {
+    for (const file of files) {
       const remaining = deadline - Date.now();
       if (remaining <= 0) return 124;
       const code = await runBounded(process.execPath, ['--check', file], remaining);

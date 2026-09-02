@@ -127,9 +127,19 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
     const root = mkdtempSync(join(tmpdir(), 'safe-local-check-syntax-'));
     writeFileSync(join(root, 'valid.mjs'), 'export const value = 1;\n', 'utf8');
     writeFileSync(join(root, 'invalid.mjs'), 'export const = ;\n', 'utf8');
+    const outside = join(tmpdir(), `safe-local-check-outside-${Date.now()}.mjs`);
+    writeFileSync(outside, 'export const outside = true;\n', 'utf8');
 
     assert.equal(run(root, ['syntax', 'valid.mjs']).status, 0);
     assert.notEqual(run(root, ['syntax', 'invalid.mjs']).status, 0);
+    const outsideResult = run(root, ['syntax', outside]);
+    assert.equal(outsideResult.status, 2);
+    assert.match(outsideResult.stderr, /outside repository/i);
+
+    symlinkSync(outside, join(root, 'linked.mjs'));
+    const linkedResult = run(root, ['syntax', 'linked.mjs']);
+    assert.equal(linkedResult.status, 2);
+    assert.match(linkedResult.stderr, /outside repository/i);
   });
 
   it('parses JSON and rejects files outside the repository', () => {
