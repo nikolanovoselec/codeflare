@@ -91,8 +91,7 @@ export function registerInitialToolFilter(pi: InitialToolFilterPi): void {
     // The final exposure filter runs later and must not replace that exclusive mode
     // with the normal read/bash/edit/write/capability set.
     if (isExclusiveActiveTool(activeBeforeFilter, INLINE_EDIT_RESULT_TOOL)) return;
-    const keepGoalTools = hasUnfinishedGoal(ctx)
-      || GOAL_TERMINAL_TOOLS.every((name) => activeBeforeFilter.has(name));
+    const keepGoalTools = hasUnfinishedGoal(ctx);
     const initial = initialActiveTools(pi);
     if (!keepGoalTools) {
       pi.setActiveTools(initial);

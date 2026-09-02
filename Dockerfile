@@ -182,8 +182,8 @@ RUN ZOXIDE_VERSION="0.10.0" && \
     rm /tmp/zoxide.tar.gz
 
 # Install yazi and lazygit from GitHub releases (pinned versions)
-RUN YAZI_VERSION="26.8.15" && \
-    YAZI_SHA256="a6702034790afcdbb546b73b288c9b184a751fa3f2f17f0ad4d26fc302fb8d45" && \
+RUN YAZI_VERSION="26.9.1" && \
+    YAZI_SHA256="9b9c39decccf8cb0ff53a7d637d38f8a79d93bbd0099f4ea9c619ef6bb392f5d" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/sxyazi/yazi/releases/download/v${YAZI_VERSION}/yazi-x86_64-unknown-linux-musl.zip" -o /tmp/yazi.zip && \
     echo "${YAZI_SHA256}  /tmp/yazi.zip" | sha256sum -c - && \
     unzip -o /tmp/yazi.zip -d /tmp/yazi && \
@@ -233,11 +233,11 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
 # that runtime copy. Drop each overlay after its upstream artifact contains at
 # least the pinned fixed version.
-RUN CODE_SERVER_VERSION="4.133.0" && \
-    CODE_SERVER_SHA256="a4e0f8f8c76e7de8e7424289f74e507af4c97bfe104c3e8ee272b8cc7b46c6f1" && \
-    CODE_SERVER_COMMIT="d2f7a122522456b351e9b3ddd39e4f3fb9fd5318" && \
-    CODE_SERVER_CODE_VERSION="1.133.0" && \
-    CODE_SERVER_VSCODE_COMMIT="a5b500951314efd502d07465bd138dfbd714a960" && \
+RUN CODE_SERVER_VERSION="4.135.0" && \
+    CODE_SERVER_SHA256="300ef4e37e469e6368a4673c6a623e1c9ba8a34f42b394fb49c431a8900bc7d1" && \
+    CODE_SERVER_COMMIT="de89acbcdce9d9b870008a270c9f6466993d91f4" && \
+    CODE_SERVER_CODE_VERSION="1.135.0" && \
+    CODE_SERVER_VSCODE_COMMIT="08d4889f9ec4a1685d257b9b95de036c8e1ce1e5" && \
     JS_YAML_VERSION="4.3.1" && \
     JS_YAML_SHA512="098e9cac6ab7d77317f06930bc1eedce0a7df6f8d0c58d7efb9cb5d3f04a37f1947c7a9668e19030d66406fa92cec64a5a4fe28f01e55b3ce42ee96c18786359" && \
     NODE_TAR_VERSION="7.5.21" && \
@@ -512,8 +512,8 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # License posture (Apache-2.0): we install from the public PyPI registry at
 # build time. No redistribution. Friendlier license than context-mode's ELv2.
 # ---------------------------------------------------------------------------
-ARG UV_VERSION=0.12.5
-ARG UV_X86_64_LINUX_SHA256=68a509da24b06b4223a1c0175fb5eb5bc79342b76cbeff0cfe51ac3f5b17b6b2
+ARG UV_VERSION=0.12.6
+ARG UV_X86_64_LINUX_SHA256=8681d8921e7d520fb368991dcf5f9c1905b80f5bf2a265a0ed085c8d8e342477
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e

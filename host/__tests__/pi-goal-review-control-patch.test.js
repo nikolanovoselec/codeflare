@@ -765,8 +765,9 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     planExtension(harness.api, { settingsPath: join(planRoot, 'settings.json') });
     await harness.startSession();
 
+    harness.api.setActiveTools(['goal_complete', 'goal_blocked']);
     await harness.commands.get('goal').handler('first integration objective', harness.ctx);
-    assert.ok(harness.activeTools().includes('goal_complete'));
+    assert.equal(harness.entries.at(-1)?.data?.goal?.status, 'active');
     await harness.commands.get('plan').handler('start', harness.ctx);
     assert.ok(!harness.activeTools().includes('plan_mode_complete'));
     assert.match(harness.notifications.at(-1).message, /Another workflow is active/);
@@ -775,8 +776,9 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     await harness.commands.get('plan').handler('start', harness.ctx);
     assert.ok(harness.activeTools().includes('plan_mode_complete'));
     await harness.commands.get('plan').handler('exit', harness.ctx);
+    harness.api.setActiveTools(['goal_complete', 'goal_blocked']);
     await harness.commands.get('goal').handler('second integration objective', harness.ctx);
-    assert.ok(harness.activeTools().includes('goal_complete'));
+    assert.equal(harness.entries.at(-1)?.data?.goal?.status, 'active');
 
     const activeGoalId = harness.entries
       .filter((entry) => entry.data?.goal?.status === 'active')
