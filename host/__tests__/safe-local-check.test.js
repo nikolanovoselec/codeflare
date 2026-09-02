@@ -130,4 +130,53 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
     assert.equal(run(root, ['syntax', 'valid.mjs']).status, 0);
     assert.notEqual(run(root, ['syntax', 'invalid.mjs']).status, 0);
   });
+
+  it('parses JSON and rejects files outside the repository', () => {
+    const root = mkdtempSync(join(tmpdir(), 'safe-local-check-json-'));
+    mkdirSync(join(root, '.git'));
+    writeFileSync(join(root, 'valid.json'), '{"ok":true}\n', 'utf8');
+    writeFileSync(join(root, 'invalid.json'), '{nope}\n', 'utf8');
+    const outside = join(tmpdir(), `safe-local-check-outside-${Date.now()}.json`);
+    writeFileSync(outside, '{"ok":true}\n', 'utf8');
+
+    assert.equal(run(root, ['json', 'valid.json']).status, 0);
+    assert.notEqual(run(root, ['json', 'invalid.json']).status, 0);
+    const outsideResult = run(root, ['json', outside]);
+    assert.equal(outsideResult.status, 2);
+    assert.match(outsideResult.stderr, /outside repository/i);
+  });
+
+  it('runs Bash syntax checks through the managed process wrapper', () => {
+    const root = mkdtempSync(join(tmpdir(), 'safe-local-check-shell-'));
+    mkdirSync(join(root, '.git'));
+    writeFileSync(join(root, 'valid.sh'), 'case "$1" in ok) echo ok;; esac\n', 'utf8');
+    writeFileSync(join(root, 'invalid.sh'), 'if true; then echo ok\n', 'utf8');
+
+    assert.equal(run(root, ['shell-syntax', 'valid.sh']).status, 0);
+    assert.notEqual(run(root, ['shell-syntax', 'invalid.sh']).status, 0);
+  });
+
+  it('checks package lock consistency without running package scripts', () => {
+    const root = mkdtempSync(join(tmpdir(), 'safe-local-check-lock-'));
+    mkdirSync(join(root, '.git'));
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ dependencies: { leftpad: '1.0.0' } }), 'utf8');
+    writeFileSync(join(root, 'package-lock.json'), JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        '': { dependencies: { leftpad: '1.0.0' } },
+        'node_modules/leftpad': {
+          version: '1.0.0',
+          resolved: 'https://registry.npmjs.org/leftpad/-/leftpad-1.0.0.tgz',
+          integrity: 'sha512-abc=',
+        },
+      },
+    }), 'utf8');
+
+    assert.equal(run(root, ['lock-consistency']).status, 0);
+    writeFileSync(join(root, 'package-lock.json'), JSON.stringify({
+      lockfileVersion: 3,
+      packages: { '': { dependencies: { leftpad: '1.0.1' } } },
+    }), 'utf8');
+    assert.notEqual(run(root, ['lock-consistency']).status, 0);
+  });
 });

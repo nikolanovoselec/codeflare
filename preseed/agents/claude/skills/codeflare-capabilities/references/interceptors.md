@@ -1,21 +1,27 @@
-# Request interceptors and credential boundaries
-
-**Availability:** Enterprise deployment. Each named interceptor also requires its operator-owned credential or route configuration. Bound R2 credential isolation requires strict Gateway egress.
+# Credential interception and secret boundaries
 
 ## What I can do
 
-I can use ordinary client interfaces inside the container while Worker-side interceptors apply real credentials and routing at the egress boundary. Codeflare has bounded named interceptors for GitHub, supported model traffic, and Browser Rendering. The container receives a stable service URL or non-secret placeholder instead of the long-lived credential for those paths.
+I can use ordinary command-line clients while selected credentials stay outside the container. Worker-side interceptors recognize exact owned destinations, validate the bound session identity, remove non-secret placeholders, and add the real authorization only at the egress boundary.
 
-For GitHub, I can make an approved request while the interceptor resolves the current user's encrypted token from the bound bucket identity, strips the placeholder, and injects the credential only for allowlisted GitHub hosts. For model calls, the LLM interceptor can route supported provider traffic to the configured AI Gateway. Browser Rendering follows the same never-in-container token boundary. In strict Enterprise egress, the catch-all controller separately checks the exact bound user-bucket identity before re-signing R2 requests; strict-off sessions retain the real R2 key.
+GitHub traffic can use the signed-in user's encrypted token for allowlisted GitHub hosts. Supported model traffic can be routed through the configured model gateway. Browser Rendering calls can receive their account authorization without placing the long-lived token in the shell environment.
 
-## Why the boundary matters
+For strict web egress, the catch-all controller separately checks the bound storage identity and re-signs S3-compatible requests for the user's exact bucket. The container can work with the storage service without gaining a reusable credential for somebody else's bucket.
 
-The session binding owns identity. A container-supplied hostname or user ID does not. Lookalike destinations must not receive credentials, and one session must not select another user's token. A proxy environment variable alone would not enforce either rule.
+## Where the boundary sits
+
+A hostname that looks similar is not an approved destination. A user ID supplied by the container is not session identity. A proxy variable is not a security boundary. The Worker owns all three decisions.
+
+Named interceptors cover named services. They are not a universal secret manager, and they do not make every environment variable harmless. I inspect the actual egress path before saying a credential never enters the container.
 
 ## Try it
 
-User task: in a configured Enterprise session, run `gh api user`, then inspect credential presence without printing secret values. The call should identify the signed-in user even though the real token is not an ordinary container credential.
+Ask me to trace `gh api user` from the placeholder inside the session to exact-host validation, user-token resolution, and upstream authorization, without printing either credential.
 
-Operator task: exercise one approved GitHub host and one deliberate lookalike while following correlated Worker logs. Only the approved request should take the named credential path.
+Other useful requests:
 
-Source anchors: `src/container/container-interception.ts`, `src/llm-interceptor.ts`, `src/github-interceptor.ts`, `src/egress-controller.ts`, `sdd/spec/enterprise-mode.md` REQ-ENTERPRISE-004/005/011/024/026, and `sdd/spec/browser-run.md` REQ-BROWSER-008.
+- “Show where GitHub auth is injected without exposing the token.”
+- “Trace an S3-compatible storage request to the exact bucket binding.”
+- “Verify whether this outbound call uses a placeholder, an interceptor, or no credential.”
+
+Source anchors: `src/container/container-interception.ts`, `src/github-interceptor.ts`, `src/llm-interceptor.ts`, `src/egress-controller.ts`, `sdd/spec/enterprise-mode.md` REQ-ENTERPRISE-004/005/011/024/026, and `sdd/spec/browser-run.md` REQ-BROWSER-008.

@@ -1,21 +1,27 @@
-# MCP tools and portal boundary
+# Connected tools and MCP boundaries
 
-**Availability:** A configured MCP server is available only when it appears in the current tool index and its authentication succeeds. Codeflare's broader MCP portal presentation is **not established** as a runtime contract by the active repository.
+## What I can do
 
-## What I can do now
+I can use a connected Model Context Protocol server as another bounded tool surface. MCP can expose databases, browsers, issue trackers, SaaS APIs, internal systems, or domain-specific operations without copying every integration into the core agent prompt.
 
-I can inspect the current MCP or tool index, connect to a configured server through the available gateway, describe its tools, and make a bounded call under that server's actual identity and permissions. I start read-only where possible. Before a write, I show the exact target and payload because “the MCP can do it” is not an authorization model.
+I discover the connected server and its tools lazily, inspect the tool contract, then call the narrow operation the task needs. This keeps a large integration catalog out of every turn and makes the server, rather than my guess, authoritative for parameters and capabilities.
 
-A useful proof is concrete: fetch one assigned issue, document, or record and confirm which server and signed-in identity handled the call. That proves the visible integration. It does not prove an unseen shared portal, group policy, code-mode sandbox, or universal audit path.
+Connected tools can be combined with repository work. I can inspect an incident in one system, trace its code path, write the tested correction, and link the result back to the owning issue when the corresponding MCP servers and identities are present.
 
-## What is not established
+## Where the boundary sits
 
-The product presentation describes an MCP portal that could put many tool servers behind one endpoint, apply user and group policy, attribute calls, and reduce a large surface to one code-mode entry point. The active Codeflare repository contains that presentation and an administrative `mcp-portals.write` OAuth scope, but no owning SDD runtime requirement or operator procedure proves that such a portal is deployed.
+MCP authority comes from the connected server and signed-in identity. It does not grant universal access to a company's systems. I cannot infer a portal, fleet, tenant, or write permission from an OAuth scope or a landing-page sentence.
 
-If you ask me to administer one, I will use the customer's approved portal documentation and live configuration. If neither exists, I will report that boundary instead of improvising a deployment procedure.
+A tool schema proves that a call shape exists. It does not prove the returned data is complete, current, or safe to mutate. Consequential MCP writes still require the same explicit scope as direct API changes.
 
 ## Try it
 
-Ask me to list currently configured MCP servers. Choose one visible server and request one read-only operation. Then inspect returned identity and provenance before allowing a mutation.
+Ask me to list the tools on one connected server, explain the identity and mutation boundary, then use one read operation to support a repository change. I will not activate unrelated integrations for the thrill of a longer tool list.
 
-Source anchors: `landing/src/content/site.ts`, `landing/src/pages/index.astro`, `src/lib/oauth-scopes.ts`, and the MCP portal scope table in `documentation/lanes/configuration.md`.
+Other useful requests:
+
+- “Inspect the configured tools for this MCP server and call one read-only operation.”
+- “Use the issue-tracker MCP to fetch context, then link it to the code change.”
+- “Explain which MCP calls would mutate state before using any of them.”
+
+Source anchors: `sdd/spec/agents.md` MCP and tool-exposure requirements, `documentation/lanes/preseed.md`, and the active runtime MCP adapter contract.

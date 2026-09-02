@@ -3210,11 +3210,11 @@ None.
 **Acceptance Criteria:**
 
 1. A broad capability question starts with a structured first-person Codeflare overview covering end-to-end engineering ownership, proof, specialist coordination, browser workspaces, persistence boundaries, and configured Enterprise controls before subsystem detail. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Ask a fresh Standard and Advanced session what Codeflare can do and review response order and substance. -->
-2. The overview distinguishes Here now, Advanced, Enterprise/Governed, operator-configured, and not-established capability instead of presenting every platform contract as active in the current session. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Compare a fresh Standard session with an Advanced session and an unconfigured Enterprise capability. -->
-3. The response ends with a stable numbered list for SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Secure Web Gateway, MCP portals, AI Gateway, Browser Run, and agentic primitives as independent deep dives. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Review the 1 through 13 mapping and request each subsystem independently. -->
+2. The overview preserves availability truth through hard boundaries, operator configuration, explicit permissions, and unproven-capability limits without product-tier or session-mode labels. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Compare configured, unconfigured, and permission-gated capability answers. -->
+3. The response ends with a stable numbered list for SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Secure Web Gateway, MCP portals, AI Gateway, Browser Run, agentic primitives, and design systems as independent deep dives. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Review the 1 through 14 mapping and request each subsystem independently. -->
 4. A broad response loads no subsystem reference. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Inspect loaded files for one broad capability question. -->
 5. A number-only, comma-separated, or named follow-up reads only the reference or references selected by the user. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Reply with one number and then request one multi-subsystem selection; inspect loaded files. -->
-6. A deep dive states applicable mode, enterprise, permission, and operator dependencies before presenting the capability as available. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review one Standard, one Advanced, and one unconfigured Enterprise answer. -->
+6. A deep dive states applicable permission, operator-configuration, external-system, and unproven-capability boundaries before presenting the capability as available. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review configured, unconfigured, permission-gated, and external-system deep dives. -->
 7. A deep dive gives a concrete example the user or operator can try. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review each applicable user- or administrator-operated example. -->
 
 **Constraints:**
@@ -3642,7 +3642,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. On each user turn, Pi activates registered basic editing and capability tools; specialized tools stay registered but inactive until selected. Goal terminal tools remain active only while the latest canonical Goal is unfinished or both were already visible under the user's Goal policy. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
+1. On each user turn, Pi activates registered basic editing and capability tools; specialized tools stay registered but inactive until selected. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 2. Capability search returns matching registered tools by name or description. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 3. Capability activation additively enables only registered tools without granting authorization. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 4. The PR-boundary launch owner activates `subagent` before delivering its unchanged reviewer-and-CI follow-up request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (activates subagent and emits independent launch waves before ending the boundary turn) -->
@@ -4556,7 +4556,7 @@ None.
 2. Optional tools remain registered and searchable while inactive; adding any new optional tool, including one with a large schema, does not alter initial active-tool selection. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC1+AC2: keeps only bootstrap tools regardless of optional registrations) -->
 3. Exact capability activation adds the requested registered tool for the next model step without removing current tools; activating `subagent` also activates `get_subagent_result` and `steer_subagent` when registered. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activationGroup --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC3: treats subagent and its controls as one additive activation group) -->
 4. A new user prompt restores bootstrap exposure while tools activated inside the current agent loop remain available for their next provider step. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
-5. Goal terminal-tool continuity remains authoritative over bootstrap selection. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: restores terminal Goal tools only for an unfinished session Goal) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: preserves Goal tools already active under the always-visible policy) -->
+5. Unfinished Goal terminal-tool continuity remains authoritative over bootstrap selection. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: restores terminal Goal tools only for an unfinished session Goal) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158: removes Goal tools without an unfinished session Goal) -->
 6. Provider-boundary diagnostics report registered and initially active tool names and serialized schemas separately, and real runtime measurement rejects an invalid initial active set without imposing a fixed tool-token threshold. <!-- @impl: scripts/measure-pi-runtime-context.mjs::main --> <!-- @impl: scripts/measure-pi-runtime-context.mjs::validateInitialToolExposure --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @manual -->
 
 **Constraints:**
@@ -4687,8 +4687,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. Supported embedded PNG or JPEG prompt metadata prevents that raster from being reported as missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::promptOf --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::promptOf --> <!-- @manual -->
-2. A valid adjacent JSON sidecar prompt prevents its raster from being reported as missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::promptOf --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::promptOf --> <!-- @manual -->
+1. Supported embedded PNG or JPEG prompt metadata prevents that raster from being reported as missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @manual -->
+2. A valid adjacent JSON sidecar prompt prevents its raster from being reported as missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @manual -->
 
 **Constraints:** Prompt recovery is read-only during scan mode.
 
@@ -4696,7 +4696,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal)
 
-**Verification:** Manual review
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -4710,7 +4710,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Scan mode reports each raster without recoverable prompt metadata and exits with status 3 when any are missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::scanMode --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::scanMode --> <!-- @manual -->
+1. Scan mode reports each raster without recoverable prompt metadata and exits with status 3 when any are missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::MISSING --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::MISSING --> <!-- @manual -->
 2. An invalid target fails explicitly with status 1. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::no such path --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::no such path --> <!-- @manual -->
 
 **Constraints:** Claude and Pi carry byte-identical prompt-metadata audit behavior.
@@ -4719,7 +4719,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-166](#req-agent-166-impeccable-raster-prompt-recovery)
 
-**Verification:** Manual review
+**Verification:** Manual check
 
 **Status:** Implemented
 

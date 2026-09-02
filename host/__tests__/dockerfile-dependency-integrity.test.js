@@ -109,7 +109,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     ];
     for (const platform of platforms) {
       const metadata = npmToolsLock.packages[`node_modules/@openai/codex-${platform}`];
-      assert.equal(metadata.version, `0.147.0-${platform}`);
+      assert.equal(metadata.version, `${npmToolsPackage.dependencies['@openai/codex']}-${platform}`);
       assert.equal(metadata.license, 'Apache-2.0');
       assert.match(metadata.integrity, /^sha512-/);
     }

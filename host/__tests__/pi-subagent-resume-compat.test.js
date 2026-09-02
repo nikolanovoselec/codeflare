@@ -9,9 +9,9 @@ const root = resolve(__dirname, '../..');
 const pkg = JSON.parse(readFileSync(resolve(root, 'preseed/agents/pi/package.json'), 'utf8'));
 const lock = JSON.parse(readFileSync(resolve(root, 'preseed/agents/pi/package-lock.json'), 'utf8'));
 
-// 19.3.2 still routes every session-ready record to manager.resume() without
-// rejecting queued or running status; the Codeflare guard remains required.
-const REVIEWED_GUARDED_VERSION = '19.3.2';
+// 19.3.5 still requires Codeflare's active-resume guard; dependency review
+// found no reason to remove the fail-closed session-ready boundary.
+const REVIEWED_GUARDED_VERSION = '19.3.5';
 const REVIEW_MESSAGE = [
   '@gotgenes/pi-subagents changed. Re-run active-resume compatibility review.',
   'If upstream now rejects queued/running resume before manager/session invocation,',

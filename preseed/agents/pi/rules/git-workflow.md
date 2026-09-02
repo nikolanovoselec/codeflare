@@ -12,6 +12,7 @@ Fetch, inspection, local mutation, detached/path checkout, tags, unrelated-ref p
 
 ## One current round
 
+- Never run review agents manually unless user explicitly instructs; boundary review triggers them automatically.
 Execute each plan once: start reviewers together, start independent CI next, then end. Never poll or duplicate. Interrupted work stores no progress; later exposure starts fresh.
 
 After all reviewers and terminal exact-head CI, publish triage without mutations. Verify evidence and scope, judge findings separately from fixes, reject unsupported or oversized proposals, and choose the smallest correction using existing machinery. Completion precedes the separate FIX reminder. Apply only accepted fixes then. Root alone mutates.
