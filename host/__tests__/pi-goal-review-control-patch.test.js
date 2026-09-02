@@ -683,7 +683,7 @@ function createExtensionHarness() {
   const notifications = [];
   const entries = [];
   const tools = [];
-  let activeTools = [];
+  let activeTools = ['goal_complete', 'goal_blocked'];
   let thinkingLevel = 'medium';
   const sessionManager = {
     getBranch: () => entries,
