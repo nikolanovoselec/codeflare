@@ -183,7 +183,7 @@ RUN ZOXIDE_VERSION="0.10.0" && \
 
 # Install yazi and lazygit from GitHub releases (pinned versions)
 RUN YAZI_VERSION="26.9.1" && \
-    YAZI_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    YAZI_SHA256="9b9c39decccf8cb0ff53a7d637d38f8a79d93bbd0099f4ea9c619ef6bb392f5d" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/sxyazi/yazi/releases/download/v${YAZI_VERSION}/yazi-x86_64-unknown-linux-musl.zip" -o /tmp/yazi.zip && \
     echo "${YAZI_SHA256}  /tmp/yazi.zip" | sha256sum -c - && \
     unzip -o /tmp/yazi.zip -d /tmp/yazi && \
@@ -234,7 +234,7 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # that runtime copy. Drop each overlay after its upstream artifact contains at
 # least the pinned fixed version.
 RUN CODE_SERVER_VERSION="4.135.0" && \
-    CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    CODE_SERVER_SHA256="300ef4e37e469e6368a4673c6a623e1c9ba8a34f42b394fb49c431a8900bc7d1" && \
     CODE_SERVER_COMMIT="de89acbcdce9d9b870008a270c9f6466993d91f4" && \
     CODE_SERVER_CODE_VERSION="1.135.0" && \
     CODE_SERVER_VSCODE_COMMIT="08d4889f9ec4a1685d257b9b95de036c8e1ce1e5" && \
