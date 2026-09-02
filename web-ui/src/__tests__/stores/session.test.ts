@@ -404,7 +404,7 @@ describe('Session Store', () => {
       expect(getUsageState()).toEqual({ monthlySeconds: 200, monthlyQuotaSeconds: 600 });
     });
 
-    it('REQ-SESSION-029 AC2: stale failure cannot overwrite latest error state', async () => {
+    it('REQ-SESSION-029 AC3: stale batch-status failure cannot overwrite latest error state', async () => {
       let rejectFirstBatch: (reason: Error) => void;
       mockGetSessions
         .mockResolvedValueOnce([{ id: 'session-old', name: 'Old', createdAt: 'then', lastAccessedAt: 'then' }])
@@ -423,6 +423,24 @@ describe('Session Store', () => {
       expect(sessionStore.error).toBeNull();
       expect(sessionStore.sessions.map((session) => session.id)).toContain('session-new');
       expect(sessionStore.sessions.map((session) => session.id)).not.toContain('session-old');
+    });
+
+    it('REQ-SESSION-029 AC2: stale session-list failure cannot overwrite latest error state', async () => {
+      let rejectFirstSessions: (reason: Error) => void;
+      mockGetSessions
+        .mockReturnValueOnce(new Promise((_, reject) => { rejectFirstSessions = reject; }))
+        .mockResolvedValueOnce([{ id: 'session-new', name: 'New', createdAt: 'now', lastAccessedAt: 'now' }]);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
+
+      const firstCall = sessionStore.loadSessions();
+      const secondCall = sessionStore.loadSessions();
+      await secondCall;
+
+      rejectFirstSessions!(new Error('stale session-list failure'));
+      await firstCall;
+
+      expect(sessionStore.error).toBeNull();
+      expect(sessionStore.sessions.map((session) => session.id)).toContain('session-new');
     });
 
     // REQ-AGENT-049: auto-upgrade preseed on stale hash
