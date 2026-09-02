@@ -6,7 +6,7 @@ This is a code-level audit, not a design critique. Check what's measurable and v
 
 ## Diagnostic Scan
 
-Run checks across five dimensions. Score a dimension only when the required source, rendered, interaction, or measurement evidence exists; otherwise mark it `N/A` and state what is missing. Source inspection alone cannot prove WCAG conformance, runtime performance, responsive fidelity, or visual quality.
+Run comprehensive checks across 5 dimensions. Score each dimension 0-4 using the criteria below.
 
 ### 1. Accessibility (A11y)
 
@@ -47,7 +47,7 @@ Run checks across five dimensions. Score a dimension only when the required sour
 
 **Check for**:
 - **Fixed widths**: Hard-coded widths that break on mobile
-- **Target size**: Evaluate WCAG 2.2 target-size requirements and exceptions separately from stronger product or platform recommendations such as approximately 44pt on iOS or 48dp on Android; do not label 44 CSS pixels as a universal AA threshold
+- **Touch targets**: Interactive elements < 44x44px
 - **Horizontal scroll**: Content overflow on narrow viewports
 - **Text scaling**: Layouts that break when text size increases
 - **Missing breakpoints**: No mobile/tablet variants
