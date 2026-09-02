@@ -180,7 +180,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked']);
   });
 
-  it('REQ-AGENT-111: preserves Goal tools already active under the always-visible policy', () => {
+  it('REQ-AGENT-158: removes Goal tools without an unfinished session Goal', () => {
     const base = fakePi({
       active: ['read', 'goal_complete', 'goal_blocked'],
       tools: [
@@ -205,7 +205,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
       sessionManager: { getBranch: () => [] },
     });
 
-    expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked']);
+    expect(pi.getActiveTools()).toEqual(['read', 'bash']);
   });
 
   it('searches registered inactive tools by name and description', () => {
