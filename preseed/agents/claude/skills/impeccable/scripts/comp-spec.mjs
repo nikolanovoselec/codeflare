@@ -360,6 +360,10 @@ export function autoRegions(comp) {
 
 const REGION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
 
+function regionArtifactName(id) {
+  return `${assertRegionId(id)}.png`;
+}
+
 function assertRegionId(id) {
   if (typeof id !== 'string' || !REGION_ID_RE.test(id)) {
     throw new Error(`region id ${id || '(empty)'} must use only letters, numbers, underscores, or hyphens`);
@@ -456,6 +460,7 @@ async function main() {
     if (!spec) { console.error(`comp-spec: no spec at ${specPath}`); process.exit(1); }
     const region = spec.regions.find((r) => r.id === arg('plate-prompt'));
     if (!region) { console.error(`comp-spec: no region ${arg('plate-prompt')}`); process.exit(1); }
+    assertRegionId(region.id);
     console.log(platePrompt(spec, region));
     return;
   }
@@ -464,11 +469,12 @@ async function main() {
     if (!spec) { console.error(`comp-spec: no spec at ${specPath}`); process.exit(1); }
     const region = spec.regions.find((r) => r.id === arg('crop'));
     if (!region) { console.error(`comp-spec: no region ${arg('crop')}; ids: ${spec.regions.map((r) => r.id).join(', ')}`); process.exit(1); }
+    assertRegionId(region.id);
     const comp = loadRaster(spec.comp).image;
     let c = region.medium === 'raster' && !flag('raw') ? plateReference(comp, spec, region) : crop(comp, region.px.x, region.px.y, region.px.w, region.px.h);
     const scale = parseFloat(arg('scale', '1'));
     if (scale > 1) c = resize(c, c.width * scale, c.height * scale);
-    const out = arg('out', path.join(BUILD_DIR, 'crops', `${region.id}.png`));
+    const out = arg('out', path.join(BUILD_DIR, 'crops', regionArtifactName(region.id)));
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, encodePng(c, { text: { 'impeccable:crop-of': `${spec.comp}#${region.id}` } }));
     console.log(`CROP ${out} (${c.width}x${c.height}) region ${region.id} of ${spec.comp}. Reference only: regenerate the plate from it, never ship it.`);
