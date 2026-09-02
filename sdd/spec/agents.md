@@ -1376,9 +1376,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. The published graph surface includes the queryable graph, human-readable report, visual exploration page, generated callflow, and optional wiki tree. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::graphify-out/graph.json --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::graphify-out/graph.json --> <!-- @manual -->
+1. The default published graph surface includes the queryable graph, human-readable report, visual exploration page, generated callflow, and optional wiki tree. <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-architecture.sh::callflow.html --> <!-- @impl: preseed/agents/pi/scripts/local-graphify-labels.sh::graphify-out/graph.json --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::graphify-out/graph.json --> <!-- @manual -->
 2. Community labels are published only when the user requests community naming. <!-- @manual -->
 3. Skipping community labels never blocks graph publication. <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::graphify_labels --> <!-- @manual -->
+4. A repository-specific persistence policy may omit regenerable HTML and callflow artifacts while retaining the queryable graph and report. <!-- @manual: Inspect the Codeflare repository graph outputs and ignore policy. -->
 
 **Constraints:** Optional labels never replace the official graph artifacts.
 
@@ -1485,12 +1486,13 @@ None.
 
 1. Knowledge-graph artefacts are excluded from R2 sync, so they never round-trip through user-bucket storage. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (statically excludes ephemeral caches, repo graphify-out, and R2 secrets in both modes (REQ-STOR-004 AC6 / REQ-AGENT-026 AC1)) -->
 2. The container image registers the graphify semantic merge driver globally, independent of session mode. <!-- @impl: Dockerfile::merge.graphify.driver --> <!-- @manual -->
-3. Repo owners with push permission commit the knowledge-graph artefacts to git so contributors inherit the graph and the visualization on clone; concurrent edits to the graph artefact are auto-resolved by the registered merge driver without manual JSON conflict resolution. <!-- @manual -->
+3. Repo owners with push permission commit the queryable graph and report so contributors inherit the graph on clone; concurrent edits to the graph artefact are auto-resolved by the registered merge driver without manual JSON conflict resolution. <!-- @manual -->
 4. For repos without push permission, the graph lives in the working tree only and is ephemeral. <!-- @manual -->
 
 **Constraints:**
 
 - Per-repo ignore and merge-attribute wiring is the responsibility of the graphify skill ([REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline) AC4); this REQ covers only the platform-level pieces (sync exclusion, global merge-driver registration).
+- Repository-specific policy may omit regenerable HTML and callflow outputs.
 
 **Priority:** P1
 
