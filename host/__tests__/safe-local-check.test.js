@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -144,6 +145,30 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
     const outsideResult = run(root, ['json', outside]);
     assert.equal(outsideResult.status, 2);
     assert.match(outsideResult.stderr, /outside repository/i);
+
+    symlinkSync(outside, join(root, 'linked.json'));
+    const linkedResult = run(root, ['json', 'linked.json']);
+    assert.equal(linkedResult.status, 2);
+    assert.match(linkedResult.stderr, /outside repository/i);
+  });
+
+  it('does not load parser dependencies from a parent node_modules', () => {
+    const parent = mkdtempSync(join(tmpdir(), 'safe-local-check-parent-module-'));
+    const root = join(parent, 'repository');
+    const yamlPackage = join(parent, 'node_modules', 'yaml');
+    mkdirSync(join(root, '.git'), { recursive: true });
+    mkdirSync(yamlPackage, { recursive: true });
+    writeFileSync(join(root, 'valid.yaml'), 'ok: true\n', 'utf8');
+    writeFileSync(join(yamlPackage, 'package.json'), JSON.stringify({
+      name: 'yaml',
+      version: '1.0.0',
+      main: 'index.js',
+    }), 'utf8');
+    writeFileSync(join(yamlPackage, 'index.js'), 'module.exports = { parseDocument: () => ({ errors: [] }) };\n', 'utf8');
+
+    const result = run(root, ['yaml', 'valid.yaml']);
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /repository-local yaml/i);
   });
 
   it('runs Bash syntax checks through the managed process wrapper', () => {
