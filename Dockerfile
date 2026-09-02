@@ -182,8 +182,8 @@ RUN ZOXIDE_VERSION="0.10.0" && \
     rm /tmp/zoxide.tar.gz
 
 # Install yazi and lazygit from GitHub releases (pinned versions)
-RUN YAZI_VERSION="26.8.15" && \
-    YAZI_SHA256="a6702034790afcdbb546b73b288c9b184a751fa3f2f17f0ad4d26fc302fb8d45" && \
+RUN YAZI_VERSION="26.9.1" && \
+    YAZI_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/sxyazi/yazi/releases/download/v${YAZI_VERSION}/yazi-x86_64-unknown-linux-musl.zip" -o /tmp/yazi.zip && \
     echo "${YAZI_SHA256}  /tmp/yazi.zip" | sha256sum -c - && \
     unzip -o /tmp/yazi.zip -d /tmp/yazi && \
