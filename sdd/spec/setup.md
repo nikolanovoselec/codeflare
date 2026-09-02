@@ -559,7 +559,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 2. Default and Onboarding add Users; SaaS adds Users and Subscription Tiers; Enterprise exposes neither. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @test: web-ui/src/__tests__/components/AdministrationLayout.test.tsx (REQ-SETUP-019 AC2: gates navigation by deployment mode) -->
 3. Existing Users and Subscription Tiers components are embedded in their Administration routes. <!-- @impl: web-ui/src/App.tsx::AdministrationUsers --> <!-- @impl: web-ui/src/App.tsx::AdministrationSubscriptions --> <!-- @test: web-ui/src/__tests__/components/App.test.tsx (REQ-SETUP-019 AC3: embeds existing administration components) -->
 4. User-facing routine copy says Environment; Configuration remains internal API and storage vocabulary. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentIndex --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @manual -->
-5. Loading, empty, failure, conflict, and reconnect states follow the approved design; the responsive shell owns vertical scrolling despite page-level overflow locks. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @impl: web-ui/src/styles/administration.css::.admin-shell --> <!-- @manual -->
+5. Loading, empty, failure, conflict, and reconnect states follow the approved design. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @manual -->
 6. First-run Setup presents mode-applicable readiness, access, routing, platform, managed-environment, integration, review, apply, and result stages. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @manual -->
 7. Completed deployments expose one workspace-settings entry into Administration; user management and bootstrap recovery remain inside Administration instead of appearing as duplicate workspace actions. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (REQ-SETUP-019 AC7: routes all admin access through one Administration entry) -->
 
@@ -690,6 +690,28 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Dependencies:** [REQ-SETUP-018](#req-setup-018-stateless-environment-preview-and-bounded-execution), [REQ-GITHUB-008](github.md#req-github-008-enterprise-github-provider-configuration-via-setup), [REQ-AGENT-064](agents.md#req-agent-064-connect-to-cloudflare-via-oauth)
 
 **Verification:** Automated Administration-run and Initialization compatibility tests
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-025: Responsive Administration scrolling
+
+**Intent:** Administrators can reach routine controls at every supported viewport size.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Administration remains vertically scrollable at supported mobile, tablet, and desktop viewport sizes. <!-- @impl: web-ui/src/styles/administration.css::.admin-shell --> <!-- @manual -->
+
+**Constraints:** Application-shell overflow behavior remains unchanged.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SETUP-019](#req-setup-019-administration-and-analytics-shell)
+
+**Verification:** User-owned responsive acceptance on Integration
 
 **Status:** Implemented
 

@@ -628,6 +628,9 @@ export const setupStore = {
   get saasMode() {
     return state.saasMode;
   },
+  get onboardingMode() {
+    return state.onboardingMode;
+  },
   get enterpriseMode() {
     return state.enterpriseMode;
   },
