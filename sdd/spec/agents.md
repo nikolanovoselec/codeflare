@@ -3205,21 +3205,53 @@ None.
 
 **Acceptance Criteria:**
 
-1. Standard and Advanced managed sessions deliver one portable `codeflare-capabilities` router to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Capability discovery router --> <!-- @manual: Inspect the authoritative curation manifests and compiled release. -->
-2. A broad capability question starts with a high-impact Codeflare overview, distinguishes platform capability from the current session's mode and configuration, and offers named deeper dives instead of expanding every subsystem. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Ask a fresh Standard and Advanced session what Codeflare can do and review factual scope, layering, and mode honesty. -->
-3. SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Secure Web Gateway, MCP portals, AI Gateway, Browser Run, and agentic primitives each have one dedicated reference that is read only when that subsystem is requested. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Request each subsystem independently and inspect loaded skill files. -->
-4. A subsystem answer gives concrete examples the user can try and qualifies any mode, enterprise, permission, or operator dependency before presenting it as available. <!-- @manual: Review each applicable user- or administrator-operated example. -->
-5. Standard and Advanced Pi receive one capability-routing rule of no more than 20 whitespace-delimited tokens; the rule points to the router and carries no subsystem guidance. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @manual: Inspect the authoritative Pi rule and count its tokens. -->
-6. Private curation owns the managed source and the Codeflare image carries a matching baked fallback through the existing manifest compiler; no new runtime, transform, package, or delivery path is introduced. <!-- @manual: Compare curation and baked-fallback files, modes, and compiled target inventory. -->
-7. Capability prose, routing text, headings, inventories, projections, and managed-content semantics remain outside automated source-matching tests; generic compiler, ABI, path-safety, release-integrity, and runtime-compatibility checks remain content-neutral. <!-- @manual: Inspect both repositories' changed tests and retained generic checks. -->
+1. A broad capability question starts with a high-impact Codeflare overview before subsystem detail. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Ask a fresh Standard and Advanced session what Codeflare can do and review response order. -->
+2. The overview distinguishes platform capability from the current session's mode and configuration. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Compare a fresh Standard session with an Advanced session. -->
+3. The user can choose SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Secure Web Gateway, MCP portals, AI Gateway, Browser Run, or agentic primitives as an independent deep dive. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Request each named subsystem independently. -->
+4. A broad response loads no subsystem reference. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Inspect loaded files for one broad capability question. -->
+5. A follow-up reads only the references the user requested. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Inspect loaded files for one multi-subsystem follow-up. -->
+6. A deep dive states applicable mode, enterprise, permission, and operator dependencies before presenting the capability as available. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review one Standard, one Advanced, and one unconfigured Enterprise answer. -->
+7. A deep dive gives a concrete example the user or operator can try. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review each applicable user- or administrator-operated example. -->
 
-**Constraints:** Claims must be traceable to active Codeflare requirements, implementation, or operator documentation. References stay lazy. Examples do not claim a configured enterprise integration when the current environment cannot prove it.
+**Constraints:**
+
+- Claims trace to active requirements, implementation, or operator documentation.
+- References remain lazy.
+- Unproven integrations remain unavailable.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-190](#req-agent-190-portable-capability-discovery-delivery)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-190: Portable Capability Discovery Delivery
+
+**Intent:** Every skill-capable runtime receives the same capability router while Pi discovers it without carrying the platform inventory in its always-loaded rule.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Standard and Advanced sessions expose `codeflare-capabilities` to every supported skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Capability discovery router --> <!-- @manual: Inspect the authoritative curation manifests and compiled release. -->
+2. Standard and Advanced Pi route Codeflare capability questions to `codeflare-capabilities` without embedding subsystem guidance in the always-loaded rule. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @manual: Inspect the authoritative Pi rule and generated Standard and Advanced outputs. -->
+3. Managed curation and the image fallback expose matching capability files and mode membership. <!-- @manual: Compare curation seed-v44 with the baked fallback and generated target inventory. -->
+
+**Constraints:**
+
+- The Pi routing rule remains at most 20 whitespace-delimited tokens.
+- Private curation owns managed source.
+- Delivery reuses the existing compiler and fallback path without a new runtime package, transform, or delivery path.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-AGENT-137](#req-agent-137-design-skill-review-boundary), [REQ-STOR-021](storage.md#req-stor-021-managed-content-ownership)
 
-**Verification:** Manual source, managed-projection, activation, and fresh-context review
+**Verification:** Manual check
 
 **Status:** Implemented
 

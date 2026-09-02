@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-02
 
-- **Capability discovery leads with the platform and loads subsystem detail only on request** ([REQ-AGENT-189](agents.md#req-agent-189-layered-codeflare-capability-discovery) added as Implemented). Standard and Advanced managed sessions receive one portable Codeflare capability router with dedicated lazy references for SDD, boundary reviews, curation, compute and persistence, terminal and Browser IDE surfaces, enterprise traffic controls, governed tools, web research, and agent orchestration. Pi spends no more than 20 rule tokens on discovery. Examples remain mode-aware and source-backed, while prose-semantic tests remain excluded.
+- **Capability discovery leads with the platform and loads subsystem detail only on request** ([REQ-AGENT-189](agents.md#req-agent-189-layered-codeflare-capability-discovery) and [REQ-AGENT-190](agents.md#req-agent-190-portable-capability-discovery-delivery) added as Implemented). Standard and Advanced managed sessions receive one portable Codeflare capability router with dedicated lazy references for SDD, boundary reviews, curation, compute and persistence, terminal and Browser IDE surfaces, enterprise traffic controls, governed tools, web research, and agent orchestration. Pi spends no more than 20 rule tokens on discovery. Examples remain mode-aware and source-backed, while prose-semantic tests remain excluded.
 
 ## 2026-09-01
 
