@@ -29,6 +29,7 @@ import {
   cleanupTerminalsForSession,
 } from './session-tabs';
 import { updateStatsFromBatch } from './storage';
+import { setUsageState } from './session-usage';
 import {
   registerR2ReadinessDeps,
   startR2Polling,
@@ -273,6 +274,9 @@ async function loadSessions(): Promise<void> {
     const batchStatuses = batchResponse.statuses;
     if (batchResponse.maxSessions !== undefined) setState('maxSessions', batchResponse.maxSessions);
     if ('storageStats' in batchResponse && batchResponse.storageStats) updateStatsFromBatch(batchResponse.storageStats);
+    if ('usage' in batchResponse && batchResponse.usage) {
+      setUsageState(batchResponse.usage.monthlySeconds, batchResponse.usage.monthlyQuotaSeconds);
+    }
 
     const managedReleaseStatus = 'managedReleaseStatus' in batchResponse
       ? batchResponse.managedReleaseStatus

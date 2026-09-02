@@ -555,9 +555,9 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Acceptance Criteria:**
 
-1. The shell exposes `/admin`, `/admin/environment`, `/admin/analytics`, `/admin/reports`, and `/admin/activity`; no user-facing `/admin/configuration` route exists. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @manual -->
-2. Default and Onboarding add Users; SaaS adds Users and Subscription Tiers; Enterprise exposes neither. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @manual -->
-3. Existing Users and Subscription components and APIs are embedded without changing their mutations. <!-- @impl: web-ui/src/App.tsx::AdministrationUsers --> <!-- @impl: web-ui/src/App.tsx::AdministrationSubscriptions --> <!-- @manual -->
+1. The shell exposes `/admin`, `/admin/environment`, `/admin/analytics`, `/admin/reports`, and `/admin/activity`; no user-facing `/admin/configuration` route exists. <!-- @impl: web-ui/src/App.tsx::App --> <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @test: web-ui/src/__tests__/components/App.test.tsx (REQ-SETUP-019 AC1: exposes Administration routes) -->
+2. Default and Onboarding add Users; SaaS adds Users and Subscription Tiers; Enterprise exposes neither. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @test: web-ui/src/__tests__/components/AdministrationLayout.test.tsx (REQ-SETUP-019 AC2: gates navigation by deployment mode) -->
+3. Existing Users and Subscription components and APIs are embedded without changing their mutations. <!-- @impl: web-ui/src/App.tsx::AdministrationUsers --> <!-- @impl: web-ui/src/App.tsx::AdministrationSubscriptions --> <!-- @test: web-ui/src/__tests__/components/App.test.tsx (REQ-SETUP-019 AC3: embeds existing administration components) -->
 4. User-facing routine copy says Environment; Configuration remains internal API and storage vocabulary. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentIndex --> <!-- @impl: web-ui/src/components/SettingsPanel.tsx::SettingsPanel --> <!-- @manual -->
 5. Loading, empty, failure, conflict, reconnect, and responsive states follow the approved Administration and Analytics design contract. <!-- @impl: web-ui/src/components/admin/AdministrationLayout.tsx::AdministrationLayout --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @impl: web-ui/src/components/admin/ActivityPage.tsx::ActivityPage --> <!-- @impl: web-ui/src/styles/administration.css::.admin-shell --> <!-- @manual -->
 6. First-run Setup presents mode-applicable readiness, access, routing, platform, managed-environment, integration, review, apply, and result stages. <!-- @impl: web-ui/src/components/setup/SetupWizard.tsx::SetupWizard --> <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @manual -->
@@ -569,7 +569,7 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 **Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-AUTH-018](authentication.md#req-auth-018-admin-user-management), [REQ-SUB-009](subscription.md#req-sub-009-admin-tier-management)
 
-**Verification:** Automated backend mode gates; user-owned manual route, mode, composition, terminology, and responsive acceptance on Integration
+**Verification:** Automated route, mode, composition, and backend mode-gate tests; user-owned manual terminology and responsive acceptance on Integration
 
 **Status:** Implemented
 

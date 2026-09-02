@@ -16,29 +16,10 @@ async function insertDelivery(id: string, state: 'pending' | 'sending' | 'failed
 }
 
 beforeEach(async () => {
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS usage_users (
-      user_key TEXT PRIMARY KEY, email TEXT NOT NULL, account_status TEXT NOT NULL,
-      data_since TEXT NOT NULL, deleted_at TEXT
-    );
-    CREATE TABLE IF NOT EXISTS usage_periods (
-      user_key TEXT NOT NULL REFERENCES usage_users(user_key) ON DELETE CASCADE,
-      period_kind TEXT NOT NULL, period_start TEXT NOT NULL, runtime_seconds INTEGER NOT NULL,
-      session_count INTEGER NOT NULL, source_sequence INTEGER NOT NULL, updated_at TEXT NOT NULL,
-      PRIMARY KEY (user_key, period_kind, period_start)
-    );
-    CREATE TABLE IF NOT EXISTS report_deliveries (
-      id TEXT PRIMARY KEY, delivery_kind TEXT NOT NULL, dispatch_id TEXT NOT NULL,
-      settings_revision INTEGER NOT NULL, report_month TEXT NOT NULL, recipient TEXT NOT NULL,
-      state TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, claim_token TEXT,
-      lease_expires_at TEXT, reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-      accepted_at TEXT
-    );
-    CREATE TABLE IF NOT EXISTS maintenance_claims (
-      task TEXT NOT NULL, utc_date TEXT NOT NULL, claim_token TEXT NOT NULL,
-      claimed_at TEXT NOT NULL, PRIMARY KEY (task, utc_date)
-    );
-  `);
+  await db.exec('CREATE TABLE IF NOT EXISTS usage_users (user_key TEXT PRIMARY KEY, email TEXT NOT NULL, account_status TEXT NOT NULL, data_since TEXT NOT NULL, deleted_at TEXT)');
+  await db.exec('CREATE TABLE IF NOT EXISTS usage_periods (user_key TEXT NOT NULL REFERENCES usage_users(user_key) ON DELETE CASCADE, period_kind TEXT NOT NULL, period_start TEXT NOT NULL, runtime_seconds INTEGER NOT NULL, session_count INTEGER NOT NULL, source_sequence INTEGER NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (user_key, period_kind, period_start))');
+  await db.exec('CREATE TABLE IF NOT EXISTS report_deliveries (id TEXT PRIMARY KEY, delivery_kind TEXT NOT NULL, dispatch_id TEXT NOT NULL, settings_revision INTEGER NOT NULL, report_month TEXT NOT NULL, recipient TEXT NOT NULL, state TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, claim_token TEXT, lease_expires_at TEXT, reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, accepted_at TEXT)');
+  await db.exec('CREATE TABLE IF NOT EXISTS maintenance_claims (task TEXT NOT NULL, utc_date TEXT NOT NULL, claim_token TEXT NOT NULL, claimed_at TEXT NOT NULL, PRIMARY KEY (task, utc_date))');
   await db.exec('DROP TRIGGER IF EXISTS reject_report_prune');
   await db.batch([
     db.prepare('DELETE FROM usage_periods'),
@@ -84,7 +65,7 @@ describe('historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)', () => {
   });
 });
 
-describe('usage retention D1 claim (REQ-SUB-028)', () => {
+describe('REQ-SUB-028 AC1: daily retention claim', () => {
   it('lets only the winning daily token prune rows', async () => {
     await db.prepare(`INSERT INTO report_deliveries
       (id, delivery_kind, dispatch_id, settings_revision, report_month, recipient, state, attempt, created_at, updated_at)
@@ -98,10 +79,11 @@ describe('usage retention D1 claim (REQ-SUB-028)', () => {
     await runUsageRetention(db, now, 'loser');
     expect(await db.prepare("SELECT id FROM report_deliveries WHERE id = 'old-b'").first()).not.toBeNull();
   });
+});
 
+describe('REQ-SUB-028 AC2: retention rollback', () => {
   it('rolls back the daily claim when a prune fails', async () => {
-    await db.exec(`CREATE TRIGGER reject_report_prune BEFORE DELETE ON report_deliveries
-      BEGIN SELECT RAISE(ABORT, 'prune failed'); END;`);
+    await db.exec("CREATE TRIGGER reject_report_prune BEFORE DELETE ON report_deliveries BEGIN SELECT RAISE(ABORT, 'prune failed'); END");
     await db.prepare(`INSERT INTO report_deliveries
       (id, delivery_kind, dispatch_id, settings_revision, report_month, recipient, state, attempt, created_at, updated_at)
       VALUES ('blocked', 'scheduled', 'blocked', 1, '2020-01', 'blocked@example.com', 'accepted', 1, '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z')`).run();

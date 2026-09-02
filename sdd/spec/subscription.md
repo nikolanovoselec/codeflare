@@ -808,7 +808,8 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Once-daily retention uses one random token-guarded transactional D1 batch and rolls back the claim when any prune fails. <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (usage retention D1 claim (REQ-SUB-028)) -->
+1. Retention runs at most once per UTC day, and only the winning execution prunes eligible history. <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-028 AC1: daily retention claim) -->
+2. If any prune fails, the daily claim and all pruning roll back so a later execution can retry. <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (REQ-SUB-028 AC2: retention rollback) -->
 
 **Constraints:** Retention uses the existing deployment-scoped usage database and scheduler; no second timer or coordinator is added.
 

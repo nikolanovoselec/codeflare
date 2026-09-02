@@ -58,7 +58,7 @@ vi.mock('../../lib/vault-cache', () => ({
 
 // Import after mocks
 import { sessionStore } from '../../stores/session';
-import { applyMetricsUpdate } from '../../stores/session';
+import { applyMetricsUpdate, getUsageState } from '../../stores/session';
 import * as api from '../../api/client';
 import * as storageApi from '../../api/storage';
 import * as terminal from '../../stores/terminal';
@@ -124,6 +124,11 @@ describe('Session Store', () => {
         },
       ];
       mockGetSessions.mockResolvedValue(mockSessions);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        usage: { dailySeconds: 12, monthlySeconds: 321, monthlyQuotaSeconds: 600, tier: 'advanced' },
+      });
 
       await sessionStore.loadSessions();
 
@@ -134,6 +139,7 @@ describe('Session Store', () => {
         includePreseedCheck: true,
         include: ['storage', 'usage'],
       });
+      expect(getUsageState()).toEqual({ monthlySeconds: 321, monthlyQuotaSeconds: 600 });
     });
 
     it('sweeps orphan Vault caches after an authoritative session-list fetch succeeds', async () => {
@@ -516,6 +522,18 @@ describe('Session Store', () => {
       await sessionStore.refreshSessionStatuses();
 
       expect(sessionStore.bucketMigrating).toBe(false);
+    });
+
+    it('updates usage from the background poll', async () => {
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: {},
+        maxSessions: 3,
+        usage: { dailySeconds: 20, monthlySeconds: 456, monthlyQuotaSeconds: 900, tier: 'advanced' },
+      });
+
+      await sessionStore.refreshSessionStatuses();
+
+      expect(getUsageState()).toEqual({ monthlySeconds: 456, monthlyQuotaSeconds: 900 });
     });
 
     it('mirrors the migration percent from the background poll for the button label', async () => {
