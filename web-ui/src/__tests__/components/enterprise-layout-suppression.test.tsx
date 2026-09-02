@@ -1,7 +1,7 @@
 /**
  * REQ-ENTERPRISE-008 AC3 + prop threading.
  *
- * AC4: the monthly-quota warning banners and their "Upgrade" CTAs never render in
+ * AC3: the monthly-quota warning banners and their "Upgrade" CTAs never render in
  * enterprise mode. This file also verifies Layout threads `enterpriseMode` into the
  * children that own the remaining suppressed surfaces (Header dropdown, Dashboard
  * dropdown via TerminalArea, SettingsPanel admin buttons), with the children stubbed

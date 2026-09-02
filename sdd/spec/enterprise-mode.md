@@ -279,7 +279,11 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Constraints:**
 
-- Billing, quota, and session-mode surfaces depend on SaaS mode. Among administrator-only surfaces, user-management availability depends on enterprise mode; routing availability also depends on enterprise mode. These mode gates never depend on user tier ([REQ-ENTERPRISE-015](#req-enterprise-015-enterprise-setup-user-administration-suppression)), while workspace Administration entry visibility is role-gated by [REQ-SETUP-026](setup.md#req-setup-026-workspace-administration-entry).
+- Billing, quota, and session-mode surfaces depend on SaaS mode.
+- Administrator user-management availability depends on enterprise mode ([REQ-ENTERPRISE-015](#req-enterprise-015-enterprise-setup-user-administration-suppression)).
+- Routing availability depends on enterprise mode.
+- Deployment-mode gates never depend on user tier.
+- Workspace Administration entry visibility is role-gated by [REQ-SETUP-026](setup.md#req-setup-026-workspace-administration-entry).
 - Personal usage data and account actions are governed separately by [REQ-SUB-022](subscription.md#req-sub-022-cross-mode-personal-usage-data) and [REQ-SUB-023](subscription.md#req-sub-023-deployment-mode-account-actions).
 - `GET /api/user` exposes both signals to `sessionStore`; `GET /api/auth/status` also exposes `saasMode` for `SubscribeGuard`.
 - Suppression is render-gating only: it removes no component code path for non-enterprise deployments and deletes no stored user state.
