@@ -763,7 +763,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       expect(screen.queryByTestId('accordion-header-admin')).not.toBeInTheDocument();
     });
 
-    it('routes routine admin access through Administration without a duplicate Setup button', () => {
+    it('REQ-SETUP-019 AC7: routes all admin access through one Administration entry', () => {
       render(() => (
         <SettingsPanel
           isOpen={true}
@@ -776,7 +776,9 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
 
       const administrationLink = screen.getByRole('link', { name: /Open Administration/ });
       expect(administrationLink).toHaveAttribute('href', '/admin');
-      expect(screen.queryByRole('button', { name: /Setup Wizard/ })).not.toBeInTheDocument();
+      const actions = screen.getByTestId('settings-administration-actions');
+      expect(actions.children).toHaveLength(1);
+      expect(actions.querySelector('button')).not.toBeInTheDocument();
     });
   });
 

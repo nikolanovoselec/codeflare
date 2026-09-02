@@ -9,6 +9,7 @@ import { SETUP_KEYS } from '../../lib/kv-keys';
 import { getAccessGroupNames } from './access';
 import { parseAccessGroups } from '../../lib/access';
 import { isEnterpriseMode } from '../../lib/subscription';
+import { isOnboardingLandingPageActive } from '../../lib/onboarding';
 import { readActiveAgents, installedAgents, CONFIGURABLE_ENTERPRISE_AGENTS } from '../../lib/agent-allowlist';
 import { getManagedEnvironmentPrefill } from '../../lib/remote-curation';
 
@@ -21,7 +22,7 @@ const handlers = new Hono<{ Bindings: Env }>();
 /**
  * GET /api/setup/status
  * Check if setup is complete and return configuration (public endpoint)
- * Returns: { configured: boolean, customDomain?: string, saasMode: boolean }
+ * Returns deployment mode flags with configured status and optional custom domain.
  */
 handlers.get('/status', statusRateLimiter, async (c) => {
   const setupComplete = await c.env.KV.get(SETUP_KEYS.COMPLETE);
@@ -30,8 +31,9 @@ handlers.get('/status', statusRateLimiter, async (c) => {
   // saasMode reflects env var, not KV (set at deploy time, not runtime)
   const saasMode = c.env.SAAS_MODE === 'active';
   const enterpriseMode = isEnterpriseMode(c.env);
+  const onboardingMode = isOnboardingLandingPageActive(c.env.ONBOARDING_LANDING_PAGE);
 
-  return c.json({ configured, ...(customDomain && { customDomain }), saasMode, enterpriseMode });
+  return c.json({ configured, ...(customDomain && { customDomain }), saasMode, enterpriseMode, onboardingMode });
 });
 
 /**

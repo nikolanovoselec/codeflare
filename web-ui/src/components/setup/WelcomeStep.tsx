@@ -11,6 +11,14 @@ import SetupJourneyNav from './SetupJourneyNav';
 import '../../styles/welcome-step.css';
 
 const WelcomeStep: Component<{ initializationComplete?: boolean }> = (props) => {
+  const deploymentMode = () => setupStore.enterpriseMode
+    ? { id: 'enterprise', label: 'Enterprise' }
+    : setupStore.saasMode
+      ? { id: 'saas', label: 'SaaS' }
+      : setupStore.onboardingMode
+        ? { id: 'onboarding', label: 'Onboarding' }
+        : { id: 'default', label: 'Default' };
+
   onMount(() => {
     setupStore.detectToken();
   });
@@ -30,7 +38,7 @@ const WelcomeStep: Component<{ initializationComplete?: boolean }> = (props) => 
 
         <div class="token-detect-section">
         <div class="readiness-facts">
-          <div><span>Deployment mode</span><strong>{setupStore.enterpriseMode ? 'Enterprise' : setupStore.saasMode ? 'SaaS' : 'Standard'}</strong></div>
+          <div><span>Deployment mode</span><strong data-deployment-mode={deploymentMode().id}>{deploymentMode().label}</strong></div>
           <div><span>Routine changes</span><strong>Bounded by area</strong></div>
         </div>
 

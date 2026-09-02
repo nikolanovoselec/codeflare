@@ -66,6 +66,16 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
       expect(body.configured).toBe(false);
     });
 
+    it('REQ-SETUP-001 AC5: returns onboarding mode from the deployment flag', async () => {
+      const app = createApp({ ONBOARDING_LANDING_PAGE: 'active' } as Partial<Env>);
+
+      const res = await app.request('/setup/status');
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as { onboardingMode?: boolean };
+      expect(body.onboardingMode).toBe(true);
+    });
+
     it('returns configured: true with custom domain when setup is complete', async () => {
       mockKV._set('setup:complete', true);
       // Store raw string for simple KV get

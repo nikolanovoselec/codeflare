@@ -35,6 +35,7 @@ const initialState: SetupState = {
   customDomainUrl: null,
   accountId: null,
   saasMode: false,
+  onboardingMode: false,
   enterpriseMode: false,
   enterpriseAccessGroups: [],
   adminAccessGroups: [],
@@ -405,6 +406,9 @@ async function hydrateExistingConfig(): Promise<boolean> {
     }
     if (statusRes.enterpriseMode) {
       setState('enterpriseMode', true);
+    }
+    if (statusRes.onboardingMode) {
+      setState('onboardingMode', true);
     }
 
     if (statusRes.configured) {

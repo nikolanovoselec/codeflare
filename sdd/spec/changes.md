@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-02
 
+- **Administration remains usable across responsive recovery flows** ([REQ-SETUP-001](setup.md#req-setup-001-first-time-setup-requires-zero-pre-configuration) AC5, [REQ-SETUP-019](setup.md#req-setup-019-administration-and-analytics-shell) AC5 and AC7, and [REQ-SETUP-022](setup.md#req-setup-022-initialization-presentation-and-hydration) AC6-AC7 amended; remain Implemented). Administration owns viewport scrolling when the application locks page overflow, workspace Settings exposes one Administration entry, configured Initialization identifies Onboarding mode, and recovery can return directly to Administration.
+
 - **The latest dashboard session load owns batch-derived state** ([REQ-SESSION-029](session-lifecycle.md#req-session-029-latest-session-load-owns-batch-derived-state) added as Implemented). Concurrent full session loads now discard stale status, quota, storage, managed-release, migration, and error results before they can replace a newer response.
 
 - **The Codeflare source graph keeps durable query data without generated HTML artifacts** ([REQ-AGENT-127](agents.md#req-agent-127-graph-publication-artifacts-and-optional-labels) AC4 and [REQ-AGENT-026](agents.md#req-agent-026-knowledge-graph-persistence-via-git) AC5 added, with REQ-AGENT-026 AC3 amended; remain Implemented). The repository refresh uses local AST extraction only, commits `graph.json` plus `GRAPH_REPORT.md`, and ignores regenerable `graph.html` and `callflow.html`. Generic Graphify build paths may still produce those local views.

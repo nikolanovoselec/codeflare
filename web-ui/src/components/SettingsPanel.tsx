@@ -3,7 +3,6 @@ import {
   mdiClose,
   mdiCogOutline,
   mdiChevronDown,
-  mdiAccountGroupOutline,
   mdiViewDashboardOutline,
 } from '@mdi/js';
 import Icon from './Icon';
@@ -111,7 +110,7 @@ const ACCORDION_SUBTITLES: Record<AccordionGroup, string> = {
   session: 'Startup behavior & workspace sync',
   deploy: 'Connect GitHub & Cloudflare for one-click deploy',
   llm: 'Optional — connect GPT & Gemini for second opinions',
-  admin: 'Setup wizard & user management',
+  admin: 'Environment, analytics & initialization',
 };
 
 const SettingsPanel: Component<SettingsPanelProps> = (props) => {
@@ -466,23 +465,13 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 <p class="settings-hint type-hint" style={{ "margin-bottom": "var(--space-2)" }}>
                   Inspect routine Environment settings, organization data, and setup recovery in Administration.
                 </p>
-                <div class="settings-admin-actions">
+                <div class="settings-admin-actions" data-testid="settings-administration-actions">
                   <AdminActionButton
                     tone="--color-action-setup"
                     icon={mdiViewDashboardOutline}
                     label="Open Administration"
                     href="/admin"
                   />
-                  {/* REQ-ENTERPRISE-008 AC2: user administration is delegated to
-                      Cloudflare Access in enterprise mode — hide the entry. */}
-                  <Show when={!props.enterpriseMode}>
-                    <AdminActionButton
-                      tone="--color-action-users"
-                      icon={mdiAccountGroupOutline}
-                      label="Manage Users"
-                      onClick={() => { window.location.href = '/admin/users'; }}
-                    />
-                  </Show>
                 </div>
                 <span class="settings-hint type-hint" data-testid="settings-r2-warning">
                   If you rotate your Cloudflare API token, redeploy with the new token, then use Initialization in Administration.

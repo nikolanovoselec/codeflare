@@ -1447,6 +1447,27 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
+    it('REQ-SETUP-022 AC6: hydrates onboarding deployment mode from setup status', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url === '/api/setup/status') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ configured: false, onboardingMode: true }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        if (url === '/api/setup/prefill') {
+          return Promise.resolve(new Response(
+            JSON.stringify({ adminUsers: [], allowedUsers: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+      expect(await setupStore.loadExistingConfig()).toBe(true);
+      expect(setupStore.onboardingMode).toBe(true);
+    });
+
     it('uses setup prefill endpoint when setup is not configured', async () => {
       mockFetch.mockImplementation((url: string) => {
         if (url === '/api/setup/status') {
