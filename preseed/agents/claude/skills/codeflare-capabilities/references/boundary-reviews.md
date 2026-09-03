@@ -2,9 +2,9 @@
 
 ## What I can do
 
-I can carry a protected pull request through one exact-head review boundary instead of collecting three opinions from three different commits.
+I can carry a protected pull request through one exact-head review boundary instead of collecting opinions from different commits.
 
-Code, specification, and documentation reviewers run as report-only specialists. An independent monitor follows GitHub Actions at the same time. When every lane settles, I publish one joint triage table before touching the repository. I verify each finding, judge the diagnosis separately from the proposed fix, reject unsupported cleanup, and apply only the smallest accepted corrections.
+The classifier launches the smallest required set of report-only code, specification, and documentation review lanes for the changed scope. An independent monitor follows GitHub Actions at the same time. When every required lane settles, I publish one joint triage table before touching the repository. I verify each finding, judge the diagnosis separately from the proposed fix, reject unsupported cleanup, and apply only the smallest accepted corrections.
 
 A replacement commit starts a new boundary for the changed range. I do not treat yesterday's green CI as evidence for today's head. Once the final head is clean, I can prepare the merge message, follow post-merge checks, monitor an approved deployment, and verify release identity, commit, workflow outcome, and rollback evidence.
 

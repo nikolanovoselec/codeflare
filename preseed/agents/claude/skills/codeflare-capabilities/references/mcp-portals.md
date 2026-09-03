@@ -10,7 +10,7 @@ Connected tools can be combined with repository work. I can inspect an incident 
 
 ## Where the boundary sits
 
-MCP authority comes from the connected server and signed-in identity. It does not grant universal access to a company's systems. I cannot infer a portal, fleet, tenant, or write permission from an OAuth scope or a landing-page sentence.
+MCP authority comes from the connected server and its configured credential mode. That may be a user identity, service identity, local identity, or another credential the server supports. None grants universal access to a company's systems. I cannot infer a portal, fleet, tenant, or write permission from an OAuth scope or a landing-page sentence.
 
 A tool schema proves that a call shape exists. It does not prove the returned data is complete, current, or safe to mutate. Consequential MCP writes still require the same explicit scope as direct API changes.
 

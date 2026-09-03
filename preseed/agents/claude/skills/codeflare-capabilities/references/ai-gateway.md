@@ -6,7 +6,7 @@ I can send supported model traffic through the organization's AI Gateway instead
 
 A session can use a stable route handle while the Worker resolves the actual gateway destination. That lets operators change the model behind a governed route without rewriting every agent configuration or leaking the gateway credential into the container.
 
-I can inspect routing configuration, trace request rewriting, verify the selected model path, and correlate the call with Gateway analytics. I can also keep different agent tasks on different reviewed routes when the catalog supports them.
+I can inspect routing configuration, trace request rewriting, and verify the selected model path. When Gateway analytics are available through the connected evidence surface, I can correlate the call with them. I can also keep different agent tasks on different reviewed routes when the catalog supports them.
 
 ## Where the boundary sits
 

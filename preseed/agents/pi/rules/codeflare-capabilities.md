@@ -1,3 +1,3 @@
 # Capability route
 
-For Codeflare capability questions, including “what can you do?”, load `codeflare-capabilities` before answering; never use generic capability discovery.
+For broad Codeflare capability/onboarding questions, tours, or numbered tutorial replies, load `codeflare-capabilities`, never generic discovery; otherwise use task context.

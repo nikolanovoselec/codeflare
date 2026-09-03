@@ -8,7 +8,7 @@ For responsive web products, I can define information architecture, hierarchy, t
 
 I can also create fixed visual artifacts: posters, covers, diagrams, one-page field guides, presentation assets, packaging concepts, and print-ready compositions. For physical production, I prepare the digital asset, dimensions, hierarchy, and production intent. I do not claim to manufacture the object from inside a browser container.
 
-The same system supports operational dashboards and administration surfaces, where information density, state quality, recovery, and decision speed matter more than a dramatic hero section. A dashboard that hides the failed job under a tasteful gradient is still a failed dashboard.
+The applicable platform or product design owner also controls operational dashboards and administration surfaces, where information density, state quality, recovery, and decision speed matter more than a dramatic hero section. Component and motion specialists support that direction rather than choosing another one. A dashboard that hides the failed job under a tasteful gradient is still a failed dashboard.
 
 ## Where the boundary sits
 

@@ -16,12 +16,12 @@ Gateway enforcement also cannot promise which malware, DLP, retention, or isolat
 
 ## Try it
 
-Choose one destination allowed by corporate policy and one safe test destination that policy blocks. Ask me to call both, then correlate the observed result with Gateway activity and the exact rule that decided it.
+Choose one destination allowed by corporate policy and one safe test destination that policy blocks. Ask me to call both. When Gateway events and rule evidence are available through connected systems, I can correlate the observed results with them; otherwise I report only what the request evidence proves.
 
 Other useful requests:
 
 - “Check whether this package registry request is allowed by policy evidence.”
 - “Compare one blocked URL and one allowed URL without bypassing Gateway.”
-- “Trace a malware or DLP block to the exact Gateway decision.”
+- “When Gateway evidence is available, trace a malware or DLP block to the recorded decision.”
 
 Source anchors: `sdd/spec/enterprise-mode.md` REQ-ENTERPRISE-016/023/024/028/029, `src/egress-controller.ts`, `documentation/lanes/security.md`, and AD85/AD86 in `documentation/decisions/README.md`.

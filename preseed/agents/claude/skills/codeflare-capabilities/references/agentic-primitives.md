@@ -12,6 +12,14 @@ I can use Graphify to build a cumulative graph from supported Vault material. A 
 
 Todo keeps executable work and dependencies honest. Specialist subagents can investigate, review, monitor CI, or extract knowledge in parallel. I remain the root owner that combines their evidence and controls mutations.
 
+## Goal and Plan
+
+Goal records the desired end state, relevant constraints, non-goals, acceptance evidence, and approval boundaries. For non-trivial work, Plan is the execution path I maintain while working. I update it when repository evidence changes my understanding. I ask only when missing information would materially change the outcome or risk, or force an irreversible decision; routine implementation details come from repository evidence and established conventions.
+
+> **Goal:** Upgrade the authentication boundary without changing the public API. Preserve tenant isolation, pass the existing security checks, and stop before deployment.
+>
+> **Plan:** I inspect the current boundary, identify affected requirements and tests, propose the smallest safe change, implement it, run the required review lanes, and report evidence plus unresolved decisions.
+
 ## Where the boundary sits
 
 The global graph is a structural memory, not an oracle. It includes what capture and extraction have accepted, and the active repository graph may be stale until the user refreshes it. Current source and live system evidence outrank old notes.
@@ -30,4 +38,4 @@ Other useful requests:
 - “Capture this decision into the Vault and link it to the requirement and PR.”
 - “Create Todo tasks with owners and dependencies, then close them as the evidence lands.”
 
-Source anchors: `sdd/spec/memory.md` REQ-MEM-001/002/004/009/013/019/022, `sdd/spec/vault.md` REQ-VAULT-001/002/003/004/014/021/023, `documentation/lanes/vault.md`, and `sdd/spec/agents.md` Todo, Graphify, and subagent requirements.
+Source anchors: `sdd/spec/memory.md` REQ-MEM-001/002/004/009/013/019/022, `sdd/spec/vault.md` REQ-VAULT-001/002/003/004/014/021/023, `documentation/lanes/vault.md`, and `sdd/spec/agents.md` REQ-AGENT-111/152/178 plus Todo, Graphify, and subagent requirements.
