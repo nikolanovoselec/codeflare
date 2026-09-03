@@ -22,6 +22,7 @@ const CODEFLARE_IMPECCABLE_OVERLAY = Object.freeze([
     ['- **Touch targets**: Interactive elements < 44x44px', '- **Touch targets**: Interactive elements below the WCAG 2.5.8 web baseline; report stronger platform or product targets such as 44×44 separately when applicable'],
     ['| **Total** | | **??/20** | **[Rating band]** |', '| **Total** | | **[earned]/[available]** | **[Rating band or N/A]** |'],
     ['**Rating bands**: 18-20 Excellent (minor polish), 14-17 Good (address weak dimensions), 10-13 Acceptable (significant work needed), 6-9 Poor (major overhaul), 0-5 Critical (fundamental issues)', '**Rating bands**: Apply the 20-point bands only when all five dimensions have evidence. Otherwise report the earned/available score and `N/A` rather than inventing a rating.'],
+    ['- Audit Health Score: **??/20** ([rating band])', '- Audit Health Score: **[earned]/[available]** ([rating band or N/A])'],
   ]],
   ['reference/adapt.md', [
     ['- Touch targets 44x44px minimum (not hover-dependent)', '- Prefer 44×44 touch-first controls when platform or product guidance calls for them; enforce the WCAG 2.5.8 baseline on the web (not hover-dependent)'],

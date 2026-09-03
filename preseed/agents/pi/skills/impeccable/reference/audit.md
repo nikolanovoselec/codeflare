@@ -79,7 +79,7 @@ Run the bundled detector and verify each finding in context. Look for repeated i
 **Start here.** Pass/fail: does the implementation express a coherent product-specific system? Cite verified evidence and detector findings.
 
 ### Executive Summary
-- Audit Health Score: **??/20** ([rating band])
+- Audit Health Score: **[earned]/[available]** ([rating band or N/A])
 - Total issues found (count by severity: P0/P1/P2/P3)
 - Top 3-5 critical issues
 - Recommended next steps

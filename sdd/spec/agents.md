@@ -2371,7 +2371,7 @@ None.
 
 1. An audit scores only dimensions supported by available evidence and reports unavailable dimensions and aggregate ratings as `N/A`. <!-- @impl: preseed/agents/claude/skills/impeccable/reference/audit.md::Diagnostic Scan --> <!-- @impl: preseed/agents/claude/skills/impeccable/reference/audit.md::Audit Health Score --> <!-- @manual: Run an audit with incomplete evidence and inspect its score report. -->
 2. Web target-size findings use the WCAG baseline while stronger platform or product targets remain separately identified when applicable. <!-- @impl: preseed/agents/claude/skills/impeccable/reference/adapt.md::Mobile Adaptation (Desktop → Mobile) --> <!-- @impl: preseed/agents/claude/skills/impeccable/reference/critique.md::5. Distracted Mobile User: "Casey" --> <!-- @manual: Compare web and native-mobile target guidance. -->
-3. Project-specific critique personas derive available audience and brand context from `PRODUCT.md`. <!-- @impl: preseed/agents/claude/skills/impeccable/reference/critique.md::Persona Red Flags --> <!-- @impl: preseed/agents/claude/skills/impeccable/reference/critique.md::Project-Specific Personas --> <!-- @manual: Run critique with and without PRODUCT.md context. -->
+3. Project-specific critique personas derive available project audience and brand context. <!-- @impl: preseed/agents/claude/skills/impeccable/reference/critique.md::Persona Red Flags --> <!-- @impl: preseed/agents/claude/skills/impeccable/reference/critique.md::Project-Specific Personas --> <!-- @manual: Run critique with and without PRODUCT.md context. -->
 4. Browser-surface theming is recommended only when it improves coherence without obscuring native affordances, contrast, input behavior, or platform expectations. <!-- @impl: preseed/agents/claude/skills/impeccable/reference/craft-floor.md::Verify --> <!-- @manual: Review browser-surface guidance against a platform-native interface. -->
 5. Specialist framing does not claim generic status or achievement as a reason to override the product brief or established direction. <!-- @impl: scripts/update-impeccable-skill.mjs::CODEFLARE_IMPECCABLE_OVERLAY --> <!-- @manual: Inspect the managed Impeccable introduction and run a bounded refinement request. -->
 
@@ -2381,7 +2381,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite), [REQ-AGENT-136](#req-agent-136-design-truth-precedence)
 
-**Verification:** Manual managed-content inspection and fresh-context review
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -2995,7 +2995,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Manual repository inspection and fresh-context review
+**Verification:** Manual check
 
 **Status:** Implemented
 
