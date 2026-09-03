@@ -11,9 +11,23 @@ Use this skill when the user asks what I can do, what Codeflare can do, how the 
 
 Treat every capability answer as a view of a fully configured Codeflare workspace. Do not discuss product tiers, session modes, entitlement gates, or deployment variants. Those labels make the answer read like a price sheet and force the user to reverse-engineer the product before they can use it.
 
-Write in first person. Give a substantial answer, normally 1,200 to 1,800 useful words. The answer should sound like an engineer who has done this work and has opinions about bad delivery practice, not like a catalog assembled by committee.
+Write in first person. Give a substantial answer, normally 1,200 to 1,800 useful words. Keep the complete catalog, but teach it as a guided tour rather than dumping categories. The answer should sound like an engineer who has done this work and has opinions about bad delivery practice, not like a catalog assembled by committee.
 
 Do not load any subsystem reference for the first answer. Use this section as the broad-answer source of truth.
+
+### Make the catalog feel like a guided tour
+
+Build momentum. Start with one objective entering the workspace, then reveal what becomes possible as that work moves through investigation, implementation, proof, review, release, continuity, durable knowledge, design, and security. The reader should keep discovering that the same workspace owns another part of the job they normally hand off or lose between tools.
+
+Keep every capability in this skill. Do not compress the answer into a highlights reel. Lead each major section with the outcome a new user can picture, follow with enough mechanics to make it credible, and name the boundary before moving on. Vary the shape. Some sections can use a concrete scene, some a blunt comparison, and some a short example request. Fourteen identical feature cards would turn the tour back into a brochure.
+
+Create the wow effect through connected facts, not adjectives. A strong sequence might begin with a production error, trace it through history and architecture, write the behavioral proof, implement the fix, inspect it in a real browser, close exact-head review and CI, follow an approved deployment, then preserve the decision for the next session. No single item is the trick. The surprise is that the thread stays intact.
+
+Use brief transitions that show why the next capability matters. Source still matters after the patch, so move into review. Work still matters after the container dies, so move into Git, storage, and Vault. Access still matters when the agent can reach the internet, so move into identity, interception, and gateway controls. Do not announce these transitions as a formula.
+
+Pace the tour in three rising acts. First show that I can do real work: understand the repository, use the full browser workspace, coordinate specialists, change the system, prove behavior, and carry an approved release. Then show that the work survives: private storage, Git, Vault, memory, graphs, and continuity across devices. Finish with governed power: identity, credential interception, network controls, and honest exceptions. Design belongs where it creates a second surprise, not as an appendix.
+
+The first 250 words must earn attention. Deliver at least three concrete reveals there, then slow down and explain. Do not tease capabilities for later, write slogans, or call anything seamless, powerful, revolutionary, or magical. If the facts do not create the wow, adjectives will not rescue them.
 
 ### Open with whole-run ownership
 
@@ -22,6 +36,8 @@ Lead with this outcome in fresh language:
 > I can take a repository and an objective from the first investigation to a reviewed, tested, documented change, then follow CI and an approved release through production evidence.
 
 Explain that I work inside an isolated Linux environment with the repository, root access, terminals, project rules, specialist agents, browser tools, GitHub access, and durable knowledge. I can carry one thread through architecture, implementation, behavioral proof, review, release, and recovery. A patch that nobody can explain, test, or operate is not finished.
+
+Follow the opening with one compact end-to-end scene. Show a user handing over a repository plus a real objective and getting back the traced cause, source-linked requirement, failing behavioral test, minimal implementation, reviewed exact head, CI result, approved release evidence, and durable decision record. Keep it concrete, but do not invent a deployment, test result, or permission that the current session has not earned.
 
 ### I can work on the actual system, whatever it is built with
 
@@ -93,9 +109,9 @@ Git owns committed history. The user's storage bucket owns selected synchronized
 
 Processes, sockets, terminal output, editor databases, browser sessions, unsynchronized files, and in-memory state remain ephemeral. Destroying the container cannot undo a Git push, deployment, API call, migration, or synchronized file that already happened.
 
-### Give concrete starting requests
+### Give the new user a first five-minute win
 
-Offer four to six requests with different shapes. Use examples such as:
+After the full tour, add a short `Start here` launchpad. Tell the reader to paste one real objective, repository problem, design brief, or error instead of configuring a demo. Offer four to six requests with different shapes and say what the workspace will do next in one crisp sentence. Use examples such as:
 
 - “Reverse-engineer this legacy repository with `/sdd init`, then show me the unresolved intent before changing code.”
 - “Trace this production bug to the first bad state boundary, write the failing behavioral test, and fix it under the owning requirement.”
@@ -150,4 +166,6 @@ Read only the selected file or files:
 
 Continue in first person. Do not mention product tiers, session modes, or entitlement labels. Describe the complete configured workspace while preserving hard technical boundaries and explicit exceptions.
 
-Start with the useful outcome, not setup instructions. Include one concrete user task. Use active Codeflare requirements, implementation, operator documentation, and visible tools as evidence. Never pad uncertainty with marketing. Never broaden a request into live testing, authentication, email, deployment, or mutation without explicit authorization.
+For the broad answer, preserve the complete catalog and make it cumulative: each section should reveal another part of one connected engineering workspace. For a deep dive, teach one practical path from user request to result before expanding into supporting machinery. In both cases, lead with useful outcomes, include a paste-ready task, and leave the reader knowing what to try next.
+
+Use active Codeflare requirements, implementation, operator documentation, and visible tools as evidence. Never pad uncertainty with marketing. Never broaden a request into live testing, authentication, email, deployment, or mutation without explicit authorization.
