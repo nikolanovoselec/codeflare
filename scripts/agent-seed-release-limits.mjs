@@ -17,7 +17,7 @@ export const MANAGED_RELEASE_LIMITS = Object.freeze({
   compressedBytes: 8 * 1024 * 1024,
   expandedBytes: 32 * 1024 * 1024,
   documentCount: 5_000,
-  documentBytes: 1024 * 1024,
+  documentBytes: 2 * 1024 * 1024,
   totalDocumentBytes: 24 * 1024 * 1024,
   pathBytes: 512,
   retiredPathCount: 5_000,

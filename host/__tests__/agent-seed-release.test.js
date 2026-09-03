@@ -202,9 +202,14 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
 describe('REQ-AGENT-147 AC6: fixed seed-v1 resource limits', () => {
   it('REQ-AGENT-147 AC6: enforces document and retired-path resource limits', async () => {
     const { buildAgentSeedRelease } = await import(releaseUrl);
+    await assert.doesNotReject(
+      buildAgentSeedRelease(releaseOptions(compiledSeed({
+        documents: [{ key: '.claude/large', contentType: 'text/plain; charset=utf-8', content: 'x'.repeat(1_100_013), modes: ['default'] }],
+      }))),
+    );
     await assert.rejects(
       buildAgentSeedRelease(releaseOptions(compiledSeed({
-        documents: [{ key: '.claude/large', contentType: 'text/plain; charset=utf-8', content: 'x'.repeat((1024 * 1024) + 1), modes: ['default'] }],
+        documents: [{ key: '.claude/too-large', contentType: 'text/plain; charset=utf-8', content: 'x'.repeat((2 * 1024 * 1024) + 1), modes: ['default'] }],
       }))),
       /document.*bytes|document.*limit/i,
     );

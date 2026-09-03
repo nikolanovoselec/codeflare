@@ -45,7 +45,8 @@ const TOOL_ACTIVATION_GROUPS: Readonly<Record<string, readonly string[]>> = {
 const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const PLAN_STATE_ENTRY_TYPE = "plan-mode-state";
 const INLINE_EDIT_RESULT_TOOL = "codeflare_submit_inline_result";
-const GOAL_TERMINAL_TOOLS = ["goal_complete", "goal_blocked", "goal_wait"] as const;
+const DISABLED_TOOL_NAMES = new Set(["goal_wait"]);
+const GOAL_TERMINAL_TOOLS = ["goal_complete", "goal_blocked"] as const;
 const PLAN_HELPER_TOOLS = ["plan_mode_question", "plan_mode_complete"] as const;
 
 function unique(values: string[]): string[] {
@@ -54,7 +55,7 @@ function unique(values: string[]): string[] {
 
 export function initialActiveTools(pi: ToolActivationPi): string[] {
   const registered = new Set(pi.getAllTools().map((tool) => tool.name));
-  return CORE_TOOL_NAMES.filter((name) => registered.has(name));
+  return CORE_TOOL_NAMES.filter((name) => registered.has(name) && !DISABLED_TOOL_NAMES.has(name));
 }
 
 export function isExclusiveActiveTool(activeTools: ReadonlySet<string>, toolName: string): boolean {
@@ -115,7 +116,7 @@ function latestGoalStatus(ctx: SessionContext): string | undefined {
 
 function registeredTools(pi: ToolActivationPi, names: readonly string[]): string[] {
   const registered = new Set(pi.getAllTools().map((tool) => tool.name));
-  return unique([...names]).filter((name) => registered.has(name));
+  return unique([...names]).filter((name) => registered.has(name) && !DISABLED_TOOL_NAMES.has(name));
 }
 
 function activePlanTools(pi: ToolActivationPi, ctx: SessionContext): string[] | undefined {
@@ -174,7 +175,9 @@ export function activateRegisteredTools(pi: ToolActivationPi, requested: string[
   const registered = new Set(pi.getAllTools().map((tool) => tool.name));
   const active = pi.getActiveTools();
   const activeSet = new Set(active);
-  const added = unique(requested).filter((name) => registered.has(name) && !activeSet.has(name));
+  const added = unique(requested).filter((name) => (
+    registered.has(name) && !DISABLED_TOOL_NAMES.has(name) && !activeSet.has(name)
+  ));
   if (added.length > 0) pi.setActiveTools([...active, ...added]);
   return added;
 }
@@ -193,6 +196,7 @@ export function searchCapabilities(input: {
   limit?: number;
 }): CapabilityMatch[] {
   return input.tools
+    .filter((tool) => !DISABLED_TOOL_NAMES.has(tool.name))
     .map((tool) => ({ tool, score: matchScore(input.query, tool) }))
     .filter(({ score }) => score > 0)
     .sort((left, right) => right.score - left.score || left.tool.name.localeCompare(right.tool.name))

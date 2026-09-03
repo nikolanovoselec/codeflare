@@ -226,7 +226,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     });
 
     handlers.get('before_agent_start')?.({}, session('completed'));
-    expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked', 'goal_wait']);
+    expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked']);
   });
 
   it('REQ-AGENT-191 AC3: preserves Goal tools already active under the always-visible policy', () => {
@@ -255,7 +255,21 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
       sessionManager: { getBranch: () => [] },
     });
 
-    expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked', 'goal_wait']);
+    expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked']);
+  });
+
+  it('REQ-AGENT-191 AC6: never discovers or activates goal_wait', () => {
+    const pi = fakePi({
+      active: ['read'],
+      tools: [
+        { name: 'read', description: 'Read files' },
+        { name: 'goal_wait', description: 'Wait for an external event' },
+      ],
+    });
+
+    expect(searchCapabilities({ query: 'wait external event', tools: pi.getAllTools() })).toEqual([]);
+    expect(activateRegisteredTools(pi, ['goal_wait'])).toEqual([]);
+    expect(pi.getActiveTools()).toEqual(['read']);
   });
 
   it('REQ-AGENT-152/158: preserves only a restored Plan workflow policy plus required helpers', () => {
@@ -335,7 +349,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
 
     expect(pi.getActiveTools()).toEqual([
       'read', 'graphify_query', 'plan_mode_question', 'plan_mode_complete',
-      'goal_complete', 'goal_blocked', 'goal_wait',
+      'goal_complete', 'goal_blocked',
     ]);
   });
 
@@ -422,7 +436,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
       },
     });
     expect(pi.getActiveTools()).toEqual([
-      'read', 'bash', 'edit', 'write', 'capability', 'goal_complete', 'goal_blocked', 'goal_wait',
+      'read', 'bash', 'edit', 'write', 'capability', 'goal_complete', 'goal_blocked',
     ]);
   });
 
