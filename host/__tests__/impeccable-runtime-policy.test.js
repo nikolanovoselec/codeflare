@@ -6,7 +6,10 @@ import { dirname, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { applyCodeflareImpeccableOverlay } from '../../scripts/update-impeccable-skill.mjs';
+import {
+  applyCodeflareImpeccableOverlay,
+  replaceImpeccableTargets,
+} from '../../scripts/update-impeccable-skill.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const skillRoot = join(repoRoot, 'preseed/agents/claude/skills/impeccable');
@@ -62,7 +65,36 @@ describe('Impeccable managed runtime policy', () => {
     const before = readFileSync(skillPath, 'utf8');
     writeFileSync(join(source, 'reference/audit.md'), 'incomplete upstream file\n');
 
-    assert.throws(() => applyCodeflareImpeccableOverlay(source), /audit/i);
+    assert.throws(
+      () => applyCodeflareImpeccableOverlay(source, { allowAlreadyApplied: true }),
+      /audit/i,
+    );
     assert.equal(readFileSync(skillPath, 'utf8'), before);
+  }));
+
+  it('REQ-AGENT-181: updater rejects a missing deletion anchor before mutation', () => withTempDir((source) => {
+    cpSync(skillRoot, source, { recursive: true });
+    const auditPath = join(source, 'reference/audit.md');
+    const before = readFileSync(auditPath, 'utf8');
+
+    assert.throws(() => applyCodeflareImpeccableOverlay(source), /SKILL\.md/);
+    assert.equal(readFileSync(auditPath, 'utf8'), before);
+  }));
+
+  it('REQ-AGENT-181: malformed routing metadata leaves targets unchanged', () => withTempDir((root) => {
+    const target = join(root, 'target');
+    mkdirSync(target);
+    const sentinel = join(target, 'sentinel.txt');
+    writeFileSync(sentinel, 'preserve me\n');
+
+    assert.throws(
+      () => replaceImpeccableTargets(join(root, 'source'), 'malformed skill\n', [{
+        agent: 'claude',
+        root: target,
+        runtimePath: '~/.claude/skills/impeccable',
+      }]),
+      /frontmatter/i,
+    );
+    assert.equal(readFileSync(sentinel, 'utf8'), 'preserve me\n');
   }));
 });

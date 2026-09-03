@@ -2361,6 +2361,32 @@ None.
 
 ---
 
+### REQ-AGENT-194: Evidence-bound Impeccable policy
+
+**Intent:** Impeccable recommendations remain grounded in available product, platform, and validation evidence.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. An audit scores only dimensions supported by available evidence and reports unavailable dimensions and aggregate ratings as `N/A`. <!-- @impl: preseed/agents/claude/skills/impeccable/reference/audit.md::Diagnostic Scan --> <!-- @impl: preseed/agents/claude/skills/impeccable/reference/audit.md::Audit Health Score --> <!-- @manual: Run an audit with incomplete evidence and inspect its score report. -->
+2. Web target-size findings use the WCAG baseline while stronger platform or product targets remain separately identified when applicable. <!-- @impl: preseed/agents/claude/skills/impeccable/reference/adapt.md::Mobile Adaptation (Desktop → Mobile) --> <!-- @impl: preseed/agents/claude/skills/impeccable/reference/critique.md::5. Distracted Mobile User: "Casey" --> <!-- @manual: Compare web and native-mobile target guidance. -->
+3. Project-specific critique personas derive available audience and brand context from `PRODUCT.md`. <!-- @impl: preseed/agents/claude/skills/impeccable/reference/critique.md::Persona Red Flags --> <!-- @impl: preseed/agents/claude/skills/impeccable/reference/critique.md::Project-Specific Personas --> <!-- @manual: Run critique with and without PRODUCT.md context. -->
+4. Browser-surface theming is recommended only when it improves coherence without obscuring native affordances, contrast, input behavior, or platform expectations. <!-- @impl: preseed/agents/claude/skills/impeccable/reference/craft-floor.md::Verify --> <!-- @manual: Review browser-surface guidance against a platform-native interface. -->
+5. Specialist framing does not claim generic status or achievement as a reason to override the product brief or established direction. <!-- @impl: scripts/update-impeccable-skill.mjs::CODEFLARE_IMPECCABLE_OVERLAY --> <!-- @manual: Inspect the managed Impeccable introduction and run a bounded refinement request. -->
+
+**Constraints:** Explicit Impeccable commands retain their documented behavior, and policy guidance remains manually reviewed rather than pinned by prose tests.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite), [REQ-AGENT-136](#req-agent-136-design-truth-precedence)
+
+**Verification:** Manual managed-content inspection and fresh-context review
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-053: Pi Native Review Result Correlation
 
 **Intent:** Pi review completion must be proven only by visible public reviewer calls and their correlated successful terminal evidence in the root transcript.
@@ -2961,7 +2987,7 @@ None.
 1. Codeflare and curation contain no tests that judge skill or rule wording, headings, subjective design quality, exact inventories, or projected prose. <!-- @manual: Inspect both repositories' test inventories and search test sources for brittle managed-content assertions. -->
 2. Generic compiler, ABI, signature, path-safety, release-integrity, and runtime-compatibility checks remain independent of managed content semantics. <!-- @manual: Inspect retained suites and confirm their assertions remain content-neutral. -->
 3. Representative fresh-context prompts are reviewed manually for owner selection, interview behavior, product specificity, capability honesty, and specialist boundaries. <!-- @manual: Run representative web, mobile, desktop, static, refinement, and nonvisual prompts in fresh contexts and review those five behaviors. -->
-4. Executable skill runtime state transitions and fail-before-mutation updater boundaries may use behavioral tests that do not pin prose or aesthetic judgment. <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (Impeccable managed runtime policy) -->
+4. Executable skill runtime state transitions and fail-before-mutation updater boundaries may use behavioral tests that do not pin prose or aesthetic judgment. <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (Impeccable managed runtime policy) --> <!-- @manual: Inspect that tests exercise runtime state or mutation boundaries without asserting managed prose. -->
 
 **Constraints:** Manual review does not claim rendered, device, accessibility, or performance evidence unless those capabilities were used.
 
@@ -3053,9 +3079,9 @@ None.
 2. Legacy taste requests continue through `frontend-design`. <!-- @impl: preseed/agents/claude/skills/design-taste-frontend/SKILL.md::Frontend design compatibility route --> <!-- @manual: Explicitly invoke `design-taste-frontend` and verify the resulting work follows `frontend-design`. -->
 3. The removed UI UX Pro Max preset corpus cannot supply or persist a competing visual thesis. <!-- @manual: Inspect the authoritative managed router and manifest. -->
 4. When Impeccable is installed, implicit discovery remains limited to critique and bounded finishing; new-work methodology requires explicit Impeccable invocation and the selected platform owner retains art direction. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch one art-direction owner --> <!-- @impl: preseed/agents/claude/skills/impeccable/SKILL.md::Codeflare routing boundary --> <!-- @manual: Compare thesis-changing redesign, explicit Impeccable new-work, and bounded finishing prompts. -->
-5. Impeccable refresh preserves its explicit command body while applying platform-neutral Codeflare ownership, managed policy corrections, and no runtime package self-update permission. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareRoutingBoundary --> <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @manual: Inspect refreshed Claude and Pi content before accepting an update. -->
+5. Impeccable refresh preserves its explicit command body, the evidence boundaries in [REQ-AGENT-194](#req-agent-194-evidence-bound-impeccable-policy), platform-neutral Codeflare ownership, and no runtime package self-update permission. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareRoutingBoundary --> <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @manual: Inspect refreshed Claude and Pi content before accepting an update. -->
 6. `motion-design` implements motion and interaction only after direction exists. <!-- @manual: Request focused motion refinement after selecting a platform-owner direction. -->
-7. Downloaded Impeccable content that cannot establish one routing description and the managed policy overlay fails before any existing skill target changes. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @impl: scripts/update-impeccable-skill.mjs::replaceImpeccableTargets --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: updater overlay fails before mutating a partial source) -->
+7. Downloaded Impeccable content that cannot establish one routing description and the managed policy overlay fails before any existing skill target changes. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @impl: scripts/update-impeccable-skill.mjs::replaceImpeccableTargets --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: updater overlay fails before mutating a partial source) --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: updater rejects a missing deletion anchor before mutation) --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: malformed routing metadata leaves targets unchanged) -->
 
 **Constraints:**
 
@@ -3064,9 +3090,9 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-179](#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-135](#req-agent-135-unsafe-design-preset-exclusion)
+**Dependencies:** [REQ-AGENT-179](#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-135](#req-agent-135-unsafe-design-preset-exclusion), [REQ-AGENT-194](#req-agent-194-evidence-bound-impeccable-policy)
 
-**Verification:** Manual check
+**Verification:** Automated updater test and manual check
 
 **Status:** Implemented
 

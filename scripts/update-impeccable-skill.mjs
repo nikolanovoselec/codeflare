@@ -43,20 +43,20 @@ const CODEFLARE_IMPECCABLE_OVERLAY = Object.freeze([
   ]]],
 ]);
 
-function replaceOverlayAnchor(source, search, replacement, label) {
+function replaceOverlayAnchor(source, search, replacement, label, allowAlreadyApplied) {
   const sourceCount = source.split(search).length - 1;
   const replacementCount = replacement.length === 0 ? 0 : source.split(replacement).length - 1;
   if (sourceCount === 1 && replacementCount === 0) return source.replace(search, replacement);
-  if (sourceCount === 0 && (replacement.length === 0 || replacementCount === 1)) return source;
+  if (allowAlreadyApplied && sourceCount === 0 && (replacement.length === 0 || replacementCount === 1)) return source;
   throw new Error(`${label} overlay anchor is missing or ambiguous`);
 }
 
-export function applyCodeflareImpeccableOverlay(source) {
+export function applyCodeflareImpeccableOverlay(source, { allowAlreadyApplied = false } = {}) {
   const transformed = CODEFLARE_IMPECCABLE_OVERLAY.map(([relativePath, replacements]) => {
     const file = join(source, relativePath);
     let text = readFileSync(file, 'utf8');
     for (const [search, replacement] of replacements) {
-      text = replaceOverlayAnchor(text, search, replacement, relativePath);
+      text = replaceOverlayAnchor(text, search, replacement, relativePath, allowAlreadyApplied);
     }
     return [file, text];
   });
