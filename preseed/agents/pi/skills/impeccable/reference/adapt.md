@@ -43,7 +43,7 @@ Create context-appropriate strategy:
 - Bottom navigation instead of top/side navigation
 
 **Interaction Strategy**:
-- Touch targets 44x44px minimum (not hover-dependent)
+- Prefer 44×44 touch-first controls when platform or product guidance calls for them; enforce the WCAG 2.5.8 baseline on the web (not hover-dependent)
 - Swipe gestures where appropriate (lists, carousels)
 - Bottom sheets instead of dropdowns
 - Thumbs-first design (controls within thumb reach)
@@ -71,7 +71,7 @@ Create context-appropriate strategy:
 
 **Interaction Strategy**:
 - Support both touch and pointer
-- Touch targets 44x44px but allow denser layouts than phone
+- Follow platform or product touch-target guidance while allowing denser layouts than phone
 - Side navigation drawers
 - Multi-column forms where appropriate
 
@@ -145,7 +145,7 @@ Choose appropriate breakpoints:
 
 ### Touch Adaptation
 
-- Increase touch target sizes (44x44px minimum)
+- Increase touch targets to applicable platform or product guidance; enforce the WCAG 2.5.8 baseline on the web
 - Add more spacing between interactive elements
 - Remove hover-dependent interactions
 - Add touch feedback (ripples, highlights)
