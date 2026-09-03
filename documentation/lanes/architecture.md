@@ -473,6 +473,8 @@ Creation may reject enterprise agent policy or SaaS storage quota. Start may rej
 | ready | 100% | Terminal sessions and pre-warm ready; sync may be complete, skipped, or running on demand. Opening the ready workspace reconnects a visible startup socket that disconnected while the readiness overlay remained open. |
 | error | 0% | Startup-status handler or initial-sync failure |
 
+Ready-stage terminal recovery follows [REQ-TERM-043](../../sdd/spec/terminal.md#req-term-043-initializing-terminal-readiness-and-recovery). <!-- @impl: web-ui/src/components/Layout.tsx::handleOpenSessionById --> <!-- @impl: web-ui/src/stores/terminal.ts::reconnectDisconnectedTerminals -->
+
 These endpoint stages are derived observations, not persisted lifecycle state. KV remains authoritative for persisted `running|stopped`; `initializing`, `stopping`, and lifecycle-error presentation are frontend-only. [API Reference](api-reference.md#container-lifecycle) owns the exact response contract.
 
 <a id="session-lifecycle-state-machine-req-session-018"></a>

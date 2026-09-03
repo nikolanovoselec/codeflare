@@ -39,9 +39,24 @@ const cursorSchema = z.object({
 
 type UsageCursor = z.infer<typeof cursorSchema>;
 
+function validCalendarDate(start: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return month >= 1 && month <= 12 && day >= 1 && day <= (daysInMonth[month - 1] ?? 0);
+}
+
 function validStart(period: UsagePeriod, start: string): boolean {
-  if (period === 'day' || period === 'week') return /^\d{4}-\d{2}-\d{2}$/.test(start);
-  if (period === 'month') return /^\d{4}-\d{2}$/.test(start);
+  if (period === 'day') return validCalendarDate(start);
+  if (period === 'week') return validCalendarDate(start) && new Date(`${start}T00:00:00.000Z`).getUTCDay() === 1;
+  if (period === 'month') {
+    const match = /^\d{4}-(\d{2})$/.exec(start);
+    return match !== null && Number(match[1]) >= 1 && Number(match[1]) <= 12;
+  }
   return /^\d{4}$/.test(start);
 }
 

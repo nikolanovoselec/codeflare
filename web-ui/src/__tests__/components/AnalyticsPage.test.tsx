@@ -11,8 +11,6 @@ vi.mock('../../api/client', () => ({
 import AnalyticsPage from '../../components/admin/AnalyticsPage';
 
 beforeEach(() => {
-  vi.useFakeTimers({ shouldAdvanceTime: true });
-  vi.setSystemTime(new Date('2026-09-03T12:00:00.000Z'));
   getAdminUsageMock.mockResolvedValue({
     period: 'day',
     start: '2026-09-03',
@@ -33,7 +31,6 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  vi.useRealTimers();
   vi.clearAllMocks();
 });
 

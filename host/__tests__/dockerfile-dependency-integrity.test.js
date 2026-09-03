@@ -73,11 +73,6 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     }
     assert.deepEqual(npmToolsLock.packages[''].dependencies, npmToolsPackage.dependencies);
     assert.equal(npmToolsPackage.dependencies.esbuild, rootPackage.devDependencies.esbuild);
-    assert.match(dockerfile, /require\("esbuild"\)\.transformSync/);
-    const syntaxParserStep = containerImageWorkflow.jobs.image.steps.find(
-      (step) => step.name === 'Verify image-baked TypeScript syntax parser',
-    );
-    assert.match(syntaxParserStep?.run ?? '', /safe-local-check\.mjs ts-syntax valid\.ts/);
     assertCompleteIntegrityTree(npmToolsLock);
   });
 

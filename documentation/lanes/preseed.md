@@ -588,7 +588,8 @@ Oxlint, ESLint, Biome, or Prettier binaries, permits full-project read-only chec
 no file-count limit, and runs them at low priority for at most three minutes; Node
 syntax checks use the same deadline. TypeScript syntax parsing prefers repository-local
 `esbuild` and falls back to the exact immutable copy under `/opt/codeflare/npm-tools`,
-so managed sessions need no project install for this supplemental check.
+so managed sessions need no project install for this supplemental check. This parser
+selection follows [REQ-AGENT-192](../../sdd/spec/agents.md#req-agent-192-image-baked-typescript-syntax-parser). <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire -->
 
 Under [REQ-AGENT-157 AC6–AC7](../../sdd/spec/agents.md#req-agent-157-managed-local-check-delivery-policy),
 canonical guidance projects to both runtime skill paths. <!-- @impl: scripts/agent-seed-core.mjs::adaptSkillContent -->

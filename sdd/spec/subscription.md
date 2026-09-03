@@ -830,7 +830,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Organization usage returns a chronological series of existing aggregates bounded to 14 days, 12 weeks, 12 months, or five years. <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageSeries --> <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (bounds every history series to its configured period limit) -->
+1. Organization usage returns a chronological series of existing aggregates bounded to 14 days, 12 weeks, 12 months, or five years. <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageSeries --> <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (returns chronological existing history aggregates and deterministic user rows) --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (bounds every history series to its configured period limit) -->
 2. Analytics renders returned history when the selected period has no aggregate row and shows the empty state only when no historical series exists. <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::UsageChart --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (charts earlier history when the selected period has no aggregate row) -->
 
 **Constraints:** History uses existing D1 period rows without synthetic points, a second aggregate table, or a cache.
@@ -855,7 +855,8 @@ Tiers, billing, usage tracking, and quotas.
 
 1. Scheduled report dispatches use the latest closed UTC month. <!-- @impl: src/lib/usage-reports.ts::latestClosedMonth --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) -->
 2. Test report dispatches use the current UTC month. <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) -->
-3. Delivery schedules apply last-valid-day and DST rules, and a settings revision cannot consume the next due instant owned by another revision. <!-- @impl: src/lib/usage-reports.ts::nextReportDelivery --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report scheduling recovery (REQ-SUB-027)) -->
+3. Delivery schedules apply last-valid-day and DST rules. <!-- @impl: src/lib/usage-reports.ts::nextReportDelivery --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) -->
+4. A settings revision cannot consume the next due instant owned by another revision. <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report scheduling recovery (REQ-SUB-027)) -->
 
 **Constraints:** Scheduling uses the existing 15-minute Worker schedule and deployment-scoped usage database.
 

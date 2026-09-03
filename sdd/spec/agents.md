@@ -2319,10 +2319,11 @@ None.
 
 **Acceptance Criteria:**
 
-1. `ts-syntax` prefers repository-local `esbuild`, then uses the exact image-baked parser when the repository has none. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire --> <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-192 AC1: prefers a repository-local TypeScript syntax parser) --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (privileged npm tool manifest has a complete committed integrity tree) -->
-2. Image verification parses TypeScript in a repository containing no `node_modules`, without writing into that repository. <!-- @impl: .github/workflows/container-image.yml --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (privileged npm tool manifest has a complete committed integrity tree) -->
+1. A compatible project-provided TypeScript syntax parser takes precedence when available. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-192 AC1: prefers a repository-local TypeScript syntax parser) -->
+2. Managed sessions can parse valid TypeScript when the project provides no parser, without installing dependencies. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire --> <!-- @test: host/__tests__/safe-local-check-image.test.js (REQ-AGENT-192 AC2-AC3: parses TypeScript without project dependencies or repository writes) -->
+3. A TypeScript syntax check leaves the checked repository unchanged. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::checkTsSyntax --> <!-- @test: host/__tests__/safe-local-check-image.test.js (REQ-AGENT-192 AC2-AC3: parses TypeScript without project dependencies or repository writes) -->
 
-**Constraints:** The fallback is fixed to `/opt/codeflare/npm-tools`; checked paths remain inside the current repository, and the parser never runs a build, typecheck, install, or output write.
+**Constraints:** The fallback is fixed to `/opt/codeflare/npm-tools` with exact `esbuild` and lockfile pins; checked paths remain inside the current repository, and the parser never runs a build, typecheck, install, or output write.
 
 **Priority:** P1
 

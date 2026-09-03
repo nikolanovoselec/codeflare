@@ -76,7 +76,7 @@ describe('admin organization usage routes (REQ-SUB-026)', () => {
     expect((await app.request('/admin/usage?period=day&start=2026-08-30')).status).toBe(403);
   });
 
-  it('returns UTC summary and deterministic user rows with positive-runtime Active Users', async () => {
+  it('returns chronological existing history aggregates and deterministic user rows', async () => {
     const { app, statements } = createApp();
     const response = await app.request('/admin/usage?period=day&start=2026-08-30&sort=runtimeSeconds&direction=desc&limit=2');
     expect(response.status).toBe(200);
@@ -110,6 +110,18 @@ describe('admin organization usage routes (REQ-SUB-026)', () => {
 
       const series = statements.find((statement) => /GROUP BY p\.period_start/.test(statement.sql));
       expect(series?.values).toEqual([period, start, limit]);
+    }
+  });
+
+  it('rejects malformed calendar starts before SQL', async () => {
+    for (const query of [
+      'period=day&start=2026-02-30',
+      'period=month&start=2026-13',
+      'period=week&start=2026-08-25',
+    ]) {
+      const { app, statements } = createApp();
+      expect((await app.request(`/admin/usage?${query}`)).status).toBe(400);
+      expect(statements).toHaveLength(0);
     }
   });
 

@@ -348,16 +348,11 @@ jobs:
           IMAGE: ${{ steps.docker-build.outputs.local_ref }}
         run: |
           set -euo pipefail
-          fixture="$RUNNER_TEMP/safe-check-repository"
-          rm -rf "$fixture"
-          mkdir -p "$fixture/.git"
-          printf '%s\n' 'const value: number = 1;' > "$fixture/valid.ts"
           docker run --rm \
+            -e CODEFLARE_IMAGE_TEST=1 \
             -v "$GITHUB_WORKSPACE:/codeflare:ro" \
-            -v "$fixture:/workspace:ro" \
-            --workdir /workspace \
             --entrypoint /usr/local/bin/node "$IMAGE" \
-            /codeflare/preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs ts-syntax valid.ts
+            --test /codeflare/host/__tests__/safe-local-check-image.test.js
 
       - name: Verify real Pi prompt budget
         if: steps.reuse.outputs.reused != 'true' && contains(steps.hash.outputs.coding_agents, 'pi')
