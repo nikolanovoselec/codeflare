@@ -470,7 +470,7 @@ Creation may reject enterprise agent policy or SaaS storage quota. Start may rej
 | syncing | 30–45% | Host health available while initial sync is pending or active |
 | verifying | 85% | Initial sync complete while terminal sessions remain unavailable |
 | mounting | 90% | Backend terminal service registered while PTY pre-warm remains incomplete; visible clients wait for `ready` |
-| ready | 100% | Terminal sessions and pre-warm ready; sync may be complete, skipped, or running on demand |
+| ready | 100% | Terminal sessions and pre-warm ready; sync may be complete, skipped, or running on demand. Opening the ready workspace reconnects a visible startup socket that disconnected while the readiness overlay remained open. |
 | error | 0% | Startup-status handler or initial-sync failure |
 
 These endpoint stages are derived observations, not persisted lifecycle state. KV remains authoritative for persisted `running|stopped`; `initializing`, `stopping`, and lifecycle-error presentation are frontend-only. [API Reference](api-reference.md#container-lifecycle) owns the exact response contract.

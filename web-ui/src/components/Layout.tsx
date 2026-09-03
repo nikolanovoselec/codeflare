@@ -654,9 +654,11 @@ const Layout: Component<LayoutProps> = (props) => {
     setViewState('dashboard');
   };
 
-  // Handler for per-session init progress dismiss
+  // Dismiss startup progress and recover a socket that closed while the ready
+  // overlay still owned the view. Connected terminals are left untouched.
   const handleOpenSessionById = (sessionId: string) => {
     sessionStore.dismissInitProgressForSession(sessionId);
+    reconnectDisconnectedTerminals(sessionId, visibleTerminalKeys());
   };
 
   const _handleReconnect = (sessionId: string, terminalId: string = '1') => {

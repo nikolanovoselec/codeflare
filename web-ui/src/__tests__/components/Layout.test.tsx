@@ -1049,6 +1049,23 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   // =========================================================================
 
   describe('Terminal workspace transitions / REQ-TERM-011 through REQ-TERM-013', () => {
+    it('REQ-TERM-043 AC4: OPEN reconnects a terminal that disconnected behind the ready overlay', async () => {
+      const { sessionStore } = await import('../../stores/session');
+      mockSessions = [createMockSession({ id: 'sess1', status: 'running' })];
+      mockActiveSessionId = 'sess1';
+      mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
+
+      render(() => <Layout />);
+      await waitFor(() => expect((window as any).__terminalAreaProps?.onOpenSessionById).toBeTypeOf('function'));
+      vi.mocked(reconnectDisconnectedTerminals).mockClear();
+
+      (window as any).__terminalAreaProps.onOpenSessionById('sess1');
+
+      expect(sessionStore.dismissInitProgressForSession).toHaveBeenCalledWith('sess1');
+      expect(reconnectDisconnectedTerminals).toHaveBeenCalledWith('sess1', ['sess1:1']);
+    });
+
     it('REQ-TERM-012: activates MultiView from the header callback', async () => {
       const { sessionStore } = await import('../../stores/session');
       mockSessions = [createMockSession({ id: 'sess1', status: 'running' }), createMockSession({ id: 'sess2', status: 'running' })];
