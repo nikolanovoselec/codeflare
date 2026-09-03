@@ -660,11 +660,16 @@ describe('managed storage reconcile', () => {
     expect(response.status).toBe(200);
   });
 
-  it('REQ-STOR-034 AC4/AC5: automatic progress is bounded and retained for the completion handoff', async () => {
+  it('REQ-STOR-034 AC4/AC5: response retains request-local completion when KV is stale', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
     reconcile.mockImplementationOnce(async (...args: any[]) => {
       await args[4].automatic.onProgress({ completed: 61, total: 61 });
+      // Model an eventually consistent replica returning the earlier planning value.
+      kv._set('managed-reconcile-progress:user-bucket', {
+        schemaVersion: 1, targetDigest: 'd'.repeat(64), phase: 'planning', completed: 0, total: 0,
+        updatedAt: '2026-09-03T12:00:00.000Z',
+      });
       return { written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined };
     });
 
