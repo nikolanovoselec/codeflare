@@ -115,8 +115,10 @@ export async function safeCheckContainerHealth(
   container: DurableObjectStub,
   containerId: string
 ): Promise<ContainerHealthResult> {
+  let containerStatus: string;
   try {
     const state = await (container as ContainerStubWithState).getState();
+    containerStatus = state.status;
     const isUp = state.status === 'running' || state.status === 'healthy';
     if (!isUp) {
       return { healthy: false, status: state.status };
@@ -126,5 +128,5 @@ export async function safeCheckContainerHealth(
     return { healthy: false, status: 'unknown' };
   }
 
-  return checkContainerHealth(container, containerId);
+  return { ...await checkContainerHealth(container, containerId), status: containerStatus };
 }

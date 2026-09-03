@@ -57,6 +57,7 @@ describe('Session Ready Detection', () => {
     mockGetSessions.mockResolvedValue([]);
     mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
     sessionStore._resetMissCounters();
+    sessionStore._resetStartupGuards();
   });
 
   afterEach(() => {

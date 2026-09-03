@@ -19,6 +19,7 @@ Fetch, status and inspection, local mutation, merges without a successful active
 
 ## Hard obligations
 
+- Never run review agents manually unless user explicitly instructs; boundary review triggers them automatically.
 - Run a selected plan once. Start required reviewers together, then exact-head CI immediately when the plan includes it. End the turn after the final launch; never poll or duplicate in-flight work.
 - Stopped or interrupted work has no durable progress. Emit no missing-work demand. The next delivery launches a fresh plan; the next non-delivery exposure asks again and replans.
 - After all required reviewers and terminal exact-head CI, publish canonical triage without mutation. Verify evidence and scope, judge findings separately from fixes, reject unsupported or overengineered proposals, and choose the smallest correction reusing existing machinery. Completion is written immediately before the separate FIX reminder regardless of CI success, failure, or timeout. Apply accepted fixes only in FIX.

@@ -69,11 +69,12 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. Pi's required package set includes one exact-pinned, integrity-locked `@narumitw/pi-goal` package. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Goal package preseed) -->
-2. Image construction makes Goal's declared Pi entrypoint resolve to the reviewed transformed source and warms that same installed path, so a new session uses the control/cadence patch and its path-correct transpile cache. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: Dockerfile::goal_source --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) --> <!-- @manual: Start a new Pi session from the complete image and confirm Goal's installed extension loads from the baked jiti cache. -->
+2. Image construction makes Goal's declared Pi entrypoint resolve to the reviewed transformed source and warms that same installed path, so a new session uses the control/cadence patch and its path-correct transpile cache. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: Dockerfile::goal_source --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC7 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) --> <!-- @manual: Start a new Pi session from the complete image and confirm Goal's installed extension loads from the baked jiti cache. -->
 3. The image build fails if Goal's path-correct transpile-cache artifact is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification) --> <!-- @manual: Run the deployment image build; in a controlled build omit or replace Goal's expected cache file and confirm the jiti warm-cache layer exits non-zero before image publication. -->
 4. Startup supplies `toolVisibility: "after-first-goal"` only when the Goal visibility preference is missing. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent) -->
-5. Capability initialization keeps both terminal Goal tools for an unfinished Goal or Goal's already-active `always` policy; absent, cleared, completed, malformed, or lazy fresh state does not independently widen the set. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: restores terminal Goal tools only for an unfinished session Goal) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: preserves Goal tools already active under the always-visible policy) -->
+5. Capability initialization keeps both terminal Goal tools for an unfinished Goal or Goal's configured `always` policy; absent, cleared, completed, malformed, or lazy fresh state does not independently widen the set. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: hides registered Goal tools for a fresh lazy session) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: restores terminal Goal tools only for an unfinished session Goal) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: preserves Goal tools already active under the always-visible policy) -->
 6. Goal start, resume, system, waiting-resume, and automatic-continuation prompts share compact completion rules, retain the exact objective and stale-turn completion guard, and do not coach terminal wait or blocked tools. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalPromptsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111: emits compact Goal prompts without blocked or wait tool coaching) -->
+7. Explicit Goal activation reveals the registered Goal tools after lazy initial filtering. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalToolPolicySource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC7 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
 
 **Constraints:**
 
@@ -97,8 +98,8 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Goal and Plan Mode each refuse activation while the other owns the same Pi session. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
-2. Ending either workflow releases its session ownership so the other can activate. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
+1. Goal and Plan Mode each refuse activation while the other owns the same Pi session. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC7 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
+2. Ending either workflow releases its session ownership so the other can activate. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC7 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
 
 **Constraints:** Goal and Plan Mode remain exact-pinned upstream dependencies and must pass normal package review, lock regeneration, and deployment-image verification. <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-goal --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-plan-mode -->
 
@@ -130,7 +131,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Constraints:**
 
-- Goal remains the exact-pinned upstream 0.53.0 dependency; Codeflare carries no vendored fork, companion extension, or settings-UI patch.
+- Goal remains the exact-pinned upstream 0.54.2 dependency; Codeflare carries no vendored fork, companion extension, or settings-UI patch.
 - Goal upgrades require exact-version review; the weekly shadow-pin preflights the transform before opening a PR. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/REQ-OPS-020: patches the exact latest pi-goal layout without double registration) -->
 - Version, declared-entrypoint, or source-layout drift fails before any package file is written. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111: version or source drift fails before any package file is written) -->
 
@@ -247,8 +248,11 @@ Multi-agent support, preseed system, and session modes.
 
 **Constraints:**
 
-- Codeflare carries no Plan Mode fork, source patch, companion extension, or automatic plan-file writer.
-- Startup replaces the whole settings document; pathless export uses upstream `PLAN.md`, and lock-backed upgrades use the Pi-extension shadow-pin workflow.
+- Codeflare carries no Plan Mode fork, companion extension, or automatic plan-file writer.
+- One exact-version image transform adapts upstream helper and policy discovery to the five-tool provider boundary and fails closed on version or source-layout drift.
+- Startup replaces the whole settings document.
+- Pathless export uses upstream `PLAN.md`.
+- Lock-backed upgrades use the Pi-extension shadow-pin workflow.
 
 **Priority:** P1
 
@@ -272,7 +276,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Constraints:**
 
-- The fix must retain image-prewarmed extension startup and must not patch Plan Mode or Jiti package source.
+- This late-loading fix must retain image-prewarmed extension startup and must not depend on Plan Mode or Jiti package-source changes; the independent Plan policy compatibility transform is owned by [REQ-AGENT-152](#req-agent-152-native-plan-mode-workflow-in-pi-sessions).
 
 **Priority:** P1
 
@@ -2288,6 +2292,7 @@ None.
 4. The local-build guard covers the package-manager build/test/lint/typecheck/dev verbs plus `pytest`, `vitest`, `go test`, `swift test`, `cargo test`, `tsc`, `eslint`, `oxlint`, `biome`, direct Node syntax checks, `prettier`, and `wrangler dev`. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isLocalBuildCommand --> <!-- @manual -->
 5. The local-build guard honors a user-only consume-on-use sentinel at `/tmp/local-build-bypass`: when present, the guard deletes it and allows the one command through; the block message names the override path. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::localBuildBlockReason --> <!-- @manual -->
 6. The seeded safe-local-check wrapper runs approved read-only analyzers or Node syntax checks from any repository through local binaries at low priority with one bounded deadline and no file-count limit. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::FORBIDDEN_ARGUMENTS --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::managedTimeout --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::runBounded --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
+7. Checked paths whose canonical targets leave the current repository directly or through symlinks are rejected. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryFiles --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
 
 **Constraints:**
 
@@ -3209,11 +3214,11 @@ None.
 **Acceptance Criteria:**
 
 1. A broad capability question starts with a structured first-person Codeflare overview covering end-to-end engineering ownership, proof, specialist coordination, browser workspaces, persistence boundaries, and configured Enterprise controls before subsystem detail. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Ask a fresh Standard and Advanced session what Codeflare can do and review response order and substance. -->
-2. The overview distinguishes Here now, Advanced, Enterprise/Governed, operator-configured, and not-established capability instead of presenting every platform contract as active in the current session. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Compare a fresh Standard session with an Advanced session and an unconfigured Enterprise capability. -->
-3. The response ends with a stable numbered list for SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Secure Web Gateway, MCP portals, AI Gateway, Browser Run, and agentic primitives as independent deep dives. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Review the 1 through 13 mapping and request each subsystem independently. -->
+2. The overview preserves availability truth through hard boundaries, operator configuration, explicit permissions, and unproven-capability limits without product-tier or session-mode labels. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Compare configured, unconfigured, and permission-gated capability answers. -->
+3. The response ends with a stable numbered list for SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Secure Web Gateway, MCP portals, AI Gateway, Browser Run, agentic primitives, and design systems as independent deep dives. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Review the 1 through 14 mapping and request each subsystem independently. -->
 4. A broad response loads no subsystem reference. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Inspect loaded files for one broad capability question. -->
 5. A number-only, comma-separated, or named follow-up reads only the reference or references selected by the user. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Reply with one number and then request one multi-subsystem selection; inspect loaded files. -->
-6. A deep dive states applicable mode, enterprise, permission, and operator dependencies before presenting the capability as available. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review one Standard, one Advanced, and one unconfigured Enterprise answer. -->
+6. A deep dive states applicable permission, operator-configuration, external-system, and unproven-capability boundaries before presenting the capability as available. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review configured, unconfigured, permission-gated, and external-system deep dives. -->
 7. A deep dive gives a concrete example the user or operator can try. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review each applicable user- or administrator-operated example. -->
 
 **Constraints:**
@@ -3641,7 +3646,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. On each user turn, Pi activates registered basic editing and capability tools; specialized tools stay registered but inactive until selected. Goal terminal tools remain active only while the latest canonical Goal is unfinished or both were already visible under the user's Goal policy. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
+1. On each user turn, Pi activates registered basic editing and capability tools; specialized tools stay registered but inactive until selected. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 2. Capability search returns matching registered tools by name or description. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 3. Capability activation additively enables only registered tools without granting authorization. <!-- @impl: preseed/agents/pi/extensions/capability.ts::capabilityExtension --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 4. The PR-boundary launch owner activates `subagent` before delivering its unchanged reviewer-and-CI follow-up request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (activates subagent and emits independent launch waves before ending the boundary turn) -->
@@ -4551,17 +4556,19 @@ None.
 
 **Acceptance Criteria:**
 
-1. After all local dynamic registration but before provider serialization, a normal Pi user turn activates only `read`, `bash`, `edit`, `write`, and `capability` when those tools are registered. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC1+AC2: final filtering removes tools registered by an earlier before-agent handler) -->
+1. After all local dynamic registration but before provider serialization, a normal Pi user turn activates only `read`, `bash`, `edit`, `write`, and `capability` when those tools are registered. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::initialActiveTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC1+AC2: final filtering removes tools registered by an earlier before-agent handler) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
 2. Optional tools remain registered and searchable while inactive; adding any new optional tool, including one with a large schema, does not alter initial active-tool selection. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC1+AC2: keeps only bootstrap tools regardless of optional registrations) -->
 3. Exact capability activation adds the requested registered tool for the next model step without removing current tools; activating `subagent` also activates `get_subagent_result` and `steer_subagent` when registered. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activationGroup --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC3: treats subagent and its controls as one additive activation group) -->
 4. A new user prompt restores bootstrap exposure while tools activated inside the current agent loop remain available for their next provider step. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
-5. Goal terminal-tool continuity remains authoritative over bootstrap selection. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: restores terminal Goal tools only for an unfinished session Goal) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: preserves Goal tools already active under the always-visible policy) -->
+5. Unfinished Goal continuity or configured `always` visibility remains authoritative over bootstrap and active-Plan selection; merely already-active Goal tools do not. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: restores terminal Goal tools only for an unfinished session Goal) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: preserves Goal tools already active under the always-visible policy) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158: keeps configured always-visible Goal tools during an active Plan) -->
 6. Provider-boundary diagnostics report registered and initially active tool names and serialized schemas separately, and real runtime measurement rejects an invalid initial active set without imposing a fixed tool-token threshold. <!-- @impl: scripts/measure-pi-runtime-context.mjs::main --> <!-- @impl: scripts/measure-pi-runtime-context.mjs::validateInitialToolExposure --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @manual -->
+7. Subject to Goal visibility in AC5, an active Plan workflow exposes only its persisted allowed tools plus `plan_mode_question` and `plan_mode_complete`. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activePlanTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-152/158: preserves only a restored Plan workflow policy plus required helpers) -->
 
 **Constraints:**
 
 - Registered tools, skills, native package discovery, explicit invocation, and context-mode's explicit enablement remain available.
-- Use Pi's native `getAllTools`, `getActiveTools`, `setActiveTools`, additive tool-result availability, and `tool_call` blocking contracts; do not add a router, Pi fork, XML rewrite, or package-source patch.
+- Use Pi's native `getAllTools`, `getActiveTools`, `setActiveTools`, additive tool-result availability, and `tool_call` blocking contracts; do not add a router, Pi fork, or XML rewrite.
+- Any package-source transform must be exact-version, image-owned, idempotent, and required by a focused compatibility contract.
 - Codeflare-curation owns complete managed extension bytes and mode membership; Codeflare owns the independent embedded fallback and image/runtime inputs.
 - Tool-schema sizes are diagnostic.
 - Existing controlled-prompt limits remain owned by [REQ-AGENT-156](#req-agent-156-bounded-lossless-pi-prompt).
@@ -4686,8 +4693,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. Supported embedded PNG or JPEG prompt metadata prevents that raster from being reported as missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::promptOf --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::promptOf --> <!-- @manual -->
-2. A valid adjacent JSON sidecar prompt prevents its raster from being reported as missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::promptOf --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::promptOf --> <!-- @manual -->
+1. Supported embedded PNG or JPEG prompt metadata prevents that raster from being reported as missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @manual -->
+2. A valid adjacent JSON sidecar prompt prevents its raster from being reported as missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @manual -->
 
 **Constraints:** Prompt recovery is read-only during scan mode.
 
@@ -4695,7 +4702,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal)
 
-**Verification:** Manual review
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -4709,7 +4716,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Scan mode reports each raster without recoverable prompt metadata and exits with status 3 when any are missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::scanMode --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::scanMode --> <!-- @manual -->
+1. Scan mode reports each raster without recoverable prompt metadata and exits with status 3 when any are missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::MISSING --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::MISSING --> <!-- @manual -->
 2. An invalid target fails explicitly with status 1. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::no such path --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::no such path --> <!-- @manual -->
 
 **Constraints:** Claude and Pi carry byte-identical prompt-metadata audit behavior.
@@ -4718,7 +4725,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-166](#req-agent-166-impeccable-raster-prompt-recovery)
 
-**Verification:** Manual review
+**Verification:** Manual check
 
 **Status:** Implemented
 

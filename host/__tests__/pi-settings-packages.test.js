@@ -69,6 +69,7 @@ const REVIEWED_GOAL_RELEASES = Object.freeze({
   '0.49.5': 'sha512-0rMVURaipVyJCXq6t34WVZQGfCjyESgme0MJ0U9hZ22DeyobhQV4Ft6BqCoBgRNtgf+HrAuZrXCJmBU54Wd0gQ==',
   '0.49.7': 'sha512-7FznIa3HGEsMkppnv7CLW6/TCvtuslKdk+BgrcvNrmJVK/HJfo5rTBCxCzahW2BbEy47Ixfsdqzrg6HL4LX8qw==',
   '0.53.0': 'sha512-cmWowqAzlkgRLKYp2hFnUZvEEs6G6aGjEOazBWNW88T7LB9cd/AzOFOGYvA1QxxsGtIdOuFRZJVhfAJDGsAcjw==',
+  '0.54.2': 'sha512-RbrArj7OoP/6FGMZ+yBtKiRyz1r1PjTFdPJv+23MhoGxsyNB6suJk8VDni9jOk6lS5lwsJhaj/S1s1AT8urtnw==',
 });
 
 describe('Goal package preseed (REQ-AGENT-111)', () => {
@@ -77,7 +78,7 @@ describe('Goal package preseed (REQ-AGENT-111)', () => {
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
     const version = pkg.dependencies['@narumitw/pi-goal'];
     const expectedIntegrity = REVIEWED_GOAL_RELEASES[version];
-    assert.equal(version, '0.53.0');
+    assert.equal(version, '0.54.2');
     assert.ok(expectedIntegrity, `unreviewed pi-goal release: ${String(version)}`);
     assert.equal(pkg.dependencies['pi-goal-list-loop-audit'], undefined);
     const goal = lock.packages['node_modules/@narumitw/pi-goal'];
@@ -143,7 +144,7 @@ describe('Plan mode package preseed (REQ-AGENT-152)', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
     const version = pkg.dependencies['@narumitw/pi-plan-mode'];
-    assert.equal(version, '0.52.0');
+    assert.equal(version, '0.55.1');
     const planMode = lock.packages['node_modules/@narumitw/pi-plan-mode'];
     assert.equal(planMode.version, version);
     assert.equal(
@@ -152,7 +153,7 @@ describe('Plan mode package preseed (REQ-AGENT-152)', () => {
     );
     assert.equal(
       planMode.integrity,
-      'sha512-h2mye4GFa9slqP17NhInBHv2GW3pYwMY76HHENHuwrMr/dOGXRdNacxfwbJSy1njozxlcnWvgdG6a7pE8UPBiw==',
+      'sha512-fgQTkSTMOzsm7jWlISh7XqAQZQkOZh+ZVJbiZSs9W3OdmxWCgwKR92XESHejuwIuJm5s6PDWa6T1MHK6D/qZeQ==',
     );
     assert.deepEqual(planMode.peerDependencies, {
       '@earendil-works/pi-coding-agent': '*',
@@ -164,7 +165,13 @@ describe('Plan mode package preseed (REQ-AGENT-152)', () => {
 describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
   it('pins the reviewed upstream release and retains no source-override machinery', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
-    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.6.0');
+    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
+    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.7.1');
+    assert.equal(lock.packages['node_modules/@juicesharp/rpiv-todo'].version, '2.7.1');
+    assert.equal(
+      lock.packages['node_modules/@juicesharp/rpiv-todo'].integrity,
+      'sha512-5SCPe1Z2ofgiK805fYm5dGott6XA8zlDMeQHADq50S2UFjH1EuXpTnSmx+X8JUPMIzyRnBY3gVltz525oWH52Q==',
+    );
     assert.equal(pkg.scripts?.postinstall, undefined);
     assert.ok(!existsSync(resolve(__dirname, '../../preseed/agents/pi/npm/rpiv-todo-session-isolation')));
   });

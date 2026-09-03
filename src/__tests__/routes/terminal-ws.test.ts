@@ -39,7 +39,16 @@ vi.mock('../../lib/circuit-breakers', () => ({
 
 // Workers runtime doesn't allow constructing responses with status 101;
 // use 200 as a stand-in for a successful container forward.
-const mockContainerFetch = vi.fn().mockResolvedValue(new Response('ws upgrade', { status: 200 }));
+const defaultContainerFetch = async (request: Request): Promise<Response> => {
+  if (new URL(request.url).pathname === '/health') {
+    return new Response(JSON.stringify({ terminalServiceReady: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  return new Response('ws upgrade', { status: 200 });
+};
+const mockContainerFetch = vi.fn(defaultContainerFetch);
 // safeCheckContainerHealth() reads container.getState() before fetching /health
 // to avoid auto-starting a hibernated container; mock it as "running" so the
 // warming-up probe in handleWebSocketUpgrade reaches the fetch path.
@@ -93,7 +102,7 @@ describe('handleWebSocketUpgrade', () => {
     // sets mockReset/restoreMocks. Several cases here install a per-URL fetch —
     // one of them throwing — so without this a later test silently inherits the
     // previous one's behaviour and fails by declaration order.
-    mockContainerFetch.mockReset().mockResolvedValue(new Response('ws upgrade', { status: 200 }));
+    mockContainerFetch.mockReset().mockImplementation(defaultContainerFetch);
     mockContainerGetState.mockReset().mockResolvedValue({ status: 'running' });
   });
 
@@ -400,45 +409,27 @@ describe('handleWebSocketUpgrade', () => {
     });
   });
 
-  describe('CF-015: Stopped session returns 4503 close code / REQ-SEC-020 AC1 (4503 short-circuit BEFORE WS rate-limit check)', () => {
-    it('returns WebSocket upgrade with 4503 close for stopped session', async () => {
-      const sessionId = 'abcdef1234567890';
-      mockKV._set(`session:test-bucket:${sessionId}`, {
-        id: sessionId,
-        name: 'Test',
-        userId: 'test-bucket',
-        createdAt: '2026-01-01T00:00:00Z',
-        lastAccessedAt: '2026-01-01T00:00:00Z',
-        status: 'stopped',
-      });
-
-      const request = new Request(`http://localhost/api/terminal/${sessionId}-1/ws`, {
-        headers: {
-          'Upgrade': 'websocket',
-          'Origin': 'http://localhost',
-        },
-      });
-
-      const env = {
-        KV: mockKV as unknown as KVNamespace,
-        CONTAINER: {},
-      } as unknown as Env;
-
-      const ctx = { waitUntil: vi.fn() } as unknown as ExecutionContext;
-      const routeResult = validateWebSocketRoute(request);
-      expect(routeResult.isWebSocketRoute).toBe(true);
-      const result = await handleWebSocketUpgrade(request, env, ctx, routeResult as any);
-
-      // Should return 101 (WebSocket upgrade accepted then closed with 4503)
-      expect(result.status).toBe(101);
+  describe('CF-015 / REQ-SEC-020 AC1-AC4: Container state owns terminal admission', () => {
+    const requestFor = (sessionId: string) => new Request(`http://localhost/api/terminal/${sessionId}-1/ws`, {
+      headers: { 'Upgrade': 'websocket', 'Origin': 'http://localhost' },
     });
 
-    it('does NOT burn WebSocket rate-limit budget when session is stopped (reconnect-storm protection)', async () => {
-      // Reconnect storms during container outages were self-locking users for ~2min:
-      // browser auto-reconnect would hit /api/terminal/:id/ws 30+ times in 60s while
-      // the container was down, the rate-limit incremented on each, and even after
-      // the container came back the user was throttled. Stopped-session rejection
-      // must short-circuit before the rate-limit check.
+    const readCloseCode = async (response: Response): Promise<number> => {
+      const ws = response.webSocket!;
+      const closeCode = new Promise<number>((resolve) => {
+        ws.addEventListener('close', (event) => resolve((event as unknown as { code: number }).code));
+      });
+      ws.accept();
+      return closeCode;
+    };
+
+    const expectNoRateLimitWrite = () => {
+      expect(mockKV.put.mock.calls.filter(
+        (call: any[]) => typeof call[0] === 'string' && call[0].startsWith('ws-connect:')
+      )).toHaveLength(0);
+    };
+
+    it('forwards stale-KV stopped when persisted Container state is healthy', async () => {
       const sessionId = 'abcdef1234567890';
       mockKV._set(`session:test-bucket:${sessionId}`, {
         id: sessionId,
@@ -448,32 +439,107 @@ describe('handleWebSocketUpgrade', () => {
         lastAccessedAt: '2026-01-01T00:00:00Z',
         status: 'stopped',
       });
-
-      const request = new Request(`http://localhost/api/terminal/${sessionId}-1/ws`, {
-        headers: { 'Upgrade': 'websocket', 'Origin': 'http://localhost' },
+      mockContainerGetState.mockResolvedValue({ status: 'healthy', lastChange: Date.now() });
+      mockContainerFetch.mockImplementation(async (req: Request) => {
+        if (new URL(req.url).pathname === '/health') {
+          return new Response(JSON.stringify({ terminalServiceReady: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response('ws upgrade', { status: 200 });
       });
-      const env = {
-        KV: mockKV as unknown as KVNamespace,
-        CONTAINER: {},
-      } as unknown as Env;
+      const request = requestFor(sessionId);
       const ctx = { waitUntil: vi.fn() } as unknown as ExecutionContext;
-      const routeResult = validateWebSocketRoute(request);
 
-      const result = await handleWebSocketUpgrade(request, env, ctx, routeResult as any);
+      const result = await handleWebSocketUpgrade(
+        request,
+        { KV: mockKV as unknown as KVNamespace, CONTAINER: {} } as unknown as Env,
+        ctx,
+        validateWebSocketRoute(request) as any,
+      );
 
-      expect(result.status).toBe(101); // 4503-close path still returns successful upgrade
-      const wsConnectGetCalls = mockKV.get.mock.calls.filter(
-        (call: any[]) => typeof call[0] === 'string' && call[0].startsWith('ws-connect:')
+      expect(result.status).toBe(200);
+      expect(mockContainerFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it.each(['stopped', 'stopped_with_code', 'stopping'])('returns 4503 without rate-limit use for Container state %s', async (status) => {
+      const sessionId = 'abcdef1234567890';
+      mockKV._set(`session:test-bucket:${sessionId}`, {
+        id: sessionId,
+        name: 'Test',
+        userId: 'test-bucket',
+        createdAt: '2026-01-01T00:00:00Z',
+        lastAccessedAt: '2026-01-01T00:00:00Z',
+        status: 'running',
+      });
+      mockContainerGetState.mockResolvedValue({ status, lastChange: Date.now() });
+      const request = requestFor(sessionId);
+
+      const result = await handleWebSocketUpgrade(
+        request,
+        { KV: mockKV as unknown as KVNamespace, CONTAINER: {} } as unknown as Env,
+        { waitUntil: vi.fn() } as unknown as ExecutionContext,
+        validateWebSocketRoute(request) as any,
       );
-      const wsConnectPutCalls = mockKV.put.mock.calls.filter(
-        (call: any[]) => typeof call[0] === 'string' && call[0].startsWith('ws-connect:')
+
+      expect(await readCloseCode(result)).toBe(4503);
+      expect(mockContainerFetch).not.toHaveBeenCalled();
+      expectNoRateLimitWrite();
+    });
+
+    it.each(['running', 'healthy'])('returns retryable 1013 without rate-limit use when %s state fails health', async (status) => {
+      const sessionId = 'abcdef1234567890';
+      mockKV._set(`session:test-bucket:${sessionId}`, {
+        id: sessionId,
+        name: 'Test',
+        userId: 'test-bucket',
+        createdAt: '2026-01-01T00:00:00Z',
+        lastAccessedAt: '2026-01-01T00:00:00Z',
+        status: 'running',
+      });
+      mockContainerGetState.mockResolvedValue({ status, lastChange: Date.now() });
+      mockContainerFetch.mockRejectedValue(new Error('Network connection lost.'));
+      const request = requestFor(sessionId);
+
+      const result = await handleWebSocketUpgrade(
+        request,
+        { KV: mockKV as unknown as KVNamespace, CONTAINER: {} } as unknown as Env,
+        { waitUntil: vi.fn() } as unknown as ExecutionContext,
+        validateWebSocketRoute(request) as any,
       );
-      expect(wsConnectGetCalls).toHaveLength(0);
-      expect(wsConnectPutCalls).toHaveLength(0);
+
+      expect(await readCloseCode(result)).toBe(1013);
+      expectNoRateLimitWrite();
+    });
+
+    it('returns retryable 1013 without rate-limit use when Container state is unavailable', async () => {
+      const sessionId = 'abcdef1234567890';
+      mockKV._set(`session:test-bucket:${sessionId}`, {
+        id: sessionId,
+        name: 'Test',
+        userId: 'test-bucket',
+        createdAt: '2026-01-01T00:00:00Z',
+        lastAccessedAt: '2026-01-01T00:00:00Z',
+        status: 'running',
+      });
+      mockContainerGetState.mockRejectedValue(new Error('state unavailable'));
+      const request = requestFor(sessionId);
+
+      const result = await handleWebSocketUpgrade(
+        request,
+        { KV: mockKV as unknown as KVNamespace, CONTAINER: {} } as unknown as Env,
+        { waitUntil: vi.fn() } as unknown as ExecutionContext,
+        validateWebSocketRoute(request) as any,
+      );
+
+      expect(await readCloseCode(result)).toBe(1013);
+      expect(mockContainerFetch).not.toHaveBeenCalled();
+      expectNoRateLimitWrite();
     });
   });
 
-  describe('container-warming-up gate (PR #365) / REQ-SEC-020 AC2 (1013 close BEFORE WS rate-limit when terminalServiceReady=false; /health probe error falls through)', () => {
+  describe('container-warming-up gate (PR #365) / REQ-SEC-020 AC3 (1013 close BEFORE WS rate-limit while readiness is unverified)', () => {
     it('returns 1013 close without burning rate-limit when /health reports terminalServiceReady=false', async () => {
       // PR #364 regression: port 8080 binds at ~1.5s but .bashrc autostart
       // isn't written until ~10s. Worker peeks /health and short-circuits
@@ -570,28 +636,27 @@ describe('handleWebSocketUpgrade', () => {
       }
     });
 
-    it('falls through to normal flow when /health probe fails (fail-open) AND rate-limit IS burned', async () => {
+    it('returns retryable 1013 without forwarding or rate-limit use when /health fails', async () => {
       mockContainerFetch.mockImplementation(async (req: Request) => {
-        const url = new URL(req.url);
-        if (url.pathname === '/health') {
-          throw new Error('container unreachable');
-        }
+        if (new URL(req.url).pathname === '/health') throw new Error('container unreachable');
         return new Response('ws upgrade', { status: 200 });
       });
 
       const request = createRequest();
-      const routeResult = validateWebSocketRoute(request);
-      const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, routeResult);
+      const response = await handleWebSocketUpgrade(request, mockEnv, mockCtx, validateWebSocketRoute(request));
+      const ws = response.webSocket!;
+      const closeCode = new Promise<number>((resolve) => {
+        ws.addEventListener('close', (event) => resolve((event as unknown as { code: number }).code));
+      });
+      ws.accept();
 
-      // Fail-open: probe failure should not block the upgrade
-      expect(response.status).toBe(200);
-      // CRITICAL: rate-limit IS burned on fallthrough — otherwise a future
-      // refactor could short-circuit before rate-limit on probe failure and
-      // re-enable the self-lockout this PR was built to prevent.
-      const wsConnectPutCalls = mockKV.put.mock.calls.filter(
+      expect(await closeCode).toBe(1013);
+      expect(mockContainerFetch.mock.calls.some(
+        (call) => new URL((call[0] as Request).url).pathname === '/terminal'
+      )).toBe(false);
+      expect(mockKV.put.mock.calls.filter(
         (call: any[]) => typeof call[0] === 'string' && call[0].startsWith('ws-connect:')
-      );
-      expect(wsConnectPutCalls.length).toBeGreaterThan(0);
+      )).toHaveLength(0);
     });
   });
 });

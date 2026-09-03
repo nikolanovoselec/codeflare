@@ -56,9 +56,9 @@ const layDownFn = () =>
 
 const compareFlagFragment = () =>
   extractBetween(
-    '    local COMPARE_FLAG="--size-only"',
-    'COMPARE_FLAG="--checksum"\n    fi',
-    'COMPARE_FLAG',
+    '    local COMPARE_FLAGS=()',
+    'COMPARE_LABEL="checksum"\n    fi',
+    'COMPARE_FLAGS',
   );
 
 const relayFn = () =>
@@ -338,7 +338,7 @@ function runCompareFlag({ r2SseDisabled }) {
   const script = [
     'set -euo pipefail',
     r2SseDisabled ? "R2_SSE_DISABLED='true'" : '',
-    `_pick() {\n${compareFlagFragment()}\n  echo "$COMPARE_FLAG"\n}`,
+    `_pick() {\n${compareFlagFragment()}\n  echo "$COMPARE_LABEL"\n}`,
     '_pick',
   ].join('\n');
   const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
@@ -346,16 +346,69 @@ function runCompareFlag({ r2SseDisabled }) {
 }
 
 describe('REQ-STOR-017 / AD90: initial-sync compare flag (entrypoint.sh initial_sync_from_r2)', () => {
-  it('uses --checksum under Governed Mode', () => {
+  it('uses checksums under Governed Mode', () => {
     const { code, stderr, out } = runCompareFlag({ r2SseDisabled: true });
     assert.equal(code, 0, `compare-flag fragment exited non-zero: ${stderr}`);
-    assert.equal(out, '--checksum');
+    assert.equal(out, 'checksum');
   });
 
-  it('uses --size-only under SSE-C (default, byte-identical to today)', () => {
+  it('uses size and modification time under SSE-C so same-size changes are not skipped', () => {
     const { code, stderr, out } = runCompareFlag({ r2SseDisabled: false });
     assert.equal(code, 0, `compare-flag fragment exited non-zero: ${stderr}`);
-    assert.equal(out, '--size-only');
+    assert.equal(out, 'size+modtime');
+  });
+
+  it('materializes exact remote bytes for added, removed, same-size changed, and different-size changed files', () => {
+    const home = mkdtempSync(join(tmpdir(), 'managed-delta-home-'));
+    const remote = mkdtempSync(join(tmpdir(), 'managed-delta-r2-'));
+    const config = join(home, 'rclone.conf');
+    writeFileSync(config, '[r2]\ntype = local\n');
+    for (const [relative, content] of Object.entries({
+      '.claude/unchanged.md': 'unchanged',
+      '.claude/added.md': 'added',
+      '.claude/same-size.md': 'BBBB',
+      '.claude/different-size.md': 'different target bytes',
+    })) {
+      mkdirSync(dirname(join(remote, relative)), { recursive: true });
+      writeFileSync(join(remote, relative), content);
+    }
+    for (const [relative, content] of Object.entries({
+      '.claude/unchanged.md': 'unchanged',
+      '.claude/removed.md': 'remove me',
+      '.claude/same-size.md': 'AAAA',
+      '.claude/different-size.md': 'short',
+    })) {
+      mkdirSync(dirname(join(home, relative)), { recursive: true });
+      writeFileSync(join(home, relative), content);
+    }
+    const old = new Date('2025-01-01T00:00:00.000Z');
+    const target = new Date('2026-01-01T00:00:00.000Z');
+    for (const relative of ['.claude/same-size.md', '.claude/different-size.md']) {
+      utimesSync(join(home, relative), old, old);
+      utimesSync(join(remote, relative), target, target);
+    }
+    const initialSync = extractBefore(
+      'initial_sync_from_r2() {',
+      '# REQ-STOR-017 / AD90: lay down the image-baked agent seed',
+      'initial_sync_from_r2',
+    );
+    const script = [
+      'set -euo pipefail',
+      `USER_HOME='${home}'`,
+      `R2_BUCKET_NAME='${remote}'`,
+      `RCLONE_CONFIG='${config}'`,
+      'RCLONE_FILTERS=()',
+      initialSync,
+      'initial_sync_from_r2',
+    ].join('\n');
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: runtimeEnv(home) });
+
+    assert.equal(result.status, 0, `initial sync exited non-zero: ${result.stderr}`);
+    assert.equal(readFileSync(join(home, '.claude/unchanged.md'), 'utf8'), 'unchanged');
+    assert.equal(readFileSync(join(home, '.claude/added.md'), 'utf8'), 'added');
+    assert.equal(readFileSync(join(home, '.claude/same-size.md'), 'utf8'), 'BBBB');
+    assert.equal(readFileSync(join(home, '.claude/different-size.md'), 'utf8'), 'different target bytes');
+    assert.equal(existsSync(join(home, '.claude/removed.md')), false);
   });
 });
 

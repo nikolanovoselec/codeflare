@@ -1606,8 +1606,10 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
   });
 
   describe('WebSocket reconnection behavior', () => {
-    it('stops retrying on 4503 (container stopped) and sets disconnected', async () => {
+    it('stops retrying on 4503, releases ownership, and reports the authoritative stop', async () => {
       const terminal = createMockTerminal();
+      const onSessionStopped = vi.fn();
+      terminalStore.registerSessionStoppedCallback(onSessionStopped);
       const OriginalWebSocket = globalThis.WebSocket;
       let connectCount = 0;
 
@@ -1644,6 +1646,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       } as unknown as typeof WebSocket);
 
       terminalStore.connect(sessionId, terminalId, terminal);
+      expect(terminalStore.ownsSession(sessionId)).toBe(true);
       await vi.advanceTimersByTimeAsync(0);
 
       // Should NOT retry — 4503 is authoritative
@@ -1652,7 +1655,10 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
 
       expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('disconnected');
       expect(terminalStore.getRetryMessage(sessionId, terminalId)).toBe('Session stopped');
+      expect(terminalStore.ownsSession(sessionId)).toBe(false);
+      expect(onSessionStopped).toHaveBeenCalledWith(sessionId);
 
+      terminalStore.registerSessionStoppedCallback(() => {});
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
@@ -1703,6 +1709,9 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
 
       // Should keep retrying — no dead-container cutoff at attemptNumber > 1
       expect(connectCount).toBeGreaterThanOrEqual(5);
+      expect(terminalStore.ownsSession(sessionId)).toBe(true);
+      terminalStore.disconnect(sessionId, terminalId);
+      expect(terminalStore.ownsSession(sessionId)).toBe(false);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });

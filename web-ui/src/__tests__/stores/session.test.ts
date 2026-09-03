@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const terminalLifecycle = vi.hoisted(() => ({
+  ownedSessionIds: new Set<string>(),
+  stoppedCallback: null as ((sessionId: string) => void) | null,
+}));
+
 // MOCK-DRIFT RISK: terminalStore is a shallow stub. Real store manages WebSocket
 // connections per session/terminal, xterm instances, FitAddon registration, and
 // reconnection logic. dispose() in the real store tears down WebSockets and xterm;
@@ -9,6 +14,10 @@ vi.mock('../../stores/terminal', () => ({
     dispose: vi.fn(),
     disposeSession: vi.fn(),
     triggerLayoutResize: vi.fn(),
+    ownsSession: vi.fn((sessionId: string) => terminalLifecycle.ownedSessionIds.has(sessionId)),
+    registerSessionStoppedCallback: vi.fn((callback: (sessionId: string) => void) => {
+      terminalLifecycle.stoppedCallback = callback;
+    }),
   },
   sendInputToTerminal: vi.fn(() => false),
   registerProcessNameCallback: vi.fn(),
@@ -90,6 +99,7 @@ const mockSweepOrphanVaultCaches = vi.mocked(vaultCache.sweepOrphanVaultCaches);
 describe('Session Store', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    terminalLifecycle.ownedSessionIds.clear();
     localStorage.clear();
     vi.useFakeTimers();
 
@@ -97,7 +107,9 @@ describe('Session Store', () => {
     mockGetSessions.mockResolvedValue([]);
     mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
     mockGetStartupStatus.mockRejectedValue(new Error('Not found'));
+    sessionStore.setActiveSession(null);
     sessionStore._resetMissCounters();
+    sessionStore._resetStartupGuards();
     sessionStore._resetAuthExpired();
     sessionStore._resetManagedCheckState();
   });
@@ -614,7 +626,7 @@ describe('Session Store', () => {
       expect(sessionStore.managedReleaseProgress).toEqual({ phase: 'writing', completed: 50, total: 61 });
     });
 
-    it('REQ-STOR-023 AC3: checks for a later managed release while status is current', async () => {
+    it('REQ-STOR-040 AC1: checks for a later managed release while status is current', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,
@@ -628,7 +640,7 @@ describe('Session Store', () => {
       expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true, include: ['storage', 'usage'] });
     });
 
-    it('REQ-STOR-023 AC3: a failed batch-status call does not consume the managed-release check window', async () => {
+    it('REQ-STOR-040 AC3: a failed batch-status call does not consume the managed-release check window', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,
@@ -645,7 +657,23 @@ describe('Session Store', () => {
       expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: true, include: ['storage', 'usage'] });
     });
 
-    it('REQ-STOR-023 AC3: an overlapping poll does not duplicate the managed-release check', async () => {
+    it('REQ-STOR-040 AC2: retries the managed-release check after the initial batch request fails', async () => {
+      mockGetBatchSessionStatus.mockRejectedValueOnce(new Error('batch-status unavailable'));
+      await sessionStore.loadSessions();
+
+      mockGetBatchSessionStatus.mockResolvedValueOnce({
+        statuses: {},
+        maxSessions: 3,
+        managedReleaseStatus: 'update_pending',
+      } as never);
+      await sessionStore.refreshSessionStatuses();
+
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true, include: ['storage', 'usage'] });
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: true, include: ['storage', 'usage'] });
+      expect(sessionStore.managedReleaseStatus).toBe('update_pending');
+    });
+
+    it('REQ-STOR-040 AC1: an overlapping poll does not duplicate the managed-release check', async () => {
       // A transient status is checked on every poll, so this isolates the in-flight guard
       // from the freshness window and from any stamp an earlier test left behind.
       mockGetBatchSessionStatus.mockResolvedValue({
@@ -1681,10 +1709,130 @@ describe('Session Store', () => {
 
       await sessionStore.loadSessions();
 
-      // Sessions should still load (graceful degradation)
-      expect(sessionStore.sessions.length).toBe(1);
+      // The fetched session still loads even when a locally initializing session
+      // is retained across the successful list response.
+      expect(sessionStore.sessions.some((session) => session.id === 'session-1')).toBe(true);
       // Error state should be set
       expect(sessionStore.error).toBe('Batch status network error');
+    });
+  });
+
+  describe('REQ-SESSION-018 negative KV evidence guard', () => {
+    const runningSession = {
+      id: 'session-1',
+      name: 'Test Session',
+      createdAt: '2026-09-02T18:00:00.000Z',
+      lastAccessedAt: '2026-09-02T18:00:00.000Z',
+    };
+
+    async function loadRunningSession(): Promise<void> {
+      mockGetSessions.mockResolvedValue([runningSession]);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+        'session-1': { status: 'running', ptyActive: true, startupStage: 'ready' },
+      }, maxSessions: 3 });
+      await sessionStore.loadSessions();
+      expect(sessionStore.sessions[0]?.status).toBe('running');
+    }
+
+    it('keeps a newly-running session when polling sees stale stopped metadata', async () => {
+      await loadRunningSession();
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+        'session-1': { status: 'stopped', ptyActive: false },
+      }, maxSessions: 3 });
+
+      await sessionStore.refreshSessionStatuses();
+
+      expect(sessionStore.sessions[0]?.status).toBe('running');
+      expect(terminal.terminalStore.disposeSession).not.toHaveBeenCalled();
+    });
+
+    it('keeps a guarded session through repeated missing batch entries', async () => {
+      await loadRunningSession();
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
+
+      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses();
+
+      expect(sessionStore.sessions.some((session) => session.id === 'session-1')).toBe(true);
+    });
+
+    it('keeps a transport-owned session after startup guard expiry when polling sees stopped', async () => {
+      await loadRunningSession();
+      terminalLifecycle.ownedSessionIds.add('session-1');
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000 + 1);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+        'session-1': { status: 'stopped', ptyActive: false },
+      }, maxSessions: 3 });
+
+      await sessionStore.refreshSessionStatuses();
+
+      expect(sessionStore.activeSessionId).toBeNull();
+      expect(sessionStore.sessions[0]?.status).toBe('running');
+      expect(terminal.terminalStore.disposeSession).not.toHaveBeenCalled();
+    });
+
+    it('keeps a transport-owned session through repeated missing entries after guard expiry', async () => {
+      await loadRunningSession();
+      terminalLifecycle.ownedSessionIds.add('session-1');
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000 + 1);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
+
+      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses();
+
+      expect(sessionStore.sessions.some((session) => session.id === 'session-1')).toBe(true);
+    });
+
+    it('applies the same protection to full-load stopped metadata', async () => {
+      await loadRunningSession();
+      terminalLifecycle.ownedSessionIds.add('session-1');
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000 + 1);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+        'session-1': { status: 'stopped', ptyActive: false },
+      }, maxSessions: 3 });
+
+      await sessionStore.loadSessions();
+
+      expect(sessionStore.sessions[0]?.status).toBe('running');
+      expect(terminal.terminalStore.disposeSession).not.toHaveBeenCalled();
+    });
+
+    it('preserves a transport-owned local record through a full-list omission', async () => {
+      await loadRunningSession();
+      terminalLifecycle.ownedSessionIds.add('session-1');
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000 + 1);
+      mockGetSessions.mockResolvedValue([]);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
+
+      await sessionStore.loadSessions();
+
+      expect(sessionStore.sessions.some((session) => session.id === 'session-1')).toBe(true);
+      expect(terminal.terminalStore.disposeSession).not.toHaveBeenCalledWith('session-1');
+    });
+
+    it('accepts stopped metadata after both guard and transport ownership end', async () => {
+      await loadRunningSession();
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000 + 1);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {
+        'session-1': { status: 'stopped', ptyActive: false },
+      }, maxSessions: 3 });
+
+      await sessionStore.refreshSessionStatuses();
+
+      expect(sessionStore.sessions[0]?.status).toBe('stopped');
+      expect(terminal.terminalStore.disposeSession).toHaveBeenCalledWith('session-1');
+    });
+
+    it('applies authoritative 4503 immediately despite guard and transport ownership', async () => {
+      await loadRunningSession();
+      terminalLifecycle.ownedSessionIds.add('session-1');
+
+      terminalLifecycle.stoppedCallback?.('session-1');
+
+      expect(sessionStore.sessions[0]?.status).toBe('stopped');
+      expect(terminal.terminalStore.disposeSession).toHaveBeenCalledWith('session-1');
     });
   });
 
@@ -1702,8 +1850,9 @@ describe('Session Store', () => {
         'session-1': { status: 'running', ptyActive: true, startupStage: 'ready' },
       }, maxSessions: 3 });
       await sessionStore.loadSessions();
-      // Mark session as running in existingStatuses
+      // Mark session as running in existingStatuses, then leave startup guard.
       sessionStore.updateSessionStatus('session-1', 'running');
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000 + 1);
     });
 
     it('calls disposeSession when session transitions from running to stopped', async () => {

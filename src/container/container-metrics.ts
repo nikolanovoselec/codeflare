@@ -233,10 +233,14 @@ export async function updateKvStatus(
       logger.info('updateKvStatus: session not found in KV', { key, status, field });
       return 'absent';
     }
+    const timestamp = new Date().toISOString();
     const updated = {
       ...session,
       ...(status !== null ? { status } : {}),
-      [field]: new Date().toISOString(),
+      [field]: timestamp,
+      // A start owns both timestamps. Publishing them from this same snapshot
+      // prevents an immediate second KV read from restoring pre-start status.
+      ...(status === 'running' && field === 'lastStartedAt' ? { lastActiveAt: timestamp } : {}),
     };
     await putSessionWithMetadata(env.KV, key, updated);
     logger.info('updateKvStatus: wrote to KV', { key, status, field });
@@ -1576,10 +1580,11 @@ export async function collectMetrics(
           const shutdownRequested = await ctx.storage.get<number>(SHUTDOWN_REQUESTED_KEY);
           if (typeof shutdownRequested === 'number') {
             logger.info('collectMetrics: shutdown in flight, skipping primary session write', { key });
-          } else if (session.status === 'stopped') {
-            // Self-heal a FALSE stopped (REQ-SESSION-018 AC4): shutdown was
-            // ruled out, the container is alive, and KV still reads stopped.
-            logger.warn('collectMetrics: container running but KV stopped, re-asserting running (self-heal)', { key });
+          } else if (session.status !== 'running') {
+            // Self-heal FALSE stopped and legacy/missing status
+            // (REQ-SESSION-018 AC5): shutdown was ruled out and the container
+            // is alive, so verified liveness converges KV back to running.
+            logger.warn('collectMetrics: container running but KV not running, re-asserting running (self-heal)', { key });
             await putSessionWithMetadata(env.KV, key, { ...nextSession, status: 'running' as const });
           } else {
             await putSessionWithMetadata(env.KV, key, nextSession);

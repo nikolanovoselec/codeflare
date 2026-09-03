@@ -1,23 +1,27 @@
-# Zero Trust identity and authorization
-
-**Availability:** Enterprise deployment plus operator-configured Cloudflare Access, identity provider, and applicable groups.
+# Identity, session ownership, and Zero Trust ingress
 
 ## What I can do
 
-I can work behind Cloudflare Access so identity and authorization sit in front of the workspace instead of being reimplemented inside every container. Access identity can create users just in time. Configured groups can determine administrator access and AI-routing policy.
+I can work behind Cloudflare Access, where the application starts with an authenticated identity instead of asking each internal tool to invent one. The Worker verifies the Access assertion, resolves the admitted user, and binds sessions, storage, administration, and connected credentials to that identity.
 
-I can start a session bound to the authenticated user and one user-owned bucket. Enterprise request interceptors derive credential ownership from that trusted binding, not from a hostname, email, or user ID supplied by the container. I cannot ask the egress layer to borrow another user's token by changing a request parameter.
+Each user's session is tied to the user's own storage bucket and container identity. A browser-supplied bucket name, email header, hostname, or session ID is not allowed to choose another user's resources. Administrative surfaces require the administrator role, while application admission follows the configured Access policy and groups.
 
-## Why the boundary matters
+This gives the engineering workspace the same identity boundary on desktop, tablet, and phone. Switching devices changes the browser. It does not change who owns the session.
 
-Authentication says who entered. Session binding says whose credentials and storage the work may use. Egress policy says where the session may go. Collapsing those into one “Zero Trust enabled” badge would hide the exact boundary an operator needs to verify.
+## Where the boundary sits
 
-Zero Trust support does not prove that this deployment has an IdP, Access group policy, Gateway policy, or SCIM integration configured. I check current account configuration and active operator documentation before claiming any of those.
+Access protects ingress and identity. It does not inspect arbitrary outbound traffic, replace GitHub branch protection, or prove that a downstream SaaS accepted the right authorization. Those belong to different controls.
+
+A valid identity also does not grant universal access. Repository permissions, organization policy, storage ownership, and connected-service authorization still apply. If the signed-in user cannot read a private repository, I cannot solve that with enthusiasm.
 
 ## Try it
 
-User task: sign in through the configured identity provider, connect GitHub, start a session, and run an attributed GitHub operation without copying a personal token into the terminal.
+Ask me to trace one request from the Access assertion through user resolution, session ownership, bucket binding, and the final route guard. I will identify where each untrusted browser value stops being authoritative.
 
-Operator task: configure a small Access administrator group during Initialization, test one member and one non-member, then verify the authorization result in Access logs rather than inferring it from the UI.
+Other useful requests:
 
-Source anchors: `sdd/spec/enterprise-mode.md` REQ-ENTERPRISE-010/014, `sdd/spec/authentication.md`, `sdd/spec/github.md`, and `documentation/lanes/authentication.md`.
+- “Trace this request from Access identity to session ownership.”
+- “Show why one user can reach their bucket but not another user’s bucket.”
+- “Explain which browser-provided values are ignored at each boundary.”
+
+Source anchors: `sdd/spec/authentication.md`, `sdd/spec/enterprise-mode.md` REQ-ENTERPRISE-001/010/011/015, `sdd/spec/storage.md` REQ-STOR-001, and `src/middleware/auth.ts`.

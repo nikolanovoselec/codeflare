@@ -23,6 +23,11 @@ import {
 import { isSaasModeActive } from '../../lib/onboarding';
 import { getEffectiveTierForUser, getDefaultTiers, resetTierConfigCache } from '../../lib/subscription';
 
+const persistedContainerState = vi.hoisted(() => ({
+  status: 'running',
+  error: null as Error | null,
+}));
+
 vi.mock('../../lib/onboarding', () => ({ isSaasModeActive: vi.fn(() => false) }));
 vi.mock('../../lib/agent-seed.generated', () => ({
   PRESEED_CONTENT_HASH: 'abc1234567890def',
@@ -41,6 +46,10 @@ vi.mock('../../lib/logger', () => ({
 }));
 vi.mock('@cloudflare/containers', () => ({
   getContainer: vi.fn(() => ({
+    getState: vi.fn(async () => {
+      if (persistedContainerState.error) throw persistedContainerState.error;
+      return { status: persistedContainerState.status };
+    }),
     fetch: vi.fn().mockResolvedValue(new Response(JSON.stringify({ sessions: [] }), { status: 200 })),
     destroy: vi.fn().mockResolvedValue(undefined),
   })),
@@ -81,6 +90,8 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
     vi.mocked(advanceMigration).mockResolvedValue(undefined);
     managedReleaseState.active = null;
     managedReleaseState.error = null;
+    persistedContainerState.status = 'running';
+    persistedContainerState.error = null;
     vi.mocked(isSaasModeActive).mockReturnValue(false);
   });
 
@@ -474,6 +485,22 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
+    it('REQ-STOR-022: stale running metadata does not strand reconciliation after persisted stop', async () => {
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      const stopped = makeSession('aabbccdd11223344', 'stopped');
+      mockKV._set('session:test-bucket:aabbccdd11223344', stopped, {
+        ...buildSessionMetadata(stopped),
+        s: 'r',
+      });
+      persistedContainerState.status = 'stopped';
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+
+      expect(body.managedReleaseStatus).toBe('upgrading');
+      expect(body.preseedNeedsUpgrade).toBe(true);
+    });
+
     it('REQ-STOR-022 AC1+AC2: initializing metadata also defers reconciliation', async () => {
       managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       const session = makeSession('aabbccdd11223344', 'stopped');
@@ -497,7 +524,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
-    it('reports the last applied verified release as current during a transient cache outage', async () => {
+    it('REQ-STOR-023 AC5: reports update pending when no compatible verified active release is available', async () => {
       managedReleaseState.error = new Error('verified cache unavailable');
       mockKV._set('user-prefs:test-bucket', {
         sessionMode: 'default',
@@ -505,11 +532,11 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       });
       const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
       const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
-      expect(body.managedReleaseStatus).toBe('current');
+      expect(body.managedReleaseStatus).toBe('update_pending');
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
-    it('REQ-STOR-023 AC4: an outage rejects last-known-good state for another mode', async () => {
+    it('REQ-STOR-023 AC3: an outage rejects last-known-good state for another mode', async () => {
       managedReleaseState.error = new Error('verified cache unavailable');
       mockKV._set('user-prefs:test-bucket', {
         managedEnvironmentApplied: { digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-01-01T00:00:00.000Z' },
@@ -587,7 +614,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
-    it('REQ-STOR-023 AC5: pending target state retries even when applied identity matches active', async () => {
+    it('REQ-STOR-023 AC4: pending target state retries even when applied identity matches active', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', {

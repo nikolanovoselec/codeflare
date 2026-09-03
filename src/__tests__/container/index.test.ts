@@ -827,7 +827,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(markerDurableAtKvWrite).toBe(true);
     });
 
-    // REQ-SESSION-018 AC4: destroy() persists the deliberate-stop marker (and
+    // REQ-SESSION-018 AC5: destroy() persists the deliberate-stop marker (and
     // drops the metrics alarm) BEFORE clearing identifiers, so a DO eviction
     // mid-shutdown cannot let a surviving collectMetrics alarm self-heal a
     // deliberately-stopped session back to running. The marker must be PERSISTED

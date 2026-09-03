@@ -1,21 +1,29 @@
-# Durable data and ephemeral compute
-
-**Availability:** Isolated session compute is a platform property. Specific persistence surfaces depend on mode, user configuration, and the files selected for synchronization.
+# Private storage, synchronization, and ephemeral compute
 
 ## What I can do
 
-I can work inside one isolated container with a real Linux filesystem, terminals, tools, and agent process tree. That environment is intentionally disposable. Arbitrary shells, development servers, sockets, terminal output, editor databases, extension package bytes, and in-memory state do not survive container replacement.
+I can work inside an isolated Linux container with root access, a real filesystem, terminals, development tools, and the repository's own stack. The compute is disposable. The useful state is not.
 
-I can preserve selected state through explicit owners. Git remains the authority for committed repository history. Per-user R2 synchronization can carry selected files. Vault notes, supported agent state, bounded Browser IDE continuity, memory, and Herdr's structural `session.json` can return through their own contracts. Herdr can restore workspace, tab, pane, split, working-directory, and supported agent references. It does not claim that yesterday's process or pane output is still alive.
+Every user gets a dedicated S3-compatible storage bucket with bucket-scoped credentials. The Storage browser can browse folders, upload, download, delete, and safely preview files. Those folders map to real paths under the session home directory, so a file placed in durable storage can become ordinary working material inside the container.
 
-## Why the boundary matters
+I can trigger Sync-now to pull storage changes into running sessions and push local changes back. A background bidirectional sync runs every 15 minutes, and shutdown performs one final bounded sync. Git remains the right authority for source code. The bucket is better suited to notes, datasets, assets, agent configuration, and deliberately persisted workspace material.
 
-“Persistent workspace” is often marketing shorthand for leaving a machine running until nobody remembers why. Codeflare makes durability named and bounded. That reduces standing compute and stale state, but it also means I must commit, push, or synchronize anything that matters before the container disappears.
+Stored data uses encryption at rest. When the operator supplies the customer encryption key, object operations use AES-256 SSE-C protection. Vault browser stores carry their own encrypted continuity contract.
 
-Destroying a session cannot undo an external effect that already happened. A Git push, deployment, API call, migration, or synchronized file remains real after compute is gone.
+## Where the boundary sits
+
+Processes, sockets, terminal output, editor databases, browser sessions, and unsynchronized files disappear with the container. A synchronized file, Git push, deployment, migration, or external API mutation does not.
+
+Synchronization is periodic, not transactional. Two running containers can race on the same path, and newest-file-wins is not source control wearing a fake moustache. Use Git when merge history matters.
 
 ## Try it
 
-In an Advanced session with Vault available, save a Vault note and start an uncommitted local server. Let synchronization finish, stop the session, then start it again. I should recover the durable note. The old process should be gone.
+Upload a dataset in the Storage browser, click Sync-now, and ask me to process it in the session. Then have me write the result back to a durable folder and trigger another sync.
 
-Source anchors: `documentation/lanes/architecture.md`, `documentation/lanes/deployment.md`, `documentation/lanes/storage-and-sync.md`, `sdd/spec/constraints.md`, and `sdd/spec/terminal.md` REQ-TERM-033.
+Other useful requests:
+
+- “Tell me which files are safe in Git, storage, Vault, or nowhere durable.”
+- “Sync this asset folder from storage, process it, and push the result back.”
+- “Explain what survives if this container is destroyed right now.”
+
+Source anchors: `sdd/spec/storage.md` REQ-STOR-001/002/003/004/005/007/008/015/016, `sdd/spec/security.md` REQ-SEC-003/005, and `documentation/lanes/storage-and-sync.md`.

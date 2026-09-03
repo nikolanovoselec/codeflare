@@ -109,14 +109,14 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     ];
     for (const platform of platforms) {
       const metadata = npmToolsLock.packages[`node_modules/@openai/codex-${platform}`];
-      assert.equal(metadata.version, `0.147.0-${platform}`);
+      assert.equal(metadata.version, `${npmToolsPackage.dependencies['@openai/codex']}-${platform}`);
       assert.equal(metadata.license, 'Apache-2.0');
       assert.match(metadata.integrity, /^sha512-/);
     }
   });
 
   it('image-owned Oxlint has an exact pin and complete committed integrity tree', () => {
-    assert.equal(oxlintPackage.dependencies.oxlint, '1.79.0');
+    assert.equal(oxlintPackage.dependencies.oxlint, '1.80.0');
     assert.deepEqual(oxlintLock.packages[''].dependencies, oxlintPackage.dependencies);
     assertCompleteIntegrityTree(oxlintLock);
   });
@@ -221,6 +221,12 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
       const versions = versionsOf(lockfile, 'hono');
       assert.ok(versions.length > 0, 'hono must be represented in each affected runtime lock');
       assert.ok(versions.every((version) => atLeast(version, '4.12.34')));
+    }
+
+    for (const lockfile of [browserRunLock, npmToolsLock, piLock]) {
+      const versions = versionsOf(lockfile, 'fast-uri');
+      assert.ok(versions.length > 0, 'fast-uri must be represented in each affected runtime lock');
+      assert.ok(versions.every((version) => atLeast(version, '3.1.6')));
     }
 
     const postcssVersions = versionsOf(sidebarLock, 'postcss');

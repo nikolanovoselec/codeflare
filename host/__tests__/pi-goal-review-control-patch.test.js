@@ -24,6 +24,10 @@ import {
   patchPiGoalSettingsSource,
   patchPiGoalSource,
 } from '../../scripts/patch-pi-goal-review-control.mjs';
+import {
+  EXPECTED_PI_PLAN_MODE_VERSION,
+  patchPiPlanModeDirectory,
+} from '../../scripts/patch-pi-plan-mode-tool-policy.mjs';
 
 const fixtureCommandsSource = `export class GoalCommandController {
 \tconstructor(runtime) {
@@ -611,16 +615,16 @@ function successorRuntimeHarness(minIntervalMs) {
 
 function readFixturePackage(root, sessionSourceName = 'lifecycle') {
   return Object.fromEntries(
-    ['package.json', 'src/commands.ts', 'src/goal.ts', `src/${sessionSourceName}.ts`, 'src/prompts.ts', 'src/runtime.ts', 'src/settings.ts']
+    ['package.json', 'src/commands.ts', 'src/goal.ts', `src/${sessionSourceName}.ts`, 'src/prompts.ts', 'src/runtime.ts', 'src/settings.ts', 'src/tool-policy.ts']
       .map((path) => [path, readFileSync(join(root, path), 'utf8')]),
   );
 }
 
 const FIXTURES_DIRECTORY = join(dirname(fileURLToPath(import.meta.url)), '..', '__fixtures__');
-const PINNED_PACKAGE_ARCHIVE = join(FIXTURES_DIRECTORY, 'pi-goal-0.53.0.tgz');
-const PINNED_PACKAGE_INTEGRITY = 'sha512-cmWowqAzlkgRLKYp2hFnUZvEEs6G6aGjEOazBWNW88T7LB9cd/AzOFOGYvA1QxxsGtIdOuFRZJVhfAJDGsAcjw==';
-const PINNED_PLAN_ARCHIVE = join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.52.0.tgz');
-const PINNED_PLAN_INTEGRITY = 'sha512-h2mye4GFa9slqP17NhInBHv2GW3pYwMY76HHENHuwrMr/dOGXRdNacxfwbJSy1njozxlcnWvgdG6a7pE8UPBiw==';
+const PINNED_PACKAGE_ARCHIVE = join(FIXTURES_DIRECTORY, 'pi-goal-0.54.2.tgz');
+const PINNED_PACKAGE_INTEGRITY = 'sha512-RbrArj7OoP/6FGMZ+yBtKiRyz1r1PjTFdPJv+23MhoGxsyNB6suJk8VDni9jOk6lS5lwsJhaj/S1s1AT8urtnw==';
+const PINNED_PLAN_ARCHIVE = join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.55.1.tgz');
+const PINNED_PLAN_INTEGRITY = 'sha512-fgQTkSTMOzsm7jWlISh7XqAQZQkOZh+ZVJbiZSs9W3OdmxWCgwKR92XESHejuwIuJm5s6PDWa6T1MHK6D/qZeQ==';
 
 function extractPackage(archivePath, integrity, root) {
   const archive = readFileSync(archivePath);
@@ -653,6 +657,7 @@ const PINNED_RUNTIME_STUBS = {
         export const runMenu = async () => ({ kind: "cancel" });
         export const stripTerminalSequences = (value) => value;
         export const truncateHead = (content) => ({ content, truncated: false });
+        export const truncateToWidth = (value) => value;
         export const withFileMutationQueue = async (_path, operation) => operation();
         export class Markdown {}
       `,
@@ -682,7 +687,11 @@ function createExtensionHarness() {
   const eventListeners = new Map();
   const notifications = [];
   const entries = [];
-  const tools = [];
+  const tools = [
+    { name: 'read', description: 'Read files', sourceInfo: { source: 'builtin' } },
+    { name: 'bash', description: 'Run bounded commands', sourceInfo: { source: 'builtin' } },
+    { name: 'edit', description: 'Edit files', sourceInfo: { source: 'builtin' } },
+  ];
   let activeTools = [];
   let thinkingLevel = 'medium';
   const sessionManager = {
@@ -705,10 +714,13 @@ function createExtensionHarness() {
       },
     },
     registerCommand: (name, definition) => commands.set(name, definition),
-    registerTool: (definition) => tools.push({
-      ...definition,
-      sourceInfo: { source: 'extension', path: 'pinned-fixture' },
-    }),
+    registerTool: (definition) => {
+      tools.push({
+        ...definition,
+        sourceInfo: { source: 'extension', path: 'pinned-fixture' },
+      });
+      activeTools.push(definition.name);
+    },
     registerFlag: () => undefined,
     getFlag: () => false,
     on(name, listener) {
@@ -746,16 +758,31 @@ function createExtensionHarness() {
     startSession: async () => {
       for (const listener of lifecycle.get('session_start') ?? []) await listener({}, ctx);
     },
+    runContext: async () => {
+      let event = { messages: [] };
+      for (const listener of lifecycle.get('context') ?? []) {
+        event = await listener(event, ctx) ?? event;
+      }
+      return event;
+    },
   };
 }
 
 describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
-  it('REQ-AGENT-111 AC2 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership', async () => {
+  it('REQ-AGENT-111 AC2/AC7 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership', async () => {
     const goalRoot = mkdtempSync(join(tmpdir(), 'pi-goal-integration-'));
     const planRoot = mkdtempSync(join(tmpdir(), 'pi-plan-integration-'));
     extractPinnedFixturePackage(goalRoot);
     extractPackage(PINNED_PLAN_ARCHIVE, PINNED_PLAN_INTEGRITY, planRoot);
     patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, goalRoot);
+    patchPiPlanModeDirectory(EXPECTED_PI_PLAN_MODE_VERSION, planRoot);
+    const patchedPlan = readFileSync(join(planRoot, 'dist/index.ts'), 'utf8');
+    patchPiPlanModeDirectory(EXPECTED_PI_PLAN_MODE_VERSION, planRoot);
+    assert.equal(readFileSync(join(planRoot, 'dist/index.ts'), 'utf8'), patchedPlan);
+    assert.throws(
+      () => patchPiPlanModeDirectory('0.55.2', planRoot),
+      /Unsupported Plan Mode version/,
+    );
     const goalManifest = JSON.parse(readFileSync(join(goalRoot, 'package.json'), 'utf8'));
     assert.deepEqual(goalManifest.pi?.extensions, ['./src/index.ts']);
     const goalExtension = await bundleFixture(join(goalRoot, goalManifest.pi.extensions[0]), join(goalRoot, 'goal.mjs'));
@@ -764,19 +791,30 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     goalExtension(harness.api, { settingsPath: join(goalRoot, 'settings.json') });
     planExtension(harness.api, { settingsPath: join(planRoot, 'settings.json') });
     await harness.startSession();
+    harness.api.setActiveTools(['read']);
+    assert.ok(!harness.activeTools().includes('goal_complete'));
 
+    harness.api.setActiveTools(['goal_complete', 'goal_blocked']);
     await harness.commands.get('goal').handler('first integration objective', harness.ctx);
-    assert.ok(harness.activeTools().includes('goal_complete'));
+    assert.equal(harness.entries.at(-1)?.data?.goal?.status, 'active');
     await harness.commands.get('plan').handler('start', harness.ctx);
     assert.ok(!harness.activeTools().includes('plan_mode_complete'));
     assert.match(harness.notifications.at(-1).message, /Another workflow is active/);
 
     await harness.commands.get('goal').handler('clear', harness.ctx);
+    harness.api.setActiveTools(['read']);
     await harness.commands.get('plan').handler('start', harness.ctx);
-    assert.ok(harness.activeTools().includes('plan_mode_complete'));
+    await harness.runContext();
+    const planState = harness.entries.at(-1);
+    assert.equal(planState?.customType, 'plan-mode-state');
+    assert.equal(planState?.data?.enabled, true);
+    assert.ok(planState?.data?.workflowToolPolicy?.resolved);
+    assert.deepEqual(planState.data.workflowToolPolicy.allowedNames, ['bash', 'read']);
+    assert.deepEqual(harness.activeTools(), ['read']);
     await harness.commands.get('plan').handler('exit', harness.ctx);
+    harness.api.setActiveTools(['goal_complete', 'goal_blocked']);
     await harness.commands.get('goal').handler('second integration objective', harness.ctx);
-    assert.ok(harness.activeTools().includes('goal_complete'));
+    assert.equal(harness.entries.at(-1)?.data?.goal?.status, 'active');
 
     const activeGoalId = harness.entries
       .filter((entry) => entry.data?.goal?.status === 'active')
@@ -1189,7 +1227,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     const root = mkdtempSync(join(tmpdir(), 'pi-goal-latest-review-control-'));
     extractPinnedFixturePackage(root);
 
-    assert.equal(EXPECTED_PI_GOAL_VERSION, '0.53.0');
+    assert.equal(EXPECTED_PI_GOAL_VERSION, '0.54.2');
     patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, root);
     const first = readFixturePackage(root, 'lifecycle');
     assert.deepEqual(JSON.parse(first['package.json']).pi.extensions, ['./src/index.ts']);
