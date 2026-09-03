@@ -157,15 +157,15 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     const version = verifyOxlintRuntime({
       run: (path, args) => {
         calls.push([path, args]);
-        return 'Version: 1.79.0\n';
+        return 'Version: 1.80.0\n';
       },
     });
-    assert.equal(version, 'Version: 1.79.0');
+    assert.equal(version, 'Version: 1.80.0');
     assert.deepEqual(calls, [['/usr/local/bin/oxlint', ['--version']]]);
-    for (const reported of ['Version: 1.80.0\n', 'Version: 1.79.0-beta.1\n', 'Version: 1.79.0.1\n']) {
+    for (const reported of ['Version: 1.81.0\n', 'Version: 1.80.0-beta.1\n', 'Version: 1.80.0.1\n']) {
       assert.throws(
         () => verifyOxlintRuntime({ run: () => reported }),
-        /must report exact version 1\.79\.0/,
+        /must report exact version 1\.80\.0/,
       );
     }
   });
