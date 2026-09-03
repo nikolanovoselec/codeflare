@@ -90,7 +90,7 @@ In-process subagents always use native fallbacks. The three PR reviewers expose 
 
 It deliberately does not read implementation intent, and it reports gaps rather than fixing them. Codeflare applies no patch or fork. Image construction explicitly loads the declared `extensions/evaluate.ts` entrypoint and requires its path-correct JITI artifact, so the first invocation does not cold-transpile ([REQ-AGENT-133](../../sdd/spec/agents.md#req-agent-133-native-evaluation-workflow-in-pi-sessions)). The same lock-backed dependency discovery includes future `pi-evaluate` releases in weekly shadow-pin proposals.
 
-`@narumitw/pi-usage` is exact-pinned at 0.52.2 from its reviewed [MIT npm tarball](https://registry.npmjs.org/@narumitw/pi-usage/-/pi-usage-0.52.2.tgz) and registers `src/index.ts` as `/usage`. Its reviewed source validates official Codex, GitHub Copilot, and OpenRouter origins, bounds and redacts responses, and requires explicit confirmation before consuming a Codex reset. The package and its `@narumitw/pi-tui-kit` dependency are integrity-locked. Image construction explicitly loads the installed entrypoint and requires its path-correct JITI artifact, preventing a silent cold first command ([REQ-AGENT-131](../../sdd/spec/agents.md#req-agent-131-native-usage-workflow-in-pi-sessions)). The same lock-backed dependency discovery includes future `pi-usage` releases in weekly shadow-pin proposals.
+`@narumitw/pi-usage` is exact-pinned at 0.53.0 from its reviewed [MIT npm tarball](https://registry.npmjs.org/@narumitw/pi-usage/-/pi-usage-0.53.0.tgz) and registers `src/index.ts` as `/usage`. Its reviewed source validates official Codex, GitHub Copilot, OpenRouter, OpenCode Go, and Z.AI origins, bounds and redacts responses, and requires explicit confirmation before consuming a Codex reset. The package and its `@narumitw/pi-tui-kit` dependency are integrity-locked. Image construction explicitly loads the installed entrypoint and requires its path-correct JITI artifact, preventing a silent cold first command ([REQ-AGENT-131](../../sdd/spec/agents.md#req-agent-131-native-usage-workflow-in-pi-sessions)). The same lock-backed dependency discovery includes future `pi-usage` releases in weekly shadow-pin proposals.
 
 `@narumitw/pi-plan-mode` is exact-pinned at 0.55.3 from its reviewed [MIT npm tarball](https://registry.npmjs.org/@narumitw/pi-plan-mode/-/pi-plan-mode-0.55.3.tgz). It registers `dist/index.ts` and provides the `/plan` collaboration workflow, read-only planning policy, structured questions, explicit completion, and implementation handoff.
 
@@ -110,7 +110,7 @@ Plan Mode 0.55.3 and Goal 0.54.3 share upstream's session-scoped `workflow:mutex
 
 A malformed file is left byte-for-byte alone rather than being "repaired" by startup. There is no settings-panel patch for these Codeflare-owned startup values.
 
-On reload, `capability-helpers.ts` keeps those tools active when the session's latest canonical Goal state is unfinished or `pi-goal.json` configures the user-owned `always` policy. Fresh or completed lazy sessions return to the five bootstrap tools. The exact-version transform activates Goal's registered terminal tools when an explicit `/goal` start requires them ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC4/AC5/AC7). <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalToolPolicySource -->
+On reload, `capability-helpers.ts` keeps all three Goal tools active after any valid Goal state when no Plan is active. A fresh lazy session returns to the five bootstrap tools; an active Plan suppresses non-active Goal history unless `pi-goal.json` configures `always`. The exact-version transform activates Goal's registered terminal tools when an explicit `/goal` start requires them ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC4/AC5/AC7). <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalToolPolicySource -->
 
 Startup removes the retired `pi-goal-list-loop-audit` package from persisted settings, preventing its Explore ownership warning from surviving an image upgrade. Its replacement's runtime dependencies remain integrity-locked in the committed preseed lock.
 
@@ -365,12 +365,12 @@ and [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocatio
 
 Claude receives consult-llm through `~/.claude.json`; Pi receives it through
 `~/.pi/agent/mcp.json` via the pi-mcp-adapter `mcp` proxy.
-[Adapter 2.28.0](https://github.com/nicobailon/pi-mcp-adapter/releases/tag/v2.28.0)
-retains the 2.20 proxy contract and modular MCP v2 transport while adding opt-in
-MCP 2026-07-28 discovery, Agent Plugins MCP loading, safer server-name ownership
-resolution, configurable panel saving, and an OAuth issuer-validation escape
-hatch. Codeflare leaves the legacy protocol default and plugin paths unchanged,
-so no owned MCP skill or configuration migration is required.
+[Adapter 2.29.0](https://github.com/nicobailon/pi-mcp-adapter/releases/tag/v2.29.0)
+retains the 2.20 proxy contract and modular MCP v2 transport. Its new Parallel
+Search preset is opt-in, and its non-TUI status fallback does not alter
+Codeflare's configured servers. Codeflare leaves the legacy protocol default
+and plugin paths unchanged, so no owned MCP skill or configuration migration is
+required.
 
 The adapter's transport runs on `@modelcontextprotocol/client` and
 `@modelcontextprotocol/core` 2.0.0, with `jose`, `pkce-challenge`, `eventsource`,

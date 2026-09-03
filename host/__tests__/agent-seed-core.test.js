@@ -58,7 +58,13 @@ describe('shared agent seed compiler', () => {
       const piInstructions = compiled.documents.find((document) => (
         document.key === '.pi/agent/AGENTS.md' && document.modes.includes('default')
       ));
-      assert.match(piInstructions?.content ?? '', /- `codeflare-capabilities`/);
+      const instructions = piInstructions?.content ?? '';
+      const indexStart = instructions.indexOf('<!-- pi-skill-index:start -->');
+      const indexEnd = instructions.indexOf('<!-- pi-skill-index:end -->');
+      assert.ok(indexStart >= 0 && indexEnd > indexStart);
+      const indexedSkills = [...instructions.slice(indexStart, indexEnd).matchAll(/^- `([^`]+)` — /gm)]
+        .map((match) => match[1]);
+      assert.ok(indexedSkills.includes('codeflare-capabilities'));
       assert.deepEqual(await readFile(outputFile), await readFile(generatedPath));
     } finally {
       await rm(dir, { recursive: true, force: true });

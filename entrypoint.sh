@@ -2667,12 +2667,12 @@ const required = [
   'npm:@juicesharp/rpiv-ask-user-question@2.7.1',
   'npm:@juicesharp/rpiv-todo@2.7.1',
   'npm:pi-web-access@0.25.0',
-  'npm:pi-mcp-adapter@2.28.0',
+  'npm:pi-mcp-adapter@2.29.0',
   'npm:pi-caveman@1.0.8',
   'npm:pi-evaluate@0.1.5',
   'npm:@narumitw/pi-goal@0.54.3',
   'npm:@narumitw/pi-plan-mode@0.55.3',
-  'npm:@narumitw/pi-usage@0.52.2',
+  'npm:@narumitw/pi-usage@0.53.0',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable its extension and skills on every
 // fresh container start. The managed foreground-owner bridge attaches only after explicit enablement.
