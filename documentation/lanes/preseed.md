@@ -330,7 +330,9 @@ every declared block ([AD108](../decisions/README.md#ad108-per-ac-test-evidence-
 
 Managed curation source and the aligned baked fallback provide the advanced design family: `design` routes by work mode, purpose, platform, and available direction to one web, mobile, desktop, static, or incumbent authority, while components, performance, motion, and available finishing tools remain subordinate. Shared operational and component references preserve that platform owner. The inventory includes `desktop-native-design` and `motion-design` and excludes UI UX Pro Max and `emil-design-eng`. ([REQ-AGENT-179](../../sdd/spec/agents.md#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](../../sdd/spec/agents.md#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility), [REQ-AGENT-182](../../sdd/spec/agents.md#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-183](../../sdd/spec/agents.md#req-agent-183-native-mobile-design-authority))
 
-Operational dashboards establish operator decisions, density, data quality, workflow, and responsive scope before selecting components. Component registries provide implementation material only after information architecture and visual direction exist. Framework performance follows repository evidence and measured browser results rather than a generic React or Next.js recipe; protected or input-dependent I/O starts after validation and authorization. External skills, registries, MCP servers, presets, and package commands remain untrusted until reviewed and never execute merely to determine applicability. Simple motion stays in CSS or the incumbent system; specialist choreography activates only for demonstrated complexity. Missing registries, MCP access, or animation tooling do not block the owning workflow. ([REQ-AGENT-184](../../sdd/spec/agents.md#req-agent-184-operational-information-design), [REQ-AGENT-185](../../sdd/spec/agents.md#req-agent-185-component-system-and-registry-boundaries), [REQ-AGENT-186](../../sdd/spec/agents.md#req-agent-186-conditional-complex-motion-delegation), [REQ-AGENT-188](../../sdd/spec/agents.md#req-agent-188-external-design-dependency-safety))
+Operational dashboards establish operator decisions, density, data quality, workflow, and responsive scope before selecting components. Component registries provide implementation material only after information architecture and visual direction exist. Framework performance follows repository evidence and measured browser results rather than a generic React or Next.js recipe; protected or input-dependent I/O starts after validation and authorization.
+
+External skills, registries, MCP servers, presets, and package commands remain untrusted until reviewed and never execute merely to determine applicability. Simple motion stays in CSS or the incumbent system; specialist choreography activates only for demonstrated complexity. Missing registries, MCP access, or animation tooling do not block the owning workflow. ([REQ-AGENT-184](../../sdd/spec/agents.md#req-agent-184-operational-information-design), [REQ-AGENT-185](../../sdd/spec/agents.md#req-agent-185-component-system-and-registry-boundaries), [REQ-AGENT-186](../../sdd/spec/agents.md#req-agent-186-conditional-complex-motion-delegation), [REQ-AGENT-188](../../sdd/spec/agents.md#req-agent-188-external-design-dependency-safety))
 
 Advanced Pi carries one short always-active rule that loads `design` only for visual work. When installed, `impeccable` keeps its explicit multi-command skill and bundled offline/live detector scripts, while implicit discovery narrows to critique and finishing. Its aesthetic detections are advisory until the brief, platform, incumbent system, approved evidence, and selected owner establish whether the pattern is justified. ([REQ-AGENT-179](../../sdd/spec/agents.md#req-agent-179-portable-visual-design-routing), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility))
 
@@ -454,7 +456,10 @@ remain local, and the selected design owner retains visual direction.
 cover repository-led engineering, behavioral proof, composition, SDD traceability,
 prompt-injection resistance, secret and tenant boundaries, explicit authorization for
 high-impact actions, latest-stable dependency selection, and current-task continuity
-([REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents)).
+([REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents),
+[REQ-AGENT-198](../../sdd/spec/agents.md#req-agent-198-engineering-constitution-security-policy),
+[REQ-AGENT-199](../../sdd/spec/agents.md#req-agent-199-engineering-constitution-dependency-policy),
+[REQ-AGENT-200](../../sdd/spec/agents.md#req-agent-200-engineering-constitution-work-continuity)).
 It acknowledges and retains new input immediately, then finishes the active concrete step
 before acting on unrelated input unless the user stops, pauses, or reprioritizes it.
 
@@ -837,7 +842,10 @@ The Pi-native constitution carries the same compact substantive policy as Claude
 modes. Git workflow owns boundary event mechanics, launch order, triage, and FIX
 sequencing instead of duplicating them in the constitution.
 Implements [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
-AC7 and [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents).
+AC7, [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents),
+[REQ-AGENT-198](../../sdd/spec/agents.md#req-agent-198-engineering-constitution-security-policy),
+[REQ-AGENT-199](../../sdd/spec/agents.md#req-agent-199-engineering-constitution-dependency-policy), and
+[REQ-AGENT-200](../../sdd/spec/agents.md#req-agent-200-engineering-constitution-work-continuity).
 
 `scripts/measure-seed-tokens.mjs` reports managed seed text; after materialization,
 `scripts/measure-pi-runtime-context.mjs` uses Pi's real resource loader and local faux

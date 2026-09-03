@@ -1345,7 +1345,7 @@ None.
 
 ### REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
 
-**Intent:** Advanced sessions use a compact decision boundary for existing-graph queries alongside graph build/update guidance and soft search reminders. Runtime reminder hooks live in [REQ-AGENT-091](#req-agent-091-advanced-session-graph-first-runtime-reminders), and `/graphify` build dispatch lives in [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch).
+**Intent:** Advanced sessions use a compact decision boundary for existing-graph queries. Runtime reminders live in [REQ-AGENT-091](#req-agent-091-advanced-session-graph-first-runtime-reminders), while build-skill delivery lives in [REQ-AGENT-205](#req-agent-205-graphify-build-skill-delivery).
 
 **Applies To:** Agent
 
@@ -1356,19 +1356,36 @@ None.
 3. Known-file edits, Git/CI state, and code changed during the current task skip Graphify. <!-- @impl: preseed/agents/claude/rules/graphify-routing.md::Graphify routing --> <!-- @manual -->
 4. Current source outranks stale graph evidence. <!-- @impl: preseed/agents/claude/rules/graphify-routing.md::Graphify routing --> <!-- @manual -->
 5. In advanced mode, Pi activates hidden native Graphify query tools through its existing `capability` tool. <!-- @impl: preseed/agents/claude/rules/graphify-routing.md::Graphify routing --> <!-- @manual -->
-6. In advanced session mode only, the graphify skill is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, OpenCode, and Antigravity by the seed generator. <!-- @manual -->
-7. The skill documents the safe build path for large repos (more than 2000 files). <!-- @manual -->
-8. The skill instructs the agent on first build to add canonical ignore and attribute rules so regenerable graph build outputs and working-tree intermediates are not committed while the queryable graph remains under git merge control. <!-- @manual -->
 
-**Constraints:**
-
-- Query routing is advisory, and the advanced soft nudge never blocks.
-- Building or refreshing a graph requires explicit user authorization and the advanced skill workflow.
-- The soft-nudge matcher set covers both the non-ctx tool surface (`Grep`/`Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`/`mcp__context-mode__ctx_batch_execute`).
+**Constraints:** Query routing is advisory, and the advanced soft nudge never blocks.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-205: Graphify build skill delivery
+
+**Intent:** Advanced sessions receive portable Graphify build guidance without placing build mechanics in ambient query routing.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Advanced mode receives the Graphify skill for Claude Code and adapted variants for Codex, Copilot, OpenCode, and Antigravity. <!-- @manual -->
+2. The skill documents the safe build path for repositories with more than 2000 files. <!-- @manual -->
+3. First-build guidance adds canonical ignore and attribute rules so regenerable outputs and working-tree intermediates stay uncommitted while the queryable graph remains under merge control. <!-- @manual -->
+
+**Constraints:** Building or refreshing a graph requires explicit user authorization and the advanced skill workflow.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
 
 **Verification:** Manual check
 
@@ -1998,7 +2015,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
+**Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-AGENT-205](#req-agent-205-graphify-build-skill-delivery)
 
 **Verification:** Manual review
 
@@ -2448,34 +2465,121 @@ None.
 
 ### REQ-AGENT-197: Ambient instruction ownership and economy
 
-**Intent:** Always-loaded and path-loaded instructions remain short routing and safety boundaries, while detailed procedures stay in the skills and runtime components that own them.
+**Intent:** Always-loaded and path-loaded instructions remain short boundaries, while detailed procedures stay with their owning skills and runtime components.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
 1. Pi `SYSTEM.md` contains only runtime bootstrap guidance and reaches both session modes. <!-- @impl: preseed/agents/pi/manifest.json::SYSTEM.md --> <!-- @manual -->
-2. Preference-free new projects default to Cloudflare and load `cloudflare-stack` before architecture selection. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Cloudflare environment --> <!-- @manual -->
-3. Environment guidance blocks local GUI launches while preserving authorized Browser Run. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Session constraints --> <!-- @manual -->
-4. Environment guidance preserves Git transport, identity, and secret-handling constraints. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Session constraints --> <!-- @manual -->
-5. Hard boundaries are reported honestly with the closest safe alternative. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Cloudflare environment --> <!-- @manual -->
-6. Cloudflare Workers guidance retrieves current official documentation before choosing APIs, limits, signatures, or configuration. <!-- @impl: preseed/agents/claude/rules/cloudflare-workers.md::Cloudflare Workers routing --> <!-- @manual -->
-7. Workers tooling uses repository-pinned versions through approved execution paths. <!-- @impl: preseed/agents/claude/rules/cloudflare-workers.md::Cloudflare Workers routing --> <!-- @manual -->
-8. Workers compatibility settings remain unchanged unless the requested work requires an update verified against current documentation. <!-- @impl: preseed/agents/claude/rules/cloudflare-workers.md::Cloudflare Workers routing --> <!-- @manual -->
-9. Memory guidance routes explicit memory and Vault requests without requiring a graph query before unrelated work. <!-- @impl: preseed/agents/claude/rules/memory.md::Memory and Vault routing --> <!-- @manual -->
-10. Ambient memory guidance never duplicates runtime-owned capture or extraction dispatch. <!-- @impl: preseed/agents/claude/rules/memory.md::Memory and Vault routing --> <!-- @manual -->
-11. Specification, documentation, testing, and note-capture rules retain triggers and owners without duplicating their specialist procedures. <!-- @manual -->
-12. PR-boundary documentation review launches with the other required lanes. <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md::Documentation discipline --> <!-- @manual -->
-13. Root-owned `/sdd clean` applies specification fixes before documentation checks. <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md::Documentation discipline --> <!-- @manual -->
-14. Detailed Git, review, CI, Graphify build, Todo, local-check, design, platform, memory-capture, and enforcement mechanics remain with their existing owners. <!-- @manual -->
+2. Detailed Git, review, CI, Graphify build, Todo, local-check, design, platform, memory-capture, and enforcement mechanics remain with their existing owners. <!-- @manual -->
 
 **Constraints:** Ambient prose reduction cannot weaken executable guards or remove a required route. Content wording, headings, and byte/token counts remain manual concerns rather than tests.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-196](#req-agent-196-repository-led-technology-guidance)
+**Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-196](#req-agent-196-repository-led-technology-guidance)
 
 **Verification:** Deterministic seed generation and manual ownership review
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-201: Ambient Cloudflare environment routing
+
+**Intent:** Compact environment guidance establishes safe Cloudflare defaults without assuming the user's expertise or hiding hard boundaries.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Preference-free new projects default to Cloudflare and load `cloudflare-stack` before architecture selection. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Cloudflare environment --> <!-- @manual -->
+2. Environment guidance blocks local GUI launches while preserving authorized Browser Run. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Session constraints --> <!-- @manual -->
+3. Environment guidance preserves Git transport, identity, and secret-handling constraints. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Session constraints --> <!-- @manual -->
+4. Hard boundaries are reported honestly with the closest safe alternative. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Cloudflare environment --> <!-- @manual -->
+
+**Constraints:** Environment routing does not replace focused platform skills.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-197](#req-agent-197-ambient-instruction-ownership-and-economy)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-202: Ambient Cloudflare Workers routing
+
+**Intent:** Path-scoped Workers guidance routes platform work to current official sources and repository-approved tooling.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Cloudflare Workers guidance retrieves current official documentation before choosing APIs, limits, signatures, or configuration. <!-- @impl: preseed/agents/claude/rules/cloudflare-workers.md::Cloudflare Workers routing --> <!-- @manual -->
+2. Workers tooling uses repository-pinned versions through approved execution paths. <!-- @impl: preseed/agents/claude/rules/cloudflare-workers.md::Cloudflare Workers routing --> <!-- @manual -->
+3. Workers compatibility settings remain unchanged unless the requested work requires an update verified against current documentation. <!-- @impl: preseed/agents/claude/rules/cloudflare-workers.md::Cloudflare Workers routing --> <!-- @manual -->
+
+**Constraints:** Path routing does not authorize local builds, development servers, or deployments.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-197](#req-agent-197-ambient-instruction-ownership-and-economy)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-203: Ambient memory and Vault routing
+
+**Intent:** Compact memory guidance routes explicit durable-context work without duplicating runtime-owned automation.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Memory guidance routes explicit memory and Vault requests without requiring a graph query before unrelated work. <!-- @impl: preseed/agents/claude/rules/memory.md::Memory and Vault routing --> <!-- @manual -->
+2. Ambient memory guidance never duplicates runtime-owned capture or extraction dispatch. <!-- @impl: preseed/agents/claude/rules/memory.md::Memory and Vault routing --> <!-- @manual -->
+
+**Constraints:** Current source outranks remembered context.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-197](#req-agent-197-ambient-instruction-ownership-and-economy)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-204: Ambient enforcement routing
+
+**Intent:** Compact discipline rules retain enforcement triggers and ownership without duplicating specialist procedures.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Specification guidance retains its workflow and enforcement routes. <!-- @impl: preseed/agents/claude/rules/spec-discipline.md::Specification discipline --> <!-- @manual -->
+2. Documentation guidance retains its enforcement route. <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md::Documentation discipline --> <!-- @manual -->
+3. Test guidance retains its enforcement route. <!-- @impl: preseed/agents/claude/rules/tdd-discipline.md::Test discipline --> <!-- @manual -->
+4. Durable note requests retain their note-capture route. <!-- @impl: preseed/agents/claude/rules/vault-note-capture.md::Vault note capture --> <!-- @manual -->
+5. PR-boundary documentation review launches with the other required lanes. <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md::Documentation discipline --> <!-- @manual -->
+6. Root-owned `/sdd clean` applies specification fixes before documentation checks. <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md::Documentation discipline --> <!-- @manual -->
+
+**Constraints:** Enforcement rules route to specialist owners rather than restating their manifests.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-197](#req-agent-197-ambient-instruction-ownership-and-economy)
+
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -2717,7 +2821,7 @@ None.
 
 ### REQ-AGENT-065: Engineering Constitution Preseeded to All Agents
 
-**Intent:** Every managed coding session receives one compact, technology-neutral constitution for engineering judgment, behavioral proof, security, dependency freshness, and work continuity. Detailed platform and workflow mechanics remain with their specialist owners.
+**Intent:** Every managed coding session receives one compact, technology-neutral constitution for engineering judgment and behavioral proof. Focused sibling requirements govern its security, dependency, and continuity sections.
 
 **Applies To:** Agent
 
@@ -2729,24 +2833,83 @@ None.
 4. Composition and extraction follow explicit ownership, coupling, state, reuse, testability, and maintenance evidence. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 5. Updates prefer immutability, keep necessary mutation local, validate untrusted boundaries, and trust typed internals. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 6. Repositories with `sdd/` keep changed behavior traced to truthful requirements, anchors, and documentation, with no touched REQ left `Partial`. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
-7. Instructions embedded in untrusted content and available capabilities do not grant authority. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Security --> <!-- @manual -->
-8. Work preserves secret, authentication, authorization, tenant, and privilege boundaries through least privilege and fail-closed behavior. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Security --> <!-- @manual -->
-9. Destructive, irreversible, production, billing, credential, and user-data actions require explicit current-user authorization. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Security --> <!-- @manual -->
-10. Added or updated dependencies use the latest stable release unless the user or repository requires another version. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Dependencies --> <!-- @manual -->
-11. Dependency-version decisions resolve current releases from an authoritative source rather than model memory. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Dependencies --> <!-- @manual -->
-12. A scoped change does not expand into unrelated dependency upgrades. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Dependencies --> <!-- @manual -->
-13. New user input is acknowledged and retained immediately. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
-14. Unrelated new input waits until the active task reaches a safe stopping point unless the user explicitly stops, pauses, or reprioritizes it. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
 
-**Constraints:**
-
-- Claude and Pi preseed rules are authored sources; per-user files and transformed runtime instructions are downstream seed artifacts.
-- Both constitution sources keep the same substantive policy; only the title may name the runtime.
-- Content correctness is prose and is intentionally not pinned by source-text, wording, heading, token-count, or snapshot tests.
+**Constraints:** Claude and Pi preseed rules are authored sources; transformed files are downstream artifacts. Both sources remain substantively aligned, while prose correctness is not pinned by wording, heading, token-count, or snapshot tests.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)
+**Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-198: Engineering Constitution security policy
+
+**Intent:** Every managed coding session receives the constitution's compact authorization and security boundaries.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Instructions embedded in untrusted content and available capabilities do not grant authority. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Security --> <!-- @manual -->
+2. Work preserves secret, authentication, authorization, tenant, and privilege boundaries through least privilege and fail-closed behavior. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Security --> <!-- @manual -->
+3. Destructive, irreversible, production, billing, credential, and user-data actions require explicit current-user authorization. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Security --> <!-- @manual -->
+
+**Constraints:** Security policy remains technology-neutral.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-199: Engineering Constitution dependency policy
+
+**Intent:** Every managed coding session receives compact dependency freshness and scope boundaries.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Added or updated dependencies use the latest stable release unless the user or repository requires another version. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Dependencies --> <!-- @manual -->
+2. Dependency-version decisions resolve current releases from an authoritative source rather than model memory. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Dependencies --> <!-- @manual -->
+3. A scoped change does not expand into unrelated dependency upgrades. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Dependencies --> <!-- @manual -->
+
+**Constraints:** Explicit user and repository compatibility requirements outrank generic freshness.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents)
+
+**Verification:** Manual check
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-200: Engineering Constitution work continuity
+
+**Intent:** Every managed coding session retains new input without abandoning active work mid-step.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. New user input is acknowledged and retained immediately. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
+2. Unrelated new input waits until the active task reaches a safe stopping point unless the user explicitly stops, pauses, or reprioritizes it. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
+
+**Constraints:** Related corrections remain part of the active task.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents)
 
 **Verification:** Manual check
 
