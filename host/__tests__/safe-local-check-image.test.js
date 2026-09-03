@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { it } from 'node:test';
 
+// The absolute fallback exists only in the built container. The "Verify image-baked TypeScript syntax parser" step enables this; remove the skip when host tests run inside that image.
 it('REQ-AGENT-192 AC2-AC3: parses TypeScript without project dependencies or repository writes', {
   skip: process.env.CODEFLARE_IMAGE_TEST !== '1',
 }, () => {

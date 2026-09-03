@@ -1,5 +1,5 @@
 import { cleanup, render, screen, waitFor } from '@solidjs/testing-library';
-import { Router } from '@solidjs/router';
+import { Route, Router } from '@solidjs/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getAdminUsageMock = vi.fn();
@@ -36,7 +36,8 @@ afterEach(() => {
 
 describe('Analytics historical usage presentation', () => {
   it('charts actual period aggregates, shows snapshot freshness, and exposes a download', async () => {
-    render(() => <Router><AnalyticsPage /></Router>);
+    const expectedStart = new Date().toISOString().slice(0, 10);
+    render(() => <Router><Route path="*" component={AnalyticsPage} /></Router>);
 
     await waitFor(() => expect(screen.getByText('9h 33m')).toBeInTheDocument());
     expect(screen.getByRole('img', { name: /accounted runtime history/i })).toBeInTheDocument();
@@ -44,7 +45,7 @@ describe('Analytics historical usage presentation', () => {
     expect(screen.getAllByText('9h 33m')).toHaveLength(2);
     expect(screen.getByText(/can lag live Timekeeper usage/i)).toBeInTheDocument();
     expect(screen.getByText('2026-09-03T11:54:17.007Z')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Export CSV' })).toHaveAttribute('download', 'codeflare-usage-day-2026-09-03.csv');
+    expect(screen.getByRole('link', { name: 'Export CSV' })).toHaveAttribute('download', `codeflare-usage-day-${expectedStart}.csv`);
   });
 
   it('charts earlier history when the selected period has no aggregate row', async () => {
@@ -64,7 +65,7 @@ describe('Analytics historical usage presentation', () => {
       nextCursor: null,
     });
 
-    render(() => <Router><AnalyticsPage /></Router>);
+    render(() => <Router><Route path="*" component={AnalyticsPage} /></Router>);
 
     await waitFor(() => expect(screen.getByRole('img', { name: /accounted runtime history/i })).toBeInTheDocument());
     expect(screen.queryByText('No historical usage yet')).not.toBeInTheDocument();
