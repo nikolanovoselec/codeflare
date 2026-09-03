@@ -660,16 +660,18 @@ describe('managed storage reconcile', () => {
     expect(response.status).toBe(200);
   });
 
-  it('REQ-STOR-034 AC4/AC5: response retains request-local completion when KV is stale', async () => {
+  it('REQ-STOR-034 AC4/AC5/AC6: response and stored completion survive a stale KV read', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+    const read = kv.get.getMockImplementation()!;
+    kv.get.mockImplementation((key, type) => key === 'managed-reconcile-progress:user-bucket'
+      ? Promise.resolve({
+          schemaVersion: 1, targetDigest: 'd'.repeat(64), phase: 'planning', completed: 0, total: 0,
+          updatedAt: '2026-09-03T12:00:00.000Z',
+        })
+      : read(key, type));
     reconcile.mockImplementationOnce(async (...args: any[]) => {
       await args[4].automatic.onProgress({ completed: 61, total: 61 });
-      // Model an eventually consistent replica returning the earlier planning value.
-      kv._set('managed-reconcile-progress:user-bucket', {
-        schemaVersion: 1, targetDigest: 'd'.repeat(64), phase: 'planning', completed: 0, total: 0,
-        updatedAt: '2026-09-03T12:00:00.000Z',
-      });
       return { written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined };
     });
 
@@ -678,10 +680,14 @@ describe('managed storage reconcile', () => {
     expect(await response.json()).toMatchObject({
       managedReleaseProgress: { phase: 'finalizing', completed: 61, total: 61 },
     });
+    expect(await kv.get('managed-reconcile-progress:user-bucket', 'json')).toMatchObject({ phase: 'planning' });
     const progressWrites = kv.put.mock.calls.filter(([key]) => key === 'managed-reconcile-progress:user-bucket');
     expect(progressWrites.length).toBeGreaterThan(0);
     expect(progressWrites.every(([, , options]) => options?.expirationTtl === 86_400)).toBe(true);
     expect(kv.put.mock.calls.some(([key]) => key === 'user-prefs:user-bucket')).toBe(true);
     expect(kv.delete.mock.calls.some(([key]) => key === 'managed-reconcile-progress:user-bucket')).toBe(false);
+    expect(JSON.parse(kv._store.get('managed-reconcile-progress:user-bucket')!)).toMatchObject({
+      phase: 'finalizing', completed: 61, total: 61,
+    });
   });
 });
