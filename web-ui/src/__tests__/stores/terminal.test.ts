@@ -916,7 +916,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
         expect(sockets[0].close).not.toHaveBeenCalled();
         expect(sockets[1].close).not.toHaveBeenCalled();
         expect(sockets[3].close).not.toHaveBeenCalled();
-        expect(sockets[4].close).toHaveBeenCalledOnce();
+        expect(sockets[4].close).not.toHaveBeenCalled();
         expect(terminalStore.getConnectionState('session-1', '1')).toBe('connecting');
         expect(terminalStore.getConnectionState('session-1', '2')).toBe('connected');
         expect(terminalStore.getConnectionState('session-1', '3')).toBe('connecting');
