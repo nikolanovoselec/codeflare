@@ -57,7 +57,7 @@ What it's for:
 - Pasted screenshots, PDFs, anything you want to keep
 - Daily journal entries (`Journal: Today` button)
 - Quick capture (`Quick Note` button - the timestamped note lands in `Inbox/`)
-- Automatic session capture every 50 real user messages, plus an uncaptured tail after resume, so a future agent can look up prior decisions
+- Automatic session capture every 20 real user messages, plus an uncaptured tail after resume, so a future agent can look up prior decisions
 
 Bisync mirrors the vault to R2 every 15 minutes - same plumbing as the rest of `~`. If you want an edit you just made in SilverBullet pushed to R2 right now (or want a freshly-pasted note picked up from another device), hit the Sync-now button on the R2 panel and it fans out to every running session. Vault contents on a fresh container appear as soon as the first bisync round completes.
 

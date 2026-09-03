@@ -17,7 +17,7 @@ Vault/
 ├── CONFIG.md         <- PRESEED: SilverBullet #meta config page (overwrite each boot)
 ├── STYLES.md         <- PRESEED: codeflare editor theme (overwrite each boot)
 ├── Raw/
-│   ├── Sessions/     <- AGENT-OWNED: written by the capture agent, one .md per 50-prompt batch
+│   ├── Sessions/     <- AGENT-OWNED: written by the capture agent, one .md per 20-prompt batch
 │   └── Pasted/       <- USER-OWNED, OPTIONAL: manual archive only; NOT the SB drag-drop target
 ├── Notes/            <- USER-OWNED: curated prose; SB attachments land next to the note
 ├── Inbox/            <- USER-OWNED: SB Quick Note lands under Inbox/YYYY-MM-DD/
@@ -35,7 +35,7 @@ Prefer the unified graph (`mcp__graphify__*`) for any cross-session lookup; it i
 
 | Path | Who writes | When |
 |---|---|---|
-| `Raw/Sessions/*.md` | Capture agent only | Triggered every 50 real user prompts and for an uncaptured tail on session resume. Never hand-edit. |
+| `Raw/Sessions/*.md` | Capture agent only | Triggered every 20 real user prompts and for an uncaptured tail on session resume. Never hand-edit. |
 | `Inbox/<YYYY-MM-DD>/*` | User via SilverBullet | Quick Note + attachments land in same date folder. |
 | `Journal/*` | User via SilverBullet | Journal: Today lands here. |
 | `Notes/**/*.md` | User (primarily) | If user asks to file a note, write here. Use `[[wikilinks]]` for concepts. |
@@ -58,7 +58,7 @@ Prefer the unified graph (`mcp__graphify__*`) for any cross-session lookup; it i
 
 ## Vault-monitor hook
 
-`memory-capture.sh` content-hash checks Vault on every resumed-tail capture and each crossed 100-real-user-prompt epoch. It writes a marker only when content changed. `vault-monitor-hook.sh` exits silently without that marker; when it emits `additionalContext`, spawn the background vault-extract agent per the directive. The agent's first step deletes the marker (dedup gate).
+`memory-capture.sh` content-hash checks Vault on every resumed-tail capture and each crossed 20-real-user-prompt epoch. It writes a marker only when content changed. `vault-monitor-hook.sh` exits silently without that marker; when it emits `additionalContext`, spawn the background vault-extract agent per the directive. The agent's first step deletes the marker (dedup gate).
 
 ## Worker proxy boundary
 

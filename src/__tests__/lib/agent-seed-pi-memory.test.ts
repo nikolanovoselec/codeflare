@@ -246,20 +246,20 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
   });
 
   it('REQ-MEM-002 AC3/AC4: shouldCapture matches Claude delta threshold semantics', () => {
-    expect(MEMORY_EVERY_N_PROMPTS).toBe(50);
-    expect(shouldCapture(49)).toBe(false);
-    expect(shouldCapture(50)).toBe(true);
-    expect(shouldCapture(51)).toBe(true);
-    expect(shouldCapture(100)).toBe(true);
+    expect(MEMORY_EVERY_N_PROMPTS).toBe(20);
+    expect(shouldCapture(19)).toBe(false);
+    expect(shouldCapture(20)).toBe(true);
+    expect(shouldCapture(21)).toBe(true);
+    expect(shouldCapture(40)).toBe(true);
     expect(shouldCapture(0)).toBe(false);
   });
 
-  it('REQ-VAULT-003: Vault cadence crosses each 100-prompt epoch once', () => {
-    expect(VAULT_EVERY_N_PROMPTS).toBe(100);
-    expect(shouldCheckVault(0, 99)).toBe(false);
-    expect(shouldCheckVault(0, 100)).toBe(true);
-    expect(shouldCheckVault(100, 199)).toBe(false);
-    expect(shouldCheckVault(100, 200)).toBe(true);
+  it('REQ-VAULT-003: Vault cadence crosses each 20-prompt epoch once', () => {
+    expect(VAULT_EVERY_N_PROMPTS).toBe(20);
+    expect(shouldCheckVault(0, 19)).toBe(false);
+    expect(shouldCheckVault(0, 20)).toBe(true);
+    expect(shouldCheckVault(20, 39)).toBe(false);
+    expect(shouldCheckVault(20, 40)).toBe(true);
   });
 
   it('REQ-MEM-002 AC2: isFirstMessage detects brand-new session (no counter, count=1)', () => {
@@ -275,17 +275,17 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
   });
 
   it('REQ-MEM-002: capture threshold counts only real user prompts', () => {
-    const messages = Array.from({ length: 49 }, (_, index) => ({ role: 'user', content: `prompt ${index}` }))
+    const messages = Array.from({ length: 19 }, (_, index) => ({ role: 'user', content: `prompt ${index}` }))
       .concat([
         { role: 'user', content: '<task-notification>synthetic</task-notification>' },
         { role: 'assistant', content: 'ok' },
       ]);
 
     const beforeThreshold = withCurrentPrompt(messages, '<task-notification>ignored</task-notification>');
-    expect(realUserPromptCount(beforeThreshold)).toBe(49);
+    expect(realUserPromptCount(beforeThreshold)).toBe(19);
     expect(shouldCapture(realUserPromptCount(beforeThreshold))).toBe(false);
 
-    const atThreshold = withCurrentPrompt(messages, 'prompt 49');
+    const atThreshold = withCurrentPrompt(messages, 'prompt 19');
     expect(realUserPromptCount(atThreshold)).toBe(MEMORY_EVERY_N_PROMPTS);
     expect(shouldCapture(realUserPromptCount(atThreshold))).toBe(true);
   });

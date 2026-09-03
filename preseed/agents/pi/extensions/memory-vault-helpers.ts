@@ -1,7 +1,7 @@
 import { isAbsolute, relative } from "node:path";
 
-export const MEMORY_EVERY_N_PROMPTS = 50;
-export const VAULT_EVERY_N_PROMPTS = 100;
+export const MEMORY_EVERY_N_PROMPTS = 20;
+export const VAULT_EVERY_N_PROMPTS = 20;
 export const EXTRACTION_MAX_TURNS = 7;
 export const MEMORY_CAPTURE_MAX_TOTAL_CHARS = 200000;
 export const MEMORY_CAPTURE_MAX_TURN_CHARS = 10000;
@@ -493,11 +493,11 @@ export function capTurn(text: string, max = MEMORY_CAPTURE_MAX_TURN_CHARS): stri
   return lost.length > 0 ? `${kept}\n[refs dropped in truncation: ${lost.join(", ")}]` : kept;
 }
 
-// The capture trigger counts real user prompts (50); the payload ceiling used to
+// The capture trigger counts real user prompts (20); the payload ceiling used to
 // count messages (40). The two units convert at a rate that swings with how
 // agentic the window was -- measured, ~2.5 messages per prompt on a light
 // session and ~25 on a heavy one -- so a message count either sat idle or cut a
-// 50-prompt window down to a suffix of its prompts, permanently: the prompt
+// 20-prompt window down to a suffix of its prompts, permanently: the prompt
 // counter advances whether or not the slice kept everything.
 //
 // Budget characters instead, which is what the payload actually costs, and spend

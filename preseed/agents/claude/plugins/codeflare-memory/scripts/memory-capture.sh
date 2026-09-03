@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # UserPromptSubmit hook — triggers detached conversation capture and bounded Vault checks.
-# Captures every 50 real user prompts; Vault hash-checks every 100 prompts and on resume.
+# Captures and Vault hash-checks every 20 real user prompts, plus resumed tails.
 # The main agent spawns a background Task agent to do the actual work.
 set -e
 
@@ -86,9 +86,9 @@ LATCH_FILE="$COUNTER_DIR/${SESSION_ID}.latched"
 # a directive the agent skips comes back next prompt instead of freezing the
 # session, so an ignored capture can no longer vanish silently.
 MAX_ATTEMPTS=6
-REARM_AFTER=50
-MEMORY_EVERY=50
-VAULT_EVERY=100
+REARM_AFTER=20
+MEMORY_EVERY=20
+VAULT_EVERY=20
 VAULT_COUNTER_FILE="$COUNTER_DIR/${SESSION_ID}.vault-count"
 MEMORY_SCAN=""
 FORCE_RESUME=""
@@ -163,7 +163,7 @@ launch_capture() {
     setsid bash "$HOOK_DIR/run-memory-capture.sh" --vars "$1" >/dev/null 2>&1 &
 }
 if [[ -f "$COUNTER_FILE" ]]; then
-    # Mid-session: counter present, normal 50-prompt cadence.
+    # Mid-session: counter present, normal 20-prompt cadence.
     last_count=$(head -1 "$COUNTER_FILE" 2>/dev/null) || last_count=0
     last_line=$(tail -1 "$COUNTER_FILE" 2>/dev/null) || last_line=1
     [[ "$last_count" =~ ^[0-9]+$ ]] || last_count=0
@@ -185,7 +185,7 @@ else
     #   (b) Resumed session: the container was recycled but the transcript
     #       persisted (claude --resume restores it), so CURRENT_COUNT > 1.
     #       Force-fire a capture from the start of the transcript to flush
-    #       any tail from the prior session that never reached the 50-prompt
+    #       any tail from the prior session that never reached the 20-prompt
     #       boundary, AND re-emit the graph-query directive because the
     #       agent's in-context recall of prior decisions is gone.
     MEMORY_SCAN="BEFORE responding, query the unified graph for context. Use mcp__graphify__query_graph (or mcp__graphify__get_node for a known concept) with terms from the user's message to surface prior decisions, vault notes, and per-repo references."

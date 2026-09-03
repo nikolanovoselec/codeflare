@@ -6,7 +6,7 @@ I can preserve the useful parts of a long engineering life instead of treating e
 
 The Vault is an Obsidian-compatible Markdown knowledge base opened through SilverBullet. It carries notes, plans, references, journal entries, inbox material, attachments, pasted content, and structured session captures. Users can edit it directly, create wikilinks, and keep the source as ordinary files.
 
-Memory capture records bounded conversation intervals and resumed-session tails into `Raw/Sessions/`. Captures retain decisions, corrections, observations, debugging discoveries, and source references. They accumulate in the user's durable storage until the user removes them. This is durable recall, not a claim that every uncaptured thought survives forever.
+Memory capture records every 20 real user messages and resumed-session tails into `Raw/Sessions/`. Captures retain decisions, corrections, observations, debugging discoveries, and source references. They accumulate in the user's durable storage until the user removes them. This is durable recall, not a claim that every uncaptured thought survives forever.
 
 I can use Graphify to build a cumulative graph from supported Vault material. A checked-out repository can contribute its own source and architecture graph. Codeflare merges the Vault contribution and active repository contribution into one global graph, so a prior incident, a playbook, a requirement, and the function that implements it can be linked and queried together. On a session's first useful prompt, relevant graph context can be injected. Recent captures can also return after compaction.
 

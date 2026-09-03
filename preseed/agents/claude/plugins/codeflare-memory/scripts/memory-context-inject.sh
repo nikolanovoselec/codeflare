@@ -8,7 +8,7 @@
 # no explicit tool call needed.
 #
 # Subsequent prompts (counter file present): exit silently. The memory-
-# capture.sh hook handles the ongoing 50-prompt capture cadence.
+# capture.sh hook handles the ongoing 20-prompt capture cadence.
 #
 # Fail-safe: any error -> exit 0 with no output. Never block a session.
 set +e

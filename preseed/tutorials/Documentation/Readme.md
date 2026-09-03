@@ -38,7 +38,7 @@ Pro-mode features (knowledge graph, curated skills, advanced workflows, automati
 - **Terminal tiling.** View 2-4 terminals side by side. Once you tile, you don't go back.
 - **Voice input.** A mic button on every terminal. Web Speech API, no extension. Brief your agent without thumb-typing a paragraph on mobile.
 - **R2 file browser.** Browse, upload, download, and manage files directly from the dashboard - without starting a container. Vault, Uploads, and Temporary are surfaced as special folders.
-- **Persistent vault (SilverBullet).** An Obsidian-compatible markdown editor running inside the container at `~/Vault/`, accessible from the header. Notes, journal entries, pasted screenshots, and an automatic 15-prompt session capture so a future agent can look up what a prior conversation decided.
+- **Persistent vault (SilverBullet).** An Obsidian-compatible markdown editor running inside the container at `~/Vault/`, accessible from the header. Notes, journal entries, pasted screenshots, and automatic capture every 20 real user messages so a future agent can look up what a prior conversation decided.
 - **User management.** Email-based allowlists and role-based permissions (admin and user). Invite users or revoke them when they get too creative.
 - **Setup wizard.** First-time deployment walks you through DNS, auth, and storage config. Takes a few minutes, only happens once.
 - **Configurable auto-sleep.** 15m / 30m / 1h / 2h / 4h. Input-aware: typing keeps the session alive, background polls do not. Free tier is locked to 15m.
@@ -55,7 +55,7 @@ Advanced session mode adds a layer of agent tooling on top of the base IDE. Desi
 - **Knowledge graph (graphify).** Every repo you clone gets indexed into a per-repo graph; your vault is indexed too; both merge into a unified global graph at `~/.graphify/global-graph.json`. The agent queries the graph via `mcp__graphify__*` tools instead of grepping blindly. "What calls function X?" / "What depends on Z?" / "Where did we decide Y?" all get sharper answers.
 - **Automatic review agents.** When you open a PR from `develop` to `main`, code-reviewer + spec-reviewer + doc-updater fire on the diff. They report findings; they do not auto-merge.
 - **Curated skill family.** Pre-loaded skills for CI monitoring, deploy credentials, doc enforcement, spec enforcement, TDD enforcement, the SDD workflow, the PR workflow, and more.
-- **Hook plugins.** Session-memory capture (every 15 prompts), graph-first nudges when the agent tries to grep, destructive-action gates, vault-edit detection.
+- **Hook plugins.** Session-memory capture (every 20 real user messages), graph-first nudges when the agent tries to grep, destructive-action gates, vault-edit detection.
 
 None of this needs configuration. Pick Claude Code + advanced mode on the session form and it's all preseeded.
 

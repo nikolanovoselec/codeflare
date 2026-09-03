@@ -8,7 +8,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 - **Vault** -- The persistent per-user vault directory. Single source of truth for cross-session memory; holds agent-written session captures plus user-curated notes, inbox, and journal entries. Attachment uploads land next to the note that referenced them. Bisynced to R2 so the vault survives across sessions.
 - **Unified Graph** -- The merged graph combining the vault's graph with every active repo's per-repo graph; merges are hash-keyed. Queryable through the graphify MCP surface so structural questions can span all sources in a single call.
-- **Capture** -- A background subagent runs every fifty real user messages and immediately on the first prompt after a resumed session has an uncaptured tail, strips tool I/O, synthesises a markdown capture into the vault's raw-sessions subdirectory, and merges its subgraph under a shared multi-writer lock. Claude retains its chunked scratchpad; Pi processes only the bounded uncaptured interval in one pass.
+- **Capture** -- A background subagent runs every twenty real user messages and immediately on the first prompt after a resumed session has an uncaptured tail, strips tool I/O, synthesises a markdown capture into the vault's raw-sessions subdirectory, and merges its subgraph under a shared multi-writer lock. Claude retains its chunked scratchpad; Pi processes only the bounded uncaptured interval in one pass.
 - **Session Mode** -- Pro mode enables R2 sync of the vault and capture hooks. Standard mode runs the in-session capture flow but the vault is not preserved across container recreations.
 
 ### Out of Scope
@@ -101,7 +101,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 ---
 
 <a id="req-mem-002-capture-triggers-every-15-user-messages"></a>
-### REQ-MEM-002: Capture triggers every 50 user messages and on resume
+### REQ-MEM-002: Capture triggers every 20 user messages and on resume
 
 **Intent:** Memory capture must fire at a regular interval to balance context freshness against overhead.
 
@@ -109,11 +109,11 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Acceptance Criteria:**
 
-1. The hook persists the number of user messages since the last capture for each session. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 50 user messages)) -->
+1. The hook persists the number of user messages since the last capture for each session. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 20 user messages)) -->
 2. A first run with exactly one user prompt initializes transcript baseline and counter, injects the first-message graph-query directive, and exits without capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::MEMORY_SCAN --> <!-- @test: host/__tests__/memory-capture-hook.test.js (AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)) -->
-3. If the counter file exists and the delta since the last capture is less than 50 messages, the hook exits without memory capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 50 user messages)) -->
-4. When the delta reaches 50, the capture subagent is triggered. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::DELTA --> <!-- @test: host/__tests__/memory-capture-hook.test.js (triggers capture when 50+ NEW real prompts since last_count) -->
-5. After a Pi memory request reaches GIVEUP, fifty later real-user prompts re-arm capture without allowing generated extraction follow-ups to advance the cadence. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isSyntheticPrompt --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC5: re-arms only after fifty later real prompts) -->
+3. If the counter file exists and the delta since the last capture is less than 20 messages, the hook exits without memory capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::COUNTER_DIR --> <!-- @test: host/__tests__/memory-capture-hook.test.js (memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every 20 user messages)) -->
+4. When the delta reaches 20, the capture subagent is triggered. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::DELTA --> <!-- @test: host/__tests__/memory-capture-hook.test.js (triggers capture when 20+ NEW real prompts since last_count) -->
+5. After a Pi memory request reaches GIVEUP, twenty later real-user prompts re-arm capture without allowing generated extraction follow-ups to advance the cadence. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isSyntheticPrompt --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC5: re-arms only after twenty later real prompts) -->
 6. Only the Pi root advances the prompt counter, after an exact correlated successful result and post-commit capture note/chunk; failed, late, incomplete, or superseded results cannot advance the counter or clear replacement work. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memorySuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (requires the post-commit note and chunk before exact success advances the frozen counter) -->
 7. A missing counter with multiple real-user prompts triggers resumed-session capture immediately on the first new prompt, starting after the highest durable successful capture count when one exists. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::FORCE_RESUME --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::latestCapturedPromptCount --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only the uncaptured tail and hash-checks Vault on the first resumed prompt) -->
 
@@ -124,7 +124,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 - Counter state MUST use ephemeral, session-scoped storage.
 - `CURRENT_COUNT` alone distinguishes first runs: 1 means a brand-new transcript containing only the submitted prompt; greater values mean prior prompts persisted from a resumed session.
 - Detection uses no timestamps, mtimes, or external sentinels.
-- The hook does not detect in-session `/compact`; its surviving counter catches up within the 50-prompt window while the compressed summary preserves orientation.
+- The hook does not detect in-session `/compact`; its surviving counter catches up within the 20-prompt window while the compressed summary preserves orientation.
 - This remains an accepted limitation pending observed harm.
 - On Pi, one ephemeral active request pointer enables reload discovery while a request-specific execution snapshot in the shared home-backed cache remains immutable after the first exact public call.
 
@@ -278,7 +278,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Constraints:**
 
 - Claude: the carrier file is retry state and remains until the locked merge/publication command removes it after success.
-- Pi: the separate root-owned delivery contract is specified by [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages) AC5–AC6.
+- Pi: the separate root-owned delivery contract is specified by [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume) AC5–AC6.
 
 **Priority:** P0
 
@@ -306,7 +306,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Priority:** P0
 
-**Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume), [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing)
+**Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-MEM-010](#req-mem-010-memory-capture-hook-plumbing)
 
 **Verification:** Automated test ([Claude memory hook tests](../../host/__tests__/memory-capture-hook.test.js))
 
@@ -367,7 +367,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Priority:** P0
 
-**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages)
+**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume)
 
 **Verification:** Automated test ([memory-capture-hook](../../host/__tests__/memory-capture-hook.test.js), [entrypoint hook merge](../../host/__tests__/entrypoint-hooks-merge.test.js))
 
@@ -393,7 +393,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 **Priority:** P0
 
-**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-15-user-messages), [REQ-MEM-020](#req-mem-020-capture-requests-are-re-delivered-under-a-bound)
+**Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault), [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-MEM-020](#req-mem-020-capture-requests-are-re-delivered-under-a-bound)
 
 **Verification:** Automated test ([memory-capture-hook](../../host/__tests__/memory-capture-hook.test.js))
 
@@ -522,7 +522,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 1. Every emitted Pi capture/extract request disables inherited context. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
 2. Every emitted Pi capture/extract request uses provider-neutral medium reasoning. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
-3. Every emitted Pi capture/extract request stops after seven agent turns, bounding retries while leaving room to page larger 50-prompt and Vault inputs under tool-output limits. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
+3. Every emitted Pi capture/extract request stops after seven agent turns, bounding retries while leaving room to page larger 20-prompt and Vault inputs under tool-output limits. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
 
 **Constraints:**
 

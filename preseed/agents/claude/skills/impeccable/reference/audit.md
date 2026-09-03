@@ -73,7 +73,7 @@ Run the bundled detector and verify each finding in context. Look for repeated i
 | 5 | Implementation Integrity | ? | |
 | **Total** | | **[earned]/[available]** | **[Rating band or N/A]** |
 
-**Rating bands**: Apply the 20-point bands only when all five dimensions have evidence. Otherwise report the earned/available score and `N/A` rather than inventing a rating.
+**Rating bands**: When all five dimensions have evidence: 18-20 Excellent (minor polish), 14-17 Good (address weak dimensions), 10-13 Acceptable (significant work needed), 6-9 Poor (major overhaul), 0-5 Critical (fundamental issues). Otherwise report the earned/available score and `N/A` rather than inventing a rating.
 
 ### Implementation Integrity Verdict
 **Start here.** Pass/fail: does the implementation express a coherent product-specific system? Cite verified evidence and detector findings.

@@ -97,4 +97,22 @@ describe('Impeccable managed runtime policy', () => {
     );
     assert.equal(readFileSync(sentinel, 'utf8'), 'preserve me\n');
   }));
+
+  it('REQ-AGENT-181: missing mutable package permission leaves targets unchanged', () => withTempDir((root) => {
+    const target = join(root, 'target');
+    mkdirSync(target);
+    const sentinel = join(target, 'sentinel.txt');
+    writeFileSync(sentinel, 'preserve me\n');
+    const skill = '---\ndescription: upstream\nallowed-tools:\n  - Bash(node scripts/*)\n---\nbody\n';
+
+    assert.throws(
+      () => replaceImpeccableTargets(join(root, 'source'), skill, [{
+        agent: 'claude',
+        root: target,
+        runtimePath: '~/.claude/skills/impeccable',
+      }]),
+      /mutable package permission/i,
+    );
+    assert.equal(readFileSync(sentinel, 'utf8'), 'preserve me\n');
+  }));
 });

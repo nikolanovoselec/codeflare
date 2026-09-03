@@ -4,7 +4,7 @@ This is a code-level audit, not a design critique. Audit from source (SwiftUI / 
 
 ## Diagnostic Scan
 
-Run comprehensive checks across 5 dimensions. Score each dimension 0-4 using the criteria below.
+Run comprehensive checks across 5 dimensions. Score a dimension 0-4 only when available source, runtime, device, or measurement evidence supports it; otherwise report `N/A` and do not infer a score.
 
 ### 1. Accessibility (VoiceOver / TalkBack)
 
@@ -74,15 +74,15 @@ Score against the loaded platform reference(s), including their slop tests. **Ch
 | 3 | Appearance & Theming | ? | |
 | 4 | Platform Conformance | ? | |
 | 5 | Adaptivity | ? | |
-| **Total** | | **??/20** | **[Rating band]** |
+| **Total** | | **[earned]/[available]** | **[Rating band or N/A]** |
 
-**Rating bands**: 18-20 Excellent (minor polish), 14-17 Good (address weak dimensions), 10-13 Acceptable (significant work needed), 6-9 Poor (major overhaul), 0-5 Critical (fundamental issues)
+**Rating bands**: When all five dimensions have evidence: 18-20 Excellent (minor polish), 14-17 Good (address weak dimensions), 10-13 Acceptable (significant work needed), 6-9 Poor (major overhaul), 0-5 Critical (fundamental issues). Otherwise report the earned/available score and `N/A` rather than inventing a rating.
 
 ### Platform Conformance Verdict
 **Start here.** Pass/fail: does this read as a native app or a ported website? List specific violations. Be brutally honest.
 
 ### Executive Summary
-- Audit Health Score: **??/20** ([rating band])
+- Audit Health Score: **[earned]/[available]** ([rating band or N/A])
 - Total issues found (count by severity: P0/P1/P2/P3)
 - Top 3-5 critical issues
 - Recommended next steps

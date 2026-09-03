@@ -16,12 +16,12 @@ Any tool call inside `/home/user/Vault/`, or any user prompt referencing vault c
 
 For "take a note" / "note this down" / "save this" / similar phrases, [vault-note-capture.md](./vault-note-capture.md) routes to the `vault-note-capture` skill instead.
 
-## Hook-triggered capture (every 50 user messages)
+## Hook-triggered capture (every 20 user messages)
 
-`memory-capture.sh` fires every 50 real user messages and immediately on the first prompt with an uncaptured resumed-session tail. It writes a `.vars` carrier and launches the detached capture runner itself; the main agent does not dispatch or wait. The carrier remains until locked cumulative merge and `user_vault` publication succeed.
+`memory-capture.sh` fires every 20 real user messages and immediately on the first prompt with an uncaptured resumed-session tail. It writes a `.vars` carrier and launches the detached capture runner itself; the main agent does not dispatch or wait. The carrier remains until locked cumulative merge and `user_vault` publication succeed.
 
 Sonnet (not haiku) because capture must cite REQ IDs / ADRs / commit SHAs verbatim; haiku confabulated adjacent IDs in benchmarking. See AD58 for rationale.
 
 ## Vault-edit hook (vault-extract subagent)
 
-Memory cadence owns Vault detection: every resumed-tail capture and each crossed 100-real-user-prompt epoch performs a content-hash check. `vault-monitor-hook.sh` dispatches `subagent_type: vault-extract` (sonnet) only when that check wrote a changed-content marker. No polling extraction daemon runs; unchanged checks are silent no-ops.
+Memory cadence owns Vault detection: every resumed-tail capture and each crossed 20-real-user-prompt epoch performs a content-hash check. `vault-monitor-hook.sh` dispatches `subagent_type: vault-extract` (sonnet) only when that check wrote a changed-content marker. No polling extraction daemon runs; unchanged checks are silent no-ops.

@@ -31,6 +31,7 @@ import {
   isGraphifyExtractionChunk,
   isResumedSession,
   isSyntheticPrompt,
+  MEMORY_EVERY_N_PROMPTS,
   parseActiveExtractionRequest,
   parseMemoryCaptureRequest,
   parseSessionEntries,
@@ -597,7 +598,7 @@ function sendDueExtractionMessages(
       `- \`${String(item.jobType)}\` · request \`${String(item.requestId)}\` · 6/6 failed calls`
     ));
     const next = giveups.flatMap((item) => item.jobType === "memory-capture"
-      ? ["- `memory-capture`: a new request may re-arm after 50 later real user prompts"]
+      ? [`- \`memory-capture\`: a new request may re-arm after ${MEMORY_EVERY_N_PROMPTS} later real user prompts`]
       : ["- `vault-extract`: a new Vault edit may re-arm delivery"]);
     pi.sendMessage({
       customType: "background-extraction-giveup",

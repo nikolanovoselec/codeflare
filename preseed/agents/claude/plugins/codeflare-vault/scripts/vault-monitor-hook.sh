@@ -2,7 +2,7 @@
 # UserPromptSubmit hook (REQ-MEMORY-102).
 #
 # Picks up the marker written by memory-capture.sh when a resumed-session or
-# 100-prompt content-hash check finds Vault changes, then signals the main agent
+# 20-prompt content-hash check finds Vault changes, then signals the main agent
 # to spawn a background sonnet that runs vault-extract-prompt.md.
 #
 # Zero-cost on idle prompts: if the marker is missing (the common case,

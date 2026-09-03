@@ -21,7 +21,13 @@ const CODEFLARE_IMPECCABLE_OVERLAY = Object.freeze([
     ['Run comprehensive checks across 5 dimensions. Score each dimension 0-4 using the criteria below.', 'Run comprehensive checks across 5 dimensions. Score a dimension 0-4 only when available rendering, interaction, code, or measurement evidence supports it; otherwise report `N/A` and do not infer a score.'],
     ['- **Touch targets**: Interactive elements < 44x44px', '- **Touch targets**: Interactive elements below the WCAG 2.5.8 web baseline; report stronger platform or product targets such as 44×44 separately when applicable'],
     ['| **Total** | | **??/20** | **[Rating band]** |', '| **Total** | | **[earned]/[available]** | **[Rating band or N/A]** |'],
-    ['**Rating bands**: 18-20 Excellent (minor polish), 14-17 Good (address weak dimensions), 10-13 Acceptable (significant work needed), 6-9 Poor (major overhaul), 0-5 Critical (fundamental issues)', '**Rating bands**: Apply the 20-point bands only when all five dimensions have evidence. Otherwise report the earned/available score and `N/A` rather than inventing a rating.'],
+    ['**Rating bands**: 18-20 Excellent (minor polish), 14-17 Good (address weak dimensions), 10-13 Acceptable (significant work needed), 6-9 Poor (major overhaul), 0-5 Critical (fundamental issues)', '**Rating bands**: When all five dimensions have evidence: 18-20 Excellent (minor polish), 14-17 Good (address weak dimensions), 10-13 Acceptable (significant work needed), 6-9 Poor (major overhaul), 0-5 Critical (fundamental issues). Otherwise report the earned/available score and `N/A` rather than inventing a rating.'],
+    ['- Audit Health Score: **??/20** ([rating band])', '- Audit Health Score: **[earned]/[available]** ([rating band or N/A])'],
+  ]],
+  ['reference/audit.native.md', [
+    ['Run comprehensive checks across 5 dimensions. Score each dimension 0-4 using the criteria below.', 'Run comprehensive checks across 5 dimensions. Score a dimension 0-4 only when available source, runtime, device, or measurement evidence supports it; otherwise report `N/A` and do not infer a score.'],
+    ['| **Total** | | **??/20** | **[Rating band]** |', '| **Total** | | **[earned]/[available]** | **[Rating band or N/A]** |'],
+    ['**Rating bands**: 18-20 Excellent (minor polish), 14-17 Good (address weak dimensions), 10-13 Acceptable (significant work needed), 6-9 Poor (major overhaul), 0-5 Critical (fundamental issues)', '**Rating bands**: When all five dimensions have evidence: 18-20 Excellent (minor polish), 14-17 Good (address weak dimensions), 10-13 Acceptable (significant work needed), 6-9 Poor (major overhaul), 0-5 Critical (fundamental issues). Otherwise report the earned/available score and `N/A` rather than inventing a rating.'],
     ['- Audit Health Score: **??/20** ([rating band])', '- Audit Health Score: **[earned]/[available]** ([rating band or N/A])'],
   ]],
   ['reference/adapt.md', [
@@ -130,12 +136,16 @@ export function applyCodeflareRoutingBoundary(text) {
   if (descriptions.length !== 1) {
     throw new Error('downloaded Impeccable skill must have exactly one frontmatter description');
   }
+  const mutablePackagePermissions = match[1].match(/^[ \t]*- Bash\(npx impeccable \*\)[ \t]*$/gm) ?? [];
+  if (mutablePackagePermissions.length !== 1) {
+    throw new Error('downloaded Impeccable skill must have exactly one mutable package permission');
+  }
   const frontmatter = match[1]
     .replace(
       /^description:.*$/m,
       `description: ${CODEFLARE_IMPECCABLE_DESCRIPTION}`,
     )
-    .replace(/^\s*- Bash\(npx impeccable \*\)\s*$/m, '');
+    .replace(mutablePackagePermissions[0], '');
   const body = text.slice(match[0].length);
   return `---\n${frontmatter}\n---\n\n${CODEFLARE_IMPECCABLE_BOUNDARY}\n${body}`;
 }
