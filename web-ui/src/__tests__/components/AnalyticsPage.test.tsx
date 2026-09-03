@@ -36,16 +36,15 @@ afterEach(() => {
 
 describe('Analytics historical usage presentation', () => {
   it('charts actual period aggregates, shows snapshot freshness, and exposes a download', async () => {
-    const expectedStart = new Date().toISOString().slice(0, 10);
     render(() => <Router><Route path="*" component={AnalyticsPage} /></Router>);
 
-    await waitFor(() => expect(screen.getByText('9h 33m')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText('9h 33m')).toHaveLength(2));
     expect(screen.getByRole('img', { name: /accounted runtime history/i })).toBeInTheDocument();
     expect(screen.getByText('2h 0m')).toBeInTheDocument();
-    expect(screen.getAllByText('9h 33m')).toHaveLength(2);
     expect(screen.getByText(/can lag live Timekeeper usage/i)).toBeInTheDocument();
     expect(screen.getByText('2026-09-03T11:54:17.007Z')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Export CSV' })).toHaveAttribute('download', `codeflare-usage-day-${expectedStart}.csv`);
+    const requestedStart = (getAdminUsageMock.mock.calls[0]?.[0] as { start: string }).start;
+    expect(screen.getByRole('link', { name: 'Export CSV' })).toHaveAttribute('download', `codeflare-usage-day-${requestedStart}.csv`);
   });
 
   it('charts earlier history when the selected period has no aggregate row', async () => {

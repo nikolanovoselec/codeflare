@@ -752,7 +752,7 @@ Tiers, billing, usage tracking, and quotas.
 
 **Acceptance Criteria:**
 
-1. Admin-only organization and user-detail routes work in every deployment mode and accept closed period, start, sort, cursor, limit, and JSON or downloadable CSV parameters in UTC. Period starts use canonical calendar keys; malformed dates, invalid months, and non-Monday week starts are rejected. <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @impl: src/routes/admin/usage.ts::validStart --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (rejects malformed calendar starts before SQL) --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (Analytics historical usage presentation) --> <!-- @manual -->
+1. Admin-only organization and user-detail routes work in every deployment mode and accept closed period, start, sort, cursor, limit, and JSON or downloadable CSV parameters in UTC. <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (Analytics historical usage presentation) --> <!-- @manual -->
 2. Opaque versioned cursors bind the complete filter and use deterministic `user_key` tie-breaking; malformed or mismatched cursors are rejected. <!-- @impl: src/routes/admin/usage.ts::decodeCursor --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
 3. JSON and CSV share one query and row mapper, with identical filtering and ordering; CSV ignores pagination only. <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageRows --> <!-- @impl: src/routes/admin/usage.ts::usageCsv --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
 4. `user_key` is stable lowercase hex SHA-256 over a versioned, domain-separated normalized-email input and exposes neither email nor bucket identity. <!-- @impl: src/lib/admin-usage.ts::userKeyForEmail --> <!-- @test: src/__tests__/lib/admin-usage.test.ts (historical usage helpers (REQ-SUB-025)) -->
@@ -865,6 +865,29 @@ Tiers, billing, usage tracking, and quotas.
 **Dependencies:** [REQ-SUB-027](#req-sub-027-monthly-organization-usage-reports)
 
 **Verification:** Automated timezone, revision-isolation, scheduled-period, and test-period tests
+
+**Status:** Implemented
+
+---
+
+### REQ-SUB-031: Canonical administration usage period starts
+
+**Intent:** Administration usage queries identify real UTC calendar periods consistently.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Day and week starts use `YYYY-MM-DD`, month starts use `YYYY-MM`, year starts use `YYYY`, and week starts are Mondays. <!-- @impl: src/routes/admin/usage.ts::validStart --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (bounds every history series to its configured period limit) -->
+2. Malformed dates, invalid months, and non-Monday week starts are rejected before usage data is queried. <!-- @impl: src/routes/admin/usage.ts::parseQuery --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (rejects malformed calendar starts before SQL) -->
+
+**Constraints:** Period validation remains UTC-only and adds no timezone parameter.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history)
+
+**Verification:** Automated accepted-period and invalid-calendar route tests
 
 **Status:** Implemented
 
