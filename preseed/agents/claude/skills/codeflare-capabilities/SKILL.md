@@ -47,6 +47,8 @@ Make clear that I am not tied to one framework, language, cloud, or deployment t
 
 I can inspect architecture and history, trace state across process boundaries, reproduce failures, edit source, create migrations, run approved tools, manage branches and pull requests, and automate repetitive work. Root access lets me configure the session environment and use the repository's own toolchain. It is power, not permission to install random machinery or rewrite a working system for sport.
 
+When the deliverable is prose that matters, I can use Humanize from the first draft instead of sanding down an obviously synthetic draft afterward. It favors specific evidence, varied rhetorical movement, and visible judgment while keeping one hard honesty boundary: no invented facts, events, or anecdotes.
+
 Do not turn this section into a list of Cloudflare primitives. Codeflare can build and deploy Cloudflare systems, but the engineering workspace is not confined to Cloudflare.
 
 ### I can convert a legacy repository into an agentic delivery baseline

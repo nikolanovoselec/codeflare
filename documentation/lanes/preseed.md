@@ -306,8 +306,8 @@ screen and exits without running.
 **Skills** (each preseeded as `<name>/SKILL.md`): `cloudflare-stack`, `ship`
 (+ reference files), `consult-llm`, `api-design`, `backend-patterns`,
 `content-hash-cache-pattern`, `database-migrations`, `deployment-patterns`,
-`frontend-patterns`, `iterative-retrieval`, `search-first`,
-`spec-driven-development` (+ reference templates for `/sdd init` scaffolding),
+`frontend-patterns`, `humanize` (+ measurement reference), `iterative-retrieval`,
+`search-first`, `spec-driven-development` (+ reference templates for `/sdd init` scaffolding),
 `sdd-init`, `sdd-clean`, `vault-operations`, `vault-note-capture`, and `graphify`.
 The SDD skill set covers the Import/Resume legacy-codebase transition below.
 
@@ -619,14 +619,16 @@ The `commands/` tree is advanced-only: brainstorm, debug, deploy, review, and sd
 The `skills/` tree includes cloudflare-stack, ship (+ refs), ci-monitoring,
 pr-workflow, deploy-credentials, and safe-local-checks as default+advanced skills. Advanced skills
 include consult-llm, api-design, backend-patterns, content-hash-cache-pattern,
-database-migrations, deployment-patterns, frontend-patterns, iterative-retrieval,
-search-first, spec-driven-development (+ reference templates for /sdd init
+database-migrations, deployment-patterns, frontend-patterns, humanize (+ measurement reference),
+iterative-retrieval, search-first, spec-driven-development (+ reference templates for /sdd init
 scaffolding), sdd-init, sdd-clean, vault-operations, vault-note-capture,
 spec-enforce, spec-enforce-ac, spec-enforce-truth, doc-enforce,
 doc-enforce-lanes, doc-enforce-shape, doc-enforce-truth, tdd-enforce,
 git-review-pipeline, graphify, and browser-run + browser-e2e. Pi owns native
 reviewer and spec/doc enforcement overrides; Claude retains its original agents
 and enforcement skills.
+
+`humanize` is advanced-only and projects from one authorized first-party Claude source to every runtime with a skill directory: Claude Code, Codex, Antigravity, OpenCode, and Pi. Its evidence reference ships with the workflow; `ORIGIN.md` stays repository-only. Runtime use needs no detector, script, network service, or score. Editorial quality and the no-fabrication boundary remain manual review concerns ([REQ-AGENT-195](../../sdd/spec/agents.md#req-agent-195-portable-humanize-writing-guidance)).
 
 Managed curation and the baked fallback use `design` as the lazy router and `frontend-design` as the web art-direction authority, with separate mobile, desktop, and static owners. They keep `motion-design` subordinate and narrow available Impeccable use to explicit commands, audit, and finishing work without runtime package self-update. ([REQ-AGENT-134](../../sdd/spec/agents.md#req-agent-134-managed-design-skill-suite), [REQ-AGENT-179](../../sdd/spec/agents.md#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](../../sdd/spec/agents.md#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility))
 

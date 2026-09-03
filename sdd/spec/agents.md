@@ -2388,6 +2388,32 @@ None.
 
 ---
 
+### REQ-AGENT-195: Portable Humanize writing guidance
+
+**Intent:** Agents can draft or revise consequential prose with specific, varied, human editorial judgment without inventing supporting facts.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Advanced seed compilation projects the Humanize skill and its evidence reference from one Claude source into every supported skill runtime, while default mode receives neither document. <!-- @impl: preseed/agents/claude/manifest.json::skills/humanize/SKILL.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (generates byte-identical image output through the shared core) -->
+2. Humanize applies to first drafts and rewrites of stylistically consequential prose rather than unrelated technical execution. <!-- @impl: preseed/agents/claude/skills/humanize/SKILL.md::frontmatter --> <!-- @manual: Compare activation on a proposal-writing request and a source-only debugging request. -->
+3. The workflow requires no detector, external service, script, or scoring run during use. <!-- @impl: preseed/agents/claude/skills/humanize/SKILL.md::Humanize --> <!-- @manual: Run the skill in a network-isolated session and inspect tool use. -->
+4. Humanize never fabricates facts, events, attributions, or anecdotes to create a stronger voice. <!-- @impl: preseed/agents/claude/skills/humanize/SKILL.md::Honesty constraint --> <!-- @manual: Rewrite source material with missing specifics and inspect the result for invented evidence. -->
+5. Broad Codeflare capability guidance includes Humanize without claiming deterministic detector evasion. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::I can work on the actual system, whatever it is built with --> <!-- @manual: Request the broad capability tour and inspect its writing guidance. -->
+
+**Constraints:** Subjective prose quality remains manually reviewed and is never pinned through wording, snapshot, detector-score, or editorial-content tests.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-007](#req-agent-007-agent-specific-config-generation), [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-190](#req-agent-190-portable-capability-discovery-delivery)
+
+**Verification:** Automated compiler contract and manual writing review
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-053: Pi Native Review Result Correlation
 
 **Intent:** Pi review completion must be proven only by visible public reviewer calls and their correlated successful terminal evidence in the root transcript.

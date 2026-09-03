@@ -2133,5 +2133,15 @@
       "default",
       "advanced"
     ]
+  },
+  "skills/humanize/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/humanize/reference/findings.md": {
+    "modes": [
+      "advanced"
+    ]
   }
 }
