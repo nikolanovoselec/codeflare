@@ -70,16 +70,16 @@ describe('shared agent seed compiler', () => {
         .map(({ key, modes }) => ({ key, modes }))
         .sort((left, right) => left.key.localeCompare(right.key));
       assert.deepEqual(humanizeDocuments, [
-        '.claude/skills/humanize/SKILL.md',
         '.claude/skills/humanize/reference/findings.md',
-        '.codex/skills/humanize/SKILL.md',
+        '.claude/skills/humanize/SKILL.md',
         '.codex/skills/humanize/reference/findings.md',
-        '.config/opencode/skills/humanize/SKILL.md',
+        '.codex/skills/humanize/SKILL.md',
         '.config/opencode/skills/humanize/reference/findings.md',
-        '.gemini/skills/humanize/SKILL.md',
+        '.config/opencode/skills/humanize/SKILL.md',
         '.gemini/skills/humanize/reference/findings.md',
-        '.pi/agent/skills/humanize/SKILL.md',
+        '.gemini/skills/humanize/SKILL.md',
         '.pi/agent/skills/humanize/reference/findings.md',
+        '.pi/agent/skills/humanize/SKILL.md',
       ].map((key) => ({ key, modes: ['advanced'] })));
       assert.deepEqual(await readFile(outputFile), await readFile(generatedPath));
     } finally {
