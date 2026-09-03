@@ -43,8 +43,9 @@ describe('Analytics historical usage presentation', () => {
     expect(screen.getByText('2h 0m')).toBeInTheDocument();
     expect(screen.getByText(/can lag live Timekeeper usage/i)).toBeInTheDocument();
     expect(screen.getByText('2026-09-03T11:54:17.007Z')).toBeInTheDocument();
-    const requestedStart = (getAdminUsageMock.mock.calls[0]?.[0] as { start: string }).start;
-    expect(screen.getByRole('link', { name: 'Export CSV' })).toHaveAttribute('download', `codeflare-usage-day-${requestedStart}.csv`);
+    const request = getAdminUsageMock.mock.calls[0]?.[0] as { start: string } | undefined;
+    if (!request) throw new Error('Expected the Analytics page to request usage data');
+    expect(screen.getByRole('link', { name: 'Export CSV' })).toHaveAttribute('download', `codeflare-usage-day-${request.start}.csv`);
   });
 
   it('charts earlier history when the selected period has no aggregate row', async () => {
