@@ -327,9 +327,11 @@ jobs:
         working-directory: web-ui
 
       - name: Security audit (backend)
+        timeout-minutes: 1
         run: npm audit --package-lock-only --audit-level=high --omit=dev
 
       - name: Security audit (frontend)
+        timeout-minutes: 1
         run: npm audit --package-lock-only --audit-level=high --omit=dev
         working-directory: web-ui
 
@@ -992,6 +994,7 @@ jobs:
           key-prefix: browser-ide
 
       - name: Audit pinned extension dependencies and licenses
+        timeout-minutes: 1
         run: npm audit --audit-level=high && npm run check:dependencies
         working-directory: openvscode/agent-sidebar
 
