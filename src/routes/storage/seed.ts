@@ -10,7 +10,7 @@ import { createRateLimiter } from '../../middleware/rate-limit';
 import { AppError, ContainerError, BucketMigratingError, ManagedEnvironmentUpdatePendingError, toErrorMessage } from '../../lib/error-types';
 import { createLogger } from '../../lib/logger';
 import { getPreferencesKey } from '../../lib/kv-keys';
-import { clearMatchingManagedReconcileProgress, writeManagedReconcileProgress } from '../../lib/managed-reconcile-progress';
+import { readManagedReconcileProgress, writeManagedReconcileProgress } from '../../lib/managed-reconcile-progress';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
 import { hasOwningSessionContainer } from '../../lib/session-helpers';
@@ -348,9 +348,9 @@ async function reconcileAgentConfigsForRequest(
           ...(enterpriseMode ? { sessionMode: 'advanced' as const } : {}),
         };
     await c.env.KV.put(preferencesKey, JSON.stringify(updatedPreferences));
-    if (automatic && activeManagedRelease) {
-      await clearMatchingManagedReconcileProgress(c.env.KV, bucketName, activeManagedRelease.digest);
-    }
+    const completionProgress = automatic && activeManagedRelease
+      ? await readManagedReconcileProgress(c.env.KV, bucketName)
+      : undefined;
 
     return c.json({
       success: true,
@@ -359,6 +359,13 @@ async function reconcileAgentConfigsForRequest(
       skipped: result.skipped,
       deleted: result.deleted,
       warnings: result.warnings,
+      ...(completionProgress?.targetDigest === activeManagedRelease?.digest ? {
+        managedReleaseProgress: {
+          phase: completionProgress.phase,
+          completed: completionProgress.completed,
+          total: completionProgress.total,
+        },
+      } : {}),
     });
   } catch (error) {
     if (error instanceof AppError) throw error;

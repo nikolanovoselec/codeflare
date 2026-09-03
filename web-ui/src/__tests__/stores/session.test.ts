@@ -251,7 +251,7 @@ describe('Session Store', () => {
       expect(mockRecreateAgentConfigs).not.toHaveBeenCalled();
     });
 
-    it('REQ-AGENT-049 AC4: reconciles upgrading and returns to current after success', async () => {
+    it('REQ-AGENT-049 AC5 + REQ-AGENT-175 AC5: preserves fast upgrade progress through finalization', async () => {
       let resolveUpgrade: (value: any) => void;
       mockUpgradeAgentConfigs.mockReturnValueOnce(new Promise((resolve) => {
         resolveUpgrade = resolve;
@@ -268,9 +268,27 @@ describe('Session Store', () => {
       expect(sessionStore.managedReleaseStatus).toBe('upgrading');
       expect(mockUpgradeAgentConfigs).toHaveBeenCalledTimes(1);
 
-      resolveUpgrade!({ success: true, written: [], skipped: [], deleted: [], warnings: [] });
+      resolveUpgrade!({
+        success: true, written: [], skipped: [], deleted: [], warnings: [],
+        managedReleaseProgress: { phase: 'finalizing', completed: 61, total: 61 },
+      });
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      expect(sessionStore.managedReleaseStatus).toBe('upgrading');
+      expect(sessionStore.managedReleaseProgress).toEqual({ phase: 'writing', completed: 61, total: 61 });
+
+      mockGetBatchSessionStatus.mockResolvedValueOnce({
+        statuses: {}, maxSessions: 3, managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: false,
+        managedReleaseProgress: { phase: 'finalizing', completed: 61, total: 61 },
+      } as never);
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.managedReleaseProgress).toEqual({ phase: 'finalizing', completed: 61, total: 61 });
+
+      mockGetBatchSessionStatus.mockResolvedValueOnce({
+        statuses: {}, maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false,
+      } as never);
+      await sessionStore.refreshSessionStatuses();
       expect(sessionStore.managedReleaseStatus).toBe('current');
+      expect(sessionStore.managedReleaseProgress).toBeNull();
     });
 
     it('should recognize running sessions on fresh page load', async () => {

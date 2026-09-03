@@ -373,6 +373,11 @@ export const RecreateAgentConfigsResponseSchema = z.object({
   skipped: z.array(z.string()),
   deleted: z.array(z.string()).optional(),
   warnings: z.array(z.string()).optional(),
+  managedReleaseProgress: z.object({
+    phase: z.enum(['planning', 'writing', 'finalizing']),
+    completed: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    total: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  }).refine((progress) => progress.completed <= progress.total).optional(),
 });
 
 // Storage preview (discriminated by type)

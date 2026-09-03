@@ -309,17 +309,19 @@ describe('Storage API Client', () => {
   // recreateAgentConfigs
   // ==========================================================================
   describe('recreateAgentConfigs', () => {
-    it('REQ-STOR-033 AC7: calls the separate automatic managed upgrade endpoint', async () => {
+    it('REQ-STOR-033 AC7 + REQ-AGENT-175 AC5: calls the automatic endpoint and preserves completion progress', async () => {
       mockFetch.mockResolvedValueOnce(mockResponse({
         success: true, bucketCreated: false, written: [], skipped: [], deleted: [], warnings: [],
+        managedReleaseProgress: { phase: 'finalizing', completed: 61, total: 61 },
       }));
 
-      await (storageApi as typeof storageApi & { upgradeAgentConfigs: () => Promise<unknown> }).upgradeAgentConfigs();
+      const result = await (storageApi as typeof storageApi & { upgradeAgentConfigs: () => Promise<Record<string, unknown>> }).upgradeAgentConfigs();
 
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/storage/seed/agent-configs/upgrade',
         expect.objectContaining({ method: 'POST' }),
       );
+      expect(result.managedReleaseProgress).toEqual({ phase: 'finalizing', completed: 61, total: 61 });
     });
 
     it('calls POST /api/storage/seed/agent-configs', async () => {

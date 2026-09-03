@@ -237,10 +237,19 @@ function applyManagedReleaseBatch(
   }
   if (!needsUpgrade || state.preseedUpgrading) return;
   void runPreseedUpdate(upgradeAgentConfigs)
-    .then(() => {
-      if (status === 'upgrading') {
+    .then((result) => {
+      if (status !== 'upgrading') return;
+      const completion = result.managedReleaseProgress;
+      if (!completion) {
         setState('managedReleaseStatus', 'current');
         setState('managedReleaseProgress', null);
+        return;
+      }
+      if (state.managedReleaseProgress?.phase !== 'finalizing') {
+        setState('managedReleaseStatus', 'upgrading');
+        setState('managedReleaseProgress', completion.total > 0
+          ? { ...completion, phase: 'writing' }
+          : completion);
       }
     })
     .catch((err) => logger.warn('[SessionStore] preseed auto-upgrade failed:', err));

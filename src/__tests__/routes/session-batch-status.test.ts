@@ -696,7 +696,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.managedReleaseProgress).toBeUndefined();
     });
 
-    it('REQ-STOR-036 AC4: applied target omits and opportunistically clears stale progress', async () => {
+    it('REQ-STOR-036 AC4: applied target exposes finalizing once and clears it', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', {
@@ -712,8 +712,9 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       });
 
       const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
-      const body = await res.json() as { managedReleaseProgress?: unknown };
-      expect(body.managedReleaseProgress).toBeUndefined();
+      const body = await res.json() as { managedReleaseStatus?: string; managedReleaseProgress?: unknown };
+      expect(body.managedReleaseStatus).toBe('upgrading');
+      expect(body.managedReleaseProgress).toEqual({ phase: 'finalizing', completed: 61, total: 61 });
       expect(mockKV.delete).toHaveBeenCalledWith('managed-reconcile-progress:test-bucket');
     });
   });

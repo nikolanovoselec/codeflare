@@ -218,6 +218,14 @@ app.get('/batch-status', async (c) => {
       if (active) {
         const progress = await readManagedReconcileProgress(c.env.KV, bucketName);
         if (!managedMismatch && progress?.targetDigest === active.digest) {
+          if (progress.phase === 'finalizing') {
+            managedReleaseStatus = 'upgrading';
+            managedReleaseProgress = {
+              phase: progress.phase,
+              completed: progress.completed,
+              total: progress.total,
+            };
+          }
           await clearMatchingManagedReconcileProgress(c.env.KV, bucketName, active.digest);
         } else if (managedReleaseStatus === 'upgrading' && progress?.targetDigest === active.digest) {
           managedReleaseProgress = {

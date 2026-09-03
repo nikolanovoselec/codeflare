@@ -660,16 +660,23 @@ describe('managed storage reconcile', () => {
     expect(response.status).toBe(200);
   });
 
-  it('REQ-STOR-034 AC4/AC5: automatic progress is bounded, observational, and cleared after stamping', async () => {
+  it('REQ-STOR-034 AC4/AC5: automatic progress is bounded and retained for the completion handoff', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+    reconcile.mockImplementationOnce(async (...args: any[]) => {
+      await args[4].automatic.onProgress({ completed: 61, total: 61 });
+      return { written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined };
+    });
 
     const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
     expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      managedReleaseProgress: { phase: 'finalizing', completed: 61, total: 61 },
+    });
     const progressWrites = kv.put.mock.calls.filter(([key]) => key === 'managed-reconcile-progress:user-bucket');
     expect(progressWrites.length).toBeGreaterThan(0);
     expect(progressWrites.every(([, , options]) => options?.expirationTtl === 86_400)).toBe(true);
     expect(kv.put.mock.calls.some(([key]) => key === 'user-prefs:user-bucket')).toBe(true);
-    expect(kv.delete.mock.calls.some(([key]) => key === 'managed-reconcile-progress:user-bucket')).toBe(true);
+    expect(kv.delete.mock.calls.some(([key]) => key === 'managed-reconcile-progress:user-bucket')).toBe(false);
   });
 });
