@@ -2672,7 +2672,7 @@ const required = [
   'npm:pi-evaluate@0.1.5',
   'npm:@narumitw/pi-goal@0.54.2',
   'npm:@narumitw/pi-plan-mode@0.55.1',
-  'npm:@narumitw/pi-usage@0.52.2',
+  'npm:@narumitw/pi-usage@0.53.0',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable its extension and skills on every
 // fresh container start. The managed foreground-owner bridge attaches only after explicit enablement.
