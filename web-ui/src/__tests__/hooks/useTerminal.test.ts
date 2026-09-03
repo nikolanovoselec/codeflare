@@ -684,7 +684,7 @@ describe('useTerminal hook', () => {
       expect(connectCleanup).toHaveBeenCalledTimes(1);
     });
 
-    it('should NOT connect while the session is initializing before the mounting stage', () => {
+    it('should NOT connect while the session is initializing before the ready stage', () => {
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(true);
       vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'provisioning' } as any);
 
@@ -695,6 +695,31 @@ describe('useTerminal hook', () => {
       });
 
       expect(terminalStore.connect).not.toHaveBeenCalled();
+
+      dispose();
+    });
+
+    it('waits for terminal pre-warm readiness before connecting an initializing session', async () => {
+      const [stage, setStage] = createSignal<'mounting' | 'ready'>('mounting');
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(true);
+      vi.mocked(sessionStore.getInitProgressForSession).mockImplementation(() => ({ stage: stage() }) as any);
+
+      const dispose = createRoot((dispose) => {
+        const result = useTerminal(defaultProps);
+        result.containerRef(containerEl);
+        return dispose;
+      });
+
+      expect(terminalStore.connect).not.toHaveBeenCalled();
+      expect(terminalStore.startUrlDetection).not.toHaveBeenCalled();
+      expect(mockFocus).not.toHaveBeenCalled();
+
+      setStage('ready');
+
+      await vi.waitFor(() => expect(terminalStore.connect).toHaveBeenCalledTimes(1));
+      expect(terminalStore.startUrlDetection).toHaveBeenCalledTimes(1);
+      expect(terminalStore.startUrlDetection).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId);
+      expect(mockFocus).toHaveBeenCalledTimes(1);
 
       dispose();
     });

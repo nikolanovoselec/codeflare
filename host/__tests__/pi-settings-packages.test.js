@@ -70,6 +70,7 @@ const REVIEWED_GOAL_RELEASES = Object.freeze({
   '0.49.7': 'sha512-7FznIa3HGEsMkppnv7CLW6/TCvtuslKdk+BgrcvNrmJVK/HJfo5rTBCxCzahW2BbEy47Ixfsdqzrg6HL4LX8qw==',
   '0.53.0': 'sha512-cmWowqAzlkgRLKYp2hFnUZvEEs6G6aGjEOazBWNW88T7LB9cd/AzOFOGYvA1QxxsGtIdOuFRZJVhfAJDGsAcjw==',
   '0.54.2': 'sha512-RbrArj7OoP/6FGMZ+yBtKiRyz1r1PjTFdPJv+23MhoGxsyNB6suJk8VDni9jOk6lS5lwsJhaj/S1s1AT8urtnw==',
+  '0.54.3': 'sha512-UgPF7uKm6B9XITmOji3uRJGeeQiBeFODwiiyFe3V3dUPWbCSXUUhvF0RuorkxNnsp1uPN46tELNxK9riBTNMZg==',
 });
 
 describe('Goal package preseed (REQ-AGENT-111)', () => {
@@ -78,7 +79,7 @@ describe('Goal package preseed (REQ-AGENT-111)', () => {
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
     const version = pkg.dependencies['@narumitw/pi-goal'];
     const expectedIntegrity = REVIEWED_GOAL_RELEASES[version];
-    assert.equal(version, '0.54.2');
+    assert.equal(version, '0.54.3');
     assert.ok(expectedIntegrity, `unreviewed pi-goal release: ${String(version)}`);
     assert.equal(pkg.dependencies['pi-goal-list-loop-audit'], undefined);
     const goal = lock.packages['node_modules/@narumitw/pi-goal'];
@@ -144,7 +145,7 @@ describe('Plan mode package preseed (REQ-AGENT-152)', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
     const version = pkg.dependencies['@narumitw/pi-plan-mode'];
-    assert.equal(version, '0.55.1');
+    assert.equal(version, '0.55.3');
     const planMode = lock.packages['node_modules/@narumitw/pi-plan-mode'];
     assert.equal(planMode.version, version);
     assert.equal(
@@ -153,7 +154,7 @@ describe('Plan mode package preseed (REQ-AGENT-152)', () => {
     );
     assert.equal(
       planMode.integrity,
-      'sha512-fgQTkSTMOzsm7jWlISh7XqAQZQkOZh+ZVJbiZSs9W3OdmxWCgwKR92XESHejuwIuJm5s6PDWa6T1MHK6D/qZeQ==',
+      'sha512-pBLJdDWsANbMmRkTtTUcEJO95WY3tRmbWbS57uKIHsbQ5dc5sStD20R4qpcGXSl/r5tyPVR2Gru/YqwCqpmJ3Q==',
     );
     assert.deepEqual(planMode.peerDependencies, {
       '@earendil-works/pi-coding-agent': '*',

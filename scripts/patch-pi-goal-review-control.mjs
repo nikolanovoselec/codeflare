@@ -9,7 +9,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const EXPECTED_PI_GOAL_VERSION = '0.54.2';
+export const EXPECTED_PI_GOAL_VERSION = '0.54.3';
 export const SUPPORTED_PI_GOAL_VERSIONS = Object.freeze([
   EXPECTED_PI_GOAL_VERSION,
 ]);

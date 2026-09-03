@@ -2,6 +2,16 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-03
+
+- **Capability questions can reach the router Pi tells the model to use** ([REQ-AGENT-190](agents.md#req-agent-190-portable-capability-discovery-delivery) AC4 added; remains Implemented). The router remains lazy, but it is no longer hidden from Pi's generated skill index by `disable-model-invocation`; compiler coverage now rejects that broken combination.
+
+- **Initializing terminal panes wait for authoritative pre-warm output** ([REQ-TERM-011](terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections) AC6 added; remains Implemented). A visible initializing terminal no longer connects or focuses during `mounting`. It connects once at `ready`, while an already-running session still connects immediately on reload.
+
+- **Goal 0.54.3 and Plan Mode 0.55.3 retain Codeflare's workflow boundaries** ([REQ-AGENT-111](agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC5 amended; [REQ-AGENT-158](agents.md#req-agent-158-bounded-initial-pi-tool-exposure) AC5 and AC7 amended; remain Implemented). Exact-version transforms, integrity locks, fixtures, startup pins, and generated seed content move together. Active Plan outranks non-active Goal history, the latest canonical Goal state keeps all three Goal tools under `after-first-goal`, and active Goal still owns the session.
+
+- **Managed-release freshness and degraded pre-warm evidence are stated separately** ([REQ-STOR-040](storage.md#req-stor-040-managed-release-discovery-freshness) AC1 amended; [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition) AC4 split and later criteria renumbered; remain Implemented). The resolver must recheck the latest release after five minutes and activate a newly verified compatible result. Worker-side 1013 rejection remains distinct from the host's bounded degraded registration path.
+
 ## 2026-09-02
 
 - **Committed runtime locks reject vulnerable fast-uri releases** ([REQ-OPS-054](operations.md#req-ops-054-committed-npm-runtime-lock-integrity) AC3 added; remains Implemented). Browser Run MCP, shared npm tools, and Pi now resolve fast-uri 3.1.6 or later alongside the existing reviewed security floors.

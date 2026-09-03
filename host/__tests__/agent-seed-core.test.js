@@ -55,6 +55,10 @@ describe('shared agent seed compiler', () => {
       const licenses = compiled.documents.filter((document) => document.key.endsWith('/LICENSE'));
       assert.ok(licenses.length >= 2);
       assert.ok(licenses.every((document) => document.contentType === 'text/plain; charset=utf-8'));
+      const piInstructions = compiled.documents.find((document) => (
+        document.key === '.pi/agent/AGENTS.md' && document.modes.includes('default')
+      ));
+      assert.match(piInstructions?.content ?? '', /- `codeflare-capabilities`/);
       assert.deepEqual(await readFile(outputFile), await readFile(generatedPath));
     } finally {
       await rm(dir, { recursive: true, force: true });

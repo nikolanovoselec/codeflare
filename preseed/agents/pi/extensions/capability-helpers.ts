@@ -45,16 +45,8 @@ const TOOL_ACTIVATION_GROUPS: Readonly<Record<string, readonly string[]>> = {
 const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const PLAN_STATE_ENTRY_TYPE = "plan-mode-state";
 const INLINE_EDIT_RESULT_TOOL = "codeflare_submit_inline_result";
-const GOAL_TERMINAL_TOOLS = ["goal_complete", "goal_blocked"] as const;
+const GOAL_TERMINAL_TOOLS = ["goal_complete", "goal_blocked", "goal_wait"] as const;
 const PLAN_HELPER_TOOLS = ["plan_mode_question", "plan_mode_complete"] as const;
-const UNFINISHED_GOAL_STATUSES = new Set([
-  "active",
-  "paused",
-  "blocked",
-  "usage_limited",
-  "budget_limited",
-  "queued",
-]);
 
 function unique(values: string[]): string[] {
   return [...new Set(values)];
@@ -109,17 +101,16 @@ function latestCustomEntry(ctx: SessionContext, customType: string): SessionEntr
   )).at(-1);
 }
 
-function hasUnfinishedGoal(ctx: SessionContext): boolean {
+function latestGoalStatus(ctx: SessionContext): string | undefined {
   const latest = latestCustomEntry(ctx, GOAL_STATE_ENTRY_TYPE);
-  if (!latest?.data || typeof latest.data !== "object") return false;
+  if (!latest?.data || typeof latest.data !== "object") return undefined;
   const goal = Reflect.get(latest.data, "goal");
-  if (!goal || typeof goal !== "object") return false;
+  if (!goal || typeof goal !== "object") return undefined;
   const id = Reflect.get(goal, "id");
   const status = Reflect.get(goal, "status");
-  return typeof id === "string"
-    && id.length > 0
-    && typeof status === "string"
-    && UNFINISHED_GOAL_STATUSES.has(status);
+  return typeof id === "string" && id.length > 0 && typeof status === "string"
+    ? status
+    : undefined;
 }
 
 function registeredTools(pi: ToolActivationPi, names: readonly string[]): string[] {
@@ -146,7 +137,8 @@ export function registerInitialToolFilter(
   const alwaysVisible = goalToolVisibility() === "always";
   const goalTools = () => registeredTools(pi, [...initialActiveTools(pi), ...GOAL_TERMINAL_TOOLS]);
   const applyOwnedTools = (ctx: SessionContext): boolean => {
-    if (hasUnfinishedGoal(ctx)) {
+    const goalStatus = latestGoalStatus(ctx);
+    if (goalStatus === "active") {
       pi.setActiveTools(goalTools());
       return true;
     }
@@ -158,7 +150,7 @@ export function registerInitialToolFilter(
       ]));
       return true;
     }
-    if (alwaysVisible) {
+    if (alwaysVisible || goalStatus !== undefined) {
       pi.setActiveTools(goalTools());
       return true;
     }

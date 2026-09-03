@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Applies Codeflare's reviewed compatibility patch to Plan Mode 0.55.1.
+// Applies Codeflare's reviewed compatibility patch to Plan Mode 0.55.3.
 // Upstream 0.55 resolves policy from active tools and requires helper tools to
 // already be active before /plan starts. Codeflare exposes only five bootstrap
 // tools to ordinary provider turns, so the image patch resolves Plan policy from
@@ -9,7 +9,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const EXPECTED_PI_PLAN_MODE_VERSION = '0.55.1';
+export const EXPECTED_PI_PLAN_MODE_VERSION = '0.55.3';
 export const REGISTERED_HELPERS_MARKER = 'CODEFLARE_PLAN_REGISTERED_HELPERS';
 export const REGISTERED_POLICY_MARKER = 'CODEFLARE_PLAN_REGISTERED_POLICY';
 

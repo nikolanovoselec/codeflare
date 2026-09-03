@@ -1,7 +1,6 @@
 ---
 name: codeflare-capabilities
 description: "Explain the complete Codeflare workspace in first person, then route numbered follow-ups to grounded subsystem guidance."
-disable-model-invocation: true
 ---
 
 # Capability discovery router

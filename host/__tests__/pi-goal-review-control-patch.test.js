@@ -621,10 +621,10 @@ function readFixturePackage(root, sessionSourceName = 'lifecycle') {
 }
 
 const FIXTURES_DIRECTORY = join(dirname(fileURLToPath(import.meta.url)), '..', '__fixtures__');
-const PINNED_PACKAGE_ARCHIVE = join(FIXTURES_DIRECTORY, 'pi-goal-0.54.2.tgz');
-const PINNED_PACKAGE_INTEGRITY = 'sha512-RbrArj7OoP/6FGMZ+yBtKiRyz1r1PjTFdPJv+23MhoGxsyNB6suJk8VDni9jOk6lS5lwsJhaj/S1s1AT8urtnw==';
-const PINNED_PLAN_ARCHIVE = join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.55.1.tgz');
-const PINNED_PLAN_INTEGRITY = 'sha512-fgQTkSTMOzsm7jWlISh7XqAQZQkOZh+ZVJbiZSs9W3OdmxWCgwKR92XESHejuwIuJm5s6PDWa6T1MHK6D/qZeQ==';
+const PINNED_PACKAGE_ARCHIVE = join(FIXTURES_DIRECTORY, 'pi-goal-0.54.3.tgz');
+const PINNED_PACKAGE_INTEGRITY = 'sha512-UgPF7uKm6B9XITmOji3uRJGeeQiBeFODwiiyFe3V3dUPWbCSXUUhvF0RuorkxNnsp1uPN46tELNxK9riBTNMZg==';
+const PINNED_PLAN_ARCHIVE = join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.55.3.tgz');
+const PINNED_PLAN_INTEGRITY = 'sha512-pBLJdDWsANbMmRkTtTUcEJO95WY3tRmbWbS57uKIHsbQ5dc5sStD20R4qpcGXSl/r5tyPVR2Gru/YqwCqpmJ3Q==';
 
 function extractPackage(archivePath, integrity, root) {
   const archive = readFileSync(archivePath);
@@ -794,9 +794,11 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     harness.api.setActiveTools(['read']);
     assert.ok(!harness.activeTools().includes('goal_complete'));
 
-    harness.api.setActiveTools(['goal_complete', 'goal_blocked']);
     await harness.commands.get('goal').handler('first integration objective', harness.ctx);
     assert.equal(harness.entries.at(-1)?.data?.goal?.status, 'active');
+    assert.ok(harness.activeTools().includes('goal_complete'));
+    assert.ok(harness.activeTools().includes('goal_blocked'));
+    assert.ok(harness.activeTools().includes('goal_wait'));
     await harness.commands.get('plan').handler('start', harness.ctx);
     assert.ok(!harness.activeTools().includes('plan_mode_complete'));
     assert.match(harness.notifications.at(-1).message, /Another workflow is active/);
@@ -812,9 +814,11 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.deepEqual(planState.data.workflowToolPolicy.allowedNames, ['bash', 'read']);
     assert.deepEqual(harness.activeTools(), ['read']);
     await harness.commands.get('plan').handler('exit', harness.ctx);
-    harness.api.setActiveTools(['goal_complete', 'goal_blocked']);
     await harness.commands.get('goal').handler('second integration objective', harness.ctx);
     assert.equal(harness.entries.at(-1)?.data?.goal?.status, 'active');
+    assert.ok(harness.activeTools().includes('goal_complete'));
+    assert.ok(harness.activeTools().includes('goal_blocked'));
+    assert.ok(harness.activeTools().includes('goal_wait'));
 
     const activeGoalId = harness.entries
       .filter((entry) => entry.data?.goal?.status === 'active')
@@ -1227,7 +1231,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     const root = mkdtempSync(join(tmpdir(), 'pi-goal-latest-review-control-'));
     extractPinnedFixturePackage(root);
 
-    assert.equal(EXPECTED_PI_GOAL_VERSION, '0.54.2');
+    assert.equal(EXPECTED_PI_GOAL_VERSION, '0.54.3');
     patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, root);
     const first = readFixturePackage(root, 'lifecycle');
     assert.deepEqual(JSON.parse(first['package.json']).pi.extensions, ['./src/index.ts']);
