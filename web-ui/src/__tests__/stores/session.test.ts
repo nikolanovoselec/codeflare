@@ -640,7 +640,7 @@ describe('Session Store', () => {
       expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true, include: ['storage', 'usage'] });
     });
 
-    it('REQ-STOR-040 AC2: a failed batch-status call does not consume the managed-release check window', async () => {
+    it('REQ-STOR-040 AC3: a failed batch-status call does not consume the managed-release check window', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,

@@ -809,11 +809,8 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(planState?.customType, 'plan-mode-state');
     assert.equal(planState?.data?.enabled, true);
     assert.ok(planState?.data?.workflowToolPolicy?.resolved);
-    assert.ok(planState.data.workflowToolPolicy.allowedNames.includes('read'));
-    assert.deepEqual(
-      harness.activeTools(),
-      [...planState.data.workflowToolPolicy.allowedNames, 'plan_mode_question', 'plan_mode_complete'],
-    );
+    assert.deepEqual(planState.data.workflowToolPolicy.allowedNames, ['bash', 'read']);
+    assert.deepEqual(harness.activeTools(), ['read']);
     await harness.commands.get('plan').handler('exit', harness.ctx);
     harness.api.setActiveTools(['goal_complete', 'goal_blocked']);
     await harness.commands.get('goal').handler('second integration objective', harness.ctx);

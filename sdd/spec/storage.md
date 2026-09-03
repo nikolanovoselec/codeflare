@@ -655,7 +655,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-STOR-023](#req-stor-023-managed-release-status-and-discovery), [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-IDE-042](browser-ide.md#req-ide-042-additive-company-extension-reconciliation)
+**Dependencies:** [REQ-STOR-023](#req-stor-023-managed-release-status-projection), [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-IDE-042](browser-ide.md#req-ide-042-additive-company-extension-reconciliation)
 
 **Verification:** Automated session-status, start-admission, dashboard, and disable tests
 
@@ -663,7 +663,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ---
 
-<a id="req-stor-023-managed-release-status-and-discovery"></a>
 ### REQ-STOR-023: Managed release status projection
 
 **Intent:** Status polling detects managed-release changes without expanding release payloads.
@@ -699,8 +698,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. After the five-minute freshness window, the resolver may fetch and activate a newly discovered release. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (uses the stored ETag after five minutes and treats 304 as a fresh no-op) -->
-2. Failed initial and background checks remain retryable. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC2: retries the managed-release check after the initial batch request fails) -->
-3. A degraded background attempt is cached for the five-minute freshness window. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC3: status refresh bounds incompatible discovery to latest and caches the failed attempt) -->
+2. A failed initial managed-release check remains retryable. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC2: retries the managed-release check after the initial batch request fails) -->
+3. A failed background managed-release check remains retryable. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC3: a failed batch-status call does not consume the managed-release check window) -->
+4. A degraded background attempt is cached for the five-minute freshness window. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC4: status refresh bounds incompatible discovery to latest and caches the failed attempt) -->
 
 **Constraints:**
 
@@ -998,7 +998,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-STOR-023](#req-stor-023-managed-release-status-and-discovery), [REQ-STOR-033](#req-stor-033-managed-release-delta-planning-and-resume)
+**Dependencies:** [REQ-STOR-023](#req-stor-023-managed-release-status-projection), [REQ-STOR-033](#req-stor-033-managed-release-delta-planning-and-resume)
 
 **Verification:** Automated progress-helper and reconciliation-route tests
 
@@ -1053,7 +1053,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-STOR-023](#req-stor-023-managed-release-status-and-discovery), [REQ-STOR-034](#req-stor-034-observational-managed-reconciliation-progress-writes)
+**Dependencies:** [REQ-STOR-023](#req-stor-023-managed-release-status-projection), [REQ-STOR-034](#req-stor-034-observational-managed-reconciliation-progress-writes)
 
 **Verification:** Automated batch-status and progress-reader tests
 
