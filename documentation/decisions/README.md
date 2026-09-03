@@ -1370,7 +1370,7 @@ doc-discipline drops from twelve passes to ten (deleted Pass 6 hatch audit and P
 - **Plugin folder + `plugin.json` + MCP server registration**: ship in both `default` and `advanced` session modes, preserving explicit access to existing graphs.
 - **`graphify-routing.md`, PostToolUse-on-clone triage, PreToolUse graph-first nudge, active-repo tracking, and `graphify/SKILL.md`**: ship in `advanced` mode only.
 
-The rule routes only broad structural questions to an existing graph and excludes known-file edits, current-task changes, and live Git/CI state. The other assets own graph creation, refresh, proactive reminders, and higher-precision multi-repo workflow.
+The rule routes only broad structural questions to an existing graph and excludes known-file edits, current-task changes, and live Git/CI state. The other assets own graph creation, refresh, proactive reminders, and higher-precision multi-repo workflow. See [REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline).
 
 The prompt-independent `SessionStart[startup]` context-injection hook was retired on 2026-07-27. It read a non-canonical edge key, ignored graph freshness, and its corrected highest-degree output was dominated by generic duplicate labels. Prompt-aware first-turn memory and focused graph queries provide the relevant context without carrying that startup list.
 
@@ -1385,7 +1385,7 @@ Tier-gating is not part of the decision: Graphify query capability ships uniform
 - Image cost (~220 MB for Python + tree-sitter wheels) is paid by every container regardless of mode, justified by one-time build cost vs. universal capability.
 - Coexists cleanly with context-mode ([AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install)) without depending on it.
 
-Graphify's own subagent-chunking model bounds context during `/graphify` extraction.
+Graphify's own subagent-chunking model bounds context during `/graphify` extraction. See [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify).
 
 - The MCP server registration is keyed on `GRAPHIFY_MANIFEST` presence rather than `SESSION_MODE`, so the "capability everywhere" half is enforced by the manifest gate rather than a mode check.
 - Persistence model: graphify artifacts (`graphify-out/`) live in the repo, not in R2.

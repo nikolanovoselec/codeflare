@@ -1379,7 +1379,8 @@ None.
 
 1. Advanced mode receives the Graphify skill for Claude Code and adapted variants for Codex, Copilot, OpenCode, and Antigravity. <!-- @manual -->
 2. The skill documents the safe build path for repositories with more than 2000 files. <!-- @manual -->
-3. First-build guidance adds canonical ignore and attribute rules so regenerable outputs and working-tree intermediates stay uncommitted while the queryable graph remains under merge control. <!-- @manual -->
+3. First-build guidance adds canonical ignore rules so regenerable outputs and working-tree intermediates stay uncommitted. <!-- @manual -->
+4. First-build guidance adds the attribute rule that keeps the queryable graph under merge control. <!-- @manual -->
 
 **Constraints:** Building or refreshing a graph requires explicit user authorization and the advanced skill workflow.
 
@@ -2496,8 +2497,10 @@ None.
 
 1. Preference-free new projects default to Cloudflare and load `cloudflare-stack` before architecture selection. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Cloudflare environment --> <!-- @manual -->
 2. Environment guidance blocks local GUI launches while preserving authorized Browser Run. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Session constraints --> <!-- @manual -->
-3. Environment guidance preserves Git transport, identity, and secret-handling constraints. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Session constraints --> <!-- @manual -->
-4. Hard boundaries are reported honestly with the closest safe alternative. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Cloudflare environment --> <!-- @manual -->
+3. Environment guidance requires Git over HTTPS rather than SSH keys. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Session constraints --> <!-- @manual -->
+4. Environment guidance uses the GitHub noreply address rather than the user's private email for Git identity. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Session constraints --> <!-- @manual -->
+5. Environment guidance preserves safe secret piping and non-commitment. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Session constraints --> <!-- @manual -->
+6. Hard boundaries are reported honestly with the closest safe alternative. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Cloudflare environment --> <!-- @manual -->
 
 **Constraints:** Environment routing does not replace focused platform skills.
 
