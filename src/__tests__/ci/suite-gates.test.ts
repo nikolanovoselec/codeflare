@@ -988,14 +988,39 @@ esac
     expect(apply).toContain('"$LAT" preseed/agents/pi/node_modules/@narumitw/pi-goal');
   });
 
-  it('REQ-AGENT-152: Plan Mode shadow bumps preflight the locked tool-policy patch', () => {
+  it('REQ-AGENT-152: Plan Mode shadow bumps execute the locked tool-policy preflight', () => {
     const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
       jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
     };
     const apply = workflow.jobs['pi-extensions'].steps?.find((step) => step.name === 'Apply bump')?.run ?? '';
-    expect(apply).toContain("if [ \"$PKG\" = '@narumitw/pi-plan-mode' ]; then");
-    expect(apply).toContain('node scripts/patch-pi-plan-mode-tool-policy.mjs');
-    expect(apply).toContain('"$LAT" preseed/agents/pi/node_modules/@narumitw/pi-plan-mode');
+    const planBranch = apply.match(/if \[ "\$PKG" = '@narumitw\/pi-plan-mode' \]; then\n([\s\S]*?)\n          fi/)?.[1];
+    expect(planBranch).toBeDefined();
+
+    const fixture = join(work, 'plan-mode-preflight');
+    const fakeBin = join(fixture, 'bin');
+    const calls = join(fixture, 'calls.log');
+    mkdirSync(join(fixture, 'preseed/agents/pi'), { recursive: true });
+    mkdirSync(fakeBin);
+    writeFileSync(join(fakeBin, 'npm'), '#!/bin/sh\nexit 0\n');
+    writeFileSync(join(fakeBin, 'node'), '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$PLAN_CALLS"\n');
+    chmodSync(join(fakeBin, 'npm'), 0o755);
+    chmodSync(join(fakeBin, 'node'), 0o755);
+
+    const executed = spawnSync('bash', ['-c', planBranch ?? 'exit 1'], {
+      cwd: fixture,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+        LAT: '0.55.1',
+        PLAN_CALLS: calls,
+      },
+    });
+
+    expect(executed.status, executed.stderr).toBe(0);
+    expect(readFileSync(calls, 'utf8').trim()).toBe(
+      'scripts/patch-pi-plan-mode-tool-policy.mjs 0.55.1 preseed/agents/pi/node_modules/@narumitw/pi-plan-mode',
+    );
   });
 
   it('executes the configured workflow step through the updater boundary', () => {

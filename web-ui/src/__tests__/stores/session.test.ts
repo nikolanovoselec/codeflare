@@ -640,7 +640,7 @@ describe('Session Store', () => {
       expect(mockGetBatchSessionStatus).toHaveBeenCalledWith({ includePreseedCheck: true, include: ['storage', 'usage'] });
     });
 
-    it('REQ-STOR-023 AC3: a failed batch-status call does not consume the managed-release check window', async () => {
+    it('REQ-STOR-023 AC4: a failed batch-status call does not consume the managed-release check window', async () => {
       mockGetBatchSessionStatus.mockResolvedValue({
         statuses: {},
         maxSessions: 3,
@@ -657,7 +657,7 @@ describe('Session Store', () => {
       expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: true, include: ['storage', 'usage'] });
     });
 
-    it('REQ-STOR-023 AC3: retries the managed-release check after the initial batch request fails', async () => {
+    it('REQ-STOR-023 AC4: retries the managed-release check after the initial batch request fails', async () => {
       mockGetBatchSessionStatus.mockRejectedValueOnce(new Error('batch-status unavailable'));
       await sessionStore.loadSessions();
 

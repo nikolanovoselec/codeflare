@@ -627,7 +627,7 @@ describe('managed release resolver', () => {
     expect(historyUrls.at(-1)).toContain('page=10');
   });
 
-  it('REQ-STOR-023 AC3: status refresh bounds incompatible discovery to latest and caches the failed attempt', async () => {
+  it('REQ-STOR-023 AC4: status refresh bounds incompatible discovery to latest and caches the failed attempt', async () => {
     const fixture = await signedFixture(release({ runtimeDependencyHash: 'd'.repeat(64) }));
     const kv = createMockKV();
     const fetcher = vi.fn()

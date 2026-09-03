@@ -1507,7 +1507,7 @@ export async function resolveManagedEnvironment(input: {
       now: input.now,
       requireFresh: input.requireFresh,
     });
-    if (resolved.active && preparedMigration.migration) {
+    if (preparedMigration.migration) {
       await cleanupLegacyManagedCache({
         config,
         migration: preparedMigration.migration,

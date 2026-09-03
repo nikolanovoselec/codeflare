@@ -398,7 +398,8 @@ When two observations disagree, the authority column decides which one wins. A p
 | State | Scope | Authority | Durability | Writers | Readers | Recovery owner |
 |---|---|---|---|---|---|---|
 | User, setup, and configuration records | Deployment/user | Workers KV | Persistent, eventually consistent | Authenticated Worker routes | Worker policy and UI | Owning route/configuration lane |
-| Session status and list metadata | Session | Workers KV record | Persistent | Lifecycle routes and Container DO <!-- @impl: src/lib/kv-keys.ts::putSessionWithMetadata --> | Dashboard batch-status <!-- @impl: src/routes/session/lifecycle.ts::app --> | Container lifecycle |
+| Session dashboard status and list metadata | Session | Workers KV projection | Persistent, eventually consistent | Lifecycle routes and Container DO <!-- @impl: src/lib/kv-keys.ts::putSessionWithMetadata --> | Dashboard batch-status <!-- @impl: src/routes/session/lifecycle.ts::app --> | Container lifecycle |
+| Terminal and managed-mutation ownership | Session | Persisted Container SDK state | Durable without container wake | Containers platform | Terminal admission and managed reconciliation <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> | Container lifecycle |
 | Container coordination and recovery evidence | Session | Container DO storage | Durable across DO hibernation/reconstruction | Container DO <!-- @impl: src/container/index.ts::container --> | Container DO | Container lifecycle |
 | Live process and port state | Session | Containers platform plus successful host probes | Ephemeral | Container runtime | Container DO | Container lifecycle |
 | Workspace and selected user files | User | R2 bucket | Persistent | Sync lifecycle and storage API | Session containers and storage UI | Storage & Sync |

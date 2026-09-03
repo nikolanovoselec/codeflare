@@ -40,6 +40,8 @@ function fakePi(input?: {
     { name: 'get_subagent_result', description: 'Check a background specialist' },
     { name: 'steer_subagent', description: 'Steer a background specialist' },
     { name: 'graphify_query', description: 'Query the code graph' },
+    { name: 'plan_mode_question', description: 'Ask a Plan question' },
+    { name: 'plan_mode_complete', description: 'Complete a Plan' },
   ];
   const history: string[][] = [];
   return {
@@ -290,6 +292,46 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
 
     expect(pi.getActiveTools()).toEqual([
       'read', 'graphify_query', 'plan_mode_question', 'plan_mode_complete',
+    ]);
+  });
+
+  it('REQ-AGENT-158: keeps configured always-visible Goal tools during an active Plan', () => {
+    const base = fakePi({
+      tools: [
+        { name: 'read', description: 'Read files' },
+        { name: 'graphify_query', description: 'Query graph' },
+        { name: 'goal_complete', description: 'Complete Goal' },
+        { name: 'goal_blocked', description: 'Block Goal' },
+        { name: 'plan_mode_question', description: 'Ask a Plan question' },
+        { name: 'plan_mode_complete', description: 'Complete a Plan' },
+      ],
+    });
+    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
+    const pi = {
+      ...base,
+      registerTool() {},
+      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
+        handlers.set(event, handler);
+      },
+    };
+    toolExposureFinalizer(pi, () => 'always');
+
+    handlers.get('before_agent_start')?.({}, {
+      sessionManager: {
+        getBranch: () => [{
+          type: 'custom',
+          customType: 'plan-mode-state',
+          data: {
+            enabled: true,
+            workflowToolPolicy: { allowedNames: ['read', 'graphify_query'], resolved: true },
+          },
+        }],
+      },
+    });
+
+    expect(pi.getActiveTools()).toEqual([
+      'read', 'graphify_query', 'plan_mode_question', 'plan_mode_complete',
+      'goal_complete', 'goal_blocked',
     ]);
   });
 

@@ -524,7 +524,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
-    it('reports update pending when no compatible verified active release is available', async () => {
+    it('REQ-STOR-023 AC7: reports update pending when no compatible verified active release is available', async () => {
       managedReleaseState.error = new Error('verified cache unavailable');
       mockKV._set('user-prefs:test-bucket', {
         sessionMode: 'default',
@@ -536,7 +536,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
-    it('REQ-STOR-023 AC4: an outage rejects last-known-good state for another mode', async () => {
+    it('REQ-STOR-023 AC5: an outage rejects last-known-good state for another mode', async () => {
       managedReleaseState.error = new Error('verified cache unavailable');
       mockKV._set('user-prefs:test-bucket', {
         managedEnvironmentApplied: { digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-01-01T00:00:00.000Z' },
@@ -614,7 +614,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(false);
     });
 
-    it('REQ-STOR-023 AC5: pending target state retries even when applied identity matches active', async () => {
+    it('REQ-STOR-023 AC6: pending target state retries even when applied identity matches active', async () => {
       const digest = 'd'.repeat(64);
       managedReleaseState.active = { digest, pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
       mockKV._set('user-prefs:test-bucket', {

@@ -559,7 +559,7 @@ If 1013 persists beyond 30 seconds:
 
 1. Check Worker logs for the recorded `containerStatus`.
 2. Check `/run/codeflare/sync/sync.log` for a stalled R2 sync (the same causes as "Loading screen hangs indefinitely" above).
-3. If sync is healthy, look for `[entrypoint] WARNING:` before `/run/codeflare/services/init-complete`. A failed pre-flag step under `set -euo pipefail`, such as `warm_pi_npm_dependencies` or `update_pi_when_fast_start_disabled`, can terminate PID 1 before the flag write. See [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition).
+3. If sync is healthy, look for `[entrypoint] WARNING:` before `/run/codeflare/services/init-complete`. A pre-flag step under `set -euo pipefail`, such as `warm_pi_npm_dependencies` or `update_pi_when_fast_start_disabled`, can terminate PID 1 before the flag write. See [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition).
 
 A container that actively **rejects** the WebSocket forward — rather than hanging — now maps onto this same retryable 1013 instead of falling through to the route's generic 500 ([REQ-TERM-022](../../sdd/spec/terminal.md#req-term-022-an-unreachable-container-ends-the-upgrade-instead-of-escaping-it)). Any handshake answered by something other than a 101 reaches the browser as 1006, which is retryable but never opens a socket, so the client's reconnect backoff stayed pinned at its 500 ms base and retried roughly once a second indefinitely. Returning a real 101 whose socket closes 1013 is what lets that backoff actually advance.
 

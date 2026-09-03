@@ -28,7 +28,7 @@ vi.mock('../../api/client', () => ({
 }));
 
 // Import after mocks
-import { terminalStore, sendInputToTerminal, cleanupMapByPrefix, READ_HOLD_MAX_CHARS, RELEASE_SLICE_MAX_CHARS, registerProcessNameCallback } from '../../stores/terminal';
+import { terminalStore, sendInputToTerminal, cleanupMapByPrefix, READ_HOLD_MAX_CHARS, RELEASE_SLICE_MAX_CHARS } from '../../stores/terminal';
 
 // Get mock WebSocket class from global
 const _MockWebSocket = globalThis.WebSocket as unknown as {

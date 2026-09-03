@@ -14,7 +14,10 @@ describe('hasOwningSessionContainer', () => {
   });
 
   function envWith(kv: ReturnType<typeof createMockKV>): Pick<Env, 'KV' | 'CONTAINER'> {
-    return { KV: kv, CONTAINER: {} as DurableObjectNamespace };
+    return {
+      KV: kv as unknown as Env['KV'],
+      CONTAINER: {} as Env['CONTAINER'],
+    };
   }
 
   it('allows reconciliation when stale running metadata points to persisted stopped state', async () => {

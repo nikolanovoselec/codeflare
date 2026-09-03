@@ -26,8 +26,6 @@ import {
 } from '../../scripts/patch-pi-goal-review-control.mjs';
 import {
   EXPECTED_PI_PLAN_MODE_VERSION,
-  REGISTERED_HELPERS_MARKER,
-  REGISTERED_POLICY_MARKER,
   patchPiPlanModeDirectory,
 } from '../../scripts/patch-pi-plan-mode-tool-policy.mjs';
 
@@ -659,6 +657,7 @@ const PINNED_RUNTIME_STUBS = {
         export const runMenu = async () => ({ kind: "cancel" });
         export const stripTerminalSequences = (value) => value;
         export const truncateHead = (content) => ({ content, truncated: false });
+        export const truncateToWidth = (value) => value;
         export const withFileMutationQueue = async (_path, operation) => operation();
         export class Markdown {}
       `,
@@ -688,7 +687,11 @@ function createExtensionHarness() {
   const eventListeners = new Map();
   const notifications = [];
   const entries = [];
-  const tools = [];
+  const tools = [
+    { name: 'read', description: 'Read files' },
+    { name: 'bash', description: 'Run bounded commands' },
+    { name: 'edit', description: 'Edit files' },
+  ];
   let activeTools = [];
   let thinkingLevel = 'medium';
   const sessionManager = {
@@ -755,6 +758,13 @@ function createExtensionHarness() {
     startSession: async () => {
       for (const listener of lifecycle.get('session_start') ?? []) await listener({}, ctx);
     },
+    runContext: async () => {
+      let event = { messages: [] };
+      for (const listener of lifecycle.get('context') ?? []) {
+        event = await listener(event, ctx) ?? event;
+      }
+      return event;
+    },
   };
 }
 
@@ -794,10 +804,16 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     await harness.commands.get('goal').handler('clear', harness.ctx);
     harness.api.setActiveTools(['read']);
     await harness.commands.get('plan').handler('start', harness.ctx);
-    assert.equal(harness.entries.at(-1)?.customType, 'plan-mode-state');
-    assert.equal(harness.entries.at(-1)?.data?.enabled, true);
-    assert.ok(readFileSync(join(planRoot, 'dist/index.ts'), 'utf8').includes(REGISTERED_HELPERS_MARKER));
-    assert.ok(readFileSync(join(planRoot, 'dist/index.ts'), 'utf8').includes(REGISTERED_POLICY_MARKER));
+    await harness.runContext();
+    const planState = harness.entries.at(-1);
+    assert.equal(planState?.customType, 'plan-mode-state');
+    assert.equal(planState?.data?.enabled, true);
+    assert.ok(planState?.data?.workflowToolPolicy?.resolved);
+    assert.ok(planState.data.workflowToolPolicy.allowedNames.includes('read'));
+    assert.deepEqual(
+      harness.activeTools(),
+      [...planState.data.workflowToolPolicy.allowedNames, 'plan_mode_question', 'plan_mode_complete'],
+    );
     await harness.commands.get('plan').handler('exit', harness.ctx);
     harness.api.setActiveTools(['goal_complete', 'goal_blocked']);
     await harness.commands.get('goal').handler('second integration objective', harness.ctx);
