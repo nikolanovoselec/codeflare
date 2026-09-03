@@ -640,7 +640,7 @@ describe('useTerminal hook', () => {
   // that connect() runs, nor that its returned cleanup (which tears down /
   // allows reconnect of the socket) is invoked on unmount.
   describe('WebSocket connect / stop path', () => {
-    it('should call terminalStore.connect with the terminal once the session is ready', () => {
+    it('REQ-TERM-043 AC3: connects immediately when the session is already ready', () => {
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
 
       const dispose = createRoot((dispose) => {
@@ -699,7 +699,7 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
-    it('waits for terminal pre-warm readiness before connecting an initializing session', async () => {
+    it('REQ-TERM-043 AC1/AC2: waits for terminal pre-warm readiness before connecting an initializing session', async () => {
       const [stage, setStage] = createSignal<'mounting' | 'ready'>('mounting');
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(true);
       vi.mocked(sessionStore.getInitProgressForSession).mockImplementation(() => ({ stage: stage() }) as any);

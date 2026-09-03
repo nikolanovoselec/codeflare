@@ -479,8 +479,6 @@ None.
 3. Running sessions outside the visible workspace have no connected terminal side effects. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (TerminalArea) -->
 4. Workspace switches dispose local UI terminal resources for panes that leave the visible set without stopping the underlying PTY. <!-- @impl: web-ui/src/hooks/useTerminal.ts::canConnect --> <!-- @impl: web-ui/src/stores/terminal.ts::disposeLocalTerminal --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
 5. Session indicators distinguish container-running state from visible-terminal-connected state. <!-- @impl: web-ui/src/components/SessionStatCard.tsx::dotVariant --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (SessionStatCard) -->
-6. A visible initializing session opens and focuses its terminal exactly once after startup reaches `ready`, not during `mounting`. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (waits for terminal pre-warm readiness before connecting an initializing session) -->
-7. An already-running visible session connects immediately. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (should call terminalStore.connect with the terminal once the session is ready) -->
 
 **Constraints:**
 
@@ -492,6 +490,30 @@ None.
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-003](#req-term-003-automatic-websocket-reconnection-on-transient-failures)
 
 **Verification:** Automated test ([TerminalArea](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Hook tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal store tests](../../web-ui/src/__tests__/stores/terminal.test.ts), [Layout tests](../../web-ui/src/__tests__/components/Layout.test.tsx))
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-043: Visible terminal readiness gating
+
+**Intent:** Visible terminal panes attach and focus only when their session startup state can provide authoritative terminal output.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A visible initializing session opens its terminal connection only after startup reaches `ready`. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC1/AC2: waits for terminal pre-warm readiness before connecting an initializing session) -->
+2. A visible initializing session focuses its terminal exactly once after startup reaches `ready`, not during `mounting`. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC1/AC2: waits for terminal pre-warm readiness before connecting an initializing session) -->
+3. An already-running visible session connects immediately. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC3: connects immediately when the session is already ready) -->
+
+**Constraints:** The three-minute startup guard and MultiView visible-pane ownership remain unchanged.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
+
+**Verification:** Automated hook tests
 
 **Status:** Implemented
 

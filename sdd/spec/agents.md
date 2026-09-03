@@ -69,12 +69,11 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. Pi's required package set includes one exact-pinned, integrity-locked `@narumitw/pi-goal` package. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Goal package preseed) -->
-2. Image construction makes Goal's declared Pi entrypoint resolve to the reviewed transformed source and warms that same installed path, so a new session uses the control/cadence patch and its path-correct transpile cache. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: Dockerfile::goal_source --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC7 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) --> <!-- @manual: Start a new Pi session from the complete image and confirm Goal's installed extension loads from the baked jiti cache. -->
+2. Image construction makes Goal's declared Pi entrypoint resolve to the reviewed transformed source and warms that same installed path, so a new session uses the control/cadence patch and its path-correct transpile cache. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: Dockerfile::goal_source --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) --> <!-- @manual: Start a new Pi session from the complete image and confirm Goal's installed extension loads from the baked jiti cache. -->
 3. The image build fails if Goal's path-correct transpile-cache artifact is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification) --> <!-- @manual: Run the deployment image build; in a controlled build omit or replace Goal's expected cache file and confirm the jiti warm-cache layer exits non-zero before image publication. -->
 4. Startup supplies `toolVisibility: "after-first-goal"` only when the Goal visibility preference is missing. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent) -->
-5. Fresh lazy sessions hide Goal tools. Valid Goal history retains all registered Goal controls unless an active Plan takes precedence; active Goal or `always` visibility keeps them alongside normal tools. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: hides registered Goal tools for a fresh lazy session) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: retains terminal Goal tools after the first session Goal) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: preserves Goal tools already active under the always-visible policy) -->
-6. Goal start, resume, system, waiting-resume, and automatic-continuation prompts share compact completion rules, retain the exact objective and stale-turn completion guard, and do not coach terminal wait or blocked tools. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalPromptsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111: emits compact Goal prompts without blocked or wait tool coaching) -->
-7. Explicit Goal activation reveals the registered Goal tools after lazy initial filtering. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalToolPolicySource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC7 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
+5. Goal start, resume, system, waiting-resume, and automatic-continuation prompts share compact completion rules, retain the exact objective and stale-turn completion guard, and do not coach terminal wait or blocked tools. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalPromptsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111: emits compact Goal prompts without blocked or wait tool coaching) -->
+6. Explicit Goal activation reveals the registered Goal tools after lazy initial filtering. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalToolPolicySource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
 
 **Constraints:**
 
@@ -84,7 +83,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
-**Verification:** Entrypoint runtime behavior test; capability-filtering tests; deployment image verification
+**Verification:** Entrypoint runtime behavior and package-transform tests; deployment image verification
 
 **Status:** Implemented
 
@@ -98,8 +97,8 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Goal and Plan Mode each refuse activation while the other owns the same Pi session. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC7 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
-2. Ending either workflow releases its session ownership so the other can activate. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC7 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
+1. Goal and Plan Mode each refuse activation while the other owns the same Pi session. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
+2. Ending either workflow releases its session ownership so the other can activate. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
 
 **Constraints:** Goal and Plan Mode remain exact-pinned upstream dependencies and must pass normal package review, lock regeneration, and deployment-image verification. <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-goal --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-plan-mode -->
 
@@ -3267,6 +3266,32 @@ None.
 
 ---
 
+### REQ-AGENT-191: Goal tool visibility across workflows
+
+**Intent:** Pi exposes Goal controls according to Goal history, configured visibility, and current Plan or Goal ownership.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A fresh lazy session hides registered Goal tools. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC1: hides registered Goal tools for a fresh lazy session) -->
+2. Valid Goal history retains all registered Goal controls under `after-first-goal` when Plan is inactive. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC2: retains terminal Goal tools after the first session Goal) -->
+3. Configured `always` visibility retains Goal controls regardless of Plan state. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC3: preserves Goal tools already active under the always-visible policy) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC3: keeps configured always-visible Goal tools during an active Plan) -->
+4. An active Plan suppresses non-active Goal history under `after-first-goal`. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC4/AC5 / REQ-AGENT-152/158: rejects malformed Plan policy and preserves active workflow ownership) -->
+5. An active Goal takes precedence over active Plan selection. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC4/AC5 / REQ-AGENT-152/158: rejects malformed Plan policy and preserves active workflow ownership) -->
+
+**Constraints:** Goal and Plan remain mutually exclusive at activation; this requirement governs provider-visible controls for persisted state.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-152](#req-agent-152-native-plan-mode-workflow-in-pi-sessions)
+
+**Verification:** Automated capability-filtering tests
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-076: Pi Context-Mode Enablement and Tool-Extension Defaults
 
 **Intent:** Pi's own default runtime behavior — independent of which Pro/Standard content [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) delivers — must stay predictable out of the box: context-mode is installed but disabled on fresh container startup while explicit `/ctx on` and `/ctx off` remain available, the five always-on Pi tool extensions install without duplication, context-mode's own npm update-check probe is neutralized at build time, and `web_search` defaults to the headless-safe non-interactive workflow.
@@ -4562,9 +4587,8 @@ None.
 2. Optional tools remain registered and searchable while inactive; adding any new optional tool, including one with a large schema, does not alter initial active-tool selection. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::searchCapabilities --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC1+AC2: keeps only bootstrap tools regardless of optional registrations) -->
 3. Exact capability activation adds the requested registered tool for the next model step without removing current tools; activating `subagent` also activates `get_subagent_result` and `steer_subagent` when registered. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activationGroup --> <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activateRegisteredTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158 AC3: treats subagent and its controls as one additive activation group) -->
 4. A new user prompt restores bootstrap exposure while tools activated inside the current agent loop remain available for their next provider step. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-096: registered Pi tool discovery and activation) -->
-5. An active Goal or configured `always` visibility remains authoritative over bootstrap and active-Plan selection; an active Plan takes precedence over non-active Goal history, while prior valid Goal state still retains Goal tools under `after-first-goal`. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: retains terminal Goal tools after the first session Goal) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-111: preserves Goal tools already active under the always-visible policy) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-152/158: rejects malformed Plan policy and preserves active workflow ownership) --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-158: keeps configured always-visible Goal tools during an active Plan) -->
-6. Provider-boundary diagnostics report registered and initially active tool names and serialized schemas separately, and real runtime measurement rejects an invalid initial active set without imposing a fixed tool-token threshold. <!-- @impl: scripts/measure-pi-runtime-context.mjs::main --> <!-- @impl: scripts/measure-pi-runtime-context.mjs::validateInitialToolExposure --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @manual -->
-7. Subject to active Goal or configured `always` visibility in AC5, an active Plan workflow exposes only its persisted allowed tools plus `plan_mode_question` and `plan_mode_complete`. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activePlanTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-152/158: preserves only a restored Plan workflow policy plus required helpers) -->
+5. Provider-boundary diagnostics report registered and initially active tool names and serialized schemas separately, and real runtime measurement rejects an invalid initial active set without imposing a fixed tool-token threshold. <!-- @impl: scripts/measure-pi-runtime-context.mjs::main --> <!-- @impl: scripts/measure-pi-runtime-context.mjs::validateInitialToolExposure --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @manual -->
+6. Subject to [REQ-AGENT-191](#req-agent-191-goal-tool-visibility-across-workflows), an active Plan workflow exposes only its persisted allowed tools plus `plan_mode_question` and `plan_mode_complete`. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::activePlanTools --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-152/158: preserves only a restored Plan workflow policy plus required helpers) -->
 
 **Constraints:**
 
@@ -4577,7 +4601,7 @@ None.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-096](#req-agent-096-registered-pi-tool-discovery-and-on-demand-activation), [REQ-AGENT-111](#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-156](#req-agent-156-bounded-lossless-pi-prompt)
+**Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-096](#req-agent-096-registered-pi-tool-discovery-and-on-demand-activation), [REQ-AGENT-152](#req-agent-152-native-plan-mode-workflow-in-pi-sessions), [REQ-AGENT-156](#req-agent-156-bounded-lossless-pi-prompt), [REQ-AGENT-191](#req-agent-191-goal-tool-visibility-across-workflows)
 
 **Verification:** Automated lifecycle, capability, public fallback, and signed managed projection tests; deployed Standard and Advanced acceptance
 

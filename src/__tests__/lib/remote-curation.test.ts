@@ -444,7 +444,7 @@ describe('managed release resolver', () => {
     await expect(getManagedEnvironmentConfigFingerprint(123457, key)).resolves.not.toBe(first);
   });
 
-  it('activates only a GitHub immutable release whose two immutable asset digests and signature verify', async () => {
+  it('REQ-STOR-040 AC2: activates only a GitHub immutable release whose two immutable asset digests and signature verify', async () => {
     const fixture = await signedFixture();
     const bundleDigest = await sha256(fixture.compressed);
     const signatureDigest = await sha256(fixture.signature);
@@ -627,7 +627,7 @@ describe('managed release resolver', () => {
     expect(historyUrls.at(-1)).toContain('page=10');
   });
 
-  it('REQ-STOR-040 AC4: status refresh bounds incompatible discovery to latest and caches the failed attempt', async () => {
+  it('REQ-STOR-040 AC5: status refresh bounds incompatible discovery to latest and caches the failed attempt', async () => {
     const fixture = await signedFixture(release({ runtimeDependencyHash: 'd'.repeat(64) }));
     const kv = createMockKV();
     const fetcher = vi.fn()

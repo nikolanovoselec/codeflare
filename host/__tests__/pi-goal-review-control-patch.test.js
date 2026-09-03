@@ -769,7 +769,7 @@ function createExtensionHarness() {
 }
 
 describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
-  it('REQ-AGENT-111 AC2/AC7 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership', async () => {
+  it('REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership', async () => {
     const goalRoot = mkdtempSync(join(tmpdir(), 'pi-goal-integration-'));
     const planRoot = mkdtempSync(join(tmpdir(), 'pi-plan-integration-'));
     extractPinnedFixturePackage(goalRoot);

@@ -109,7 +109,7 @@ A successful stop ends Container vCPU, provisioned-memory, and local-disk meteri
 | `syncing` | 30 | Initial sync is pending |
 | `syncing` | 45 | Initial sync is active |
 | `verifying` | 85 | Initial sync completed but the host service is not ready |
-| `mounting` | 90 | Terminal workspace: terminal service is available but PTY pre-warm is incomplete. VS Code workspace: code-server is still preparing. |
+| `mounting` | 90 | Terminal workspace: the backend terminal service is registered but PTY pre-warm is incomplete, so visible clients remain disconnected until `ready`. VS Code workspace: code-server is still preparing. |
 | `ready` | 100 | Terminal workspace: terminal service and PTY pre-warm are ready. VS Code workspace: `editorReady` is true; `terminalServerOk` may remain false because no host PTY is created. |
 | `error` | 0 | Initial sync failed, VS Code editor warming reached its bounded timeout, or the startup-status handler failed |
 

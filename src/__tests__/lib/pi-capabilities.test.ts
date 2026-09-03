@@ -166,7 +166,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
   });
 
-  it('REQ-AGENT-111: hides registered Goal tools for a fresh lazy session', () => {
+  it('REQ-AGENT-191 AC1: hides registered Goal tools for a fresh lazy session', () => {
     const base = fakePi({
       active: ['read', 'goal_complete', 'goal_blocked', 'goal_wait'],
       tools: [
@@ -194,7 +194,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     expect(pi.getActiveTools()).toEqual(['read', 'bash']);
   });
 
-  it('REQ-AGENT-111: retains terminal Goal tools after the first session Goal', () => {
+  it('REQ-AGENT-191 AC2: retains terminal Goal tools after the first session Goal', () => {
     const base = fakePi({
       active: ['read'],
       tools: [
@@ -229,7 +229,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked', 'goal_wait']);
   });
 
-  it('REQ-AGENT-111: preserves Goal tools already active under the always-visible policy', () => {
+  it('REQ-AGENT-191 AC3: preserves Goal tools already active under the always-visible policy', () => {
     const base = fakePi({
       active: ['read', 'goal_complete', 'goal_blocked', 'goal_wait'],
       tools: [
@@ -298,7 +298,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     ]);
   });
 
-  it('REQ-AGENT-158: keeps configured always-visible Goal tools during an active Plan', () => {
+  it('REQ-AGENT-191 AC3: keeps configured always-visible Goal tools during an active Plan', () => {
     const base = fakePi({
       tools: [
         { name: 'read', description: 'Read files' },
@@ -339,7 +339,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     ]);
   });
 
-  it('REQ-AGENT-152/158: rejects malformed Plan policy and preserves active workflow ownership', () => {
+  it('REQ-AGENT-191 AC4/AC5 / REQ-AGENT-152/158: rejects malformed Plan policy and preserves active workflow ownership', () => {
     const base = fakePi({
       tools: [
         { name: 'read', description: 'Read files' },

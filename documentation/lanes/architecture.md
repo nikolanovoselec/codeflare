@@ -469,7 +469,7 @@ Creation may reject enterprise agent policy or SaaS storage quota. Start may rej
 | starting | 10–20% | Container state not running/healthy, or host health unavailable |
 | syncing | 30–45% | Host health available while initial sync is pending or active |
 | verifying | 85% | Initial sync complete while terminal sessions remain unavailable |
-| mounting | 90% | Terminal sessions available while PTY pre-warm remains incomplete |
+| mounting | 90% | Backend terminal service registered while PTY pre-warm remains incomplete; visible clients wait for `ready` |
 | ready | 100% | Terminal sessions and pre-warm ready; sync may be complete, skipped, or running on demand |
 | error | 0% | Startup-status handler or initial-sync failure |
 
