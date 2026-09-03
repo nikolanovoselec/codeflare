@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-02
 
-- **Committed runtime locks reject vulnerable fast-uri releases** ([REQ-OPS-054](operations.md#req-ops-054-committed-npm-runtime-lock-integrity) AC1 amended; remains Implemented). Browser Run MCP, shared npm tools, and Pi now resolve fast-uri 3.1.6 or later alongside the existing reviewed security floors.
+- **Committed runtime locks reject vulnerable fast-uri releases** ([REQ-OPS-054](operations.md#req-ops-054-committed-npm-runtime-lock-integrity) AC3 added; remains Implemented). Browser Run MCP, shared npm tools, and Pi now resolve fast-uri 3.1.6 or later alongside the existing reviewed security floors.
 
 - **Safe local checks remain inside their repository boundary** ([REQ-AGENT-052](agents.md#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening) AC7 added; remains Implemented). Checked paths are resolved canonically, so direct outside paths and in-repository symlinks targeting outside files are rejected before supplemental parsing or syntax checks.
 
