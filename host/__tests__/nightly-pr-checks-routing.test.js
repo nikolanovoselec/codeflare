@@ -47,7 +47,7 @@ describe('nightly PR Checks routing', () => {
     assert.equal(filter['continue-on-error'], true);
     assert.equal(fallback.if, "steps.filter.outcome == 'failure'");
     assert.equal(fallback.run, 'scripts/ci/path-filter-fallback.sh');
-    for (const lane of ['backend', 'webui', 'landing', 'host', 'ide', 'workflows']) {
+    for (const lane of ['backend', 'webui', 'landing', 'host', 'ide', 'workflows', 'dependencies']) {
       assert.match(changes.outputs[lane], new RegExp(`steps\\.filter_fallback\\.outputs\\.${lane}`));
     }
   });
@@ -82,6 +82,7 @@ describe('nightly PR Checks routing', () => {
         'pi=true',
         'ide=true',
         'workflows=true',
+        'dependencies=true',
       ]);
       assert.equal(readFileSync(join(runnerTemp, 'changed-files.txt'), 'utf8'), 'fixture.txt\n');
 

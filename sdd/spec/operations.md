@@ -130,7 +130,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. The workflow runs lint and a dead-code check on the codebase. <!-- @manual -->
 3. A failing owned backend, frontend, landing, or host test lane prevents the required `test` status from passing. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: host/__tests__/required-check-covers-every-lane.test.js (required status context covers every lane (test.yml summary job)) -->
 4. The workflow runs both backend and frontend typechecks. <!-- @manual -->
-5. The workflow blocks PRs when either production dependency lockfile contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::quality --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (audits production lockfiles without depending on restored node_modules trees) --> <!-- @manual -->
+5. A PR that changes a production dependency lockfile cannot pass when the changed dependency set contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::quality --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (audits production lockfiles without depending on restored node_modules trees) --> <!-- @manual -->
 6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
 7. PR Checks never build, scan, run, or publish the session container image; the deployment image workflow owns the complete-image build, packaged smoke, vulnerability scan, SBOM, and push. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
 
@@ -139,6 +139,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - Quality checks do not run in the 1-vCPU development container; they run on CI runners.
 - The CI runner label is configurable across all workflows.
 - Lanes run in parallel and are gated by a path filter; manual dispatch runs every lane.
+- Network-backed dependency audits run when production lockfiles change or the workflow runs in full; unchanged-lock PRs retain GitHub Dependency Review without waiting on the registry audit endpoint.
 - If GitHub cannot generate the diff, the fallback verifies the exact local base/head commits and selects every lane. <!-- @impl: scripts/ci/path-filter-fallback.sh::changed_files --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) -->
 - The `summary` job publishes the required `test` status, failing for failed or cancelled lanes and passing skipped lanes.
 - The Workers pool runs several workers per shard; its teardown crash is a teardown bug, not a concurrency one, so the report and reconciliation gates in [REQ-OPS-023](#req-ops-023-suite-results-are-gated-on-machine-readable-reports) — not serialization — are what keep the result trustworthy.

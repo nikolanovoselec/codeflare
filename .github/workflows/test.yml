@@ -109,6 +109,7 @@ jobs:
       pi: ${{ steps.filter_fallback.outputs.pi || steps.filter.outputs.pi }}
       ide: ${{ steps.filter_fallback.outputs.ide || steps.filter.outputs.ide }}
       workflows: ${{ steps.filter_fallback.outputs.workflows || steps.filter.outputs.workflows }}
+      dependencies: ${{ steps.filter_fallback.outputs.dependencies || steps.filter.outputs.dependencies }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -224,6 +225,10 @@ jobs:
             workflows:
               - '.github/**'
               - 'scripts/ci/workflow-tool-pins.mjs'
+            dependencies:
+              - 'package-lock.json'
+              - 'web-ui/package-lock.json'
+              - 'openvscode/agent-sidebar/package-lock.json'
 
       # GitHub's pull-request files API can return diff/not_available for a
       # large generated graph even though the exact commits are checked out.
@@ -327,10 +332,16 @@ jobs:
         working-directory: web-ui
 
       - name: Security audit (backend)
+        if: >-
+          needs.changes.outputs.full == 'true' ||
+          needs.changes.outputs.dependencies == 'true'
         timeout-minutes: 1
         run: npm audit --package-lock-only --audit-level=high --omit=dev
 
       - name: Security audit (frontend)
+        if: >-
+          needs.changes.outputs.full == 'true' ||
+          needs.changes.outputs.dependencies == 'true'
         timeout-minutes: 1
         run: npm audit --package-lock-only --audit-level=high --omit=dev
         working-directory: web-ui
@@ -993,9 +1004,16 @@ jobs:
           directory: openvscode/agent-sidebar
           key-prefix: browser-ide
 
-      - name: Audit pinned extension dependencies and licenses
+      - name: Audit pinned extension dependencies
+        if: >-
+          needs.changes.outputs.full == 'true' ||
+          needs.changes.outputs.dependencies == 'true'
         timeout-minutes: 1
-        run: npm audit --audit-level=high && npm run check:dependencies
+        run: npm audit --audit-level=high
+        working-directory: openvscode/agent-sidebar
+
+      - name: Check pinned extension dependencies and licenses
+        run: npm run check:dependencies
         working-directory: openvscode/agent-sidebar
 
       - name: Typecheck extension
