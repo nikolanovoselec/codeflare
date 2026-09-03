@@ -293,6 +293,69 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     ]);
   });
 
+  it('REQ-AGENT-152/158: rejects malformed Plan policy and gives unfinished Goal precedence', () => {
+    const base = fakePi({
+      tools: [
+        { name: 'read', description: 'Read files' },
+        { name: 'bash', description: 'Run shell commands' },
+        { name: 'edit', description: 'Edit files' },
+        { name: 'write', description: 'Write files' },
+        { name: 'capability', description: 'Search tools' },
+        { name: 'goal_complete', description: 'Complete Goal' },
+        { name: 'goal_blocked', description: 'Block Goal' },
+        { name: 'graphify_query', description: 'Query graph' },
+        { name: 'plan_mode_question', description: 'Ask a Plan question' },
+        { name: 'plan_mode_complete', description: 'Complete a Plan' },
+      ],
+    });
+    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
+    const pi = {
+      ...base,
+      registerTool() {},
+      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
+        handlers.set(event, handler);
+      },
+    };
+    toolExposureFinalizer(pi, () => 'after-first-goal');
+
+    handlers.get('before_agent_start')?.({}, {
+      sessionManager: {
+        getBranch: () => [{
+          type: 'custom',
+          customType: 'plan-mode-state',
+          data: {
+            enabled: true,
+            workflowToolPolicy: { allowedNames: ['read', 42], resolved: true },
+          },
+        }],
+      },
+    });
+    expect(pi.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
+
+    handlers.get('before_agent_start')?.({}, {
+      sessionManager: {
+        getBranch: () => [
+          {
+            type: 'custom',
+            customType: 'goal-state',
+            data: { goal: { id: 'goal-1', status: 'paused' } },
+          },
+          {
+            type: 'custom',
+            customType: 'plan-mode-state',
+            data: {
+              enabled: true,
+              workflowToolPolicy: { allowedNames: ['read', 'graphify_query'], resolved: true },
+            },
+          },
+        ],
+      },
+    });
+    expect(pi.getActiveTools()).toEqual([
+      'read', 'bash', 'edit', 'write', 'capability', 'goal_complete', 'goal_blocked',
+    ]);
+  });
+
   it('searches registered inactive tools by name and description', () => {
     const pi = fakePi();
     const matches = searchCapabilities({
