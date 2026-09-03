@@ -247,6 +247,7 @@
   },
   "rules/engineering-constitution.md": {
     "modes": [
+      "default",
       "advanced"
     ]
   },

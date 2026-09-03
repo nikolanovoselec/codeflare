@@ -307,6 +307,7 @@
   },
   "rules/engineering-constitution.md": {
     "modes": [
+      "default",
       "advanced"
     ]
   },
@@ -321,26 +322,6 @@
       "advanced"
     ]
   },
-  "rules/golang/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/golang/patterns.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/golang/security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/golang/testing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "rules/memory.md": {
     "modes": [
       "advanced"
@@ -352,72 +333,12 @@
       "advanced"
     ]
   },
-  "rules/python/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/python/patterns.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/python/security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/python/testing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "rules/spec-discipline.md": {
     "modes": [
       "advanced"
     ]
   },
-  "rules/swift/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/swift/patterns.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/swift/security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/swift/testing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "rules/tdd-discipline.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/typescript/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/typescript/patterns.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/typescript/security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/typescript/testing.md": {
     "modes": [
       "advanced"
     ]
@@ -537,16 +458,6 @@
       "advanced"
     ]
   },
-  "skills/api-design/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/backend-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "skills/browser-e2e/SKILL.md": {
     "modes": [
       "advanced"
@@ -650,29 +561,9 @@
       "advanced"
     ]
   },
-  "skills/content-hash-cache-pattern/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/database-migrations/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "skills/deploy-credentials/SKILL.md": {
     "modes": [
       "default",
-      "advanced"
-    ]
-  },
-  "skills/deployment-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/design-taste-frontend/SKILL.md": {
-    "modes": [
       "advanced"
     ]
   },
@@ -792,11 +683,6 @@
     ]
   },
   "skills/frontend-design/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/frontend-patterns/SKILL.md": {
     "modes": [
       "advanced"
     ]
@@ -1651,11 +1537,6 @@
       "advanced"
     ]
   },
-  "skills/iterative-retrieval/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "skills/motion-design/references/accessibility-performance-validation.md": {
     "modes": [
       "advanced"
@@ -1775,11 +1656,6 @@
     ]
   },
   "skills/sdd-init/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/search-first/SKILL.md": {
     "modes": [
       "advanced"
     ]
@@ -1924,18 +1800,6 @@
   },
   "skills/spec-enforce/SKILL.md": {
     "modes": [
-      "advanced"
-    ]
-  },
-  "skills/systematic-debugging/LICENSE": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/systematic-debugging/SKILL.md": {
-    "modes": [
-      "default",
       "advanced"
     ]
   },

@@ -34,14 +34,13 @@ deployed on Recreate or new bucket creation.
 |---------|---------|----------|-------------------------|
 | Memory plugin & rule | No | Yes | Yes |
 | Core environment rules (cloudflare-environment, no-local-builds, git-workflow) | Yes | Yes | Yes |
+| Compact universal engineering constitution | Yes | Yes | Yes |
 | Pi startup header, local statusline, and fixed terminal notifications | Yes | Yes | Yes |
 | Cloudflare-stack, ship (+ refs), ci-monitoring, pr-workflow, deploy-credentials skills | Yes | Yes | Yes |
 | `consult-llm` skill (Claude + Pi) | No | Yes | Yes |
 | CC hooks: `block-attributed-commits`, `git-push-review-reminder`, `enforce-review-spawn`, `run-review-lane` | No | Yes | Yes |
-| Language rules (common, TS, Python, Go, Swift) | No | Yes | Yes |
 | Agent definitions (architect, code-reviewer, deep-reviewer, spec-reviewer, etc.) | No | Yes | Yes |
 | Commands (/brainstorm, /debug, /deploy, /review, /sdd) | No | Yes | Yes |
-| Cherry-picked skills (api-design, backend-patterns, etc.) | No | Yes | Yes |
 | `spec-discipline` rule + spec-enforce skill family (spine, AC, truth) | No | Yes | Yes |
 | `documentation-discipline` rule + doc-enforce skill family (spine, lanes, shape, truth) | No | Yes | Yes |
 | `tdd-discipline` rule + tdd-enforce skill | No | Yes | Yes |
@@ -303,13 +302,15 @@ deep-reviewer agents) and `--verify-high` (Phase 7 external-LLM
 second-opinion); invoking it with no arguments prints a CLI help
 screen and exits without running.
 
-**Skills** (each preseeded as `<name>/SKILL.md`): `cloudflare-stack`, `ship`
-(+ reference files), `consult-llm`, `api-design`, `backend-patterns`,
-`content-hash-cache-pattern`, `database-migrations`, `deployment-patterns`,
-`frontend-patterns`, `humanize` (+ measurement reference), `iterative-retrieval`,
-`search-first`, `spec-driven-development` (+ reference templates for `/sdd init` scaffolding),
-`sdd-init`, `sdd-clean`, `vault-operations`, `vault-note-capture`, and `graphify`.
-The SDD skill set covers the Import/Resume legacy-codebase transition below.
+**Skills** (each preseeded as `<name>/SKILL.md`) retain focused product and workflow
+ownership. Core entries include `cloudflare-stack`, `ship` (+ reference files),
+`consult-llm`, `humanize` (+ measurement reference), `spec-driven-development`
+(+ reference templates for `/sdd init` scaffolding), `sdd-init`, `sdd-clean`,
+`vault-operations`, `vault-note-capture`, and `graphify`. Platform and design specialists
+remain under their routed owners. Generic language, architecture, framework, migration,
+deployment-pattern, retrieval, search-first, and debugging advice packs are absent;
+repository evidence and current authoritative platform sources govern those decisions
+([REQ-AGENT-196](../../sdd/spec/agents.md#req-agent-196-repository-led-technology-guidance)).
 
 Standard and Advanced managed sessions include `codeflare-capabilities`. A broad capability or onboarding question loads only its router and teaches the complete catalog as a cumulative first-person tour. It connects end-to-end engineering ownership, proof, browser workspaces, specialist coordination, continuity, durable knowledge, design, persistence boundaries, and configured controls through concrete outcomes and honest limits, then gives the user a bounded-task launchpad and a stable numbered menu. Questions scoped to a repository, file, component, failure, or task use that context instead of the generic tour. ([REQ-AGENT-189](../../sdd/spec/agents.md#req-agent-189-layered-codeflare-capability-discovery), [REQ-AGENT-190](../../sdd/spec/agents.md#req-agent-190-portable-capability-discovery-delivery))
 
@@ -327,7 +328,7 @@ every declared block ([AD108](../decisions/README.md#ad108-per-ac-test-evidence-
 
 Managed curation source and the aligned baked fallback provide the advanced design family: `design` routes by work mode, purpose, platform, and available direction to one web, mobile, desktop, static, or incumbent authority, while components, performance, motion, and available finishing tools remain subordinate. Shared operational and component references preserve that platform owner. The inventory includes `desktop-native-design` and `motion-design` and excludes UI UX Pro Max and `emil-design-eng`. ([REQ-AGENT-179](../../sdd/spec/agents.md#req-agent-179-portable-visual-design-routing), [REQ-AGENT-180](../../sdd/spec/agents.md#req-agent-180-portable-frontend-design-authority), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility), [REQ-AGENT-182](../../sdd/spec/agents.md#req-agent-182-purpose-and-platform-design-routing), [REQ-AGENT-183](../../sdd/spec/agents.md#req-agent-183-native-mobile-design-authority))
 
-Operational dashboards establish operator decisions, density, data quality, workflow, and responsive scope before selecting components. Component registries provide implementation material only after information architecture and visual direction exist. `frontend-patterns` owns React and Next.js performance only; protected or input-dependent I/O starts after validation, authentication, and authorization. External skills, registries, MCP servers, presets, and package commands remain untrusted until reviewed and never execute merely to determine applicability. Simple motion stays in CSS or the incumbent system; specialist choreography activates only for demonstrated complexity. Missing registries, MCP access, or animation tooling do not block the owning workflow. ([REQ-AGENT-184](../../sdd/spec/agents.md#req-agent-184-operational-information-design), [REQ-AGENT-185](../../sdd/spec/agents.md#req-agent-185-component-system-and-registry-boundaries), [REQ-AGENT-186](../../sdd/spec/agents.md#req-agent-186-conditional-complex-motion-delegation), [REQ-AGENT-188](../../sdd/spec/agents.md#req-agent-188-external-design-dependency-safety))
+Operational dashboards establish operator decisions, density, data quality, workflow, and responsive scope before selecting components. Component registries provide implementation material only after information architecture and visual direction exist. Framework performance follows repository evidence and measured browser results rather than a generic React or Next.js recipe; protected or input-dependent I/O starts after validation and authorization. External skills, registries, MCP servers, presets, and package commands remain untrusted until reviewed and never execute merely to determine applicability. Simple motion stays in CSS or the incumbent system; specialist choreography activates only for demonstrated complexity. Missing registries, MCP access, or animation tooling do not block the owning workflow. ([REQ-AGENT-184](../../sdd/spec/agents.md#req-agent-184-operational-information-design), [REQ-AGENT-185](../../sdd/spec/agents.md#req-agent-185-component-system-and-registry-boundaries), [REQ-AGENT-186](../../sdd/spec/agents.md#req-agent-186-conditional-complex-motion-delegation), [REQ-AGENT-188](../../sdd/spec/agents.md#req-agent-188-external-design-dependency-safety))
 
 Advanced Pi carries one short always-active rule that loads `design` only for visual work. When installed, `impeccable` keeps its explicit multi-command skill and bundled offline/live detector scripts, while implicit discovery narrows to critique and finishing. Its aesthetic detections are advisory until the brief, platform, incumbent system, approved evidence, and selected owner establish whether the pattern is justified. ([REQ-AGENT-179](../../sdd/spec/agents.md#req-agent-179-portable-visual-design-routing), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility))
 
@@ -435,28 +436,24 @@ references Claude-specific `mcp__graphify__*` tools and the vault hook system.
 `vault-note-capture` is advanced-only and routes "take a note" phrases to the
 `vault-note-capture` skill.
 
-The graphify discipline
-([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
-and the LLM coding-mistakes principles were standalone graph-first and
-karpathy rules until 2026-07-25; both are now sections of the advanced-only
-`engineering-constitution`. `frontend-components`
-is advanced-only and owns composable UI decisions. Repetition prompts review rather
-than automatic extraction; ownership, coupling, state, reuse, testability, and maintenance
-decide whether structure moves. Stable one-offs may remain local, and the selected design
-owner retains visual direction.
+Graphify owns graph-first routing and mechanics
+([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)).
+`frontend-components` is advanced-only and owns detailed composable UI decisions.
+Repetition prompts review rather than automatic extraction; ownership, coupling, state,
+reuse, testability, and maintenance decide whether structure moves. Stable one-offs may
+remain local, and the selected design owner retains visual direction.
 
-`engineering-constitution` is advanced-only. It keeps four shared invariants compact:
-minimum necessary change, behavioral tests, deliberately owned composable components,
-and SDD/TDD traceability
+`engineering-constitution` reaches default and advanced sessions. Its four short sections
+cover repository-led engineering, behavioral proof, composition, SDD traceability,
+prompt-injection resistance, secret and tenant boundaries, explicit authorization for
+high-impact actions, latest-stable dependency selection, and current-task continuity
 ([REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents)).
-It also keeps task continuity and cross-cutting review safety, without forcing plans or
-completion messages to repeat a fixed checklist.
+It acknowledges and retains new input immediately, then finishes the active concrete step
+before acting on unrelated input unless the user stops, pauses, or reprioritizes it.
 
-Default+advanced `git-workflow` owns detailed PR-boundary mechanics. The advanced
-constitution does not repeat launch, monitoring, recovery, or acknowledgement procedures;
-it only prohibits pushes without current required review and deployments without green CI.
-ECC-derived language rules in `{typescript,python,golang,swift}/` subdirs remain
-advanced-only and carry language-specific coding and security guidance.
+Default+advanced `git-workflow` owns PR-boundary mechanics, and focused skills own
+platform behavior. Generic coding and language recipes remain absent under
+[REQ-AGENT-196](../../sdd/spec/agents.md#req-agent-196-repository-led-technology-guidance).
 
 **Known marketplaces**: `plugins/known_marketplaces.json` preseeds
 the official Anthropic plugin marketplace URL for user discovery.
@@ -616,15 +613,14 @@ The `commands/` tree is advanced-only: brainstorm, debug, deploy, review, and sd
 
 The `skills/` tree includes cloudflare-stack, ship (+ refs), ci-monitoring,
 pr-workflow, deploy-credentials, and safe-local-checks as default+advanced skills. Advanced skills
-include consult-llm, api-design, backend-patterns, content-hash-cache-pattern,
-database-migrations, deployment-patterns, frontend-patterns, humanize (+ measurement reference),
-iterative-retrieval, search-first, spec-driven-development (+ reference templates for /sdd init
-scaffolding), sdd-init, sdd-clean, vault-operations, vault-note-capture,
-spec-enforce, spec-enforce-ac, spec-enforce-truth, doc-enforce,
-doc-enforce-lanes, doc-enforce-shape, doc-enforce-truth, tdd-enforce,
-git-review-pipeline, graphify, and browser-run + browser-e2e. Pi owns native
-reviewer and spec/doc enforcement overrides; Claude retains its original agents
-and enforcement skills.
+include consult-llm, humanize (+ measurement reference), focused Cloudflare and design specialists,
+spec-driven-development (+ reference templates for /sdd init scaffolding), sdd-init, sdd-clean,
+vault-operations, vault-note-capture, spec-enforce, spec-enforce-ac, spec-enforce-truth,
+doc-enforce, doc-enforce-lanes, doc-enforce-shape, doc-enforce-truth, tdd-enforce,
+git-review-pipeline, graphify, and browser-run + browser-e2e. Pi owns native reviewer and
+spec/doc enforcement overrides; Claude retains its original agents and enforcement skills.
+Generic advice packs and generated language groupings remain absent under
+[REQ-AGENT-196](../../sdd/spec/agents.md#req-agent-196-repository-led-technology-guidance).
 
 `humanize` is advanced-only and projects from one authorized first-party Claude source to every runtime with a skill directory: Claude Code, Codex, Antigravity, OpenCode, and Pi. Its evidence reference ships with the workflow; `ORIGIN.md` stays repository-only. Runtime use needs no detector, script, network service, or score. Editorial quality and the no-fabrication boundary remain manual review concerns ([REQ-AGENT-195](../../sdd/spec/agents.md#req-agent-195-portable-humanize-writing-guidance)).
 
@@ -723,7 +719,7 @@ Pi-native review and CI assets are seeded with explicit ownership:
 | `preseed/agents/pi/agents/ci-monitor.md` | default, advanced | `~/.pi/agent/agents/ci-monitor.md` | Dedicated report-only CI subagent |
 | `preseed/agents/pi/skills/pr-workflow/SKILL.md` | default, advanced | `~/.pi/agent/skills/pr-workflow/SKILL.md` | PR creation procedure |
 | `preseed/agents/pi/skills/git-review-pipeline/SKILL.md` | advanced | `~/.pi/agent/skills/git-review-pipeline/SKILL.md` | Session-scoped review procedure |
-| `preseed/agents/pi/rules/engineering-constitution.md` | advanced | `~/.pi/agent/rules/engineering-constitution.md` | Compact shared engineering invariants and Pi review/CI safety |
+| `preseed/agents/pi/rules/engineering-constitution.md` | default, advanced | `~/.pi/agent/rules/engineering-constitution.md` | Compact universal engineering, security, dependency, and continuity policy |
 | `preseed/agents/pi/extensions/capability.ts` + `capability-helpers.ts` + `zz-tool-exposure-finalizer.ts` | default, advanced | `~/.pi/agent/extensions/` | Registered-tool search, additive activation, and post-registration bootstrap filtering through Pi's public API |
 | `preseed/agents/pi/skills/review-scope/SKILL.md` | advanced | `~/.pi/agent/skills/review-scope/SKILL.md` | Shared `diff`/`all` scope resolver |
 | `preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs` (reaches Pi through the seed transform) | advanced | `~/.pi/agent/skills/review-scope/scripts/build-review-packet.mjs` | Ancestry-validated lane file/hunk packet builder |
@@ -826,13 +822,12 @@ native Pi manifest entries instead of transformed Claude files.
 Shared operational policy remains canonical under `preseed/agents/claude/`.
 `scripts/generate-agent-seed.mjs` keeps monolithic transformed instructions for Codex,
 Copilot, OpenCode, and Antigravity. Pi instead receives a compact `AGENTS.md`:
-path-scoped canonical rules become five grouped native skills, rules already owned by a
-canonical skill are not duplicated, and long-form environment/coding/Graphify/build principles
-are condensed into the Pi-native constitution.
+the Cloudflare Workers path-scoped rule becomes one grouped native skill, while rules
+already owned by canonical skills are not duplicated.
 
-The Pi-native constitution keeps the shared invariants compact and retains only Pi's
-CI-result handoff. Git workflow owns boundary event mechanics, launch order, triage, and
-FIX sequencing. Both rules remain in the generated advanced Pi instruction surface.
+The Pi-native constitution carries the same compact substantive policy as Claude in both
+modes. Git workflow owns boundary event mechanics, launch order, triage, and FIX
+sequencing instead of duplicating them in the constitution.
 Implements [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 AC7 and [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents).
 

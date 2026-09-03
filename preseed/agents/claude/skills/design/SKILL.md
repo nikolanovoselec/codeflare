@@ -42,20 +42,20 @@ Purpose controls hierarchy, density, emotional intent, and success. Platform con
 
 For “make this better,” inspect first. Route thesis, hierarchy, composition, or visual-language changes to the platform owner. Preserve incumbent direction for bounded correction.
 
-An explicit specialist command is a user override for that bounded command. It does not grant authority over unrelated art direction. `design-taste-frontend` is a compatibility redirect to `frontend-design`; never load both as owners.
+An explicit specialist command is a user override for that bounded command. It does not grant authority over unrelated art direction.
 
 ## Handle mixed artifacts
 
 Classify each deliverable separately. A web product and its downloadable poster have different owners. A static screenshot of UI remains an interface task. Interactive canvas or WebGL remains web. An illustration, texture, or hero asset created for an existing interface is delegated work: `canvas-design` inherits the platform owner’s thesis and cannot invent another one.
 
-Non-visual specialists may work without any art-direction owner. A React performance request with no visual change may use `frontend-patterns` directly.
+Non-visual specialists may work without any art-direction owner. Framework performance work follows repository evidence and measured runtime behavior.
 
 ## Add only orthogonal specialists
 
 Select the smallest useful set after the owner establishes direction:
 
 - `frontend-components` for repeated component structure and bounded state ownership;
-- `frontend-patterns` for measured React or Next.js performance work;
+- `web-perf` for measured web performance audits;
 - `motion-design` for motion, continuity, gesture, or direct-manipulation engineering;
 - `impeccable`, when installed, for explicit commands, audit, hardening, critique, or bounded finishing.
 

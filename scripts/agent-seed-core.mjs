@@ -90,24 +90,16 @@ const CLAUDE_ONLY_SKILLS = new Set(['consult-llm', 'impeccable']);
 // extension event, or reviewer embedding. Proactive skills stay model-visible.
 const PI_SKILL_DESCRIPTION_OVERRIDES = new Map([
   ['agents-sdk', 'Build AI agents on Cloudflare with Agents SDK state, Workflows, and WebSockets.'],
-  ['api-design', 'Design REST API resources, status codes, pagination, filtering, and errors.'],
-  ['backend-patterns', 'Apply backend architecture, API, database, and Node.js server patterns.'],
   ['cloudflare', 'Cloudflare reference for Workers, Pages, storage, AI, networking, and security.'],
   ['cloudflare-email-service', 'Send Cloudflare email and configure routing, SPF, DKIM, and DMARC.'],
   ['cloudflare-one', 'Design Cloudflare One Zero Trust with Access, Gateway, WARP, and DLP.'],
   ['cloudflare-one-migrations', 'Plan migrations from VPN, Zscaler, or Palo Alto to Cloudflare One.'],
   ['cloudflare-stack', 'Default Cloudflare stack for a new project without stated preferences.'],
-  ['content-hash-cache-pattern', 'Cache file processing by SHA-256 content hash with automatic invalidation.'],
-  ['database-migrations', 'Plan database migrations, rollbacks, data changes, and zero-downtime rollout.'],
   ['deploy-credentials', 'Use GitHub and Cloudflare credentials safely for Git, Wrangler, and deploys.'],
-  ['deployment-patterns', 'Design deployment and CI/CD workflows, health checks, rollbacks, and containers.'],
   ['durable-objects', 'Build Cloudflare Durable Objects with RPC, SQLite, alarms, and WebSockets.'],
-  ['frontend-patterns', 'Optimize React and Next.js data flow, bundles, rendering, and rerenders.'],
-  ['iterative-retrieval', 'Refine retrieval iteratively to give a subagent only the context it needs.'],
   ['sandbox-stable', 'Build Cloudflare Sandbox apps against the current stable package.'],
   ['sandbox-next', 'Build Cloudflare Sandbox apps against the 1.0 preview package.'],
   ['sandbox-migrate-to-next', 'Migrate Cloudflare Sandbox apps from stable to the 1.0 preview.'],
-  ['search-first', 'Research existing libraries and patterns before coding a custom solution.'],
   ['ship', 'Ship, deploy, publish, or push a project to GitHub and Cloudflare.'],
   ['turnstile-spin', 'Set up Cloudflare Turnstile widgets and server-side siteverify validation.'],
   ['vault-note-capture', 'Capture a note when the user says note, save, write down, or remember this.'],
@@ -153,22 +145,6 @@ const PI_RULE_SKILL_GROUPS = new Map([
   ['rules/cloudflare-workers.md', {
     name: 'codeflare-cloudflare-workers',
     description: 'Use when editing Cloudflare Worker source or Wrangler configuration.',
-  }],
-  ['rules/golang/', {
-    name: 'codeflare-go',
-    description: 'Use when editing Go source, modules, security behavior, or tests.',
-  }],
-  ['rules/python/', {
-    name: 'codeflare-python',
-    description: 'Use when editing Python source, types, security behavior, or tests.',
-  }],
-  ['rules/swift/', {
-    name: 'codeflare-swift',
-    description: 'Use when editing Swift source, packages, security behavior, or tests.',
-  }],
-  ['rules/typescript/', {
-    name: 'codeflare-typescript',
-    description: 'Use when editing TypeScript or JavaScript source, security behavior, or tests.',
   }],
 ]);
 
@@ -584,10 +560,7 @@ function stripFrontmatter(content) {
 }
 
 function piRuleSkillGroup(withinClaude) {
-  for (const [prefix, group] of PI_RULE_SKILL_GROUPS) {
-    if (withinClaude === prefix || withinClaude.startsWith(prefix)) return group;
-  }
-  return undefined;
+  return PI_RULE_SKILL_GROUPS.get(withinClaude);
 }
 
 function renderPiRuleSkills(sourceFiles) {
@@ -951,11 +924,7 @@ export async function compileAgentSeed({ rootDir = DEFAULT_ROOT_DIR } = {}) {
   const claudeRuleKeys = sourceFiles
     .filter((file) => file.category === 'rule')
     .map((file) => file.withinClaude);
-  // Directory keys ("rules/golang/") match by prefix, mirroring
-  // piRuleSkillGroup's own lookup semantics; file keys match exactly.
-  const resolvesToRule = (key) => key.endsWith('/')
-    ? claudeRuleKeys.some((rule) => rule.startsWith(key))
-    : claudeRuleKeys.includes(key);
+  const resolvesToRule = (key) => claudeRuleKeys.includes(key);
   for (const [label, keys] of [
     ['PI_COMPACTED_RULES', [...PI_COMPACTED_RULES]],
     ['PI_COVERED_RULES', [...PI_COVERED_RULES.keys()]],

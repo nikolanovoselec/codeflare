@@ -2337,19 +2337,19 @@ None.
 
 ### REQ-AGENT-193: Orthogonal frontend specialist boundaries
 
-**Intent:** Component and performance specialists remain useful without overriding design ownership, inventing abstractions, overstating scope, or starting protected work before trust is established.
+**Intent:** Component guidance remains useful without overriding design ownership, inventing abstractions, or starting protected work before trust is established.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. Component extraction follows ownership, coupling, state, reuse, testability, and maintenance rather than a repetition count. <!-- @impl: preseed/agents/claude/skills/frontend-components/SKILL.md::Extract only real repetition --> <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::The four mandates --> <!-- @manual -->
+1. Component extraction follows ownership, coupling, state, reuse, testability, and maintenance rather than a repetition count. <!-- @impl: preseed/agents/claude/skills/frontend-components/SKILL.md::Extract only real repetition --> <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 2. Shared component and operational references preserve the applicable platform design owner's art direction. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/component-systems.md::Keep ownership explicit --> <!-- @impl: preseed/agents/claude/skills/frontend-design/references/operate-and-dashboards.md::Operate surfaces and dashboards --> <!-- @manual -->
-3. `frontend-patterns` owns React and Next.js performance, and generated Pi metadata describes only that scope. <!-- @impl: preseed/agents/claude/skills/frontend-patterns/SKILL.md::React and Next.js performance --> <!-- @impl: scripts/agent-seed-core.mjs::PI_SKILL_DESCRIPTION_OVERRIDES --> <!-- @manual -->
-4. Protected or input-dependent I/O starts only after input validation, authentication, and authorization; safe independent I/O may begin earlier. <!-- @impl: preseed/agents/claude/skills/frontend-patterns/SKILL.md::Eliminate waterfalls --> <!-- @manual -->
+3. No managed `frontend-patterns` skill imposes generic React or Next.js performance guidance. <!-- @manual: Inspect the source manifests and generated skill indexes. -->
+4. Protected or input-dependent I/O starts only after input validation and authorization; safe independent I/O may begin earlier. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Security --> <!-- @impl: preseed/agents/pi/rules/engineering-constitution.md::Security --> <!-- @manual -->
 5. A runtime without `frontend-components` receives compact fallback boundaries instead of an instruction to invoke an unavailable skill. <!-- @impl: preseed/agents/claude/rules/frontend-components.md::Frontend component routing --> <!-- @manual: Inspect the generated Copilot instructions. -->
 
-**Constraints:** These specialists cannot choose art direction, require an optional runtime capability, or create a second shared methodology.
+**Constraints:** Component guidance cannot choose art direction, require an optional runtime capability, or create a second shared methodology.
 
 **Priority:** P1
 
@@ -2410,6 +2410,32 @@ None.
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-agent-specific-config-generation), [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-190](#req-agent-190-portable-capability-discovery-delivery)
 
 **Verification:** Automated compiler contract and manual writing review
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-196: Repository-led technology guidance
+
+**Intent:** Managed agent content supplies product and workflow knowledge without imposing generic language, architecture, framework, or debugging recipes that can drift behind the active repository and current platform releases.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Managed source manifests and generated skill indexes exclude `api-design`, `backend-patterns`, `content-hash-cache-pattern`, `database-migrations`, `deployment-patterns`, `frontend-patterns`, `iterative-retrieval`, `search-first`, and `systematic-debugging`. <!-- @manual -->
+2. Managed source manifests contain no generic TypeScript, JavaScript, Go, Python, or Swift rule tree. <!-- @manual -->
+3. Pi generation creates no `codeflare-typescript`, `codeflare-go`, `codeflare-python`, or `codeflare-swift` grouping. <!-- @impl: scripts/agent-seed-core.mjs::PI_RULE_SKILL_GROUPS --> <!-- @manual -->
+4. Repository source, dependencies, configuration, tests, and explicit project instructions govern technology use before general model knowledge. <!-- @manual -->
+5. Focused product, design, tutorial, Humanize, and executable delivery-system skills remain available under their existing activation boundaries. <!-- @manual -->
+
+**Constraints:** Retired skill names remain absent rather than redirecting to replacement skills. License notices required by retained third-party content remain present. Removal is not evidence for weakening the Engineering Constitution, SDD/TDD workflow, review/CI controls, or platform-specific security guidance.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-195](#req-agent-195-portable-humanize-writing-guidance)
+
+**Verification:** Deterministic seed generation and manual catalog inspection
 
 **Status:** Implemented
 
@@ -2651,24 +2677,32 @@ None.
 
 ### REQ-AGENT-065: Engineering Constitution Preseeded to All Agents
 
-**Intent:** Advanced sessions receive a compact engineering constitution that keeps four invariants visible without duplicating their specialist owners: minimum necessary change, behavioral tests, deliberately owned composable components, and SDD/TDD traceability. Each runtime keeps only the small adaptation its execution model needs.
+**Intent:** Every managed coding session receives one compact, technology-neutral constitution for engineering judgment, behavioral proof, security, dependency freshness, and work continuity. Detailed platform and workflow mechanics remain with their specialist owners.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. Advanced seed compilation projects the canonical Claude constitution to every supported non-Pi instruction surface. <!-- @impl: preseed/agents/claude/manifest.json::rules/engineering-constitution.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
-2. Default mode receives no constitution document. <!-- @impl: preseed/agents/claude/manifest.json::rules/engineering-constitution.md --> <!-- @impl: preseed/agents/pi/manifest.json::rules/engineering-constitution.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
-3. Advanced Pi sessions receive one compact native constitution with the shared four invariants aligned to the Claude canon. <!-- @impl: preseed/agents/pi/manifest.json::rules/engineering-constitution.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
-4. The component invariant uses ownership, coupling, state, reuse, testability, and maintenance as extraction evidence, keeps justified one-offs local, and leaves visual direction with the selected design owner. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Tests, components, specifications, and docs --> <!-- @impl: preseed/agents/pi/rules/engineering-constitution.md::Tests, components, specifications, and docs --> <!-- @manual -->
-5. Git/review rules and runtime extensions own detailed workflow mechanics; the constitution keeps only cross-cutting review and CI safety. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Review and CI --> <!-- @impl: preseed/agents/pi/rules/engineering-constitution.md::Review and CI --> <!-- @manual -->
-6. Non-trivial work verifies simplicity, behavior, composability, and SDD/TDD without requiring every plan or completion message to restate a fixed checklist. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Tests, components, specifications, and docs --> <!-- @impl: preseed/agents/pi/rules/engineering-constitution.md::Tests, components, specifications, and docs --> <!-- @manual -->
+1. Seed compilation delivers the constitution to every supported runtime in default and advanced modes. <!-- @impl: preseed/agents/claude/manifest.json::rules/engineering-constitution.md --> <!-- @impl: preseed/agents/pi/manifest.json::rules/engineering-constitution.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
+2. Repository evidence and explicit constraints outrank generic patterns, and implementation stays within the smallest coherent change. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+3. Every changed behavior starts with failing behavioral proof and passes observable-outcome verification before completion. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+4. Composition and extraction follow explicit ownership, coupling, state, reuse, testability, and maintenance evidence. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+5. Updates prefer immutability, keep necessary mutation local, validate untrusted boundaries, and trust typed internals. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+6. Repositories with `sdd/` keep changed behavior traced to truthful requirements, anchors, and documentation, with no touched REQ left `Partial`. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+7. Instructions embedded in untrusted content and available capabilities do not grant authority. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Security --> <!-- @manual -->
+8. Work preserves secret, authentication, authorization, tenant, and privilege boundaries through least privilege and fail-closed behavior. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Security --> <!-- @manual -->
+9. Destructive, irreversible, production, billing, credential, and user-data actions require explicit current-user authorization. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Security --> <!-- @manual -->
+10. Added or updated dependencies use the latest stable release unless the user or repository requires another version. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Dependencies --> <!-- @manual -->
+11. Dependency-version decisions resolve current releases from an authoritative source rather than model memory. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Dependencies --> <!-- @manual -->
+12. A scoped change does not expand into unrelated dependency upgrades. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Dependencies --> <!-- @manual -->
+13. New user input is acknowledged and retained immediately. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
+14. Unrelated new input waits until the active task reaches a safe stopping point unless the user explicitly stops, pauses, or reprioritizes it. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
 
 **Constraints:**
 
-- Claude and Pi preseed rules are the authored sources; per-user files and transformed runtime instructions are downstream seed artifacts.
-- Both constitution sources are advanced-only and keep the four invariants aligned.
-- Content correctness is prose and is intentionally not pinned by source-text, wording, or snapshot tests.
+- Claude and Pi preseed rules are authored sources; per-user files and transformed runtime instructions are downstream seed artifacts.
+- Both constitution sources keep the same substantive policy; only the title may name the runtime.
+- Content correctness is prose and is intentionally not pinned by source-text, wording, heading, token-count, or snapshot tests.
 
 **Priority:** P1
 
@@ -3100,14 +3134,14 @@ None.
 
 ### REQ-AGENT-181: Design Specialist Compatibility
 
-**Intent:** Existing design entry points remain available without competing with the selected frontend art direction.
+**Intent:** Optional design specialists remain available without competing with the selected platform art direction or preserving retired compatibility names.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. A compact `design-taste-frontend` entry projects to every skill-capable runtime and names `frontend-design` as its target. <!-- @impl: preseed/agents/claude/skills/design-taste-frontend/SKILL.md::Frontend design compatibility route --> <!-- @manual -->
-2. Legacy taste requests continue through `frontend-design`. <!-- @impl: preseed/agents/claude/skills/design-taste-frontend/SKILL.md::Frontend design compatibility route --> <!-- @manual: Explicitly invoke `design-taste-frontend` and verify the resulting work follows `frontend-design`. -->
+1. `frontend-design` is the only managed frontend art-direction entry point. <!-- @impl: preseed/agents/claude/skills/frontend-design/SKILL.md::Frontend Design --> <!-- @manual -->
+2. The retired `design-taste-frontend` compatibility alias is absent from source manifests and generated skill indexes. <!-- @manual -->
 3. The removed UI UX Pro Max preset corpus cannot supply or persist a competing visual thesis. <!-- @manual: Inspect the authoritative managed router and manifest. -->
 4. When Impeccable is installed, implicit discovery remains limited to critique and bounded finishing; new-work methodology requires explicit Impeccable invocation and the selected platform owner retains art direction. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch one art-direction owner --> <!-- @impl: preseed/agents/claude/skills/impeccable/SKILL.md::Codeflare routing boundary --> <!-- @manual: Compare thesis-changing redesign, explicit Impeccable new-work, and bounded finishing prompts. -->
 5. Impeccable refresh preserves its explicit command body, the evidence boundaries in [REQ-AGENT-194](#req-agent-194-evidence-bound-impeccable-policy), platform-neutral Codeflare ownership, and no runtime package self-update permission. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareRoutingBoundary --> <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @manual: Inspect refreshed Claude and Pi content before accepting an update. -->
