@@ -29,4 +29,4 @@ When external execution, installation, network access, or repository transmissio
 
 ## Keep ownership explicit
 
-`frontend-design` owns the thesis and information architecture. `frontend-components` owns composable structure and state boundaries. Framework specialists own implementation performance. Accessibility may veto behavior that fails users. None may silently replace the art direction.
+The applicable platform design owner owns the thesis and information architecture. `frontend-components` owns composable structure and state boundaries. Framework specialists own implementation performance. Accessibility may veto behavior that fails users. None may silently replace the art direction.

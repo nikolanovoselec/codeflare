@@ -69,10 +69,9 @@ const VISUAL_SCAN_DEPTH_LIMIT = 4;
 
 // ─── Update check ──────────────────────────────────────────────────────────
 // Piggyback a lightweight skill-version check on the once-per-session boot.
-// When a newer skill ships, append an UPDATE_AVAILABLE directive so the agent
-// can offer `npx impeccable update`. Everything here is best-effort and
-// silent on failure: a network problem, sandbox, or missing cache must never
-// block context output or print an error.
+// When a newer upstream skill ships, append an informational UPDATE_AVAILABLE
+// directive. Managed Codeflare releases own updates; this check never offers an
+// in-place package rewrite. Everything here is best-effort and silent on failure.
 
 const UPDATE_HOST = (process.env.IMPECCABLE_UPDATE_HOST || 'https://impeccable.style').replace(/\/$/, '');
 const UPDATE_CACHE_PATH =
@@ -1066,22 +1065,13 @@ async function finishCli(output) {
   process.exit(0);
 }
 
-// Two instructions used to sit in one directive: ask, and "if they agree, run
-// it". Nothing gated the second on an answer, and the same sentence said to
-// continue without waiting, so a run that could never establish agreement was
-// still spelled out as the next command. The offer stays; the command leaves
-// this turn entirely, because installing over the skill mid-session changes
-// files the session is reading and only takes effect in the next one anyway.
+// Managed Codeflare releases own this curated skill. A newer upstream version is
+// useful provenance, but it must never invite an in-place package rewrite.
 function buildUpdateDirective(localVersion, latestVersion) {
   return (
-    `UPDATE_AVAILABLE: A newer Impeccable skill is available ` +
-    `(installed v${localVersion}, latest v${latestVersion}). ` +
-    `Mention it once, in this form: "A newer Impeccable (v${latestVersion}) is available. ` +
-    `Update now? It runs \`npx impeccable update\`." ` +
-    `Do not run \`npx impeccable update\` in this turn, whatever the user answers: it rewrites the skill files ` +
-    `this session is reading, and the update only takes effect in the next session, so there is nothing to gain now. ` +
-    `Run it in a later turn, only after the user has asked for it in their own words. ` +
-    `Continue the current task now without waiting, and do not raise this again.`
+    `UPDATE_AVAILABLE: Upstream Impeccable v${latestVersion} is newer than the curated ` +
+    `v${localVersion} copy. Do not run a package updater or rewrite this skill in place. ` +
+    `Managed Codeflare releases review and deliver skill updates. Continue the current task.`
   );
 }
 

@@ -21,12 +21,16 @@ use judgment.)
    break what this covers, does it fail?* Contract values (robots directives, scope ids,
    og:site_name) are not "copy". See [[tdd-discipline]].
 
-3. **Reusable, composable components; best practices.** Any structure used more than twice
-   is one component — pages/modules are composition. Separate structure (components) /
-   content (typed data) / style (tokens, one stylesheet convention); control every
-   size/colour/space/value centrally so a change is one edit. Refactor by extracting, not
-   rewriting; preserve behavior. Validate at boundaries, trust inside. Immutability — new
-   objects, never mutate. See [[frontend-components]] and "Coding concretes" below.
+3. **Reusable, composable components; best practices.** Use `frontend-components` when
+   visual work introduces or refactors repeated structure. Repetition prompts review; it
+   is not a numeric extraction rule. Extract when ownership, change coupling, interaction,
+   state, reuse, testability, or maintenance becomes clearer. Keep stable one-offs local,
+   and centralize content or style values only when shared consistency, theming, reuse, or
+   coordinated tuning benefits. The selected design owner controls visual direction; this
+   mandate cannot introduce a competing component, token, or content system. Refactor by
+   extracting, not rewriting; preserve behavior. Validate at boundaries, trust inside.
+   Immutability — new objects, never mutate. See [[frontend-components]] and "Coding
+   concretes" below.
 
 4. **SDD + TDD are enforced, not optional.** Write the failing behavioral test first, then
    make it pass. When `sdd/` exists: every change traces to a REQ; specs, anchors, and docs
@@ -155,8 +159,9 @@ skipped CI monitoring.
   incomplete — do not present it. This gate is why the user never has to type these again.
 
 - **Done gate (before declaring work complete).** Confirm each mandate held: no speculative
-  code; tests are behavioral and would fail if the impl were gutted; repeated structure was
-  extracted; and (SDD) no REQ is left `Partial`. State the verification, don't hand-wave it.
+  code; tests are behavioral and would fail if the impl were gutted; component decisions
+  followed ownership evidence; and (SDD) no REQ is left `Partial`. State the verification,
+  don't hand-wave it.
 
 A legitimate finding — yours or a reviewer's — gets fixed in-session, never deferred or
 raised as a question (see "Review findings: fix, don't ask" below).

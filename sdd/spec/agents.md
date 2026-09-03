@@ -2335,6 +2335,32 @@ None.
 
 ---
 
+### REQ-AGENT-193: Orthogonal frontend specialist boundaries
+
+**Intent:** Component and performance specialists remain useful without overriding design ownership, inventing abstractions, overstating scope, or starting protected work before trust is established.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Component extraction follows ownership, coupling, state, reuse, testability, and maintenance rather than a repetition count. <!-- @impl: preseed/agents/claude/skills/frontend-components/SKILL.md::Extract only real repetition --> <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::The four mandates --> <!-- @manual -->
+2. Shared component and operational references preserve the applicable platform design owner's art direction. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/component-systems.md::Keep ownership explicit --> <!-- @impl: preseed/agents/claude/skills/frontend-design/references/operate-and-dashboards.md::Operate surfaces and dashboards --> <!-- @manual -->
+3. `frontend-patterns` owns React and Next.js performance, and generated Pi metadata describes only that scope. <!-- @impl: preseed/agents/claude/skills/frontend-patterns/SKILL.md::React and Next.js performance --> <!-- @impl: scripts/agent-seed-core.mjs::PI_SKILL_DESCRIPTION_OVERRIDES --> <!-- @manual -->
+4. Protected or input-dependent I/O starts only after input validation, authentication, and authorization; safe independent I/O may begin earlier. <!-- @impl: preseed/agents/claude/skills/frontend-patterns/SKILL.md::Eliminate waterfalls --> <!-- @manual -->
+5. A runtime without `frontend-components` receives compact fallback boundaries instead of an instruction to invoke an unavailable skill. <!-- @impl: preseed/agents/claude/rules/frontend-components.md::Frontend component routing --> <!-- @manual: Inspect the generated Copilot instructions. -->
+
+**Constraints:** These specialists cannot choose art direction, require an optional runtime capability, or create a second shared methodology.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite), [REQ-AGENT-185](#req-agent-185-component-system-and-registry-boundaries)
+
+**Verification:** Manual managed-projection and fresh-context review; skill prose is not pinned by tests.
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-053: Pi Native Review Result Correlation
 
 **Intent:** Pi review completion must be proven only by visible public reviewer calls and their correlated successful terminal evidence in the root transcript.
@@ -2571,7 +2597,7 @@ None.
 
 ### REQ-AGENT-065: Engineering Constitution Preseeded to All Agents
 
-**Intent:** One always-on engineering constitution is hardwired into every preseed-managed agent so its four mandates are applied to all planning and coding without being restated each task: (1) no overengineering, (2) behavioral tests only — no theater or text-matching, (3) reusable/composable components and best practices, (4) SDD + TDD enforced (failing behavioral test first, every change traces to a REQ, specs/anchors/docs move with the code, nothing left `Partial`). It also imposes a **plan gate** (every plan must restate the four mandates as concrete success criteria) and a **done gate** (confirm them before declaring work complete). The preseed is the single source of truth; each per-user copy is a downstream seed artifact.
+**Intent:** One always-on engineering constitution is hardwired into every preseed-managed agent so its four mandates are applied to all planning and coding without being restated each task: (1) no overengineering, (2) behavioral tests only — no theater or text-matching, (3) deliberately owned reusable/composable components and best practices, (4) SDD + TDD enforced (failing behavioral test first, every change traces to a REQ, specs/anchors/docs move with the code, nothing left `Partial`). It also imposes a **plan gate** (every plan must restate the four mandates as concrete success criteria) and a **done gate** (confirm them before declaring work complete). The preseed is the single source of truth; each per-user copy is a downstream seed artifact.
 
 **Applies To:** Agent
 
@@ -2579,6 +2605,7 @@ None.
 
 1. In advanced session mode, the constitution is seeded as a Claude rule — the preseed rule file is present and the seed manifest gates it to `advanced` only, matching the other engineering rules ([REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)). <!-- @manual -->
 2. Pi receives one compact native constitution rule in both session modes, with the shared four mandates aligned to the Claude canon and Pi-only review/CI mechanics owned by that native adaptation rather than a duplicate per-turn injection. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
+3. The component mandate treats repetition as review evidence rather than a numeric extraction law, keeps justified one-offs local, and leaves visual direction with the selected design owner. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::The four mandates --> <!-- @manual: Compare the constitution with the frontend-components extraction and token boundaries. -->
 
 **Constraints:**
 
@@ -2857,11 +2884,11 @@ None.
 **Acceptance Criteria:**
 
 1. Managed advanced mode delivers `design`, `frontend-design`, `native-mobile-design`, `desktop-native-design`, `canvas-design`, and `motion-design` to each skill-capable runtime; default mode receives none. <!-- @manual: Inspect the authoritative curation manifests and compiled release. -->
-2. `design` selects exactly one art-direction owner and only the smallest justified specialist set. <!-- @manual: Review representative web, mobile, desktop, static, polish, and nonvisual prompts. -->
+2. `design` selects exactly one art-direction owner and only the smallest justified available specialist set. <!-- @manual: Review representative web, mobile, desktop, static, polish, and nonvisual prompts with and without optional specialists. -->
 3. Canonical agent-neutral Markdown drives supported runtime projections; runtime adapters contain activation or path plumbing only. <!-- @manual: Compare managed projections after runtime-specific path adaptation. -->
 4. Canvas Design retains the required Apache-2.0 notice and pinned provenance without shipping repository-only provenance as model context. <!-- @manual: Inspect authoritative curation source and manifest. -->
 5. The unsafe UI UX Pro Max preset corpus, generator, and authoritative persistence path are absent from managed distribution. <!-- @manual: Inspect the authoritative curation manifest and router. -->
-6. Managed distribution does not project this design skill suite to Copilot; Copilot receives compact global routing only. <!-- @manual: Inspect the generated Copilot output and confirm it contains the global route but no projected design-skill directory. -->
+6. Managed distribution does not project this design skill suite to Copilot; Copilot receives compact fallback guidance that does not require an unavailable skill directory. <!-- @manual: Inspect the generated Copilot output and confirm it contains usable fallback guidance but no projected design-skill directory. -->
 
 **Constraints:** Core methodology stays out of Pi's system prompt; Pi receives one minimal conditional route to `design`. Large references load only after selection. Optional capabilities never block an owner.
 
@@ -2909,7 +2936,7 @@ None.
 
 1. The router resolves conflicts in the order: user brief, product behavior/accessibility/platform, incumbent implementation and confirmed design contract, selected owner direction, evidence, then specialist preference. <!-- @manual: Inspect the authoritative managed router. -->
 2. Absence of a formal design contract does not make an established product greenfield. <!-- @manual: Review an established-product prompt without a formal design contract; confirm the incumbent implementation remains authoritative. -->
-3. Impeccable sidecars and surface briefs record or extend decisions without becoming a competing thesis. <!-- @manual: Review a bounded Impeccable or sidecar prompt; confirm it preserves the selected owner's direction. -->
+3. Impeccable sidecars, aesthetic detector findings, reviewers, and surface briefs remain subordinate to the brief, incumbent system, platform, approved evidence, and selected owner rather than becoming a competing thesis. <!-- @manual: Review bounded Impeccable findings and confirm justified fonts, palettes, hierarchy, and containment are not treated as automatic failures. -->
 
 **Constraints:** A user may explicitly authorize a redesign or invoke a bounded specialist command.
 
@@ -3024,8 +3051,8 @@ None.
 1. A compact `design-taste-frontend` entry projects to every skill-capable runtime and names `frontend-design` as its target. <!-- @impl: preseed/agents/claude/skills/design-taste-frontend/SKILL.md::Frontend design compatibility route --> <!-- @manual -->
 2. Legacy taste requests continue through `frontend-design`. <!-- @impl: preseed/agents/claude/skills/design-taste-frontend/SKILL.md::Frontend design compatibility route --> <!-- @manual: Explicitly invoke `design-taste-frontend` and verify the resulting work follows `frontend-design`. -->
 3. The removed UI UX Pro Max preset corpus cannot supply or persist a competing visual thesis. <!-- @manual: Inspect the authoritative managed router and manifest. -->
-4. Implicit Impeccable discovery remains limited to critique and bounded finishing while the incumbent product thesis stays the art-direction authority. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch one art-direction owner --> <!-- @impl: preseed/agents/claude/skills/impeccable/SKILL.md::Codeflare routing boundary --> <!-- @manual: Compare thesis-changing redesign and bounded finishing prompts. -->
-5. Impeccable refresh preserves its explicit command body while applying the Codeflare boundary. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareRoutingBoundary --> <!-- @manual -->
+4. When Impeccable is installed, implicit discovery remains limited to critique and bounded finishing; new-work methodology requires explicit Impeccable invocation and the selected platform owner retains art direction. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Dispatch one art-direction owner --> <!-- @impl: preseed/agents/claude/skills/impeccable/SKILL.md::Codeflare routing boundary --> <!-- @manual: Compare thesis-changing redesign, explicit Impeccable new-work, and bounded finishing prompts. -->
+5. Impeccable refresh preserves its explicit command body while applying platform-neutral Codeflare ownership and removing runtime package self-update permission. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareRoutingBoundary --> <!-- @manual: Inspect refreshed Claude and Pi frontmatter before accepting an update. -->
 6. `motion-design` implements motion and interaction only after direction exists. <!-- @manual: Request focused motion refinement after selecting a platform-owner direction. -->
 7. Downloaded Impeccable metadata that cannot establish one routing description fails before any existing skill target changes. <!-- @impl: scripts/update-impeccable-skill.mjs::replaceImpeccableTargets --> <!-- @manual -->
 
@@ -3214,7 +3241,7 @@ None.
 **Acceptance Criteria:**
 
 1. External skills, registries, presets, MCP servers, and package commands are inspected as untrusted dependencies before adoption. <!-- @impl: preseed/agents/claude/skills/design/references/external-dependencies.md::Inspect before adoption --> <!-- @manual: Evaluate a mutable external registry proposal. -->
-2. Skill activation executes no mutable latest package and no external package code merely to determine applicability. <!-- @impl: preseed/agents/claude/skills/design/references/external-dependencies.md::Inspect before adoption --> <!-- @manual: Activate design routing without registry access and verify no package command runs. -->
+2. Skill activation executes no mutable latest package and no external package code merely to determine applicability; managed Impeccable never grants or recommends in-place package self-update. <!-- @impl: preseed/agents/claude/skills/design/references/external-dependencies.md::Inspect before adoption --> <!-- @impl: preseed/agents/claude/skills/impeccable/SKILL.md::Codeflare routing boundary --> <!-- @manual: Activate design routing and Impeccable without running a package command. -->
 3. Missing registry or MCP access does not block the owning workflow. <!-- @impl: preseed/agents/claude/skills/frontend-design/references/component-systems.md::Admit a registry conditionally --> <!-- @manual: Run a component task with no registry or MCP capability. -->
 4. External-dependency guidance projects to every skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/design/SKILL.md::Compose orthogonal specialists only --> <!-- @manual -->
 

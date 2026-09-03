@@ -6,7 +6,7 @@ This is maintenance, not design. Do not redesign anything, do not open files out
 
 Three kinds of drift travel under "out of date". Keep them apart:
 
-- **Tool version.** The installed skill is older than the published one. `context.mjs` reports that at boot as `UPDATE_AVAILABLE` and `npx impeccable update` fixes it. Not this command's job.
+- **Tool version.** The curated skill is older than upstream. `context.mjs` may report that as `UPDATE_AVAILABLE`; managed Codeflare releases own updates. Never run a package updater or rewrite the skill in place.
 - **Schema drift.** An artifact was written by an older Impeccable: fields nothing reads, fields now expected, files in retired locations. Mechanical, and this command repairs most of it.
 - **Truth drift.** The code moved on and the document no longer describes it. No file comparison settles this. `document` owns DESIGN.md, `init` owns PRODUCT.md, and this command's job is to hand them a specific gap rather than a vague suspicion.
 

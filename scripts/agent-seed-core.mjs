@@ -102,7 +102,7 @@ const PI_SKILL_DESCRIPTION_OVERRIDES = new Map([
   ['deploy-credentials', 'Use GitHub and Cloudflare credentials safely for Git, Wrangler, and deploys.'],
   ['deployment-patterns', 'Design deployment and CI/CD workflows, health checks, rollbacks, and containers.'],
   ['durable-objects', 'Build Cloudflare Durable Objects with RPC, SQLite, alarms, and WebSockets.'],
-  ['frontend-patterns', 'Apply React and Next.js patterns for state, performance, and architecture.'],
+  ['frontend-patterns', 'Optimize React and Next.js data flow, bundles, rendering, and rerenders.'],
   ['iterative-retrieval', 'Refine retrieval iteratively to give a subagent only the context it needs.'],
   ['sandbox-stable', 'Build Cloudflare Sandbox apps against the current stable package.'],
   ['sandbox-next', 'Build Cloudflare Sandbox apps against the 1.0 preview package.'],

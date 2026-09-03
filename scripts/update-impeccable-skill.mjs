@@ -7,10 +7,10 @@ import { fileURLToPath } from 'node:url';
 
 const BUNDLE_URL = 'https://impeccable.style/api/download/bundle/universal';
 const repoRoot = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
-const CODEFLARE_IMPECCABLE_DESCRIPTION = 'Critique, audit, harden, adapt, animate, or apply bounded polish to an existing frontend whose direction remains intact. Use for accessibility, responsive behavior, performance, UX copy, interaction detail, visual finishing, and explicit impeccable commands. For greenfield creation or any change to the visual thesis, frontend-design owns art direction; use Impeccable afterward for critique or finishing. Not for backend-only or non-UI tasks.';
+const CODEFLARE_IMPECCABLE_DESCRIPTION = 'Critique, audit, harden, adapt, animate, or apply bounded polish to an existing interface whose direction remains intact. Use for accessibility, responsive behavior, performance, UX copy, interaction detail, visual finishing, and explicit impeccable commands. For greenfield creation or any change to the visual thesis, the applicable platform design owner controls art direction; use Impeccable afterward for critique or finishing. Not for backend-only or non-UI tasks.';
 const CODEFLARE_IMPECCABLE_BOUNDARY = `## Codeflare routing boundary
 
-Impeccable owns interface critique, finishing, and its explicitly invoked commands. For a general greenfield or full-redesign request, \`frontend-design\` establishes the visual thesis before Impeccable audits or refines it. When another skill routes here as support, load only the requested critique or finishing playbook; the later general/new-work path applies only after explicit Impeccable invocation. Explicit Impeccable commands keep their documented behavior.`;
+Impeccable owns interface critique, finishing, and its explicitly invoked commands. For a general greenfield or full-redesign request, the applicable platform design owner establishes the visual thesis before Impeccable audits or refines it. When another skill routes here as support, load only the requested critique or finishing playbook; the later general/new-work path applies only after explicit Impeccable invocation. Explicit Impeccable commands keep their documented behavior.`;
 
 export async function updateImpeccableSkill() {
   const tempRoot = mkdtempSync(join(tmpdir(), 'impeccable-skill-'));
@@ -77,10 +77,12 @@ export function applyCodeflareRoutingBoundary(text) {
   if (descriptions.length !== 1) {
     throw new Error('downloaded Impeccable skill must have exactly one frontmatter description');
   }
-  const frontmatter = match[1].replace(
-    /^description:.*$/m,
-    `description: ${CODEFLARE_IMPECCABLE_DESCRIPTION}`,
-  );
+  const frontmatter = match[1]
+    .replace(
+      /^description:.*$/m,
+      `description: ${CODEFLARE_IMPECCABLE_DESCRIPTION}`,
+    )
+    .replace(/^\s*- Bash\(npx impeccable \*\)\s*$/m, '');
   const body = text.slice(match[0].length);
   return `---\n${frontmatter}\n---\n\n${CODEFLARE_IMPECCABLE_BOUNDARY}\n${body}`;
 }

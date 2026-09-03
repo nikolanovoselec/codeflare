@@ -147,9 +147,10 @@ const ANTIPATTERNS = [
     id: 'overused-font',
     category: 'slop',
     scopes: ['type'],
-    name: 'Overused font',
+    severity: 'advisory',
+    name: 'Common font used by default',
     description:
-      'Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.',
+      'Common faces can signal an unexamined default on expressive work. They remain valid when the brief, brand, incumbent system, platform, accessibility, or operational purpose supports them.',
     skillSection: 'Typography',
     skillGuideline: 'overused fonts like Inter',
   },
@@ -166,9 +167,10 @@ const ANTIPATTERNS = [
   {
     id: 'gradient-text',
     category: 'slop',
-    name: 'Gradient text',
+    severity: 'advisory',
+    name: 'Gradient text used by default',
     description:
-      'Gradient text is decorative rather than meaningful — a common AI tell, especially on headings and metrics. Use solid colors for text.',
+      'Gradient text is often generic decoration. It remains valid when the committed identity or content makes the gradient meaningful and contrast remains sound.',
     skillSection: 'Color & Contrast',
     skillGuideline: 'gradient text for',
   },
@@ -184,9 +186,10 @@ const ANTIPATTERNS = [
   {
     id: 'cream-palette',
     category: 'slop',
-    name: 'Cream / beige palette',
+    severity: 'advisory',
+    name: 'Cream / beige palette used by default',
     description:
-      'A warm cream or beige page background has become the default "tasteful" AI surface, reached for by reflex. Choose a background that comes from a deliberate palette, not the safe warm off-white.',
+      'A warm cream or beige ground can be an unexamined tasteful default. It remains valid when the brief, identity, material, or incumbent palette calls for it.',
     skillSection: 'Color & Contrast',
     skillGuideline: 'cream and beige as the default surface',
   },
@@ -194,9 +197,10 @@ const ANTIPATTERNS = [
     id: 'nested-cards',
     category: 'slop',
     scopes: ['layout'],
-    name: 'Nested cards',
+    severity: 'advisory',
+    name: 'Decorative nested cards',
     description:
-      'Cards inside cards create visual noise and excessive depth. Flatten the hierarchy — use spacing, typography, and dividers instead of nesting containers.',
+      'Cards inside cards can create needless depth. Keep nesting when semantic containment or interaction requires it; otherwise flatten the decorative hierarchy.',
     skillSection: 'Layout & Space',
     skillGuideline: 'Nest cards inside cards',
   },
@@ -324,9 +328,10 @@ const ANTIPATTERNS = [
     id: 'hero-eyebrow-chip',
     category: 'slop',
     scopes: ['type'],
-    name: 'Hero eyebrow / pill chip',
+    severity: 'advisory',
+    name: 'Hero eyebrow / pill chip used by default',
     description:
-      'A tiny uppercase letter-spaced label sitting immediately above an oversized hero headline — or the same shape rendered as a pill chip — is now the default AI SaaS hero. Drop the eyebrow, integrate the kicker into the headline, or run it as a navigation breadcrumb instead.',
+      'A tracked label or pill above an oversized hero can become generic scaffolding. Keep it when the brief, identity, hierarchy, sequence, or navigation gives it a real job.',
     skillSection: 'Typography',
     skillGuideline: 'tiny uppercase tracked label above the hero headline',
   },
@@ -334,9 +339,10 @@ const ANTIPATTERNS = [
     id: 'kicker-above-heading',
     category: 'slop',
     scopes: ['type'],
-    name: 'Kicker / eyebrow label above heading',
+    severity: 'advisory',
+    name: 'Repeated kicker / eyebrow labels',
     description:
-      'A tiny tracked uppercase or small-caps label sitting as its own block directly above a heading is banned outright, repeated or not. Generated kickers never earn their place: the heading carries its own weight. Delete the label and let the heading speak; if the words matter, work them into the heading or the body.',
+      'A repeated tracked label above every heading can become empty scaffolding. Keep a kicker when hierarchy, sequence, navigation, or the brief gives it a real job.',
     skillSection: 'Typography',
     skillGuideline: 'kicker or eyebrow labels above headings',
   },
@@ -8130,10 +8136,9 @@ if (IS_BROWSER) {
           type: f.type || f.id,
           category: ap ? ap.category : 'quality',
           severity: f.severity || ap?.severity || 'warning',
-          // Advisory findings (em-dash overuse, etc.) are surfaced but never
-          // treated as failures; carry the flag so the overlay/extension can
-          // render them with the mildest affordance and consumers can filter.
-          advisory: (ap && ap.advisory === true) || f.advisory === true,
+          // Advisory findings are surfaced but never treated as failures; carry
+          // either supported registry field into the browser result.
+          advisory: (ap && (ap.advisory === true || ap.severity === 'advisory')) || f.advisory === true,
           detail: f.detail || f.snippet,
           ignoreValue: f.ignoreValue || f.value || '',
           name: ap ? ap.name : (f.type || f.id),

@@ -1,6 +1,6 @@
 # Operate surfaces and dashboards
 
-Read this for dashboards, consoles, internal tools, monitoring, investigation, triage, configuration, approval, comparison, and bulk-action workflows. This reference owns operational information design. `frontend-design` retains visual art direction; framework specialists retain implementation engineering.
+Read this for dashboards, consoles, internal tools, monitoring, investigation, triage, configuration, approval, comparison, and bulk-action workflows. This reference owns operational information design. The applicable platform design owner retains visual art direction; framework specialists retain implementation engineering.
 
 ## Establish the operating job
 

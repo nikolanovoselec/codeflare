@@ -57,7 +57,7 @@ Select the smallest useful set after the owner establishes direction:
 - `frontend-components` for repeated component structure and bounded state ownership;
 - `frontend-patterns` for measured React or Next.js performance work;
 - `motion-design` for motion, continuity, gesture, or direct-manipulation engineering;
-- `impeccable` for explicit commands, audit, hardening, critique, or bounded finishing.
+- `impeccable`, when installed, for explicit commands, audit, hardening, critique, or bounded finishing.
 
 A specialist cannot choose a competing palette, typography, geometry, imagery system, or motion character. Component libraries, registries, presets, datasets, and generated recommendations provide material or evidence, never art direction.
 

@@ -1,5 +1,7 @@
 # New visual work
 
+Use this flow only after the user explicitly invokes Impeccable for new work, `craft`, or `shape`. General visual requests return to `design` and the applicable platform owner.
+
 Use this flow for a new surface or a replacement visual identity. PRODUCT.md owns product truth. DESIGN.md owns durable visual decisions. A surface brief keeps strategy that belongs to one route or artifact. Complete [init.md](init.md) first when PRODUCT.md is missing; a missing DESIGN.md does not route back to init.
 
 ## 1. Decide what is already true

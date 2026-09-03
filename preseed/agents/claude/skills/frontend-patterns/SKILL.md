@@ -16,7 +16,7 @@ Start with measured or structurally certain high-impact work. Eliminate request 
 - Move an `await` into the branch that actually consumes its result.
 - When operations have partial dependencies, begin each operation as soon as its own inputs exist rather than serializing the whole chain.
 - Place Suspense boundaries so independent page regions can stream without blocking the shell.
-- In route handlers and server actions, start independent I/O early, perform synchronous validation while it is pending, then await only where required.
+- In route handlers and server actions, validate input and complete authentication and authorization before starting protected or input-dependent I/O. Only independent I/O that does not depend on untrusted input or caller authority may begin earlier.
 
 ```ts
 const userPromise = getUser(id)
