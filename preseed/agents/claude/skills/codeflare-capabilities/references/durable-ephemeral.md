@@ -4,9 +4,9 @@
 
 I can work inside an isolated Linux container with root access, a real filesystem, terminals, development tools, and the repository's own stack. The compute is disposable. The useful state is not.
 
-Every user gets a dedicated S3-compatible storage bucket with bucket-scoped credentials. The Storage browser can browse folders, upload, download, delete, and safely preview files. Those folders map to real paths under the session home directory, so a file placed in durable storage can become ordinary working material inside the container.
+I work with each user's dedicated S3-compatible storage bucket and its bucket-scoped credentials. You can use the Storage browser to browse folders, upload, download, delete, and safely preview files. Those folders map to real paths under the session home directory, so I can use a file from durable storage as ordinary working material inside the container.
 
-The user can click Sync-now to pull storage changes into running sessions and push included local changes back. A background bidirectional sync runs every 15 minutes, and shutdown performs one final bounded sync. Git remains the right authority for source code. The bucket is better suited to notes, datasets, assets, agent configuration, and deliberately persisted workspace material.
+You can click Sync-now to pull storage changes into running sessions and push included local changes back. Background bidirectional synchronization runs every 15 minutes, with one final bounded synchronization during shutdown. Git remains the right authority for source code. The bucket is better suited to notes, datasets, assets, agent configuration, and deliberately persisted workspace material.
 
 Stored data uses encryption at rest. When the operator supplies the customer encryption key, object operations use AES-256 SSE-C protection. Vault browser stores carry their own encrypted continuity contract.
 

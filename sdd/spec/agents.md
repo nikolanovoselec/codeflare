@@ -3557,7 +3557,7 @@ None.
 
 ### REQ-AGENT-189: Layered Codeflare Capability Discovery
 
-**Intent:** A user asking what Codeflare can do receives a substantial, source-backed first-person account of end-to-end engineering ownership and can then select practical subsystem guidance without loading the complete platform inventory.
+**Intent:** A user asking what Codeflare can do receives a substantial, source-backed account in direct first-person active voice and can then select practical subsystem guidance without loading the complete platform inventory.
 
 **Applies To:** User
 
@@ -3565,7 +3565,7 @@ None.
 
 1. Only a broad capability or onboarding request starts a guided, cumulative first-person catalog connecting end-to-end engineering ownership, proof, specialist coordination, browser workspaces, persistence boundaries, design, and configured Enterprise controls. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Ask a fresh Standard and Advanced session what Codeflare can do and review response order and substance. -->
 2. The overview preserves availability truth through hard boundaries, operator configuration, explicit permissions, and unproven-capability limits without product-tier or session-mode labels. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Compare configured, unconfigured, and permission-gated capability answers. -->
-3. The response ends with a stable numbered list for SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Secure Web Gateway, MCP portals, AI Gateway, Browser Run, agentic primitives, and design systems as independent deep dives. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Review the 1 through 14 mapping and request each subsystem independently. -->
+3. The response ends with a stable numbered list for SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Cloudflare Gateway, MCP portals, Cloudflare AI Gateway, Browser Run, agentic primitives, and design systems as independent deep dives. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Review the 1 through 14 mapping and request each subsystem independently. -->
 4. A broad response loads no subsystem reference. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Inspect loaded files for one broad capability question. -->
 5. A number-only, comma-separated, or named follow-up reads only the reference or references selected by the user. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Reply with one number and then request one multi-subsystem selection; inspect loaded files. -->
 6. A deep dive states applicable permission, operator-configuration, external-system, and unproven-capability boundaries before presenting the capability as available. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review configured, unconfigured, permission-gated, and external-system deep dives. -->
@@ -3573,6 +3573,8 @@ None.
 
 **Constraints:**
 
+- Capability statements name the agent in direct first-person active voice; factual boundaries may name the owning product or system.
+- Product labels use exact names, including Cloudflare Access, Cloudflare Gateway, and Cloudflare AI Gateway.
 - Claims trace to active requirements, implementation, or operator documentation.
 - References remain lazy.
 - Unproven integrations remain unavailable.

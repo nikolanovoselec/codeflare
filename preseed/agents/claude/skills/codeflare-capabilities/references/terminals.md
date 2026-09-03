@@ -2,19 +2,19 @@
 
 ## What I can do
 
-I can run the same engineering session through a browser on a desktop, tablet, or phone. No local agent toolchain is required. A reconnect attaches to the existing PTY while its container remains alive, so the browser can change without pretending the process moved into the phone.
+I run the same engineering session through a browser on a desktop, tablet, or phone. I do not require a local agent toolchain. When you reconnect, the browser attaches me to the existing PTY while its container remains alive, so the device can change without pretending the process moved into the phone.
 
-Classic gives me up to six outer terminal tabs with labels, ordering, tiling, and saved layout. Herdr provides a deeper control surface with workspaces, tabs, panes, splits, shells, and tracked agents inside one outer terminal. MultiView can place several backend sessions in one browser workspace on larger screens.
+I use Classic for up to six outer terminal tabs with labels, ordering, tiling, and saved layout. I use Herdr for workspaces, tabs, panes, splits, shells, and tracked agents inside one outer terminal. With MultiView, I place several backend sessions in one browser workspace on larger screens.
 
-The mobile terminal handles touch, virtual-keyboard geometry, orientation changes, sticky control sequences, and voice input where the browser supports it. It is a real terminal adapted to glass, not a desktop screenshot shrunk until the text loses the will to live.
+I use the mobile terminal for touch, virtual-keyboard geometry, orientation changes, sticky control sequences, and voice input where the browser supports it. It is a real terminal adapted to glass, not a desktop screenshot shrunk until the text loses the will to live.
 
-When a structured question needs attention, Codeflare can emit an immediate input-required signal. Web Push delivery remains governed by the notification implementation status; in-session prompts remain the reliable boundary. Herdr watches agent state across panes and delays completion until tracked work has actually become ready.
+When a structured question needs attention, I use Codeflare's immediate input-required signal. Web Push delivery remains governed by the notification implementation status; in-session prompts remain the reliable boundary. I use Herdr to watch agent state across panes and delay completion until tracked work has actually become ready.
 
 ## Where the boundary sits
 
 A blocked or unknown Herdr pane prevents a false completion notification. It does not automatically promise a separate push for every blocked state. Completion timing and input-required signaling are different contracts.
 
-A reconnect can recover a live PTY. Container replacement cannot recover arbitrary process memory or old terminal output. Herdr may restore supported structure, but yesterday's shell process is still dead. Anything else would be a séance with ANSI escape codes.
+A reconnect can recover a live PTY. I cannot recover arbitrary process memory or old terminal output after container replacement. Herdr can restore supported structure, but yesterday's shell process is still dead. Anything else would be a séance with ANSI escape codes.
 
 ## Try it
 

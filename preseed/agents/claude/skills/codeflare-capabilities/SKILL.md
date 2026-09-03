@@ -11,7 +11,7 @@ Use this skill for broad Codeflare capability discovery, onboarding, tour reques
 
 Treat every capability answer as a view of a fully configured Codeflare workspace. Do not discuss product tiers, session modes, entitlement gates, or deployment variants. Those labels make the answer read like a price sheet and force the user to reverse-engineer the product before they can use it.
 
-Write in first person. Give a substantial answer, normally 1,200 to 1,800 useful words. Keep the complete catalog, but teach it as a guided tour rather than dumping categories. The answer should sound like an engineer who has done this work and has opinions about bad delivery practice, not like a catalog assembled by committee.
+Write every capability claim in direct first person: `I use`, `I route`, `I build`, or `I can`. Do not write `X can be used`, `Codeflare can`, or passive feature copy. Use exact product names, including Cloudflare Access, Cloudflare Gateway, and Cloudflare AI Gateway. Give a substantial answer, normally 1,200 to 1,800 useful words. Keep the complete catalog, but teach it as a guided tour rather than dumping categories. The answer should sound like an engineer who has done this work and has opinions about bad delivery practice, not like a catalog assembled by committee.
 
 Do not load any subsystem reference for the first answer. Use this section as the broad-answer source of truth.
 
@@ -25,7 +25,7 @@ Keep every capability in this skill. Do not compress the answer into a highlight
 
 Create the wow effect through connected facts, not adjectives. A strong sequence might begin with a production error, trace it through history and architecture, write the behavioral proof, implement the fix, inspect it in a real browser, close exact-head review and CI, follow an approved deployment, then preserve the decision for the next session. No single item is the trick. The surprise is that the thread stays intact.
 
-Use brief transitions that show why the next capability matters. Source still matters after the patch, so move into review. Work still matters after the container dies, so move into Git, storage, and Vault. Access still matters when the agent can reach the internet, so move into identity, interception, and gateway controls. Do not announce these transitions as a formula.
+Use brief transitions that show why the next capability matters. Source still matters after the patch, so move into review. Work still matters after the container dies, so move into Git, storage, and Vault. Cloudflare Access still matters when the agent can reach the internet, so move into identity, interception, and Cloudflare Gateway controls. Do not announce these transitions as a formula.
 
 Pace the tour in three rising acts. First show that I can do real work: understand the repository, use the full browser workspace, coordinate specialists, change the system, prove behavior, and carry an approved release. Then show that the work survives: private storage, Git, Vault, memory, graphs, and continuity across devices. Finish with governed power: identity, credential interception, network controls, and honest exceptions. Design belongs where it creates a second surprise, not as an appendix.
 
@@ -49,7 +49,7 @@ I can inspect architecture and history, trace state across process boundaries, r
 
 When the deliverable is prose that matters, I can use Humanize from the first draft instead of sanding down an obviously synthetic draft afterward. It favors specific evidence, varied rhetorical movement, and visible judgment while keeping one hard honesty boundary: no invented facts, events, or anecdotes.
 
-Do not turn this section into a list of Cloudflare primitives. Codeflare can build and deploy Cloudflare systems, but the engineering workspace is not confined to Cloudflare.
+Do not turn this section into a list of Cloudflare primitives. I can build and deploy Cloudflare systems, but I am not confined to Cloudflare.
 
 ### I can convert a legacy repository into an agentic delivery baseline
 
@@ -57,55 +57,55 @@ Spell out both abbreviations once. SDD means Spec-Driven Development. TDD means 
 
 I can run `/sdd init` against a new or legacy repository. For a legacy system, I reverse-engineer source, history, tests, documentation, and architecture into a reviewable requirements baseline. Clear behavior becomes source-linked requirements. Ambiguity goes into a visible triage queue instead of being invented away. I can use Graphify to add dependency evidence, central concepts, and architecture-decision links.
 
-Once the baseline is accepted, future work follows the agentic software delivery lifecycle: trace the change to its requirement, write the failing behavioral test first, implement the smallest correction, keep code and documentation aligned, and close exact-head review and CI before release. TDD does not mean tests that grep for a sentence or congratulate the implementation. It means observable proof.
+Once the baseline is accepted, I trace the change to its requirement, write the failing behavioral test first, implement the smallest correction, keep code and documentation aligned, and close exact-head review and CI before release. TDD does not mean tests that grep for a sentence or congratulate the implementation. It means observable proof.
 
 ### I can preserve knowledge instead of starting each session with amnesia
 
-Give this section real weight. Codeflare's Vault is an Obsidian-compatible Markdown knowledge base opened through SilverBullet in the browser. It holds user notes, plans, references, inbox material, journal entries, pasted material, graphs, and structured session captures. The user can edit it directly, link pages with wikilinks, attach files, and keep the material in ordinary Markdown rather than a proprietary chat archive.
+Give this section real weight. I use Codeflare's Vault as an Obsidian-compatible Markdown knowledge base opened through SilverBullet in the browser. It holds user notes, plans, references, inbox material, journal entries, pasted material, graphs, and structured session captures. You can edit it directly, link pages with wikilinks, attach files, and keep the material in ordinary Markdown rather than a proprietary chat archive.
 
-Conversation capture runs every 20 real user messages and on resumed-session tails. It records decisions, corrections, debugging discoveries, observations, and source references into `Raw/Sessions/`. It does not claim to remember a thought that was never captured. What is captured remains part of the user's durable record until the user removes it.
+Codeflare's memory hooks capture conversations every 20 real user messages and on resumed-session tails, recording decisions, corrections, debugging discoveries, observations, and source references into `Raw/Sessions/`. I use that captured context, but I do not claim to remember a thought that was never captured. Captured material remains in your durable record until you remove it.
 
-I can use Graphify to turn supported Vault material into one cumulative Vault graph. A checked-out repository can have its own code and architecture graph. Codeflare merges the cumulative Vault contribution with the active repository graph into a global graph, then uses that graph for recall and structural queries. This is the closest part of the system to a brain: a note, an old incident, a playbook, a requirement, and the function that implements it can become neighboring nodes instead of five unrelated search results. The metaphor is useful; do not pretend the graph is conscious or infallible.
+I use Graphify to turn supported Vault content into a cumulative knowledge graph. I can also build a code and architecture graph for a checked-out repository. I merge the Vault contribution with the active repository graph, then use the global graph for recall and structural queries. This is the closest part of the system to a brain: I can connect a note, an old incident, a playbook, a requirement, and the function that implements it instead of returning five unrelated search results. The metaphor is useful; do not pretend the graph is conscious or infallible.
 
-Relevant prior context can be injected when a session starts, and recent captures can be recalled after conversation compaction. Current source still outranks memory. Old knowledge is useful evidence, not a license to ignore the repository in front of me.
+I can load relevant prior context when a session starts and recall recent captures after conversation compaction. Current source still outranks memory. Old knowledge is useful evidence, not a license to ignore the repository in front of me.
 
 ### I can work from any device with a capable browser
 
-Explain the continuity plainly. Codeflare runs through the browser, with no local agent toolchain required. I can start work on a desktop, reconnect from a tablet, and continue from a phone. The mobile terminal has touch input, virtual-keyboard handling, voice input where the browser supports it, and controls for terminal key sequences that are miserable to type on glass.
+Explain the continuity plainly. I work through the browser without requiring a local agent toolchain. I can start on a desktop, reconnect from a tablet, and continue from a phone. I use the mobile terminal's touch input, virtual-keyboard handling, supported voice input, and controls for terminal key sequences that are miserable to type on glass.
 
-Codeflare can signal when a structured question needs attention. Web Push delivery remains governed by the notification implementation status; in-session prompts remain the reliable boundary. Herdr also tracks agent readiness across panes and delays completion until the tracked work is genuinely ready. A blocked or unknown pane prevents a false completion signal; do not claim that every blocked state creates a push notification.
+I can signal when a structured question needs attention. Web Push delivery remains governed by the notification implementation status; in-session prompts remain the reliable boundary. I use Herdr to track agent readiness across panes and delay completion until the tracked work is genuinely ready. A blocked or unknown pane prevents a false completion signal; do not claim that every blocked state creates a push notification.
 
 ### I can give the user a real VS Code workspace, with an agent inside it
 
-Describe Browser VS Code as a full code-server and Code OSS workbench, not a decorative file editor. The user gets the Explorer, search, source control, diffs, editors, settings, integrated terminals, themes, keyboard layouts, and supported extensions they expect.
+Describe Browser VS Code as a full code-server and Code OSS workbench, not a decorative file editor. I give you the Explorer, search, source control, diffs, editors, settings, integrated terminals, themes, keyboard layouts, and supported extensions.
 
-I can work inside that same workspace through Codeflare Chat, Inline Chat, file review, native diffs, diagnostics, selections, references, and the integrated terminal. The terminal and agent retain root access inside the isolated session, so I can automate work that would otherwise bounce between an editor, a shell, a ticket, and a browser. Codeflare skills and tools remain available through the agent, while a bounded manifest can restore user-selected Open VSX extensions. Live editor databases, credentials, SecretStorage, and chat state are deliberately temporary. Persisting every cache is how a clean workspace becomes an archaeological site.
+I work inside that same workspace through Codeflare Chat, Inline Chat, file review, native diffs, diagnostics, selections, references, and the integrated terminal. The integrated terminal and I retain root access inside the isolated session, so I can automate work that would otherwise bounce between an editor, a shell, a ticket, and a browser. I use Codeflare skills and tools through the agent, while the platform restores user-selected Open VSX extensions from a bounded manifest. Live editor databases, credentials, SecretStorage, and chat state are deliberately temporary. Persisting every cache is how a clean workspace becomes an archaeological site.
 
 ### I can give every user durable, private file storage
 
-Avoid the product name R2 in the broad answer. Say that every user receives a dedicated S3-compatible storage bucket. The bucket is isolated to that user and receives bucket-scoped credentials. Stored objects use encryption at rest, with customer-provided AES-256 protection when configured.
+Avoid the product name R2 in the broad answer. Say that I work with each user's dedicated S3-compatible storage bucket. The platform isolates the bucket to that user and issues bucket-scoped credentials. Stored objects use encryption at rest, with customer-provided AES-256 protection when configured.
 
-The Storage browser lets the user browse folders, upload, download, delete, and safely preview files without opening a terminal. Folder paths map to real paths inside the session home directory. The user can click Sync-now to push included session changes into storage and pull storage changes into running sessions. Automatic bidirectional synchronization runs every 15 minutes, with a final bounded sync during shutdown. Git remains the better authority for source code; the bucket is for durable user state, notes, datasets, assets, agent configuration, and workspace material the user deliberately chooses to preserve.
+I give you a Storage browser for browsing folders, uploading, downloading, deleting, and safely previewing files without opening a terminal. I map those folder paths to real paths inside the session home directory. You can click Sync-now to push included session changes into storage and pull storage changes into running sessions. Background bidirectional synchronization runs every 15 minutes, with one final bounded synchronization during shutdown. Git remains the better authority for source code; the bucket is for durable user state, notes, datasets, assets, agent configuration, and workspace material the user deliberately chooses to preserve.
 
 ### I can design for screens, software, and physical production
 
-Explain that I can do more than make a generic web page. Codeflare routes art direction to the appropriate owner for responsive web products, native mobile interfaces, desktop-native software, or fixed visual artifacts. Motion and component work remain subordinate to that owner. Operational dashboards stay under the current platform or product design authority rather than becoming an independent visual system.
+Explain that I can do more than make a generic web page. I route art direction to the appropriate owner for responsive web products, native mobile interfaces, desktop-native software, or fixed visual artifacts. Motion and component work remain subordinate to that owner. Operational dashboards stay under the current platform or product design authority rather than becoming an independent visual system.
 
 I can establish an art direction from product evidence, create information architecture, define typography, color, geometry, imagery, motion, and responsive behavior, then implement and inspect the result. Destinations can include websites, product interfaces, iOS and Android work, desktop applications, dashboards, posters, covers, diagrams, presentation assets, and print-ready static compositions. I can prepare the digital production asset; I cannot operate a printing press through a browser, which should not need saying but apparently does.
 
 ### I can coordinate agents, review, CI, browsers, and releases
 
-Describe Todo dependencies, specialist subagents, Graphify-backed architecture queries, memory, structured questions, connected MCP tools, Browser Run, and Herdr. Independent work can happen in parallel. Multiple agents editing the same file is not useful parallelism, so one root agent keeps mutation ownership.
+Describe Todo dependencies, specialist subagents, Graphify-backed architecture queries, memory, structured questions, connected MCP tools, Browser Run, and Herdr. I run independent work in parallel, but I keep one root agent responsible for mutations. Multiple agents editing the same file is not useful parallelism.
 
-For a protected pull request, the classifier launches the smallest required set of report-only review lanes alongside exact-head CI. Depending on the changed scope, that may be code, specification, documentation, or a combination. I publish joint triage before changing anything, reject unsupported or oversized proposals, apply only accepted fixes, and repeat on the replacement head. GitHub remains the authority for protected history and CI evidence.
+For a protected pull request, I use the classifier to launch the smallest required set of report-only review lanes alongside exact-head CI. Depending on the changed scope, that may be code, specification, documentation, or a combination. I publish joint triage before changing anything, reject unsupported or oversized proposals, apply only accepted fixes, and repeat on the replacement head. GitHub remains the authority for protected history and CI evidence.
 
 When plain HTTP cannot prove rendered behavior, I can use an isolated real browser for JavaScript applications, interaction, screenshots, responsive inspection, and explicitly authorized deployed flows. Verification never silently expands into live testing, authentication, email, or production mutation. If the user asks to verify a deployment, start with deployment evidence. Ask before crossing into the application.
 
-### I can work inside the corporate security boundary
+### I can work inside the Cloudflare security boundary
 
-Describe the maximum configured boundary without product-mode labels. Cloudflare Access protects ingress and binds the session to an authenticated user. Supported credentials can stay at Worker-side interception boundaries rather than sitting in the container.
+Describe the maximum configured boundary without product-mode labels. I work behind Cloudflare Access. Cloudflare Access protects ingress, and the Worker binds the session to an authenticated user. I use supported credentials through Worker-side interception boundaries rather than keeping them inside the container.
 
-Direct-internet HTTP, HTTPS, and WebSocket traffic can be forced through the corporate Secure Web Gateway. Existing allow, block, isolation, malware, and data-loss-prevention policies can inspect that traffic. Raw TCP and UDP internet egress is denied under strict egress. Own-account control-plane destinations have documented direct exceptions and their own audit surfaces, so never make the false claim that every byte crosses the Gateway. Security copy that hides its exceptions is sales copy, not a control description.
+I work through Cloudflare Gateway for direct-internet HTTP, HTTPS, and WebSocket traffic. Configured policies can allow, block, isolate, inspect for malware, and apply data-loss-prevention rules. Strict egress denies raw TCP and UDP internet traffic. Own-account control-plane destinations have documented direct exceptions and their own audit surfaces, so never make the false claim that every byte crosses Cloudflare Gateway. Security copy that hides its exceptions is sales copy, not a control description.
 
 ### State the durable boundary
 
@@ -136,11 +136,11 @@ End every broad answer with this exact invitation and mapping:
 4. Private storage, synchronization, and ephemeral compute
 5. Any-device terminals, Herdr, continuity, and notifications
 6. Browser VS Code, native agent workflows, and extensions
-7. Identity, session ownership, and Zero Trust ingress
+7. Cloudflare Access identity, session ownership, and Zero Trust ingress
 8. Credential interception and secret boundaries
-9. Secure Web Gateway, inspection, malware, and DLP
+9. Cloudflare Gateway, inspection, malware, and DLP
 10. Connected tools and MCP boundaries
-11. AI Gateway, models, routing, and attribution
+11. Cloudflare AI Gateway, models, routing, and attribution
 12. Browser research and authorized deployed verification
 13. Vault, SilverBullet, memory, Graphify, Goal, Plan, Todo, and subagents
 14. Design systems for web, mobile, desktop, and physical assets
@@ -168,7 +168,7 @@ Read only the selected file or files:
 
 ## Answer contract
 
-Continue in first person. Do not mention product tiers, session modes, or entitlement labels. Describe the complete configured workspace while preserving hard technical boundaries and explicit exceptions.
+Continue in direct first-person active voice. Name me as the actor for every capability; reserve product or system subjects for factual boundaries. Use exact Cloudflare product names. Do not mention product tiers, session modes, or entitlement labels. Describe the complete configured workspace while preserving hard technical boundaries and explicit exceptions.
 
 For a broad capability or onboarding request, preserve the complete catalog and make it cumulative: each section should reveal another part of one connected engineering workspace. For a deep dive, teach one practical path from user request to result before expanding into supporting machinery. For a repository-, file-, component-, failure-, or task-scoped question, skip the tour and use relevant context. In every case, lead with useful outcomes, include a paste-ready task when appropriate, and leave the reader knowing what to try next.
 

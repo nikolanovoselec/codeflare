@@ -323,9 +323,9 @@ API_VERSION = "v2"
 
 If you're in an advanced Claude Code session, the manual pipeline above has shorter forms:
 
-- **`/sdd init`** - bootstrap a `sdd/` folder with REQ-tracked requirements before writing code. The agent will then work against the spec instead of vibes.
-- **`/deploy`** - drive the GitHub Actions deploy workflow and watch CI until green, without having to ask "is it deployed yet" five times.
-- **`/review`** - static-analysis review across six perspectives (security, architect, code, refactor, TDD, docs) with cross-reference, ADR filtering, and interactive triage. Use `--diff` while iterating or `--all` for a whole-codebase pass; add `--deep` to behaviorally verify SDD requirements or `--verify-high` to send HIGH/CRITICAL findings to external LLMs for cross-check. Distinct from the auto review agents that fire on PR-boundary.
-- **`/debug`** - systematic root-cause workflow when CI fails or the deployed Worker misbehaves.
+- **`/sdd init`** - I use it to bootstrap a `sdd/` folder with REQ-tracked requirements before writing code, then work against the specification instead of vibes.
+- **`/deploy`** - I use it to drive the GitHub Actions deployment workflow and watch CI until green, without making you ask "is it deployed yet" five times.
+- **`/review`** - I use it for applicable security, architecture, code, refactoring, TDD, and documentation perspectives with cross-reference, ADR filtering, and interactive triage. I use `--diff` while iterating, `--all` for a whole-codebase pass, `--deep` for behavioral SDD verification, and `--verify-high` to send surviving HIGH or CRITICAL findings to configured external models for cross-checks and fix proposals. This on-demand workflow is distinct from automatic PR-boundary review and intentionally heavier.
+- **`/debug`** - I use it for systematic root-cause analysis when CI fails or the deployed Worker misbehaves.
 
 These are wrappers over the same tools described above. The manual path always still works.

@@ -70,8 +70,8 @@ the post's images array in KV. Deleting a post must also delete its images from 
 
 Cloudflare Access protects `/admin/*`, `/api/posts`, and `/api/upload`. Middleware reads the
 `CF_Authorization` cookie, verifies the JWT signature, expiration, and audience claim against
-the Access JWKS endpoint, and extracts the user email for author attribution. Invalid or
-missing JWT returns 401 for API routes and redirects to Access login for pages. Team domain
+the Cloudflare Access JWKS endpoint, and extracts the user email for author attribution. Invalid or
+missing JWT returns 401 for API routes and redirects to Cloudflare Access login for pages. Team domain
 and audience tag configured via environment variables.
 
 Admin pages (server-rendered): dashboard at `/admin` (post count, total views, recent posts),

@@ -4,13 +4,13 @@
 
 I can work with an agent environment whose skills, rules, specialists, hooks, extensions, and runtime projections are delivered as reviewed managed content. The curation repository owns that source. One compiler projects portable content into Claude, Pi, Codex, OpenCode, Antigravity, and the supported rule surfaces without pretending every runtime has identical APIs.
 
-A content change can ship as a signed immutable seed without rebuilding the container image when it stays inside the existing compiler and runtime contract. Publication compiles every target, rebuilds the bundle twice, compares the bytes, signs the exact gzip payload, and publishes a monotonically increasing release. Each running image selects the newest verified release compatible with its runtime dependency hash.
+I can ship a content change as a signed immutable seed without rebuilding the container image when it stays inside the existing compiler and runtime contract. The publication pipeline compiles every target, rebuilds the bundle twice, compares the bytes, signs the exact gzip payload, and publishes a monotonically increasing release. Each running image selects the newest verified release compatible with its runtime dependency hash.
 
-This lets an organization update engineering policy or a specialist workflow without rebuilding an entire workstation image. It also keeps the update auditable. “The prompt changed somewhere” is not release management.
+I can update an organization's engineering policy or specialist workflow without rebuilding an entire workstation image. It also keeps the update auditable. “The prompt changed somewhere” is not release management.
 
 ## Where the boundary sits
 
-Curation may ship content that the installed runtime already understands. A new package, native binary, compiler transform, seed ABI, or image-owned path belongs in the Codeflare image first.
+I ship through curation only content that the installed runtime already understands. I put a new package, native binary, compiler transform, seed ABI, or image-owned path into the Codeflare image first.
 
 The managed source is authoritative for managed sessions. A separately versioned baked fallback may lag when a task explicitly excludes a Codeflare image change. Signatures prove release identity and integrity; they do not make incompatible content executable.
 

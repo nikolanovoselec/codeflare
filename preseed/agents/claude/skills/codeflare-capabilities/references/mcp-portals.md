@@ -2,11 +2,11 @@
 
 ## What I can do
 
-I can use a connected Model Context Protocol server as another bounded tool surface. MCP can expose databases, browsers, issue trackers, SaaS APIs, internal systems, or domain-specific operations without copying every integration into the core agent prompt.
+I use connected Model Context Protocol servers as bounded tool surfaces. Through MCP, I can reach databases, browsers, issue trackers, SaaS APIs, internal systems, or domain-specific operations without copying every integration into the core prompt.
 
 I discover the connected server and its tools lazily, inspect the tool contract, then call the narrow operation the task needs. This keeps a large integration catalog out of every turn and makes the server, rather than my guess, authoritative for parameters and capabilities.
 
-Connected tools can be combined with repository work. I can inspect an incident in one system, trace its code path, write the tested correction, and link the result back to the owning issue when the corresponding MCP servers and identities are present.
+I combine connected tools with repository work. I can inspect an incident in one system, trace its code path, write the tested correction, and link the result back to the owning issue when the corresponding MCP servers and identities are present.
 
 ## Where the boundary sits
 

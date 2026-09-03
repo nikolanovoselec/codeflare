@@ -4,7 +4,7 @@
 
 I can start with ordinary web retrieval for public static material. When the page depends on JavaScript, browser state, redirects, or interaction, I can use an isolated Chromium session through Browser Run.
 
-That browser can navigate, click, fill forms, inspect the rendered accessibility tree, measure DOM and computed layout, capture screenshots, test responsive viewports, and follow network or console evidence. It is useful for public research and for an explicitly authorized application flow.
+I use that browser to navigate, click, fill forms, inspect the rendered accessibility tree, measure DOM and computed layout, capture screenshots, test responsive viewports, and follow network or console evidence. I use it for public research and explicitly authorized application flows.
 
 For deployed verification, I can compare what the browser renders with the acceptance criteria. I can check mobile overflow, exercise a non-destructive workflow, confirm a redirect, or gather one screenshot with exact viewport and URL evidence.
 

@@ -1,6 +1,6 @@
 # Getting Started
 
-You have a full Linux container in your browser. An AI agent is loaded and waiting in Tab 1. Five more terminals behind it. Files included by your sync settings move to cloud storage that outlives every container you'll ever start (every 15 minutes plus a final sync on stop, with a Sync-now button when you want it sooner). Your notes sync too. Your agent remembers prior sessions. Your hands are free if you want them to be. Here's what to do with all of that.
+You have a full Linux container in your browser. An AI agent is loaded and waiting in Tab 1. Five more terminals behind it. Files included by your sync settings move to cloud storage that outlives every container you'll ever start (every 15 minutes plus a final sync on stop, with a Sync-now button when you want it sooner). Your notes sync too. I recall captured context from prior sessions. Your hands are free if you want them to be. Here's what to do with all of that.
 
 ---
 
@@ -9,7 +9,7 @@ You have a full Linux container in your browser. An AI agent is loaded and waiti
 1. **Create a session** from the Dashboard - pick your agent
 2. **Open it** - Tab 1 is ready, no loading screen, no "please wait"
 3. **Tell your agent** to clone a repo and start working on it
-4. **Work** - the agent has full root access. It can read, write, build, test, and deploy. Let it cook.
+4. **Work** - I have full root access. I can read, write, build, test, and deploy. Let me cook.
 5. **Stop when you're done** - final sync happens automatically. The container dies. Files included in synchronization persist.
 
 That's it. The rest of this page is for the curious.
@@ -57,7 +57,7 @@ What it's for:
 - Pasted screenshots, PDFs, anything you want to keep
 - Daily journal entries (`Journal: Today` button)
 - Quick capture (`Quick Note` button - the timestamped note lands in `Inbox/`)
-- Automatic session capture every 20 real user messages, plus an uncaptured tail after resume, so a future agent can look up prior decisions
+- Automatic session capture every 20 real user messages, plus an uncaptured tail after resume, so I can look up prior decisions in a future session
 
 Bisync mirrors the vault to R2 every 15 minutes - same plumbing as the rest of `~`. If you want an edit you just made in SilverBullet pushed to R2 right now (or want a freshly-pasted note picked up from another device), hit the Sync-now button on the R2 panel and it fans out to every running session. Vault contents on a fresh container appear as soon as the first bisync round completes.
 
@@ -69,15 +69,15 @@ There's a built-in dashboard at the vault root (`Index`) that surfaces recent qu
 
 If you picked the **Claude Code** agent and enabled advanced mode on the session, you get a bigger toolbelt:
 
-- **`/sdd`** - spec-driven development. `/sdd init` bootstraps a `sdd/` folder with REQ-tracked requirements for the project you're in. The agent works against the spec, not vibes.
-- **`/review`** - multi-perspective static-analysis review. Launches the applicable specialist perspectives, cross-references findings, filters against your ADRs, then runs them through a Reality Filter before triaging interactively with you. Use `/review --diff` during active work or `/review --all` for a whole-codebase pass. Add `--deep` to verify SDD requirements against their implementation, or `--verify-high` to cross-check HIGH/CRITICAL findings with configured external LLMs. Distinct from automatic PR-boundary review; `/review` is on-demand and heavier.
-- **`/debug`** - systematic debugging workflow when something is broken and you can't tell why.
-- **`/deploy`** - drive a release through CI to Cloudflare.
-- **`/brainstorm`** - structured brainstorming with the agent.
-- **Knowledge graph (graphify)** - the agent indexes every repo you clone and your vault into a unified graph. When you ask "what depends on X" or "where is Y decided", it queries the graph instead of grepping blindly.
-- **Auto review agents** - at an eligible protected pull-request boundary, the classifier launches the smallest required review set for the changed scope. Reviewers report findings; they don't auto-merge.
+- **`/sdd`** - I use `/sdd init` to bootstrap a `sdd/` folder with REQ-tracked requirements for the project you're in, then work against the specification instead of vibes.
+- **`/review`** - I use `/review` to launch applicable specialist perspectives, cross-reference findings, filter against your ADRs, apply the Reality Filter, and triage interactively with you. I use `--diff` during active work, `--all` for a whole-codebase pass, `--deep` to verify SDD requirements against implementation, and `--verify-high` for configured external cross-checks. This remains distinct from automatic PR-boundary review.
+- **`/debug`** - I use `/debug` for systematic root-cause analysis when something is broken and the cause is unclear.
+- **`/deploy`** - I use `/deploy` to drive a release through CI to Cloudflare.
+- **`/brainstorm`** - I use `/brainstorm` for structured ideation.
+- **Knowledge graph (Graphify)** - I use Graphify to index supported repository and Vault content into a unified graph, then answer structural questions through graph queries instead of grepping blindly.
+- **Auto review agents** - at an eligible protected pull-request boundary, I use the classifier to launch the smallest required review set for the changed scope. Reviewers report findings; they don't auto-merge.
 
-Pro mode also installs hook plugins that capture session memory, gate destructive actions, and keep your spec in sync. None of it requires configuration - it's all preseeded into a fresh advanced session.
+Preseeded hook plugins capture session memory, gate destructive actions, and keep your specification synchronized. I work under those controls without requiring extra configuration in a fresh advanced session.
 
 Agent runtimes receive runtime-specific projections and do not all use identical rules, tools, or workflow surfaces. Use the capabilities exposed by the selected runtime rather than assuming Claude-specific commands exist everywhere.
 
@@ -98,7 +98,7 @@ The cog icon in the header opens Settings.
 
 Four paths. Pick whichever matches your personality:
 
-1. **Check the Examples** - copy-paste prompts from beginner to expert. Your agent does the work, you take the credit.
+1. **Check the Examples** - copy-paste prompts from beginner to expert. I do the work; you take the credit.
 2. **Read the Documentation** - architecture, sync internals, terminal features, vault mechanics, troubleshooting. It's thorough.
 3. **Try Pro mode on a real project** - open an advanced session, clone a repo, run `/sdd init`, and let the spec-driven loop shape the work.
 4. **Just wing it** - create a session, clone something, and tell your agent what you want. Worst case, you lose an ephemeral container. Best case, you ship before lunch.

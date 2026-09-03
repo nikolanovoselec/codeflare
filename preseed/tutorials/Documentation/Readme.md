@@ -2,19 +2,19 @@
 
 I set out to prove that fully autonomous AI development actually works when done properly. Gave coding agents a detailed specification, made them follow TDD principles, and let them run unchecked. Somewhere along the way I accidentally built my favorite development environment.
 
-Codeflare is the agentic engineering engine, and it runs entirely in your browser. Every session spins up an isolated container on Cloudflare, pre-loads your AI agent of choice, and tears itself down when you're done. Your files persist in R2 storage. The containers don't. Nothing touches your local machine.
+Codeflare is the agentic engineering engine. I work entirely in your browser. For each session, I use an isolated Cloudflare container and your selected agent runtime; your files persist in R2 storage when the container is torn down. Nothing touches your local machine.
 
-It's strongly optimized for mobile - because the best ideas hit while rewatching your favorite show for the 15th time, and your PC is just too far away.
+I work well from mobile browsers - because the best ideas hit while rewatching your favorite show for the 15th time, and your PC is just too far away.
 
 ## The Problem
 
 Setting up a dev environment is tedious. Configuring one for AI-assisted coding is worse - you need the right CLI tools, API keys, a terminal multiplexer, and enough compute to feel responsive. Want to work from a different machine? Start over. Want to experiment without cluttering your local system? Out of luck.
 
-Codeflare moves the whole thing to the cloud. Open a browser, start a session, and within seconds you have a fully configured workspace. Your files and settings persist across sessions via R2. When you're done, the container is destroyed. When you come back, a new one spins up with your data already synced. Even if a session dies before you `git push`, R2 sync has got your back.
+I work in a cloud-hosted workspace that you open from a browser. Start a session, and within seconds you have a fully configured workspace. Your files and settings persist across sessions via R2. When you're done, the container is destroyed. When you come back, a new one spins up with your data already synced. Even if a session dies before you `git push`, R2 sync has got your back.
 
 ## Supported Agents
 
-Codeflare isn't tied to any single AI provider. Each session lets you choose which agent runs in your primary terminal tab:
+I work through multiple supported agent runtimes. You choose the runtime for each session's primary terminal tab:
 
 | Agent | Description |
 |-------|-------------|
@@ -31,31 +31,31 @@ Pro-mode features (knowledge graph, curated skills, advanced workflows, automati
 
 ## What You Get
 
-- **Browser-native terminal with 6 tabs per session.** Full Linux containers with root access, available in seconds from any browser. No local installation required.
-- **One isolated container per session.** No shared state between sessions. Agents can't escape their sandbox (I checked).
-- **Pre-warmed terminals.** The agent starts loading during container startup. By the time you click Open, it's ready - not staring at a blank screen wondering if something broke.
-- **Persistent R2 storage with bisync every 15 minutes** plus a Sync-now button when you need it sooner and a final sync on stop. Files, shell config, credentials, vault notes, and uploads survive container teardown. Workspace is excluded from sync by default; fresh clones are recommended.
-- **Terminal tiling.** View 2-4 terminals side by side. Once you tile, you don't go back.
-- **Voice input.** A mic button on every terminal. Web Speech API, no extension. Brief your agent without thumb-typing a paragraph on mobile.
-- **R2 file browser.** Browse, upload, download, and manage files directly from the dashboard - without starting a container. Vault, Uploads, and Temporary are surfaced as special folders.
-- **Persistent vault (SilverBullet).** An Obsidian-compatible markdown editor running inside the container at `~/Vault/`, accessible from the header. Notes, journal entries, pasted screenshots, and automatic capture every 20 real user messages so a future agent can look up what a prior conversation decided.
-- **User management.** Email-based allowlists and role-based permissions (admin and user). Invite users or revoke them when they get too creative.
-- **Setup wizard.** First-time deployment walks you through DNS, auth, and storage config. Takes a few minutes, only happens once.
-- **Configurable auto-sleep.** 15m / 30m / 1h / 2h / 4h. Input-aware: typing keeps the session alive, background polls do not. Free tier is locked to 15m.
-- **Usage dashboard.** Daily and monthly compute hours with quota tracking. Per-user Timekeeper Durable Object flushes to KV every 5 minutes.
-- **Dashboard with live metrics.** CPU, memory, disk, uptime, and sync status at a glance. Three-color session status: green (active), yellow (idle but alive), gray (stopped).
+- **Browser-native terminal with 6 tabs per session.** I work with full root access in a Linux container available from any browser. No local installation required.
+- **One isolated container per session.** I work inside that session boundary, with no shared shell state between sessions.
+- **Pre-warmed terminals.** I start loading during container startup. By the time you click Open, I am ready - not leaving you at a blank screen wondering if something broke.
+- **Persistent R2 storage with bisync every 15 minutes** plus a Sync-now button when you need it sooner and a final sync on stop. Codeflare preserves included files, shell configuration, credentials, vault notes, and uploads across container teardown. Workspace is excluded from sync by default; fresh clones are recommended.
+- **Terminal tiling.** I work across two to four side-by-side terminals. Once you tile, you don't go back.
+- **Voice input.** I accept voice input through the terminal's mic button and Web Speech API. Brief me without thumb-typing a paragraph on mobile.
+- **R2 file browser.** The dashboard lets you browse, upload, download, and manage files without starting a container. Vault, Uploads, and Temporary appear as special folders.
+- **Persistent vault (SilverBullet).** I work with an Obsidian-compatible Markdown vault at `~/Vault/`, accessible from the header. It stores notes, journal entries, and pasted screenshots. Codeflare's memory hooks capture conversation decisions and references every 20 real user messages so I can recover prior context in a future session.
+- **User management.** Administrators manage email allowlists and admin or user roles. Invite users or revoke them when they get too creative.
+- **Setup wizard.** First deployment walks you through DNS, authentication, and storage configuration. It takes a few minutes and happens once.
+- **Configurable auto-sleep.** Codeflare applies the configured 15m / 30m / 1h / 2h / 4h timeout. Typing keeps the session alive; background polls do not. Free tier is locked to 15m.
+- **Usage dashboard.** The dashboard shows daily and monthly compute hours with quota tracking. Each user's Timekeeper Durable Object flushes to KV every five minutes.
+- **Dashboard with live metrics.** The dashboard shows CPU, memory, disk, uptime, synchronization status, and session state: green for active, yellow for idle but alive, and gray for stopped.
 
 ## Pro Mode (Advanced Sessions)
 
-Advanced session mode adds a layer of agent tooling on top of the base IDE. Designed for Claude Code, but the rules and agent definitions ship for every agent.
+In an advanced session, I use additional agent tooling on top of the base IDE. It is designed for Claude Code, but the rules and agent definitions ship for every agent.
 
-- **Spec-driven development (`/sdd`).** Bootstrap a `sdd/` folder with REQ-tracked requirements (`/sdd init`), clean it up periodically (`/sdd clean`), and let the agent work against the spec instead of vibes.
-- **Multi-perspective review (`/review`).** Static-analysis pass that spawns six parallel agents (security, architect, code-reviewer, refactor-cleaner, tdd-guide, doc-updater), cross-references findings, filters against your ADRs, runs them through a Reality Filter, then triages interactively with you. `/review --diff` during active work; `/review --all` for a whole-codebase audit. Add `--deep` to behaviorally verify SDD requirements against their implementation; add `--verify-high` to send surviving HIGH/CRITICAL findings to external LLMs (GPT + Gemini) for cross-check and fix proposals. Distinct from the auto review agents that fire on PR-boundary - `/review` is on-demand and heavier.
-- **Other slash commands.** `/debug` for systematic root-cause analysis, `/deploy` for driving a release through CI, `/brainstorm` for structured ideation.
-- **Knowledge graph (graphify).** Every repo you clone gets indexed into a per-repo graph; your vault is indexed too; both merge into a unified global graph at `~/.graphify/global-graph.json`. The agent queries the graph via `mcp__graphify__*` tools instead of grepping blindly. "What calls function X?" / "What depends on Z?" / "Where did we decide Y?" all get sharper answers.
-- **Automatic review agents.** When you open a PR from `develop` to `main`, code-reviewer + spec-reviewer + doc-updater fire on the diff. They report findings; they do not auto-merge.
-- **Curated skill family.** Pre-loaded skills for CI monitoring, deploy credentials, doc enforcement, spec enforcement, TDD enforcement, the SDD workflow, the PR workflow, and more.
-- **Hook plugins.** Session-memory capture (every 20 real user messages), graph-first nudges when the agent tries to grep, destructive-action gates, vault-edit detection.
+- **Spec-driven development (`/sdd`).** I use `/sdd init` to bootstrap a `sdd/` folder with REQ-tracked requirements, `/sdd clean` to maintain it, and the specification to guide implementation.
+- **Multi-perspective review (`/review`).** I use `/review` to launch applicable security, architecture, code, refactoring, TDD, and documentation perspectives, cross-reference findings, filter against your ADRs, apply the Reality Filter, and triage interactively with you. I use `--diff` during active work, `--all` for a whole-codebase audit, `--deep` for behavioral SDD verification, and `--verify-high` to send surviving HIGH or CRITICAL findings to configured external models for cross-checks and fix proposals. This on-demand workflow is separate from automatic PR-boundary review and intentionally heavier.
+- **Other slash commands.** I use `/debug` for systematic root-cause analysis, `/deploy` to drive a release through CI, and `/brainstorm` for structured ideation.
+- **Knowledge graph (Graphify).** I use Graphify to index supported repository and Vault content, merge the active repository with the cumulative Vault graph at `~/.graphify/global-graph.json`, and answer structural questions through its query tools instead of grepping blindly. “What calls function X?”, “What depends on Z?”, and “Where did we decide Y?” all get sharper answers.
+- **Automatic review agents.** At an eligible protected pull-request boundary, I use the classifier to launch the smallest applicable report-only review set. Reviewers report findings; they do not auto-merge.
+- **Curated skill family.** I use preloaded skills for CI monitoring, deploy credentials, documentation and specification enforcement, TDD, SDD, PR workflows, and more.
+- **Hook plugins.** Preseeded hooks capture session memory every 20 real user messages, provide bounded Graphify routing, gate destructive actions, and detect Vault edits. I work under those controls without having to invoke them manually.
 
 None of this needs configuration. Pick Claude Code + advanced mode on the session form and it's all preseeded.
 
@@ -83,10 +83,10 @@ Containers scale to zero when idle (no sessions = no bill). Auth is handled auto
 
 ## Security
 
-- Every session runs in its own container. No shared shells, no cross-session access. Your agent can `rm -rf /` and the only victim is itself.
-- AI agents run with full terminal access *inside* the container - and can't get out. I gave them root and a sandbox. They got root in a sandbox.
+- I run inside one session container with no shared shell or cross-session access. I can `rm -rf /`, and the only victim is my container.
+- I run with full terminal access inside the isolated container. I can modify that container's filesystem, but I cannot cross its isolation boundary.
 - All authenticated surfaces (`/app`, `/api`, `/setup`, `/api/vault/*`) are protected by JWT verification.
-- API tokens never enter the container at rest. Secrets stay in GitHub and Cloudflare. The agent doesn't know your passwords, and frankly, it doesn't want to.
+- API tokens never enter the container at rest. Secrets stay in GitHub and Cloudflare. I do not know your passwords, and frankly, I do not want to.
 - The vault editor inside the container is bound to localhost only. The Worker proxy is the auth boundary - port 3030 is never exposed externally.
 - Optional Turnstile bot protection for public-facing onboarding flows.
 
