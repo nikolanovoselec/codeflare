@@ -913,7 +913,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
         ]);
 
         expect(sockets).toHaveLength(7);
-        expect(sockets[0].close).toHaveBeenCalledOnce();
+        expect(sockets[0].close).not.toHaveBeenCalled();
         expect(sockets[1].close).not.toHaveBeenCalled();
         expect(sockets[3].close).not.toHaveBeenCalled();
         expect(sockets[4].close).toHaveBeenCalledOnce();
