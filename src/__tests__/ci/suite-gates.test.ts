@@ -993,7 +993,7 @@ esac
       jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
     };
     const apply = workflow.jobs['pi-extensions'].steps?.find((step) => step.name === 'Apply bump')?.run ?? '';
-    const planBranch = apply.match(/if \[ "\$PKG" = '@narumitw\/pi-plan-mode' \]; then\n([\s\S]*?)\n          fi/)?.[1];
+    const planBranch = apply.match(/if \[ "\$PKG" = '@narumitw\/pi-plan-mode' \]; then\n([\s\S]*?)\nfi/)?.[1];
     expect(planBranch).toBeDefined();
 
     const fixture = join(work, 'plan-mode-preflight');

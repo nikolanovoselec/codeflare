@@ -688,9 +688,9 @@ function createExtensionHarness() {
   const notifications = [];
   const entries = [];
   const tools = [
-    { name: 'read', description: 'Read files' },
-    { name: 'bash', description: 'Run bounded commands' },
-    { name: 'edit', description: 'Edit files' },
+    { name: 'read', description: 'Read files', sourceInfo: { source: 'builtin' } },
+    { name: 'bash', description: 'Run bounded commands', sourceInfo: { source: 'builtin' } },
+    { name: 'edit', description: 'Edit files', sourceInfo: { source: 'builtin' } },
   ];
   let activeTools = [];
   let thinkingLevel = 'medium';

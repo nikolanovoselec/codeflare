@@ -438,7 +438,7 @@ sudo apt-get install -yqq --no-install-recommends \
 
 ### Managed Environment Is Stale, Degraded, or Update Pending
 
-**Requirements:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-environment-configuration), [REQ-SETUP-014](../../sdd/spec/setup.md#req-setup-014-managed-repository-credential-boundary), [REQ-STOR-020](../../sdd/spec/storage.md#req-stor-020-managed-environment-reconciliation), [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission), [REQ-STOR-023](../../sdd/spec/storage.md#req-stor-023-managed-release-status-and-discovery), [REQ-STOR-024](../../sdd/spec/storage.md#req-stor-024-managed-release-application)
+**Requirements:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-environment-configuration), [REQ-SETUP-014](../../sdd/spec/setup.md#req-setup-014-managed-repository-credential-boundary), [REQ-STOR-020](../../sdd/spec/storage.md#req-stor-020-managed-environment-reconciliation), [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission), [REQ-STOR-023](../../sdd/spec/storage.md#req-stor-023-managed-release-status-and-discovery), [REQ-STOR-040](../../sdd/spec/storage.md#req-stor-040-managed-release-discovery-freshness), [REQ-STOR-024](../../sdd/spec/storage.md#req-stor-024-managed-release-application)
 
 **Symptom:** Setup or the dashboard reports stale, degraded, or update-pending managed curation, or a published private change does not appear.
 
@@ -559,7 +559,7 @@ If 1013 persists beyond 30 seconds:
 
 1. Check Worker logs for the recorded `containerStatus`.
 2. Check `/run/codeflare/sync/sync.log` for a stalled R2 sync (the same causes as "Loading screen hangs indefinitely" above).
-3. If sync is healthy, look for `[entrypoint] WARNING:` before `/run/codeflare/services/init-complete`. A pre-flag step under `set -euo pipefail`, such as `warm_pi_npm_dependencies` or `update_pi_when_fast_start_disabled`, can terminate PID 1 before the flag write. See [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition).
+3. If sync is healthy, look for `[entrypoint] WARNING:` before `/run/codeflare/services/init-complete`. A step under `set -euo pipefail`, such as `warm_pi_npm_dependencies` or `update_pi_when_fast_start_disabled`, can terminate PID 1 before the flag write. See [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition).
 
 A container that actively **rejects** the WebSocket forward — rather than hanging — now maps onto this same retryable 1013 instead of falling through to the route's generic 500 ([REQ-TERM-022](../../sdd/spec/terminal.md#req-term-022-an-unreachable-container-ends-the-upgrade-instead-of-escaping-it)). Any handshake answered by something other than a 101 reaches the browser as 1006, which is retryable but never opens a socket, so the client's reconnect backoff stayed pinned at its 500 ms base and retried roughly once a second indefinitely. Returning a real 101 whose socket closes 1013 is what lets that backoff actually advance.
 

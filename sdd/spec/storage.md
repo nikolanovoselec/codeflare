@@ -663,7 +663,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ---
 
-### REQ-STOR-023: Managed release status and discovery
+<a id="req-stor-023-managed-release-status-and-discovery"></a>
+### REQ-STOR-023: Managed release status projection
 
 **Intent:** Status polling detects managed-release changes without expanding release payloads.
 
@@ -673,15 +674,36 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. Initial status compares the verified active descriptor, resolved mode, and managed-resource policy identity with applied user state. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/lib/managed-release-active.test.ts (REQ-STOR-023 AC1: returns configured managed resource policy with the active descriptor) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1+AC2: initial status compares descriptor and mode without payload bytes) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (reports upgrading when a downgraded SaaS user has advanced managed content applied) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1: a pre-upgrade applied stamp without a manifest digest requires reconciliation) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1: reports upgrading when managed resource %s) -->
 2. An unchanged release status check does not load payload bytes. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1+AC2: initial status compares descriptor and mode without payload bytes) -->
-3. After the five-minute freshness window, the resolver may fetch and activate a newly discovered release. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (uses the stored ETag after five minutes and treats 304 as a fresh no-op) -->
-4. Failed initial and background checks remain retryable, with degraded background attempts cached for the five-minute freshness window. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-023 AC4: status refresh bounds incompatible discovery to latest and caches the failed attempt) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-023 AC4: retries the managed-release check after the initial batch request fails) -->
-5. During cache failure, last-known-good startup is allowed only when its applied mode matches the resolved mode. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC5: an outage rejects last-known-good state for another mode) -->
-6. Pending target identities report upgrading even when applied identity matches the active release. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC6: pending target state retries even when applied identity matches active) -->
-7. Status reports update-pending without a compatible verified active descriptor. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC7: reports update pending when no compatible verified active release is available) -->
+3. During cache failure, last-known-good startup is allowed only when its applied mode matches the resolved mode. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC3: an outage rejects last-known-good state for another mode) -->
+4. Pending target identities report upgrading even when applied identity matches the active release. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC4: pending target state retries even when applied identity matches active) -->
+5. Status reports update-pending without a compatible verified active descriptor. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC5: reports update pending when no compatible verified active release is available) -->
+
+**Constraints:** Unchanged polling does not parse or decompress a managed payload.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-STOR-040](#req-stor-040-managed-release-discovery-freshness), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
+
+**Verification:** Automated session-status tests
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-040: Managed release discovery freshness
+
+**Intent:** Managed release discovery remains retryable and bounded outside explicit validation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. After the five-minute freshness window, the resolver may fetch and activate a newly discovered release. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (uses the stored ETag after five minutes and treats 304 as a fresh no-op) -->
+2. Failed initial and background checks remain retryable. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC2: retries the managed-release check after the initial batch request fails) -->
+3. A degraded background attempt is cached for the five-minute freshness window. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC3: status refresh bounds incompatible discovery to latest and caches the failed attempt) -->
 
 **Constraints:**
 
-- Unchanged polling does not parse or decompress a managed payload.
 - Background refresh validates only the latest release after a runtime mismatch.
 - Explicit fresh-required validation owns bounded release-history traversal.
 
@@ -689,7 +711,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated resolver and session-status tests
+**Verification:** Automated resolver and session-polling tests
 
 **Status:** Implemented
 
