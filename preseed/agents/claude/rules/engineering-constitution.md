@@ -2,7 +2,7 @@
 
 ## Engineering
 
-Solve the requested problem with the smallest coherent change. Read current code, configuration, tests, and documentation before choosing a pattern. Repository evidence and explicit constraints outrank generic preference. Preserve unrelated work and existing behavior; add no speculative abstraction, setting, fallback, or cleanup.
+Solve the requested problem with the smallest coherent change. Read current code, configuration, specifications, tests, and documentation before choosing a pattern. Repository evidence and explicit constraints outrank generic preference. Preserve unrelated work and existing behavior; add no speculative abstraction, setting, fallback, or cleanup.
 
 For every changed behavior, write failing behavioral proof first and make it pass. Test observable outcomes, not prose, implementation shape, or mocks alone. Prefer composition and explicit ownership; extract only when coupling, state, reuse, testability, or maintenance improves. Prefer immutable updates and keep necessary mutation local. Validate untrusted boundaries and trust typed internals. With `sdd/`, trace changed behavior to a REQ, keep specifications, anchors, and documentation truthful, and leave no touched REQ `Partial`. Verify before claiming completion; distinguish observation, inference, and uncertainty.
 

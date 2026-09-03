@@ -2426,7 +2426,7 @@ None.
 1. Managed source manifests and generated skill indexes exclude `api-design`, `backend-patterns`, `content-hash-cache-pattern`, `database-migrations`, `deployment-patterns`, `frontend-patterns`, `iterative-retrieval`, `search-first`, and `systematic-debugging`. <!-- @manual -->
 2. Managed source manifests contain no generic TypeScript, JavaScript, Go, Python, or Swift rule tree. <!-- @manual -->
 3. Pi generation creates no `codeflare-typescript`, `codeflare-go`, `codeflare-python`, or `codeflare-swift` grouping. <!-- @impl: scripts/agent-seed-core.mjs::PI_RULE_SKILL_GROUPS --> <!-- @manual -->
-4. Repository source, dependencies, configuration, tests, and explicit project instructions govern technology use before general model knowledge. <!-- @manual -->
+4. Repository source, dependencies, configuration, specifications, tests, documentation, and explicit project instructions govern technology use before general model knowledge. <!-- @manual -->
 5. Focused product, design, tutorial, Humanize, and executable delivery-system skills remain available under their existing activation boundaries. <!-- @manual -->
 
 **Constraints:** Retired skill names remain absent rather than redirecting to replacement skills. License notices required by retained third-party content remain present. Removal is not evidence for weakening the Engineering Constitution, SDD/TDD workflow, review/CI controls, or platform-specific security guidance.
