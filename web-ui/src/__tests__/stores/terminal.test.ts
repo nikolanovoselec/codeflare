@@ -28,7 +28,7 @@ vi.mock('../../api/client', () => ({
 }));
 
 // Import after mocks
-import { terminalStore, sendInputToTerminal, reconnectDisconnectedTerminals, cleanupMapByPrefix, READ_HOLD_MAX_CHARS, RELEASE_SLICE_MAX_CHARS } from '../../stores/terminal';
+import { terminalStore, sendInputToTerminal, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, cleanupMapByPrefix, READ_HOLD_MAX_CHARS, RELEASE_SLICE_MAX_CHARS } from '../../stores/terminal';
 
 // Get mock WebSocket class from global
 const _MockWebSocket = globalThis.WebSocket as unknown as {
@@ -869,6 +869,46 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       expect(terminalStore.getConnectionState('session-1', '1')).toBe('connecting');
       expect(terminalStore.getConnectionState('session-1', '2')).toBe('connected');
       expect(terminalStore.getConnectionState('session-2', '1')).toBe('disconnected');
+    });
+
+    it('REQ-TERM-043 AC4: restarts only visible connecting panes when OPEN dismisses readiness', () => {
+      const OriginalWebSocket = globalThis.WebSocket;
+      const sockets: Array<{
+        readyState: number;
+        close: ReturnType<typeof vi.fn>;
+        onopen: (() => void) | null;
+      }> = [];
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+        readyState = WebSocket.CONNECTING;
+        binaryType = 'arraybuffer';
+        onopen: (() => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        send = vi.fn();
+        close = vi.fn(() => { this.readyState = WebSocket.CLOSED; });
+        constructor(_url: string) { sockets.push(this); }
+      } as unknown as typeof WebSocket);
+
+      try {
+        terminalStore.connect('session-1', '1', createMockTerminal());
+        terminalStore.connect('session-1', '2', createMockTerminal());
+        sockets[1].readyState = WebSocket.OPEN;
+        sockets[1].onopen?.();
+
+        reconnectOnVisibilityReturn('session-1', ['session-1:1', 'session-1:2']);
+
+        expect(sockets).toHaveLength(3);
+        expect(sockets[1].close).not.toHaveBeenCalled();
+        expect(terminalStore.getConnectionState('session-1', '1')).toBe('connecting');
+        expect(terminalStore.getConnectionState('session-1', '2')).toBe('connected');
+      } finally {
+        vi.stubGlobal('WebSocket', OriginalWebSocket);
+      }
     });
 
     it('should return null if terminal not found', () => {

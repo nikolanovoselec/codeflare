@@ -654,11 +654,11 @@ const Layout: Component<LayoutProps> = (props) => {
     setViewState('dashboard');
   };
 
-  // Dismiss startup progress and recover a socket that closed while the ready
-  // overlay still owned the view. Connected terminals are left untouched.
+  // Dismiss startup progress and immediately restart a visible socket that is
+  // disconnected or still retrying behind the ready overlay. Healthy sockets stay.
   const handleOpenSessionById = (sessionId: string) => {
     sessionStore.dismissInitProgressForSession(sessionId);
-    reconnectDisconnectedTerminals(sessionId, visibleTerminalKeys());
+    reconnectOnVisibilityReturn(sessionId, visibleTerminalKeys());
   };
 
   const _handleReconnect = (sessionId: string, terminalId: string = '1') => {
