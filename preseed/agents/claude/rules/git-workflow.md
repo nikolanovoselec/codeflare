@@ -1,27 +1,28 @@
 # Git Workflow
 
-**Commit format:** `<type>: <description>` using `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, or `ci`. No AI attribution, emoji, or co-author line.
+Commit `<type>: <description>` using `feat|fix|refactor|docs|test|chore|perf|ci`. No AI attribution, emoji, or co-author line.
 
 ## Triggers and routes
 
-| Event | Skill |
-|---|---|
-| User explicitly asks to monitor CI, or deploy/merge requires a fresh CI result | `ci-monitoring` for one exact repository, PR, and head |
-| Automatic delivery plan or user-selected `Launch review` after a marker miss | `git-review-pipeline` |
-| User asks to open a PR | `pr-workflow` |
-| GitHub or Wrangler credentials are unclear | `deploy-credentials` |
+- Explicit CI monitoring or a fresh merge/deploy result: `ci-monitoring`.
+- Boundary plan or selected `Launch review`: `git-review-pipeline`.
+- User-requested PR: `pr-workflow`.
+- Unclear GitHub or Wrangler credentials: `deploy-credentials`.
 
 ## Review exposure
 
-Advanced SDD projects evaluate startup, resume, clone, switch, branch checkout, PR checkout, pull, checked-out-branch push, checked-out-branch PR creation, and checked-out-branch PR reopen. A saved exact completion stays silent. Successful checked-out-branch push, PR creation, and PR reopen automatically emit one launch plan. Other misses use AskUserQuestion once with exactly `Mark review complete` and `Launch review`; never choose for the user. Cancellation writes nothing.
+Boundary review applies only to open PRs targeting `develop`, `main`, or `master`. Startup, resume, clone, switch, checkout, and pull can expose one.
 
-Fetch, status and inspection, local mutation, merges without a successful active-checkout or full-`HEAD` transition, detached or path checkout, tag, unrelated-ref push, failed commands, child sessions, and non-protected-base PRs are inert. A successful PR merge that changes the active checkout or full `HEAD` uses marker-or-dialog consent for the resulting open protected-base PR. GitHub lookup failure launches and writes nothing.
+A push qualifies only when its branch heads such a PR. PR creation or reopen qualifies only when its base is protected. After any qualifying push, creation, or reopen, **end the turn immediately and invoke no more tools**. The boundary plan appears after the turn ends. Otherwise continue normal work.
+
+An exact completion marker stays silent. Other qualifying misses ask once with exactly `Mark review complete` and `Launch review`; never choose. Cancellation writes nothing. Fetch, inspection, local mutation, detached/path checkout, tags, unrelated pushes, failed transitions, child sessions, non-qualifying PRs, and merges without a checkout or full-`HEAD` transition are inert. A merge that changes the checkout or full `HEAD` uses consent for any resulting qualifying PR. GitHub lookup failure launches and writes nothing.
 
 ## Hard obligations
 
-- Never run review agents manually unless user explicitly instructs; boundary review triggers them automatically.
-- Run a selected plan once. Start required reviewers together, then exact-head CI immediately when the plan includes it. End the turn after the final launch; never poll or duplicate in-flight work.
-- Stopped or interrupted work has no durable progress. Emit no missing-work demand. The next delivery launches a fresh plan; the next non-delivery exposure asks again and replans.
-- After all required reviewers and terminal exact-head CI, publish canonical triage without mutation. Verify evidence and scope, judge findings separately from fixes, reject unsupported or overengineered proposals, and choose the smallest correction reusing existing machinery. Completion is written immediately before the separate FIX reminder regardless of CI success, failure, or timeout. Apply accepted fixes only in FIX.
-- Never read, write, migrate, or delete legacy `.git/sdd-review-*` state.
-- Never deploy until required CI is green. Never merge automatically.
+Never launch reviewers manually unless the user explicitly requests reviewer launch. `Continue` and `proceed` do not qualify.
+
+Only execute a boundary plan when it appears in a later turn. Start reviewers together, start included exact-head CI next, then end. Never poll or duplicate. Interrupted work starts a fresh round on later exposure.
+
+After terminal review and CI results, publish mutation-free canonical triage. Verify evidence and scope, judge findings separately, and choose the smallest correction. Record completion before FIX regardless of CI result; root applies accepted fixes.
+
+Never read, write, migrate, or delete legacy `.git/sdd-review-*` state. Never deploy before required CI is green. Never merge automatically.

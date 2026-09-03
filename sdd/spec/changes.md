@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-03
 
+- **Qualifying review deliveries end before boundary dispatch** ([REQ-AGENT-036](agents.md#req-agent-036-pr-boundary-review-trigger-conditions) AC8 added; remains Implemented). A push qualifies only when its branch heads an open PR to `develop`, `main`, or `master`; PR creation and reopen use the same protected-base gate. The root ends that delivery turn without another tool call because the boundary plan is emitted at turn end. Non-qualifying transitions continue normally, and generic `continue` or `proceed` instructions never authorize manual reviewer launch.
+
 - **Capability questions can reach the router Pi tells the model to use** ([REQ-AGENT-190](agents.md#req-agent-190-portable-capability-discovery-delivery) AC4 added; remains Implemented). The router remains lazy, but it is no longer hidden from Pi's generated skill index by `disable-model-invocation`; compiler coverage now rejects that broken combination.
 
 - **Initializing terminal panes wait for authoritative pre-warm output** ([REQ-TERM-011](terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections) AC6 added; remains Implemented). A visible initializing terminal no longer connects or focuses during `mounting`. It connects once at `ready`, while an already-running session still connects immediately on reload.
