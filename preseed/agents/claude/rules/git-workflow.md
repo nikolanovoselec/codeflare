@@ -11,7 +11,7 @@ Commit `<type>: <description>` using `feat|fix|refactor|docs|test|chore|perf|ci`
 
 ## Review exposure
 
-Boundary review applies only to open PRs targeting `develop`, `main`, or `master`. Startup, resume, clone, switch, checkout, and pull can expose one.
+Boundary review applies only when repository contains `sdd/README.md` and checked-out branch has an open PR targeting `develop`, `main`, or `master`. Without that SDD file, continue normal work. Startup, resume, clone, switch, checkout, and pull can expose an eligible PR.
 
 A push qualifies only when its branch heads such a PR. PR creation or reopen qualifies only when its base is protected. After any qualifying push, creation, or reopen, **end the turn immediately and invoke no more tools**. The boundary plan appears after the turn ends. Otherwise continue normal work.
 

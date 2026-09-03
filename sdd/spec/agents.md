@@ -1781,6 +1781,7 @@ None.
 
 - Command parsing only detects candidates as defined by [REQ-AGENT-063](#req-agent-063-pr-boundary-candidate-detection).
 - Authoritative branch and PR state determine eligibility.
+- Boundary review is disabled unless the checked-out repository contains `sdd/README.md`. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewEnabled --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/git-push-review-reminder.sh::sdd/README.md --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (ignores protected-base delivery in a repository without SDD) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (ignores protected-base delivery in a repository without SDD) -->
 - Draft protected-base PRs remain eligible.
 - After a qualifying push, PR creation, or PR reopen, the root ends its turn without another tool call so boundary review can emit the plan; non-qualifying transitions continue normally. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::Review exposure --> <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Review exposure --> <!-- @manual -->
 

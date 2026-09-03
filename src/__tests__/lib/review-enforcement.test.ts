@@ -45,7 +45,7 @@ function write(repo: string, path: string, contents: string): void {
   writeFileSync(target, contents, 'utf8');
 }
 
-function fixture(options: { child?: boolean } = {}) {
+function fixture(options: { child?: boolean; sdd?: boolean } = {}) {
   const home = tempRoot('review-home-');
   const repo = tempRoot('review-repo-');
   git(repo, 'init', '-q');
@@ -53,13 +53,13 @@ function fixture(options: { child?: boolean } = {}) {
   git(repo, 'config', 'user.name', 'Test User');
   git(repo, 'config', 'user.email', 'test@example.test');
   git(repo, 'remote', 'add', 'origin', 'https://github.com/owner/repo.git');
-  write(repo, 'sdd/README.md', '# SDD\n');
+  if (options.sdd !== false) write(repo, 'sdd/README.md', '# SDD\n');
   write(repo, 'README.md', '# Repo\n');
   git(repo, 'add', '.');
   git(repo, 'commit', '-m', 'base');
   const base = git(repo, 'rev-parse', 'HEAD');
   write(repo, 'src/review.ts', 'export const changed = true;\n');
-  write(repo, 'sdd/spec/review.md', '# Review\n');
+  if (options.sdd !== false) write(repo, 'sdd/spec/review.md', '# Review\n');
   git(repo, 'add', '.');
   git(repo, 'commit', '-m', 'change');
   const head = git(repo, 'rev-parse', 'HEAD');
@@ -427,6 +427,16 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(app.sent[0]?.content).toContain('reject unsupported or overengineered proposals');
     expect(app.sent[0]?.content).toContain('prefer the smallest correction that reuses existing machinery');
   }
+
+  it('ignores protected-base delivery in a repository without SDD', async () => {
+    const input = fixture({ sdd: false });
+    const app = await harness(input, []);
+
+    await app.emit('tool_result', boundary('git push origin feature', 'push-without-sdd'));
+
+    expect(app.prompts).toHaveLength(0);
+    expect(app.sent).toHaveLength(0);
+  });
 
   it('automatically emits the exact review plan after successful push', async () => {
     await expectAutomaticDeliveryPlan('git push origin feature');
