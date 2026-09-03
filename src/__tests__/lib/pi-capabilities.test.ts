@@ -6,6 +6,7 @@ import capabilityHelpersExtension, {
   activateRegisteredTools,
   activationGroup,
   initialActiveTools,
+  resolveAgentDir,
   searchCapabilities,
   type ToolActivationPi,
 } from '../../../preseed/agents/pi/extensions/capability-helpers';
@@ -39,6 +40,8 @@ function fakePi(input?: {
     { name: 'get_subagent_result', description: 'Check a background specialist' },
     { name: 'steer_subagent', description: 'Steer a background specialist' },
     { name: 'graphify_query', description: 'Query the code graph' },
+    { name: 'plan_mode_question', description: 'Ask a Plan question' },
+    { name: 'plan_mode_complete', description: 'Complete a Plan' },
   ];
   const history: string[][] = [];
   return {
@@ -55,6 +58,23 @@ function fakePi(input?: {
 describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
   it('loads the helper module as a side-effect-free standalone extension', () => {
     expect(capabilityHelpersExtension()).toBeUndefined();
+  });
+
+  it('resolves Pi agent-directory overrides with home expansion', () => {
+    expect(resolveAgentDir('~/custom-agent', '/different-home')).toBe('/different-home/custom-agent');
+    expect(resolveAgentDir('/configured/agent', '/different-home')).toBe('/configured/agent');
+    expect(resolveAgentDir(undefined, '/different-home')).toBe('/different-home/.pi/agent');
+  });
+
+  it('reads the Pi agent-directory override from the environment', () => {
+    const previous = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = '/configured/agent';
+    try {
+      expect(resolveAgentDir()).toBe('/configured/agent');
+    } finally {
+      if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+      else process.env.PI_CODING_AGENT_DIR = previous;
+    }
   });
 
   it('exposes startup, search, and activation through Pi public APIs', async () => {
@@ -89,7 +109,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     };
 
     capabilityExtension(pi);
-    toolExposureFinalizer(pi);
+    toolExposureFinalizer(pi, () => 'after-first-goal');
     handlers.get('before_agent_start')?.({}, {});
 
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
@@ -146,6 +166,33 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
   });
 
+  it('REQ-AGENT-111: hides registered Goal tools for a fresh lazy session', () => {
+    const base = fakePi({
+      active: ['read', 'goal_complete', 'goal_blocked'],
+      tools: [
+        { name: 'read', description: 'Read files' },
+        { name: 'bash', description: 'Run shell commands' },
+        { name: 'goal_complete', description: 'Complete Goal' },
+        { name: 'goal_blocked', description: 'Block Goal' },
+      ],
+    });
+    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
+    const pi = {
+      ...base,
+      registerTool() {},
+      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
+        handlers.set(event, handler);
+      },
+    };
+    toolExposureFinalizer(pi, () => 'after-first-goal');
+
+    handlers.get('before_agent_start')?.({}, {
+      sessionManager: { getBranch: () => [] },
+    });
+
+    expect(pi.getActiveTools()).toEqual(['read', 'bash']);
+  });
+
   it('REQ-AGENT-111: restores terminal Goal tools only for an unfinished session Goal', () => {
     const base = fakePi({
       active: ['read'],
@@ -165,7 +212,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
       },
     };
     capabilityExtension(pi);
-    toolExposureFinalizer(pi);
+    toolExposureFinalizer(pi, () => 'after-first-goal');
     const session = (status: string | null) => ({
       sessionManager: {
         getBranch: () => [{
@@ -180,7 +227,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked']);
   });
 
-  it('REQ-AGENT-158: removes Goal tools without an unfinished session Goal', () => {
+  it('REQ-AGENT-111: preserves Goal tools already active under the always-visible policy', () => {
     const base = fakePi({
       active: ['read', 'goal_complete', 'goal_blocked'],
       tools: [
@@ -199,13 +246,156 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
       },
     };
     capabilityExtension(pi);
-    toolExposureFinalizer(pi);
+    toolExposureFinalizer(pi, () => 'always');
 
     handlers.get('before_agent_start')?.({}, {
       sessionManager: { getBranch: () => [] },
     });
 
-    expect(pi.getActiveTools()).toEqual(['read', 'bash']);
+    expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked']);
+  });
+
+  it('REQ-AGENT-152/158: preserves only a restored Plan workflow policy plus required helpers', () => {
+    const base = fakePi({
+      tools: [
+        { name: 'read', description: 'Read files' },
+        { name: 'bash', description: 'Run shell commands' },
+        { name: 'edit', description: 'Edit files' },
+        { name: 'graphify_query', description: 'Query graph' },
+        { name: 'plan_mode_question', description: 'Ask a Plan question' },
+        { name: 'plan_mode_complete', description: 'Complete a Plan' },
+      ],
+    });
+    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
+    const pi = {
+      ...base,
+      registerTool() {},
+      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
+        handlers.set(event, handler);
+      },
+    };
+    toolExposureFinalizer(pi, () => 'after-first-goal');
+    const ctx = {
+      sessionManager: {
+        getBranch: () => [{
+          type: 'custom',
+          customType: 'plan-mode-state',
+          data: {
+            enabled: true,
+            workflowToolPolicy: { allowedNames: ['read', 'graphify_query'], resolved: true },
+          },
+        }],
+      },
+    };
+
+    handlers.get('before_agent_start')?.({}, ctx);
+
+    expect(pi.getActiveTools()).toEqual([
+      'read', 'graphify_query', 'plan_mode_question', 'plan_mode_complete',
+    ]);
+  });
+
+  it('REQ-AGENT-158: keeps configured always-visible Goal tools during an active Plan', () => {
+    const base = fakePi({
+      tools: [
+        { name: 'read', description: 'Read files' },
+        { name: 'graphify_query', description: 'Query graph' },
+        { name: 'goal_complete', description: 'Complete Goal' },
+        { name: 'goal_blocked', description: 'Block Goal' },
+        { name: 'plan_mode_question', description: 'Ask a Plan question' },
+        { name: 'plan_mode_complete', description: 'Complete a Plan' },
+      ],
+    });
+    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
+    const pi = {
+      ...base,
+      registerTool() {},
+      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
+        handlers.set(event, handler);
+      },
+    };
+    toolExposureFinalizer(pi, () => 'always');
+
+    handlers.get('before_agent_start')?.({}, {
+      sessionManager: {
+        getBranch: () => [{
+          type: 'custom',
+          customType: 'plan-mode-state',
+          data: {
+            enabled: true,
+            workflowToolPolicy: { allowedNames: ['read', 'graphify_query'], resolved: true },
+          },
+        }],
+      },
+    });
+
+    expect(pi.getActiveTools()).toEqual([
+      'read', 'graphify_query', 'plan_mode_question', 'plan_mode_complete',
+      'goal_complete', 'goal_blocked',
+    ]);
+  });
+
+  it('REQ-AGENT-152/158: rejects malformed Plan policy and gives unfinished Goal precedence', () => {
+    const base = fakePi({
+      tools: [
+        { name: 'read', description: 'Read files' },
+        { name: 'bash', description: 'Run shell commands' },
+        { name: 'edit', description: 'Edit files' },
+        { name: 'write', description: 'Write files' },
+        { name: 'capability', description: 'Search tools' },
+        { name: 'goal_complete', description: 'Complete Goal' },
+        { name: 'goal_blocked', description: 'Block Goal' },
+        { name: 'graphify_query', description: 'Query graph' },
+        { name: 'plan_mode_question', description: 'Ask a Plan question' },
+        { name: 'plan_mode_complete', description: 'Complete a Plan' },
+      ],
+    });
+    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
+    const pi = {
+      ...base,
+      registerTool() {},
+      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
+        handlers.set(event, handler);
+      },
+    };
+    toolExposureFinalizer(pi, () => 'after-first-goal');
+
+    handlers.get('before_agent_start')?.({}, {
+      sessionManager: {
+        getBranch: () => [{
+          type: 'custom',
+          customType: 'plan-mode-state',
+          data: {
+            enabled: true,
+            workflowToolPolicy: { allowedNames: ['read', 42], resolved: true },
+          },
+        }],
+      },
+    });
+    expect(pi.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);
+
+    handlers.get('before_agent_start')?.({}, {
+      sessionManager: {
+        getBranch: () => [
+          {
+            type: 'custom',
+            customType: 'goal-state',
+            data: { goal: { id: 'goal-1', status: 'paused' } },
+          },
+          {
+            type: 'custom',
+            customType: 'plan-mode-state',
+            data: {
+              enabled: true,
+              workflowToolPolicy: { allowedNames: ['read', 'graphify_query'], resolved: true },
+            },
+          },
+        ],
+      },
+    });
+    expect(pi.getActiveTools()).toEqual([
+      'read', 'bash', 'edit', 'write', 'capability', 'goal_complete', 'goal_blocked',
+    ]);
   });
 
   it('searches registered inactive tools by name and description', () => {
@@ -278,7 +468,7 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     pi.on('before_agent_start', () => {
       pi.setActiveTools([...pi.getActiveTools(), 'ctx_search']);
     });
-    toolExposureFinalizer(pi);
+    toolExposureFinalizer(pi, () => 'after-first-goal');
     for (const handler of handlers) await handler({}, {});
 
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'edit', 'write', 'capability']);

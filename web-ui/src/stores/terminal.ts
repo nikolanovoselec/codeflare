@@ -49,13 +49,18 @@ import {
 
 const textDecoder = new TextDecoder();
 
-// Callback keeps terminal transport independent from classic tab state.
+// Callbacks keep terminal transport independent from session/tab state.
 let onProcessName: ((sessionId: string, terminalId: string, processName: string) => void) | null = null;
+let onSessionStopped: ((sessionId: string) => void) | null = null;
 
 export function registerProcessNameCallback(
   callback: (sessionId: string, terminalId: string, processName: string) => void,
 ): void {
   onProcessName = callback;
+}
+
+function registerSessionStoppedCallback(callback: (sessionId: string) => void): void {
+  onSessionStopped = callback;
 }
 
 export type { AgentEventControlMessage } from './terminal-protocol';
@@ -407,18 +412,26 @@ function connect(
 
       // Intentional disconnect from dashboard — do not reconnect
       if (event.reason === 'dashboard-disconnect') {
+        controller.abort();
+        abortControllers.delete(key);
+        connectionOwners.delete(key);
         releaseTrailingOutput(key, terminal);
         setConnectionState(sessionId, terminalId, 'disconnected');
         return;
       }
 
-      // Server-authoritative: container is definitively not running (4503 from DO).
-      // Don't retry — session status will be updated by KV polling or is already stopped.
+      // Server-authoritative: persisted Container lifecycle state is definitively
+      // stopping/stopped. Release transport ownership and report the stop directly;
+      // eventually-consistent KV polling is not involved in this transition.
       if (event.code === WS_CONTAINER_STOPPED_CODE) {
         logger.info(`[Terminal ${key}] Container stopped (4503)`);
+        controller.abort();
+        abortControllers.delete(key);
+        connectionOwners.delete(key);
         releaseTrailingOutput(key, terminal);
         setConnectionState(sessionId, terminalId, 'disconnected');
         setRetryMessage(sessionId, terminalId, 'Session stopped');
+        onSessionStopped?.(sessionId);
         return;
       }
 
@@ -434,6 +447,9 @@ function connect(
       }
 
       // Non-retryable close (normal closure, etc.)
+      controller.abort();
+      abortControllers.delete(key);
+      connectionOwners.delete(key);
       releaseTrailingOutput(key, terminal);
       setConnectionState(sessionId, terminalId, 'disconnected');
       setRetryMessage(sessionId, terminalId, null);
@@ -618,6 +634,15 @@ function isConnected(sessionId: string, terminalId: string): boolean {
   return getConnectionState(sessionId, terminalId) === 'connected';
 }
 
+/** True while transport owns a live socket, connection attempt, or retry loop. */
+function ownsSession(sessionId: string): boolean {
+  const prefix = `${sessionId}:`;
+  for (const [key, controller] of abortControllers) {
+    if (key.startsWith(prefix) && !controller.signal.aborted && connectionOwners.has(key)) return true;
+  }
+  return false;
+}
+
 // Dispose terminal UI resources without killing the server-side PTY.
 function disposeLocalTerminal(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
@@ -668,6 +693,7 @@ function disposeSession(sessionId: string): void {
   cleanupMapByPrefix(terminals, prefix, (terminal) => terminal.dispose());
   cleanupFitAddonsByPrefix(prefix);
   cleanupMapByPrefix(abortControllers, prefix, (controller) => controller.abort());
+  cleanupMapByPrefix(connectionOwners, prefix);
   cleanupMapByPrefix(inputDisposables, prefix, (disposable) => disposable.dispose());
   cleanupOutputByPrefix(prefix);
   for (const key of [...herdrKeys]) {
@@ -918,6 +944,8 @@ export const terminalStore = {
   getRetryMessage,
   getTerminal,
   isConnected,
+  ownsSession,
+  registerSessionStoppedCallback,
 
   // URL detection signals
   get authUrl() {

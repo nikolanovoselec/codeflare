@@ -182,7 +182,34 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(writtenSession.status).toBe('running');
     });
 
-    // REQ-SESSION-018 AC4: a fresh start clears any stale deliberate-stop marker
+    it('REQ-SESSION-018 AC6: publishes running and both startup timestamps from one KV read', async () => {
+      const mockKvPut = vi.fn().mockResolvedValue(undefined);
+      const mockKvGet = vi.fn().mockResolvedValue({
+        id: 'sess123',
+        status: 'stopped',
+        name: 'Test',
+      });
+      mockEnv.KV = { get: mockKvGet, put: mockKvPut };
+      mockStorage.get.mockImplementation(async (key: string) => {
+        if (key === 'bucketName') return 'test-bucket';
+        if (key === '_sessionId') return 'sess123';
+        return null;
+      });
+
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      await vi.waitFor(() => expect(mockStorage.get).toHaveBeenCalledWith('bucketName'));
+      await instance.onStart();
+
+      expect(mockKvGet).toHaveBeenCalledTimes(1);
+      expect(mockKvPut).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(mockKvPut.mock.calls[0][1])).toMatchObject({
+        status: 'running',
+        lastStartedAt: expect.any(String),
+        lastActiveAt: expect.any(String),
+      });
+    });
+
+    // REQ-SESSION-018 AC5: a fresh start clears any stale deliberate-stop marker
     // a prior destroy() left in storage, so a later transient false-stopped on
     // this run can self-heal instead of being mistaken for a deliberate stop.
     it('onStart clears the persisted shutdown marker', async () => {

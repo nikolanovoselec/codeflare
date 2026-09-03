@@ -118,7 +118,8 @@ export async function startOrRestartContainer(params: {
   }
 
   // If container is already running/healthy with correct bucket, return immediately.
-  // This preserves readiness for the live editor and avoids an unnecessary KV write.
+  // Marker-protected metrics owns KV convergence; this request path cannot inspect
+  // shutdownRequested and must not race a deliberate stop or recreate a deletion.
   if (currentState.status === 'running' || currentState.status === 'healthy') {
     return {
       status: 'already_running',

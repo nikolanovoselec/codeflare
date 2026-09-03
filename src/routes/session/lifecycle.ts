@@ -14,7 +14,7 @@ import { AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { getContainerId, safeCheckContainerHealth } from '../../lib/container-helpers';
 import { getContainerSessionsCB } from '../../lib/circuit-breakers';
-import { toApiSession } from '../../lib/session-helpers';
+import { hasOwningSessionContainer, toApiSession } from '../../lib/session-helpers';
 import { ValidationError } from '../../lib/error-types';
 import { isSaasModeActive } from '../../lib/onboarding';
 import { getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../../lib/subscription';
@@ -22,7 +22,6 @@ import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import type { UsageRecord } from '../../types';
 import { getActiveManagedRelease, hasPendingManagedReconciliation } from '../../lib/managed-release-active';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
-import { countsTowardSessionLimit } from '../container/lifecycle-validation';
 import { clearMatchingManagedReconcileProgress, readManagedReconcileProgress } from '../../lib/managed-reconcile-progress';
 
 /**
@@ -93,14 +92,11 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
  * Get status for all sessions in a single call (eliminates N+1 on page load)
  * Returns a map of sessionId -> { status, ptyActive } plus storageStats from KV cache
  *
- * KV-ONLY: This endpoint never contacts Durable Objects or containers.
- * KV is authoritative for session status:
- * - POST /api/sessions/:id/stop sets KV to 'stopped'
- * - Container start sets KV to 'running'
- * - onStop() sets KV lastActiveAt on container hibernation
- *
- * This prevents phantom container auto-starts caused by container.fetch()
- * waking stopped containers during polling.
+ * Session status remains a KV-only dashboard projection. When an explicit
+ * managed-release check finds a mismatch, admission additionally reads persisted
+ * Container SDK state without calling container.fetch() or waking a container.
+ * This prevents phantom auto-starts while keeping mutation ownership independent
+ * from stale KV status or LIST metadata.
  */
 app.get('/batch-status', async (c) => {
   const url = new URL(c.req.url);
@@ -119,15 +115,12 @@ app.get('/batch-status', async (c) => {
 
   const statuses: Record<string, { status: string; ptyActive: boolean; lastActiveAt: string | null; lastStartedAt: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: Session['metrics'] }> = {};
   const fallbackKeys: Array<{ name: string }> = [];
-  let hasOwningSession = false;
 
   for (const key of keys) {
     const meta = key.metadata as SessionListMetadata | null;
     if (meta && meta.s) {
-      // Fast path: read status straight from list metadata (zero KV.get).
-      // KV status is authoritative - the container writes 'stopped' on exit.
+      // Fast path: read the dashboard status projection from list metadata (zero KV.get).
       const sessionId = key.name.split(':').pop()!;
-      if (countsTowardSessionLimit(meta.s)) hasOwningSession = true;
       statuses[sessionId] = expandSessionMetadata(meta);
     } else {
       // Pre-migration key without metadata - queue for fallback KV.get
@@ -142,7 +135,6 @@ app.get('/batch-status', async (c) => {
     );
     for (const session of fallbackResults) {
       if (!session) continue;
-      if (countsTowardSessionLimit(session.status)) hasOwningSession = true;
       statuses[session.id] = expandSessionMetadata(buildSessionMetadata(session));
     }
   }
@@ -209,6 +201,15 @@ app.get('/batch-status', async (c) => {
           || (desiredPolicy === 'mutable' && applied.managedPathsDigest !== undefined)
         : applied !== undefined);
 
+      const bakedMismatch = !active && (
+        prefs?.lastPreseedHash !== PRESEED_CONTENT_HASH
+        || (isEnterpriseMode(c.env) && prefs?.sessionMode !== 'advanced')
+      );
+      const needsReconciliation = managedMismatch || bakedMismatch;
+      const hasOwningSession = needsReconciliation
+        ? await hasOwningSessionContainer(c.env, bucketName)
+        : false;
+
       if (active || applied) {
         managedReleaseStatus = managedMismatch
           ? (hasOwningSession ? 'update_pending' : 'upgrading')
@@ -227,22 +228,13 @@ app.get('/batch-status', async (c) => {
         }
       }
 
-      const bakedMismatch = !active && (
-        prefs?.lastPreseedHash !== PRESEED_CONTENT_HASH
-        || (isEnterpriseMode(c.env) && prefs?.sessionMode !== 'advanced')
-      );
-      // Never fire the mutating route while a session owns the bucket. The
-      // update_pending state remains visible and blocks another start.
-      preseedNeedsUpgrade = (managedMismatch || bakedMismatch) && !hasOwningSession;
+      // Never fire the mutating route while persisted container state owns the
+      // bucket. KV status and LIST metadata are eventual projections only.
+      preseedNeedsUpgrade = needsReconciliation && !hasOwningSession;
     } catch {
-      // Cache availability may fail open only to a previously applied verified
-      // bucket state. A fresh bucket remains blocked and must not trigger a
-      // reconciliation request until the verified deployment cache is readable.
-      managedReleaseStatus = !hasPendingManagedReconciliation(prefs?.managedEnvironmentReconciliation)
-        && prefs?.managedEnvironmentApplied?.mode === mode
-        && /^[0-9a-f]{64}$/.test(prefs.managedEnvironmentApplied.managedExtensionsDigest ?? '')
-        ? 'current'
-        : 'update_pending';
+      // Without a compatible verified active descriptor, an applied protected
+      // release is not current. Keep admission blocked and retry discovery later.
+      managedReleaseStatus = 'update_pending';
       preseedNeedsUpgrade = false;
     }
   }

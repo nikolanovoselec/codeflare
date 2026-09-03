@@ -206,19 +206,6 @@ export async function handleWebSocketUpgrade(
       });
     }
 
-    // Reject WebSocket connections to stopped/hibernated sessions.
-    // Uses custom close code 4503 so the client can distinguish
-    // "container stopped" from network errors (1006).
-    // Done BEFORE rate-limit check so a browser reconnect-storm against
-    // a stopped container does not burn the user's WS rate-limit budget
-    // and self-lock them out for ~2 minutes.
-    if (session.status === 'stopped') {
-      const pair = new WebSocketPair();
-      pair[1].accept();
-      pair[1].close(4503, 'container-stopped');
-      return new Response(null, { status: 101, webSocket: pair[0] });
-    }
-
     // Container is up but may still be initializing: port 8080 binds at
     // ~1.5s while the entrypoint continues R2 sync + .bashrc autostart
     // writes (~10s). The host server gates /terminal WS upgrades on a
@@ -226,17 +213,27 @@ export async function handleWebSocketUpgrade(
     // land before the flag flips would spawn fresh PTYs against pre-sync
     // state (bare bash, no agent autostart) — see PR #365.
     //
-    // Peek /health here so warming-up reconnects do not burn rate-limit
-    // budget AND we can return a 1013-close that the frontend's existing
-    // retry backoff handles. Use safeCheckContainerHealth so we don't
-    // auto-start a hibernated container if KV's session.status read was
-    // stale (it gates on container.getState() before fetching) and we get
-    // the circuit-breaker wrapping for free. Fail-open: any probe error
-    // falls through to the normal rate-limit + forward path.
+    // Resolve persisted SDK state before touching the rate-limit or forwarding.
+    // KV status is an eventually-consistent dashboard projection and cannot
+    // reject a live terminal. getState() reads the Container SDK's DO-backed
+    // lifecycle state without starting the container; /health then proves that
+    // an up-state is currently reachable before the WebSocket reaches fetch().
     const container = getContainer(env.CONTAINER, containerId);
     const warmProbe = await safeCheckContainerHealth(container, containerId);
-    if (warmProbe.healthy && warmProbe.data?.terminalServiceReady === false) {
-      logger.info('Rejecting WS upgrade: container warming up', { email: user.email, containerId });
+    if (warmProbe.status === 'stopping'
+        || warmProbe.status === 'stopped'
+        || warmProbe.status === 'stopped_with_code') {
+      const pair = new WebSocketPair();
+      pair[1].accept();
+      pair[1].close(4503, 'container-stopped');
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+    if (!warmProbe.healthy || warmProbe.data?.terminalServiceReady === false) {
+      logger.info('Rejecting WS upgrade: container not ready', {
+        email: user.email,
+        containerId,
+        containerStatus: warmProbe.status,
+      });
       const pair = new WebSocketPair();
       pair[1].accept();
       pair[1].close(1013, 'container-warming-up');
@@ -309,9 +306,8 @@ export async function handleWebSocketUpgrade(
     // anything other than a 101 reaches the browser as an abnormal closure
     // (1006) — which is in the client's retryable set but never opens a socket,
     // so its backoff stays pinned at the 500ms base and the tab reconnects ~1/s
-    // indefinitely. Observed in prod: a destroyed session whose KV status was
-    // never written 'stopped' (so the authoritative 4503 gate above could not
-    // fire) drew ~1 upgrade/second for 20+ minutes. Map the reject onto the same
+    // indefinitely. Observed in prod: a destroyed session whose persisted-state
+    // gate could not complete drew ~1 upgrade/second for 20+ minutes. Map the reject onto the same
     // retryable 1013 the timeout uses, so the client's existing backoff runs.
     const TIMED_OUT = Symbol('container-ws-forward-timeout');
     const FORWARD_FAILED = Symbol('container-ws-forward-failed');

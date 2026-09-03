@@ -16,13 +16,25 @@ vi.mock('../../middleware/auth', () => ({
 }));
 
 // Mock r2-seed and r2-config for preseed reconciliation tests
-const { mockReconcileAgentConfigs, mockManagedExtensionsDocumentDigest, managedReleaseState } = vi.hoisted(() => ({
+const { mockReconcileAgentConfigs, mockManagedExtensionsDocumentDigest, managedReleaseState, containerState } = vi.hoisted(() => ({
   mockReconcileAgentConfigs: vi.fn(async () => ({ written: [], skipped: [], deleted: [], warnings: [] })),
   mockManagedExtensionsDocumentDigest: vi.fn(async () => 'e'.repeat(64)),
   managedReleaseState: {
     active: null as any,
     cachedByDigest: new Map<string, { compressed: Uint8Array; release: { sequence: number } }>(),
   },
+  containerState: {
+    status: 'running',
+    error: null as Error | null,
+  },
+}));
+vi.mock('@cloudflare/containers', () => ({
+  getContainer: vi.fn(() => ({
+    getState: vi.fn(async () => {
+      if (containerState.error) throw containerState.error;
+      return { status: containerState.status };
+    }),
+  })),
 }));
 vi.mock('../../lib/r2-seed', async () => {
   const actual = await vi.importActual<typeof import('../../lib/r2-seed')>('../../lib/r2-seed');
@@ -56,6 +68,8 @@ describe('Preferences Routes', () => {
     mockManagedExtensionsDocumentDigest.mockResolvedValue('e'.repeat(64));
     managedReleaseState.active = null;
     managedReleaseState.cachedByDigest.clear();
+    containerState.status = 'running';
+    containerState.error = null;
   });
 
   function createTestApp(envOverrides: Partial<Env> = {}) {
@@ -808,6 +822,30 @@ describe('Preferences Routes', () => {
       });
 
       expect(res.status).toBe(409);
+    });
+
+    it('allows a managed mode change when stale running metadata points to persisted stopped state', async () => {
+      managedReleaseState.cachedByDigest.set('a'.repeat(64), {
+        compressed: new Uint8Array(),
+        release: { sequence: 1 },
+      });
+      mockKV._set('user-prefs:codeflare-test-user', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: { digest: 'a'.repeat(64), managedExtensionsDigest: 'c'.repeat(64), sequence: 1, mode: 'default', appliedAt: '2026-08-19T00:00:00.000Z' },
+      });
+      mockKV._set('session:codeflare-test-user:stale12345678', { status: 'stopped' }, { s: 'r' });
+      containerState.status = 'stopped';
+      const app = createTestApp();
+
+      const res = await app.request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(200);
+      const stored = await mockKV.get('user-prefs:codeflare-test-user', 'json') as { sessionMode?: string };
+      expect(stored.sessionMode).toBe('advanced');
     });
 
     it('REQ-STOR-035 AC3: mode-change disable repairs interrupted targets before clearing state', async () => {

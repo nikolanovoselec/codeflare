@@ -130,8 +130,6 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     unzip \
     # Sandbox for OpenAI Codex
     bubblewrap \
-    # GPG for GitHub CLI repo key
-    gpg \
     && rm -rf /var/lib/apt/lists/* \
     # Symlinks for Debian-renamed binaries
     && ln -s "$(which fdfind)" /usr/local/bin/fd \
@@ -165,12 +163,6 @@ COPY image/herdr/config.toml /etc/codeflare/herdr/config.toml
 COPY image/herdr/LICENSE image/herdr/provenance.json /usr/share/licenses/herdr/
 COPY --chmod=0755 image/herdr/codeflare-herdr-terminal /usr/local/bin/codeflare-herdr-terminal
 COPY --chmod=0755 image/herdr/codeflare-agent-event /usr/local/bin/codeflare-agent-event
-
-# Add GitHub CLI apt repo (key + source list only — actual install is after .cache-bust)
-RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /tmp/githubcli-archive-keyring.gpg \
-    && echo "6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b  /tmp/githubcli-archive-keyring.gpg" | sha256sum -c - \
-    && mv /tmp/githubcli-archive-keyring.gpg /usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
 
 # Install zoxide from GitHub releases (pinned version, not in Debian bookworm repos)
 RUN ZOXIDE_VERSION="0.10.0" && \
@@ -314,9 +306,16 @@ COPY .cache-bust /tmp/.cache-bust
 # if atlas.plug.js is not present.
 COPY preseed/silverbullet/ /opt/silverbullet-preseed/
 
-# Install gh CLI (after .cache-bust so every deploy re-resolves the apt version)
-RUN apt-get update && apt-get install -y --no-install-recommends gh \
-    && rm -rf /var/lib/apt/lists/*
+# Install an integrity-pinned gh release containing grpc-go's CVE-2026-84304 fix.
+RUN GH_VERSION="2.99.0" && \
+    GH_SHA256="471feb449cc98d527fc9a67601b9ea04296c100b666d970a784a07dc17a59a8f" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
+      "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.deb" \
+      -o /tmp/gh.deb && \
+    echo "${GH_SHA256}  /tmp/gh.deb" | sha256sum -c - && \
+    dpkg -i /tmp/gh.deb && \
+    gh --version | grep -F "gh version ${GH_VERSION}" && \
+    rm /tmp/gh.deb
 
 # Privileged npm tools execute user code, hold OAuth tokens, or participate in
 # image builds. Install from one committed lock so exact package bytes and
@@ -407,7 +406,7 @@ RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CO
 # Caveman policy is image-owned and deliberately excluded from agent seeds.
 COPY image/pi/caveman.json /opt/codeflare/pi-agent/caveman.json
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
-COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs /opt/codeflare/scripts/
+COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs /opt/codeflare/scripts/
 # better-sqlite3 / bufferutil / utf-8-validate are native (node-gyp) modules. Their
 # prebuilt-binary fetch is best-effort and falls back to a source compile, which needs
 # make + a C/C++ toolchain. stage-1 ships python3 but not make/gcc/g++ (those live only
@@ -426,6 +425,9 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     GOAL_VERSION="$(node -p 'require("./package.json").dependencies["@narumitw/pi-goal"]')" && \
     node /opt/codeflare/scripts/patch-pi-goal-review-control.mjs \
       "$GOAL_VERSION" ./node_modules/@narumitw/pi-goal && \
+    PLAN_MODE_VERSION="$(node -p 'require("./package.json").dependencies["@narumitw/pi-plan-mode"]')" && \
+    node /opt/codeflare/scripts/patch-pi-plan-mode-tool-policy.mjs \
+      "$PLAN_MODE_VERSION" ./node_modules/@narumitw/pi-plan-mode && \
     node /opt/codeflare/scripts/verify-pi-lockstep.mjs \
       /opt/codeflare/npm-tools/package.json ./package.json \
       ./node_modules/@earendil-works/pi-coding-agent/package.json && \

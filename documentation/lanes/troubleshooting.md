@@ -438,15 +438,15 @@ sudo apt-get install -yqq --no-install-recommends \
 
 ### Managed Environment Is Stale, Degraded, or Update Pending
 
-**Requirements:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-environment-configuration), [REQ-SETUP-014](../../sdd/spec/setup.md#req-setup-014-managed-repository-credential-boundary), [REQ-STOR-020](../../sdd/spec/storage.md#req-stor-020-managed-environment-reconciliation), [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission), [REQ-STOR-023](../../sdd/spec/storage.md#req-stor-023-managed-release-status-and-discovery), [REQ-STOR-024](../../sdd/spec/storage.md#req-stor-024-managed-release-application)
+**Requirements:** [REQ-SETUP-013](../../sdd/spec/setup.md#req-setup-013-managed-environment-configuration), [REQ-SETUP-014](../../sdd/spec/setup.md#req-setup-014-managed-repository-credential-boundary), [REQ-STOR-020](../../sdd/spec/storage.md#req-stor-020-managed-environment-reconciliation), [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission), [REQ-STOR-023](../../sdd/spec/storage.md#req-stor-023-managed-release-status-projection), [REQ-STOR-040](../../sdd/spec/storage.md#req-stor-040-managed-release-discovery-freshness), [REQ-STOR-024](../../sdd/spec/storage.md#req-stor-024-managed-release-application)
 
 **Symptom:** Setup or the dashboard reports stale, degraded, or update-pending managed curation, or a published private change does not appear.
 
-**Cause:** Stale means no GitHub freshness check succeeded inside the five-minute window. Degraded means GitHub, PAT decryption, or the deployment cache was unavailable. Update pending means a session owns the user bucket or a fresh user cannot read a verified release. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @impl: src/routes/session/lifecycle.ts::default -->
+**Cause:** Stale means no GitHub freshness check completed inside the five-minute window. Degraded means GitHub, PAT decryption, release validation, or the deployment cache was unavailable. Update pending means persisted container state still owns the user bucket, state lookup failed closed, or no compatible verified active release exists—even when an older protected release remains applied. KV status and LIST metadata alone do not decide ownership. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> <!-- @impl: src/routes/session/lifecycle.ts::app -->
 
-**Fix:** For stale state, leave the dashboard open through its next background refresh. The Worker uses ETag validation and skips only releases whose verified runtime hash differs from the deployed build; any other managed-release validation failure stops discovery. For degraded state, confirm repository access, signer identity, R2 credentials, and the exact two managed assets with GitHub SHA-256 digests. Already-applied buckets continue from their last verified compatible release. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
+**Fix:** For stale or degraded state, leave the dashboard open through later background refreshes. A background refresh validates only the latest release and caches a failed attempt for five minutes so polling remains retryable without scanning release history on the batch-status hot path. Explicit fresh-required Setup validation retains bounded compatible-history discovery. Confirm repository access, signer identity, R2 credentials, and the exact two managed assets with GitHub SHA-256 digests. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
 
-For update pending, stop every session for that user; reconciliation starts only after the bucket is idle. For a missing private change, confirm an immutable non-draft release matches the deployed runtime hash and Setup repository and signer. No hash match in the bounded scan is a discovery failure. Discovery uses dashboard refresh, not image deployment or container restart. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
+For update pending, stop every session for that user; reconciliation starts after every persisted state reaches `stopped` or `stopped_with_code`, even if eventual KV metadata still says running. If it remains pending, inspect persisted-state lookup failures before changing KV—unknown state deliberately blocks mutation. For a missing private change, confirm the latest immutable non-draft release matches the deployed runtime hash, Setup repository, and signer. Discovery uses dashboard refresh, not image deployment or container restart. <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease -->
 
 Storage remains read-only while the managed update is pending: browsing and downloads continue, while uploads and deletions report that they are blocked until the update finishes. Retry the mutation after reconciliation completes. <!-- @impl: src/lib/managed-storage-guard.ts::guardManagedStorageMutation -->
 
@@ -466,7 +466,7 @@ Switching from `exclusive` to `immutable`, or from protected mode to `mutable`, 
 
 **Cause:** Images built before the `@juicesharp/rpiv-todo` 2.0.0 pin carry 1.20.0, which uses one module-level task cell for every Pi session unless the retired [AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) override patched it. A child lifecycle replay can overwrite the foreground cell with the child's empty list.
 
-**Fix:** Redeploy an image containing [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)'s rpiv-todo 2.0.0-or-later pin (currently 2.6.0), which ships session-keyed task state upstream with no source override.
+**Fix:** Redeploy an image containing [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)'s rpiv-todo 2.0.0-or-later pin (currently 2.7.1), which ships session-keyed task state upstream with no source override.
 
 ### Pi Web Search Crashed the Session
 
@@ -553,7 +553,13 @@ These notes hold details moved out of long table cells above; the table keeps th
 
 **Fix detail:**
 
-Normal during the ~10s cold-start window. The client's retry backoff will reconnect automatically once `terminalServiceReady` flips to `true`. If 1013 persists beyond 30s: (1) check `/run/codeflare/sync/sync.log` for a stalled R2 sync (same causes as "Loading screen hangs indefinitely" above); (2) if sync looks healthy, check whether a pre-flag entrypoint step crashed under `set -euo pipefail` before `/run/codeflare/services/init-complete` was written - look for `[entrypoint] WARNING:` lines in container logs (e.g. `warm_pi_npm_dependencies` or `update_pi_when_fast_start_disabled` failure); PID 1 dying before the flag write causes an identical symptom. Fixed by PR #440 per [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition). These reconnects do NOT count against the WS rate-limit budget.
+Normal during the ~10s cold-start window. The client's retry backoff reconnects once `terminalServiceReady` is true. The route returns the same retryable code when persisted Container SDK state or readiness cannot be read safely; it never forwards on unknown state, and these reconnects do not consume the WS rate-limit budget.
+
+If 1013 persists beyond 30 seconds:
+
+1. Check Worker logs for the recorded `containerStatus`.
+2. Check `/run/codeflare/sync/sync.log` for a stalled R2 sync (the same causes as "Loading screen hangs indefinitely" above).
+3. If sync is healthy, locate the last startup log before the missing flag. Guarded warm-up warnings are non-fatal; inspect the next unguarded step. See [REQ-SESSION-015](../../sdd/spec/session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition).
 
 A container that actively **rejects** the WebSocket forward — rather than hanging — now maps onto this same retryable 1013 instead of falling through to the route's generic 500 ([REQ-TERM-022](../../sdd/spec/terminal.md#req-term-022-an-unreachable-container-ends-the-upgrade-instead-of-escaping-it)). Any handshake answered by something other than a 101 reaches the browser as 1006, which is retryable but never opens a socket, so the client's reconnect backoff stayed pinned at its 500 ms base and retried roughly once a second indefinitely. Returning a real 101 whose socket closes 1013 is what lets that backoff actually advance.
 
@@ -562,7 +568,9 @@ A container that actively **rejects** the WebSocket forward — rather than hang
 
 **Fix detail:**
 
-Self-heals within one `collectMetrics` tick (~60 s) via AC4: when the `/health` probe confirms the container is running but KV reads `stopped` and the persisted deliberate-stop marker (`shutdownRequested` DO storage key) is absent, `collectMetrics` re-asserts `running`. If the dashboard still shows stopped after ~2 min, check `wrangler tail` for `collectMetrics: container running but KV stopped, re-asserting running`; absence of that log line with presence of `collectMetrics: session stopped with shutdown in flight, leaving stopped` means `destroy()` ran a deliberate stop whose marker survived (expected — not a false-stopped case). Absence of both lines means the container genuinely stopped. See [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) AC4.
+A live terminal connection, connection attempt, or retry loop retains the session when eventually-consistent KV returns stale `stopped` metadata or temporarily omits the record; full list hydration and incremental polling use the same gate. Terminal admission ignores KV liveness and returns authoritative 4503 only when persisted Container SDK state is `stopping`, `stopped`, or `stopped_with_code`. Marker-aware `collectMetrics` repairs stale KV `stopped`/missing to `running` on a later healthy tick.
+
+Check Worker logs for `collectMetrics: container running but KV stopped, re-asserting running` and terminal admission's `containerStatus`. `session stopped with shutdown in flight, leaving stopped` means a deliberate stop owns the transition. See [REQ-SESSION-030](../../sdd/spec/session-lifecycle.md#req-session-030-negative-kv-evidence-preserves-lifecycle-owned-sessions), [REQ-SEC-020](../../sdd/spec/security.md#req-sec-020-ws-upgrade-rate-limit-short-circuits) AC1-AC4, and [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) AC4-AC6.
 
 <a id="stop-delete-loses-the-session-s-recent-edits-the-next-session-restores"></a>
 #### Stop/delete loses the session's recent edits — the next session restores stale or empty state (transcripts, credentials, config missing)

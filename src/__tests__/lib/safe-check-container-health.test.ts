@@ -32,6 +32,7 @@ describe('safeCheckContainerHealth', () => {
     const result = await safeCheckContainerHealth(mockContainer as any, 'test-container-id');
 
     expect(result.healthy).toBe(true);
+    expect(result.status).toBe('running');
     expect(result.data).toEqual(healthData);
     expect(mockContainer.getState).toHaveBeenCalledTimes(1);
     expect(mockContainer.fetch).toHaveBeenCalledTimes(1);
@@ -49,6 +50,7 @@ describe('safeCheckContainerHealth', () => {
     const result = await safeCheckContainerHealth(mockContainer as any, 'test-container-id');
 
     expect(result.healthy).toBe(true);
+    expect(result.status).toBe('healthy');
     expect(result.data).toEqual(healthData);
     expect(mockContainer.fetch).toHaveBeenCalledTimes(1);
   });
@@ -67,16 +69,16 @@ describe('safeCheckContainerHealth', () => {
     expect(mockContainer.fetch).not.toHaveBeenCalled();
   });
 
-  it('skips health check when container state is created', async () => {
+  it('skips health check when container state is stopping', async () => {
     const mockContainer = {
-      getState: vi.fn().mockResolvedValue({ status: 'created' }),
+      getState: vi.fn().mockResolvedValue({ status: 'stopping' }),
       fetch: vi.fn(),
     };
 
     const result = await safeCheckContainerHealth(mockContainer as any, 'test-container-id');
 
     expect(result.healthy).toBe(false);
-    expect(result.status).toBe('created');
+    expect(result.status).toBe('stopping');
     expect(mockContainer.fetch).not.toHaveBeenCalled();
   });
 
@@ -120,16 +122,16 @@ describe('safeCheckContainerHealth', () => {
     expect(result.error).toContain('Connection refused');
   });
 
-  it('handles unknown state value by skipping health check', async () => {
+  it('skips health check when container state stopped with an exit code', async () => {
     const mockContainer = {
-      getState: vi.fn().mockResolvedValue({ status: 'terminating' }),
+      getState: vi.fn().mockResolvedValue({ status: 'stopped_with_code', exitCode: 1 }),
       fetch: vi.fn(),
     };
 
     const result = await safeCheckContainerHealth(mockContainer as any, 'test-container-id');
 
     expect(result.healthy).toBe(false);
-    expect(result.status).toBe('terminating');
+    expect(result.status).toBe('stopped_with_code');
     expect(mockContainer.fetch).not.toHaveBeenCalled();
   });
 });

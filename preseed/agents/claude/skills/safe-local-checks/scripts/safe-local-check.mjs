@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { constants } from 'node:fs';
-import { access, readFile } from 'node:fs/promises';
+import { access, readFile, realpath } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, extname, join, parse, relative, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -94,10 +94,13 @@ async function repositoryBinary(name, cwd) {
 }
 
 async function repositoryRequire(cwd, packageName) {
-  const root = await repositoryRoot(cwd);
+  const root = await realpath(await repositoryRoot(cwd));
   try {
     const require = createRequire(join(root, 'package.json'));
-    return require(packageName);
+    const resolved = await realpath(require.resolve(packageName));
+    const rel = relative(join(root, 'node_modules'), resolved);
+    if (rel.startsWith('..') || rel === '' || parse(rel).root) throw new Error('outside repository');
+    return require(resolved);
   } catch {
     throw new Error(`repository-local ${packageName} is not installed`);
   }
@@ -105,16 +108,17 @@ async function repositoryRequire(cwd, packageName) {
 
 async function repositoryFiles(args, mode) {
   if (args.length === 0) throw new Error(`${mode} requires at least one file`);
-  const root = await repositoryRoot(process.cwd());
+  const root = await realpath(await repositoryRoot(process.cwd()));
   const files = [];
   for (const file of args) {
     const path = resolve(process.cwd(), file);
-    const rel = relative(root, path);
+    if (!(await readable(path))) throw new Error(`${file} is not readable`);
+    const resolvedPath = await realpath(path);
+    const rel = relative(root, resolvedPath);
     if (rel.startsWith('..') || rel === '' || parse(rel).root) {
       throw new Error(`${file} is outside repository ${root}`);
     }
-    if (!(await readable(path))) throw new Error(`${file} is not readable`);
-    files.push(path);
+    files.push(resolvedPath);
   }
   return { root, files };
 }
@@ -301,9 +305,9 @@ async function main() {
     return 0;
   }
   if (mode === 'syntax') {
-    if (args.length === 0) throw new Error('syntax requires at least one file');
+    const { files } = await repositoryFiles(args, 'syntax');
     const deadline = Date.now() + managedTimeout();
-    for (const file of args) {
+    for (const file of files) {
       const remaining = deadline - Date.now();
       if (remaining <= 0) return 124;
       const code = await runBounded(process.execPath, ['--check', file], remaining);

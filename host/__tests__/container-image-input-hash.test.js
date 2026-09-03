@@ -98,6 +98,7 @@ describe('deployment container image input hash', () => {
       'scripts/materialize-agent-seed.mjs',
       'scripts/patch-context-mode-bundles.mjs',
       'scripts/patch-pi-goal-review-control.mjs',
+      'scripts/patch-pi-plan-mode-tool-policy.mjs',
       'scripts/verify-pi-lockstep.mjs',
       'scripts/verify-pi-prompt.mjs',
       'scripts/pi-prompt-contract.mjs',
@@ -156,10 +157,15 @@ describe('deployment container image input hash', () => {
     const goalPatchTag = imageHashResult().tag;
     assert.notEqual(goalPatchTag, scriptTag);
 
+    write('scripts/patch-pi-plan-mode-tool-policy.mjs', 'Plan Mode policy patch change\n');
+    commit('Plan Mode patch change');
+    const planPatchTag = imageHashResult().tag;
+    assert.notEqual(planPatchTag, goalPatchTag);
+
     write('scripts/ci/prune-npm-platform-artifacts.mjs', 'pruning change\n');
     commit('pruning change');
     const pruningTag = imageHashResult().tag;
-    assert.notEqual(pruningTag, goalPatchTag);
+    assert.notEqual(pruningTag, planPatchTag);
 
     write('.github/workflows/container-image.yml', 'deployment smoke change\n');
     commit('deployment workflow change');
