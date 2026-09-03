@@ -1395,7 +1395,8 @@ jobs:
           function bump(s) {
             return s
               .replaceAll(`"${PKG}": "${CUR}"`, `"${PKG}": "${LAT}"`)
-              .replaceAll(`npm:${PKG}@${CUR}`, `npm:${PKG}@${LAT}`);
+              .replaceAll(`npm:${PKG}@${CUR}`, `npm:${PKG}@${LAT}`)
+              .replaceAll(`pkg.dependencies['${PKG}'], '${CUR}'`, `pkg.dependencies['${PKG}'], '${LAT}'`);
           }
           for (const f of [
             'preseed/agents/pi/package.json',
@@ -1417,6 +1418,11 @@ jobs:
             (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
             node scripts/patch-pi-goal-review-control.mjs \
               "$LAT" preseed/agents/pi/node_modules/@narumitw/pi-goal
+          fi
+          if [ "$PKG" = '@narumitw/pi-plan-mode' ]; then
+            (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
+            node scripts/patch-pi-plan-mode-tool-policy.mjs \
+              "$LAT" preseed/agents/pi/node_modules/@narumitw/pi-plan-mode
           fi
           npm ci --no-audit --no-fund --silent
           npm run generate:agent-seed
@@ -1453,7 +1459,7 @@ jobs:
           ## Test plan
           - [ ] CI green
           - [ ] Review the \`$PKG\` CHANGELOG - MAJOR bumps (esp. \`@gotgenes/pi-subagents\`) can change APIs
-          - [ ] For \`@narumitw/pi-goal\`, the locked candidate passed the fail-closed PR review-control source patch before this PR opened
+          - [ ] For \`@narumitw/pi-goal\` or \`@narumitw/pi-plan-mode\`, the locked candidate passed its fail-closed Codeflare source transform before this PR opened
           - [ ] Smoke test on integration: Pi loads all preseed extensions without error
           EOF
           )

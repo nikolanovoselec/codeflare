@@ -144,7 +144,7 @@ describe('Plan mode package preseed (REQ-AGENT-152)', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
     const version = pkg.dependencies['@narumitw/pi-plan-mode'];
-    assert.equal(version, '0.52.0');
+    assert.equal(version, '0.55.1');
     const planMode = lock.packages['node_modules/@narumitw/pi-plan-mode'];
     assert.equal(planMode.version, version);
     assert.equal(
@@ -153,7 +153,7 @@ describe('Plan mode package preseed (REQ-AGENT-152)', () => {
     );
     assert.equal(
       planMode.integrity,
-      'sha512-h2mye4GFa9slqP17NhInBHv2GW3pYwMY76HHENHuwrMr/dOGXRdNacxfwbJSy1njozxlcnWvgdG6a7pE8UPBiw==',
+      'sha512-fgQTkSTMOzsm7jWlISh7XqAQZQkOZh+ZVJbiZSs9W3OdmxWCgwKR92XESHejuwIuJm5s6PDWa6T1MHK6D/qZeQ==',
     );
     assert.deepEqual(planMode.peerDependencies, {
       '@earendil-works/pi-coding-agent': '*',
@@ -165,7 +165,13 @@ describe('Plan mode package preseed (REQ-AGENT-152)', () => {
 describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
   it('pins the reviewed upstream release and retains no source-override machinery', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
-    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.6.0');
+    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
+    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.7.1');
+    assert.equal(lock.packages['node_modules/@juicesharp/rpiv-todo'].version, '2.7.1');
+    assert.equal(
+      lock.packages['node_modules/@juicesharp/rpiv-todo'].integrity,
+      'sha512-5SCPe1Z2ofgiK805fYm5dGott6XA8zlDMeQHADq50S2UFjH1EuXpTnSmx+X8JUPMIzyRnBY3gVltz525oWH52Q==',
+    );
     assert.equal(pkg.scripts?.postinstall, undefined);
     assert.ok(!existsSync(resolve(__dirname, '../../preseed/agents/pi/npm/rpiv-todo-session-isolation')));
   });

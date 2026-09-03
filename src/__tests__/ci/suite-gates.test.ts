@@ -918,14 +918,23 @@ esac
     writeFileSync(join(piDirectory, 'package.json'), `${JSON.stringify({
       dependencies: {
         'context-mode': '1.0.0',
+        '@juicesharp/rpiv-todo': '2.6.0',
         'pi-caveman': '1.0.8',
         'pi-web-access': '0.18.0',
       },
     }, null, 2)}\n`);
-    writeFileSync(join(fixture, 'entrypoint.sh'), "required='npm:pi-caveman@1.0.8'\n");
+    writeFileSync(join(fixture, 'entrypoint.sh'), [
+      "required='npm:pi-caveman@1.0.8'",
+      "todo='npm:@juicesharp/rpiv-todo@2.6.0'",
+      '',
+    ].join('\n'));
     writeFileSync(
       join(hostTests, 'pi-settings-packages.test.js'),
-      "assert.equal(spec, 'npm:pi-caveman@1.0.8');\n",
+      [
+        "assert.equal(spec, 'npm:pi-caveman@1.0.8');",
+        "assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.6.0');",
+        '',
+      ].join('\n'),
     );
 
     const discover = workflow.jobs['pi-extensions-discover'].steps?.find(
@@ -939,6 +948,7 @@ esac
     });
     expect(discovered.status, discovered.stderr).toBe(0);
     expect(JSON.parse(readFileSync(output, 'utf8').trim().slice('packages='.length))).toEqual([
+      '@juicesharp/rpiv-todo',
       'pi-caveman',
       'pi-web-access',
     ]);
@@ -955,6 +965,16 @@ esac
     expect(JSON.parse(readFileSync(join(piDirectory, 'package.json'), 'utf8')).dependencies['pi-caveman']).toBe('1.0.9');
     expect(readFileSync(join(fixture, 'entrypoint.sh'), 'utf8')).toContain('npm:pi-caveman@1.0.9');
     expect(readFileSync(join(hostTests, 'pi-settings-packages.test.js'), 'utf8')).toContain('npm:pi-caveman@1.0.9');
+
+    const todoApplied = spawnSync(process.execPath, ['-e', updater ?? ''], {
+      cwd: fixture,
+      encoding: 'utf8',
+      env: { ...process.env, PKG: '@juicesharp/rpiv-todo', CUR: '2.6.0', LAT: '2.7.1' },
+    });
+    expect(todoApplied.status, todoApplied.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(join(piDirectory, 'package.json'), 'utf8')).dependencies['@juicesharp/rpiv-todo']).toBe('2.7.1');
+    expect(readFileSync(join(fixture, 'entrypoint.sh'), 'utf8')).toContain('npm:@juicesharp/rpiv-todo@2.7.1');
+    expect(readFileSync(join(hostTests, 'pi-settings-packages.test.js'), 'utf8')).toContain("pkg.dependencies['@juicesharp/rpiv-todo'], '2.7.1'");
   });
 
   it('REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch', () => {
@@ -966,6 +986,16 @@ esac
     expect(apply).toContain('(cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)');
     expect(apply).toContain('node scripts/patch-pi-goal-review-control.mjs');
     expect(apply).toContain('"$LAT" preseed/agents/pi/node_modules/@narumitw/pi-goal');
+  });
+
+  it('REQ-AGENT-152: Plan Mode shadow bumps preflight the locked tool-policy patch', () => {
+    const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
+      jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
+    };
+    const apply = workflow.jobs['pi-extensions'].steps?.find((step) => step.name === 'Apply bump')?.run ?? '';
+    expect(apply).toContain("if [ \"$PKG\" = '@narumitw/pi-plan-mode' ]; then");
+    expect(apply).toContain('node scripts/patch-pi-plan-mode-tool-policy.mjs');
+    expect(apply).toContain('"$LAT" preseed/agents/pi/node_modules/@narumitw/pi-plan-mode');
   });
 
   it('executes the configured workflow step through the updater boundary', () => {

@@ -24,6 +24,12 @@ import {
   patchPiGoalSettingsSource,
   patchPiGoalSource,
 } from '../../scripts/patch-pi-goal-review-control.mjs';
+import {
+  EXPECTED_PI_PLAN_MODE_VERSION,
+  REGISTERED_HELPERS_MARKER,
+  REGISTERED_POLICY_MARKER,
+  patchPiPlanModeDirectory,
+} from '../../scripts/patch-pi-plan-mode-tool-policy.mjs';
 
 const fixtureCommandsSource = `export class GoalCommandController {
 \tconstructor(runtime) {
@@ -619,8 +625,8 @@ function readFixturePackage(root, sessionSourceName = 'lifecycle') {
 const FIXTURES_DIRECTORY = join(dirname(fileURLToPath(import.meta.url)), '..', '__fixtures__');
 const PINNED_PACKAGE_ARCHIVE = join(FIXTURES_DIRECTORY, 'pi-goal-0.54.2.tgz');
 const PINNED_PACKAGE_INTEGRITY = 'sha512-RbrArj7OoP/6FGMZ+yBtKiRyz1r1PjTFdPJv+23MhoGxsyNB6suJk8VDni9jOk6lS5lwsJhaj/S1s1AT8urtnw==';
-const PINNED_PLAN_ARCHIVE = join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.52.0.tgz');
-const PINNED_PLAN_INTEGRITY = 'sha512-h2mye4GFa9slqP17NhInBHv2GW3pYwMY76HHENHuwrMr/dOGXRdNacxfwbJSy1njozxlcnWvgdG6a7pE8UPBiw==';
+const PINNED_PLAN_ARCHIVE = join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.55.1.tgz');
+const PINNED_PLAN_INTEGRITY = 'sha512-fgQTkSTMOzsm7jWlISh7XqAQZQkOZh+ZVJbiZSs9W3OdmxWCgwKR92XESHejuwIuJm5s6PDWa6T1MHK6D/qZeQ==';
 
 function extractPackage(archivePath, integrity, root) {
   const archive = readFileSync(archivePath);
@@ -759,6 +765,14 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     extractPinnedFixturePackage(goalRoot);
     extractPackage(PINNED_PLAN_ARCHIVE, PINNED_PLAN_INTEGRITY, planRoot);
     patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, goalRoot);
+    patchPiPlanModeDirectory(EXPECTED_PI_PLAN_MODE_VERSION, planRoot);
+    const patchedPlan = readFileSync(join(planRoot, 'dist/index.ts'), 'utf8');
+    patchPiPlanModeDirectory(EXPECTED_PI_PLAN_MODE_VERSION, planRoot);
+    assert.equal(readFileSync(join(planRoot, 'dist/index.ts'), 'utf8'), patchedPlan);
+    assert.throws(
+      () => patchPiPlanModeDirectory('0.55.2', planRoot),
+      /Unsupported Plan Mode version/,
+    );
     const goalManifest = JSON.parse(readFileSync(join(goalRoot, 'package.json'), 'utf8'));
     assert.deepEqual(goalManifest.pi?.extensions, ['./src/index.ts']);
     const goalExtension = await bundleFixture(join(goalRoot, goalManifest.pi.extensions[0]), join(goalRoot, 'goal.mjs'));
@@ -778,8 +792,12 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.match(harness.notifications.at(-1).message, /Another workflow is active/);
 
     await harness.commands.get('goal').handler('clear', harness.ctx);
+    harness.api.setActiveTools(['read']);
     await harness.commands.get('plan').handler('start', harness.ctx);
-    assert.ok(harness.activeTools().includes('plan_mode_complete'));
+    assert.equal(harness.entries.at(-1)?.customType, 'plan-mode-state');
+    assert.equal(harness.entries.at(-1)?.data?.enabled, true);
+    assert.ok(readFileSync(join(planRoot, 'dist/index.ts'), 'utf8').includes(REGISTERED_HELPERS_MARKER));
+    assert.ok(readFileSync(join(planRoot, 'dist/index.ts'), 'utf8').includes(REGISTERED_POLICY_MARKER));
     await harness.commands.get('plan').handler('exit', harness.ctx);
     harness.api.setActiveTools(['goal_complete', 'goal_blocked']);
     await harness.commands.get('goal').handler('second integration objective', harness.ctx);

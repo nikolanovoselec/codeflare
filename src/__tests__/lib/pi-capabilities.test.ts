@@ -253,6 +253,46 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
     expect(pi.getActiveTools()).toEqual(['read', 'bash', 'goal_complete', 'goal_blocked']);
   });
 
+  it('REQ-AGENT-152/158: preserves only a restored Plan workflow policy plus required helpers', () => {
+    const base = fakePi({
+      tools: [
+        { name: 'read', description: 'Read files' },
+        { name: 'bash', description: 'Run shell commands' },
+        { name: 'edit', description: 'Edit files' },
+        { name: 'graphify_query', description: 'Query graph' },
+        { name: 'plan_mode_question', description: 'Ask a Plan question' },
+        { name: 'plan_mode_complete', description: 'Complete a Plan' },
+      ],
+    });
+    const handlers = new Map<string, (event: unknown, ctx: CapabilitySessionContext) => void>();
+    const pi = {
+      ...base,
+      registerTool() {},
+      on(event: string, handler: (event: unknown, ctx: CapabilitySessionContext) => void) {
+        handlers.set(event, handler);
+      },
+    };
+    toolExposureFinalizer(pi, () => 'after-first-goal');
+    const ctx = {
+      sessionManager: {
+        getBranch: () => [{
+          type: 'custom',
+          customType: 'plan-mode-state',
+          data: {
+            enabled: true,
+            workflowToolPolicy: { allowedNames: ['read', 'graphify_query'], resolved: true },
+          },
+        }],
+      },
+    };
+
+    handlers.get('before_agent_start')?.({}, ctx);
+
+    expect(pi.getActiveTools()).toEqual([
+      'read', 'graphify_query', 'plan_mode_question', 'plan_mode_complete',
+    ]);
+  });
+
   it('searches registered inactive tools by name and description', () => {
     const pi = fakePi();
     const matches = searchCapabilities({
