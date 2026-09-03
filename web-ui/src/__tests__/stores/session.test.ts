@@ -657,6 +657,22 @@ describe('Session Store', () => {
       expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: true, include: ['storage', 'usage'] });
     });
 
+    it('REQ-STOR-023 AC3: retries the managed-release check after the initial batch request fails', async () => {
+      mockGetBatchSessionStatus.mockRejectedValueOnce(new Error('batch-status unavailable'));
+      await sessionStore.loadSessions();
+
+      mockGetBatchSessionStatus.mockResolvedValueOnce({
+        statuses: {},
+        maxSessions: 3,
+        managedReleaseStatus: 'update_pending',
+      } as never);
+      await sessionStore.refreshSessionStatuses();
+
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(1, { includePreseedCheck: true, include: ['storage', 'usage'] });
+      expect(mockGetBatchSessionStatus).toHaveBeenNthCalledWith(2, { includePreseedCheck: true, include: ['storage', 'usage'] });
+      expect(sessionStore.managedReleaseStatus).toBe('update_pending');
+    });
+
     it('REQ-STOR-023 AC3: an overlapping poll does not duplicate the managed-release check', async () => {
       // A transient status is checked on every poll, so this isolates the in-flight guard
       // from the freshness window and from any stamp an earlier test left behind.
@@ -1693,8 +1709,9 @@ describe('Session Store', () => {
 
       await sessionStore.loadSessions();
 
-      // Sessions should still load (graceful degradation)
-      expect(sessionStore.sessions.length).toBe(1);
+      // The fetched session still loads even when a locally initializing session
+      // is retained across the successful list response.
+      expect(sessionStore.sessions.some((session) => session.id === 'session-1')).toBe(true);
       // Error state should be set
       expect(sessionStore.error).toBe('Batch status network error');
     });

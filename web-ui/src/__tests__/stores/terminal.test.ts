@@ -1609,7 +1609,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
     it('stops retrying on 4503, releases ownership, and reports the authoritative stop', async () => {
       const terminal = createMockTerminal();
       const onSessionStopped = vi.fn();
-      registerProcessNameCallback(() => {}, onSessionStopped);
+      terminalStore.registerSessionStoppedCallback(onSessionStopped);
       const OriginalWebSocket = globalThis.WebSocket;
       let connectCount = 0;
 
@@ -1658,7 +1658,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       expect(terminalStore.ownsSession(sessionId)).toBe(false);
       expect(onSessionStopped).toHaveBeenCalledWith(sessionId);
 
-      registerProcessNameCallback(() => {}, () => {});
+      terminalStore.registerSessionStoppedCallback(() => {});
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 

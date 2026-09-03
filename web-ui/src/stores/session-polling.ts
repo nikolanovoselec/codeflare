@@ -179,8 +179,7 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
     // Transient states keep the full poll cadence so convergence stays visible.
     const now = Date.now();
     const includePreseedCheck = forceManagedReleaseCheck
-      || (state.managedReleaseStatus !== null
-        && managedChecksInFlight === 0
+      || (managedChecksInFlight === 0
         && (state.managedReleaseStatus !== 'current'
           || now - lastManagedCheckAt >= MANAGED_RELEASE_CHECK_INTERVAL_MS));
     const batchResponse = await fetchBatchSessionStatus(includePreseedCheck);

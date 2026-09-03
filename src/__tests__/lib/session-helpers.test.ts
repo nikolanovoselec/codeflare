@@ -1,6 +1,46 @@
-import { describe, it, expect } from 'vitest';
-import { toApiSession } from '../../lib/session-helpers';
-import type { Session } from '../../types';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { createMockKV } from '../helpers/mock-kv';
+import { toApiSession, hasOwningSessionContainer } from '../../lib/session-helpers';
+import type { Env, Session } from '../../types';
+
+const getState = vi.hoisted(() => vi.fn());
+vi.mock('@cloudflare/containers', () => ({
+  getContainer: vi.fn(() => ({ getState })),
+}));
+
+describe('hasOwningSessionContainer', () => {
+  beforeEach(() => {
+    getState.mockReset();
+  });
+
+  function envWith(kv: ReturnType<typeof createMockKV>): Pick<Env, 'KV' | 'CONTAINER'> {
+    return { KV: kv, CONTAINER: {} as DurableObjectNamespace };
+  }
+
+  it('allows reconciliation when stale running metadata points to persisted stopped state', async () => {
+    const kv = createMockKV();
+    kv._set('session:test-bucket:stale1234', { id: 'stale1234', status: 'stopped' }, { s: 'r' });
+    getState.mockResolvedValue({ status: 'stopped' });
+
+    await expect(hasOwningSessionContainer(envWith(kv), 'test-bucket')).resolves.toBe(false);
+  });
+
+  it('blocks reconciliation when stale stopped metadata hides persisted running state', async () => {
+    const kv = createMockKV();
+    kv._set('session:test-bucket:live12345', { id: 'live12345', status: 'stopped' }, { s: 's' });
+    getState.mockResolvedValue({ status: 'running' });
+
+    await expect(hasOwningSessionContainer(envWith(kv), 'test-bucket')).resolves.toBe(true);
+  });
+
+  it('fails closed when persisted container state is unavailable', async () => {
+    const kv = createMockKV();
+    kv._set('session:test-bucket:unknown12', { id: 'unknown12', status: 'stopped' }, { s: 's' });
+    getState.mockRejectedValue(new Error('state unavailable'));
+
+    await expect(hasOwningSessionContainer(envWith(kv), 'test-bucket')).resolves.toBe(true);
+  });
+});
 
 describe('toApiSession', () => {
   const fullSession: Session = {

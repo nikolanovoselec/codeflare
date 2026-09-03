@@ -409,7 +409,7 @@ describe('handleWebSocketUpgrade', () => {
     });
   });
 
-  describe('CF-015 / REQ-SESSION-018 AC7: Container state owns terminal admission', () => {
+  describe('CF-015 / REQ-SEC-020 AC1-AC4: Container state owns terminal admission', () => {
     const requestFor = (sessionId: string) => new Request(`http://localhost/api/terminal/${sessionId}-1/ws`, {
       headers: { 'Upgrade': 'websocket', 'Origin': 'http://localhost' },
     });
@@ -539,7 +539,7 @@ describe('handleWebSocketUpgrade', () => {
     });
   });
 
-  describe('container-warming-up gate (PR #365) / REQ-SEC-020 AC2 (1013 close BEFORE WS rate-limit while readiness is unverified)', () => {
+  describe('container-warming-up gate (PR #365) / REQ-SEC-020 AC3 (1013 close BEFORE WS rate-limit while readiness is unverified)', () => {
     it('returns 1013 close without burning rate-limit when /health reports terminalServiceReady=false', async () => {
       // PR #364 regression: port 8080 binds at ~1.5s but .bashrc autostart
       // isn't written until ~10s. Worker peeks /health and short-circuits

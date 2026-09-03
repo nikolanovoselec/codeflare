@@ -165,7 +165,7 @@ describe('Container Lifecycle Routes', () => {
       });
       expect((await mockKV.get(key, 'json') as Session).status).toBeUndefined();
       const listed = await mockKV.list({ prefix: key });
-      expect(listed.keys[0]?.metadata).toMatchObject({ s: 's' });
+      expect(listed.keys[0]?.metadata).toBeNull();
     });
 
     it('returns already_running when container is healthy with correct bucket', async () => {

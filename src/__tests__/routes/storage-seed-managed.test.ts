@@ -18,12 +18,22 @@ const state = vi.hoisted(() => ({
   cached: null as VerifiedManagedReleaseContent | null,
   cachedByDigest: new Map<string, VerifiedManagedReleaseContent>(),
   resourcePolicy: 'mutable' as 'mutable' | 'immutable' | 'exclusive',
+  containerStatus: 'running',
+  containerError: null as Error | null,
 }));
 const reconcile = vi.hoisted(() => vi.fn(async () => ({ written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined as string | undefined })));
 const reseedContext = vi.hoisted(() => vi.fn(async () => ({ written: [], skipped: [] })));
 const createBucket = vi.hoisted(() => vi.fn(async () => ({ success: true, created: false })));
 const fetchR2 = vi.hoisted(() => vi.fn(async () => new Response('', { status: 200 })));
 
+vi.mock('@cloudflare/containers', () => ({
+  getContainer: vi.fn(() => ({
+    getState: vi.fn(async () => {
+      if (state.containerError) throw state.containerError;
+      return { status: state.containerStatus };
+    }),
+  })),
+}));
 vi.mock('../../lib/managed-release-active', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/managed-release-active')>()),
   getActiveVerifiedManagedRelease: vi.fn(async () => {
@@ -119,6 +129,8 @@ describe('managed storage reconcile', () => {
     state.cached = null;
     state.cachedByDigest.clear();
     state.resourcePolicy = 'mutable';
+    state.containerStatus = 'running';
+    state.containerError = null;
     fetchR2.mockClear();
   });
 
@@ -259,6 +271,18 @@ describe('managed storage reconcile', () => {
     expect(body.code).toBe('MANAGED_ENVIRONMENT_UPDATE_PENDING');
     expect(createBucket).not.toHaveBeenCalled();
     expect(reconcile).not.toHaveBeenCalled();
+  });
+
+  it('retries automatic reconciliation when stale running metadata points to persisted stopped state', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+    kv._set('session:user-bucket:stale12345678', { id: 'stale12345678', status: 'stopped' }, { s: 'r' });
+    state.containerStatus = 'stopped';
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+
+    expect(response.status).toBe(200);
+    expect(reconcile).toHaveBeenCalledTimes(1);
   });
 
   it('does not substitute baked content when enabled curation has no verified active release', async () => {

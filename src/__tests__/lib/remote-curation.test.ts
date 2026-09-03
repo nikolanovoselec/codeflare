@@ -627,6 +627,48 @@ describe('managed release resolver', () => {
     expect(historyUrls.at(-1)).toContain('page=10');
   });
 
+  it('REQ-STOR-023 AC3: status refresh bounds incompatible discovery to latest and caches the failed attempt', async () => {
+    const fixture = await signedFixture(release({ runtimeDependencyHash: 'd'.repeat(64) }));
+    const kv = createMockKV();
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(latestReleaseResponse({
+        bundleDigest: await sha256(fixture.compressed),
+        signatureDigest: await sha256(fixture.signature),
+      }))
+      .mockResolvedValueOnce(new Response(fixture.compressed, { status: 200 }))
+      .mockResolvedValueOnce(new Response(fixture.signature, { status: 200 }));
+
+    const first = await resolveManagedEnvironmentRelease({
+      kv: kv as unknown as KVNamespace,
+      stateKey: 'state',
+      cache: resolverCache().cache,
+      repository: 'acme/curation',
+      repositoryId: 123456,
+      token: 'secret-pat',
+      publicKeyHex: fixture.publicKeyHex,
+      expectedRuntimeHash: 'c'.repeat(64),
+      fetcher,
+      now: new Date('2026-08-18T00:00:00.000Z'),
+    });
+    const second = await resolveManagedEnvironmentRelease({
+      kv: kv as unknown as KVNamespace,
+      stateKey: 'state',
+      cache: resolverCache().cache,
+      repository: 'acme/curation',
+      repositoryId: 123456,
+      token: 'secret-pat',
+      publicKeyHex: fixture.publicKeyHex,
+      expectedRuntimeHash: 'c'.repeat(64),
+      fetcher,
+      now: new Date('2026-08-18T00:04:59.000Z'),
+    });
+
+    expect(first).toMatchObject({ freshness: 'degraded', lastCheckedAt: '2026-08-18T00:00:00.000Z' });
+    expect(second).toEqual(first);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher.mock.calls.some(([request]) => (request as Request).url.includes('/releases?'))).toBe(false);
+  });
+
   it('uses a complete verified cache without GitHub I/O inside the five-minute freshness window', async () => {
     const active: ActiveManagedRelease = {
       schemaVersion: 1,
