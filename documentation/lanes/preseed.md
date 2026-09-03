@@ -445,20 +445,18 @@ than automatic extraction; ownership, coupling, state, reuse, testability, and m
 decide whether structure moves. Stable one-offs may remain local, and the selected design
 owner retains visual direction.
 
-`engineering-constitution` is advanced-only. It carries the four engineering
-mandates plus the work-continuity rule, plan gate, and done gate
+`engineering-constitution` is advanced-only. It keeps four shared invariants compact:
+minimum necessary change, behavioral tests, deliberately owned composable components,
+and SDD/TDD traceability
 ([REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents)).
-Work continuity queues new messages until the active concrete step reaches a safe
-stopping point unless the user says to stop, pause, or reprioritize.
+It also keeps task continuity and cross-cutting review safety, without forcing plans or
+completion messages to repeat a fixed checklist.
 
-The stricter PR-boundary review push gate is present in default+advanced
-`git-workflow` and repeated in advanced `engineering-constitution`, so generated
-agent instructions receive it through [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth) AC6 and advanced sessions also receive the constitution copy through [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents). Source: `preseed/agents/claude/rules/git-workflow.md::Review push gate` and `preseed/agents/claude/rules/engineering-constitution.md::Review push gate`.
-ECC-derived language rules in `{typescript,python,golang,swift}/` subdirs
-are advanced-only. Each `coding-style.md` extends the constitution's "Coding
-concretes" section directly, the common coding-style rule having been absorbed there
-on 2026-07-25; per-language `security.md` files stand alone after
-the common security rule's removal.
+Default+advanced `git-workflow` owns detailed PR-boundary mechanics. The advanced
+constitution does not repeat launch, monitoring, recovery, or acknowledgement procedures;
+it only prohibits pushes without current required review and deployments without green CI.
+ECC-derived language rules in `{typescript,python,golang,swift}/` subdirs remain
+advanced-only and carry language-specific coding and security guidance.
 
 **Known marketplaces**: `plugins/known_marketplaces.json` preseeds
 the official Anthropic plugin marketplace URL for user discovery.
@@ -725,7 +723,7 @@ Pi-native review and CI assets are seeded with explicit ownership:
 | `preseed/agents/pi/agents/ci-monitor.md` | default, advanced | `~/.pi/agent/agents/ci-monitor.md` | Dedicated report-only CI subagent |
 | `preseed/agents/pi/skills/pr-workflow/SKILL.md` | default, advanced | `~/.pi/agent/skills/pr-workflow/SKILL.md` | PR creation procedure |
 | `preseed/agents/pi/skills/git-review-pipeline/SKILL.md` | advanced | `~/.pi/agent/skills/git-review-pipeline/SKILL.md` | Session-scoped review procedure |
-| `preseed/agents/pi/rules/engineering-constitution.md` | default, advanced | `~/.pi/agent/rules/engineering-constitution.md` | Compact Pi planning, TDD/SDD, capability, and review gates |
+| `preseed/agents/pi/rules/engineering-constitution.md` | advanced | `~/.pi/agent/rules/engineering-constitution.md` | Compact shared engineering invariants and Pi review/CI safety |
 | `preseed/agents/pi/extensions/capability.ts` + `capability-helpers.ts` + `zz-tool-exposure-finalizer.ts` | default, advanced | `~/.pi/agent/extensions/` | Registered-tool search, additive activation, and post-registration bootstrap filtering through Pi's public API |
 | `preseed/agents/pi/skills/review-scope/SKILL.md` | advanced | `~/.pi/agent/skills/review-scope/SKILL.md` | Shared `diff`/`all` scope resolver |
 | `preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs` (reaches Pi through the seed transform) | advanced | `~/.pi/agent/skills/review-scope/scripts/build-review-packet.mjs` | Ancestry-validated lane file/hunk packet builder |
@@ -832,11 +830,10 @@ path-scoped canonical rules become five grouped native skills, rules already own
 canonical skill are not duplicated, and long-form environment/coding/Graphify/build principles
 are condensed into the Pi-native constitution.
 
-The Pi-native Git/constitution adaptations retain Pi-only event mechanics. Shared review mechanics live once in the Git workflow while the
-constitution retains its push, CI-result, and non-blocking gates. The review push
-gate remains in that generated Pi instruction surface: do not push while a PR-boundary review is running, pending, missing, stale, or otherwise
-incomplete for the current head unless the user explicitly authorizes it. Implements
-[REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
+The Pi-native constitution keeps the shared invariants compact and retains only Pi's
+CI-result handoff. Git workflow owns boundary event mechanics, launch order, triage, and
+FIX sequencing. Both rules remain in the generated advanced Pi instruction surface.
+Implements [REQ-AGENT-006](../../sdd/spec/agents.md#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 AC7 and [REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents).
 
 `scripts/measure-seed-tokens.mjs` reports managed seed text; after materialization,

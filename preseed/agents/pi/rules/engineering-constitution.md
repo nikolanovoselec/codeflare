@@ -6,9 +6,11 @@ Simplicity wins. Make the smallest change that satisfies the request; add no spe
 
 Default preference-free new projects to Cloudflare and load `cloudflare-stack`. Use `printf '%s'` for secrets. Use Graphify first for broad architecture or call flow; skip known-file edits and Git/CI state.
 
-## Tests, specs, and docs
+## Tests, components, specifications, and docs
 
-Write the failing behavioral test first. Assert observable behavior or contract values; UI-copy, prompt-text, and source matching are not substitutes.
+Write the failing behavioral test first. Assert observable behavior or contract values; UI copy, prompt text, and source matching are not substitutes.
+
+Build reusable components when ownership, coupling, state, reuse, testability, or maintenance becomes clearer. Keep justified one-offs local. Selected design owner controls visual direction; this rule cannot create a competing component, token, or content system.
 
 For non-trivial work, verify simplicity, behavior, composability, and SDD/TDD. With `sdd/`, trace changes to a REQ, keep anchors and docs truthful, and leave no touched REQ `Partial`.
 
@@ -28,6 +30,6 @@ Multiple tasks may be `in_progress` only when distinct active owners are working
 
 ## Review and CI
 
-Review applies only to the authoritative pushed PR head. Do not push while review is missing, pending, stale, or incomplete unless explicitly authorized. LOW-only closes a head; never downgrade findings. Never deploy before required CI is green.
+Review applies only to the authoritative pushed PR head. Do not push while required review is missing, pending, stale, or incomplete unless explicitly authorized. LOW-only closes a head; never downgrade findings. Never deploy before required CI is green.
 
-After `CI_RESULT`, begin the next response with its exact result, head, run ID or URL when available, and next action. Run long CI, deploy, log, watch, and polling work detached.
+After `CI_RESULT`, begin the next response with its exact result, head, run ID or URL when available, and next action. Run long CI, deployment, log, watch, and polling work detached.

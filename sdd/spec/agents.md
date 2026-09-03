@@ -2651,21 +2651,24 @@ None.
 
 ### REQ-AGENT-065: Engineering Constitution Preseeded to All Agents
 
-**Intent:** One always-on engineering constitution is hardwired into every preseed-managed agent so its four mandates are applied to all planning and coding without being restated each task: (1) no overengineering, (2) behavioral tests only — no theater or text-matching, (3) deliberately owned reusable/composable components and best practices, (4) SDD + TDD enforced (failing behavioral test first, every change traces to a REQ, specs/anchors/docs move with the code, nothing left `Partial`). It also imposes a **plan gate** (every plan must restate the four mandates as concrete success criteria) and a **done gate** (confirm them before declaring work complete). The preseed is the single source of truth; each per-user copy is a downstream seed artifact.
+**Intent:** Advanced sessions receive a compact engineering constitution that keeps four invariants visible without duplicating their specialist owners: minimum necessary change, behavioral tests, deliberately owned composable components, and SDD/TDD traceability. Each runtime keeps only the small adaptation its execution model needs.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. In advanced session mode, the constitution is seeded as a Claude rule — the preseed rule file is present and the seed manifest gates it to `advanced` only, matching the other engineering rules ([REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline)). <!-- @manual -->
-2. Pi receives one compact native constitution rule in both session modes, with the shared four mandates aligned to the Claude canon and Pi-only review/CI mechanics owned by that native adaptation rather than a duplicate per-turn injection. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
-3. The component mandate treats repetition as review evidence rather than a numeric extraction law, keeps justified one-offs local, and leaves visual direction with the selected design owner. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::The four mandates --> <!-- @manual: Compare the constitution with the frontend-components extraction and token boundaries. -->
+1. Advanced seed compilation projects the canonical Claude constitution to every supported non-Pi instruction surface. <!-- @impl: preseed/agents/claude/manifest.json::rules/engineering-constitution.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
+2. Default mode receives no constitution document. <!-- @impl: preseed/agents/claude/manifest.json::rules/engineering-constitution.md --> <!-- @impl: preseed/agents/pi/manifest.json::rules/engineering-constitution.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
+3. Advanced Pi sessions receive one compact native constitution with the shared four invariants aligned to the Claude canon. <!-- @impl: preseed/agents/pi/manifest.json::rules/engineering-constitution.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
+4. The component invariant uses ownership, coupling, state, reuse, testability, and maintenance as extraction evidence, keeps justified one-offs local, and leaves visual direction with the selected design owner. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Tests, components, specifications, and docs --> <!-- @impl: preseed/agents/pi/rules/engineering-constitution.md::Tests, components, specifications, and docs --> <!-- @manual -->
+5. Git/review rules and runtime extensions own detailed workflow mechanics; the constitution keeps only cross-cutting review and CI safety. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Review and CI --> <!-- @impl: preseed/agents/pi/rules/engineering-constitution.md::Review and CI --> <!-- @manual -->
+6. Non-trivial work verifies simplicity, behavior, composability, and SDD/TDD without requiring every plan or completion message to restate a fixed checklist. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Tests, components, specifications, and docs --> <!-- @impl: preseed/agents/pi/rules/engineering-constitution.md::Tests, components, specifications, and docs --> <!-- @manual -->
 
 **Constraints:**
 
-- The preseed is the single source of truth; the per-user `~/.claude/rules/engineering-constitution.md` is a downstream seed artifact, not separately authored.
-- The Claude rule and the Pi `<codeflare_constitution>` block carry the same four mandates and must be kept in sync.
-- Mode parity with the other engineering rules (advanced session mode); content correctness is prose and is intentionally not pinned by tests (mandate #2).
+- Claude and Pi preseed rules are the authored sources; per-user files and transformed runtime instructions are downstream seed artifacts.
+- Both constitution sources are advanced-only and keep the four invariants aligned.
+- Content correctness is prose and is intentionally not pinned by source-text, wording, or snapshot tests.
 
 **Priority:** P1
 
