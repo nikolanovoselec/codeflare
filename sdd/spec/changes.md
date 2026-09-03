@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-02
 
+- **Committed runtime locks reject vulnerable fast-uri releases** ([REQ-OPS-054](operations.md#req-ops-054-committed-npm-runtime-lock-integrity) AC3 added; remains Implemented). Browser Run MCP, shared npm tools, and Pi now resolve fast-uri 3.1.6 or later alongside the existing reviewed security floors.
+
 - **Safe local checks remain inside their repository boundary** ([REQ-AGENT-052](agents.md#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening) AC7 added; remains Implemented). Checked paths are resolved canonically, so direct outside paths and in-repository symlinks targeting outside files are rejected before supplemental parsing or syntax checks.
 
 - **Pi Goal retains lazy first-turn tool exposure after the 0.54.2 upgrade** ([REQ-AGENT-111](agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC5 amended and AC7 added; remains Implemented). Fresh lazy sessions expose only the five bootstrap tools, unfinished Goals and configured `always` policy retain terminal Goal tools, and explicit `/goal` activation reveals the exact registered Goal tool set through the version-locked image transform.
