@@ -4,6 +4,7 @@ import type { Env } from '../../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
 import {
   queryAdminUsageRows,
+  queryAdminUsageSeries,
   queryAdminUsageSummary,
   queryAdminUsageUser,
   type AdminUsageRow,
@@ -14,6 +15,7 @@ import {
 const periods = ['day', 'week', 'month', 'year'] as const;
 const sorts = ['runtimeSeconds', 'sessionCount', 'email'] as const;
 const directions = ['asc', 'desc'] as const;
+const seriesLimits: Record<UsagePeriod, number> = { day: 14, week: 12, month: 12, year: 5 };
 
 const querySchema = z.object({
   period: z.enum(periods),
@@ -101,7 +103,7 @@ app.get('/', requireAdmin, async (c) => {
     }
   }
 
-  const rows = await queryAdminUsageRows(c.env.USAGE_DB, {
+  const rowsPromise = queryAdminUsageRows(c.env.USAGE_DB, {
     period: query.period,
     start: query.start,
     sort: query.sort,
@@ -110,7 +112,7 @@ app.get('/', requireAdmin, async (c) => {
     ...(cursor && { continuation: { lastValue: cursor.lastValue, userKey: cursor.userKey } }),
   });
   if (query.format === 'csv') {
-    return new Response(usageCsv(rows), {
+    return new Response(usageCsv(await rowsPromise), {
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="codeflare-usage-${query.period}-${query.start}.csv"`,
@@ -118,10 +120,14 @@ app.get('/', requireAdmin, async (c) => {
     });
   }
 
+  const [rows, summary, series] = await Promise.all([
+    rowsPromise,
+    queryAdminUsageSummary(c.env.USAGE_DB, query.period, query.start),
+    queryAdminUsageSeries(c.env.USAGE_DB, query.period, query.start, seriesLimits[query.period]),
+  ]);
   const hasMore = rows.length > query.limit;
   const users = rows.slice(0, query.limit);
   const last = users.at(-1);
-  const summary = await queryAdminUsageSummary(c.env.USAGE_DB, query.period, query.start);
   return c.json({
     period: query.period,
     start: query.start,
@@ -135,6 +141,7 @@ app.get('/', requireAdmin, async (c) => {
     },
     dataSince: summary.data_since,
     historyUpdatedAt: summary.history_updated_at,
+    series,
     users,
     nextCursor: hasMore && last ? encodeCursor({
       v: 1,

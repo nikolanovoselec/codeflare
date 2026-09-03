@@ -38,22 +38,15 @@ const AdministrationOverview: Component = () => {
 
       <div class="admin-overview-grid">
         <section class="admin-panel">
-          <div class="admin-panel-heading">
-            <div>
-              <h2>Environment settings</h2>
-              <p>Persisted values and effective sources.</p>
-            </div>
-            <A href="/admin/environment">Open Environment</A>
-          </div>
           <div class="admin-area-list admin-area-list-compact">
             <For each={areas.slice(0, 6)}>{(area) => (
-              <div class="admin-area-row">
+              <A class="admin-area-row admin-area-link" href={`/admin/environment/${area.section}`}>
                 <div>
                   <strong>{area.label}</strong>
                   <span>{area.summary}</span>
                 </div>
                 <span class={`admin-status admin-status-${area.status.toLowerCase().replace(' ', '-')}`}>{area.status}</span>
-              </div>
+              </A>
             )}</For>
           </div>
         </section>

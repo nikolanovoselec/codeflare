@@ -41,7 +41,12 @@ function createApp() {
       return {
         all: vi.fn(async () => ({ success: true, results: sql.includes('COUNT(')
           ? [{ runtime_seconds: 120, session_count: 2, active_users: 1, data_since: '2026-08-01T00:00:00.000Z', history_updated_at: '2026-08-30T12:00:00.000Z' }]
-          : rows })),
+          : sql.includes('GROUP BY p.period_start')
+            ? [
+              { period_start: '2026-08-30', runtime_seconds: 120, session_count: 2, history_updated_at: '2026-08-30T12:00:00.000Z' },
+              { period_start: '2026-08-29', runtime_seconds: 60, session_count: 1, history_updated_at: '2026-08-29T12:00:00.000Z' },
+            ]
+            : rows })),
       };
     } })),
   };
@@ -81,10 +86,15 @@ describe('admin organization usage routes (REQ-SUB-026)', () => {
       summary: { runtimeSeconds: 120, sessionCount: 2, activeUsers: 1 },
       dataSince: '2026-08-01T00:00:00.000Z',
       historyUpdatedAt: '2026-08-30T12:00:00.000Z',
+      series: [
+        { start: '2026-08-29', runtimeSeconds: 60, sessionCount: 1, historyUpdatedAt: '2026-08-29T12:00:00.000Z' },
+        { start: '2026-08-30', runtimeSeconds: 120, sessionCount: 2, historyUpdatedAt: '2026-08-30T12:00:00.000Z' },
+      ],
     });
     expect(body.users).toHaveLength(2);
     expect(body.users[1]).toMatchObject({ email: 'bob@example.com', accountStatus: 'deleted' });
     expect(statements.some((statement) => /ORDER BY p\.runtime_seconds DESC, u\.user_key ASC/.test(statement.sql))).toBe(true);
+    expect(statements.some((statement) => /GROUP BY p\.period_start[\s\S]*ORDER BY p\.period_start DESC/.test(statement.sql))).toBe(true);
   });
 
   it('rejects malformed, mismatched, and timezone-bearing cursor requests before SQL', async () => {

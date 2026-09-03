@@ -21,6 +21,38 @@ function duration(seconds: number): string {
   return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
+interface UsageSeriesPoint {
+  start: string;
+  runtimeSeconds: number;
+  sessionCount: number;
+  historyUpdatedAt: string;
+}
+
+const UsageChart: Component<{ series: UsageSeriesPoint[] }> = (props) => {
+  const maximum = () => Math.max(1, ...props.series.map((point) => point.runtimeSeconds));
+  const slot = () => 560 / Math.max(1, props.series.length);
+  const width = () => Math.max(4, Math.min(32, slot() - 8));
+  const x = (index: number) => 48 + index * slot() + (slot() - width()) / 2;
+  const height = (seconds: number) => seconds === 0 ? 0 : Math.max(2, seconds / maximum() * 104);
+
+  return <div class="admin-measurement-chart">
+    <svg viewBox="0 0 640 180" role="img" aria-label="Accounted runtime history">
+      <line x1="48" y1="140" x2="608" y2="140" class="admin-chart-axis" />
+      <For each={props.series}>{(point, index) => {
+        const barHeight = () => height(point.runtimeSeconds);
+        return <rect x={x(index())} y={140 - barHeight()} width={width()} height={barHeight()} class="admin-chart-bar">
+          <title>{point.start}: {duration(point.runtimeSeconds)} across {point.sessionCount} sessions</title>
+        </rect>;
+      }}</For>
+      <Show when={props.series.length > 0}>
+        <text x="48" y="164">{props.series[0].start}</text>
+        <Show when={props.series.length > 1}><text x="608" y="164" text-anchor="end">{props.series.at(-1)?.start}</text></Show>
+      </Show>
+    </svg>
+    <table class="admin-visually-hidden"><caption>Accounted runtime history</caption><tbody><For each={props.series}>{(point) => <tr><th>{point.start}</th><td>{duration(point.runtimeSeconds)}</td><td>{point.sessionCount} sessions</td></tr>}</For></tbody></table>
+  </div>;
+};
+
 const AnalyticsPage: Component = () => {
   const [draftPeriod, setDraftPeriod] = createSignal<AdminUsageQuery['period']>('day');
   const [draftStart, setDraftStart] = createSignal(currentStart('day'));
@@ -47,6 +79,7 @@ const AnalyticsPage: Component = () => {
     const current = query();
     return `/api/admin/usage?period=${current.period}&start=${encodeURIComponent(current.start)}&sort=${current.sort}&direction=${current.direction}&format=csv`;
   };
+  const exportFilename = () => `codeflare-usage-${query().period}-${query().start}.csv`;
 
   return (
     <div class="admin-page admin-analytics-page">
@@ -69,7 +102,7 @@ const AnalyticsPage: Component = () => {
           <input value={draftStart()} onInput={(event) => setDraftStart(event.currentTarget.value)} />
         </label>
         <button type="submit" class="admin-primary-button">Apply filters</button>
-        <a class="admin-secondary-button" href={exportHref()}>Export CSV</a>
+        <a class="admin-secondary-button" href={exportHref()} download={exportFilename()}>Export CSV</a>
       </form>
 
       <Show when={!usage.loading} fallback={<div class="admin-state-panel"><div class="app-loading-spinner" /><p>Loading organization usage…</p></div>}>
@@ -95,20 +128,11 @@ const AnalyticsPage: Component = () => {
 
               <div class="admin-analytics-grid">
                 <section class="admin-panel">
-                  <div class="admin-panel-heading"><div><h2>Selected period</h2><p>One exact historical aggregate. No live or pending estimate.</p></div></div>
-                  <div class="admin-measurement-chart">
-                    <svg viewBox="0 0 640 180" role="img" aria-label={`${duration(resolved().summary.runtimeSeconds)} accounted runtime for ${resolved().start}`}>
-                      <line x1="48" y1="140" x2="608" y2="140" class="admin-chart-axis" />
-                      <line x1="48" y1="28" x2="48" y2="140" class="admin-chart-axis" />
-                      <circle cx="328" cy="78" r="5" class="admin-chart-point" />
-                      <text x="344" y="83">{duration(resolved().summary.runtimeSeconds)}</text>
-                      <text x="48" y="164">Period start</text><text x="500" y="164">{resolved().start}</text>
-                    </svg>
-                    <table class="admin-visually-hidden"><caption>Selected period measurement</caption><tbody><tr><th>{resolved().start}</th><td>{resolved().summary.runtimeSeconds} seconds</td></tr></tbody></table>
-                  </div>
+                  <div class="admin-panel-heading"><div><h2>Accounted runtime history</h2><p>Actual organization totals from existing D1 period aggregates.</p></div></div>
+                  <UsageChart series={resolved().series} />
                 </section>
                 <aside class="admin-panel admin-period-summary">
-                  <div class="admin-panel-heading"><h2>Period summary</h2></div>
+                  <div class="admin-panel-heading"><div><h2>Data freshness</h2><p>Historical D1 snapshots can lag live Timekeeper usage. The timestamp below is the newest row returned, not a global synchronization guarantee.</p></div></div>
                   <dl>
                     <div><dt>Data available since</dt><dd class="admin-mono">{resolved().dataSince}</dd></div>
                     <div><dt>History updated</dt><dd class="admin-mono">{resolved().historyUpdatedAt || 'No row update'}</dd></div>
