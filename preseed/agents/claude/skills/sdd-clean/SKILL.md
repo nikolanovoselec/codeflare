@@ -12,7 +12,7 @@ The rescue command for projects whose spec has accumulated implementation leakag
 
 `/sdd clean` is a root-session mutation workflow in every mode. The root invokes `spec-enforce` and then `doc-enforce` inline, applies changes with its own file tools, and owns every commit and push. Never spawn the report-only `spec-reviewer` or `doc-updater` agents to perform cleanup.
 
-**First action (binding):** invoke the `spec-enforce` skill (spine) with `purpose=clean` and `scope=all` or `scope=diff` per the user's flag. Pass `purpose=clean` explicitly — the round-limit row keys its user-invoked exemption off it, and an inferred input is the class of judgment that row exists to remove. The skill runs the 23-row execution manifest and conditionally invokes `spec-enforce-ac` (when ACs touched) and `spec-enforce-truth` (when Implemented or Partial REQs touched — Partial included so CQ-SOURCE can validate `@impl` anchors). This file describes what `/sdd clean` does on top of the skill's findings.
+**First action (binding):** invoke the `spec-enforce` skill (spine) with `purpose=clean` and `scope=all` or `scope=diff` per the user's flag. Pass `purpose=clean` explicitly — the round-limit row keys its user-invoked exemption off it, and an inferred input is the class of judgment that row exists to remove. The skill runs the 24-row execution manifest and conditionally invokes `spec-enforce-ac` (when ACs touched) and `spec-enforce-truth` (when Implemented or Partial REQs touched — Partial included so CQ-SOURCE can validate `@impl` anchors). This file describes what `/sdd clean` does on top of the skill's findings.
 
 ## What it does (per mode)
 

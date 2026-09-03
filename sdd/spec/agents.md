@@ -1309,7 +1309,7 @@ None.
 
 ### REQ-AGENT-023: Knowledge-Graph Capability (Graphify)
 
-**Intent:** Every container ships the graphify code-knowledge-graph capability as ambient infrastructure, so any session (default or advanced session mode) can query an existing graph or build a new one without per-tier provisioning.
+**Intent:** Every container ships Graphify query capability as ambient infrastructure, while advanced sessions receive conditional routing and the explicit graph build and update workflow.
 
 **Applies To:** Agent
 
@@ -1317,7 +1317,7 @@ None.
 
 1. `graphifyy` installs in every container image with MCP, SQL, and PDF extras, pinned to one tracked version; the entrypoint restores its command path when missing without replacing an existing destination. <!-- @impl: Dockerfile::graphifyy --> <!-- @impl: entrypoint.sh::ensure_graphify_cli_path --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-023: restores a missing Graphify CLI path without replacing an existing destination) -->
 2. Claude receives the Graphify MCP server, while Pi receives native `graphify_query`/`graphify_path`/`graphify_explain` tools; both use the upstream engine. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::LazyGraph --> <!-- @impl: preseed/agents/pi/extensions/graphify-native.ts::graphify_query --> <!-- @manual -->
-3. AC1 and AC2 hold across all paid tiers for ambient query/build capability; advanced-mode agent orchestration keeps `/graphify` extraction context bounded via subagent chunking. <!-- @impl: Dockerfile::graphifyy --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::subagent --> <!-- @manual -->
+3. Ambient query capability holds across all session modes; advanced agent orchestration keeps `/graphify` build and update context bounded through subagents. <!-- @impl: Dockerfile::graphifyy --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::subagent --> <!-- @manual -->
 4. Startup with no graph is tolerated: Claude starts empty and rebinds later; advanced-mode Pi clone triage asks before graph work. Query tools use the active repo graph after it exists. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::graphifyCloneAction --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::fallbackGraphifyToolResult --> <!-- @manual -->
 5. Advanced mode tracks the active repository; resolution walks up to the nearest Git repo or graph artefact and understands command-local `cd ... &&` plus `git -C ...` forms. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::effectivePathForCommand --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::updateActiveRepoFromPath --> <!-- @test: host/__tests__/graphify-active-repo.test.js (graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges vault + active repos)) -->
 6. When the active-repo signal is absent or stale, Pi graphify query tools fall back from the session cwd repo graph to the same-repo sentinel graph and then to the merged global graph. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::pickGraphSource --> <!-- @test: host/__tests__/graphify-mcp-lazy.test.js (graphify-mcp-lazy.py static contract) -->
@@ -1327,7 +1327,7 @@ None.
 
 - The image uses upstream graphify without a fork; provider/office/video/Neo4j/local-backend extras are not installed.
 - Pi query tools resolve the session cwd repo graph, then the same-repo sentinel graph, then the merged global graph; no graph fails soft.
-- Ambient MCP/native query capability is all-mode; graph-first discipline, Pi workflow assets, clone triage, active-repo tracking, and graph summaries are advanced-only.
+- Ambient MCP/native query capability is all-mode; conditional routing, build/update skills, Pi workflow assets, clone triage, active-repo tracking, graph summaries, and soft search nudges are advanced-only.
 - Per-branch graphs are unsupported; users refresh after checkout.
 - Existing graph refreshes use the bounded update wrapper, never bare `graphify update`.
 - Pi first-build scripts own AST and architecture graph creation.
@@ -1345,20 +1345,25 @@ None.
 
 ### REQ-AGENT-024: Advanced-Session-Mode Graph-First Discipline
 
-**Intent:** In advanced session mode, the preseeded graph-first rule and graphify skill teach the agent to prefer the knowledge graph over Grep-style text search for structural questions. Runtime reminder hooks live in [REQ-AGENT-091](#req-agent-091-advanced-session-graph-first-runtime-reminders), and `/graphify` build dispatch lives in [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch).
+**Intent:** Advanced sessions use a compact decision boundary for existing-graph queries alongside graph build/update guidance and soft search reminders. Runtime reminder hooks live in [REQ-AGENT-091](#req-agent-091-advanced-session-graph-first-runtime-reminders), and `/graphify` build dispatch lives in [REQ-AGENT-043](#req-agent-043-graphify-build-mode-dispatch).
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. In advanced session mode only, a short authoritative graph-first rule is preseeded, stating MUST / MUST NOT bullets for graph vs grep and routing to the graphify skill for mechanics rather than restating them. <!-- @manual -->
-2. In advanced session mode only, the graphify skill is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, OpenCode, and Antigravity by the seed generator. <!-- @manual -->
-3. The skill documents the safe build path for large repos (more than 2000 files). <!-- @manual -->
-4. The skill instructs the agent on first build to add canonical ignore and attribute rules so regenerable graph build outputs and working-tree intermediates are not committed while the queryable graph remains under git merge control. <!-- @manual -->
+1. Advanced mode receives one compact Graphify query-routing rule. <!-- @impl: preseed/agents/claude/manifest.json::rules/graphify-routing.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
+2. In advanced mode, broad architecture, dependency, ownership, call-flow, and where-implemented searches use an existing graph before broad text search. <!-- @impl: preseed/agents/claude/rules/graphify-routing.md::Graphify routing --> <!-- @manual -->
+3. Known-file edits, Git/CI state, and code changed during the current task skip Graphify. <!-- @impl: preseed/agents/claude/rules/graphify-routing.md::Graphify routing --> <!-- @manual -->
+4. Current source outranks stale graph evidence. <!-- @impl: preseed/agents/claude/rules/graphify-routing.md::Graphify routing --> <!-- @manual -->
+5. In advanced mode, Pi activates hidden native Graphify query tools through its existing `capability` tool. <!-- @impl: preseed/agents/claude/rules/graphify-routing.md::Graphify routing --> <!-- @manual -->
+6. In advanced session mode only, the graphify skill is preseeded for Claude Code, with per-agent adapted variants emitted for Codex, Copilot, OpenCode, and Antigravity by the seed generator. <!-- @manual -->
+7. The skill documents the safe build path for large repos (more than 2000 files). <!-- @manual -->
+8. The skill instructs the agent on first build to add canonical ignore and attribute rules so regenerable graph build outputs and working-tree intermediates are not committed while the queryable graph remains under git merge control. <!-- @manual -->
 
 **Constraints:**
 
-- The soft nudge never blocks; graph-first discipline stays advisory through the preseeded rule and per-call nudge.
+- Query routing is advisory, and the advanced soft nudge never blocks.
+- Building or refreshing a graph requires explicit user authorization and the advanced skill workflow.
 - The soft-nudge matcher set covers both the non-ctx tool surface (`Grep`/`Glob`) and the ctx grep-equivalents (`mcp__context-mode__ctx_search`/`mcp__context-mode__ctx_batch_execute`).
 
 **Priority:** P1
@@ -2436,6 +2441,41 @@ None.
 **Dependencies:** [REQ-AGENT-007](#req-agent-007-multi-agent-adaptation-pipeline), [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-195](#req-agent-195-portable-humanize-writing-guidance)
 
 **Verification:** Deterministic seed generation and manual catalog inspection
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-197: Ambient instruction ownership and economy
+
+**Intent:** Always-loaded and path-loaded instructions remain short routing and safety boundaries, while detailed procedures stay in the skills and runtime components that own them.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Pi `SYSTEM.md` contains only runtime bootstrap guidance and reaches both session modes. <!-- @impl: preseed/agents/pi/manifest.json::SYSTEM.md --> <!-- @manual -->
+2. Preference-free new projects default to Cloudflare and load `cloudflare-stack` before architecture selection. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Cloudflare environment --> <!-- @manual -->
+3. Environment guidance blocks local GUI launches while preserving authorized Browser Run. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Session constraints --> <!-- @manual -->
+4. Environment guidance preserves Git transport, identity, and secret-handling constraints. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Session constraints --> <!-- @manual -->
+5. Hard boundaries are reported honestly with the closest safe alternative. <!-- @impl: preseed/agents/claude/rules/cloudflare-environment.md::Cloudflare environment --> <!-- @manual -->
+6. Cloudflare Workers guidance retrieves current official documentation before choosing APIs, limits, signatures, or configuration. <!-- @impl: preseed/agents/claude/rules/cloudflare-workers.md::Cloudflare Workers routing --> <!-- @manual -->
+7. Workers tooling uses repository-pinned versions through approved execution paths. <!-- @impl: preseed/agents/claude/rules/cloudflare-workers.md::Cloudflare Workers routing --> <!-- @manual -->
+8. Workers compatibility settings remain unchanged unless the requested work requires an update verified against current documentation. <!-- @impl: preseed/agents/claude/rules/cloudflare-workers.md::Cloudflare Workers routing --> <!-- @manual -->
+9. Memory guidance routes explicit memory and Vault requests without requiring a graph query before unrelated work. <!-- @impl: preseed/agents/claude/rules/memory.md::Memory and Vault routing --> <!-- @manual -->
+10. Ambient memory guidance never duplicates runtime-owned capture or extraction dispatch. <!-- @impl: preseed/agents/claude/rules/memory.md::Memory and Vault routing --> <!-- @manual -->
+11. Specification, documentation, testing, and note-capture rules retain triggers and owners without duplicating their specialist procedures. <!-- @manual -->
+12. PR-boundary documentation review launches with the other required lanes. <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md::Documentation discipline --> <!-- @manual -->
+13. Root-owned `/sdd clean` applies specification fixes before documentation checks. <!-- @impl: preseed/agents/claude/rules/documentation-discipline.md::Documentation discipline --> <!-- @manual -->
+14. Detailed Git, review, CI, Graphify build, Todo, local-check, design, platform, memory-capture, and enforcement mechanics remain with their existing owners. <!-- @manual -->
+
+**Constraints:** Ambient prose reduction cannot weaken executable guards or remove a required route. Content wording, headings, and byte/token counts remain manual concerns rather than tests.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-023](#req-agent-023-knowledge-graph-capability-graphify), [REQ-AGENT-024](#req-agent-024-advanced-session-mode-graph-first-discipline), [REQ-AGENT-065](#req-agent-065-engineering-constitution-preseeded-to-all-agents), [REQ-AGENT-196](#req-agent-196-repository-led-technology-guidance)
+
+**Verification:** Deterministic seed generation and manual ownership review
 
 **Status:** Implemented
 
@@ -4583,7 +4623,7 @@ None.
 **Acceptance Criteria:**
 
 1. Default and advanced Pi projections include one on-demand Herdr skill. <!-- @impl: preseed/agents/pi/manifest.json::skills/herdr/SKILL.md --> <!-- @manual -->
-2. Outside a live Herdr pane, Pi continues normal terminal work without starting Herdr. <!-- @impl: preseed/agents/pi/SYSTEM.md::Herdr control --> <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Gate --> <!-- @manual: In a plain Codeflare terminal, request Herdr orchestration and confirm the failed gate leaves Pi doing normal terminal work without starting Herdr. -->
+2. Outside a live Herdr pane, Pi continues normal terminal work without starting Herdr. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Gate --> <!-- @manual: In a plain Codeflare terminal, request Herdr orchestration and confirm the failed gate leaves Pi doing normal terminal work without starting Herdr. -->
 3. Herdr orchestration begins only after Pi verifies that its current pane is live in Herdr. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Gate --> <!-- @manual -->
 4. A separately named helper runs in a newly created unfocused pane. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Agent orchestration --> <!-- @manual -->
 5. A settled helper receives a task under a bounded lifecycle wait. <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Agent orchestration --> <!-- @manual -->

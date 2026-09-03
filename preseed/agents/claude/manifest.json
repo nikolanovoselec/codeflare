@@ -2007,5 +2007,10 @@
     "modes": [
       "advanced"
     ]
+  },
+  "rules/graphify-routing.md": {
+    "modes": [
+      "advanced"
+    ]
   }
 }

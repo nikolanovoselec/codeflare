@@ -71,7 +71,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install) | Preseed context-mode instead of installing it at runtime | The Custom-tier preseed hook path remains active, while MCP registration moved to [AD109](#ad109-context-mode-mcp-registration-is-universal-and-entrypoint-owned). | Architecture | Partially superseded |
 | [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) | Keep one ADR ledger with stable anchors | The unified `decisions/README.md` and stable AD anchors remain, while [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) removed `doc-allow-large`. | Process | Partially superseded |
 | [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) | Remove six overengineered SDD features | The SDD framework removes override, hatch, split-proposal, collision, commit-category, and annotation checks to reduce operator and authoring surface. | Architecture | Active |
-| [AD52](#ad52-graphify-mcp-available-everywhere-discipline-advanced-only) | Expose Graphify everywhere but gate proactive discipline | Graphify tools ship in every paid session, while advanced mode alone adds clone triage and graph-first nudges to avoid changing default agent behavior. | Architecture | Active |
+| [AD52](#ad52-graphify-mcp-available-everywhere-discipline-advanced-only) | Expose query routing everywhere; gate mutation and nudges | Graphify query tools and their compact decision boundary ship in every session, while advanced mode adds clone triage, mutation workflow, active-repo tracking, and soft nudges. | Architecture | Active |
 | [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking) | Hot-reload Graphify across repositories | A lazy Graphify wrapper atomically swaps graph data and follows an advanced-mode active-repository sentinel, keeping one MCP process usable after clones and repo changes. | Architecture | Active |
 | [AD54](#ad54-vault-directory-must-use-a-non-hidden-basename) | Use a visible Vault directory basename | The vault lives at `/home/user/Vault/` because SilverBullet aborts walks of dot-prefixed roots, and the clean cutover restores file listing without a binary patch. | Storage | Active |
 | [AD55](#ad55-codeflare-brands-the-vault-editor-via-preseed-managed-stylesmd) | Manage Vault styling through preseed | Codeflare overwrites Vault `STYLES.md` from preseed on boot, binding SilverBullet theme variables to product tokens at the cost of in-editor theme customization. | Architecture | Active |
@@ -1363,22 +1363,22 @@ doc-discipline drops from twelve passes to ten (deleted Pass 6 hatch audit and P
 
 **Category:** Architecture
 
-**Context:** Graphify (upstream `graphifyy` Python package, Apache-2.0) turns a folder into a queryable knowledge graph and exposes it via an MCP server (`query_graph`, `get_node`, `get_neighbors`, `shortest_path`). Integrating it into Codeflare required a tier-gating decision: every preseed plugin so far chose between "advanced-only" (codeflare-memory, codeflare-hooks) and "custom-tier-only" (context-mode via [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install)). Graphify did not fit either bucket cleanly. The MCP server itself is harmless ambient capability that any session benefits from when the user reaches for it; the discipline that says "use the graph before grepping" is what produces token savings and is what changes agent behaviour.
+**Context:** Graphify (upstream `graphifyy` Python package, Apache-2.0) turns a folder into a queryable knowledge graph and exposes it via an MCP server (`query_graph`, `get_node`, `get_neighbors`, `shortest_path`). Integrating it into Codeflare required a tier-gating decision: every preseed plugin so far chose between "advanced-only" (codeflare-memory, codeflare-hooks) and "custom-tier-only" (context-mode via [AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install)). Graphify did not fit either bucket cleanly. The MCP server itself is harmless ambient capability that any session benefits from when the user reaches for it. Proactive query routing, clone prompting, graph mutation, and search nudges change agent behavior and carry the advanced boundary.
 
 **Decision:** Split delivery on a discipline-vs-capability axis, not on tier:
 
-- **Plugin folder + `plugin.json` + MCP server registration**: ships in both `default` and `advanced` session modes. The `graphify` MCP server is registered in `~/.claude.json` whenever the preseed manifest is present, which is every paid tier.
-- **PostToolUse-on-clone triage hook, PreToolUse graph-first nudge, the graph-first discipline, and `graphify/SKILL.md`**: ship in `advanced` session mode only. These are the load-bearing pieces that teach the agent to use the graph proactively.
+- **Plugin folder + `plugin.json` + MCP server registration**: ship in both `default` and `advanced` session modes, preserving explicit access to existing graphs.
+- **`graphify-routing.md`, PostToolUse-on-clone triage hook, PreToolUse graph-first nudge, active-repo tracking, and `graphify/SKILL.md`**: ship in `advanced` session mode only. The rule routes only broad structural questions to an existing graph and explicitly excludes known-file edits, current-task changes, and live Git/CI state; the other assets own graph creation, refresh, proactive reminders, and higher-precision multi-repo workflow.
 
 The prompt-independent `SessionStart[startup]` context-injection hook was retired on 2026-07-27. It read a non-canonical edge key, ignored graph freshness, and its corrected highest-degree output was dominated by generic duplicate labels. Prompt-aware first-turn memory and focused graph queries provide the relevant context without carrying that startup list.
 
-The graph-first discipline was a standalone `graph-first.md` rule until 2026-07-25; it is now a section of `engineering-constitution.md`.
+The former standalone `graph-first.md` rule was absorbed into `engineering-constitution.md` in 2026-07 and removed from it in 2026-09 when the constitution became technology-neutral. `graphify-routing.md` now owns the smaller advanced-mode query boundary.
 
-Tier-gating is not part of the decision: graphify ships uniformly across standard, advanced, max, and custom paid tiers. The discipline gating is keyed only on session mode.
+Tier-gating is not part of the decision: Graphify query capability ships uniformly. Routing, mutation workflow, clone triage, active-repo tracking, and soft nudges remain keyed to advanced session mode.
 
 **Consequences:**
-- Default session mode users CAN reach for graphify by name (CLI on PATH, MCP tools exposed) but do not get nudged toward it. No triage on clone and no rule in `~/.claude/rules/`.
-- Advanced session mode users get the full discipline: the agent prompts on clone and prefers focused MCP queries over Grep for architecture questions.
+- Default sessions receive query capability for explicit use, but no conditional route, clone triage, mutation skill, active-repo tracker, or PreToolUse nudge.
+- Advanced sessions add the build/update workflow, clone choice, active-repo precision, and soft reminder.
 - Advanced mode also adds a PreToolUse soft-nudge when reaching for Grep/Glob (or the context-mode grep-equivalents `ctx_search`/`ctx_batch_execute`) in a repo that has a graph.
 - Image cost (~220 MB for Python + tree-sitter wheels) is paid by every container regardless of mode, justified by one-time build cost vs. universal capability.
 - Coexists cleanly with context-mode ([AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install)) without depending on it.
@@ -1396,7 +1396,7 @@ Graphify's own subagent-chunking model is the load-bearing context-bounding mech
 
   Every `graphify update .` rerun rewrites centrality + community-label frontmatter across all those files, producing PR diffs in the thousands of files for one structural change. Locally generated `graph.html` covers the casual-browse use case in any browser without needing Obsidian installed, and a developer who actually wants the Obsidian workflow can regenerate the stub vault locally from `graph.json` in seconds. Keeping generated views out of the Codeflare source repository preserves PR signal at the cost of one local command for the rare power-user.
 
-**Alternative considered:** Match context-mode ([AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install)) and gate the whole thing on custom tier. Rejected: graphify's MCP query tools are cheap, structurally bounded, and useful even when no discipline rule pushes the agent toward them. Hiding the capability behind a tier wall would have been more conservative but would have wasted the build-time install for the 99% of paid users who are not on custom tier.
+**Alternative considered:** Match context-mode ([AD49](#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install)) and gate the whole thing on custom tier. Rejected: Graphify query tools and their compact decision boundary are cheap, structurally bounded, and useful across modes. Hiding them behind a tier wall would waste the build-time install for users outside custom tier.
 
 **Issue:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify); PR #354.
 

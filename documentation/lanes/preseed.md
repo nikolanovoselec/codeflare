@@ -35,6 +35,8 @@ deployed on Recreate or new bucket creation.
 | Memory plugin & rule | No | Yes | Yes |
 | Core environment rules (cloudflare-environment, no-local-builds, git-workflow) | Yes | Yes | Yes |
 | Compact universal engineering constitution | Yes | Yes | Yes |
+| Graphify query capability | Yes | Yes | Yes |
+| Graphify conditional routing | No | Yes | Yes |
 | Pi startup header, local statusline, and fixed terminal notifications | Yes | Yes | Yes |
 | Cloudflare-stack, ship (+ refs), ci-monitoring, pr-workflow, deploy-credentials skills | Yes | Yes | Yes |
 | `consult-llm` skill (Claude + Pi) | No | Yes | Yes |
@@ -101,7 +103,7 @@ It deliberately excludes the general questionnaire, arbitrary context-mode comma
 
 Pi also loads the exact-pinned Caveman extension from the image-owned npm cache. Its configuration is excluded from Codeflare's default and advanced agent seeds: the image carries the policy file, and before startup completes the entrypoint atomically restores lite compression mode with the extension's animated status/footer disabled. Herdr keeps its private XDG state while directing Pi to that canonical `~/.pi/agent` configuration root. A missing, invalid, or unwritable image policy blocks startup. The package entrypoint is explicitly JITI-warmed and verified, and normal Pi-extension shadow-pin discovery owns future coherent version updates ([REQ-AGENT-155](../../sdd/spec/agents.md#req-agent-155-image-owned-caveman-response-policy), [REQ-AGENT-172](../../sdd/spec/agents.md#req-agent-172-herdr-preserves-the-pi-extension-policy)). <!-- @impl: entrypoint.sh::configure_pi_caveman --> <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime -->
 
-Default and advanced Pi projections include an on-demand Herdr control skill. It first checks for a live Herdr pane, then documents the local CLI needed to resolve and focus tabs, create or safely close splits, create helper panes, start and steer named coding agents, wait on bounded lifecycle states, and read their output. Plain Codeflare terminals do not start Herdr. `SYSTEM.md` carries only the conditional skill link ([REQ-AGENT-173](../../sdd/spec/agents.md#req-agent-173-pi-can-orchestrate-coding-agents-through-herdr), [REQ-AGENT-174](../../sdd/spec/agents.md#req-agent-174-pi-safely-controls-herdr-topology)). <!-- @impl: preseed/agents/pi/SYSTEM.md::Herdr control --> <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Gate -->
+Default and advanced Pi projections include an on-demand Herdr control skill. It first checks for a live Herdr pane, then documents the local CLI needed to resolve and focus tabs, create or safely close splits, create helper panes, start and steer named coding agents, wait on bounded lifecycle states, and read their output. Plain Codeflare terminals do not start Herdr. Skill metadata owns this conditional route; `SYSTEM.md` remains runtime bootstrap only ([REQ-AGENT-173](../../sdd/spec/agents.md#req-agent-173-pi-can-orchestrate-coding-agents-through-herdr), [REQ-AGENT-174](../../sdd/spec/agents.md#req-agent-174-pi-safely-controls-herdr-topology)). <!-- @impl: preseed/agents/pi/skills/herdr/SKILL.md::Gate -->
 
 Plan Mode 0.55.3 and Goal 0.54.3 share upstream's session-scoped `workflow:mutex:v1` protocol, so starting one workflow while the other owns the session is refused and ending it releases ownership ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-152](../../sdd/spec/agents.md#req-agent-152-native-plan-mode-workflow-in-pi-sessions), [REQ-AGENT-178](../../sdd/spec/agents.md#req-agent-178-goal-and-plan-session-ownership)).
 
@@ -431,13 +433,18 @@ Bash loops, deploy-status waits, or foreground polling
 ([REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring)). The discipline triad (`spec-discipline`, `documentation-discipline`,
 `tdd-discipline`) is advanced-only. Claude receives those rules in ambient instructions; Pi receives the same canonical policy through its grouped native skills, without duplicate ambient rule copies.
 
-`memory` is advanced-only and carries folded vault trigger/route content. It
-references Claude-specific `mcp__graphify__*` tools and the vault hook system.
-`vault-note-capture` is advanced-only and routes "take a note" phrases to the
-`vault-note-capture` skill.
+`memory` is advanced-only and routes explicit memory requests to the merged global graph
+and Vault work to its owning skills. Automated capture and extraction remain runtime-owned;
+the ambient rule does not dispatch, wait for, poll, or require a graph query before unrelated
+work. `vault-note-capture` is a short advanced-only route for durable note requests.
 
-Graphify owns graph-first routing and mechanics
-([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)).
+`graphify-routing` reaches advanced sessions. It sends broad architecture,
+dependency, ownership, call-flow, and where-implemented searches to an existing graph,
+while known-file edits, Git/CI state, and current-task changes skip the graph. Current source
+outranks stale graph evidence; builds and refreshes require explicit authorization and the
+advanced `graphify` skill
+([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify),
+[REQ-AGENT-024](../../sdd/spec/agents.md#req-agent-024-advanced-session-mode-graph-first-discipline)).
 `frontend-components` is advanced-only and owns detailed composable UI decisions.
 Repetition prompts review rather than automatic extraction; ownership, coupling, state,
 reuse, testability, and maintenance decide whether structure moves. Stable one-offs may
@@ -568,20 +575,20 @@ An idle mismatch sends the dashboard through `POST /api/storage/seed/agent-confi
 New Session controls follow [REQ-AGENT-175](../../sdd/spec/agents.md#req-agent-175-environment-update-ui-lockdown), while managed admission follows [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission). The canonical explanation of Mutable, Immutable, Exclusive, release-delta cleanup, and retirement tombstones lives in [Managed-resource persistence modes](storage-and-sync.md#managed-resource-persistence-modes). Repository trust, signed release rollout, persistence-mode selection, acceptance, and recovery belong to the private [Managed Environment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/managed-environment.md).
 
 **Manifest structure** (Claude configs plus Pi-native assets; exact counts live in the manifests, not here):
-- `rules/`: core, common, and language-specific rule documents.
+- `rules/`: compact universal, routing, and path-scoped platform documents.
 - `agents/`: advanced-only specialist agent definitions.
 - `commands/`: advanced-only slash command definitions.
 - `skills/`: default skills, advanced skills, design skills, and enforcement skill families.
 - `plugins/`: marketplace, memory, vault, hooks, context-mode, and graphify plugin payloads.
 - Pi-native runtime assets include package config and package lock.
 
-The `rules/` tree includes core rules for both modes: cloudflare-environment,
-no-local-builds, and git-workflow. The local-execution rule stays deliberately short:
-it requires agents to lazy-load `safe-local-checks` before any permitted local lint or
-syntax check. Advanced mode adds memory, spec-discipline, documentation-discipline,
-tdd-discipline, frontend-components, engineering-constitution, and
-vault-note-capture. It also includes per-language coding-style rules plus standalone
-language security rules for TypeScript, Python, Go, and Swift.
+The `rules/` tree includes cloudflare-environment, engineering-constitution,
+no-local-builds, and git-workflow in both modes. The local-execution rule stays deliberately
+short: it requires agents to lazy-load `safe-local-checks` before any permitted local lint
+or syntax check. Advanced mode adds Graphify, design, and memory routing,
+specification, documentation, and test enforcement routes, frontend-component guidance,
+Vault note capture, and path-scoped Cloudflare Workers routing. Generic language rules
+remain absent.
 
 The default+advanced `safe-local-checks` skill supplies the operational policy and one
 managed wrapper for every repository. It resolves only already-installed local
@@ -642,9 +649,10 @@ shared diff-classification helper sourced by both PR-aware hooks so the in-turn
 nudge and the turn-end gate agree on which lanes a push requires. The advanced
 context-mode plugin keeps only `README.md` for MCP/indexing registration and prunes
 stale deny-gates. The graphify plugin includes plugin.json, README, and
-graphify-mcp-lazy.py in default+advanced mode; advanced mode adds
-graphify-active-repo.sh, graphify-clone-prompt.sh, graph-first-nudge.sh,
-safe-graphify-update.sh, and local-graphify-labels.sh.
+graphify-mcp-lazy.py in default+advanced mode; advanced mode adds the compact
+query-routing rule, graphify-active-repo.sh, graphify-clone-prompt.sh,
+graph-first-nudge.sh, safe-graphify-update.sh, local-graphify-labels.sh, and the
+build/update skill.
 
 Graphify tools ship as the native extension `extensions/graphify-native.ts` rather
 than through the MCP adapter — a Pi-native first-class choice. Pi still consumes
@@ -883,9 +891,9 @@ per-agent document counts are emitted by `scripts/generate-agent-seed.mjs` from
 (CC slash commands), plugins (CC plugin system, including codeflare-memory and
 codeflare-vault), and `preseed/agents/claude/rules/memory.md`.
 
-The memory rule references CC-specific `mcp__graphify__*` tools and the vault hook
-system. The vault trigger/route content lives in that preseed rule as folded
-subsections, not a separate rules/vault.md.
+The compact memory rule remains Claude-only because Pi owns equivalent routing and
+automated lifecycle behavior in native extensions. It routes explicit memory, Vault, and
+note requests without embedding hook internals or requiring pre-task graph queries.
 
 `preseed/agents/claude/rules/git-workflow.md` is excluded for Pi only; Pi gets
 `preseed/agents/pi/rules/git-workflow.md` instead. The `consult-llm` skill depends
