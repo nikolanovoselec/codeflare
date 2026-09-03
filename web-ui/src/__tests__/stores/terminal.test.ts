@@ -871,7 +871,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       expect(terminalStore.getConnectionState('session-2', '1')).toBe('disconnected');
     });
 
-    it('REQ-TERM-043 AC4: restarts only visible connecting panes when OPEN dismisses readiness', () => {
+    it('REQ-TERM-043 AC4: restarts visible disconnected and connecting panes when OPEN dismisses readiness', () => {
       const OriginalWebSocket = globalThis.WebSocket;
       const sockets: Array<{
         readyState: number;
@@ -883,7 +883,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
         static OPEN = 1;
         static CLOSING = 2;
         static CLOSED = 3;
-        readyState = WebSocket.CONNECTING;
+        readyState: number = WebSocket.CONNECTING;
         binaryType = 'arraybuffer';
         onopen: (() => void) | null = null;
         onmessage: ((event: MessageEvent) => void) | null = null;
@@ -897,15 +897,31 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       try {
         terminalStore.connect('session-1', '1', createMockTerminal());
         terminalStore.connect('session-1', '2', createMockTerminal());
+        terminalStore.connect('session-1', '3', createMockTerminal());
+        terminalStore.connect('session-1', '4', createMockTerminal());
+        terminalStore.connect('session-2', '1', createMockTerminal());
         sockets[1].readyState = WebSocket.OPEN;
         sockets[1].onopen?.();
+        terminalStore.disconnect('session-1', '3');
+        terminalStore.disconnect('session-2', '1');
 
-        reconnectOnVisibilityReturn('session-1', ['session-1:1', 'session-1:2']);
+        reconnectOnVisibilityReturn('session-1', [
+          'session-1:1',
+          'session-1:2',
+          'session-1:3',
+          'session-2:1',
+        ]);
 
-        expect(sockets).toHaveLength(3);
+        expect(sockets).toHaveLength(7);
+        expect(sockets[0].close).toHaveBeenCalledOnce();
         expect(sockets[1].close).not.toHaveBeenCalled();
+        expect(sockets[3].close).not.toHaveBeenCalled();
+        expect(sockets[4].close).toHaveBeenCalledOnce();
         expect(terminalStore.getConnectionState('session-1', '1')).toBe('connecting');
         expect(terminalStore.getConnectionState('session-1', '2')).toBe('connected');
+        expect(terminalStore.getConnectionState('session-1', '3')).toBe('connecting');
+        expect(terminalStore.getConnectionState('session-1', '4')).toBe('connecting');
+        expect(terminalStore.getConnectionState('session-2', '1')).toBe('disconnected');
       } finally {
         vi.stubGlobal('WebSocket', OriginalWebSocket);
       }
