@@ -3,13 +3,16 @@ import { createDueScheduledDispatch, createReportDispatch, retentionCutoffs } fr
 import type { Env as AppEnv } from '../../types';
 
 describe('usage report scheduling recovery (REQ-SUB-027)', () => {
-  it('recreates a missing revision cursor for the next configured delivery', async () => {
+  it('recreates the current revision cursor without consuming a stale revision', async () => {
     const puts: unknown[][] = [];
     const env = {
       KV: {
         get: vi.fn(async (key: string) => key.endsWith(':settings') ? {
           enabled: true, recipients: ['ops@example.com'], day: 15, hour: 9,
           timezone: 'UTC', settingsRevision: 7,
+        } : key === 'admin:usage-reports:next:6' ? {
+          settingsRevision: 6,
+          nextDeliveryAt: '2027-08-01T00:00:00.000Z',
         } : null),
         put: vi.fn(async (...args: unknown[]) => { puts.push(args); }),
       },
@@ -19,6 +22,8 @@ describe('usage report scheduling recovery (REQ-SUB-027)', () => {
     await createDueScheduledDispatch(env as unknown as AppEnv, new Date('2027-08-01T00:00:00.000Z'));
 
     expect(env.USAGE_DB.batch).not.toHaveBeenCalled();
+    expect(env.KV.get).toHaveBeenCalledWith('admin:usage-reports:next:7', 'json');
+    expect(env.KV.get).not.toHaveBeenCalledWith('admin:usage-reports:next:6', 'json');
     expect(puts).toHaveLength(1);
     expect(puts[0][0]).toBe('admin:usage-reports:next:7');
     expect(JSON.parse(String(puts[0][1]))).toMatchObject({

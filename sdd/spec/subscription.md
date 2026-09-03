@@ -759,7 +759,6 @@ Tiers, billing, usage tracking, and quotas.
 5. User deletion writes a D1 tombstone before live cleanup; failure returns typed `503` and leaves live data unchanged. <!-- @impl: src/lib/user-cleanup.ts::cleanupUserData --> <!-- @impl: src/lib/admin-usage.ts::tombstoneUsageUser --> <!-- @test: src/__tests__/lib/user-cleanup.test.ts (cleanupUserData) -->
 6. Deleted users retain named aggregate history for 60 months; explicit same-email provisioning reactivates ownership without erasing prior history. <!-- @impl: src/lib/admin-usage.ts::reactivateUsageUser --> <!-- @impl: src/lib/access.ts::resolveOrProvisionUser --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageRetention --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (historical usage D1 guards (REQ-SUB-025, REQ-SUB-026)) --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report retention cutoffs (REQ-SUB-026, REQ-SUB-028)) -->
 7. Responses disclose `dataSince` and result-owned `historyUpdatedAt` without claiming global outbox freshness. <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) -->
-8. Analytics charts a bounded chronological series of actual organization totals from existing period rows rather than a synthetic single measurement. <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageSeries --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::UsageChart --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (admin organization usage routes (REQ-SUB-026)) --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (Analytics historical usage presentation) -->
 
 **Constraints:** No cache, second aggregate table, session-state catalog, or timezone parameter is added.
 
@@ -782,12 +781,11 @@ Tiers, billing, usage tracking, and quotas.
 **Acceptance Criteria:**
 
 1. Revisioned settings accept disabled-by-default state, at most 25 normalized recipients, day 1 through 31, whole local hour, and canonical IANA timezone. <!-- @impl: src/lib/usage-reports.ts::normalizeReportSettings --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) -->
-2. Scheduling chooses the latest closed UTC month, while test delivery uses the current UTC month; schedules apply last-valid-day and DST rules and store their next instant under a revision-specific key. <!-- @impl: src/lib/usage-reports.ts::nextReportDelivery --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler --> <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) -->
-3. One immutable summary and exact CSV are generated per dispatch, then sent as separate messages with an 8 MiB attachment limit. <!-- @impl: src/lib/usage-reports.ts::buildReportArtifacts --> <!-- @impl: src/lib/email.ts::sendUsageReportEmail --> <!-- @test: src/__tests__/lib/usage-report-delivery.test.ts (usage report artifacts and email boundary (REQ-SUB-027)) -->
-4. Scheduled and test dispatches use distinct identities, one row per recipient, conditional claims, random claim tokens, bounded leases, and at most three attempts. <!-- @impl: src/lib/usage-report-scheduler.ts::createReportDispatch --> <!-- @impl: src/lib/usage-report-scheduler.ts::claimReportDelivery --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (usage report delivery claims (REQ-SUB-027)) -->
-5. Stale claim tokens cannot complete reclaimed rows; deterministic Resend idempotency suppresses the remaining ambiguous duplicate window. <!-- @impl: src/lib/usage-report-scheduler.ts::completeReportDelivery --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (usage report delivery claims (REQ-SUB-027)) -->
-6. The 15-minute scheduler independently recovers pending, failed, and lease-expired scheduled or test rows; `waitUntil()` is only the test-send fast path. <!-- @impl: src/index.ts::scheduled --> <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) -->
-7. Delivery history reports pending, sending, accepted, or failed provider-acceptance state without inventing provider delivery state or IDs. <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) --> <!-- @manual -->
+2. One immutable summary and exact CSV are generated per dispatch, then sent as separate messages with an 8 MiB attachment limit. <!-- @impl: src/lib/usage-reports.ts::buildReportArtifacts --> <!-- @impl: src/lib/email.ts::sendUsageReportEmail --> <!-- @test: src/__tests__/lib/usage-report-delivery.test.ts (usage report artifacts and email boundary (REQ-SUB-027)) -->
+3. Scheduled and test dispatches use distinct identities, one row per recipient, conditional claims, random claim tokens, bounded leases, and at most three attempts. <!-- @impl: src/lib/usage-report-scheduler.ts::createReportDispatch --> <!-- @impl: src/lib/usage-report-scheduler.ts::claimReportDelivery --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (usage report delivery claims (REQ-SUB-027)) -->
+4. Stale claim tokens cannot complete reclaimed rows; deterministic Resend idempotency suppresses the remaining ambiguous duplicate window. <!-- @impl: src/lib/usage-report-scheduler.ts::completeReportDelivery --> <!-- @test: src/__tests__/lib/usage-report-claims.test.ts (usage report delivery claims (REQ-SUB-027)) -->
+5. The 15-minute scheduler independently recovers pending, failed, and lease-expired scheduled or test rows; `waitUntil()` is only the test-send fast path. <!-- @impl: src/index.ts::scheduled --> <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) -->
+6. Delivery history reports pending, sending, accepted, or failed provider-acceptance state without inventing provider delivery state or IDs. <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @impl: web-ui/src/components/admin/ReportsPage.tsx::ReportsPage --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) --> <!-- @manual -->
 
 **Constraints:** Resend credentials and sender identity remain deployment-managed. Reports do not background-poll and never promise exactly-once delivery.
 
@@ -819,6 +817,53 @@ Tiers, billing, usage tracking, and quotas.
 **Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-027](#req-sub-027-monthly-organization-usage-reports), [AD150](../../documentation/decisions/README.md#ad150-d1-owns-historical-usage-and-report-delivery-records)
 
 **Verification:** Automated claim exclusion and transaction rollback tests
+
+**Status:** Implemented
+
+---
+
+### REQ-SUB-029: Bounded organization usage history presentation
+
+**Intent:** Administrators can inspect actual historical organization usage even when the selected period has no aggregate row.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Organization usage returns a chronological series of existing aggregates bounded to 14 days, 12 weeks, 12 months, or five years. <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageSeries --> <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (bounds every history series to its configured period limit) -->
+2. Analytics renders returned history when the selected period has no aggregate row and shows the empty state only when no historical series exists. <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::UsageChart --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (charts earlier history when the selected period has no aggregate row) -->
+
+**Constraints:** History uses existing D1 period rows without synthetic points, a second aggregate table, or a cache.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-025](#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](#req-sub-026-admin-organization-analytics-and-deletion-history)
+
+**Verification:** Automated route-bound and Analytics presentation tests; UI manual validation on Integration
+
+**Status:** Implemented
+
+---
+
+### REQ-SUB-030: Monthly usage report schedule periods
+
+**Intent:** Scheduled and test usage reports select predictable UTC reporting periods while local delivery schedules remain stable across configuration revisions.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Scheduled report dispatches use the latest closed UTC month. <!-- @impl: src/lib/usage-reports.ts::latestClosedMonth --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) -->
+2. Test report dispatches use the current UTC month. <!-- @impl: src/routes/admin/usage-reports.ts::default --> <!-- @test: src/__tests__/routes/admin-usage-reports.test.ts (admin usage report routes (REQ-SUB-027)) -->
+3. Delivery schedules apply last-valid-day and DST rules, and a settings revision cannot consume the next due instant owned by another revision. <!-- @impl: src/lib/usage-reports.ts::nextReportDelivery --> <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler --> <!-- @test: src/__tests__/lib/usage-reports.test.ts (usage report settings and schedule (REQ-SUB-027)) --> <!-- @test: src/__tests__/lib/usage-report-scheduler.test.ts (usage report scheduling recovery (REQ-SUB-027)) -->
+
+**Constraints:** Scheduling uses the existing 15-minute Worker schedule and deployment-scoped usage database.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SUB-027](#req-sub-027-monthly-organization-usage-reports)
+
+**Verification:** Automated timezone, revision-isolation, scheduled-period, and test-period tests
 
 **Status:** Implemented
 

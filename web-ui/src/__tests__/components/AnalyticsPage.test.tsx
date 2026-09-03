@@ -11,7 +11,7 @@ vi.mock('../../api/client', () => ({
 import AnalyticsPage from '../../components/admin/AnalyticsPage';
 
 beforeEach(() => {
-  vi.useFakeTimers();
+  vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(new Date('2026-09-03T12:00:00.000Z'));
   getAdminUsageMock.mockResolvedValue({
     period: 'day',
@@ -48,5 +48,30 @@ describe('Analytics historical usage presentation', () => {
     expect(screen.getByText(/can lag live Timekeeper usage/i)).toBeInTheDocument();
     expect(screen.getByText('2026-09-03T11:54:17.007Z')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Export CSV' })).toHaveAttribute('download', 'codeflare-usage-day-2026-09-03.csv');
+  });
+
+  it('charts earlier history when the selected period has no aggregate row', async () => {
+    getAdminUsageMock.mockResolvedValueOnce({
+      period: 'day',
+      start: '2026-09-03',
+      timezone: 'UTC',
+      sort: 'runtimeSeconds',
+      direction: 'desc',
+      summary: { runtimeSeconds: 0, sessionCount: 0, activeUsers: 0 },
+      series: [
+        { start: '2026-09-02', runtimeSeconds: 7200, sessionCount: 1, historyUpdatedAt: '2026-09-02T23:54:17.007Z' },
+      ],
+      dataSince: null,
+      historyUpdatedAt: null,
+      users: [],
+      nextCursor: null,
+    });
+
+    render(() => <Router><AnalyticsPage /></Router>);
+
+    await waitFor(() => expect(screen.getByRole('img', { name: /accounted runtime history/i })).toBeInTheDocument());
+    expect(screen.queryByText('No historical usage yet')).not.toBeInTheDocument();
+    expect(screen.getByText('2h 0m')).toBeInTheDocument();
+    expect(screen.getByText('No selected-period row')).toBeInTheDocument();
   });
 });

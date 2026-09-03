@@ -1,5 +1,5 @@
 import { cleanup, render, screen } from '@solidjs/testing-library';
-import { Router } from '@solidjs/router';
+import { Route, Router } from '@solidjs/router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const configuration = {
@@ -28,7 +28,7 @@ afterEach(cleanup);
 
 describe('Administration overview Environment navigation', () => {
   it('links each summary directly to its Environment area without duplicate navigation', () => {
-    render(() => <Router><AdministrationOverview /></Router>);
+    render(() => <Router><Route path="*" component={AdministrationOverview} /></Router>);
 
     expect(screen.queryByText('Environment settings')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Open Environment' })).not.toBeInTheDocument();

@@ -97,6 +97,22 @@ describe('admin organization usage routes (REQ-SUB-026)', () => {
     expect(statements.some((statement) => /GROUP BY p\.period_start[\s\S]*ORDER BY p\.period_start DESC/.test(statement.sql))).toBe(true);
   });
 
+  it('bounds every history series to its configured period limit', async () => {
+    for (const [period, start, limit] of [
+      ['day', '2026-08-30', 14],
+      ['week', '2026-08-24', 12],
+      ['month', '2026-08', 12],
+      ['year', '2026', 5],
+    ] as const) {
+      const { app, statements } = createApp();
+
+      expect((await app.request(`/admin/usage?period=${period}&start=${start}`)).status).toBe(200);
+
+      const series = statements.find((statement) => /GROUP BY p\.period_start/.test(statement.sql));
+      expect(series?.values).toEqual([period, start, limit]);
+    }
+  });
+
   it('rejects malformed, mismatched, and timezone-bearing cursor requests before SQL', async () => {
     const { app, statements } = createApp();
     expect((await app.request('/admin/usage?period=day&start=2026-08-30&cursor=bad')).status).toBe(400);

@@ -2311,6 +2311,29 @@ None.
 
 ---
 
+### REQ-AGENT-192: Image-baked TypeScript syntax parser
+
+**Intent:** Managed sessions can run bounded TypeScript syntax checks without installing project dependencies.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. `ts-syntax` prefers repository-local `esbuild`, then uses the exact image-baked parser when the repository has none. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire --> <!-- @impl: Dockerfile --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-192 AC1: prefers a repository-local TypeScript syntax parser) --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (privileged npm tool manifest has a complete committed integrity tree) -->
+2. Image verification parses TypeScript in a repository containing no `node_modules`, without writing into that repository. <!-- @impl: .github/workflows/container-image.yml --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (privileged npm tool manifest has a complete committed integrity tree) -->
+
+**Constraints:** The fallback is fixed to `/opt/codeflare/npm-tools`; checked paths remain inside the current repository, and the parser never runs a build, typecheck, install, or output write.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-052](#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening), [REQ-OPS-033](operations.md#req-ops-033-build-dependencies-have-committed-integrity)
+
+**Verification:** Dependency-integrity contract and built-image syntax-parser smoke check
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-053: Pi Native Review Result Correlation
 
 **Intent:** Pi review completion must be proven only by visible public reviewer calls and their correlated successful terminal evidence in the root transcript.

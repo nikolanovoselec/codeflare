@@ -586,7 +586,9 @@ The default+advanced `safe-local-checks` skill supplies the operational policy a
 managed wrapper for every repository. It resolves only already-installed local
 Oxlint, ESLint, Biome, or Prettier binaries, permits full-project read-only checks with
 no file-count limit, and runs them at low priority for at most three minutes; Node
-syntax checks use the same deadline.
+syntax checks use the same deadline. TypeScript syntax parsing prefers repository-local
+`esbuild` and falls back to the exact immutable copy under `/opt/codeflare/npm-tools`,
+so managed sessions need no project install for this supplemental check.
 
 Under [REQ-AGENT-157 AC6–AC7](../../sdd/spec/agents.md#req-agent-157-managed-local-check-delivery-policy),
 canonical guidance projects to both runtime skill paths. <!-- @impl: scripts/agent-seed-core.mjs::adaptSkillContent -->

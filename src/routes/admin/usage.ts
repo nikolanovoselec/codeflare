@@ -140,7 +140,7 @@ app.get('/', requireAdmin, async (c) => {
       activeUsers: summary.active_users,
     },
     dataSince: summary.data_since,
-    historyUpdatedAt: summary.history_updated_at,
+    historyUpdatedAt: summary.history_updated_at ?? series[series.length - 1]?.historyUpdatedAt ?? null,
     series,
     users,
     nextCursor: hasMore && last ? encodeCursor({

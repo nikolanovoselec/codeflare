@@ -28,7 +28,7 @@ vi.mock('../../api/client', () => ({
 }));
 
 // Import after mocks
-import { terminalStore, sendInputToTerminal, cleanupMapByPrefix, READ_HOLD_MAX_CHARS, RELEASE_SLICE_MAX_CHARS } from '../../stores/terminal';
+import { terminalStore, sendInputToTerminal, reconnectDisconnectedTerminals, cleanupMapByPrefix, READ_HOLD_MAX_CHARS, RELEASE_SLICE_MAX_CHARS } from '../../stores/terminal';
 
 // Get mock WebSocket class from global
 const _MockWebSocket = globalThis.WebSocket as unknown as {
@@ -853,6 +853,24 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
   });
 
   describe('reconnect', () => {
+    it('REQ-TERM-043 AC4: reconnects only disconnected visible panes for the opened session', async () => {
+      const disconnected = createMockTerminal();
+      const healthy = createMockTerminal();
+      const hidden = createMockTerminal();
+      terminalStore.connect('session-1', '1', disconnected);
+      terminalStore.connect('session-1', '2', healthy);
+      terminalStore.connect('session-2', '1', hidden);
+      await vi.advanceTimersByTimeAsync(0);
+      terminalStore.disconnect('session-1', '1');
+      terminalStore.disconnect('session-2', '1');
+
+      reconnectDisconnectedTerminals('session-1', ['session-1:1', 'session-1:2']);
+
+      expect(terminalStore.getConnectionState('session-1', '1')).toBe('connecting');
+      expect(terminalStore.getConnectionState('session-1', '2')).toBe('connected');
+      expect(terminalStore.getConnectionState('session-2', '1')).toBe('disconnected');
+    });
+
     it('should return null if terminal not found', () => {
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const result = terminalStore.reconnect('unknown', '1');

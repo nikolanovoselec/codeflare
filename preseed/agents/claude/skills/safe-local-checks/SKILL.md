@@ -42,7 +42,7 @@ node ~/.pi/agent/skills/safe-local-checks/scripts/safe-local-check.mjs <mode> [.
 ## Modes
 
 - `syntax`: runs Node `--check` for JavaScript/module files.
-- `ts-syntax`: parses JS/TS/JSX/TSX with repo-local `esbuild` transform; no type checking and no output files.
+- `ts-syntax`: parses JS/TS/JSX/TSX with repository-local `esbuild` when present, otherwise the exact image-baked parser; no type checking and no output files.
 - `json`: parses repository JSON files.
 - `yaml`: parses repository YAML with repo-local `yaml`.
 - `shell-syntax`: runs `bash -n` on repository shell files.
@@ -71,7 +71,7 @@ The wrapper:
 - rejects repository-file modes that target paths outside the repository;
 - never installs or downloads a package.
 
-Biome is limited to `check`. Prettier requires `--check`. Syntax mode runs Node's parser against each named file within one shared deadline. `ts-syntax` and `yaml` require existing repository dependencies and fail closed if unavailable.
+Biome is limited to `check`. Prettier requires `--check`. Syntax mode runs Node's parser against each named file within one shared deadline. `ts-syntax` uses repository-local `esbuild` first and then the immutable `/opt/codeflare/npm-tools` copy; `yaml` requires the repository dependency. Both fail closed when their parser is unavailable.
 
 ## Verification boundary
 

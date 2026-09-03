@@ -53,6 +53,7 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     assert.equal(selected.dependencies['@earendil-works/pi-coding-agent'], manifest.dependencies['@earendil-works/pi-coding-agent']);
     assert.equal(selected.dependencies.bun, manifest.dependencies.bun);
     assert.equal(selected.dependencies['context-mode'], manifest.dependencies['context-mode']);
+    assert.equal(selected.dependencies.esbuild, manifest.dependencies.esbuild);
     assert.equal(selected.dependencies['chrome-devtools-mcp'], manifest.dependencies['chrome-devtools-mcp']);
     assert.equal(selected.dependencies['@github/copilot'], undefined);
     assert.equal(selected.dependencies['opencode-ai'], undefined);

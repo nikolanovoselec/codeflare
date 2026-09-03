@@ -106,6 +106,23 @@ async function repositoryRequire(cwd, packageName) {
   }
 }
 
+async function syntaxParserRequire(cwd) {
+  try {
+    return await repositoryRequire(cwd, 'esbuild');
+  } catch (repositoryError) {
+    try {
+      const imageRoot = await realpath('/opt/codeflare/npm-tools/node_modules');
+      const require = createRequire('/opt/codeflare/npm-tools/package.json');
+      const resolved = await realpath(require.resolve('esbuild'));
+      const rel = relative(imageRoot, resolved);
+      if (rel.startsWith('..') || rel === '' || parse(rel).root) throw new Error('outside image tools');
+      return require(resolved);
+    } catch {
+      throw repositoryError;
+    }
+  }
+}
+
 async function repositoryFiles(args, mode) {
   if (args.length === 0) throw new Error(`${mode} requires at least one file`);
   const root = await realpath(await repositoryRoot(process.cwd()));
@@ -198,7 +215,7 @@ async function checkYaml(args) {
 
 async function checkTsSyntax(args) {
   const { files } = await repositoryFiles(args, 'ts-syntax');
-  const esbuild = await repositoryRequire(process.cwd(), 'esbuild');
+  const esbuild = await syntaxParserRequire(process.cwd());
   for (const file of files) {
     const extension = extname(file).toLowerCase();
     const loader = extension === '.tsx' ? 'tsx' : extension === '.jsx' ? 'jsx' : extension === '.json' ? 'json' : extension === '.js' || extension === '.mjs' || extension === '.cjs' ? 'js' : 'ts';

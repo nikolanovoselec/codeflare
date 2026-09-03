@@ -1333,7 +1333,7 @@ describe('API Client', () => {
     it('requests bounded administration reads with their supplied cursors', async () => {
       mockFetch
         .mockResolvedValueOnce(response({ mode: 'default', revision: 1, applicableSections: ['domain'], sections: {}, activeRunId: null, latest: {} }))
-        .mockResolvedValueOnce(response({ period: 'day', start: '2026-08-30', timezone: 'UTC', sort: 'runtimeSeconds', direction: 'desc', summary: { runtimeSeconds: 0, sessionCount: 0, activeUsers: 0 }, dataSince: null, historyUpdatedAt: null, users: [], nextCursor: 'usage-next' }))
+        .mockResolvedValueOnce(response({ period: 'day', start: '2026-08-30', timezone: 'UTC', sort: 'runtimeSeconds', direction: 'desc', summary: { runtimeSeconds: 0, sessionCount: 0, activeUsers: 0 }, series: [], dataSince: null, historyUpdatedAt: null, users: [], nextCursor: 'usage-next' }))
         .mockResolvedValueOnce(response({ userKey: 'a'.repeat(64), email: 'user@example.com', accountStatus: 'active', dataSince: '2026-08-30', deletedAt: null, runtimeSeconds: 1, sessionCount: 1, historyUpdatedAt: '2026-08-30T00:00:00.000Z', period: 'day', start: '2026-08-30', timezone: 'UTC' }))
         .mockResolvedValueOnce(response({ items: [run], nextCursor: 'run-next' }))
         .mockResolvedValueOnce(response(run))

@@ -181,6 +181,26 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
     assert.match(result.stderr, /repository-local yaml/i);
   });
 
+  it('REQ-AGENT-192 AC1: prefers a repository-local TypeScript syntax parser', () => {
+    const root = mkdtempSync(join(tmpdir(), 'safe-local-check-typescript-'));
+    const packageRoot = join(root, 'node_modules', 'esbuild');
+    mkdirSync(join(root, '.git'));
+    mkdirSync(packageRoot, { recursive: true });
+    writeFileSync(join(root, 'valid.ts'), 'const value: number = 1;\n', 'utf8');
+    writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({ name: 'esbuild', main: 'index.cjs' }), 'utf8');
+    writeFileSync(join(packageRoot, 'index.cjs'), `module.exports = { transform: async (source, options) => {
+      require('node:fs').writeFileSync(process.env.SAFE_CHECK_CAPTURE, JSON.stringify({ source, loader: options.loader }));
+    } };\n`, 'utf8');
+
+    const result = run(root, ['ts-syntax', 'valid.ts']);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(join(root, 'capture.txt'), 'utf8')), {
+      source: 'const value: number = 1;\n',
+      loader: 'ts',
+    });
+  });
+
   it('runs Bash syntax checks through the managed process wrapper', () => {
     const root = mkdtempSync(join(tmpdir(), 'safe-local-check-shell-'));
     mkdirSync(join(root, '.git'));

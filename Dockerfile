@@ -365,6 +365,7 @@ RUN cd /opt/codeflare/npm-tools && \
     fi && \
     rm -rf node_modules/@oven && \
     bun --version && \
+    node -e 'require("esbuild").transformSync("const value: number = 1", { loader: "ts" })' && \
     chrome-devtools-mcp --help >/dev/null && \
     rm -f /tmp/.cache-bust && \
     npm cache clean --force && \

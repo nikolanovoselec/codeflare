@@ -46,7 +46,7 @@ const UsageChart: Component<{ series: UsageSeriesPoint[] }> = (props) => {
       }}</For>
       <Show when={props.series.length > 0}>
         <text x="48" y="164">{props.series[0].start}</text>
-        <Show when={props.series.length > 1}><text x="608" y="164" text-anchor="end">{props.series.at(-1)?.start}</text></Show>
+        <Show when={props.series.length > 1}><text x="608" y="164" text-anchor="end">{props.series[props.series.length - 1]?.start}</text></Show>
       </Show>
     </svg>
     <table class="admin-visually-hidden"><caption>Accounted runtime history</caption><tbody><For each={props.series}>{(point) => <tr><th>{point.start}</th><td>{duration(point.runtimeSeconds)}</td><td>{point.sessionCount} sessions</td></tr>}</For></tbody></table>
@@ -114,7 +114,7 @@ const AnalyticsPage: Component = () => {
           </div>
         }>
           {(resolved) => (
-            <Show when={resolved().dataSince} fallback={
+            <Show when={resolved().dataSince || resolved().series.length > 0} fallback={
               <div class="admin-state-panel">
                 <h2>No historical usage yet</h2>
                 <p>No {query().period} history is available for {query().start} UTC. Collection starts with the first successful accounting write; existing totals are not backfilled.</p>
@@ -134,7 +134,7 @@ const AnalyticsPage: Component = () => {
                 <aside class="admin-panel admin-period-summary">
                   <div class="admin-panel-heading"><div><h2>Data freshness</h2><p>Historical D1 snapshots can lag live Timekeeper usage. The timestamp below is the newest row returned, not a global synchronization guarantee.</p></div></div>
                   <dl>
-                    <div><dt>Data available since</dt><dd class="admin-mono">{resolved().dataSince}</dd></div>
+                    <div><dt>Data available since</dt><dd class="admin-mono">{resolved().dataSince || 'No selected-period row'}</dd></div>
                     <div><dt>History updated</dt><dd class="admin-mono">{resolved().historyUpdatedAt || 'No row update'}</dd></div>
                     <div><dt>Timezone</dt><dd>UTC</dd></div>
                   </dl>
