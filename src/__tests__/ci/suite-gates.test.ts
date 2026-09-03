@@ -291,12 +291,12 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
   it('audits production lockfiles without depending on restored node_modules trees', () => {
     const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
-      jobs: { quality: { steps: Array<{ name?: string; run?: string; 'working-directory'?: string }> } };
+      jobs: { quality: { steps: Array<{ name?: string; run?: string; 'working-directory'?: string; 'timeout-minutes'?: number }> } };
     };
     const audits = workflow.jobs.quality.steps.filter((step) => step.name?.startsWith('Security audit'));
     expect(audits).toEqual([
-      { name: 'Security audit (backend)', run: 'npm audit --package-lock-only --audit-level=high --omit=dev' },
-      { name: 'Security audit (frontend)', run: 'npm audit --package-lock-only --audit-level=high --omit=dev', 'working-directory': 'web-ui' },
+      { name: 'Security audit (backend)', run: 'npm audit --package-lock-only --audit-level=high --omit=dev', 'timeout-minutes': 1 },
+      { name: 'Security audit (frontend)', run: 'npm audit --package-lock-only --audit-level=high --omit=dev', 'working-directory': 'web-ui', 'timeout-minutes': 1 },
     ]);
   });
 
