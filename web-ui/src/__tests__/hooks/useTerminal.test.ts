@@ -699,9 +699,10 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
-    it('REQ-TERM-043 AC1/AC2: waits for terminal pre-warm readiness before connecting an initializing session', async () => {
+    it('REQ-TERM-043 AC1/AC2: OPEN owns the first connection after acknowledged readiness', async () => {
       const [stage, setStage] = createSignal<'mounting' | 'ready'>('mounting');
-      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(true);
+      const [initializing, setInitializing] = createSignal(true);
+      vi.mocked(sessionStore.isSessionInitializing).mockImplementation(() => initializing());
       vi.mocked(sessionStore.getInitProgressForSession).mockImplementation(() => ({ stage: stage() }) as any);
 
       const dispose = createRoot((dispose) => {
@@ -715,6 +716,13 @@ describe('useTerminal hook', () => {
       expect(mockFocus).not.toHaveBeenCalled();
 
       setStage('ready');
+      await Promise.resolve();
+
+      expect(terminalStore.connect).not.toHaveBeenCalled();
+      expect(terminalStore.startUrlDetection).not.toHaveBeenCalled();
+      expect(mockFocus).not.toHaveBeenCalled();
+
+      setInitializing(false);
 
       await vi.waitFor(() => expect(terminalStore.connect).toHaveBeenCalledTimes(1));
       expect(terminalStore.startUrlDetection).toHaveBeenCalledTimes(1);

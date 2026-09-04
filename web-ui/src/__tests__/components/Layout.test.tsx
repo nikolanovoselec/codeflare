@@ -153,7 +153,6 @@ vi.mock('../../stores/terminal', () => ({
   terminalStore: { reconnect: vi.fn(), triggerLayoutResize: vi.fn() },
   reconnectDisconnectedTerminals: vi.fn(),
   reconnectOnVisibilityReturn: vi.fn(),
-  restartVisibleTerminals: vi.fn(),
   scheduleDisconnect: vi.fn(),
   cancelScheduledDisconnect: vi.fn(),
 }));
@@ -191,7 +190,7 @@ vi.mock('../../lib/mobile', () => ({
 }));
 
 import { forceResetKeyboardState } from '../../lib/mobile';
-import { reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, restartVisibleTerminals } from '../../stores/terminal';
+import { reconnectDisconnectedTerminals, reconnectOnVisibilityReturn } from '../../stores/terminal';
 import { getUsageWarningLevel, getDismissedQuotaLevel, setDismissedQuotaLevel } from '../../stores/session';
 import { terminalWorkspaceStore } from '../../stores/terminal-workspace';
 import Layout, { clearPrewarmingVaultStatus } from '../../components/Layout';
@@ -1050,7 +1049,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   // =========================================================================
 
   describe('Terminal workspace transitions / REQ-TERM-011 through REQ-TERM-013', () => {
-    it('REQ-TERM-043 AC4: OPEN replaces visible terminal attachments and dismisses readiness', async () => {
+    it('REQ-TERM-043 AC4: OPEN dismisses readiness without directly manipulating transport', async () => {
       const { sessionStore } = await import('../../stores/session');
       mockSessions = [createMockSession({ id: 'sess1', status: 'running' })];
       mockActiveSessionId = 'sess1';
@@ -1061,11 +1060,9 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await waitFor(() => expect((window as any).__terminalAreaProps?.onOpenSessionById).toBeTypeOf('function'));
       vi.mocked(reconnectDisconnectedTerminals).mockClear();
       vi.mocked(reconnectOnVisibilityReturn).mockClear();
-      vi.mocked(restartVisibleTerminals).mockClear();
 
       (window as any).__terminalAreaProps.onOpenSessionById('sess1');
 
-      expect(restartVisibleTerminals).toHaveBeenCalledWith('sess1', ['sess1:1']);
       expect(sessionStore.dismissInitProgressForSession).toHaveBeenCalledWith('sess1');
       expect(reconnectOnVisibilityReturn).not.toHaveBeenCalled();
       expect(reconnectDisconnectedTerminals).not.toHaveBeenCalled();

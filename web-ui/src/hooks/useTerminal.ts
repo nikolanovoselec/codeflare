@@ -645,22 +645,20 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     });
   });
 
-  // Connect initializing sessions after terminal pre-warm is ready, or
-  // immediately when a session is already running (e.g. tab switch, page reload).
+  // Readiness remains UI-owned until the user opens the session. That state
+  // transition creates the first attachment; no hidden socket competes with OPEN.
   createEffect(() => {
     const initializing = isInitializing();
-    const stage = initProgress()?.stage;
-    const shouldConnect = !initializing || stage === 'ready';
 
-    if ((!canConnect() || !shouldConnect) && cleanup) {
+    if ((!canConnect() || initializing) && cleanup) {
       cleanup();
       cleanup = undefined;
       terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
       return;
     }
 
-    if (canConnect() && shouldConnect && term && !cleanup) {
-      logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Connecting WebSocket (stage: ${stage || 'running'})`);
+    if (canConnect() && !initializing && term && !cleanup) {
+      logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Connecting WebSocket`);
       const terminals = sessionStore.getTerminalsForSession(props.sessionId);
       const tab = terminals?.tabs.find((candidate) => candidate.id === props.terminalId);
       cleanup = terminalStore.connect(
@@ -678,9 +676,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   createEffect(() => {
     const focusedTerm = terminalInstance();
     const initializing = isInitializing();
-    const stage = initProgress()?.stage;
-    const shouldConnect = !initializing || stage === 'ready';
-    if (!isFocused() || !canConnect() || !shouldConnect || !focusedTerm) {
+    if (!isFocused() || !canConnect() || initializing || !focusedTerm) {
       terminalStore.clearPendingResizeAuthority(props.sessionId, props.terminalId);
       return;
     }
