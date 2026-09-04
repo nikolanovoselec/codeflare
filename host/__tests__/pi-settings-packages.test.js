@@ -178,6 +178,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
       packages: [
         { source: 'npm:context-mode@1.0.169', extensions: [] },
         'npm:pi-goal-list-loop-audit@0.34.16',
+        'npm:pi-caveman@1.0.8',
         'npm:some-user-package@1.0.0', // an unrelated package the user added
       ],
     });
@@ -188,6 +189,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     // Managed packages are present regardless of context-mode's prior state.
     for (const spec of REQUIRED) assert.ok(sources.includes(spec), `must include ${spec}`);
     assert.ok(!sources.includes('npm:pi-goal-list-loop-audit@0.34.16'), 'retired glla package must be removed');
+    assert.ok(!sources.includes('npm:pi-caveman@1.0.8'), 'retired response package must be removed');
     // The user's unrelated package is preserved (assembly merges, never wipes).
     assert.ok(sources.includes('npm:some-user-package@1.0.0'), 'unrelated existing packages must be preserved');
   });

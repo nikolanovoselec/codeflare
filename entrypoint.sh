@@ -2659,7 +2659,7 @@ const defaultPackages = [
 // The graphify wrapper conflicts with first-party graphify-native tools. The glla package is
 // replaced by @narumitw/pi-goal and would otherwise keep loading from persisted user settings.
 // Unlike disabled packages these are dropped and never re-added, so upgrades load cleanly.
-const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit']);
+const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:pi-caveman']);
 function sourceOf(entry) {
   if (typeof entry === 'string') return entry;
   return entry && typeof entry.source === 'string' ? entry.source : undefined;

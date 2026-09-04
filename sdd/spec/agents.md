@@ -4818,7 +4818,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A Herdr-launched Pi session uses the canonical `~/.pi/agent` configuration root while Herdr state remains private. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps Pi on its authoritative config root while Herdr uses private XDG state) -->
+1. A Herdr-launched Pi session uses Codeflare's canonical Pi configuration root while Herdr state remains private. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps Pi on its authoritative config root while Herdr uses private XDG state) -->
 
 **Constraints:** Herdr state remains separate from Pi configuration.
 

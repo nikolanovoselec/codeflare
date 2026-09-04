@@ -90,6 +90,7 @@ describe('deployment container image input hash', () => {
       'host/package-lock.json',
       'host/tsconfig.json',
       'host/src/index.ts',
+      'image/herdr/config.toml',
       'openvscode/runtime.txt',
       'preseed/runtime.txt',
       'scripts/browser-ide-ui-state.py',
