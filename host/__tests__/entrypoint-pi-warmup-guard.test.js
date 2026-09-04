@@ -1,7 +1,7 @@
 // REQ-SESSION-015: container readiness must not be blocked by a failed
 // best-effort startup step.
 //
-// Verifies the Pi warm-up calls in entrypoint.sh are guarded so a non-zero exit
+// Verifies the Pi warm-up and Fast Start update calls in entrypoint.sh are guarded so a non-zero exit
 // cannot abort the entrypoint (under `set -euo pipefail`) before the
 // init-complete flag is written — the production regression fixed in PR #440.
 //
@@ -28,19 +28,19 @@ const ENTRYPOINT = join(__dirname, '..', '..', 'entrypoint.sh');
 function extractGuardedCalls() {
   const lines = readFileSync(ENTRYPOINT, 'utf8').split('\n');
   const warm = lines.find((l) => l.startsWith('warm_pi_npm_dependencies '));
-  const update = lines.find((l) => l.startsWith('update_pi_when_fast_start_disabled '));
+  const update = lines.find((l) => l.startsWith('update_pi_and_codex_when_fast_start_disabled '));
   assert.ok(warm, 'entrypoint.sh must invoke warm_pi_npm_dependencies (guarded)');
-  assert.ok(update, 'entrypoint.sh must invoke update_pi_when_fast_start_disabled (guarded)');
+  assert.ok(update, 'entrypoint.sh must invoke update_pi_and_codex_when_fast_start_disabled (guarded)');
   return { warm, update };
 }
 
 // Run a startup snippet under the same shell options the entrypoint uses, with
-// both warm-up steps forced to FAIL. Returns { code, flagWritten }.
+// all guarded startup steps forced to FAIL. Returns { code, flagWritten }.
 function runStartup(snippet, scratch) {
   const flag = join(scratch, 'codeflare-init-complete');
   const script = `set -euo pipefail
 warm_pi_npm_dependencies() { return 1; }
-update_pi_when_fast_start_disabled() { return 1; }
+update_pi_and_codex_when_fast_start_disabled() { return 1; }
 ${snippet}
 # Critical post-step the entrypoint must reach: writing the init-complete flag.
 touch '${flag}'
@@ -59,7 +59,15 @@ function makeScratch() {
   return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-describe('entrypoint Pi warm-up guard / REQ-SESSION-015 (a failed best-effort step must not block the init-complete flag)', () => {
+describe('entrypoint startup update guards / REQ-SESSION-015 (a failed best-effort step must not block the init-complete flag)', () => {
+  test('REQ-AGENT-012: runs both explicit updates before terminal readiness', () => {
+    const lines = readFileSync(ENTRYPOINT, 'utf8').split('\n');
+    const agentUpdates = lines.findIndex((line) => line.startsWith('update_pi_and_codex_when_fast_start_disabled '));
+    const readiness = lines.findIndex((line) => line.trim() === 'release_agent_pty_after_cleanup');
+
+    assert.ok(agentUpdates >= 0 && agentUpdates < readiness);
+  });
+
   test('guarded warm-up calls from entrypoint.sh still reach the init-flag write when they fail', () => {
     const { warm, update } = extractGuardedCalls();
     const scratch = makeScratch();
@@ -78,7 +86,7 @@ describe('entrypoint Pi warm-up guard / REQ-SESSION-015 (a failed best-effort st
       // Pre-PR-#440 form: no `|| echo` guard. Under `set -e` this must abort
       // before the flag write — confirming the guard above is load-bearing.
       const { code, flagWritten } = runStartup(
-        'warm_pi_npm_dependencies\nupdate_pi_when_fast_start_disabled',
+        'warm_pi_npm_dependencies\nupdate_pi_and_codex_when_fast_start_disabled',
         scratch.dir,
       );
       assert.notEqual(code, 0, 'unguarded failing warm-up must abort the script');

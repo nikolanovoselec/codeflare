@@ -89,7 +89,7 @@ The cog icon in the header opens Settings.
 
 - **Push & Deploy** - connect GitHub and Cloudflare once. Every session starts pre-authenticated. `git push`, `gh`, and `wrangler deploy` just work.
 - **Auto-sleep timeout** - default 15 minutes. Paid tiers can extend to 30m, 1h, or 2h. Sleep is input-aware: typing keeps the session alive, background WebSocket reconnects do not.
-- **Fast Start** - on by default. Agent auto-updates are disabled so the terminal boots instantly. Toggle off if you want bleeding-edge agent versions on every session.
+- **Fast Start** - on by default. Agent auto-updates are disabled so the terminal boots instantly. Toggle it off to update installed Pi and Codex CLIs explicitly before the terminal becomes ready; startup logs show their before and after versions or a failure.
 - **Accent color** - personal preference. Persists across sessions.
 
 ---

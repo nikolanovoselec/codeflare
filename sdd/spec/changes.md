@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-04
 
+- **Fast Start OFF explicitly updates Pi and Codex before readiness** ([REQ-AGENT-012](agents.md#req-agent-012-fast-cli-start-configurable) AC2 and AC4-AC6 amended; remains Implemented). Installed Pi and Codex CLIs now enter one explicit latest-runtime update before the PTY readiness flag, while Pi also reconciles configured packages. Startup logs each installed CLI's before and after versions or visible failure evidence without stranding readiness.
+
 - **Pi advances to the latest stable runtime release** ([REQ-OPS-025](operations.md#req-ops-025-pi-preseed-bump-artifact-coherence) remains Implemented). The shared image-tools pin, prewarm dependency and override, both committed integrity trees, and embedded agent seed advance together from `@earendil-works/pi-coding-agent` 0.84.3 to 0.84.4. The release adds terminal capability overrides, extension UI prompt events, RPC queue clearing, and upstream fixes without changing Codeflare's runtime contract.
 
 ## 2026-09-03

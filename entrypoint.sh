@@ -2734,17 +2734,65 @@ fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
 NODE
 }
 
-update_pi_when_fast_start_disabled() {
+update_pi_and_codex_when_fast_start_disabled() {
     if [ "${FAST_CLI_START:-true}" != "false" ]; then
         return 0
     fi
-    if ! command -v pi >/dev/null 2>&1; then
-        echo "[entrypoint] Pi CLI not found; skipping Pi auto-update"
-        return 0
+
+    local npm_tools_dir before_pi before_codex after_pi after_codex update_failed=0
+    local specs=()
+    npm_tools_dir="${CODEFLARE_NPM_TOOLS_DIR:-/opt/codeflare/npm-tools}"
+
+    if command -v pi >/dev/null 2>&1; then
+        if ! before_pi="$(PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi --version 2>&1)"; then
+            echo "[entrypoint] ERROR: Could not read Pi version before update"
+            return 1
+        fi
+        echo "[entrypoint] Fast Start disabled; Pi version before update: $before_pi"
+        specs+=("@earendil-works/pi-coding-agent@latest")
+        if ! PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi update --extensions; then
+            echo "[entrypoint] ERROR: Pi package update failed"
+            update_failed=1
+        fi
+    else
+        echo "[entrypoint] Fast Start disabled; Pi is not installed"
     fi
-    echo "[entrypoint] Fast Start disabled; updating Pi and Pi packages"
-    PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi update || \
-        echo "[entrypoint] WARNING: Pi update failed; continuing startup"
+
+    if command -v codex >/dev/null 2>&1; then
+        if ! before_codex="$(codex --version 2>&1)"; then
+            echo "[entrypoint] ERROR: Could not read Codex version before update"
+            return 1
+        fi
+        echo "[entrypoint] Fast Start disabled; Codex version before update: $before_codex"
+        specs+=("@openai/codex@latest")
+    else
+        echo "[entrypoint] Fast Start disabled; Codex is not installed"
+    fi
+
+    if [ "${#specs[@]}" -gt 0 ]; then
+        if ! npm install --prefix "$npm_tools_dir" --omit=dev --save-exact --ignore-scripts --no-audit --no-fund "${specs[@]}"; then
+            echo "[entrypoint] ERROR: Pi and Codex runtime update failed"
+            return 1
+        fi
+        hash -r
+    fi
+
+    if [ -n "${before_pi:-}" ]; then
+        if ! after_pi="$(PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi --version 2>&1)"; then
+            echo "[entrypoint] ERROR: Could not read Pi version after update"
+            return 1
+        fi
+        echo "[entrypoint] Fast Start disabled; Pi version after update: $after_pi"
+    fi
+    if [ -n "${before_codex:-}" ]; then
+        if ! after_codex="$(codex --version 2>&1)"; then
+            echo "[entrypoint] ERROR: Could not read Codex version after update"
+            return 1
+        fi
+        echo "[entrypoint] Fast Start disabled; Codex version after update: $after_codex"
+    fi
+
+    return "$update_failed"
 }
 
 # Warm Pi extension npm dependencies from the image-local seed cache.
@@ -2759,7 +2807,7 @@ configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default config
 configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"
 configure_pi_caveman
 warm_pi_npm_dependencies || echo "[entrypoint] WARNING: warm_pi_npm_dependencies failed; continuing startup"
-update_pi_when_fast_start_disabled || echo "[entrypoint] WARNING: update_pi_when_fast_start_disabled failed; continuing startup"
+update_pi_and_codex_when_fast_start_disabled || echo "[entrypoint] WARNING: update_pi_and_codex_when_fast_start_disabled failed; continuing startup"
 
 # Purge npm cache - regenerated on demand, 200MB+ of dead weight from
 # runtime npm install calls (Pi packages, context-mode, etc.)

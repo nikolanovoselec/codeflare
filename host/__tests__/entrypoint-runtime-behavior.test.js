@@ -261,16 +261,18 @@ exec "$REAL_NODE" "$@"
     assert.equal(readFileSync(destination, 'utf8'), 'operator-owned\n');
   });
 
-  it('REQ-AGENT-012: Fast Start controls Pi update suppression and the disabled update path', () => {
-    const fixture = mkdtempSync(join(tmpdir(), 'pi-fast-start-'));
+  it('REQ-AGENT-012: Fast Start OFF updates Pi and Codex with version evidence', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'agent-fast-start-'));
     const calls = join(fixture, 'calls.log');
-    const script = `${extractFunction('configure_fast_start_environment')}\n${extractFunction('update_pi_when_fast_start_disabled')}\n` +
+    const script = `${extractFunction('configure_fast_start_environment')}\n${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +
       `CALLS=${JSON.stringify(calls)}\n` +
-      `pi() { printf 'pi:%s offline=%s skip=%s\\n' "$*" "\${PI_OFFLINE:-}" "\${PI_SKIP_VERSION_CHECK:-}" >> "$CALLS"; }\n` +
-      'FAST_CLI_START=true\nconfigure_fast_start_environment\nupdate_pi_when_fast_start_disabled\n' +
+      `pi() { if [ "$1" = "--version" ]; then echo 'pi 0.84.4'; else printf 'pi:%s offline=%s skip=%s\\n' "$*" "\${PI_OFFLINE:-}" "\${PI_SKIP_VERSION_CHECK:-}" >> "$CALLS"; fi; }\n` +
+      `codex() { echo 'codex-cli 0.151.0'; }\n` +
+      `npm() { printf 'npm:%s\\n' "$*" >> "$CALLS"; }\n` +
+      'FAST_CLI_START=true\nconfigure_fast_start_environment\nupdate_pi_and_codex_when_fast_start_disabled\n' +
       'printf "on:%s:%s:%s:%s:%s\\n" "$DISABLE_AUTOUPDATER" "$OPENCODE_DISABLE_AUTOUPDATE" "$COPILOT_AUTO_UPDATE" "$PI_OFFLINE" "$PI_SKIP_VERSION_CHECK"\n' +
       'FAST_CLI_START=false PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 DISABLE_AUTOUPDATER=1 OPENCODE_DISABLE_AUTOUPDATE=1 DISABLE_INSTALLATION_CHECKS=1 COPILOT_AUTO_UPDATE=false\n' +
-      'configure_fast_start_environment\nupdate_pi_when_fast_start_disabled\n' +
+      'configure_fast_start_environment\nupdate_pi_and_codex_when_fast_start_disabled\n' +
       'printf "off:%s:%s:%s:%s:%s:%s\\n" "${PI_OFFLINE-unset}" "${PI_SKIP_VERSION_CHECK-unset}" "${DISABLE_AUTOUPDATER-unset}" "${OPENCODE_DISABLE_AUTOUPDATE-unset}" "${DISABLE_INSTALLATION_CHECKS-unset}" "${COPILOT_AUTO_UPDATE-unset}"\n' +
       'cat "$CALLS"\n';
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
@@ -278,10 +280,29 @@ exec "$REAL_NODE" "$@"
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(result.stdout.trim().split('\n'), [
       'on:1:1:false:1:1',
-      '[entrypoint] Fast Start disabled; updating Pi and Pi packages',
+      '[entrypoint] Fast Start disabled; Pi version before update: pi 0.84.4',
+      '[entrypoint] Fast Start disabled; Codex version before update: codex-cli 0.151.0',
+      '[entrypoint] Fast Start disabled; Pi version after update: pi 0.84.4',
+      '[entrypoint] Fast Start disabled; Codex version after update: codex-cli 0.151.0',
       'off:unset:unset:unset:unset:unset:unset',
-      'pi:update offline= skip=',
+      'pi:update --extensions offline= skip=',
+      'npm:install --prefix /opt/codeflare/npm-tools --omit=dev --save-exact --ignore-scripts --no-audit --no-fund @earendil-works/pi-coding-agent@latest @openai/codex@latest',
     ]);
+  });
+
+  it('REQ-AGENT-012: Fast Start OFF surfaces Pi package and agent runtime update failures', () => {
+    const script = `${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +
+      `pi() { [ "$1" = "--version" ] && { echo 'pi 0.84.4'; return 0; }; return 7; }\n` +
+      `codex() { echo 'codex-cli 0.150.1'; }\n` +
+      `npm() { return 9; }\n` +
+      'FAST_CLI_START=false\n' +
+      'update_pi_and_codex_when_fast_start_disabled || echo update-failed\n';
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /ERROR: Pi package update failed/);
+    assert.match(result.stdout, /ERROR: Pi and Codex runtime update failed/);
+    assert.match(result.stdout, /update-failed/);
   });
 
   it('REQ-AGENT-012: disabled Fast Start removes only Codeflare-managed settings suppressors', () => {
