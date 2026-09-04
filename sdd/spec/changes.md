@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-04
+
+- **Pi advances to the latest stable runtime release** ([REQ-OPS-025](operations.md#req-ops-025-pi-preseed-bump-artifact-coherence) remains Implemented). The shared image-tools pin, prewarm dependency and override, both committed integrity trees, and embedded agent seed advance together from `@earendil-works/pi-coding-agent` 0.84.3 to 0.84.4. The release adds terminal capability overrides, extension UI prompt events, RPC queue clearing, and upstream fixes without changing Codeflare's runtime contract.
+
 ## 2026-09-03
 
 - **Pull requests no longer wait on npm registry audits** ([REQ-OPS-003](operations.md#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit) AC5 and Constraints amended; remains Implemented). Pull requests use fail-closed GitHub Dependency Review. Post-merge lockfile changes and full workflow runs retain one-minute fail-closed backend, frontend, and Browser IDE audits, preventing npm registry outages from holding required PR checks open.
