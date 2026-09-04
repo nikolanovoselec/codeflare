@@ -12,7 +12,7 @@ For strict web egress, I send storage requests through the catch-all controller.
 
 A hostname that looks similar is not an approved destination. A user ID supplied by the container is not session identity. A proxy variable is not a security boundary. The Worker owns all three decisions.
 
-Named interceptors cover named services. They are not a universal secret manager, and they do not make every environment variable harmless. I inspect the actual egress path before saying a credential never enters the container.
+Named interceptors cover named services; they are not a universal secret manager. A secret placed in an environment variable is exposed to processes allowed to read it inside the container, but container visibility is not the same as unrestricted escape. With Enterprise Strict Gateway Egress enabled, direct-internet HTTP, HTTPS, and WebSocket traffic must pass through Cloudflare Gateway, raw TCP and UDP internet egress is denied, and configured DLP policies can detect or block exfiltration. I still inspect the actual path before claiming a secret cannot leave: own-account control-plane exceptions use separate scoped authorization and audit boundaries, and DLP protection is only as strong as the customer's active Cloudflare Gateway policy.
 
 ## Try it
 
