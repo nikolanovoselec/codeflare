@@ -297,7 +297,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       };
     };
     const audits = workflow.jobs.quality.steps.filter((step) => step.name?.startsWith('Security audit'));
-    const dependencyGate = "github.event_name != 'pull_request' && (needs.changes.outputs.full == 'true' || needs.changes.outputs.dependencies == 'true')";
+    const dependencyGate = "github.event_name == 'workflow_dispatch'";
     expect(audits).toEqual([
       { name: 'Security audit (backend)', if: dependencyGate, run: 'npm audit --package-lock-only --audit-level=high --omit=dev', 'timeout-minutes': 1 },
       { name: 'Security audit (frontend)', if: dependencyGate, run: 'npm audit --package-lock-only --audit-level=high --omit=dev', 'working-directory': 'web-ui', 'timeout-minutes': 1 },
