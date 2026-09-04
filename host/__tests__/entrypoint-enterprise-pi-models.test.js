@@ -14,7 +14,7 @@
 // configured catalog shape. Revert the fix (def back) and this test fails.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -31,6 +31,18 @@ function extractModelsBlock() {
   const end = entrypoint.indexOf('# settings.json: overwrite ONLY defaultProvider', start);
   if (end === -1) throw new Error('models.json block end marker not found in entrypoint.sh');
   return entrypoint.slice(start, end);
+}
+
+// Extract the real outer Enterprise-mode gate through its closing `fi`.
+function extractEnterpriseBlock() {
+  const section = entrypoint.indexOf('# Gated strictly on ENTERPRISE_MODE=active');
+  if (section === -1) throw new Error('Enterprise block section marker not found in entrypoint.sh');
+  const start = entrypoint.indexOf('if [ "${ENTERPRISE_MODE:-}" = "active" ]; then', section);
+  if (start === -1) throw new Error('Enterprise block gate not found in entrypoint.sh');
+  const endMarker = '\nfi\n\n# --- TLS: trust the Cloudflare containers CA for NON-ENTERPRISE OAuth sessions ---';
+  const end = entrypoint.indexOf(endMarker, start);
+  if (end === -1) throw new Error('Enterprise block closing marker not found in entrypoint.sh');
+  return entrypoint.slice(start, end + '\nfi\n'.length);
 }
 
 // Extract the settings.json merge block (defaultProvider/defaultModel/
@@ -129,6 +141,18 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     assert.deepEqual(modelsJson.providers['codeflare-gateway'].compat, {
       supportsDeveloperRole: false,
     });
+  });
+
+  it('REQ-ENTERPRISE-005 AC5: outer Enterprise gate skips Pi provider config when mode is unset', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'non-ent-pi-models-'));
+    const modelsPath = join(dir, '.pi/agent/models.json');
+    const script = ['set -euo pipefail', `USER_HOME='${dir}'`, extractEnterpriseBlock()].join('\n');
+    const res = spawnSync('bash', ['-c', script], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
+    });
+    assert.equal(res.status, 0, `inactive Enterprise block exited non-zero: ${res.stderr}`);
+    assert.equal(existsSync(modelsPath), false, 'outer Enterprise gate wrote Pi provider config while mode was unset');
   });
 
   it('applies the per-route context window from ENTERPRISE_ROUTE_CONTEXT_WINDOWS, default 256000 for unlisted routes', () => {
