@@ -283,7 +283,7 @@ describe('Terminal Component', () => {
       expect(wrapper).toHaveStyle({ position: 'relative' });
     });
 
-    it('REQ-TERM-043 AC4, AC7; REQ-TERM-044 AC2: OPEN creates and focuses a fresh renderable terminal', () => {
+    it('REQ-TERM-043 AC4, AC7; REQ-TERM-044 AC2: OPEN creates and focuses a fresh renderable terminal', async () => {
       const [initializing, setInitializing] = createSignal(true);
       const startupCleanup = vi.fn();
       const dimensionsUnavailable = vi.fn(() => {
@@ -316,7 +316,7 @@ describe('Terminal Component', () => {
       expect(openedContainer).toHaveStyle({ visibility: 'visible' });
       expect(startupCleanup).toHaveBeenCalledTimes(1);
       expect(terminalStore.connect).toHaveBeenCalledTimes(2);
-      expect(dimensionsUnavailable).toHaveBeenCalled();
+      await vi.waitFor(() => expect(dimensionsUnavailable).toHaveBeenCalled());
       expect(mockTerminalInstance.focus).toHaveBeenCalledTimes(1);
     });
 
