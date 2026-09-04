@@ -1003,7 +1003,7 @@ jobs:
       - name: Audit pinned extension dependencies
         if: github.event_name != 'pull_request' && (needs.changes.outputs.full == 'true' || needs.changes.outputs.dependencies == 'true')
         timeout-minutes: 1
-        run: npm audit --audit-level=high
+        run: npm audit --package-lock-only --audit-level=high
         working-directory: openvscode/agent-sidebar
 
       - name: Check pinned extension dependencies and licenses
