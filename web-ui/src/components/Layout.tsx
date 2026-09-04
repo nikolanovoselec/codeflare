@@ -654,8 +654,9 @@ const Layout: Component<LayoutProps> = (props) => {
     setViewState('dashboard');
   };
 
-  // OPEN releases readiness ownership. The terminal hook then creates the first
-  // attachment, and host attach replay paints current PTY state.
+  // OPEN releases readiness ownership. The selected session's Terminal wrapper
+  // remounts its browser terminal and attachment, then host replay restores the
+  // current PTY screen on that fresh instance.
   const handleOpenSessionById = (sessionId: string) => {
     sessionStore.dismissInitProgressForSession(sessionId);
   };
