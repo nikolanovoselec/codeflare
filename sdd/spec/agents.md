@@ -3621,7 +3621,7 @@ None.
 **Acceptance Criteria:**
 
 1. A number-only, comma-separated, or named follow-up reads only the reference or references selected by the user. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Reply with one number and then request one multi-subsystem selection; inspect loaded files. -->
-2. A deep dive states applicable permission, operator-configuration, external-system, and unproven-capability boundaries before presenting the capability as available. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review configured, unconfigured, permission-gated, and external-system deep dives. -->
+2. A deep dive qualifies capability claims with applicable permission, operator-configuration, external-system, and unproven-capability boundaries. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review configured, unconfigured, permission-gated, and external-system deep dives. -->
 3. A deep dive gives a concrete example the user or operator can try. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review each applicable user- or administrator-operated example. -->
 4. User-facing tutorials use Codeflare to advance the user's work and omit Codeflare's own source paths, requirement IDs, implementation anchors, and maintainer navigation. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review every deep-dive reference for internal repository navigation. -->
 
