@@ -203,14 +203,14 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-031: Enterprise Pi Gateway Provider Compatibility
 
-**Intent:** Pi must preserve its managed instructions when Enterprise dynamic routes resolve to OpenAI-compatible backends with different supported conversation roles.
+**Intent:** Pi's Enterprise provider configuration must remain compatible when dynamic routes resolve to backends with different supported conversation roles.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. In Enterprise mode, Pi sends model requests through the intercepted Enterprise provider. <!-- @impl: entrypoint.sh::PI_PROVIDER_CONFIG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-031 AC1: builds models.json with one model per catalog route under set -euo pipefail) --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-031 AC1: does not write provider config outside Enterprise mode) -->
-2. Pi preserves and applies its complete managed instructions when a dynamic route resolves to a supported backend. <!-- @impl: entrypoint.sh::PI_PROVIDER_CONFIG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-031 AC2: forces dynamic-route prompts into the system role supported by Workers AI models) -->
+1. Pi's Enterprise provider configuration contains one selectable model for each configured dynamic route. <!-- @impl: entrypoint.sh::PI_PROVIDER_CONFIG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-031 AC1: builds models.json with one model per catalog route under set -euo pipefail) -->
+2. Pi's Enterprise provider configuration declares developer-role messages unsupported. <!-- @impl: entrypoint.sh::PI_PROVIDER_CONFIG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-031 AC2: declares developer-role messages unsupported for dynamic routes) -->
 
 **Constraints:**
 
@@ -221,7 +221,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning)
 
-**Verification:** Automated test ([Pi models.json build test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js) (AC1 — provider construction, catalog models, empty-catalog fallback, and reserved-keyword jq guard; AC2 — system-role prompt compatibility).)
+**Verification:** Automated test ([Pi models.json build test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js) (AC1 — provider construction, catalog models, empty-catalog fallback, and reserved-keyword jq guard; AC2 — developer-role compatibility declaration).)
 
 **Status:** Implemented
 
