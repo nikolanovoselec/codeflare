@@ -16,7 +16,9 @@ Credentials, authentication, SecretStorage, extension runtime databases, chat hi
 
 ## Try it
 
-Open a repository in Browser VS Code, select one failing function, ask Codeflare Inline Chat for the smallest tested correction, inspect the native diff, then use the integrated terminal to follow exact-head CI.
+After selecting the failing function in Browser VS Code, paste this request:
+
+> Use Inline Chat to propose the smallest tested correction for this selection. Show me the native diff before saving, then guide me through exact-head CI in the integrated terminal.
 
 Other useful requests:
 
