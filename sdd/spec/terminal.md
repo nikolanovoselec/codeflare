@@ -510,6 +510,7 @@ None.
 5. An already-running visible session connects immediately. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC5: connects immediately when the session is already ready) -->
 6. OPEN dismisses readiness without creating, replacing, or reconnecting terminal transport. <!-- @impl: web-ui/src/components/Layout.tsx::handleOpenSessionById --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-043 AC6: OPEN dismisses readiness without directly manipulating transport) -->
 7. Reattaching an existing PTY restores its current serialized screen before normal output continues. <!-- @impl: host/src/session.ts::attach --> <!-- @test: host/__tests__/session-wire-protocol.test.js (attach() sends a restore frame as JSON carrying type="restore" once buffer has state) -->
+8. OPEN remains renderable when xterm exposes its private viewport before viewport dimensions initialize; best-effort scroll resynchronization cannot abort the readiness transition. <!-- @impl: web-ui/src/lib/xterm-internals.ts::resyncViewportScrollState --> <!-- @test: web-ui/src/__tests__/lib/xterm-internals.test.ts (REQ-TERM-043 AC8: does not abort OPEN when viewport dimensions are not initialized yet) -->
 
 **Constraints:** The three-minute startup guard, bounded prewarm orphan window, and MultiView visible-pane ownership remain unchanged.
 
