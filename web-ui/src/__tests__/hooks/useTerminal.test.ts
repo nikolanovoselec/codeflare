@@ -699,10 +699,9 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
-    it('REQ-TERM-043 AC2-AC4: adopts prewarm once at mounting and OPEN only enables focus', async () => {
+    it('REQ-TERM-043 AC2-AC3: keeps one unfocused startup attachment through ready', async () => {
       const [stage, setStage] = createSignal<'mounting' | 'ready'>('mounting');
-      const [initializing, setInitializing] = createSignal(true);
-      vi.mocked(sessionStore.isSessionInitializing).mockImplementation(() => initializing());
+      vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(true);
       vi.mocked(sessionStore.getInitProgressForSession).mockImplementation(() => ({ stage: stage() }) as any);
 
       const dispose = createRoot((dispose) => {
@@ -721,13 +720,6 @@ describe('useTerminal hook', () => {
       expect(terminalStore.connect).toHaveBeenCalledTimes(1);
       expect(terminalStore.startUrlDetection).not.toHaveBeenCalled();
       expect(mockFocus).not.toHaveBeenCalled();
-
-      setInitializing(false);
-
-      await vi.waitFor(() => expect(terminalStore.startUrlDetection).toHaveBeenCalledTimes(1));
-      expect(terminalStore.connect).toHaveBeenCalledTimes(1);
-      expect(terminalStore.startUrlDetection).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId);
-      expect(mockFocus).toHaveBeenCalledTimes(1);
 
       dispose();
     });

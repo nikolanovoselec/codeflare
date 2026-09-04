@@ -278,21 +278,44 @@ describe('Terminal Component', () => {
       expect(wrapper).toHaveStyle({ position: 'relative' });
     });
 
-    it('REQ-TERM-044 AC2: keeps the renderer layout-active behind readiness until OPEN', () => {
+    it('REQ-TERM-043 AC4, AC6: OPEN replaces the startup terminal with a fresh renderable instance', () => {
       const [initializing, setInitializing] = createSignal(true);
       vi.mocked(sessionStore.isSessionInitializing).mockImplementation(() => initializing());
 
       render(() => <Terminal {...defaultProps} onInitComplete={() => setInitializing(false)} />);
 
-      const container = document.querySelector<HTMLElement>('.terminal-container');
-      expect(container).not.toBeNull();
-      expect(container!.style.visibility).not.toBe('hidden');
-      expect(container).toHaveStyle({ opacity: '0' });
+      const startupContainer = document.querySelector<HTMLElement>('.terminal-container');
+      expect(startupContainer).not.toBeNull();
+      expect(startupContainer).toHaveStyle({ visibility: 'hidden' });
 
       fireEvent.click(screen.getByTestId('init-progress-open-btn'));
 
-      expect(container!.style.visibility).not.toBe('hidden');
-      expect(container).toHaveStyle({ opacity: '1' });
+      const openedContainer = document.querySelector<HTMLElement>('.terminal-container');
+      expect(openedContainer).not.toBeNull();
+      expect(openedContainer).not.toBe(startupContainer);
+      expect(openedContainer).toHaveStyle({ visibility: 'visible' });
+    });
+
+    it('REQ-TERM-043 AC6: OPEN leaves foreign-session terminal instances unchanged', () => {
+      const [initializing, setInitializing] = createSignal<Record<string, boolean>>({
+        [defaultProps.sessionId]: true,
+        'other-session': true,
+      });
+      vi.mocked(sessionStore.isSessionInitializing).mockImplementation((sessionId) => initializing()[sessionId] === true);
+
+      render(() => (
+        <>
+          <Terminal {...defaultProps} onInitComplete={() => setInitializing((state) => ({ ...state, [defaultProps.sessionId]: false }))} />
+          <Terminal {...defaultProps} sessionId="other-session" />
+        </>
+      ));
+
+      const startupContainers = [...document.querySelectorAll<HTMLElement>('.terminal-container')];
+      fireEvent.click(screen.getAllByTestId('init-progress-open-btn')[0]);
+      const openedContainers = [...document.querySelectorAll<HTMLElement>('.terminal-container')];
+
+      expect(openedContainers[0]).not.toBe(startupContainers[0]);
+      expect(openedContainers[1]).toBe(startupContainers[1]);
     });
 
     it('should hide terminal when active is false', () => {

@@ -646,8 +646,9 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   });
 
   // The terminal server is available at mounting. Attach once there so tab 1
-  // adopts the prewarmed PTY before its bounded orphan window expires. OPEN only
-  // removes the overlay; it never replaces this hook-owned transport.
+  // adopts the prewarmed PTY before its bounded orphan window expires. OPEN
+  // remounts TerminalInstance; this hook cleans up the startup attachment and
+  // the new instance receives authoritative host replay.
   createEffect(() => {
     const initializing = isInitializing();
     const stage = initProgress()?.stage;
