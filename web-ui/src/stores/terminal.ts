@@ -120,6 +120,7 @@ let nextConnectionOwner = 0;
 // Bug 1 fix: Store inputDisposable outside the connect function to properly clean up
 const inputDisposables = new Map<string, { dispose: () => void }>();
 const herdrKeys = new Set<string>();
+const manualKeys = new Set<string>();
 
 // L26: FitAddon management and layout resize delegated to terminal-layout.ts
 // Register layout module dependencies at module init
@@ -209,6 +210,8 @@ function connect(
   disconnect(sessionId, terminalId);
   if (herdr) herdrKeys.add(key);
   else herdrKeys.delete(key);
+  if (manual) manualKeys.add(key);
+  else manualKeys.delete(key);
 
   const owner = ++nextConnectionOwner;
   connectionOwners.set(key, owner);
@@ -648,6 +651,7 @@ function disposeLocalTerminal(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
   disconnect(sessionId, terminalId);
   herdrKeys.delete(key);
+  manualKeys.delete(key);
   clearPendingResizeAuthority(sessionId, terminalId);
   _unregisterFitAddon(sessionId, terminalId);
   const terminal = terminals.get(key);
@@ -669,6 +673,7 @@ function dispose(sessionId: string, terminalId: string): void {
 
   disconnect(sessionId, terminalId);
   herdrKeys.delete(key);
+  manualKeys.delete(key);
   clearPendingResizeAuthority(sessionId, terminalId);
   const terminal = terminals.get(key);
   if (terminal) {
@@ -698,6 +703,9 @@ function disposeSession(sessionId: string): void {
   cleanupOutputByPrefix(prefix);
   for (const key of [...herdrKeys]) {
     if (key.startsWith(prefix)) herdrKeys.delete(key);
+  }
+  for (const key of [...manualKeys]) {
+    if (key.startsWith(prefix)) manualKeys.delete(key);
   }
   for (const key of [...pendingFocusClaims]) {
     if (key.startsWith(prefix)) pendingFocusClaims.delete(key);
@@ -732,6 +740,7 @@ function disposeAll(): void {
   }
   terminals.clear();
   herdrKeys.clear();
+  manualKeys.clear();
 
   // Clear auxiliary Maps that live outside the reactive store
   for (const disposable of inputDisposables.values()) {
@@ -777,8 +786,9 @@ function reconnect(sessionId: string, terminalId: string, onError?: (error: stri
 
   // Close existing connection and reconnect
   const herdr = herdrKeys.has(key);
+  const manual = manualKeys.has(key);
   disconnect(sessionId, terminalId);
-  return connect(sessionId, terminalId, terminal, onError, undefined, !herdr, herdr);
+  return connect(sessionId, terminalId, terminal, onError, manual, !herdr, herdr);
 }
 
 // Send input text to a terminal's WebSocket connection
