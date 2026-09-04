@@ -16,7 +16,9 @@ A valid identity also does not grant universal access. Repository permissions, o
 
 ## Try it
 
-Ask me to trace one request from the Cloudflare Access assertion through user resolution, session ownership, bucket binding, and the final route guard. I will identify where each untrusted browser value stops being authoritative.
+Paste this request:
+
+> Review my application's authenticated resource route. Trace the verified Cloudflare Access identity to resource ownership, flag any browser value that remains authoritative, and propose the smallest fail-closed correction with tests.
 
 Other useful requests:
 
