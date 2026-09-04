@@ -111,7 +111,7 @@ I work through Cloudflare Gateway for direct-internet HTTP, HTTPS, and WebSocket
 
 Git owns committed history. The user's storage bucket owns selected synchronized files. Vault and the cumulative knowledge graph own durable knowledge. Supported browser and Herdr state have their own bounded continuity contracts.
 
-Running processes, sockets, browser tabs, unsynchronized files, and in-memory state remain ephemeral. Terminal scrollback is durable and restored when that session resumes. Browser VS Code persists bounded UI state—theme, keyboard layout, Explorer state, and open-file resources—for restoration in future sessions; this does not persist live editor databases or make unsynchronized workspace files durable. Destroying the container cannot undo a Git push, deployment, API call, migration, or synchronized file that already happened.
+Running processes, sockets, browser tabs, unsynchronized files, and in-memory state remain ephemeral. While the container and PTY remain alive, reconnecting to the session restores bounded terminal scrollback. Browser VS Code persists bounded UI state—theme, keyboard layout, Explorer state, and open-file resources—for restoration in future sessions; this does not persist live editor databases or make unsynchronized workspace files durable. Destroying the container cannot undo a Git push, deployment, API call, migration, or synchronized file that already happened.
 
 ### Start with one real bounded task
 

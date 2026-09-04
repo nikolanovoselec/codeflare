@@ -12,7 +12,7 @@ Stored data uses encryption at rest. When the operator supplies the customer enc
 
 ## Where the boundary sits
 
-Running processes, sockets, browser tabs, in-memory state, and files outside synchronized paths disappear with a destroyed container. Terminal scrollback is durable and restored when that session resumes. Browser VS Code persists bounded UI state—theme, keyboard layout, Explorer state, and open-file resources—for restoration in future sessions; this does not persist live editor databases or make unsynchronized workspace files durable. A synchronized file, Git push, deployment, migration, or external API mutation also survives container destruction.
+Running processes, sockets, browser tabs, in-memory state, and files outside synchronized paths disappear with a destroyed container. While the container and PTY remain alive, reconnecting to the session restores bounded terminal scrollback. Browser VS Code persists bounded UI state—theme, keyboard layout, Explorer state, and open-file resources—for restoration in future sessions; this does not persist live editor databases or make unsynchronized workspace files durable. A synchronized file, Git push, deployment, migration, or external API mutation also survives container destruction.
 
 Synchronization is periodic, not transactional. Two running containers can race on the same path, and newest-file-wins is not source control wearing a fake moustache. Use Git when merge history matters.
 
