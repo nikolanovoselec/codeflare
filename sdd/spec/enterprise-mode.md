@@ -180,10 +180,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. Enterprise containers receive the active flag plus configured non-secret catalog, default, reasoning, and context-window hints resolved from the session's first matching group or global fallback; gateway coordinates, credentials, and resolved model IDs remain absent. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) -->
 2. When `ENTERPRISE_MODE=active`, the Cloudflare containers CA is installed into the system trust store and the Node/Python CA env vars are prepended to `.bashrc` so the PTY-spawned agent shells inherit them and all agent HTTPS clients trust the intercepted (TLS-terminated) connections. <!-- @impl: entrypoint.sh::CF_OAUTH_CA_SRC --> <!-- @test: host/__tests__/entrypoint-enterprise-ca-copilot.test.js (REQ-ENTERPRISE-005 AC2: NODE_EXTRA_CA_CERTS in .bashrc points at the CF_CA_SRC path) -->
 3. Enterprise Copilot receives persistent-shell BYOK base URL, placeholder, default route, and prompt/output limits; startup overwrites stale defaults. It exposes only the default dynamic route, which maps on egress, and route changes require relaunch. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: host/__tests__/entrypoint-enterprise-ca-copilot.test.js (REQ-ENTERPRISE-005 AC3: COPILOT_MODEL in .bashrc equals the ENTERPRISE_DEFAULT_ROUTE value) -->
-4. When `ENTERPRISE_MODE=active`, Pi uses a custom `openai-completions` provider pointing at `api.openai.com` and sends its managed prompt as a `system` message supported across dynamic-route backends. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (forces dynamic-route prompts into the system role supported by Workers AI models) -->
-5. The container never receives the AI Gateway URL, the gateway token, or any per-session secret; routing to the gateway is done entirely by the DO's outbound interception ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) -->
-6. When `ENTERPRISE_MODE` is unset, `ENTERPRISE_MODE` is not emitted, no agent configuration block runs, and the container env is byte-identical to current behavior. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) -->
-7. AWS credentials are absent in every mode. Enterprise keeps R2 credentials and only the Browser Rendering placeholder/account, excludes deploy tokens, and clears Pi provider auth each start; non-enterprise retains real Cloudflare credentials and populated provider auth. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (container secret hygiene: no AWS_* anywhere, CF token placeholder-only in enterprise) -->
+4. The container never receives the AI Gateway URL, the gateway token, or any per-session secret; routing to the gateway is done entirely by the DO's outbound interception ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) -->
+5. When `ENTERPRISE_MODE` is unset, `ENTERPRISE_MODE` is not emitted, no agent configuration block runs, and the container env is byte-identical to current behavior. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) -->
+6. AWS credentials are absent in every mode. Enterprise keeps R2 credentials and only the Browser Rendering placeholder/account, excludes deploy tokens, and clears Pi provider auth each start; non-enterprise retains real Cloudflare credentials and populated provider auth. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (container secret hygiene: no AWS_* anywhere, CF token placeholder-only in enterprise) -->
 
 **Constraints:**
 
@@ -196,7 +195,33 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Dependencies:** [REQ-ENTERPRISE-001](#req-enterprise-001-enterprise_mode-forces-unlimited-tier-and-pro-mode), [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning), [REQ-AGENT-031](agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity)
 
-**Verification:** Automated test ([env-pipeline test](../../src/__tests__/container/container-env-llm.test.ts) (AC1/AC5/AC6 env injection; AC7 secret hygiene — no AWS_* in either mode, enterprise CLOUDFLARE_API_TOKEN placeholder-only); [Pi models.json build test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js) (AC4 — one model per catalog route, system-role prompt compatibility, per-route contextWindow, empty-catalog fallback, and reserved-keyword jq guard; AC7 — auth.json cleared to {}); [entrypoint CA-trust + Copilot BYOK test](../../host/__tests__/entrypoint-enterprise-ca-copilot.test.js) (AC2 — CA env prepended to .bashrc, idempotent, enterprise-gated; AC3 — Copilot BYOK vars + token-limit hints prepended, stale route overwritten on re-run, enterprise-gated). All acceptance criteria are covered by automated tests.)
+**Verification:** Automated test ([env-pipeline test](../../src/__tests__/container/container-env-llm.test.ts) (AC1/AC4/AC5 env injection; AC6 secret hygiene — no AWS_* in either mode, enterprise CLOUDFLARE_API_TOKEN placeholder-only); [Pi models.json build test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js) (AC1 — per-route contextWindow; AC6 — auth.json cleared to {}); [entrypoint CA-trust + Copilot BYOK test](../../host/__tests__/entrypoint-enterprise-ca-copilot.test.js) (AC2 — CA env prepended to .bashrc, idempotent, enterprise-gated; AC3 — Copilot BYOK vars + token-limit hints prepended, stale route overwritten on re-run, enterprise-gated). All acceptance criteria are covered by automated tests.)
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-031: Enterprise Pi Gateway Provider Compatibility
+
+**Intent:** Pi must preserve its managed instructions when Enterprise dynamic routes resolve to OpenAI-compatible backends with different supported conversation roles.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. When `ENTERPRISE_MODE=active`, Pi uses a custom `openai-completions` provider pointing at `api.openai.com`. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (builds models.json with one model per catalog route under set -euo pipefail) -->
+2. Pi sends its managed prompt as a `system` message supported across dynamic-route backends. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (forces dynamic-route prompts into the system role supported by Workers AI models) -->
+
+**Constraints:**
+
+- Prompt content, tool schemas, reasoning controls, and dynamic-route selection remain unchanged.
+- The compatibility setting applies only to Pi's Enterprise custom provider.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning)
+
+**Verification:** Automated test ([Pi models.json build test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js) (AC1 — provider construction, catalog models, empty-catalog fallback, and reserved-keyword jq guard; AC2 — system-role prompt compatibility).)
 
 **Status:** Implemented
 
@@ -438,7 +463,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls)
+**Dependencies:** [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-gateway-provider-compatibility)
 
 **Verification:** Automated test ([Setup configure tests](../../src/__tests__/routes/setup-enterprise-groups.test.ts), [prefill tests](../../src/__tests__/routes/setup/handlers.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts), [ConfigureStep](../../web-ui/src/__tests__/components/ConfigureStep.test.tsx), [container env fan](../../src/__tests__/container/container-env-llm.test.ts), and [entrypoint Pi models](../../host/__tests__/entrypoint-enterprise-pi-models.test.js).)
 
