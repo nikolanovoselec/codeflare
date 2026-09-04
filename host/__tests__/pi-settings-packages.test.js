@@ -123,23 +123,6 @@ describe('Evaluate package preseed (REQ-AGENT-133)', () => {
   });
 });
 
-describe('Caveman package preseed (REQ-AGENT-155)', () => {
-  it('pins the reviewed upstream release and integrity-locks its extension', () => {
-    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
-    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
-    const version = pkg.dependencies['pi-caveman'];
-    assert.equal(version, '1.0.8');
-    const caveman = lock.packages['node_modules/pi-caveman'];
-    assert.equal(caveman.version, version);
-    assert.equal(caveman.resolved, `https://registry.npmjs.org/pi-caveman/-/pi-caveman-${version}.tgz`);
-    assert.equal(
-      caveman.integrity,
-      'sha512-N0F/Ui86dEtKzoAnRpe+9t4AXsv9cshTGBFwbDf7aiiE1C5iQ8QrZuszdc/yX9FWNUP0pzSZX/M/zWynngnGQw==',
-    );
-    assert.deepEqual(caveman.peerDependencies, { '@earendil-works/pi-coding-agent': '*' });
-  });
-});
-
 describe('Plan mode package preseed (REQ-AGENT-152)', () => {
   it('pins the reviewed upstream release and integrity-locks its declared extension entrypoint', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));

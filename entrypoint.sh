@@ -2602,30 +2602,6 @@ console.log('[entrypoint] Pi Plan Mode policy configured');
 NODE
 }
 
-configure_pi_caveman() {
-    local caveman_config="$USER_HOME/.pi/agent/caveman.json"
-    local caveman_image_config="${PI_CAVEMAN_IMAGE_CONFIG:-/opt/codeflare/pi-agent/caveman.json}"
-    PI_CAVEMAN_IMAGE_CONFIG="$caveman_image_config" PI_CAVEMAN_STARTUP_CONFIG="$caveman_config" node --input-type=commonjs <<'NODE'
-const { randomUUID } = require('node:crypto');
-const { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } = require('node:fs');
-const { dirname } = require('node:path');
-
-const settingsPath = process.env.PI_CAVEMAN_STARTUP_CONFIG;
-const settings = JSON.parse(readFileSync(process.env.PI_CAVEMAN_IMAGE_CONFIG, 'utf8'));
-if (JSON.stringify(settings) !== JSON.stringify({ defaultLevel: 'lite', showStatus: false })) throw new Error('Image-owned Pi Caveman policy is invalid');
-
-mkdirSync(dirname(settingsPath), { recursive: true });
-const temporaryPath = `${settingsPath}.${process.pid}.${randomUUID()}.tmp`;
-try {
-  writeFileSync(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, { flag: 'wx' });
-  renameSync(temporaryPath, settingsPath);
-} finally {
-  rmSync(temporaryPath, { force: true });
-} // try
-console.log('[entrypoint] Pi Caveman policy configured');
-NODE
-}
-
 warm_pi_npm_dependencies() {
     local pi_npm_preseed="${PI_NPM_PRESEED:-/opt/codeflare/pi-agent/npm}"
     local pi_npm_dir="${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}"
@@ -2668,7 +2644,6 @@ const required = [
   'npm:@juicesharp/rpiv-todo@2.7.1',
   'npm:pi-web-access@0.25.0',
   'npm:pi-mcp-adapter@2.29.0',
-  'npm:pi-caveman@1.0.8',
   'npm:pi-evaluate@0.1.5',
   'npm:@narumitw/pi-goal@0.54.3',
   'npm:@narumitw/pi-plan-mode@0.55.3',
@@ -2819,11 +2794,9 @@ release_agent_pty_after_fast_start_updates() {
 # from running a slow npm install on first launch.
 # Dependency warm-up remains non-fatal: aborting before the init-complete flag
 # leaves the terminal server gated in "warming up" forever. Goal and Plan Mode
-# keep that established degradation policy. Caveman is different: its response
-# policy is startup-owned, so an unwritable policy blocks startup.
+# keep that established degradation policy.
 configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default configuration failed; continuing startup"
 configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"
-configure_pi_caveman
 warm_pi_npm_dependencies || echo "[entrypoint] WARNING: warm_pi_npm_dependencies failed; continuing startup"
 
 # Pre-accept Claude Code's bypass permissions consent

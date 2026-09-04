@@ -184,8 +184,8 @@ Multi-agent support, preseed system, and session modes.
 
 1. Startup assembles `@narumitw/pi-usage` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
 2. The preseed owns an exact version and SHA-512 integrity lock for `@narumitw/pi-usage`. <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-usage --> <!-- @test: host/__tests__/pi-settings-packages.test.js (pins the reviewed upstream package and integrity-locks its Pi entrypoint) -->
-3. Image construction explicitly loads every declared Usage entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::usage_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131/REQ-AGENT-155: managed extension JITI warm-cache contract) --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
-4. Image construction fails when Usage's path-correct JITI artifact is absent. <!-- @impl: Dockerfile::usage_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131/REQ-AGENT-155: managed extension JITI warm-cache contract) --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
+3. Image construction explicitly loads every declared Usage entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::usage_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131: managed extension JITI warm-cache contract) --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
+4. Image construction fails when Usage's path-correct JITI artifact is absent. <!-- @impl: Dockerfile::usage_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131: managed extension JITI warm-cache contract) --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
 
 **Constraints:**
 
@@ -211,7 +211,7 @@ Multi-agent support, preseed system, and session modes.
 
 1. Startup assembles `pi-evaluate` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
 2. The preseed owns an exact version and SHA-512 integrity lock for `pi-evaluate`. <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/pi-evaluate --> <!-- @test: host/__tests__/pi-settings-packages.test.js (pins the reviewed upstream release and integrity-locks its declared extension entrypoint) -->
-3. Image construction explicitly loads the declared Evaluate entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::evaluate_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131/REQ-AGENT-155: managed extension JITI warm-cache contract) -->
+3. Image construction explicitly loads the declared Evaluate entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::evaluate_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131: managed extension JITI warm-cache contract) -->
 4. Image construction fails when Evaluate's path-correct JITI artifact is absent. <!-- @impl: Dockerfile::evaluate_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
 
 **Constraints:**
@@ -239,8 +239,8 @@ Multi-agent support, preseed system, and session modes.
 
 1. Startup makes one exact-pinned `@narumitw/pi-plan-mode` package available in Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly) -->
 2. The preseed integrity-locks the reviewed Plan Mode release. <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-plan-mode --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Plan mode package preseed (REQ-AGENT-152)) -->
-3. A new image loads Plan Mode from its prewarmed path-correct cache. <!-- @impl: Dockerfile::plan_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-155: image build warms and verifies every managed npm entrypoint) -->
-4. Image construction fails when Plan Mode's expected cache artifact is absent. <!-- @impl: Dockerfile::plan_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-155: image build warms and verifies every managed npm entrypoint) -->
+3. A new image loads Plan Mode from its prewarmed path-correct cache. <!-- @impl: Dockerfile::plan_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152: image build warms and verifies every managed npm entrypoint) -->
+4. Image construction fails when Plan Mode's expected cache artifact is absent. <!-- @impl: Dockerfile::plan_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152: image build warms and verifies every managed npm entrypoint) -->
 5. Every container start atomically replaces Plan Mode configuration with inherited thinking, retained implementation-plan context, and the exact Codeflare discovery-tool profile. <!-- @impl: entrypoint.sh::configure_pi_plan_mode --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-152 AC5/AC6: overwrites Plan Mode settings with the Codeflare policy on every start) -->
 6. The managed profile excludes general questionnaires, arbitrary command execution, delegation, task mutation, MCP routing, advisor calls, export defaults, and keyboard shortcuts. <!-- @impl: entrypoint.sh::configure_pi_plan_mode --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-152 AC5/AC6: overwrites Plan Mode settings with the Codeflare policy on every start) -->
 7. A live `/plan` workflow supports read-only discovery, structured questions, explicit completion, and implementation handoff. <!-- @manual: Reload Pi, enter and exit `/plan`, complete a plan, and confirm implementation restores the prior tool set. -->
@@ -3618,8 +3618,6 @@ None.
 2. The overview preserves availability truth through hard boundaries, operator configuration, explicit permissions, and unproven-capability limits without product-tier or session-mode labels. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Compare configured, unconfigured, and permission-gated capability answers. -->
 3. The response ends with a stable numbered list for SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Cloudflare Gateway, MCP portals, Cloudflare AI Gateway, Browser Run, agentic primitives, and design systems as independent deep dives. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Review the 1 through 14 mapping and request each subsystem independently. -->
 4. A broad response loads no subsystem reference. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Inspect loaded files for one broad capability question. -->
-5. Pi capability and onboarding tutorials, including numbered tutorial replies, retain their tutorial response contract without Caveman compression. <!-- @impl: scripts/patch-pi-caveman-tutorial-exemption.mjs::patchPiCavemanSource --> <!-- @manual: Ask a fresh Pi session for its capability tour and inspect its structure and depth. -->
-6. After a tutorial response, Caveman Lite resumes for an ordinary response. <!-- @impl: scripts/patch-pi-caveman-tutorial-exemption.mjs::patchPiCavemanSource --> <!-- @manual: Follow a capability tutorial with an ordinary question and compare response style. -->
 
 **Constraints:**
 
@@ -4812,54 +4810,23 @@ None.
 
 ---
 
-### REQ-AGENT-155: Image-owned Caveman response policy
+### REQ-AGENT-172: Herdr preserves the canonical Pi configuration root
 
-**Intent:** Every Pi session uses the reviewed Caveman extension in lite compression mode without adding animated footer noise or relying on an ephemeral runtime install.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Pi's required package set, integrity lock, and generated package metadata contain the same exact `pi-caveman` release. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/pi-caveman --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Caveman package preseed) -->
-2. Before each successful container startup, Caveman configuration is atomically replaced with lite mode and status display disabled. <!-- @impl: entrypoint.sh::configure_pi_caveman --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-155 AC2: overwrites Caveman with lite mode and no footer on every start) -->
-3. An unwritable Caveman policy blocks container startup. <!-- @impl: entrypoint.sh::configure_pi_caveman --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-155 AC3: fails startup when the authoritative Caveman policy cannot be written) -->
-4. Caveman configuration is absent from default, advanced, and managed agent seeds; the image carries the validated policy used at startup. <!-- @impl: Dockerfile::image/pi/caveman.json --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-155 AC4: fails startup when the image-owned Caveman policy is absent) -->
-5. Image construction includes Caveman in the warm path so new images load it without first-session compilation. <!-- @impl: Dockerfile::caveman_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131/REQ-AGENT-155: managed extension JITI warm-cache contract) -->
-6. Image construction fails when Caveman's expected compiled artifact is absent. <!-- @impl: Dockerfile::caveman_hit --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131/REQ-AGENT-155: managed extension JITI warm-cache contract) -->
-7. Weekly Pi-extension discovery includes Caveman and applies its candidate version to every source-owned runtime pin. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-AGENT-155 AC7: Caveman participates in coherent Pi extension shadow bumps) -->
-
-**Constraints:**
-
-- Package bytes, npm installation state, and Caveman configuration remain image-owned; agent seeds do not distribute the policy.
-- Startup policy is authoritative and does not preserve user changes to Caveman mode or footer visibility.
-
-**Priority:** P2
-
-**Dependencies:** [REQ-AGENT-001](#req-agent-001-supported-coding-agent-runtimes), [REQ-AGENT-014](#req-agent-014-manifest-driven-preseed-pipeline), [REQ-OPS-020](operations.md#req-ops-020-shadow-pin-version-bump-automation)
-
-**Verification:** Automated package, image-policy, startup, seed-exclusion, and image-cache contract tests
-
-**Status:** Implemented
-
----
-
-### REQ-AGENT-172: Herdr preserves the Pi extension policy
-
-**Intent:** Pi sessions launched through Herdr retain Codeflare's image-owned extension policy rather than falling back to package defaults.
+**Intent:** Pi sessions launched through Herdr use Codeflare's canonical Pi configuration root while Herdr retains private runtime state.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A Herdr-launched Pi session retains lite Caveman responses without the Caveman status display. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps Pi on its authoritative config root while Herdr uses private XDG state) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-155 AC2: overwrites Caveman with lite mode and no footer on every start) -->
+1. A Herdr-launched Pi session uses the canonical `~/.pi/agent` configuration root while Herdr state remains private. <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @test: host/__tests__/herdr-launcher.test.js (keeps Pi on its authoritative config root while Herdr uses private XDG state) -->
 
-**Constraints:** Herdr state remains separate from Pi's image-owned extension configuration.
+**Constraints:** Herdr state remains separate from Pi configuration.
 
 **Priority:** P2
 
-**Dependencies:** [REQ-AGENT-155](#req-agent-155-image-owned-caveman-response-policy), [REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup)
+**Dependencies:** [REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup)
 
-**Verification:** Automated launcher and startup-policy tests
+**Verification:** Automated launcher test
 
 **Status:** Implemented
 
@@ -4889,7 +4856,7 @@ None.
 
 **Priority:** P2
 
-**Dependencies:** [REQ-AGENT-172](#req-agent-172-herdr-preserves-the-pi-extension-policy), [REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup)
+**Dependencies:** [REQ-AGENT-172](#req-agent-172-herdr-preserves-the-canonical-pi-configuration-root), [REQ-TERM-005](terminal.md#req-term-005-herdr-runtime-and-configured-agent-startup)
 
 **Verification:** Manual check
 

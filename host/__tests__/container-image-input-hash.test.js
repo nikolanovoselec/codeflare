@@ -90,7 +90,6 @@ describe('deployment container image input hash', () => {
       'host/package-lock.json',
       'host/tsconfig.json',
       'host/src/index.ts',
-      'image/pi/caveman.json',
       'openvscode/runtime.txt',
       'preseed/runtime.txt',
       'scripts/browser-ide-ui-state.py',
@@ -99,7 +98,6 @@ describe('deployment container image input hash', () => {
       'scripts/patch-context-mode-bundles.mjs',
       'scripts/patch-pi-goal-review-control.mjs',
       'scripts/patch-pi-plan-mode-tool-policy.mjs',
-      'scripts/patch-pi-caveman-tutorial-exemption.mjs',
       'scripts/verify-pi-lockstep.mjs',
       'scripts/verify-pi-prompt.mjs',
       'scripts/pi-prompt-contract.mjs',
@@ -138,15 +136,10 @@ describe('deployment container image input hash', () => {
     const productionTag = imageHashResult().tag;
     assert.notEqual(productionTag, baseline.tag);
 
-    write('image/pi/caveman.json', '{"defaultLevel":"off"}\n');
-    commit('image policy change');
-    const imagePolicyTag = imageHashResult().tag;
-    assert.notEqual(imagePolicyTag, productionTag);
-
     write('transcript-retention.mjs', 'retention change\n');
     commit('retention script change');
     const retentionTag = imageHashResult().tag;
-    assert.notEqual(retentionTag, imagePolicyTag);
+    assert.notEqual(retentionTag, productionTag);
 
     write('scripts/verify-pi-lockstep.mjs', 'image script change\n');
     commit('image script change');
@@ -163,15 +156,10 @@ describe('deployment container image input hash', () => {
     const planPatchTag = imageHashResult().tag;
     assert.notEqual(planPatchTag, goalPatchTag);
 
-    write('scripts/patch-pi-caveman-tutorial-exemption.mjs', 'Caveman tutorial patch change\n');
-    commit('Caveman tutorial patch change');
-    const cavemanPatchTag = imageHashResult().tag;
-    assert.notEqual(cavemanPatchTag, planPatchTag);
-
     write('scripts/ci/prune-npm-platform-artifacts.mjs', 'pruning change\n');
     commit('pruning change');
     const pruningTag = imageHashResult().tag;
-    assert.notEqual(pruningTag, cavemanPatchTag);
+    assert.notEqual(pruningTag, planPatchTag);
 
     write('.github/workflows/container-image.yml', 'deployment smoke change\n');
     commit('deployment workflow change');
