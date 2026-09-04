@@ -113,7 +113,7 @@ describe('entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync 
         return 0
       }
       relay_managed_pi_extensions() { :; }
-      release_agent_pty_after_cleanup() { :; }
+      release_agent_pty_after_fast_start_updates() { :; }
       renice() { :; }
       ionice() { :; }
       start_sync_daemon() { echo "SYNC_DAEMON" >> "${logFile}"; }

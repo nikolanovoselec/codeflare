@@ -301,7 +301,26 @@ exec "$REAL_NODE" "$@"
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /ERROR: Pi package update failed/);
-    assert.match(result.stdout, /ERROR: Agent runtime update failed/);
+    assert.match(result.stdout, /ERROR: Pi runtime update failed/);
+    assert.match(result.stdout, /ERROR: Codex runtime update failed/);
+    assert.match(result.stdout, /update-failed/);
+  });
+
+  it('REQ-AGENT-206: version-read failures do not suppress either runtime update', () => {
+    const script = `${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +
+      `pi() { [ "$1" = "update" ] && return 0; return 7; }\n` +
+      `codex() { return 8; }\n` +
+      `npm() { echo runtime-update; }\n` +
+      'FAST_CLI_START=false\n' +
+      'update_pi_and_codex_when_fast_start_disabled || echo update-failed\n';
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Could not read Pi version before update/);
+    assert.match(result.stdout, /Could not read Codex version before update/);
+    assert.match(result.stdout, /runtime-update/);
+    assert.match(result.stdout, /Could not read Pi version after update/);
+    assert.match(result.stdout, /Could not read Codex version after update/);
     assert.match(result.stdout, /update-failed/);
   });
 

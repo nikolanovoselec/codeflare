@@ -2740,16 +2740,19 @@ update_pi_and_codex_when_fast_start_disabled() {
     fi
 
     local npm_tools_dir before_pi before_codex after_pi after_codex update_failed=0
+    local pi_installed=false codex_installed=false runtime_update_succeeded=false
     local specs=()
     npm_tools_dir="${CODEFLARE_NPM_TOOLS_DIR:-/opt/codeflare/npm-tools}"
 
     if command -v pi >/dev/null 2>&1; then
-        if ! before_pi="$(PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi --version 2>&1)"; then
-            echo "[entrypoint] ERROR: Could not read Pi version before update"
-            return 1
-        fi
-        echo "[entrypoint] Fast Start disabled; Pi version before update: $before_pi"
+        pi_installed=true
         specs+=("@earendil-works/pi-coding-agent@latest")
+        if before_pi="$(PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi --version 2>&1)"; then
+            echo "[entrypoint] Fast Start disabled; Pi version before update: $before_pi"
+        else
+            echo "[entrypoint] ERROR: Could not read Pi version before update"
+            update_failed=1
+        fi
         if ! PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi update --extensions; then
             echo "[entrypoint] ERROR: Pi package update failed"
             update_failed=1
@@ -2759,37 +2762,44 @@ update_pi_and_codex_when_fast_start_disabled() {
     fi
 
     if command -v codex >/dev/null 2>&1; then
-        if ! before_codex="$(codex --version 2>&1)"; then
-            echo "[entrypoint] ERROR: Could not read Codex version before update"
-            return 1
-        fi
-        echo "[entrypoint] Fast Start disabled; Codex version before update: $before_codex"
+        codex_installed=true
         specs+=("@openai/codex@latest")
+        if before_codex="$(codex --version 2>&1)"; then
+            echo "[entrypoint] Fast Start disabled; Codex version before update: $before_codex"
+        else
+            echo "[entrypoint] ERROR: Could not read Codex version before update"
+            update_failed=1
+        fi
     else
         echo "[entrypoint] Fast Start disabled; Codex is not installed"
     fi
 
     if [ "${#specs[@]}" -gt 0 ]; then
-        if ! npm install --prefix "$npm_tools_dir" --omit=dev --save-exact --ignore-scripts --no-audit --no-fund "${specs[@]}"; then
-            echo "[entrypoint] ERROR: Agent runtime update failed"
-            return 1
+        if npm install --prefix "$npm_tools_dir" --omit=dev --save-exact --ignore-scripts --no-audit --no-fund "${specs[@]}"; then
+            runtime_update_succeeded=true
+            hash -r
+        else
+            [ "$pi_installed" = false ] || echo "[entrypoint] ERROR: Pi runtime update failed"
+            [ "$codex_installed" = false ] || echo "[entrypoint] ERROR: Codex runtime update failed"
+            update_failed=1
         fi
-        hash -r
     fi
 
-    if [ -n "${before_pi:-}" ]; then
-        if ! after_pi="$(PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi --version 2>&1)"; then
+    if [ "$runtime_update_succeeded" = true ] && [ "$pi_installed" = true ]; then
+        if after_pi="$(PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi --version 2>&1)"; then
+            echo "[entrypoint] Fast Start disabled; Pi version after update: $after_pi"
+        else
             echo "[entrypoint] ERROR: Could not read Pi version after update"
-            return 1
+            update_failed=1
         fi
-        echo "[entrypoint] Fast Start disabled; Pi version after update: $after_pi"
     fi
-    if [ -n "${before_codex:-}" ]; then
-        if ! after_codex="$(codex --version 2>&1)"; then
+    if [ "$runtime_update_succeeded" = true ] && [ "$codex_installed" = true ]; then
+        if after_codex="$(codex --version 2>&1)"; then
+            echo "[entrypoint] Fast Start disabled; Codex version after update: $after_codex"
+        else
             echo "[entrypoint] ERROR: Could not read Codex version after update"
-            return 1
+            update_failed=1
         fi
-        echo "[entrypoint] Fast Start disabled; Codex version after update: $after_codex"
     fi
 
     return "$update_failed"
