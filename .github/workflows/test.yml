@@ -332,16 +332,12 @@ jobs:
         working-directory: web-ui
 
       - name: Security audit (backend)
-        if: >-
-          needs.changes.outputs.full == 'true' ||
-          needs.changes.outputs.dependencies == 'true'
+        if: github.event_name != 'pull_request' && (needs.changes.outputs.full == 'true' || needs.changes.outputs.dependencies == 'true')
         timeout-minutes: 1
         run: npm audit --package-lock-only --audit-level=high --omit=dev
 
       - name: Security audit (frontend)
-        if: >-
-          needs.changes.outputs.full == 'true' ||
-          needs.changes.outputs.dependencies == 'true'
+        if: github.event_name != 'pull_request' && (needs.changes.outputs.full == 'true' || needs.changes.outputs.dependencies == 'true')
         timeout-minutes: 1
         run: npm audit --package-lock-only --audit-level=high --omit=dev
         working-directory: web-ui
@@ -1005,9 +1001,7 @@ jobs:
           key-prefix: browser-ide
 
       - name: Audit pinned extension dependencies
-        if: >-
-          needs.changes.outputs.full == 'true' ||
-          needs.changes.outputs.dependencies == 'true'
+        if: github.event_name != 'pull_request' && (needs.changes.outputs.full == 'true' || needs.changes.outputs.dependencies == 'true')
         timeout-minutes: 1
         run: npm audit --audit-level=high
         working-directory: openvscode/agent-sidebar

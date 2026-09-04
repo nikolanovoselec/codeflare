@@ -291,14 +291,24 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
   it('audits production lockfiles without depending on restored node_modules trees', () => {
     const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
-      jobs: { quality: { steps: Array<{ name?: string; run?: string; if?: string; 'working-directory'?: string; 'timeout-minutes'?: number }> } };
+      jobs: {
+        quality: { steps: Array<{ name?: string; run?: string; if?: string; 'working-directory'?: string; 'timeout-minutes'?: number }> };
+        'browser-ide': { steps: Array<{ name?: string; run?: string; if?: string; 'working-directory'?: string; 'timeout-minutes'?: number }> };
+      };
     };
     const audits = workflow.jobs.quality.steps.filter((step) => step.name?.startsWith('Security audit'));
-    const dependencyGate = "needs.changes.outputs.full == 'true' || needs.changes.outputs.dependencies == 'true'";
+    const dependencyGate = "github.event_name != 'pull_request' && (needs.changes.outputs.full == 'true' || needs.changes.outputs.dependencies == 'true')";
     expect(audits).toEqual([
       { name: 'Security audit (backend)', if: dependencyGate, run: 'npm audit --package-lock-only --audit-level=high --omit=dev', 'timeout-minutes': 1 },
       { name: 'Security audit (frontend)', if: dependencyGate, run: 'npm audit --package-lock-only --audit-level=high --omit=dev', 'working-directory': 'web-ui', 'timeout-minutes': 1 },
     ]);
+    expect(workflow.jobs['browser-ide'].steps.find((step) => step.name === 'Audit pinned extension dependencies')).toEqual({
+      name: 'Audit pinned extension dependencies',
+      if: dependencyGate,
+      'timeout-minutes': 1,
+      run: 'npm audit --audit-level=high',
+      'working-directory': 'openvscode/agent-sidebar',
+    });
   });
 
   it('registers every owned extension test file for fail-closed report reconciliation', () => {
