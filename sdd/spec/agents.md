@@ -1002,20 +1002,45 @@ Multi-agent support, preseed system, and session modes.
 **Acceptance Criteria:**
 
 1. A fast-start preference (default: enabled) controls whether agent CLIs skip auto-update checks at launch, and the user's choice is propagated into the container's runtime environment. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/routes/preferences.test.ts (sessionMode preference / REQ-MEM-011 (sessionMode preference persistence + preseed reconciliation)) -->
-2. When enabled, Codeflare applies the supported environment-based update suppressors before agent startup. <!-- @impl: entrypoint.sh::configure_fast_start_environment --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012: Fast Start OFF updates Pi and Codex with version evidence) -->
+2. When enabled, Codeflare applies the supported environment-based update suppressors before agent startup. <!-- @impl: entrypoint.sh::configure_fast_start_environment --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012/REQ-AGENT-206: Fast Start controls suppression and updates Pi and Codex) -->
 3. Codeflare removes only its own settings-file suppressor and preserves an operator-owned Codex version preference. <!-- @impl: entrypoint.sh::configure_fast_start_tool_settings --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012: disabled Fast Start removes only Codeflare-managed settings suppressors) -->
-4. When disabled, environment suppressors are cleared and installed Pi and Codex CLIs are explicitly updated together before session readiness; Pi also reconciles configured packages. <!-- @impl: entrypoint.sh::configure_fast_start_environment --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012: Fast Start OFF updates Pi and Codex with version evidence) -->
-5. Startup logs each installed CLI's before and after versions or visible update failure evidence, then continues to readiness. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012: Fast Start OFF surfaces Pi package and agent runtime update failures) -->
-6. Users can toggle the preference from the session defaults area of the application settings. <!-- @test: src/__tests__/routes/preferences.test.ts (Preferences Routes) --> <!-- @manual -->
+4. Users can toggle the preference from the session defaults area of the application settings. <!-- @test: src/__tests__/routes/preferences.test.ts (Preferences Routes) --> <!-- @manual -->
 
 **Constraints:**
 
 - Codex `~/.codex/` directory is excluded from sync, so `version.json` is safe to recreate on every start.
-- Restored user-added Pi packages outside the Codeflare image cache may require Fast Start OFF once so Pi can reconcile package state.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-003](#req-agent-003-agent-cli-auto-started-in-tab-1)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-206: Fast Start Off Runtime Updates
+
+**Intent:** Disabling Fast Start must update installed Pi and Codex runtimes before readiness while reporting the outcome without stranding startup.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Installed Pi and Codex runtimes are selected together for an explicit latest-version update before terminal readiness. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: entrypoint.sh::release_agent_pty_after_fast_start_updates --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012/REQ-AGENT-206: Fast Start controls suppression and updates Pi and Codex) --> <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (REQ-AGENT-206: executes the update before readiness and continues after failure) -->
+2. The Pi update path reconciles configured packages before updating the runtime. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012/REQ-AGENT-206: Fast Start controls suppression and updates Pi and Codex) -->
+3. Startup logs each installed runtime's before and after versions or visible failure evidence. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: Fast Start OFF surfaces Pi package and agent runtime update failures) -->
+4. An update failure does not prevent the terminal readiness signal. <!-- @impl: entrypoint.sh::release_agent_pty_after_fast_start_updates --> <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (REQ-AGENT-206: executes the update before readiness and continues after failure) -->
+
+**Constraints:**
+
+- Runtimes omitted from the selected image remain omitted.
+- Restored user-added Pi packages outside the image cache may require Fast Start Off once.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-012](#req-agent-012-fast-cli-start-configurable), [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition)
 
 **Verification:** Automated test
 

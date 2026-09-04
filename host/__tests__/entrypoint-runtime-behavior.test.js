@@ -23,7 +23,7 @@ function extractFunction(name) {
   const end = lines.findIndex((line, index) => {
     if (index <= start || line !== '}') return false;
     if (name !== 'warm_pi_npm_dependencies') return true;
-    return lines[index + 2] === 'update_pi_when_fast_start_disabled() {';
+    return lines[index + 2] === 'update_pi_and_codex_when_fast_start_disabled() {';
   });
   if (end === -1) throw new Error(`Could not locate the end of ${name}()`);
   return lines.slice(start, end + 1).join('\n');
@@ -261,7 +261,7 @@ exec "$REAL_NODE" "$@"
     assert.equal(readFileSync(destination, 'utf8'), 'operator-owned\n');
   });
 
-  it('REQ-AGENT-012: Fast Start OFF updates Pi and Codex with version evidence', () => {
+  it('REQ-AGENT-012/REQ-AGENT-206: Fast Start controls suppression and updates Pi and Codex', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'agent-fast-start-'));
     const calls = join(fixture, 'calls.log');
     const script = `${extractFunction('configure_fast_start_environment')}\n${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +
@@ -290,7 +290,7 @@ exec "$REAL_NODE" "$@"
     ]);
   });
 
-  it('REQ-AGENT-012: Fast Start OFF surfaces Pi package and agent runtime update failures', () => {
+  it('REQ-AGENT-206: Fast Start OFF surfaces Pi package and agent runtime update failures', () => {
     const script = `${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +
       `pi() { [ "$1" = "--version" ] && { echo 'pi 0.84.4'; return 0; }; return 7; }\n` +
       `codex() { echo 'codex-cli 0.150.1'; }\n` +
@@ -301,7 +301,7 @@ exec "$REAL_NODE" "$@"
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /ERROR: Pi package update failed/);
-    assert.match(result.stdout, /ERROR: Pi and Codex runtime update failed/);
+    assert.match(result.stdout, /ERROR: Agent runtime update failed/);
     assert.match(result.stdout, /update-failed/);
   });
 

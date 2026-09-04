@@ -2771,7 +2771,7 @@ update_pi_and_codex_when_fast_start_disabled() {
 
     if [ "${#specs[@]}" -gt 0 ]; then
         if ! npm install --prefix "$npm_tools_dir" --omit=dev --save-exact --ignore-scripts --no-audit --no-fund "${specs[@]}"; then
-            echo "[entrypoint] ERROR: Pi and Codex runtime update failed"
+            echo "[entrypoint] ERROR: Agent runtime update failed"
             return 1
         fi
         hash -r
@@ -2795,6 +2795,14 @@ update_pi_and_codex_when_fast_start_disabled() {
     return "$update_failed"
 }
 
+release_agent_pty_after_fast_start_updates() {
+    update_pi_and_codex_when_fast_start_disabled || \
+        echo "[entrypoint] WARNING: update_pi_and_codex_when_fast_start_disabled failed; continuing startup"
+    # Runtime installs can repopulate npm's disposable download cache.
+    rm -rf "$USER_HOME/.npm" 2>/dev/null
+    release_agent_pty_after_cleanup
+}
+
 # Warm Pi extension npm dependencies from the image-local seed cache.
 # R2 excludes **/node_modules/** by design, so restored ~/.pi/agent/npm has
 # package.json but no installed packages. Copying the image cache prevents Pi
@@ -2807,11 +2815,6 @@ configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default config
 configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"
 configure_pi_caveman
 warm_pi_npm_dependencies || echo "[entrypoint] WARNING: warm_pi_npm_dependencies failed; continuing startup"
-update_pi_and_codex_when_fast_start_disabled || echo "[entrypoint] WARNING: update_pi_and_codex_when_fast_start_disabled failed; continuing startup"
-
-# Purge npm cache - regenerated on demand, 200MB+ of dead weight from
-# runtime npm install calls (Pi packages, context-mode, etc.)
-rm -rf "$USER_HOME/.npm" 2>/dev/null
 
 # Pre-accept Claude Code's bypass permissions consent
 # Claude Code stores this in ~/.claude.json (bypassPermissionsModeAccepted field)
@@ -3931,9 +3934,9 @@ complete_managed_curation_startup() {
     # file outside R2. Copy failure logs a warning without aborting PID 1.
     relay_managed_pi_extensions || true
 
-    # The terminal server has been polling this flag before spawning tab 1. Prune
-    # restored transcripts first, then release the agent PTY as one testable step.
-    release_agent_pty_after_cleanup
+    # The terminal server has been polling this flag before spawning tab 1. Run
+    # requested updates, prune restored transcripts, then release the agent PTY.
+    release_agent_pty_after_fast_start_updates
 
     # VS Code workspaces warm the editor as soon as initialization completes.
     # Terminal workspaces retain the existing lazy first-request launch below.
