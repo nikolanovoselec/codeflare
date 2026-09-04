@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-04
 
-- **Ready terminal startup no longer waits for an Open click** ([REQ-TERM-043](terminal.md#req-term-043-visible-terminal-readiness-gating) AC5 added; remains Implemented). Authoritative `ready` completion now clears the terminal session's in-memory initialization state after creating its terminal state, exposing the connected terminal without a click or reload. The existing Open-time socket restart remains a recovery path.
+- **Open restores ready terminals through fresh attachments** ([REQ-TERM-043](terminal.md#req-term-043-visible-terminal-readiness-gating) AC4 amended; remains Implemented). `OPEN` now replaces every visible browser attachment for the selected session, including sockets that still report connected after browser suspension. Fresh host restore replay replaces stale screen state before normal terminal use; visibility-return recovery remains selective.
 
 - **Fast Start OFF explicitly updates Pi and Codex before readiness** ([REQ-AGENT-206](agents.md#req-agent-206-fast-start-off-runtime-updates) added and [REQ-AGENT-012](agents.md#req-agent-012-fast-cli-start-configurable) AC2/AC4 amended; both Implemented). Installed Pi and Codex CLIs now enter one explicit latest-runtime update before the PTY readiness flag, while Pi also reconciles configured packages. Startup logs each installed CLI's before and after versions or visible failure evidence without stranding readiness.
 

@@ -536,13 +536,13 @@ function startSession(id: string): Promise<void> {
         if (index !== -1 && state.sessions[index].workspace === 'vscode') {
           setState('sessions', index, 'editorReady', true);
           setState('sessions', index, 'editorReadyError', false);
+          setState(produce((s) => {
+            delete s.initializingSessionIds[id];
+            delete s.initProgressBySession[id];
+          }));
         } else {
           initializeTerminalsForSession(id);
         }
-        setState(produce((s) => {
-          delete s.initializingSessionIds[id];
-          delete s.initProgressBySession[id];
-        }));
         resolve();
       },
       (error, code) => {
