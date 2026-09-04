@@ -303,6 +303,7 @@ describe('Terminal Component', () => {
 
       const startupContainer = document.querySelector<HTMLElement>('.terminal-container');
       expect(startupContainer).not.toBeNull();
+      Object.defineProperty(startupContainer!, 'clientHeight', { value: 100 });
       expect(startupContainer).toHaveStyle({ visibility: 'hidden' });
       expect(terminalStore.connect).toHaveBeenCalledTimes(1);
       expect(mockTerminalInstance.focus).not.toHaveBeenCalled();
@@ -312,6 +313,7 @@ describe('Terminal Component', () => {
 
       const openedContainer = document.querySelector<HTMLElement>('.terminal-container');
       expect(openedContainer).not.toBeNull();
+      Object.defineProperty(openedContainer!, 'clientHeight', { value: 100 });
       expect(openedContainer).not.toBe(startupContainer);
       expect(openedContainer).toHaveStyle({ visibility: 'visible' });
       expect(startupCleanup).toHaveBeenCalledTimes(1);
