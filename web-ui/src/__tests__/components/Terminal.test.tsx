@@ -305,7 +305,7 @@ describe('Terminal Component', () => {
       expect(startupContainer).not.toBeNull();
       expect(startupContainer).toHaveStyle({ visibility: 'hidden' });
       expect(terminalStore.connect).toHaveBeenCalledTimes(1);
-      expect(mockFocus).not.toHaveBeenCalled();
+      expect(mockTerminalInstance.focus).not.toHaveBeenCalled();
       dimensionsUnavailable.mockClear();
 
       fireEvent.click(screen.getByTestId('init-progress-open-btn'));
@@ -317,7 +317,7 @@ describe('Terminal Component', () => {
       expect(startupCleanup).toHaveBeenCalledTimes(1);
       expect(terminalStore.connect).toHaveBeenCalledTimes(2);
       expect(dimensionsUnavailable).toHaveBeenCalled();
-      expect(mockFocus).toHaveBeenCalledTimes(1);
+      expect(mockTerminalInstance.focus).toHaveBeenCalledTimes(1);
     });
 
     it('REQ-TERM-043 AC6: OPEN leaves foreign-session terminal instances unchanged', () => {
