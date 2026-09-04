@@ -1,34 +1,26 @@
 # Public Blog on Cloudflare Workers
 
-Build a public blog platform using Astro deployed to Cloudflare Workers. The blog has two
-faces: a fast, public-facing site for readers and a protected management area for the author.
-View counts are tracked with Durable Objects so they survive redeploys and scale without a
-database.
+Build a public blog platform with Astro on Cloudflare Workers. Readers get a fast public site; the author gets a protected management area. Durable Objects track view counts across redeployments without turning a counter into a database project. This is a real publishing workflow, not a landing page wearing a CMS badge.
 
 ## Development Approach
 
-TDD: write failing tests first, then implement. All tests pass before considering a section
-complete.
+Write failing behavioral tests first, then implement the smallest code that satisfies them. A section is complete only when its observable behavior and required CI pass.
 
 ## Stack and Constraints
 
 Astro with SSR via @astrojs/cloudflare adapter. Cloudflare Workers with Wrangler for local
 dev. Durable Objects for view counting (SQLite-backed). R2 bucket bound as BLOG_IMAGES for
 image storage. KV namespace bound as BLOG_KV for posts. Cloudflare Access for management
-area auth. TypeScript strict mode. No client-side JS frameworks - vanilla JS where
-interactivity is needed.
+area auth. TypeScript strict mode. Use vanilla JavaScript where browser interactivity is needed; do not add a client-side framework.
 
-The ViewCounter Durable Object class must be exported from the worker entry point. Astro's
-build output won't do this automatically - you'll need a custom entry wrapper that re-exports
-both the Astro worker and the DO class. Wrangler must use `new_sqlite_classes` (not
+The ViewCounter Durable Object class must be exported from the worker entry point. Astro's build output does not do this automatically, so add a custom entry wrapper that re-exports both the Astro worker and the Durable Object class. Wrangler must use `new_sqlite_classes` (not
 `new_classes`) for DO migrations. Access Astro bindings via `Astro.locals.runtime.env`.
 
 ## Public Blog Pages
 
 Home page (`/`) lists published posts sorted by date descending. Each entry shows title, date,
 excerpt (first 160 chars), and thumbnail. Paginate at 10 posts per page with prev/next links
-via `?page=N`. For performance, maintain a `posts:index` KV key with summary data instead of
-fetching every post individually - update this index on every create/update/delete. Draft
+via `?page=N`. For performance, maintain a `posts:index` KV key with summary data instead of fetching every post individually. Update this index on every create, update, and delete. Draft
 posts (published: false) must never appear on public pages.
 
 Single post page (`/posts/[slug]`) fetches the post by slug from KV, renders markdown to HTML
@@ -40,8 +32,7 @@ Static about page (`/about`). Gallery page (`/gallery`) showing images across al
 
 Shared base layout with nav (Home, Gallery, About), footer, dark theme with CSS custom
 properties. Responsive: single column below 768px, two-column grid above. Nav highlights
-current page with `aria-current="page"`. Home page renders with SSR - no client-side JS
-required for content.
+current page with `aria-current="page"`. Render the home page with SSR; its content must not depend on client-side JavaScript.
 
 ## View Counter (Durable Objects)
 
@@ -51,7 +42,7 @@ gets its own isolated DO instance via `idFromName(slug)`.
 
 Worker API: `GET /api/views/:slug` and `POST /api/views/:slug` proxy to the DO stub.
 A never-viewed slug returns `{ slug, count: 0 }`. Counters persist across redeploys.
-Concurrent increments must not be lost - 20 simultaneous POSTs must result in count 20.
+Concurrent increments must not be lost. Twenty simultaneous POSTs must produce a final count of 20.
 
 ## Image Upload and R2 Storage
 

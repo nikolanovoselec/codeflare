@@ -1,17 +1,19 @@
 # Deploy a Hello World Worker
 
-Build and deploy a Hello World Cloudflare Worker using the Hono framework. No external
-dependencies beyond what the scaffold provides.
+Build and deploy a small Cloudflare Worker with Hono. Use only dependencies supplied by the scaffold. Small means small. If this turns into a framework comparison or a twelve-file architecture exercise, something has gone wrong.
 
 ## Routes
 
-`GET /` returns plain text "Hello World" with status 200.
+`GET /` returns `Hello World` as plain text with status 200.
 
-`GET /api/info` returns JSON with three fields: `status` ("ok"), `timestamp` (valid ISO 8601),
-and `runtime` ("cloudflare-workers").
+`GET /api/info` returns JSON with exactly three fields:
 
-Any other route returns plain text "Not Found" with status 404.
+- `status`: `ok`
+- `timestamp`: a valid ISO 8601 timestamp
+- `runtime`: `cloudflare-workers`
 
-## Development Approach
+Every other route returns `Not Found` as plain text with status 404.
 
-TDD: write failing tests first, then implement. All tests pass before deployment.
+## Delivery contract
+
+Write failing behavioral tests first. Prove both successful routes, response content types, timestamp validity, and the 404 path. Implement only what those behaviors need. All tests and required CI must pass before deployment.

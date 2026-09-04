@@ -3624,6 +3624,7 @@ None.
 2. A deep dive qualifies capability claims with applicable permission, operator-configuration, external-system, and unproven-capability boundaries. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review configured, unconfigured, permission-gated, and external-system deep dives. -->
 3. A deep dive gives a concrete example the user or operator can try. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review each applicable user- or administrator-operated example. -->
 4. User-facing tutorials use Codeflare to advance the user's work and omit Codeflare's own source paths, requirement IDs, implementation anchors, and maintainer navigation. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review every deep-dive reference for internal repository navigation. -->
+5. Getting Started directs a newly opened session to the broad capability tour before offering focused deep dives or a bounded project objective. <!-- @impl: preseed/tutorials/Getting Started.md::First session --> <!-- @manual: Open the seeded Getting Started tutorial and follow its first-session sequence. -->
 
 **Constraints:**
 

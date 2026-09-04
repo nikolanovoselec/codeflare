@@ -1,108 +1,63 @@
 # Getting Started
 
-You have a full Linux container in your browser. An AI agent is loaded and waiting in Tab 1. Five more terminals behind it. Files included by your sync settings move to cloud storage that outlives every container you'll ever start (every 15 minutes plus a final sync on stop, with a Sync-now button when you want it sooner). Your notes sync too. I automatically retrieve captured history from prior sessions and connect it to current work. Your hands are free if you want them to be. Here's what to do with all of that.
+You have a full Linux workspace in a browser. Your selected agent waits in the first terminal, five Bash tabs sit behind it, and Browser VS Code is there when editing through a terminal becomes stubborn rather than efficient.
 
----
+## First session
 
-## The 30-Second Version
+1. Create a session from the Dashboard.
+2. Open it when startup reports ready.
+3. Ask the agent:
 
-1. **Create a session** from the Dashboard - pick your agent
-2. **Open it** - Tab 1 is ready, no loading screen, no "please wait"
-3. **Tell your agent** to clone a repo and start working on it
-4. **Work** - I have full root access. I can read, write, build, test, and deploy. Let me cook.
-5. **Stop when you're done** - final sync happens automatically. The container dies. Files included in synchronization persist.
+   > What can you do?
 
-That's it. The rest of this page is for the curious.
+4. Pick one offered deep dive, or give it a repository and objective.
+5. Push source work you need to keep, then stop the session when you are done.
 
----
+The question in step three is not small talk. It opens the guided capability tour and gives you practical tasks to try. You can skip it when you already know the job.
 
-## What's in Each Tab
+A useful first objective:
 
-| Tab | What | Why it's there |
-|-----|------|---------------|
-| 1 | Your AI agent | Pre-warmed during container startup. Already loaded when you click Open. |
-| 2-6 | bash | Five blank canvases. Run whatever you want. I don't judge. |
+> Clone my repository, read its project rules, explain the current architecture, and identify the smallest safe first change. Do not deploy anything.
 
-Tabs 2-6 are draggable. Rearrange them however you want.
+## Terminal workspace
 
-**Tiling mode** - button in the top-right corner. View 2-4 terminals side by side instead of switching tabs. Agent in one pane, lazygit in another, htop keeping an eye on things in the third. Once you tile, you don't go back.
+Tab 1 runs your selected agent. Tabs 2 through 6 are Bash terminals. Drag tabs to reorder them, or tile two to four terminals so the agent, logs, tests, and system monitor can stay visible together.
 
----
+Every terminal has voice input where the browser supports the Web Speech API. The mobile controls also expose terminal key sequences that are miserable to type on glass. Firefox currently hides voice input because it does not implement that browser API.
 
-## Voice Input
+The session works from desktop, tablet, or phone. Reopening a live session attaches to its existing terminal process rather than starting another one.
 
-There's a mic button in every terminal - bottom-right corner on desktop, in the floating controls on mobile. Tap it, talk, and what you say goes straight into the terminal as if you typed it. Web Speech API, no extension needed, no key to configure. It's the fastest way to brief an agent from a phone without thumb-typing a paragraph.
+## Files and synchronization
 
-Browser support: Chrome, Edge, Safari (recent). Firefox does not implement the Web Speech API yet, so the button is hidden there.
+Included files synchronize to your private storage every 15 minutes. **Sync now** starts an immediate user-owned synchronization across your running sessions, and stopping a session starts one final bounded sync before the container is destroyed.
 
----
+Workspace synchronization follows your configured policy and is disabled by default. Git remains the reliable authority for source code, so push work you cannot afford to lose. A sync that never included the workspace cannot rescue an unpushed branch. Wishful thinking is not a backup format.
 
-## Your Files Persist (You Don't Have to Think About It)
+The Storage browser works without a running container. Use it to browse, upload, download, safely preview, or delete files in Vault, Uploads, Temporary, and Workspace.
 
-A daemon syncs included home-directory content to Cloudflare R2 every 15 minutes. When you stop a session, a final sync runs before the container self-destructs. When you start a new one, included content is restored. If you want a sync sooner, for example after uploading a file in the R2 panel, hit the **Sync now** button (cloud icon) at the top of that panel. This user-owned action fans out to every running session you own; if you have none, you'll see a "no running sessions to sync" notice. Synchronization is periodic and conflicts can occur. Codeflare resolves them on a later cycle.
+## Vault and memory
 
-What carries over includes `.gitconfig`, supported agent settings and memory, your vault, and your uploads, subject to the documented filters. Your **workspace** (`~/workspace/`) is excluded from sync by default, so R2 cannot recover unpushed workspace content in that mode. Clone fresh in each session. You can opt in to full or metadata workspace sync in Settings, but a fresh clone is usually more reliable than restoring a half-built dependency tree.
+Open **Vault** from the header to use the SilverBullet knowledge workspace. It stores ordinary Markdown notes, journal entries, quick notes, screenshots, PDFs, plans, and references. Wikilinks connect related material, and pasted attachments stay beside the note that owns them.
 
-The **R2 File Browser** on the Dashboard lets you browse, upload, download, and delete synced files between sessions - without starting a container. Vault, Uploads, and Temporary are surfaced as special folders alongside your Workspace.
+Codeflare’s memory subsystem continuously persists decisions, corrections, observations, debugging discoveries, and source references in the Vault. These captures join the cumulative knowledge graph as permanently queryable content, unless you remove them. I retrieve that history automatically in future sessions and connect it to current requirements, incidents, plans, and code.
 
----
+Use **Quick Note** for material you want to capture yourself. Use **Sync now** after an important Vault edit when waiting for the next scheduled cycle would be foolish.
 
-## Your Second Brain: The Vault
+## Enterprise sessions
 
-`~/Vault/` is a persistent note store backed by [SilverBullet](https://silverbullet.md), an Obsidian-compatible markdown editor running inside your container. Open it from the **Vault** button in the header (next to the storage panel). It loads in a new tab.
+Every Enterprise session runs in advanced mode with the full Codeflare capability scope. Pi is the primary Enterprise agent. Other supported runtimes remain selectable when enabled by administrators, with shared policy and portable skills projected where compatible. Commands, tools, and editor integrations follow each runtime’s native capabilities.
 
-What it's for:
+Advanced work includes Spec-Driven Development, behavioral Test-Driven Development, Graphify queries, specialist review, Todo coordination, Browser Run, durable memory, and exact-head CI and release workflows. The agent activates the relevant machinery for the task. You do not need to memorize a command catalog before doing useful work.
 
-- Long-running notes that survive every container teardown
-- Pasted screenshots, PDFs, anything you want to keep
-- Daily journal entries (`Journal: Today` button)
-- Quick capture (`Quick Note` button - the timestamped note lands in `Inbox/`)
-- Codeflare's memory subsystem continuously persists decisions, corrections, observations, debugging discoveries, and source references in the Vault. These captures join the cumulative knowledge graph as permanently queryable content, unless you remove them. I retrieve that history automatically in future sessions and connect it to current requirements, incidents, plans, and code.
+In Enterprise deployments, supported reusable credentials remain outside the container and Codeflare injects authorization at approved Worker-side boundaries. The shell may contain non-secret placeholders so ordinary command-line clients still work.
 
-Bisync mirrors the vault to R2 every 15 minutes - same plumbing as the rest of `~`. If you want an edit you just made in SilverBullet pushed to R2 right now (or want a freshly-pasted note picked up from another device), hit the Sync-now button on the R2 panel and it fans out to every running session. Vault contents on a fresh container appear as soon as the first bisync round completes.
+## Settings worth checking
 
-There's a built-in dashboard at the vault root (`Index`) that surfaces recent quick notes, recent journal entries, open tasks, and recently modified pages. Wikilinks (`[[Concept Name]]`) cross-reference notes inside the vault. Image and PDF pasting works (`Ctrl+V` or drag-drop into a note); the file is written next to the note you are editing (a Quick Note in `Inbox/2026-05-18/` puts attachments in the same folder).
+- **Push & Deploy:** Connect approved GitHub and Cloudflare identities for repository and deployment work.
+- **Auto-sleep:** Choose how long an idle session remains alive. Typing counts as activity; background reconnect traffic does not.
+- **Fast Start:** Keep it on for the quickest terminal startup. Turn it off when you want installed Pi and Codex CLIs updated before readiness.
+- **Accent color:** Entirely personal. Software is allowed one harmless preference.
 
----
+## Next step
 
-## Pro Mode (Advanced Sessions)
-
-Every Enterprise session runs in advanced mode with the full Codeflare capability scope. Pi is the primary Enterprise agent. Other supported runtimes remain selectable when enabled by administrators, with shared policy and portable skills projected where compatible. Commands, tools, and editor integrations follow each runtime's native capabilities. Claude Code exposes these slash-command shortcuts:
-
-- **`/sdd`** - I use `/sdd init` to bootstrap a `sdd/` folder with REQ-tracked requirements for the project you're in, then work against the specification instead of vibes.
-- **`/review`** - I use `/review` to launch applicable specialist perspectives, cross-reference findings, filter against your ADRs, apply the Reality Filter, and triage interactively with you. I use `--diff` during active work, `--all` for a whole-codebase pass, `--deep` to verify SDD requirements against implementation, and `--verify-high` for configured external cross-checks. This remains distinct from automatic PR-boundary review.
-- **`/debug`** - I use `/debug` for systematic root-cause analysis when something is broken and the cause is unclear.
-- **`/deploy`** - I use `/deploy` to drive a release through CI to Cloudflare.
-- **`/brainstorm`** - I use `/brainstorm` for structured ideation.
-- **Knowledge graph (Graphify)** - I use Graphify to index supported repository and Vault content into a unified graph, then answer structural questions through graph queries instead of grepping blindly.
-- **Auto review agents** - at an eligible protected pull-request boundary, I use the classifier to launch the smallest required review set for the changed scope. Reviewers report findings; they don't auto-merge.
-
-Codeflare's memory subsystem persists session knowledge in the Vault and retrieves it automatically in future work. Managed runtime controls gate destructive actions and keep your specification synchronized without extra configuration in a fresh advanced session.
-
-Agent runtimes receive runtime-specific projections and do not all use identical rules, tools, or workflow surfaces. Use the capabilities exposed by the selected runtime rather than assuming Claude-specific commands exist everywhere.
-
----
-
-## Settings Worth Knowing About
-
-The cog icon in the header opens Settings.
-
-- **Push & Deploy** - connect GitHub and Cloudflare once. Every session starts pre-authenticated. `git push`, `gh`, and `wrangler deploy` just work.
-- **Auto-sleep timeout** - default 15 minutes. Paid tiers can extend to 30m, 1h, or 2h. Sleep is input-aware: typing keeps the session alive, background WebSocket reconnects do not.
-- **Fast Start** - on by default. Agent auto-updates are disabled so the terminal boots instantly. Toggle it off to update installed Pi and Codex CLIs explicitly before the terminal becomes ready; startup logs show their before and after versions or a failure.
-- **Accent color** - personal preference. Persists across sessions.
-
----
-
-## What Now
-
-Four paths. Pick whichever matches your personality:
-
-1. **Check the Examples** - copy-paste prompts from beginner to expert. I do the work; you take the credit.
-2. **Read the Documentation** - architecture, sync internals, terminal features, vault mechanics, troubleshooting. It's thorough.
-3. **Try Pro mode on a real project** - open an advanced session, clone a repo, run `/sdd init`, and let the spec-driven loop shape the work.
-4. **Just wing it** - create a session, clone something, and tell your agent what you want. Worst case, you lose an ephemeral container. Best case, you ship before lunch.
-
-**Shipping soon?** Configure Push & Deploy in Settings to connect your GitHub and Cloudflare accounts. Do it once, and every session starts pre-authenticated.
-
-Examples and docs are in the `tutorials/` folder, or browse them in the R2 File Browser on the Dashboard.
+Open **Examples** for complete starter specifications, or read **Documentation / Toolchain** to build a GitHub Actions deployment for your own Cloudflare Worker. Better yet, hand Pi a real repository and one bounded objective. Tutorials are useful until they become procrastination with headings.
