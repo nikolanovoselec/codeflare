@@ -1099,6 +1099,35 @@ describe('Session Store', () => {
       expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
     });
 
+    it('REQ-TERM-043 AC5: ready terminal startup clears its overlay without OPEN or reload', async () => {
+      mockGetSessions.mockResolvedValue([{
+        id: 'session-1', name: 'Terminal', workspace: 'terminal',
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      }]);
+      mockGetBatchSessionStatus.mockResolvedValue({
+        statuses: { 'session-1': { status: 'stopped', ptyActive: false } },
+        maxSessions: 3,
+      } as never);
+      await sessionStore.loadSessions();
+      let reportProgress: Parameters<typeof api.startSession>[1] | undefined;
+      let completeStart: (() => void) | undefined;
+      vi.mocked(api.startSession).mockImplementation((_id, onProgress, onComplete) => {
+        reportProgress = onProgress;
+        completeStart = onComplete;
+        return () => {};
+      });
+
+      const starting = sessionStore.startSession('session-1');
+      reportProgress?.({ stage: 'ready', progress: 100, message: 'Ready' });
+      completeStart?.();
+      await starting;
+
+      expect(sessionStore.sessions[0].status).toBe('running');
+      expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
+      expect(sessionStore.isSessionInitializing('session-1')).toBe(false);
+      expect(sessionStore.getInitProgressForSession('session-1')).toBeNull();
+    });
+
     it('REQ-IDE-048 AC2 + REQ-IDE-050 AC1: completes VS Code startup without creating terminal state', async () => {
       sessionStore.initializeTerminalsForSession('session-1');
       expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();

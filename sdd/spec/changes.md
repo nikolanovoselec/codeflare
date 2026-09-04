@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-04
 
+- **Ready terminal startup no longer waits for an Open click** ([REQ-TERM-043](terminal.md#req-term-043-visible-terminal-readiness-gating) AC5 added; remains Implemented). Authoritative `ready` completion now clears the terminal session's in-memory initialization state after creating its terminal state, exposing the connected terminal without a click or reload. The existing Open-time socket restart remains a recovery path.
+
 - **Fast Start OFF explicitly updates Pi and Codex before readiness** ([REQ-AGENT-206](agents.md#req-agent-206-fast-start-off-runtime-updates) added and [REQ-AGENT-012](agents.md#req-agent-012-fast-cli-start-configurable) AC2/AC4 amended; both Implemented). Installed Pi and Codex CLIs now enter one explicit latest-runtime update before the PTY readiness flag, while Pi also reconciles configured packages. Startup logs each installed CLI's before and after versions or visible failure evidence without stranding readiness.
 
 - **Pi advances to the latest stable runtime release** ([REQ-OPS-025](operations.md#req-ops-025-pi-preseed-bump-artifact-coherence) remains Implemented). The shared image-tools pin, prewarm dependency and override, both committed integrity trees, and embedded agent seed advance together from `@earendil-works/pi-coding-agent` 0.84.3 to 0.84.4. The release adds terminal capability overrides, extension UI prompt events, RPC queue clearing, and upstream fixes without changing Codeflare's runtime contract.

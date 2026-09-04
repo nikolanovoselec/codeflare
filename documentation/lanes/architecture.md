@@ -470,10 +470,10 @@ Creation may reject enterprise agent policy or SaaS storage quota. Start may rej
 | syncing | 30–45% | Host health available while initial sync is pending or active |
 | verifying | 85% | Initial sync complete while terminal sessions remain unavailable |
 | mounting | 90% | Backend terminal service registered while PTY pre-warm remains incomplete; visible clients wait for `ready` |
-| ready | 100% | Terminal sessions and pre-warm ready; sync may be complete, skipped, or running on demand. Opening the ready workspace immediately restarts a visible startup socket that is disconnected or still connecting behind the readiness overlay. |
+| ready | 100% | Terminal sessions and pre-warm ready; sync may be complete, skipped, or running on demand. Terminal startup clears the readiness overlay automatically; an explicit Open action still restarts a visible startup socket that is disconnected or still connecting. |
 | error | 0% | Startup-status handler or initial-sync failure |
 
-Ready-stage terminal recovery follows [REQ-TERM-043](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating): `OPEN` immediately restarts visible startup sockets that are disconnected or still connecting, while healthy sockets remain. <!-- @impl: web-ui/src/components/Layout.tsx::handleOpenSessionById --> <!-- @impl: web-ui/src/stores/terminal.ts::reconnectOnVisibilityReturn -->
+Ready-stage terminal transition follows [REQ-TERM-043](../../sdd/spec/terminal.md#req-term-043-visible-terminal-readiness-gating): terminal startup removes its readiness overlay automatically without a click or reload. The `OPEN` handler remains a recovery path that restarts visible startup sockets that are disconnected or still connecting while preserving healthy sockets. <!-- @impl: web-ui/src/stores/session.ts::startSession --> <!-- @impl: web-ui/src/components/Layout.tsx::handleOpenSessionById --> <!-- @impl: web-ui/src/stores/terminal.ts::reconnectOnVisibilityReturn -->
 
 These endpoint stages are derived observations, not persisted lifecycle state. KV remains authoritative for persisted `running|stopped`; `initializing`, `stopping`, and lifecycle-error presentation are frontend-only. [API Reference](api-reference.md#container-lifecycle) owns the exact response contract.
 
