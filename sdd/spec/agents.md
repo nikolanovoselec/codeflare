@@ -3059,7 +3059,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Routine non-boundary pushes do not auto-start Claude `ci-monitoring`. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations --> <!-- @manual -->
+1. Routine non-boundary pushes do not auto-start Claude `ci-monitoring`. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Review exposure --> <!-- @manual -->
 2. Claude launches one attached background `ci-monitor` Agent for an eligible PR-boundary directive, an explicit user request, or a fresh deploy/merge gate. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Triggers and routes --> <!-- @manual -->
 3. The dedicated Agent returns one native terminal result carrying its repository, PR, and head identity. <!-- @impl: preseed/agents/claude/agents/ci-monitor.md::ci-monitoring/scripts/monitor-ci.mjs --> <!-- @impl: preseed/agents/claude/skills/ci-monitoring/scripts/monitor-ci.mjs::summary --> <!-- @manual -->
 4. A Claude terminal result requires a non-empty exact-head workflow/run fingerprint that remains stable across two polls. <!-- @impl: preseed/agents/claude/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @manual -->
@@ -3079,6 +3079,29 @@ None.
 **Dependencies:** [REQ-AGENT-068](#req-agent-068-independent-pi-ci-monitoring)
 
 **Verification:** Automated and manual verification
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-208: Managed Git workflow deployment policy
+
+**Intent:** Managed Git workflow rules preserve review and merge controls without imposing an unconditional CI-based deployment prohibition.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Managed Pi and Claude Git workflow rules do not prohibit deployment solely because required CI is pending, missing, or failed. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::One current round --> <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations --> <!-- @manual -->
+2. PR-boundary work still launches exact-head CI after reviewers, waits for terminal review and CI evidence before triage, and keeps merge manual. <!-- @impl: preseed/agents/pi/rules/git-workflow.md::One current round --> <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Hard obligations --> <!-- @manual -->
+
+**Constraints:** Dedicated deployment workflows may retain their own CI sequencing; this requirement removes only the blanket managed-rule prohibition.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-051](#req-agent-051-pi-deploy-and-brainstorm-commands), [REQ-AGENT-070](#req-agent-070-claude-on-demand-ci-monitoring-policy), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
+
+**Verification:** Manual verification
 
 **Status:** Implemented
 
