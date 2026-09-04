@@ -12,7 +12,6 @@
     "@narumitw/pi-plan-mode": "0.55.3",
     "@narumitw/pi-usage": "0.53.0",
     "context-mode": "1.0.169",
-    "pi-caveman": "1.0.8",
     "pi-evaluate": "0.1.5",
     "pi-mcp-adapter": "2.29.0",
     "pi-web-access": "0.25.0"

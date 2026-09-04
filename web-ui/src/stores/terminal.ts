@@ -873,17 +873,6 @@ export function reconnectOnVisibilityReturn(activeSessionId?: string, visibleKey
   }
 }
 
-/** Replace every visible attachment for the opened session so host state replays. */
-export function restartVisibleTerminals(activeSessionId: string, visibleKeys: string[]): void {
-  const allowedKeys = new Set(visibleKeys);
-  for (const [key] of terminals) {
-    const [sessionId, terminalId] = key.split(':');
-    if (sessionId !== activeSessionId || !allowedKeys.has(key)) continue;
-    logger.info(`[Terminal ${key}] OPEN requested fresh attachment`);
-    reconnect(sessionId, terminalId);
-  }
-}
-
 /**
  * Close all WebSocket connections with a normal close code (1000).
  * Clears connection entries, input disposables, and retry state for every

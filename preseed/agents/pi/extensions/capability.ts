@@ -20,7 +20,7 @@ export function capabilityExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "capability",
     label: "Tool Search",
-    description: "Search registered Pi tools or activate one by exact name.",
+    description: "Search or activate registered Pi tools only; load skills by reading their SKILL.md.",
     parameters: Type.Object({
       query: Type.Optional(Type.String({ description: "Capability to search for." })),
       name: Type.Optional(Type.String({ description: "Exact tool name to activate." })),
@@ -29,7 +29,9 @@ export function capabilityExtension(pi: ExtensionAPI): void {
       const name = params.name?.trim();
       if (name) {
         const tool = pi.getAllTools().find((candidate: RegisteredTool) => candidate.name === name);
-        if (!tool) throw new Error(`Unknown tool: ${name}`);
+        if (!tool) {
+          throw new Error(`Unknown tool: ${name}. capability activates registered Pi tools only; read ~/.pi/agent/skills/<name>/SKILL.md to load a skill.`);
+        }
         const added = activateRegisteredTools(pi, activationGroup(tool.name));
         const text = tool.name === "subagent"
           ? `${added.length > 0 ? `Loaded tools: ${added.join(", ")}` : "Subagent tools already active"}. Use get_subagent_result or steer_subagent while an agent is queued or running; resume only a settled retained session.`

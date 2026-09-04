@@ -404,8 +404,6 @@ RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CO
 # ~/.pi/agent/npm/node_modules is excluded from R2 sync, so without this Pi
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
-# Caveman policy is image-owned and deliberately excluded from agent seeds.
-COPY image/pi/caveman.json /opt/codeflare/pi-agent/caveman.json
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
 COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs /opt/codeflare/scripts/
 # better-sqlite3 / bufferutil / utf-8-validate are native (node-gyp) modules. Their
@@ -650,7 +648,7 @@ COPY preseed/agents/pi/extensions/ /opt/codeflare/pi-agent/extensions/
 #   produced an extensions-<base>.<hash>.mjs entry. A dedicated explicit extension
 #   load transpiles Goal's installed entrypoint even when another package reports a
 #   non-fatal startup error; the build then derives and requires exact regular-file
-#   artifacts for Goal, Plan Mode, Usage, Evaluate, and Caveman. A future extension that is added, modified into a non-loading state,
+#   artifacts for Goal, Plan Mode, Usage, and Evaluate. A future extension that is added, modified into a non-loading state,
 #   or skipped by a pi-loader change therefore fails the build instead of silently
 #   cold-transpiling every production session.
 RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
@@ -662,11 +660,10 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     plan_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-plan-mode/dist/index.ts" && \
     usage_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-usage/src/index.ts" && \
     evaluate_source="/opt/codeflare/pi-agent/npm/node_modules/pi-evaluate/extensions/evaluate.ts" && \
-    caveman_source="/opt/codeflare/pi-agent/npm/node_modules/pi-caveman/extensions/caveman.ts" && \
     (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 /opt/codeflare/pi-agent/npm/node_modules/.bin/pi -p "warm" || true) && \
     TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --warm-jiti-entrypoints \
-      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$plan_source" "$usage_source" "$evaluate_source" "$caveman_source" && \
+      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$plan_source" "$usage_source" "$evaluate_source" && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
     rm -rf /opt/codeflare/jiti-warm-tmp /home/user/.pi && \
     test -n "$(ls -A /opt/codeflare/jiti-cache)" && \
@@ -681,8 +678,7 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     plan_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$plan_source" /opt/codeflare/jiti-cache)" && \
     usage_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$usage_source" /opt/codeflare/jiti-cache)" && \
     evaluate_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$evaluate_source" /opt/codeflare/jiti-cache)" && \
-    caveman_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$caveman_source" /opt/codeflare/jiti-cache)" && \
-    echo "[Dockerfile] jiti warm cache verified: local extensions, Goal, Plan Mode, Usage, Evaluate, and Caveman are baked"
+    echo "[Dockerfile] jiti warm cache verified: local extensions, Goal, Plan Mode, Usage, and Evaluate are baked"
 
 # Pre-initialize OpenCode's SQLite database to skip Goose migrations on first launch.
 # OpenCode stores its DB at ~/.local/share/opencode/opencode.db (XDG data dir) and runs

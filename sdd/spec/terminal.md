@@ -497,24 +497,50 @@ None.
 
 ### REQ-TERM-043: Visible terminal readiness gating
 
-**Intent:** Visible terminal panes attach and focus only when their session startup state can provide authoritative terminal output.
+**Intent:** Visible terminal panes adopt the prepared PTY as soon as the terminal service is available, while focus and display remain behind explicit readiness acknowledgement.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A visible initializing session opens its terminal connection only after startup reaches `ready`. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC1/AC2: waits for terminal pre-warm readiness before connecting an initializing session) -->
-2. A visible initializing session focuses its terminal exactly once after startup reaches `ready`, not during `mounting`. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC1/AC2: waits for terminal pre-warm readiness before connecting an initializing session) -->
-3. An already-running visible session connects immediately. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC3: connects immediately when the session is already ready) -->
-4. Opening a ready terminal session restores current host screen state for every visible pane even when the browser retained a stale connected attachment. <!-- @impl: web-ui/src/components/Layout.tsx::handleOpenSessionById --> <!-- @impl: web-ui/src/stores/terminal.ts::restartVisibleTerminals --> <!-- @impl: host/src/session.ts::attach --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-043 AC4: OPEN replaces visible terminal attachments and dismisses readiness) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-043 AC4: OPEN replaces every visible attachment and replays current host state) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (attach() sends a restore frame as JSON carrying type="restore" once buffer has state) -->
+1. A visible initializing session opens no terminal connection before startup reaches `mounting`. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC1: does not connect before the terminal service reaches mounting) -->
+2. At `mounting`, the visible pane creates exactly one startup terminal connection that remains unchanged through `ready`. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC2-AC3: keeps one unfocused startup attachment through ready) -->
+3. The pane does not focus while readiness remains unacknowledged. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC2-AC3: keeps one unfocused startup attachment through ready) -->
+4. OPEN displays a renderable selected terminal pane without requiring a page reload. <!-- @impl: web-ui/src/components/Terminal.tsx::Terminal --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC4, AC7; REQ-TERM-044 AC2: OPEN creates and focuses a fresh renderable terminal) -->
+5. An already-running visible session connects immediately. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC5: connects immediately when the session is already ready) -->
+6. OPEN leaves terminal panes belonging to other sessions unchanged. <!-- @impl: web-ui/src/components/Layout.tsx::handleOpenSessionById --> <!-- @impl: web-ui/src/components/Terminal.tsx::Terminal --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-043 AC6: OPEN dismisses readiness without directly manipulating transport) --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC6: OPEN leaves foreign-session terminal instances unchanged) -->
+7. After OPEN, the selected terminal pane receives focus. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC4, AC7; REQ-TERM-044 AC2: OPEN creates and focuses a fresh renderable terminal) -->
 
-**Constraints:** The three-minute startup guard and MultiView visible-pane ownership remain unchanged.
+**Constraints:** The three-minute startup guard, bounded prewarm orphan window, and MultiView visible-pane ownership remain unchanged.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
 
 **Verification:** Automated hook tests
+
+**Status:** Implemented
+
+---
+
+### REQ-TERM-044: Terminal restore and readiness rendering
+
+**Intent:** Terminal surfaces preserve their current screen across genuine reattachments and complete readiness display transitions when layout is temporarily unavailable.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Reattaching an existing PTY restores its current serialized screen before normal output continues. <!-- @impl: host/src/session.ts::attach --> <!-- @test: host/__tests__/session-wire-protocol.test.js (attach() sends a restore frame as JSON carrying type="restore" once buffer has state) -->
+2. OPEN completes and the terminal remains renderable when terminal layout dimensions are not yet available. <!-- @impl: web-ui/src/components/Terminal.tsx::Terminal --> <!-- @impl: web-ui/src/lib/xterm-internals.ts::resyncViewportScrollState --> <!-- @test: web-ui/src/__tests__/components/Terminal.test.tsx (REQ-TERM-043 AC4, AC7; REQ-TERM-044 AC2: OPEN creates and focuses a fresh renderable terminal) --> <!-- @test: web-ui/src/__tests__/lib/xterm-internals.test.ts (REQ-TERM-044 AC2: does not abort OPEN when viewport dimensions are not initialized yet) -->
+
+**Constraints:** Rendering recovery must preserve the transport ownership defined by [REQ-TERM-043](#req-term-043-visible-terminal-readiness-gating).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-043](#req-term-043-visible-terminal-readiness-gating)
+
+**Verification:** Automated host wire-protocol and frontend terminal-internals tests.
 
 **Status:** Implemented
 

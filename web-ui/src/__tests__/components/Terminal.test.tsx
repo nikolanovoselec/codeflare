@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup } from '@solidjs/testing-library';
+import { render, screen, cleanup, fireEvent } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import Terminal from '../../components/Terminal';
 import { terminalStore } from '../../stores/terminal';
@@ -42,6 +42,10 @@ const mockTerminalInstance = {
     registerOscHandler: vi.fn(() => ({ dispose: vi.fn() })),
   },
   registerLinkProvider: vi.fn(() => ({ dispose: vi.fn() })),
+  _core: {} as {
+    _bufferService?: { scrollLines: ReturnType<typeof vi.fn> };
+    _viewport?: { scrollToLine: ReturnType<typeof vi.fn> };
+  },
 };
 
 // MOCK-DRIFT RISK: Terminal constructor returns a static mock. Real @xterm/xterm Terminal
@@ -111,8 +115,11 @@ vi.mock('../../stores/session', () => ({
 // detail rows. Tests that depend on InitProgress internals should use the real
 // component or a more detailed mock.
 vi.mock('../../components/InitProgress', () => ({
-  default: (props: { sessionName: string }) => (
-    <div data-testid="init-progress">Init Progress: {props.sessionName}</div>
+  default: (props: { sessionName: string; onOpen?: () => void }) => (
+    <div data-testid="init-progress">
+      Init Progress: {props.sessionName}
+      <button type="button" data-testid="init-progress-open-btn" onClick={props.onOpen}>Open</button>
+    </div>
   ),
 }));
 
@@ -158,6 +165,7 @@ describe('Terminal Component', () => {
     vi.mocked(terminalStore.getConnectionState).mockReturnValue('disconnected');
     vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
     vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue(null);
+    mockTerminalInstance._core = {};
   });
 
   afterEach(() => {
@@ -273,6 +281,67 @@ describe('Terminal Component', () => {
       const wrapper = document.querySelector('.terminal-wrapper');
       expect(wrapper).toHaveStyle({ visibility: 'visible' });
       expect(wrapper).toHaveStyle({ position: 'relative' });
+    });
+
+    it('REQ-TERM-043 AC4, AC7; REQ-TERM-044 AC2: OPEN creates and focuses a fresh renderable terminal', async () => {
+      const [initializing, setInitializing] = createSignal(true);
+      const startupCleanup = vi.fn();
+      const dimensionsUnavailable = vi.fn(() => {
+        throw new TypeError("Cannot read properties of undefined (reading 'dimensions')");
+      });
+      vi.mocked(sessionStore.isSessionInitializing).mockImplementation(() => initializing());
+      vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'mounting' } as any);
+      vi.mocked(terminalStore.connect)
+        .mockReturnValueOnce(startupCleanup)
+        .mockReturnValueOnce(vi.fn());
+      mockTerminalInstance._core = {
+        _bufferService: { scrollLines: vi.fn() },
+        _viewport: { scrollToLine: dimensionsUnavailable },
+      };
+
+      render(() => <Terminal {...defaultProps} onInitComplete={() => setInitializing(false)} />);
+
+      const startupContainer = document.querySelector<HTMLElement>('.terminal-container');
+      expect(startupContainer).not.toBeNull();
+      Object.defineProperty(startupContainer!, 'clientHeight', { value: 100 });
+      expect(startupContainer).toHaveStyle({ visibility: 'hidden' });
+      expect(terminalStore.connect).toHaveBeenCalledTimes(1);
+      expect(mockTerminalInstance.focus).not.toHaveBeenCalled();
+      dimensionsUnavailable.mockClear();
+
+      fireEvent.click(screen.getByTestId('init-progress-open-btn'));
+
+      const openedContainer = document.querySelector<HTMLElement>('.terminal-container');
+      expect(openedContainer).not.toBeNull();
+      Object.defineProperty(openedContainer!, 'clientHeight', { value: 100 });
+      expect(openedContainer).not.toBe(startupContainer);
+      expect(openedContainer).toHaveStyle({ visibility: 'visible' });
+      expect(startupCleanup).toHaveBeenCalledTimes(1);
+      expect(terminalStore.connect).toHaveBeenCalledTimes(2);
+      await vi.waitFor(() => expect(dimensionsUnavailable).toHaveBeenCalled());
+      expect(mockTerminalInstance.focus).toHaveBeenCalledTimes(1);
+    });
+
+    it('REQ-TERM-043 AC6: OPEN leaves foreign-session terminal instances unchanged', () => {
+      const [initializing, setInitializing] = createSignal<Record<string, boolean>>({
+        [defaultProps.sessionId]: true,
+        'other-session': true,
+      });
+      vi.mocked(sessionStore.isSessionInitializing).mockImplementation((sessionId) => initializing()[sessionId] === true);
+
+      render(() => (
+        <>
+          <Terminal {...defaultProps} onInitComplete={() => setInitializing((state) => ({ ...state, [defaultProps.sessionId]: false }))} />
+          <Terminal {...defaultProps} sessionId="other-session" />
+        </>
+      ));
+
+      const startupContainers = [...document.querySelectorAll<HTMLElement>('.terminal-container')];
+      fireEvent.click(screen.getAllByTestId('init-progress-open-btn')[0]);
+      const openedContainers = [...document.querySelectorAll<HTMLElement>('.terminal-container')];
+
+      expect(openedContainers[0]).not.toBe(startupContainers[0]);
+      expect(openedContainers[1]).toBe(startupContainers[1]);
     });
 
     it('should hide terminal when active is false', () => {

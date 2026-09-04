@@ -123,23 +123,6 @@ describe('Evaluate package preseed (REQ-AGENT-133)', () => {
   });
 });
 
-describe('Caveman package preseed (REQ-AGENT-155)', () => {
-  it('pins the reviewed upstream release and integrity-locks its extension', () => {
-    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
-    const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
-    const version = pkg.dependencies['pi-caveman'];
-    assert.equal(version, '1.0.8');
-    const caveman = lock.packages['node_modules/pi-caveman'];
-    assert.equal(caveman.version, version);
-    assert.equal(caveman.resolved, `https://registry.npmjs.org/pi-caveman/-/pi-caveman-${version}.tgz`);
-    assert.equal(
-      caveman.integrity,
-      'sha512-N0F/Ui86dEtKzoAnRpe+9t4AXsv9cshTGBFwbDf7aiiE1C5iQ8QrZuszdc/yX9FWNUP0pzSZX/M/zWynngnGQw==',
-    );
-    assert.deepEqual(caveman.peerDependencies, { '@earendil-works/pi-coding-agent': '*' });
-  });
-});
-
 describe('Plan mode package preseed (REQ-AGENT-152)', () => {
   it('pins the reviewed upstream release and integrity-locks its declared extension entrypoint', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
@@ -195,6 +178,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
       packages: [
         { source: 'npm:context-mode@1.0.169', extensions: [] },
         'npm:pi-goal-list-loop-audit@0.34.16',
+        'npm:pi-caveman@1.0.8',
         'npm:some-user-package@1.0.0', // an unrelated package the user added
       ],
     });
@@ -205,6 +189,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     // Managed packages are present regardless of context-mode's prior state.
     for (const spec of REQUIRED) assert.ok(sources.includes(spec), `must include ${spec}`);
     assert.ok(!sources.includes('npm:pi-goal-list-loop-audit@0.34.16'), 'retired glla package must be removed');
+    assert.ok(!sources.includes('npm:pi-caveman@1.0.8'), 'retired response package must be removed');
     // The user's unrelated package is preserved (assembly merges, never wipes).
     assert.ok(sources.includes('npm:some-user-package@1.0.0'), 'unrelated existing packages must be preserved');
   });

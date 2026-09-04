@@ -7,7 +7,7 @@ import SplashCursor from './SplashCursor';
 import '../styles/layout.css';
 import { sessionStore, getUsageWarningLevel, getDismissedQuotaLevel, setDismissedQuotaLevel } from '../stores/session';
 import { storageStore } from '../stores/storage';
-import { terminalStore, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, restartVisibleTerminals, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
+import { terminalStore, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, scheduleDisconnect, cancelScheduledDisconnect } from '../stores/terminal';
 import { terminalWorkspaceStore } from '../stores/terminal-workspace';
 import { forceResetKeyboardState, enableVirtualKeyboardOverlay, isSamsungBrowser, cleanupDebugOverlay } from '../lib/mobile';
 import { logger } from '../lib/logger';
@@ -654,10 +654,10 @@ const Layout: Component<LayoutProps> = (props) => {
     setViewState('dashboard');
   };
 
-  // OPEN always creates fresh visible attachments before dismissing readiness.
-  // Host restore replay then replaces browser state that went stale while hidden.
+  // OPEN releases readiness ownership. The selected session's Terminal wrapper
+  // remounts its browser terminal and attachment, then host replay restores the
+  // current PTY screen on that fresh instance.
   const handleOpenSessionById = (sessionId: string) => {
-    restartVisibleTerminals(sessionId, visibleTerminalKeys());
     sessionStore.dismissInitProgressForSession(sessionId);
   };
 

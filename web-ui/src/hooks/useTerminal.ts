@@ -645,21 +645,23 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     });
   });
 
-  // Connect initializing sessions after terminal pre-warm is ready, or
-  // immediately when a session is already running (e.g. tab switch, page reload).
+  // The terminal server is available at mounting. Attach once there so tab 1
+  // adopts the prewarmed PTY before its bounded orphan window expires. OPEN
+  // remounts TerminalInstance; this hook cleans up the startup attachment and
+  // the new instance receives authoritative host replay.
   createEffect(() => {
     const initializing = isInitializing();
     const stage = initProgress()?.stage;
-    const shouldConnect = !initializing || stage === 'ready';
+    const terminalServerReady = !initializing || stage === 'mounting' || stage === 'ready';
 
-    if ((!canConnect() || !shouldConnect) && cleanup) {
+    if ((!canConnect() || !terminalServerReady) && cleanup) {
       cleanup();
       cleanup = undefined;
       terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
       return;
     }
 
-    if (canConnect() && shouldConnect && term && !cleanup) {
+    if (canConnect() && terminalServerReady && term && !cleanup) {
       logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Connecting WebSocket (stage: ${stage || 'running'})`);
       const terminals = sessionStore.getTerminalsForSession(props.sessionId);
       const tab = terminals?.tabs.find((candidate) => candidate.id === props.terminalId);
@@ -678,9 +680,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   createEffect(() => {
     const focusedTerm = terminalInstance();
     const initializing = isInitializing();
-    const stage = initProgress()?.stage;
-    const shouldConnect = !initializing || stage === 'ready';
-    if (!isFocused() || !canConnect() || !shouldConnect || !focusedTerm) {
+    if (!isFocused() || !canConnect() || initializing || !focusedTerm) {
       terminalStore.clearPendingResizeAuthority(props.sessionId, props.terminalId);
       return;
     }

@@ -1,6 +1,7 @@
-import { Component, Show, createSignal, createEffect } from 'solid-js';
+import { Component, For, Show, createSignal, createEffect } from 'solid-js';
 import '@xterm/xterm/css/xterm.css';
 import { useTerminal } from '../hooks/useTerminal';
+import { sessionStore } from '../stores/session';
 import InitProgress from './InitProgress';
 import { isTouchDevice, getKeyboardHeight } from '../lib/mobile';
 import { focusMobileTerminal } from '../lib/terminal-mobile-input';
@@ -25,7 +26,7 @@ interface TerminalProps {
   onInitComplete?: () => void;
 }
 
-const Terminal: Component<TerminalProps> = (props) => {
+const TerminalInstance: Component<TerminalProps> = (props) => {
   const isVisible = () => props.visible ?? props.active;
   const {
     containerRef,
@@ -108,6 +109,16 @@ const Terminal: Component<TerminalProps> = (props) => {
       />
 
     </div>
+  );
+};
+
+const Terminal: Component<TerminalProps> = (props) => {
+  const instanceKey = () => `${props.sessionId}:${sessionStore.isSessionInitializing(props.sessionId) ? 'startup' : 'open'}`;
+
+  return (
+    <For each={[instanceKey()]}>
+      {() => <TerminalInstance {...props} />}
+    </For>
   );
 };
 

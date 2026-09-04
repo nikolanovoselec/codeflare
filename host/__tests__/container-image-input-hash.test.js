@@ -90,7 +90,7 @@ describe('deployment container image input hash', () => {
       'host/package-lock.json',
       'host/tsconfig.json',
       'host/src/index.ts',
-      'image/pi/caveman.json',
+      'image/herdr/config.toml',
       'openvscode/runtime.txt',
       'preseed/runtime.txt',
       'scripts/browser-ide-ui-state.py',
@@ -137,15 +137,10 @@ describe('deployment container image input hash', () => {
     const productionTag = imageHashResult().tag;
     assert.notEqual(productionTag, baseline.tag);
 
-    write('image/pi/caveman.json', '{"defaultLevel":"off"}\n');
-    commit('image policy change');
-    const imagePolicyTag = imageHashResult().tag;
-    assert.notEqual(imagePolicyTag, productionTag);
-
     write('transcript-retention.mjs', 'retention change\n');
     commit('retention script change');
     const retentionTag = imageHashResult().tag;
-    assert.notEqual(retentionTag, imagePolicyTag);
+    assert.notEqual(retentionTag, productionTag);
 
     write('scripts/verify-pi-lockstep.mjs', 'image script change\n');
     commit('image script change');

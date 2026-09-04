@@ -155,8 +155,15 @@ export function scrollBufferToBottom(terminal: Terminal): void {
  */
 export function resyncViewportScrollState(terminal: Terminal): void {
   const viewport = getXtermCore(terminal)?._viewport;
-  if (viewport?.scrollToLine) {
+  if (!viewport?.scrollToLine) return;
+  try {
     viewport.scrollToLine(terminal.buffer.active.viewportY, true);
+  } catch (error) {
+    // xterm can expose the viewport before its scroll element has dimensions
+    // during the readiness-overlay refit. This private resync is best-effort;
+    // it must not abort OPEN while the next resize can establish geometry.
+    if (error instanceof TypeError && error.message.includes('dimensions')) return;
+    throw error;
   }
 }
 
