@@ -99,7 +99,10 @@ const Terminal: Component<TerminalProps> = (props) => {
           // and the fit() call that resizes the canvas to match.
           overflow: 'hidden',
           'background-color': isInitializing() ? 'transparent' : 'var(--color-terminal-theme-bg)',
-          visibility: isInitializing() ? 'hidden' : 'visible',
+          // Keep xterm layout-active while readiness covers it. visibility:hidden
+          // suppresses the renderer's initial paint; OPEN then exposes a blank
+          // canvas even though the attached WebSocket already delivered output.
+          opacity: isInitializing() ? '0' : '1',
           'overflow-anchor': 'none',
           '-webkit-user-select': isTouchDevice() ? 'none' : undefined,
           'user-select': isTouchDevice() ? 'none' : undefined,

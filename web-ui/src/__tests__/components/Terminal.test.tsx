@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup } from '@solidjs/testing-library';
+import { render, screen, cleanup, fireEvent } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import Terminal from '../../components/Terminal';
 import { terminalStore } from '../../stores/terminal';
@@ -111,8 +111,11 @@ vi.mock('../../stores/session', () => ({
 // detail rows. Tests that depend on InitProgress internals should use the real
 // component or a more detailed mock.
 vi.mock('../../components/InitProgress', () => ({
-  default: (props: { sessionName: string }) => (
-    <div data-testid="init-progress">Init Progress: {props.sessionName}</div>
+  default: (props: { sessionName: string; onOpen?: () => void }) => (
+    <div data-testid="init-progress">
+      Init Progress: {props.sessionName}
+      <button type="button" data-testid="init-progress-open-btn" onClick={props.onOpen}>Open</button>
+    </div>
   ),
 }));
 
@@ -273,6 +276,23 @@ describe('Terminal Component', () => {
       const wrapper = document.querySelector('.terminal-wrapper');
       expect(wrapper).toHaveStyle({ visibility: 'visible' });
       expect(wrapper).toHaveStyle({ position: 'relative' });
+    });
+
+    it('REQ-TERM-044 AC2: keeps the renderer layout-active behind readiness until OPEN', () => {
+      const [initializing, setInitializing] = createSignal(true);
+      vi.mocked(sessionStore.isSessionInitializing).mockImplementation(() => initializing());
+
+      render(() => <Terminal {...defaultProps} onInitComplete={() => setInitializing(false)} />);
+
+      const container = document.querySelector<HTMLElement>('.terminal-container');
+      expect(container).not.toBeNull();
+      expect(container!.style.visibility).not.toBe('hidden');
+      expect(container).toHaveStyle({ opacity: '0' });
+
+      fireEvent.click(screen.getByTestId('init-progress-open-btn'));
+
+      expect(container!.style.visibility).not.toBe('hidden');
+      expect(container).toHaveStyle({ opacity: '1' });
     });
 
     it('should hide terminal when active is false', () => {
