@@ -14,11 +14,13 @@ When a structured question needs attention, I use Codeflare's immediate input-re
 
 A blocked or unknown Herdr pane prevents a false completion notification. It does not automatically promise a separate push for every blocked state. Completion timing and input-required signaling are different contracts.
 
-A reconnect can recover a live PTY. I cannot recover arbitrary process memory or old terminal output after container replacement. Herdr can restore supported structure, but yesterday's shell process is still dead. Anything else would be a séance with ANSI escape codes.
+A reconnect recovers bounded output from a live PTY. After container replacement, synchronized agent session transcripts remain durable: Classic restores supported conversation history through `/resume`, while Herdr restores supported agent sessions automatically from persisted references. Arbitrary shell output, process memory, running shells, and the old process tree are not restored.
 
 ## Try it
 
-Start a task on desktop, leave the browser, then reconnect from a phone. Answer one structured question from the mobile session and confirm that the same terminal continues without starting a second PTY.
+Paste this request:
+
+> Give me a device-handoff checklist for this session. Distinguish live PTY reconnection, Classic `/resume`, Herdr automatic transcript restoration, and state that will not survive container replacement.
 
 Other useful requests:
 
