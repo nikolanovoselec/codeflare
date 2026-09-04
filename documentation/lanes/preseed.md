@@ -456,16 +456,18 @@ Repetition prompts review rather than automatic extraction; ownership, coupling,
 reuse, testability, and maintenance decide whether structure moves. Stable one-offs may
 remain local, and the selected design owner retains visual direction.
 
-`engineering-constitution` reaches default and advanced sessions. Its four short sections
+`engineering-constitution` reaches default and advanced sessions. Its five short sections
 cover repository-led engineering, behavioral proof, composition, SDD traceability,
-prompt-injection resistance, secret and tenant boundaries, explicit authorization for
-high-impact actions, latest-stable dependency selection, and current-task continuity
+prompt-injection resistance, secret and tenant boundaries, direct current-session user
+authority, latest-stable dependency selection, and current-task continuity
 ([REQ-AGENT-065](../../sdd/spec/agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents),
 [REQ-AGENT-198](../../sdd/spec/agents.md#req-agent-198-engineering-constitution-security-policy),
 [REQ-AGENT-199](../../sdd/spec/agents.md#req-agent-199-engineering-constitution-dependency-policy),
 [REQ-AGENT-200](../../sdd/spec/agents.md#req-agent-200-engineering-constitution-work-continuity)).
 It acknowledges and retains new input immediately, then finishes the active concrete step
-before acting on unrelated input unless the user stops, pauses, or reprioritizes it.
+before acting on unrelated input unless the user stops, pauses, or reprioritizes it. Direct
+current-session instructions override conflicting Codeflare defaults; `override` executes
+the latest direction without another confirmation.
 
 Default+advanced `git-workflow` owns PR-boundary mechanics, and focused skills own
 platform behavior. Generic coding and language recipes remain absent under
@@ -736,7 +738,7 @@ Pi-native review and CI assets are seeded with explicit ownership:
 | `preseed/agents/pi/agents/ci-monitor.md` | default, advanced | `~/.pi/agent/agents/ci-monitor.md` | Dedicated report-only CI subagent |
 | `preseed/agents/pi/skills/pr-workflow/SKILL.md` | default, advanced | `~/.pi/agent/skills/pr-workflow/SKILL.md` | PR creation procedure |
 | `preseed/agents/pi/skills/git-review-pipeline/SKILL.md` | advanced | `~/.pi/agent/skills/git-review-pipeline/SKILL.md` | Session-scoped review procedure |
-| `preseed/agents/pi/rules/engineering-constitution.md` | default, advanced | `~/.pi/agent/rules/engineering-constitution.md` | Compact universal engineering, security, dependency, and continuity policy |
+| `preseed/agents/pi/rules/engineering-constitution.md` | default, advanced | `~/.pi/agent/rules/engineering-constitution.md` | Compact universal engineering, security, user-authority, dependency, and continuity policy |
 | `preseed/agents/pi/extensions/capability.ts` + `capability-helpers.ts` + `zz-tool-exposure-finalizer.ts` | default, advanced | `~/.pi/agent/extensions/` | Registered-tool search, additive activation, and post-registration bootstrap filtering through Pi's public API |
 | `preseed/agents/pi/skills/review-scope/SKILL.md` | advanced | `~/.pi/agent/skills/review-scope/SKILL.md` | Shared `diff`/`all` scope resolver |
 | `preseed/agents/claude/skills/review-scope/scripts/build-review-packet.mjs` (reaches Pi through the seed transform) | advanced | `~/.pi/agent/skills/review-scope/scripts/build-review-packet.mjs` | Ancestry-validated lane file/hunk packet builder |

@@ -2925,7 +2925,7 @@ None.
 
 ### REQ-AGENT-200: Engineering Constitution work continuity
 
-**Intent:** Every managed coding session retains new input without abandoning active work mid-step.
+**Intent:** Every managed coding session follows direct current-session user authority while retaining new input without abandoning active work mid-step.
 
 **Applies To:** Agent
 
@@ -2933,8 +2933,9 @@ None.
 
 1. New user input is acknowledged and retained immediately. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
 2. Unrelated new input waits until the active task reaches a safe stopping point unless the user explicitly stops, pauses, or reprioritizes it. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
+3. Direct current-session instructions override conflicting Codeflare rules, workflows, sequences, preferences, and prior user instructions; `override` executes the latest instruction without another question. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
 
-**Constraints:** Related corrections remain part of the active task.
+**Constraints:** Related corrections remain part of the active task. System and platform boundaries outside Codeflare's control remain binding.
 
 **Priority:** P1
 
