@@ -159,6 +159,7 @@ test("REQ-IDE-047: inherited VS Code workspace selects the session agent for eve
       const settings = JSON.parse(await readFile(join(root, "data", "User", "settings.json"), "utf8"));
       assert.equal(settings["terminal.integrated.defaultProfile.linux"], "Codeflare Session Agent");
       assert.deepEqual(settings["terminal.integrated.profiles.linux"], {
+        bash: null,
         Bash: {
           path: "/bin/bash",
           args: ["-l"],
@@ -262,6 +263,7 @@ test("REQ-IDE-002 AC7 + REQ-IDE-016 AC2 + REQ-IDE-040 AC2: settings preparation 
     "workbench.startupEditor": "none",
     "terminal.integrated.defaultProfile.linux": "Bash",
     "terminal.integrated.profiles.linux": {
+      bash: null,
       Bash: {
         path: "/bin/bash",
         args: ["-l"],

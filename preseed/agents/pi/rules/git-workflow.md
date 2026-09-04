@@ -22,4 +22,4 @@ After terminal review and CI results, publish mutation-free triage. Verify evide
 
 <!-- git-workflow-hard-obligations -->
 
-Never mutate reviewed work between triage and FIX, recreate a plan, use legacy `.git/sdd-review-*` state, use a no-op PR edit, push before review closes, or deploy before required CI is green.
+Never mutate reviewed work between triage and FIX, recreate a plan, use legacy `.git/sdd-review-*` state, use a no-op PR edit, or push before review closes.

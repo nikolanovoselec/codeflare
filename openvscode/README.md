@@ -20,7 +20,7 @@ An absent `TAB_CONFIG` keeps the legacy Claude default. Malformed JSON, duplicat
 
 Every inventory manages `workbench.startupEditor` to `none`, suppressing code-server's default Welcome editor, then opens only the owned Codeflare welcome editor with self-contained nonce-bound HTML. It establishes full VS Code and the shared live workspace as universal, then identifies native Pi, the official Claude Code panel, or editor-only mode. Its action opens Codeflare Chat, Claude Code, or Explorer respectively; the welcome package contributes no agent/model surface or external content.
 
-Integrated terminals default to the managed **Bash** profile. That login shell carries `MANUAL_TAB=1`, reusing the existing shell-initialization bypass so it does not auto-start the session agent. The terminal profile menu also exposes **Codeflare Session Agent**, which launches the same login shell without the bypass and therefore starts the configured tab-1 agent on demand ([REQ-IDE-047](../sdd/spec/browser-ide.md#req-ide-047-bash-first-browser-ide-terminals)).
+Integrated terminals default to the managed **Bash** profile. That login shell carries `MANUAL_TAB=1`, reusing the existing shell-initialization bypass so it does not auto-start the session agent. The terminal profile menu also exposes **Codeflare Session Agent**, which launches the same login shell without the bypass and therefore starts the configured tab-1 agent on demand. Managed settings hide code-server's duplicate auto-detected lowercase `bash` entry while leaving unrelated detected profiles available ([REQ-IDE-047](../sdd/spec/browser-ide.md#req-ide-047-bash-first-browser-ide-terminals)).
 
 ## Package map
 

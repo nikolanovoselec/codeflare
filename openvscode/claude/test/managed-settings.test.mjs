@@ -11,6 +11,7 @@ import {
 } from "../managed-settings.mjs";
 
 const EXPECTED_TERMINAL_PROFILES = {
+  bash: null,
   Bash: {
     path: "/bin/bash",
     args: ["-l"],
@@ -104,6 +105,13 @@ test("REQ-IDE-047: terminal workspaces default to Bash and keep the session agen
 
   assert.equal(MANAGED_OPENVSCODE_SETTING_KEYS.includes("terminal.integrated.defaultProfile.linux"), true);
   assert.equal(MANAGED_OPENVSCODE_SETTING_KEYS.includes("terminal.integrated.profiles.linux"), true);
+});
+
+test("REQ-IDE-047: managed profiles suppress only the duplicate detected bash", () => {
+  const profiles = buildBaseOpenVscodeSettings()["terminal.integrated.profiles.linux"];
+
+  assert.equal(profiles.bash, null);
+  assert.equal(Object.hasOwn(profiles, "tmux"), false);
 });
 
 test("REQ-IDE-047: VS Code workspaces default every inventory to the session agent profile", () => {

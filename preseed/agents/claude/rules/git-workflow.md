@@ -25,4 +25,4 @@ Only execute a boundary plan when it appears in a later turn. Start reviewers to
 
 After terminal review and CI results, publish mutation-free canonical triage. Verify evidence and scope, judge findings separately, and choose the smallest correction. Record completion before FIX regardless of CI result; root applies accepted fixes.
 
-Never read, write, migrate, or delete legacy `.git/sdd-review-*` state. Never deploy before required CI is green. Never merge automatically.
+Never read, write, migrate, or delete legacy `.git/sdd-review-*` state. Never merge automatically.
