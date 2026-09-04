@@ -209,8 +209,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. When `ENTERPRISE_MODE=active`, Pi uses a custom `openai-completions` provider pointing at `api.openai.com`. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (builds models.json with one model per catalog route under set -euo pipefail) -->
-2. Pi sends its managed prompt as a `system` message supported across dynamic-route backends. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (forces dynamic-route prompts into the system role supported by Workers AI models) -->
+1. In Enterprise mode, Pi sends model requests through the intercepted Enterprise provider. <!-- @impl: entrypoint.sh::PI_PROVIDER_CONFIG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-031 AC1: builds models.json with one model per catalog route under set -euo pipefail) --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-031 AC1: does not write provider config outside Enterprise mode) -->
+2. Pi preserves and applies its complete managed instructions when a dynamic route resolves to a supported backend. <!-- @impl: entrypoint.sh::PI_PROVIDER_CONFIG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-031 AC2: forces dynamic-route prompts into the system role supported by Workers AI models) -->
 
 **Constraints:**
 

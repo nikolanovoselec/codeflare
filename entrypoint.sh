@@ -3171,7 +3171,7 @@ COPILOT_BYOK_EOF
     # worst case was amazon-bedrock, which Pi treated as authenticated from the
     # container's AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY R2 keys and SigV4-signed to
     # Bedrock; those AWS_* vars are no longer emitted in any mode — REQ-ENTERPRISE-005
-    # AC7 — and auth.json is cleared to {} so no built-in provider stays authed, but
+    # AC6 — and auth.json is cleared to {} so no built-in provider stays authed, but
     # the pin is still required so launch binds to the gateway route.) Pinning
     # defaultProvider+defaultModel makes Pi gateway-bound on launch, zero-touch.
     # The handles are slash-free (Pi parses a slash as provider/model); the real
