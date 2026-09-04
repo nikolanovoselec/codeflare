@@ -4810,6 +4810,29 @@ None.
 
 ---
 
+### REQ-AGENT-209: Retired Pi package migration
+
+**Intent:** Container upgrades remove Codeflare-retired Pi packages without deleting unrelated user-added packages.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Startup removes the retired image-owned response package identity from persisted Pi settings. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (startup restores the disabled default while preserving managed and unrelated packages) -->
+2. Startup preserves unrelated user-added packages during retirement migration. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (startup restores the disabled default while preserving managed and unrelated packages) -->
+
+**Constraints:** Only explicitly retired package identities are removed.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
+
+**Verification:** Automated package-assembly test
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-172: Herdr preserves the canonical Pi configuration root
 
 **Intent:** Pi sessions launched through Herdr use Codeflare's canonical Pi configuration root while Herdr retains private runtime state.
