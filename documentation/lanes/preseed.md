@@ -466,8 +466,9 @@ authority, latest-stable dependency selection, and current-task continuity
 [REQ-AGENT-200](../../sdd/spec/agents.md#req-agent-200-engineering-constitution-work-continuity)).
 It acknowledges and retains new input immediately, then finishes the active concrete step
 before acting on unrelated input unless the user stops, pauses, or reprioritizes it. Direct
-current-session instructions override conflicting Codeflare defaults; `override` executes
-the latest direction without another confirmation.
+current-session instructions override conflicting Codeflare workflow defaults; `override`
+for a specific action executes the latest direction without another confirmation. Security,
+privacy, authorization, tenant, least-privilege, and secret boundaries remain binding.
 
 Default+advanced `git-workflow` owns PR-boundary mechanics, and focused skills own
 platform behavior. Generic coding and language recipes remain absent under

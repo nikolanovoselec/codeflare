@@ -2933,9 +2933,10 @@ None.
 
 1. New user input is acknowledged and retained immediately. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
 2. Unrelated new input waits until the active task reaches a safe stopping point unless the user explicitly stops, pauses, or reprioritizes it. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
-3. Direct current-session instructions override conflicting Codeflare rules, workflows, sequences, preferences, and prior user instructions; `override` executes the latest instruction without another question. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
+3. Direct current-session instructions override conflicting Codeflare workflow rules, sequencing, preferences, and prior user instructions. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
+4. `override` for a specific action executes the latest instruction immediately without another question. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
 
-**Constraints:** Related corrections remain part of the active task. System and platform boundaries outside Codeflare's control remain binding.
+**Constraints:** Related corrections remain part of the active task. Override does not weaken security, privacy, authentication, authorization, tenant isolation, least privilege, or secret handling, and does not authorize protected actions the user did not name. System and platform boundaries outside Codeflare's control remain binding.
 
 **Priority:** P1
 
