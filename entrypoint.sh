@@ -3188,10 +3188,15 @@ COPILOT_BYOK_EOF
     # currently broken on this gateway -- it rejects a valid Responses `input` body
     # with "Required value missing: messages" (it validates as chat/completions),
     # confirmed by synthetic test and gateway logs. So Pi must use the chat/completions
-    # adapter, which works (200). Caveat: gpt-5.5 rejects function tools +
-    # reasoning_effort together on /v1/chat/completions. So each model advertises
-    # reasoning:true (the thinking selector stays available -- Shift+Tab / /settings),
-    # but settings.json pins defaultThinkingLevel to the default route's reasoning
+    # adapter, which works (200). The provider explicitly disables developer-role
+    # compatibility because dynamic routes can resolve to Workers AI models such as
+    # GLM-5.3, whose documented conversation roles are system/user/assistant. Without
+    # that override Pi treats this api.openai.com-shaped route as native OpenAI and
+    # sends its complete managed prompt as developer instead of system.
+    # Caveat: gpt-5.5 rejects function tools + reasoning_effort together on
+    # /v1/chat/completions. So each model advertises reasoning:true (the thinking
+    # selector stays available -- Shift+Tab / /settings), but settings.json pins
+    # defaultThinkingLevel to the default route's reasoning
     # grade (off/low/medium/high) so every session STARTS at that level: at "off" Pi
     # sends no reasoning_effort by default (tools-only works, 200, and the dynamic
     # route can fall back to a reasoning-capable chat/completions model). The user
@@ -3244,6 +3249,7 @@ COPILOT_BYOK_EOF
                     api: "openai-completions",
                     apiKey: $apiKey,
                     authHeader: true,
+                    compat: { supportsDeveloperRole: false },
                     models: $models
                 }
             }

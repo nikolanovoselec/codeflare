@@ -120,6 +120,14 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005)', () =
     }
   });
 
+  it('forces dynamic-route prompts into the system role supported by Workers AI models', () => {
+    const { code, stderr, modelsJson } = runBlock('["development"]', 'development');
+    assert.equal(code, 0, `entrypoint block exited non-zero: ${stderr}`);
+    assert.deepEqual(modelsJson.providers['codeflare-gateway'].compat, {
+      supportsDeveloperRole: false,
+    });
+  });
+
   it('applies the per-route context window from ENTERPRISE_ROUTE_CONTEXT_WINDOWS, default 256000 for unlisted routes', () => {
     // REQ-ENTERPRISE-012: admin-configured per-route windows (e.g. a 1M-context BYOK
     // route) win; a route with no entry falls back to the 256000 default. Revert to a

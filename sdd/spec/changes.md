@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-04
 
+- **Enterprise Pi sends managed instructions through the cross-provider system role** ([REQ-ENTERPRISE-005](enterprise-mode.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC4 amended; remains Implemented). Pi treats reasoning-capable models behind an `api.openai.com`-shaped custom provider as supporting OpenAI's `developer` role, while Workers AI GLM-5.3 documents only `system`, `user`, and `assistant`. The enterprise provider now disables developer-role compatibility so Pi sends its complete managed prompt—including `SYSTEM.md`, `AGENTS.md`, capability routing, skills, and runtime context—as a supported `system` message without changing dynamic routing.
+
 - **Managed Git workflow rules no longer impose a blanket pre-deployment CI gate** ([REQ-AGENT-208](agents.md#req-agent-208-managed-git-workflow-deployment-policy) added and [REQ-AGENT-070](agents.md#req-agent-070-claude-on-demand-ci-monitoring-policy) AC1 anchor corrected; both Implemented). Managed Pi and Claude rules preserve exact-head review and CI dispatch, terminal-result triage, and manual merge controls while leaving CI sequencing to applicable deployment workflows instead of categorically prohibiting deployment whenever required CI is not green.
 
 - **Browser IDE terminal profiles omit the duplicate detected Bash shell** ([REQ-IDE-047](browser-ide.md#req-ide-047-bash-first-browser-ide-terminals) AC5 added; remains Implemented). Managed settings suppress only code-server's auto-detected lowercase `bash` entry. The distinct managed `Bash` and `Codeflare Session Agent` profiles remain available, as do unrelated detected profiles such as tmux.
