@@ -25,5 +25,3 @@ Other useful requests:
 - “Open review for this PR, launch code/spec/doc lanes once, then wait for exact-head CI.”
 - “Triage these reviewer findings and reject anything unsupported or oversized.”
 - “Apply only accepted fixes from the previous triage turn.”
-
-Source anchors: `sdd/spec/agents.md` REQ-AGENT-036/040/055/068/098/104/125/170/177 and `documentation/lanes/preseed.md` review-boundary sections.

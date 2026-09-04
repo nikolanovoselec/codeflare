@@ -23,5 +23,3 @@ Other useful requests:
 - “Open the selected file in Browser VS Code and explain the failing path using editor references.”
 - “Use Inline Chat on this selection, then show me the native diff before saving.”
 - “Restore my preferred Open VSX extension set without persisting extension secrets.”
-
-Source anchors: `sdd/spec/browser-ide.md` REQ-IDE-001/002/005/006/007/009/011/012/014/015/016/019/020/024/025/033/035/036 and `documentation/lanes/container.md`.

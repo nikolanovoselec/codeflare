@@ -37,5 +37,3 @@ Other useful requests:
 - “Use Graphify to map dependencies around this subsystem before we plan the fix.”
 - “Capture this decision into the Vault and link it to the requirement and PR.”
 - “Create Todo tasks with owners and dependencies, then close them as the evidence lands.”
-
-Source anchors: `sdd/spec/memory.md` REQ-MEM-001/002/004/009/013/019/022, `sdd/spec/vault.md` REQ-VAULT-001/002/003/004/014/021/023, `documentation/lanes/vault.md`, and `sdd/spec/agents.md` REQ-AGENT-111/152/178 plus Todo, Graphify, and subagent requirements.

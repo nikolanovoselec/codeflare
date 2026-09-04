@@ -27,5 +27,3 @@ Other useful requests:
 - “Design this dashboard for desktop and phone with one shared product language.”
 - “Create a print-ready one-page field guide from this workflow.”
 - “Inspect the implemented page and list visual defects before polishing.”
-
-Source anchors: `sdd/spec/agents.md` REQ-AGENT-179/180/181/182/183/184/185/186, and the managed `design`, `frontend-design`, `native-mobile-design`, `desktop-native-design`, `canvas-design`, and `motion-design` skills.

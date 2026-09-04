@@ -27,5 +27,3 @@ Other useful requests:
 - “Open this public JavaScript-heavy page and capture the rendered accessibility tree.”
 - “Verify this redirect chain and screenshot the final URL, without logging in.”
 - “Check the deployed smoke path against the release commit and stop before any write action.”
-
-Source anchors: `sdd/spec/browser-run.md` REQ-BROWSER-001/003/006/007/008, `documentation/lanes/preseed.md`, and the Browser Run operator contract.

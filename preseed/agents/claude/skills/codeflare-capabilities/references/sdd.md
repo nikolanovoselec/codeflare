@@ -27,5 +27,3 @@ Other useful requests:
 - “Trace this change to its owning requirement and tell me which tests need to move first.”
 - “Find every `Partial` requirement touched by this diff and show the missing evidence.”
 - “Use Graphify to map the call path behind this requirement before editing.”
-
-Source anchors: `sdd/README.md`, `sdd/spec/agents.md` REQ-AGENT-021/022/033/034/035/039/045/093, and `documentation/lanes/preseed.md#sdd-bootstrap-contract`.

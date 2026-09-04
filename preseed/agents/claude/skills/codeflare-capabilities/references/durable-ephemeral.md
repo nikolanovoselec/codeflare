@@ -25,5 +25,3 @@ Other useful requests:
 - “Tell me which files are safe in Git, storage, Vault, or nowhere durable.”
 - “Process this synchronized asset folder and write the result to durable storage.”
 - “Explain what survives if this container is destroyed right now.”
-
-Source anchors: `sdd/spec/storage.md` REQ-STOR-001/002/003/004/005/007/008/015/016, `sdd/spec/security.md` REQ-SEC-003/005, and `documentation/lanes/storage-and-sync.md`.

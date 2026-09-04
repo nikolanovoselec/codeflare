@@ -23,5 +23,3 @@ Other useful requests:
 - “Check whether this package registry request is allowed by policy evidence.”
 - “Compare one blocked URL and one allowed URL without bypassing Cloudflare Gateway.”
 - “When Cloudflare Gateway evidence is available, trace a malware or DLP block to the recorded decision.”
-
-Source anchors: `sdd/spec/enterprise-mode.md` REQ-ENTERPRISE-016/023/024/028/029, `src/egress-controller.ts`, `documentation/lanes/security.md`, and AD85/AD86 in `documentation/decisions/README.md`.

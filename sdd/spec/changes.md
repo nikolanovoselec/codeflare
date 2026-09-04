@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-04
 
+- **Capability tutorials stay focused on the user's work** ([REQ-AGENT-189](agents.md#req-agent-189-layered-codeflare-capability-discovery) AC8 added and Constraints amended; remains Implemented). Deep dives retain active implementation and specification evidence internally but no longer print Codeflare source paths, requirement IDs, or maintainer navigation. The credential-interception tutorial now gives Enterprise users a paste-ready `GH_TOKEN` check that prints only the `codeflare-enterprise` placeholder, followed by an authenticated `gh api user` check that demonstrates Worker-side injection.
+
 - **Open restores ready terminals through fresh attachments** ([REQ-TERM-043](terminal.md#req-term-043-visible-terminal-readiness-gating) AC4 amended; remains Implemented). `OPEN` now replaces every visible browser attachment for the selected session, including sockets that still report connected after browser suspension. Fresh host restore replay replaces stale screen state before normal terminal use; visibility-return recovery remains selective.
 
 - **Fast Start OFF explicitly updates Pi and Codex before readiness** ([REQ-AGENT-206](agents.md#req-agent-206-fast-start-off-runtime-updates) added and [REQ-AGENT-012](agents.md#req-agent-012-fast-cli-start-configurable) AC2/AC4 amended; both Implemented). Installed Pi and Codex CLIs now enter one explicit latest-runtime update before the PTY readiness flag, while Pi also reconciles configured packages. Startup logs each installed CLI's before and after versions or visible failure evidence without stranding readiness.

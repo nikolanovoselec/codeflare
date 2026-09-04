@@ -23,5 +23,3 @@ Other useful requests:
 - “Inspect the configured tools for this MCP server and call one read-only operation.”
 - “Use the issue-tracker MCP to fetch context, then link it to the code change.”
 - “Explain which MCP calls would mutate state before using any of them.”
-
-Source anchors: `sdd/spec/agents.md` MCP and tool-exposure requirements, `documentation/lanes/preseed.md`, and the active runtime MCP adapter contract.

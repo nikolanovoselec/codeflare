@@ -16,12 +16,22 @@ Named interceptors cover named services. They are not a universal secret manager
 
 ## Try it
 
-Ask me to trace `gh api user` from the placeholder inside the session to exact-host validation, user-token resolution, and upstream authorization, without printing either credential.
+In Enterprise deployments, open a new Bash terminal tab and run:
+
+```bash
+printf 'GH_TOKEN=%s\n' "$GH_TOKEN"
+```
+
+You should see `GH_TOKEN=codeflare-enterprise`. That value is a non-secret placeholder, not your GitHub token. Now test Worker-side authorization:
+
+```bash
+gh api user --jq '{login, id}'
+```
+
+If GitHub returns your identity, the request authenticated after leaving the container while the reusable token stayed outside it.
 
 Other useful requests:
 
-- “Show where GitHub auth is injected without exposing the token.”
-- “Trace an S3-compatible storage request to the exact bucket binding.”
-- “Verify whether this outbound call uses a placeholder, an interceptor, or no credential.”
-
-Source anchors: `src/container/container-interception.ts`, `src/github-interceptor.ts`, `src/llm-interceptor.ts`, `src/egress-controller.ts`, `sdd/spec/enterprise-mode.md` REQ-ENTERPRISE-004/005/011/024/026, and `sdd/spec/browser-run.md` REQ-BROWSER-008.
+- “Check whether this GitHub request uses a placeholder without exposing a reusable token.”
+- “Use my S3-compatible storage and confirm the request can reach only my assigned bucket.”
+- “Tell me whether credentials for this outbound call enter the shell before I run it.”

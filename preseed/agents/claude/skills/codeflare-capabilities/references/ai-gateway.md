@@ -23,5 +23,3 @@ Other useful requests:
 - “Show which model route this session uses and where attribution is attached.”
 - “Compare two reviewed routes for a long-context refactor and a cheap lint-fix pass.”
 - “Trace a failed model call without printing secrets.”
-
-Source anchors: `src/llm-interceptor.ts`, `src/lib/aig-config.ts`, `sdd/spec/enterprise-mode.md` REQ-ENTERPRISE-004/005/012/017, and `documentation/lanes/configuration.md`.

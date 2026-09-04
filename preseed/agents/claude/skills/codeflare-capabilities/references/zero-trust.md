@@ -23,5 +23,3 @@ Other useful requests:
 - “Trace this request from Cloudflare Access identity to session ownership.”
 - “Show why one user can reach their bucket but not another user’s bucket.”
 - “Explain which browser-provided values are ignored at each boundary.”
-
-Source anchors: `sdd/spec/authentication.md`, `sdd/spec/enterprise-mode.md` REQ-ENTERPRISE-001/010/011/015, `sdd/spec/storage.md` REQ-STOR-001, and `src/middleware/auth.ts`.

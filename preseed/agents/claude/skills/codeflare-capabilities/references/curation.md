@@ -25,5 +25,3 @@ Other useful requests:
 - “Add a new portable skill and show which runtimes receive it.”
 - “Update this preseeded skill in curation, then align Codeflare’s embedded preseed.”
 - “Prepare a managed seed release and verify the compiled bundle is reproducible.”
-
-Source anchors: `sdd/spec/storage.md` REQ-STOR-021/024/025/026, `sdd/spec/agents.md` managed-seed requirements, and the codeflare-curation operator runbook.

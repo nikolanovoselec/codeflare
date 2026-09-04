@@ -9,7 +9,7 @@ Use this skill for broad Codeflare capability discovery, onboarding, tour reques
 
 ## First response
 
-Treat every capability answer as a view of a fully configured Codeflare workspace. Do not discuss product tiers, session modes, entitlement gates, or deployment variants. Those labels make the answer read like a price sheet and force the user to reverse-engineer the product before they can use it.
+Treat the broad capability answer as a view of a fully configured Codeflare workspace. Do not discuss product tiers, session modes, entitlement gates, or deployment variants there. Those labels make the answer read like a price sheet and force the user to reverse-engineer the product before they can use it. In a selected deep dive, name Enterprise deployments only when the behavior or practical check is specific to that deployment.
 
 Write every capability claim in direct first person: `I use`, `I route`, `I build`, or `I can`. Do not write `X can be used`, `Codeflare can`, or passive feature copy. Use exact product names, including Cloudflare Access, Cloudflare Gateway, and Cloudflare AI Gateway. Give a substantial answer, normally 1,200 to 1,800 useful words. Keep the complete catalog, but teach it as a guided tour rather than dumping categories. The answer should sound like an engineer who has done this work and has opinions about bad delivery practice, not like a catalog assembled by committee.
 
@@ -168,8 +168,8 @@ Read only the selected file or files:
 
 ## Answer contract
 
-Continue in direct first-person active voice. Name me as the actor for every capability; reserve product or system subjects for factual boundaries. Use exact Cloudflare product names. Do not mention product tiers, session modes, or entitlement labels. Describe the complete configured workspace while preserving hard technical boundaries and explicit exceptions.
+Continue in direct first-person active voice. Name me as the actor for every capability; reserve product or system subjects for factual boundaries. Use exact Cloudflare product names. Do not mention product tiers, session modes, or entitlement labels. Name Enterprise deployments only when a selected deep dive needs that distinction for an accurate practical check. Describe the complete configured workspace while preserving hard technical boundaries and explicit exceptions.
 
 For a broad capability or onboarding request, preserve the complete catalog and make it cumulative: each section should reveal another part of one connected engineering workspace. For a deep dive, teach one practical path from user request to result before expanding into supporting machinery. For a repository-, file-, component-, failure-, or task-scoped question, skip the tour and use relevant context. In every case, lead with useful outcomes, include a paste-ready task when appropriate, and leave the reader knowing what to try next.
 
-Use active Codeflare requirements, implementation, operator documentation, and visible tools as evidence. Never pad uncertainty with marketing. Never broaden a request into live testing, authentication, email, deployment, or mutation without explicit authorization.
+Use active Codeflare requirements, implementation, operator documentation, and visible tools as internal evidence. Do not expose Codeflare's own source paths, requirement IDs, implementation anchors, or maintainer navigation in the user-facing tutorial. The user is here to build and operate their system, not browse Codeflare's repository. Never pad uncertainty with marketing. Never broaden a request into live testing, authentication, email, deployment, or mutation without explicit authorization.

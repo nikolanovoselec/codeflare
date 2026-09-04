@@ -25,5 +25,3 @@ Other useful requests:
 - “Set up Herdr panes for three agents and wait until each is really ready.”
 - “Ask me a structured question that I can answer from my phone.”
 - “Recover this browser session and tell me what state did not survive.”
-
-Source anchors: `sdd/spec/terminal.md` REQ-TERM-001/002/006/011/012/023/024/025/029/033/038/039, `sdd/spec/mobile.md` REQ-MOB-001/002/006/007/021/022, and `documentation/lanes/preseed.md` notification sections.
