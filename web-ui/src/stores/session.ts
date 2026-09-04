@@ -49,6 +49,8 @@ import {
   stopSessionListPolling,
   markSessionStarted,
   clearSessionStartedGuard,
+  isWithinStartupGuard,
+  resetStartupGuards,
   resetManagedCheckState,
 } from './session-polling';
 
@@ -181,6 +183,10 @@ registerSessionStoreAccess(
 registerProcessNameCallback((sessionId, terminalId, processName) => {
   updateTerminalLabel(sessionId, terminalId, processName);
 });
+terminalStore.registerSessionStoppedCallback?.((sessionId) => {
+  updateSessionStatus(sessionId, 'stopped');
+  terminalStore.disposeSession(sessionId);
+});
 
 // Register R2 readiness dependencies (extracted to r2-readiness.ts)
 registerR2ReadinessDeps({
@@ -201,6 +207,13 @@ function updateSessionStatus(id: string, status: SessionStatus): void {
 
 function isSessionInitializing(sessionId: string): boolean {
   return state.initializingSessionIds[sessionId] === true;
+}
+
+/** One gate for every stopped/missing observation from eventually-consistent KV. */
+function shouldRetainNegativeKv(sessionId: string): boolean {
+  return isSessionInitializing(sessionId)
+    || isWithinStartupGuard(sessionId)
+    || terminalStore.ownsSession?.(sessionId) === true;
 }
 
 async function runPreseedUpdate<T>(operation: () => Promise<T>): Promise<T> {
@@ -224,10 +237,19 @@ function applyManagedReleaseBatch(
   }
   if (!needsUpgrade || state.preseedUpgrading) return;
   void runPreseedUpdate(upgradeAgentConfigs)
-    .then(() => {
-      if (status === 'upgrading') {
+    .then((result) => {
+      if (status !== 'upgrading') return;
+      const completion = result.managedReleaseProgress;
+      if (!completion) {
         setState('managedReleaseStatus', 'current');
         setState('managedReleaseProgress', null);
+        return;
+      }
+      if (state.managedReleaseProgress?.phase !== 'finalizing') {
+        setState('managedReleaseStatus', 'upgrading');
+        setState('managedReleaseProgress', completion.total > 0
+          ? { ...completion, phase: 'writing' }
+          : completion);
       }
     })
     .catch((err) => logger.warn('[SessionStore] preseed auto-upgrade failed:', err));
@@ -240,6 +262,7 @@ registerPollingDeps({
   setStateRaw: (...args: any[]) => (setState as any)(...args),
   updateSessionStatus,
   isSessionInitializing,
+  shouldRetainNegativeKv,
   setAuthExpired,
   applyMetricsUpdate,
   applyManagedReleaseBatch,
@@ -304,16 +327,22 @@ async function loadSessions(): Promise<void> {
     setState('bucketMigrationPending', 'bucketMigrationPending' in batchResponse && batchResponse.bucketMigrationPending === true);
     setState('bucketMigrationPercent', 'bucketMigrationPercent' in batchResponse && typeof batchResponse.bucketMigrationPercent === 'number' ? batchResponse.bucketMigrationPercent : null);
 
-    const existingStatuses = new Map(
-      state.sessions.map(s => [s.id, s.status])
-    );
-
+    const existingSessions = new Map(state.sessions.map(s => [s.id, s]));
+    const existingStatuses = new Map(state.sessions.map(s => [s.id, s.status]));
     const oldIds = new Set(state.sessions.map(s => s.id));
+    const listedIds = new Set(sessions.map(s => s.id));
 
     const sessionsWithStatus: SessionWithStatus[] = sessions.map((s) => ({
       ...s,
-      status: existingStatuses.get(s.id) || ('stopped' as SessionStatus),
+      status: existingStatuses.get(s.id) || s.status || ('stopped' as SessionStatus),
     }));
+    // KV LIST may temporarily omit a recently written record. The same negative-
+    // evidence gate used by polling decides whether local lifecycle ownership wins.
+    for (const existing of existingSessions.values()) {
+      if (!listedIds.has(existing.id) && shouldRetainNegativeKv(existing.id)) {
+        sessionsWithStatus.push(existing);
+      }
+    }
     setState('sessions', sessionsWithStatus);
     // REQ-VAULT-015 AC4: sweep orphan SilverBullet IDB caches only after
     // an authoritative session-list fetch succeeds. Dashboard mount can
@@ -323,7 +352,7 @@ async function loadSessions(): Promise<void> {
       logger.warn('vault orphan cache sweep failed', { error: err instanceof Error ? err.message : String(err) }),
     );
 
-    const newIds = new Set(sessions.map(s => s.id));
+    const newIds = new Set(sessionsWithStatus.map(s => s.id));
     for (const id of oldIds) {
       if (!newIds.has(id)) {
         cleanupTerminalsForSession(id);
@@ -361,6 +390,10 @@ async function loadSessions(): Promise<void> {
           applyMetricsUpdate(s.sessionMetrics, session.id, batchStatus.metrics!);
         }));
       }
+
+      const currentStatus = state.sessions.find((candidate) => candidate.id === session.id)?.status;
+      if (currentStatus === 'initializing' || currentStatus === 'stopping') continue;
+      if (batchStatus.status === 'stopped' && shouldRetainNegativeKv(session.id)) continue;
 
       if (batchStatus.status === 'running') {
         const wasRunning = existingStatuses.get(session.id) === 'running';
@@ -724,6 +757,7 @@ export const sessionStore = {
   updateSessionStatus,
   refreshSessionStatuses,
   _resetMissCounters: () => sessionMissCounters.clear(),
+  _resetStartupGuards: () => resetStartupGuards(),
   _resetAuthExpired: () => setAuthExpired(false),
   _resetManagedCheckState: () => resetManagedCheckState(),
 };

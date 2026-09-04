@@ -306,12 +306,12 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 4. Dashboard session cards display a three-color status dot: green (running + WebSocket connected), yellow (running + WebSocket disconnected), gray (stopped). <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (SessionStatCard) -->
 5. Session cards surface CPU, memory, and disk metrics with up to ~60s staleness; selectable cards omit the internal agent/process and sync-status diagnostic line. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @impl: web-ui/src/components/SessionStatCard.tsx::SessionStatCard --> <!-- @impl: web-ui/src/components/SelectableSessionCard.tsx::SelectableSessionCard --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC5: metrics included in list metadata) --> <!-- @test: web-ui/src/__tests__/components/SessionStatCard.test.tsx (SessionStatCard) --> <!-- @test: web-ui/src/__tests__/components/SelectableSessionCard.test.tsx (REQ-SESSION-010 AC5: retains CPU, memory, and storage metrics without an internal agent/sync diagnostic line) -->
 6. Last-active and last-started timestamps are available for sleep-timer countdown display. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-SESSION-010 AC6: lastActiveAt and lastStartedAt in batch-status response) -->
-7. When polling transitions a session to stopped, its terminal connections are disposed; the currently active session is exempt from the poll-driven dispose only within the active-session guard window, not unconditionally. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (calls disposeSession when session transitions from running to stopped) -->
 
 **Constraints:**
 
-- Storage eventual consistency causes ~60s propagation delay for newly created sessions.
-- Dashboard status is a pure storage read; no container is contacted, preserving container hibernation.
+- Storage eventual consistency can expose stale point values, stale LIST metadata, and temporary LIST omissions.
+- Dashboard polling remains a pure storage read and never wakes a container.
+- Negative-observation handling is defined by [REQ-SESSION-030](#req-session-030-negative-kv-evidence-preserves-lifecycle-owned-sessions).
 
 **Priority:** P1
 
@@ -434,6 +434,33 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+### REQ-SESSION-030: Negative KV evidence preserves lifecycle-owned sessions
+
+**Intent:** Eventually-consistent KV observations cannot evict a live dashboard session while local startup or terminal transport still owns its lifecycle.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Incremental polling ignores stale `stopped` while a session is initializing, inside its three-minute startup guard, or owned by a terminal connection, attempt, or retry loop. <!-- @impl: web-ui/src/stores/session.ts::shouldRetainNegativeKv --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (keeps a transport-owned session after startup guard expiry when polling sees stopped) -->
+2. Incremental polling does not remove a transport-owned session after repeated missing batch entries. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (keeps a transport-owned session through repeated missing entries after guard expiry) -->
+3. Full session hydration ignores stale `stopped` under the same ownership gate. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (applies the same protection to full-load stopped metadata) -->
+4. Full session hydration retains a transport-owned local record during a successful KV LIST omission. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (preserves a transport-owned local record through a full-list omission) -->
+5. A persisted-container-state 4503 bypasses negative-KV protection and immediately marks the session stopped. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @impl: web-ui/src/stores/session.ts::registerSessionStoppedCallback --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (applies authoritative 4503 immediately despite guard and transport ownership) -->
+6. Handling 4503 releases transport ownership and disposes every terminal connection for that session. <!-- @impl: web-ui/src/stores/terminal.ts::connect --> <!-- @impl: web-ui/src/stores/session.ts::registerSessionStoppedCallback --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (stops retrying on 4503, releases ownership, and reports the authoritative stop) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (applies authoritative 4503 immediately despite guard and transport ownership) -->
+
+**Constraints:** Manual stop and persisted-container-state 4503 remain authoritative. The three-minute startup guard is unchanged.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard), [REQ-SESSION-012](#req-session-012-wake-loop-prevention), [REQ-SEC-020](security.md#req-sec-020-ws-upgrade-rate-limit-short-circuits)
+
+**Verification:** Automated store tests
+
+**Status:** Implemented
+
+---
+
 ### REQ-SESSION-012: Wake-loop prevention
 
 **Intent:** A browser's automatic WebSocket reconnect must not wake a hibernated container in an infinite stop/start cycle.
@@ -443,7 +470,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Acceptance Criteria:**
 
 1. When the container is not running, all non-internal requests receive 503 without waking the container. <!-- @impl: src/container/index.ts::fetch --> <!-- @test: src/__tests__/container/index.test.ts (fetch gate — 503 when container not running / REQ-SESSION-009 (DO fetch gates on container.running, returns 503 for non-internal routes) / REQ-SESSION-012 (wake-loop prevention: 503 on HTTP + 4503 close code on WS prevent client reconnect storms from waking hibernated containers)) -->
-2. WebSocket upgrade requests are rejected when the session is stopped (defense-in-depth). <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (returns WebSocket upgrade with 4503 close for stopped session) -->
+2. WebSocket upgrade requests are rejected when persisted Container SDK state is stopped (defense-in-depth). <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (returns 4503 without rate-limit use for Container state %s) -->
 3. The frontend detects running-to-stopped transitions and kills all WebSocket retry loops. <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (calls disposeSession when session transitions from running to stopped) -->
 4. The server signals "container stopped" via a stable WebSocket close code. <!-- @impl: src/container/index.ts::fetch --> <!-- @test: src/__tests__/container/index.test.ts (fetch gate — 503 when container not running / REQ-SESSION-009 (DO fetch gates on container.running, returns 503 for non-internal routes) / REQ-SESSION-012 (wake-loop prevention: 503 on HTTP + 4503 close code on WS prevent client reconnect storms from waking hibernated containers)) -->
 5. The client treats close code 4503 as authoritative and does not retry. Transient codes 1001, 1006, 1011, 1012, and 1013 retry automatically; intentional/normal and otherwise unclassified closes remain disconnected while persistent polling resolves session status. <!-- @impl: web-ui/src/lib/constants.ts::WS_RETRYABLE_CLOSE_CODES --> <!-- @impl: web-ui/src/stores/terminal.ts::terminalStore --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (reconnectBackoffMs)) / REQ-TERM-004 (WebSocket lifecycle: connect, attach, detach, close-codes 4503/1013) / REQ-TERM-008 (flushWriteBuffer batches xterm writes for performance)) -->
@@ -530,11 +557,12 @@ None.
 **Acceptance Criteria:**
 
 1. The serving port binds within Cloudflare's container port-wait window even while initialization (R2 sync, MCP config merges) is still in progress. <!-- @impl: entrypoint.sh::TERMINAL_PID --> <!-- @manual: On a deployed cold start with delayed R2 initialization, confirm the serving port accepts health probes within the platform wait window. -->
-2. The entrypoint writes an init-complete signal only after initial sync, file modifications, and tab-autostart configuration have completed. <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (guarded warm-up calls from entrypoint.sh still reach the init-flag write when they fail) --> <!-- @manual -->
+2. The entrypoint writes an init-complete signal only after initial sync, file modifications, and tab-autostart configuration have completed. <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (guarded warm-up call from entrypoint.sh still reaches the init-flag write when it fails) --> <!-- @manual -->
 3. Terminal pre-warm waits up to 130 seconds for initialization, then starts the stamped Classic or Herdr surface; timeout proceeds in degraded state. <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @manual: Hold back the init-complete signal and confirm pre-warm remains gated until the 130-second bound, then starts with `/health.initFlagObserved` still false. -->
-4. The host rejects terminal WebSocket upgrades with retriable close code 1013 and a warming reason until pre-warm registers. Registration normally follows initialization; after the 130-second bound, degraded startup may register without requiring `initFlagObserved`. <!-- @impl: host/src/server.ts::terminalServiceReady --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (container-warming-up gate (PR #365) / REQ-SEC-020 AC2 (1013 close BEFORE WS rate-limit when terminalServiceReady=false; /health probe error falls through)) -->
-5. The image bakes a pre-transpiled cache for the full Pi extension set, with package extensions derived from the preseed manifest. <!-- @impl: Dockerfile::PI_WARM_PACKAGES --> <!-- @manual -->
-6. The image build fails if the transpile cache is empty or a required package extension is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @manual -->
+4. The host rejects terminal WebSocket upgrades with retriable close code 1013 and a warming reason until pre-warm registers. <!-- @impl: host/src/server.ts::terminalServiceReady --> <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @test: src/__tests__/routes/terminal-ws.test.ts (container-warming-up gate (PR #365) / REQ-SEC-020 AC3 (1013 close BEFORE WS rate-limit while readiness is unverified)) -->
+5. Pre-warm registration normally follows initialization; after the 130-second bound, degraded startup may register without requiring `initFlagObserved`. <!-- @impl: host/src/server.ts::waitForInitFlag --> <!-- @manual: Hold back the init-complete signal and confirm degraded startup registers after the 130-second bound with `/health.initFlagObserved` still false. -->
+6. The image bakes a pre-transpiled cache for the full Pi extension set, with package extensions derived from the preseed manifest. <!-- @impl: Dockerfile::PI_WARM_PACKAGES --> <!-- @manual -->
+7. The image build fails if the transpile cache is empty or a required package extension is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @manual -->
 
 **Constraints:**
 
@@ -611,7 +639,7 @@ None.
 
 ### REQ-SESSION-018: Persisted status is authoritative on container exit
 
-**Intent:** Session status in KV is the single source of truth. A container that exits for any reason writes `stopped` to its KV record, so the dashboard ([REQ-SESSION-010](#req-session-010-session-status-observable-from-dashboard)) reflects reality directly from the record without any read-side staleness guess. Conversely, a container that is demonstrably alive is never left showing stopped: the not-running signal is treated as authoritative only after it is confirmed, and a status that was wrongly flipped to stopped is self-healed back to running.
+**Intent:** Durable container lifecycle evidence owns running/stopped transitions; KV is its eventually-consistent dashboard projection. A container that exits for any reason writes `stopped` only after the not-running confirmation window, while a running metrics tick repairs stale KV only when no durable shutdown request owns the transition.
 
 **Applies To:** User
 
@@ -620,12 +648,14 @@ None.
 1. A container that exits for any reason (graceful stop, crash, or an SDK-surfaced error) transitions its KV status to stopped. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/index.ts::onError --> <!-- @test: src/__tests__/container-metrics.test.ts (writes status=stopped to KV only after the not-running confirmation window (catch-all)) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-018 AC1: recovery cleanup failure cannot block the authoritative stopped write) -->
 2. Stopped is written only after the container reads not-running across a confirmation window spanning more than one alarm tick, so a single transient not-running reading never flips a live session to stopped. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (does not flip a live session to stopped on a single transient not-running tick) -->
 3. A non-transport not-running error does not write stopped; the confirmation window opens and re-arms a metrics tick, deferring the stopped decision to that window. <!-- @impl: src/container/container-lifecycle.ts::onError --> <!-- @impl: src/container/container-metrics.ts::openNotRunningConfirmation --> <!-- @test: src/__tests__/container/lifecycle.test.ts (onError opens the not-running confirmation window and re-arms instead of writing stopped) -->
-4. When host health confirms the container is running but KV reads stopped, running is re-asserted, unless a persisted shutdown-requested marker shows a deliberate stop is in flight. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
+4. A start request that finds an already-running container does not rewrite KV because that route cannot inspect the durable shutdown-requested marker; marker-aware metrics owns convergence. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-lifecycle.test.ts (returns already_running without an unowned KV lifecycle repair) -->
+5. A running metrics tick re-asserts running when KV status is stopped or missing only when no persisted shutdown-requested marker shows a deliberate stop is in flight. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container-metrics.test.ts (re-asserts running when a stale KV read has no status and the container is alive) --> <!-- @test: src/__tests__/container-metrics.test.ts (skips the metrics write when stopped AND the persisted shutdown marker is set (clobber-race guard)) -->
+6. Container start publishes `running`, `lastStartedAt`, and `lastActiveAt` from one KV read/write snapshot, preventing a second eventually-consistent read from restoring pre-start status. <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @impl: src/container/container-metrics.ts::updateKvStatus --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-018 AC6: publishes running and both startup timestamps from one KV read) -->
 
 **Constraints:**
 
 - The not-running confirmation window and the deliberate-stop marker are persisted in DO storage (not in-memory), so a hibernation or mid-shutdown eviction cannot discard them; `destroy()` sets the marker before clearing identifiers and `onStart` clears it.
-- Newly started sessions have a 3-minute startup guard during which only the container-stopped close code can transition them to stopped (anti-flapping).
+- Newly started sessions have a 3-minute startup guard; active terminal transport ownership extends rejection of negative KV evidence after that window. Manual stop and persisted-state 4503 remain authoritative.
 - A genuine crash converges to stopped after the confirmation window (one to a few alarm ticks).
 - Accepted residual: a tick landing in the sub-millisecond gap between the user-stop KV write and `destroy()` persisting the marker can self-heal the just-stopped session for a single tick before `destroy()` settles it back to stopped; the idle-stop path is immune.
 

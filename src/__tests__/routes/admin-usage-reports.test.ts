@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
@@ -41,12 +41,15 @@ function createApp() {
 
 describe('admin usage report routes (REQ-SUB-027)', () => {
   beforeEach(() => { role = 'admin'; vi.clearAllMocks(); });
+  afterEach(() => { vi.useRealTimers(); });
 
-  it('creates distinct test delivery rows and uses waitUntil only as fast path', async () => {
+  it('creates current-month test delivery rows and uses waitUntil only as fast path', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2027-08-15T12:00:00.000Z'));
     const { request, waitUntil } = createApp();
     const response = await request('/admin/usage-report-tests', { method: 'POST' });
     expect(response.status).toBe(202);
-    expect(createReportDispatch).toHaveBeenCalledWith(expect.anything(), 'test', 'test:req-1', 2, expect.any(String), ['admin@example.com'], expect.any(Date));
+    expect(createReportDispatch).toHaveBeenCalledWith(expect.anything(), 'test', 'test:req-1', 2, '2027-08', ['admin@example.com'], new Date('2027-08-15T12:00:00.000Z'));
     expect(waitUntil).toHaveBeenCalledOnce();
     expect(recoverReportDeliveries).toHaveBeenCalledOnce();
   });

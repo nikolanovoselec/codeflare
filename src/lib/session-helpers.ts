@@ -1,6 +1,8 @@
+import { getContainer } from '@cloudflare/containers';
 import type { Env, Session } from '../types';
 import { getSessionPrefix, listAllKvKeys, expandSessionMetadata, type SessionListMetadata } from './kv-keys';
 import { SESSION_ID_PATTERN } from './constants';
+import { getContainerId } from './container-helpers';
 
 /**
  * Strip userId and lastStatusCheck from a session for API responses.
@@ -18,6 +20,36 @@ export function toApiSession(session: Session) {
  * can never flow downstream into getContainerId(). Shared by the sync fan-out
  * (REQ-STOR-015) and the Governed Mode migration drain (REQ-ENTERPRISE-020).
  */
+/**
+ * Resolve managed-mutation ownership from persisted Container SDK state rather
+ * than eventually-consistent KV status/metadata. Every session record is checked
+ * because either KV view can independently be stale. Unknown state fails closed.
+ */
+export async function hasOwningSessionContainer(
+  env: Pick<Env, 'KV' | 'CONTAINER'>,
+  bucketName: string,
+): Promise<boolean> {
+  let keys: Awaited<ReturnType<typeof listAllKvKeys>>;
+  try {
+    keys = await listAllKvKeys(env.KV, getSessionPrefix(bucketName));
+  } catch {
+    return true;
+  }
+
+  for (const key of keys) {
+    const lastColon = key.name.lastIndexOf(':');
+    const sessionId = lastColon >= 0 ? key.name.slice(lastColon + 1) : '';
+    if (!SESSION_ID_PATTERN.test(sessionId)) return true;
+    try {
+      const state = await getContainer(env.CONTAINER, getContainerId(bucketName, sessionId)).getState();
+      if (state.status !== 'stopped' && state.status !== 'stopped_with_code') return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
 export async function listRunningSessionIds(
   env: Pick<Env, 'KV'>,
   bucketName: string,

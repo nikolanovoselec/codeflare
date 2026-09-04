@@ -37,6 +37,18 @@ describe('nightly PR Checks routing', () => {
     assert.match(filter.if, /github\.event_name == 'push'/);
   });
 
+  it('routes the exact production lockfiles through the dependency gate', () => {
+    const changes = prChecks.jobs.changes;
+    const filter = changes.steps.find((step) => step.id === 'filter');
+    const filters = parseYaml(filter.with.filters);
+
+    assert.deepEqual(filters.dependencies, [
+      'package-lock.json',
+      'web-ui/package-lock.json',
+      'openvscode/agent-sidebar/package-lock.json',
+    ]);
+  });
+
   it('falls back to a checked-out exact diff without weakening lane coverage when the PR files API fails', () => {
     const changes = prChecks.jobs.changes;
     const checkout = changes.steps.find((step) => String(step.uses).startsWith('actions/checkout@'));
@@ -47,7 +59,7 @@ describe('nightly PR Checks routing', () => {
     assert.equal(filter['continue-on-error'], true);
     assert.equal(fallback.if, "steps.filter.outcome == 'failure'");
     assert.equal(fallback.run, 'scripts/ci/path-filter-fallback.sh');
-    for (const lane of ['backend', 'webui', 'landing', 'host', 'ide', 'workflows']) {
+    for (const lane of ['backend', 'webui', 'landing', 'host', 'ide', 'workflows', 'dependencies']) {
       assert.match(changes.outputs[lane], new RegExp(`steps\\.filter_fallback\\.outputs\\.${lane}`));
     }
   });
@@ -82,6 +94,7 @@ describe('nightly PR Checks routing', () => {
         'pi=true',
         'ide=true',
         'workflows=true',
+        'dependencies=true',
       ]);
       assert.equal(readFileSync(join(runnerTemp, 'changed-files.txt'), 'utf8'), 'fixture.txt\n');
 

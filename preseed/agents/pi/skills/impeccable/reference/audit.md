@@ -6,7 +6,7 @@ This is a code-level audit, not a design critique. Check what's measurable and v
 
 ## Diagnostic Scan
 
-Run checks across five dimensions. Score a dimension only when the required source, rendered, interaction, or measurement evidence exists; otherwise mark it `N/A` and state what is missing. Source inspection alone cannot prove WCAG conformance, runtime performance, responsive fidelity, or visual quality.
+Run comprehensive checks across 5 dimensions. Score a dimension 0-4 only when available rendering, interaction, code, or measurement evidence supports it; otherwise report `N/A` and do not infer a score.
 
 ### 1. Accessibility (A11y)
 
@@ -47,7 +47,7 @@ Run checks across five dimensions. Score a dimension only when the required sour
 
 **Check for**:
 - **Fixed widths**: Hard-coded widths that break on mobile
-- **Target size**: Evaluate WCAG 2.2 target-size requirements and exceptions separately from stronger product or platform recommendations such as approximately 44pt on iOS or 48dp on Android; do not label 44 CSS pixels as a universal AA threshold
+- **Touch targets**: Interactive elements below the WCAG 2.5.8 web baseline; report stronger platform or product targets such as 44×44 separately when applicable
 - **Horizontal scroll**: Content overflow on narrow viewports
 - **Text scaling**: Layouts that break when text size increases
 - **Missing breakpoints**: No mobile/tablet variants
@@ -71,15 +71,15 @@ Run the bundled detector and verify each finding in context. Look for repeated i
 | 3 | Responsive Design | ? | |
 | 4 | Theming | ? | |
 | 5 | Implementation Integrity | ? | |
-| **Total** | | **??/20** | **[Rating band]** |
+| **Total** | | **[earned]/[available]** | **[Rating band or N/A]** |
 
-**Rating bands**: 18-20 Excellent (minor polish), 14-17 Good (address weak dimensions), 10-13 Acceptable (significant work needed), 6-9 Poor (major overhaul), 0-5 Critical (fundamental issues)
+**Rating bands**: When all five dimensions have evidence: 18-20 Excellent (minor polish), 14-17 Good (address weak dimensions), 10-13 Acceptable (significant work needed), 6-9 Poor (major overhaul), 0-5 Critical (fundamental issues). Otherwise report the earned/available score and `N/A` rather than inventing a rating.
 
 ### Implementation Integrity Verdict
 **Start here.** Pass/fail: does the implementation express a coherent product-specific system? Cite verified evidence and detector findings.
 
 ### Executive Summary
-- Audit Health Score: **??/20** ([rating band])
+- Audit Health Score: **[earned]/[available]** ([rating band or N/A])
 - Total issues found (count by severity: P0/P1/P2/P3)
 - Top 3-5 critical issues
 - Recommended next steps

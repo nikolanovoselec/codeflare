@@ -12,7 +12,7 @@ Each of these is a check on the built result, not an intention. Run them togethe
 - **Type:** body measure 65–75ch, display max 6rem, tracking floor -0.04em, balanced headings, obvious scale and weight steps. Run the real copy at every breakpoint and fix what overflows.
 - **Motion:** one authored moment, not scattered effects and not one identical entrance on every section. Exponential ease-out from an already-visible default. Reach past transform and opacity: blur, backdrop-filter, clip-path, mask, and shadow belong to the palette when they stay smooth.
 - **States:** hover, disabled, loading, error, empty. Plus real content, working controls, responsive composition, keyboard focus.
-- **Browser surfaces:** inspect text selection, caret, scrollbars, focus rings, underline offset, and tabular numerals where they affect the product. Theme them only when doing so improves coherence without obscuring native affordances, contrast, input behavior, or platform expectations.
+- **Browser surfaces:** inspect text selection, the caret, scrollbars, focus rings, underline offset, and tabular numerals where they affect the product. Theme them only when doing so improves coherence without obscuring native affordances, contrast, input behavior, or platform expectations.
 - **Copy:** the product's own language. Controls name their action; errors name the problem and the recovery.
 - **Coverage:** every brief requirement present and findable within seconds.
 
@@ -22,21 +22,21 @@ These are the category's defaults, not bans: the brief's own words can earn any 
 
 Page scaffolds:
 
-- Same-size cards of icon plus heading plus text used as interchangeable page structure. Nested cards are a warning when hierarchy or semantics do not justify them.
+- Same-size cards of icon plus heading plus text used by reflex as the page structure. Nested cards are valid when semantic containment or interaction requires the hierarchy; otherwise flatten decorative nesting.
 - The hero-metric template: big number, small label, supporting stats, accent.
-- A kicker or eyebrow above every heading by habit. Keep one only when it carries real category, sequence, or context information.
+- A kicker or eyebrow above every heading by reflex. Keep one when the brief, hierarchy, sequence, or navigation gives it a real job; otherwise let the heading carry its own weight.
 - Section numbers (01 / 02 / 03) unless the sequence itself carries information the reader needs.
 - A modal for a task that needs neither interruption nor protected focus.
 
 Surface habits:
 
-- Gradient text used as default emphasis. Keep it only when the selected thesis, contrast, and legibility justify it.
+- Gradient text used as generic emphasis. Keep it when the committed identity or content makes the gradient meaningful and contrast remains valid.
 - Glass and blur as decoration rather than as a specific effect.
 - A colored `border-left` or `border-right` above 1px on cards, list items, callouts, or alerts.
 - Hard offset shadows (`box-shadow: 4px 4px 0`) outside a world that is actually neobrutalist. The zero-blur block shadow is a costume, not a depth system; a world that did not choose it never earns it as a default.
 - Sparklines, progress rings, and soft-shadowed rounded rectangles standing in for content.
 - Monospace as a costume for "technical" rather than for code, data, or measurement.
-- A system display face (Impact, Arial Black, the platform sans) as the display voice of an own-world page. Source and self-host a face whose character matches the approved lettering; the closest installed font is a failure, not a fallback.
+- A system display face chosen by convenience for an own-world Persuade or Experience surface. System and workhorse faces remain valid for native, Operate, Read, incumbent, accessibility, or brief-led work.
 - Unicode glyphs or emoji standing in for an icon system. Icons are drawn, from a real library or authored SVG, in one consistent stroke and weight.
 - Geometric masks standing in for organic contours. A circle, polygon, or radial-gradient cutout approximating a photographic subject's edge is the cheap version of the effect and reads worse than omitting it. Derive an alpha matte from the actual image, or produce a cut-out asset.
 - Light or dark picked by category. Pick it from the use scene: who, where, under what ambient light.

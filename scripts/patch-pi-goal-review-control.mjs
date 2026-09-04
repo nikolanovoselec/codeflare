@@ -9,12 +9,13 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const EXPECTED_PI_GOAL_VERSION = '0.53.0';
+export const EXPECTED_PI_GOAL_VERSION = '0.54.3';
 export const SUPPORTED_PI_GOAL_VERSIONS = Object.freeze([
   EXPECTED_PI_GOAL_VERSION,
 ]);
 export const PATCH_MARKER = 'CODEFLARE_GOAL_CONTROL_CHANNEL';
 export const GOAL_ENTRYPOINT_PATCH_MARKER = 'CODEFLARE_GOAL_LIFECYCLE_COMMANDS';
+export const TOOL_POLICY_PATCH_MARKER = 'CODEFLARE_GOAL_LAZY_TOOL_ACTIVATION';
 export const COMMANDS_PATCH_MARKER = 'CODEFLARE_SUPPRESS_RESUME_PROMPT';
 export const PROMPTS_PATCH_MARKER = 'CODEFLARE_COMPACT_GOAL_PROMPTS';
 export const SETTINGS_PATCH_MARKER = 'CODEFLARE_GOAL_MIN_INTERVAL_SETTINGS';
@@ -456,6 +457,39 @@ export function patchPiGoalEntrypointSource(source) {
   );
 }
 
+export function patchPiGoalToolPolicySource(source) {
+  if (
+    isCompleteMarkedPatch(
+      source,
+      TOOL_POLICY_PATCH_MARKER,
+      ['pi.setActiveTools([...active, ...missing]);'],
+      'Goal lazy tool activation',
+    )
+  ) return source;
+  return replaceOnce(
+    source,
+    `export function assertGoalToolsAvailable(pi: Pick<ExtensionAPI, "getActiveTools">) {
+\tif (goalToolsAvailable(pi)) return;
+\tthrow new Error(
+\t\t"goal_complete and goal_blocked are unavailable; include them in the active tool allowlist or leave the restrictive tool mode first.",
+\t);
+}`,
+    `export function assertGoalToolsAvailable(
+\tpi: Pick<ExtensionAPI, "getActiveTools" | "setActiveTools">,
+) {
+\tconst active = pi.getActiveTools();
+\tconst activeSet = new Set(active);
+\tconst missing = GOAL_TOOL_NAMES.filter((name) => !activeSet.has(name));
+\tif (missing.length > 0) pi.setActiveTools([...active, ...missing]); // ${TOOL_POLICY_PATCH_MARKER}
+\tif (goalToolsAvailable(pi)) return;
+\tthrow new Error(
+\t\t"goal_complete and goal_blocked are unavailable; include them in the active tool allowlist or leave the restrictive tool mode first.",
+\t);
+}`,
+    'Goal lazy tool activation',
+  );
+}
+
 export function patchPiGoalLifecycleSource(source) {
   if (
     isCompleteMarkedPatch(
@@ -840,6 +874,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     prompts: join(directory, 'src', 'prompts.ts'),
     runtime: join(directory, 'src', 'runtime.ts'),
     settings: join(directory, 'src', 'settings.ts'),
+    toolPolicy: join(directory, 'src', 'tool-policy.ts'),
   };
   if (Object.values(paths).some((path) => !existsSync(path))) {
     throw new Error(`${directory}: pi-goal package layout is incomplete for ${expectedVersion}`);
@@ -875,6 +910,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     prompts: readFileSync(paths.prompts, 'utf8'),
     runtime: readFileSync(paths.runtime, 'utf8'),
     settings: readFileSync(paths.settings, 'utf8'),
+    toolPolicy: readFileSync(paths.toolPolicy, 'utf8'),
   };
   const patched = {
     commands: patchPiGoalCommandsSource(originals.commands),
@@ -885,6 +921,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     prompts: patchPiGoalPromptsSource(originals.prompts),
     runtime: patchPiGoalRuntimeSource(originals.runtime),
     settings: patchPiGoalSettingsSource(originals.settings),
+    toolPolicy: patchPiGoalToolPolicySource(originals.toolPolicy),
   };
 
   const markers = {
@@ -894,6 +931,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     prompts: PROMPTS_PATCH_MARKER,
     runtime: RUNTIME_PATCH_MARKER,
     settings: SETTINGS_PATCH_MARKER,
+    toolPolicy: TOOL_POLICY_PATCH_MARKER,
   };
   for (const [name, marker] of Object.entries(markers)) {
     if (!patched[name].includes(marker)) {
@@ -902,7 +940,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
   }
 
   writeFileSync(paths.packageJson, patchedPackageManifest);
-  for (const name of ['commands', 'goal', sessionSourceName, 'prompts', 'runtime', 'settings']) {
+  for (const name of ['commands', 'goal', sessionSourceName, 'prompts', 'runtime', 'settings', 'toolPolicy']) {
     writeFileSync(paths[name], patched[name]);
   }
 }

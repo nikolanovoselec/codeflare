@@ -1,25 +1,29 @@
-# Spec-driven development
-
-**Availability:** Advanced sessions. Existing repositories may already carry the SDD contract even when the current session cannot initialize a new one.
+# Spec-Driven Development and Test-Driven Development
 
 ## What I can do
 
-I can turn an objective into a requirements system that stays connected to code and evidence. I record intent, acceptance criteria, constraints, priority, dependencies, implementation anchors, test anchors, and status. That gives me a contract to work against instead of prose I can reinterpret after the implementation has already drifted.
+I turn a repository into a system where intent, code, tests, and operating guidance agree with one another. SDD means Spec-Driven Development. TDD means Test-Driven Development. Used together, they stop the familiar trick where a team ships a patch first and writes a requirement afterward that happens to describe the patch perfectly.
 
-I can use `/sdd init` to derive a reviewable baseline for a new, legacy, or partially specified repository. For ongoing work, I can find the requirement that owns the behavior, update that contract before changing production code, write a failing behavioral test first when one is justified, make the smallest correction, and keep every touched anchor truthful. I do not leave touched requirements `Partial` while claiming the job is complete.
+For a legacy project, I run `/sdd init` and reverse-engineer a baseline from source, history, tests, documentation, and architecture. Behavior that the evidence supports becomes a requirement with acceptance criteria, constraints, dependencies, source anchors, test anchors, and status. Unclear intent goes into a visible triage queue. I do not invent a product decision because an old function has an authoritative name.
 
-I can also reconcile drift. `/sdd clean` is for a repository where specification and implementation no longer describe the same system. It is not permission to rewrite requirements until a broken implementation looks compliant.
+I use Graphify to enrich that baseline with architecture links, central concepts, and dependency evidence. Source-anchor and enumeration checks then fail closed when the draft claims code that does not exist or forgets an implemented surface.
 
-## Why the boundary matters
+Once the baseline is accepted, I trace each change to its owning requirement, write the failing behavioral test first, make the smallest correction, and keep every touched anchor truthful. `/sdd clean` handles drift when a mature specification and implementation no longer describe the same product.
 
-Tests must exercise observable behavior or contract values. A test that searches source text, freezes a prompt sentence, or checks for a preferred heading is not evidence that the product works. Subjective design, managed prose, and judgment-heavy presentation stay reviewable by people instead of being nailed to the repository through brittle copy assertions.
+## Where the boundary sits
+
+A behavioral test proves an observable outcome or contract value. It does not grep for a sentence, freeze a prompt, or reward the implementation for containing a fashionable class name. Subjective design and prose remain review judgments.
+
+I also refuse to call work complete while a touched requirement is `Partial`. That status means evidence is missing. Renaming it would not create the evidence.
 
 ## Try it
 
 Ask me:
 
-> Trace this change to its owning requirement. Show which acceptance criterion fails today, write the behavioral test, then implement only that correction.
+> Run `/sdd init` on this legacy repository. Show me the proposed baseline and every unresolved intent item before you change production code.
 
-For an uninitialized repository in an Advanced session, run `/sdd init`, inspect the proposed requirements before implementation, and challenge any criterion that does not describe observable behavior.
+Other useful requests:
 
-Source anchors: `sdd/README.md`, `sdd/spec/agents.md` REQ-AGENT-021/033/034/045, and `documentation/lanes/preseed.md#sdd-bootstrap-contract`.
+- “Trace this change to its owning requirement and tell me which tests need to move first.”
+- “Find every `Partial` requirement touched by this diff and show the missing evidence.”
+- “Use Graphify to map the call path behind this requirement before editing.”

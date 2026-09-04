@@ -495,6 +495,31 @@ None.
 
 ---
 
+### REQ-TERM-043: Visible terminal readiness gating
+
+**Intent:** Visible terminal panes attach and focus only when their session startup state can provide authoritative terminal output.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A visible initializing session opens its terminal connection only after startup reaches `ready`. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC1/AC2: waits for terminal pre-warm readiness before connecting an initializing session) -->
+2. A visible initializing session focuses its terminal exactly once after startup reaches `ready`, not during `mounting`. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC1/AC2: waits for terminal pre-warm readiness before connecting an initializing session) -->
+3. An already-running visible session connects immediately. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC3: connects immediately when the session is already ready) -->
+4. Opening a ready terminal session restores current host screen state for every visible pane even when the browser retained a stale connected attachment. <!-- @impl: web-ui/src/components/Layout.tsx::handleOpenSessionById --> <!-- @impl: web-ui/src/stores/terminal.ts::restartVisibleTerminals --> <!-- @impl: host/src/session.ts::attach --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-043 AC4: OPEN replaces visible terminal attachments and dismisses readiness) --> <!-- @test: web-ui/src/__tests__/stores/terminal.test.ts (REQ-TERM-043 AC4: OPEN replaces every visible attachment and replays current host state) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (attach() sends a restore frame as JSON carrying type="restore" once buffer has state) -->
+
+**Constraints:** The three-minute startup guard and MultiView visible-pane ownership remain unchanged.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-015](session-lifecycle.md#req-session-015-container-port-readiness-gating-with-pre-warm-pre-condition), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
+
+**Verification:** Automated hook tests
+
+**Status:** Implemented
+
+---
+
 ### REQ-TERM-012: MultiView virtual session workspace
 
 **Intent:** Users can open one virtual MultiView workspace that displays multiple existing sessions side by side without creating a backend session or changing the member sessions' lifecycle.

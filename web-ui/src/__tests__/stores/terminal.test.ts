@@ -22,13 +22,14 @@ vi.mock('../../lib/constants', async (importOriginal) => {
 // Mock API client
 vi.mock('../../api/client', () => ({
   getTerminalWebSocketUrl: vi.fn(
-    (sessionId: string, terminalId: string) =>
-      `ws://localhost/api/terminal/${sessionId}-${terminalId}/ws`
+    (sessionId: string, terminalId: string, manual?: boolean) =>
+      `ws://localhost/api/terminal/${sessionId}-${terminalId}/ws${manual ? '?manual=1' : ''}`
   ),
 }));
 
 // Import after mocks
-import { terminalStore, sendInputToTerminal, cleanupMapByPrefix, READ_HOLD_MAX_CHARS, RELEASE_SLICE_MAX_CHARS } from '../../stores/terminal';
+import { terminalStore, sendInputToTerminal, reconnectDisconnectedTerminals, reconnectOnVisibilityReturn, restartVisibleTerminals, cleanupMapByPrefix, READ_HOLD_MAX_CHARS, RELEASE_SLICE_MAX_CHARS } from '../../stores/terminal';
+import { getTerminalWebSocketUrl } from '../../api/client';
 
 // Get mock WebSocket class from global
 const _MockWebSocket = globalThis.WebSocket as unknown as {
@@ -853,6 +854,148 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
   });
 
   describe('reconnect', () => {
+    it('REQ-TERM-043 AC4: reconnects only disconnected visible panes for the opened session', async () => {
+      const disconnected = createMockTerminal();
+      const healthy = createMockTerminal();
+      const hidden = createMockTerminal();
+      terminalStore.connect('session-1', '1', disconnected);
+      terminalStore.connect('session-1', '2', healthy);
+      terminalStore.connect('session-2', '1', hidden);
+      await vi.advanceTimersByTimeAsync(0);
+      terminalStore.disconnect('session-1', '1');
+      terminalStore.disconnect('session-2', '1');
+
+      reconnectDisconnectedTerminals('session-1', ['session-1:1', 'session-1:2']);
+
+      expect(terminalStore.getConnectionState('session-1', '1')).toBe('connecting');
+      expect(terminalStore.getConnectionState('session-1', '2')).toBe('connected');
+      expect(terminalStore.getConnectionState('session-2', '1')).toBe('disconnected');
+    });
+
+    it('REQ-TERM-020 AC3: visibility return restarts visible disconnected and connecting panes without replacing connected panes', () => {
+      const OriginalWebSocket = globalThis.WebSocket;
+      const sockets: Array<{
+        readyState: number;
+        close: ReturnType<typeof vi.fn>;
+        onopen: (() => void) | null;
+      }> = [];
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+        readyState: number = WebSocket.CONNECTING;
+        binaryType = 'arraybuffer';
+        onopen: (() => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        send = vi.fn();
+        close = vi.fn(() => { this.readyState = WebSocket.CLOSED; });
+        constructor(_url: string) { sockets.push(this); }
+      } as unknown as typeof WebSocket);
+
+      try {
+        terminalStore.connect('session-1', '1', createMockTerminal());
+        terminalStore.connect('session-1', '2', createMockTerminal());
+        terminalStore.connect('session-1', '3', createMockTerminal());
+        terminalStore.connect('session-1', '4', createMockTerminal());
+        terminalStore.connect('session-2', '1', createMockTerminal());
+        sockets[1].readyState = WebSocket.OPEN;
+        sockets[1].onopen?.();
+        terminalStore.disconnect('session-1', '3');
+        terminalStore.disconnect('session-2', '1');
+
+        reconnectOnVisibilityReturn('session-1', [
+          'session-1:1',
+          'session-1:2',
+          'session-1:3',
+          'session-2:1',
+        ]);
+
+        expect(sockets).toHaveLength(7);
+        expect(sockets[0].close).not.toHaveBeenCalled();
+        expect(sockets[1].close).not.toHaveBeenCalled();
+        expect(sockets[3].close).not.toHaveBeenCalled();
+        expect(sockets[4].close).not.toHaveBeenCalled();
+        expect(terminalStore.getConnectionState('session-1', '1')).toBe('connecting');
+        expect(terminalStore.getConnectionState('session-1', '2')).toBe('connected');
+        expect(terminalStore.getConnectionState('session-1', '3')).toBe('connecting');
+        expect(terminalStore.getConnectionState('session-1', '4')).toBe('connecting');
+        expect(terminalStore.getConnectionState('session-2', '1')).toBe('disconnected');
+      } finally {
+        vi.stubGlobal('WebSocket', OriginalWebSocket);
+      }
+    });
+
+    it('REQ-TERM-043 AC4: OPEN replaces every visible attachment and replays current host state', () => {
+      const OriginalWebSocket = globalThis.WebSocket;
+      const sockets: Array<{
+        url: string;
+        readyState: number;
+        close: ReturnType<typeof vi.fn>;
+        onopen: (() => void) | null;
+        onmessage: ((event: MessageEvent) => void) | null;
+      }> = [];
+      vi.stubGlobal('WebSocket', class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+        readyState: number = WebSocket.CONNECTING;
+        binaryType = 'arraybuffer';
+        onopen: (() => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        send = vi.fn();
+        close = vi.fn(() => { this.readyState = WebSocket.CLOSED; });
+        constructor(readonly url: string) { sockets.push(this); }
+      } as unknown as typeof WebSocket);
+
+      try {
+        const firstVisible = createMockTerminal();
+        const secondVisible = createMockTerminal();
+        terminalStore.connect('session-1', '1', firstVisible, undefined, true);
+        terminalStore.connect('session-1', '2', secondVisible);
+        terminalStore.connect('session-2', '1', createMockTerminal());
+        for (const socket of sockets) {
+          socket.readyState = WebSocket.OPEN;
+          socket.onopen?.();
+        }
+        vi.mocked(getTerminalWebSocketUrl).mockClear();
+
+        restartVisibleTerminals('session-1', ['session-1:1', 'session-1:2', 'session-2:1']);
+
+        expect(sockets).toHaveLength(5);
+        expect(sockets[0].close).toHaveBeenCalledTimes(1);
+        expect(sockets[1].close).toHaveBeenCalledTimes(1);
+        expect(sockets[2].close).not.toHaveBeenCalled();
+        expect(getTerminalWebSocketUrl).toHaveBeenCalledWith('session-1', '1', true);
+        expect(sockets[3].url).toBe('ws://localhost/api/terminal/session-1-1/ws?manual=1');
+        expect(terminalStore.getConnectionState('session-1', '1')).toBe('connecting');
+        expect(terminalStore.getConnectionState('session-1', '2')).toBe('connecting');
+        expect(terminalStore.getConnectionState('session-2', '1')).toBe('connected');
+
+        sockets[3].readyState = WebSocket.OPEN;
+        sockets[3].onopen?.();
+        sockets[3].onmessage?.({
+          data: JSON.stringify({ type: 'restore', state: 'first restored host screen' }),
+        } as MessageEvent);
+        sockets[4].readyState = WebSocket.OPEN;
+        sockets[4].onopen?.();
+        sockets[4].onmessage?.({
+          data: JSON.stringify({ type: 'restore', state: 'second restored host screen' }),
+        } as MessageEvent);
+        expect(firstVisible.reset).toHaveBeenCalledTimes(1);
+        expect(firstVisible.write).toHaveBeenCalledWith('first restored host screen');
+        expect(secondVisible.reset).toHaveBeenCalledTimes(1);
+        expect(secondVisible.write).toHaveBeenCalledWith('second restored host screen');
+      } finally {
+        vi.stubGlobal('WebSocket', OriginalWebSocket);
+      }
+    });
+
     it('should return null if terminal not found', () => {
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const result = terminalStore.reconnect('unknown', '1');
@@ -1606,8 +1749,10 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
   });
 
   describe('WebSocket reconnection behavior', () => {
-    it('stops retrying on 4503 (container stopped) and sets disconnected', async () => {
+    it('stops retrying on 4503, releases ownership, and reports the authoritative stop', async () => {
       const terminal = createMockTerminal();
+      const onSessionStopped = vi.fn();
+      terminalStore.registerSessionStoppedCallback(onSessionStopped);
       const OriginalWebSocket = globalThis.WebSocket;
       let connectCount = 0;
 
@@ -1644,6 +1789,7 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
       } as unknown as typeof WebSocket);
 
       terminalStore.connect(sessionId, terminalId, terminal);
+      expect(terminalStore.ownsSession(sessionId)).toBe(true);
       await vi.advanceTimersByTimeAsync(0);
 
       // Should NOT retry — 4503 is authoritative
@@ -1652,7 +1798,10 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
 
       expect(terminalStore.getConnectionState(sessionId, terminalId)).toBe('disconnected');
       expect(terminalStore.getRetryMessage(sessionId, terminalId)).toBe('Session stopped');
+      expect(terminalStore.ownsSession(sessionId)).toBe(false);
+      expect(onSessionStopped).toHaveBeenCalledWith(sessionId);
 
+      terminalStore.registerSessionStoppedCallback(() => {});
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });
 
@@ -1703,6 +1852,9 @@ describe('Terminal Store / REQ-TERM-003 (WS reconnect with exponential backoff (
 
       // Should keep retrying — no dead-container cutoff at attemptNumber > 1
       expect(connectCount).toBeGreaterThanOrEqual(5);
+      expect(terminalStore.ownsSession(sessionId)).toBe(true);
+      terminalStore.disconnect(sessionId, terminalId);
+      expect(terminalStore.ownsSession(sessionId)).toBe(false);
 
       vi.stubGlobal('WebSocket', OriginalWebSocket);
     });

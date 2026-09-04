@@ -96,6 +96,13 @@ export interface AdminUsageRow {
   historyUpdatedAt: string;
 }
 
+export interface AdminUsageSeriesPoint {
+  start: string;
+  runtimeSeconds: number;
+  sessionCount: number;
+  historyUpdatedAt: string;
+}
+
 interface D1UsageRow {
   user_key: string;
   email: string;
@@ -145,6 +152,34 @@ WHERE p.period_kind = ?1 AND p.period_start = ?2`).bind(period, start).all<{
   }>();
   if (!result.success) throw new Error('D1 usage summary query failed');
   return result.results[0] ?? { runtime_seconds: 0, session_count: 0, active_users: 0, data_since: null, history_updated_at: null };
+}
+
+export async function queryAdminUsageSeries(
+  db: D1Database,
+  period: UsagePeriod,
+  start: string,
+  limit: number,
+): Promise<AdminUsageSeriesPoint[]> {
+  const result = await db.prepare(`
+SELECT p.period_start, SUM(p.runtime_seconds) AS runtime_seconds,
+       SUM(p.session_count) AS session_count, MAX(p.updated_at) AS history_updated_at
+FROM usage_periods p
+WHERE p.period_kind = ?1 AND p.period_start <= ?2
+GROUP BY p.period_start
+ORDER BY p.period_start DESC
+LIMIT ?3`).bind(period, start, limit).all<{
+    period_start: string;
+    runtime_seconds: number;
+    session_count: number;
+    history_updated_at: string;
+  }>();
+  if (!result.success) throw new Error('D1 usage series query failed');
+  return [...result.results].reverse().map((row) => ({
+    start: row.period_start,
+    runtimeSeconds: row.runtime_seconds,
+    sessionCount: row.session_count,
+    historyUpdatedAt: row.history_updated_at,
+  }));
 }
 
 interface UsageContinuation {

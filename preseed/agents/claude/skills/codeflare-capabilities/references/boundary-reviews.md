@@ -1,21 +1,27 @@
-# PR-boundary reviews
-
-**Availability:** Advanced SDD repositories with an eligible pull request and review machinery installed. CI also requires a configured repository workflow.
+# PR reviews, CI, release, and production evidence
 
 ## What I can do
 
-I can treat a delivered pull-request head as a control boundary. After an eligible push or PR transition to `main`, `master`, or `develop`, I can launch the applicable report-only lanes against the exact full SHA: code review, specification review, documentation review, and independent CI monitoring.
+I carry protected pull requests through exact-head review, CI, joint triage, accepted fixes, and approved release evidence instead of collecting opinions from different commits.
 
-I keep those authorities separate. Reviewers inspect and report. They do not edit the branch. I verify each finding against the actual diff, reject unsupported or oversized proposals, and publish one joint triage before changing files. Only accepted fixes move forward. If I push a replacement head, the old review and CI evidence becomes stale and I run the required boundary again.
+I use the classifier to launch the smallest required set of report-only code, specification, and documentation review lanes for the changed scope. I start an independent GitHub Actions monitor at the same time. When every required lane settles, I publish one joint triage table before touching the repository. I verify each finding, judge the diagnosis separately from the proposed fix, reject unsupported cleanup, and apply only the smallest accepted corrections.
 
-I can also run `/review --diff` when you want an explicit review without relying on a delivery transition. `/review --deep` adds behavioral verification against SDD acceptance criteria when that capability is available.
+A replacement commit starts a new boundary for the changed range. I do not treat yesterday's green CI as evidence for today's head. Once the final head is clean, I can prepare the merge message, follow post-merge checks, monitor an approved deployment, and verify release identity, commit, workflow outcome, and rollback evidence.
 
-## Why the boundary matters
+## Where the boundary sits
 
-A review of commit A says nothing conclusive about commit B. Codeflare binds reviewers and CI to the same authoritative head, then prevents mutation from sneaking between triage and the fix phase. This is slower than pretending three green-looking summaries are interchangeable. It is also how the evidence survives scrutiny.
+Reviewers report. The root agent mutates. CI proves automated contracts. GitHub owns protected history. That division is deliberately boring because the exciting alternative is two agents racing to repair the same file while a third reviews neither result.
+
+Deployment verification starts with workflow and release evidence. Opening a live application, authenticating, sending email, or exercising production behavior requires an explicit live-test instruction. The word “verify” is not a blank cheque.
 
 ## Try it
 
-Open an eligible PR and ask me to push the current branch. Watch the review lanes and CI start against the same SHA. Then ask for the joint triage table before authorizing fixes. After a correction, confirm the new head receives new evidence rather than inheriting the old round.
+Ask me:
 
-Source anchors: `sdd/spec/agents.md` REQ-AGENT-015/036/050/053/104/170/177 and the review sections in `documentation/lanes/preseed.md`.
+> Review PR #123 against code, specification, documentation, and exact-head CI. Publish triage before changing anything, then apply only accepted fixes.
+
+Other useful requests:
+
+- “Open review for this PR, launch code/spec/doc lanes once, then wait for exact-head CI.”
+- “Triage these reviewer findings and reject anything unsupported or oversized.”
+- “Apply only accepted fixes from the previous triage turn.”

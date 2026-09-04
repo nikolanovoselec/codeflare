@@ -7,10 +7,68 @@ import { fileURLToPath } from 'node:url';
 
 const BUNDLE_URL = 'https://impeccable.style/api/download/bundle/universal';
 const repoRoot = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
-const CODEFLARE_IMPECCABLE_DESCRIPTION = 'Critique, audit, harden, adapt, animate, or apply bounded polish to an existing frontend whose direction remains intact. Use for accessibility, responsive behavior, performance, UX copy, interaction detail, visual finishing, and explicit impeccable commands. For greenfield creation or any change to the visual thesis, frontend-design owns art direction; use Impeccable afterward for critique or finishing. Not for backend-only or non-UI tasks.';
+const CODEFLARE_IMPECCABLE_DESCRIPTION = 'Critique, audit, harden, adapt, animate, or apply bounded polish to an existing interface whose direction remains intact. Use for accessibility, responsive behavior, performance, UX copy, interaction detail, visual finishing, and explicit impeccable commands. For greenfield creation or any change to the visual thesis, the applicable platform design owner controls art direction; use Impeccable afterward for critique or finishing. Not for backend-only or non-UI tasks.';
 const CODEFLARE_IMPECCABLE_BOUNDARY = `## Codeflare routing boundary
 
-Impeccable owns interface critique, finishing, and its explicitly invoked commands. For a general greenfield or full-redesign request, \`frontend-design\` establishes the visual thesis before Impeccable audits or refines it. When another skill routes here as support, load only the requested critique or finishing playbook; the later general/new-work path applies only after explicit Impeccable invocation. Explicit Impeccable commands keep their documented behavior.`;
+Impeccable owns interface critique, finishing, and its explicitly invoked commands. For a general greenfield or full-redesign request, the applicable platform design owner establishes the visual thesis before Impeccable audits or refines it. When another skill routes here as support, load only the requested critique or finishing playbook; the later general/new-work path applies only after explicit Impeccable invocation. Explicit Impeccable commands keep their documented behavior.`;
+
+const CODEFLARE_IMPECCABLE_OVERLAY = Object.freeze([
+  ['SKILL.md', [[
+    'This skill gives you the tools and permission to create design that earns to be called out-of-distribution craft: Whereas before, your design work would have been safe, timid and measured, you now approach every design task as an award-winning design director with impeccable understanding for what makes exceptional design work: production-grade code, peak creativity, a clear POV, deep understanding of the needs of the client and users, and exceptional craft.\n\n',
+    '',
+  ]]],
+  ['reference/audit.md', [
+    ['Run comprehensive checks across 5 dimensions. Score each dimension 0-4 using the criteria below.', 'Run comprehensive checks across 5 dimensions. Score a dimension 0-4 only when available rendering, interaction, code, or measurement evidence supports it; otherwise report `N/A` and do not infer a score.'],
+    ['- **Touch targets**: Interactive elements < 44x44px', '- **Touch targets**: Interactive elements below the WCAG 2.5.8 web baseline; report stronger platform or product targets such as 44×44 separately when applicable'],
+    ['| **Total** | | **??/20** | **[Rating band]** |', '| **Total** | | **[earned]/[available]** | **[Rating band or N/A]** |'],
+    ['**Rating bands**: 18-20 Excellent (minor polish), 14-17 Good (address weak dimensions), 10-13 Acceptable (significant work needed), 6-9 Poor (major overhaul), 0-5 Critical (fundamental issues)', '**Rating bands**: When all five dimensions have evidence: 18-20 Excellent (minor polish), 14-17 Good (address weak dimensions), 10-13 Acceptable (significant work needed), 6-9 Poor (major overhaul), 0-5 Critical (fundamental issues). Otherwise report the earned/available score and `N/A` rather than inventing a rating.'],
+    ['- Audit Health Score: **??/20** ([rating band])', '- Audit Health Score: **[earned]/[available]** ([rating band or N/A])'],
+  ]],
+  ['reference/audit.native.md', [
+    ['Run comprehensive checks across 5 dimensions. Score each dimension 0-4 using the criteria below.', 'Run comprehensive checks across 5 dimensions. Score a dimension 0-4 only when available source, runtime, device, or measurement evidence supports it; otherwise report `N/A` and do not infer a score.'],
+    ['| **Total** | | **??/20** | **[Rating band]** |', '| **Total** | | **[earned]/[available]** | **[Rating band or N/A]** |'],
+    ['**Rating bands**: 18-20 Excellent (minor polish), 14-17 Good (address weak dimensions), 10-13 Acceptable (significant work needed), 6-9 Poor (major overhaul), 0-5 Critical (fundamental issues)', '**Rating bands**: When all five dimensions have evidence: 18-20 Excellent (minor polish), 14-17 Good (address weak dimensions), 10-13 Acceptable (significant work needed), 6-9 Poor (major overhaul), 0-5 Critical (fundamental issues). Otherwise report the earned/available score and `N/A` rather than inventing a rating.'],
+    ['- Audit Health Score: **??/20** ([rating band])', '- Audit Health Score: **[earned]/[available]** ([rating band or N/A])'],
+  ]],
+  ['reference/adapt.md', [
+    ['- Touch targets 44x44px minimum (not hover-dependent)', '- Prefer 44×44 touch-first controls when platform or product guidance calls for them; enforce the WCAG 2.5.8 baseline on the web (not hover-dependent)'],
+    ['- Touch targets 44x44px but allow denser layouts than phone', '- Follow platform or product touch-target guidance while allowing denser layouts than phone'],
+    ['- Increase touch target sizes (44x44px minimum)', '- Increase touch targets to applicable platform or product guidance; enforce the WCAG 2.5.8 baseline on the web'],
+  ]],
+  ['reference/critique.md', [
+    ['If `CLAUDE.md` contains a `## Design Context` section from `impeccable init`, also generate 1-2 project-specific personas from the audience/brand info.', 'If `PRODUCT.md` contains audience or brand context from `impeccable init`, also generate 1-2 project-specific personas from that evidence.'],
+    ['- Are touch targets at least 44×44pt?', '- Do touch targets meet applicable platform and product guidance (44×44 pt on iOS; WCAG 2.5.8 baseline on the web)?'],
+    ['If `CLAUDE.md` contains a `## Design Context` section (generated by `impeccable init`), derive 1–2 additional personas from the audience and brand information:', 'If `PRODUCT.md` contains audience or brand context generated by `impeccable init`, derive 1–2 additional personas from that evidence:'],
+  ]],
+  ['reference/craft-floor.md', [[
+    '- **Browser surfaces:** the parts you did not draw still carry the design. Text selection, the caret, custom scrollbars, focus rings, underline offset, and the numerals in tabular data all ship with browser defaults that belong to no design system. Theme them from the palette. This is the cheapest signal that a page was built rather than assembled, and the one models skip most reliably.',
+    '- **Browser surfaces:** inspect text selection, the caret, scrollbars, focus rings, underline offset, and tabular numerals where they affect the product. Theme them only when doing so improves coherence without obscuring native affordances, contrast, input behavior, or platform expectations.',
+  ]]],
+  ['scripts/serve-question.mjs', [[
+    'if (!midDelivery && state.lastBeat && Date.now() - state.lastBeat > 15000)',
+    'if (!midDelivery && state.lastBeat && Date.now() - state.lastBeat > idleGraceMs)',
+  ]]],
+]);
+
+function replaceOverlayAnchor(source, search, replacement, label, allowAlreadyApplied) {
+  const sourceCount = source.split(search).length - 1;
+  const replacementCount = replacement.length === 0 ? 0 : source.split(replacement).length - 1;
+  if (sourceCount === 1 && replacementCount === 0) return source.replace(search, replacement);
+  if (allowAlreadyApplied && sourceCount === 0 && (replacement.length === 0 || replacementCount === 1)) return source;
+  throw new Error(`${label} overlay anchor is missing or ambiguous`);
+}
+
+export function applyCodeflareImpeccableOverlay(source, { allowAlreadyApplied = false } = {}) {
+  const transformed = CODEFLARE_IMPECCABLE_OVERLAY.map(([relativePath, replacements]) => {
+    const file = join(source, relativePath);
+    let text = readFileSync(file, 'utf8');
+    for (const [search, replacement] of replacements) {
+      text = replaceOverlayAnchor(text, search, replacement, relativePath, allowAlreadyApplied);
+    }
+    return [file, text];
+  });
+  for (const [file, text] of transformed) writeFileSync(file, text);
+}
 
 export async function updateImpeccableSkill() {
   const tempRoot = mkdtempSync(join(tmpdir(), 'impeccable-skill-'));
@@ -24,6 +82,7 @@ export async function updateImpeccableSkill() {
 
     const source = join(outDir, '.claude', 'skills', 'impeccable');
     const sourceSkill = join(source, 'SKILL.md');
+    applyCodeflareImpeccableOverlay(source);
     const skillText = readFileSync(sourceSkill, 'utf8');
     const version = skillText.match(/^version:\s*(.+)$/m)?.[1];
     if (!version) throw new Error('downloaded Impeccable skill has no version frontmatter');
@@ -77,10 +136,16 @@ export function applyCodeflareRoutingBoundary(text) {
   if (descriptions.length !== 1) {
     throw new Error('downloaded Impeccable skill must have exactly one frontmatter description');
   }
-  const frontmatter = match[1].replace(
-    /^description:.*$/m,
-    `description: ${CODEFLARE_IMPECCABLE_DESCRIPTION}`,
-  );
+  const mutablePackagePermissions = match[1].match(/^[ \t]*- Bash\(npx impeccable \*\)[ \t]*$/gm) ?? [];
+  if (mutablePackagePermissions.length !== 1) {
+    throw new Error('downloaded Impeccable skill must have exactly one mutable package permission');
+  }
+  const frontmatter = match[1]
+    .replace(
+      /^description:.*$/m,
+      `description: ${CODEFLARE_IMPECCABLE_DESCRIPTION}`,
+    )
+    .replace(mutablePackagePermissions[0], '');
   const body = text.slice(match[0].length);
   return `---\n${frontmatter}\n---\n\n${CODEFLARE_IMPECCABLE_BOUNDARY}\n${body}`;
 }

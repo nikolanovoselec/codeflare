@@ -247,6 +247,7 @@
   },
   "rules/engineering-constitution.md": {
     "modes": [
+      "default",
       "advanced"
     ]
   },
@@ -347,6 +348,11 @@
   "skills/herdr/SKILL.md": {
     "modes": [
       "default",
+      "advanced"
+    ]
+  },
+  "skills/impeccable/SKILL.md": {
+    "modes": [
       "advanced"
     ]
   },
@@ -545,7 +551,27 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/.impeccable/hook.cache.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/build-phase.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/command-metadata.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/comp-diff.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/comp-spec.mjs": {
     "modes": [
       "advanced"
     ]
@@ -566,6 +592,16 @@
     ]
   },
   "skills/impeccable/scripts/critique-storage.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/data/font-index-failures.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/data/font-index.json": {
     "modes": [
       "advanced"
     ]
@@ -690,6 +726,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/font-match.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/generate-image.mjs": {
     "modes": [
       "advanced"
@@ -735,6 +776,26 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/lib/font-fingerprint.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/font-index.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/hero-checks.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/image-metrics.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/lib/impeccable-config.mjs": {
     "modes": [
       "advanced"
@@ -750,12 +811,27 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/lib/live-path-globs.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/lib/open-system-browser.mjs": {
     "modes": [
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/lib/png.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/lib/provider.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/raster.mjs": {
     "modes": [
       "advanced"
     ]
@@ -806,6 +882,11 @@
     ]
   },
   "skills/impeccable/scripts/live-browser-dom.js": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-browser-ignores.js": {
     "modes": [
       "advanced"
     ]
@@ -1010,6 +1091,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/live/project-ignores.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/live/roots.mjs": {
     "modes": [
       "advanced"
@@ -1081,11 +1167,6 @@
     ]
   },
   "skills/impeccable/scripts/surface-brief.mjs": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/impeccable/SKILL.md": {
     "modes": [
       "advanced"
     ]

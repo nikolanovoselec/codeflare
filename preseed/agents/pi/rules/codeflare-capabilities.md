@@ -1,3 +1,3 @@
 # Capability route
 
-For Codeflare capability questions, load the `codeflare-capabilities` router.
+For broad Codeflare capability/onboarding questions, tours, or numbered tutorial replies, load `codeflare-capabilities`, never generic discovery; otherwise use task context.

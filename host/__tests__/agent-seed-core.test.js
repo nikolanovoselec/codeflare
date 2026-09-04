@@ -55,6 +55,32 @@ describe('shared agent seed compiler', () => {
       const licenses = compiled.documents.filter((document) => document.key.endsWith('/LICENSE'));
       assert.ok(licenses.length >= 2);
       assert.ok(licenses.every((document) => document.contentType === 'text/plain; charset=utf-8'));
+      const piInstructions = compiled.documents.find((document) => (
+        document.key === '.pi/agent/AGENTS.md' && document.modes.includes('default')
+      ));
+      const instructions = piInstructions?.content ?? '';
+      const indexStart = instructions.indexOf('<!-- pi-skill-index:start -->');
+      const indexEnd = instructions.indexOf('<!-- pi-skill-index:end -->');
+      assert.ok(indexStart >= 0 && indexEnd > indexStart);
+      const indexedSkills = [...instructions.slice(indexStart, indexEnd).matchAll(/^- `([^`]+)` — /gm)]
+        .map((match) => match[1]);
+      assert.ok(indexedSkills.includes('codeflare-capabilities'));
+      const humanizeDocuments = compiled.documents
+        .filter((document) => document.key.includes('/skills/humanize/'))
+        .map(({ key, modes }) => ({ key, modes }))
+        .sort((left, right) => left.key.localeCompare(right.key));
+      assert.deepEqual(humanizeDocuments, [
+        '.claude/skills/humanize/reference/findings.md',
+        '.claude/skills/humanize/SKILL.md',
+        '.codex/skills/humanize/reference/findings.md',
+        '.codex/skills/humanize/SKILL.md',
+        '.config/opencode/skills/humanize/reference/findings.md',
+        '.config/opencode/skills/humanize/SKILL.md',
+        '.gemini/skills/humanize/reference/findings.md',
+        '.gemini/skills/humanize/SKILL.md',
+        '.pi/agent/skills/humanize/reference/findings.md',
+        '.pi/agent/skills/humanize/SKILL.md',
+      ].map((key) => ({ key, modes: ['advanced'] })));
       assert.deepEqual(await readFile(outputFile), await readFile(generatedPath));
     } finally {
       await rm(dir, { recursive: true, force: true });

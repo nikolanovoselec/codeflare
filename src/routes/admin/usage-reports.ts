@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Env } from '../../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
 import { createReportDispatch, recoverReportDeliveries } from '../../lib/usage-report-scheduler';
-import { latestClosedMonth, testDispatchId, type EnabledReportSettings } from '../../lib/usage-reports';
+import { testDispatchId, type EnabledReportSettings } from '../../lib/usage-reports';
 
 interface Variables extends AuthVariables {
   requestId: string;
@@ -46,7 +46,7 @@ app.post('/usage-report-tests', requireAdmin, async (c) => {
   if (!settings?.enabled) return c.json({ error: 'Usage reports are disabled', code: 'reports_disabled' }, 409);
   const now = new Date();
   const dispatchId = testDispatchId(c.get('requestId'));
-  await createReportDispatch(c.env.USAGE_DB, 'test', dispatchId, settings.settingsRevision, latestClosedMonth(now), settings.recipients, now);
+  await createReportDispatch(c.env.USAGE_DB, 'test', dispatchId, settings.settingsRevision, now.toISOString().slice(0, 7), settings.recipients, now);
   c.executionCtx.waitUntil(recoverReportDeliveries(c.env, now));
   return c.json({ dispatchId, deliveryKind: 'test', state: 'pending' }, 202);
 });

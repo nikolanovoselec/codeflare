@@ -35,10 +35,11 @@ export interface SessionListMetadata {
      * updatedAt: wall-clock heartbeat re-stamped by collectMetrics every tick
      * regardless of PTY input. For the metrics-staleness display ONLY - it is
      * NOT a liveness signal (it freezes whenever the collectMetrics alarm loop
-     * is not running, e.g. during DO/container hibernation). Liveness comes from
-     * the authoritative KV `status`, written by the container lifecycle hooks
-     * (src/container/index.ts onStart/onStop/onError). A heartbeat-age heuristic
-     * here previously caused false "stopped" kicks; removed in codeflare#153.
+     * is not running, e.g. during DO/container hibernation). KV `status` is the
+     * no-wake dashboard projection written by lifecycle hooks; terminal and
+     * managed-mutation admission use persisted Container SDK state. A heartbeat-
+     * age heuristic here previously caused false "stopped" kicks; removed in
+     * codeflare#153.
      */
     u?: string;
   };

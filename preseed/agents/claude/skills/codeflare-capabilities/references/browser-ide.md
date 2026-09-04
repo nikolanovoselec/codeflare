@@ -1,19 +1,25 @@
-# Browser IDE and VS Code
-
-**Availability:** Core Browser IDE is available in Advanced sessions when enabled. Selected-agent editor integration is available only when visible in the current session; its owning Pi integration requirements remain Partial pending completed exact-head review, CI, and deployed verification.
+# Browser VS Code, native agent workflows, and extensions
 
 ## What I can do
 
-I can open a browser-hosted VS Code workspace through the authenticated Worker proxy. The editor belongs to the backend session, not to a separate bucket-stable workstation. I can navigate code, edit files, use integrated terminals, inspect diffs, and invoke Codeflare-owned review entry points.
+I work in a full browser-hosted VS Code experience backed by code-server and Code OSS. You get the Explorer, search, source control, diffs, editors, settings, integrated terminals, themes, keyboard layouts, and extension host you already know.
 
-Depending on the selected agent and mode, the sidebar can pass the active selection, diagnostics, native diffs, or an Inline Chat request to the session agent. When visibly enabled in the current session, Pi can expose Codeflare Chat, Inline Chat, and Review with Codeflare. Claude sessions use the pinned official panel. Browser IDE integrated terminals remain separate from Classic and Herdr terminal topology.
+I continue our conversation through Codeflare Chat. In Inline Chat, I use the invoking editor, selection, diagnostics, explicit references, unsaved content, and bounded recent history, then return native text edits to the correct document. In Review with Codeflare, I can attach a workspace file from the Explorer or editor. I use the integrated terminal with the session's root access and complete engineering toolchain.
 
-## Why the boundary matters
+I use Codeflare's skills and specialist workflows through the agent. The platform restores user-selected Open VSX extensions through a bounded, versioned manifest, while the packaged agent inventory stays immutable and verified. I start from a clean fixed workspace whose editor suppresses account setup and trust prompts that would otherwise block an isolated session.
 
-Continuity is deliberately narrow. Theme, selected web keyboard layout, Explorer expansion, open files, and a bounded extension-intent manifest may restore. Authentication, SecretStorage, extension bytes, editor databases, chat history, logs, and arbitrary User settings remain ephemeral. The fixed workspace confines browser navigation. It does not sandbox trusted terminal commands or extensions.
+## Where the boundary sits
+
+The Browser IDE belongs to one backend session. It is not a permanent workstation shared by every container. Its continuity layer preserves theme, web keyboard layout, Explorer expansion, open files, and the bounded extension selection where supported.
+
+Credentials, authentication, SecretStorage, extension runtime databases, chat history, logs, and arbitrary User settings remain temporary. Root access is confined to the isolated session, but it is still root. A trusted terminal command can change the filesystem, and a trusted extension can execute code. Hiding the menu item would not change that fact.
 
 ## Try it
 
-Create or open an Advanced session with the VS Code workspace. Select the smallest relevant source block, invoke the available Codeflare review or agent action, and inspect the native diff before accepting anything. Then restart the session and compare which approved continuity fields return and which ephemeral state correctly disappears.
+Open a repository in Browser VS Code, select one failing function, ask Codeflare Inline Chat for the smallest tested correction, inspect the native diff, then use the integrated terminal to follow exact-head CI.
 
-Source anchors: `sdd/spec/browser-ide.md` REQ-IDE-001 through REQ-IDE-016 and the Browser IDE sections in `documentation/lanes/container.md`.
+Other useful requests:
+
+- “Open the selected file in Browser VS Code and explain the failing path using editor references.”
+- “Use Inline Chat on this selection, then show me the native diff before saving.”
+- “Restore my preferred Open VSX extension set without persisting extension secrets.”

@@ -6,7 +6,7 @@ license: MIT
 
 # Composable frontend components
 
-Use this skill before adding repeated UI or while refactoring duplicated markup. It owns component structure, API composition, state ownership, centralized content and style, and behavioral tests. Visual direction and information architecture belong to the applicable design authority; React performance belongs to `frontend-patterns`. A component library or registry supplies implementation material and cannot redefine either.
+Use this skill before adding repeated UI or while refactoring duplicated markup. It owns component structure, API composition, state ownership, centralized content and style, and behavioral tests. Visual direction and information architecture belong to the applicable design authority; framework performance follows repository evidence and measured runtime behavior. A component library or registry supplies implementation material and cannot redefine either.
 
 ## Inspect before introducing components
 

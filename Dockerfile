@@ -130,8 +130,6 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     unzip \
     # Sandbox for OpenAI Codex
     bubblewrap \
-    # GPG for GitHub CLI repo key
-    gpg \
     && rm -rf /var/lib/apt/lists/* \
     # Symlinks for Debian-renamed binaries
     && ln -s "$(which fdfind)" /usr/local/bin/fd \
@@ -166,12 +164,6 @@ COPY image/herdr/LICENSE image/herdr/provenance.json /usr/share/licenses/herdr/
 COPY --chmod=0755 image/herdr/codeflare-herdr-terminal /usr/local/bin/codeflare-herdr-terminal
 COPY --chmod=0755 image/herdr/codeflare-agent-event /usr/local/bin/codeflare-agent-event
 
-# Add GitHub CLI apt repo (key + source list only — actual install is after .cache-bust)
-RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /tmp/githubcli-archive-keyring.gpg \
-    && echo "6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b  /tmp/githubcli-archive-keyring.gpg" | sha256sum -c - \
-    && mv /tmp/githubcli-archive-keyring.gpg /usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
-
 # Install zoxide from GitHub releases (pinned version, not in Debian bookworm repos)
 RUN ZOXIDE_VERSION="0.10.0" && \
     ZOXIDE_SHA256="2d93385b99f3e82cf2701609a1bffcad863fbeb75aa3fe7eb6be4d29be68b1ae" && \
@@ -182,8 +174,8 @@ RUN ZOXIDE_VERSION="0.10.0" && \
     rm /tmp/zoxide.tar.gz
 
 # Install yazi and lazygit from GitHub releases (pinned versions)
-RUN YAZI_VERSION="26.8.15" && \
-    YAZI_SHA256="a6702034790afcdbb546b73b288c9b184a751fa3f2f17f0ad4d26fc302fb8d45" && \
+RUN YAZI_VERSION="26.9.1" && \
+    YAZI_SHA256="9b9c39decccf8cb0ff53a7d637d38f8a79d93bbd0099f4ea9c619ef6bb392f5d" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/sxyazi/yazi/releases/download/v${YAZI_VERSION}/yazi-x86_64-unknown-linux-musl.zip" -o /tmp/yazi.zip && \
     echo "${YAZI_SHA256}  /tmp/yazi.zip" | sha256sum -c - && \
     unzip -o /tmp/yazi.zip -d /tmp/yazi && \
@@ -233,11 +225,11 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
 # that runtime copy. Drop each overlay after its upstream artifact contains at
 # least the pinned fixed version.
-RUN CODE_SERVER_VERSION="4.133.0" && \
-    CODE_SERVER_SHA256="a4e0f8f8c76e7de8e7424289f74e507af4c97bfe104c3e8ee272b8cc7b46c6f1" && \
-    CODE_SERVER_COMMIT="d2f7a122522456b351e9b3ddd39e4f3fb9fd5318" && \
-    CODE_SERVER_CODE_VERSION="1.133.0" && \
-    CODE_SERVER_VSCODE_COMMIT="a5b500951314efd502d07465bd138dfbd714a960" && \
+RUN CODE_SERVER_VERSION="4.135.0" && \
+    CODE_SERVER_SHA256="300ef4e37e469e6368a4673c6a623e1c9ba8a34f42b394fb49c431a8900bc7d1" && \
+    CODE_SERVER_COMMIT="de89acbcdce9d9b870008a270c9f6466993d91f4" && \
+    CODE_SERVER_CODE_VERSION="1.135.0" && \
+    CODE_SERVER_VSCODE_COMMIT="08d4889f9ec4a1685d257b9b95de036c8e1ce1e5" && \
     JS_YAML_VERSION="4.3.1" && \
     JS_YAML_SHA512="098e9cac6ab7d77317f06930bc1eedce0a7df6f8d0c58d7efb9cb5d3f04a37f1947c7a9668e19030d66406fa92cec64a5a4fe28f01e55b3ce42ee96c18786359" && \
     NODE_TAR_VERSION="7.5.21" && \
@@ -314,9 +306,16 @@ COPY .cache-bust /tmp/.cache-bust
 # if atlas.plug.js is not present.
 COPY preseed/silverbullet/ /opt/silverbullet-preseed/
 
-# Install gh CLI (after .cache-bust so every deploy re-resolves the apt version)
-RUN apt-get update && apt-get install -y --no-install-recommends gh \
-    && rm -rf /var/lib/apt/lists/*
+# Install an integrity-pinned gh release containing grpc-go's CVE-2026-84304 fix.
+RUN GH_VERSION="2.99.0" && \
+    GH_SHA256="471feb449cc98d527fc9a67601b9ea04296c100b666d970a784a07dc17a59a8f" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
+      "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.deb" \
+      -o /tmp/gh.deb && \
+    echo "${GH_SHA256}  /tmp/gh.deb" | sha256sum -c - && \
+    dpkg -i /tmp/gh.deb && \
+    gh --version | grep -F "gh version ${GH_VERSION}" && \
+    rm /tmp/gh.deb
 
 # Privileged npm tools execute user code, hold OAuth tokens, or participate in
 # image builds. Install from one committed lock so exact package bytes and
@@ -366,6 +365,7 @@ RUN cd /opt/codeflare/npm-tools && \
     fi && \
     rm -rf node_modules/@oven && \
     bun --version && \
+    node -e 'require("esbuild").transformSync("const value: number = 1", { loader: "ts" })' && \
     chrome-devtools-mcp --help >/dev/null && \
     rm -f /tmp/.cache-bust && \
     npm cache clean --force && \
@@ -407,7 +407,7 @@ RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CO
 # Caveman policy is image-owned and deliberately excluded from agent seeds.
 COPY image/pi/caveman.json /opt/codeflare/pi-agent/caveman.json
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
-COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs /opt/codeflare/scripts/
+COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs /opt/codeflare/scripts/
 # better-sqlite3 / bufferutil / utf-8-validate are native (node-gyp) modules. Their
 # prebuilt-binary fetch is best-effort and falls back to a source compile, which needs
 # make + a C/C++ toolchain. stage-1 ships python3 but not make/gcc/g++ (those live only
@@ -426,6 +426,9 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     GOAL_VERSION="$(node -p 'require("./package.json").dependencies["@narumitw/pi-goal"]')" && \
     node /opt/codeflare/scripts/patch-pi-goal-review-control.mjs \
       "$GOAL_VERSION" ./node_modules/@narumitw/pi-goal && \
+    PLAN_MODE_VERSION="$(node -p 'require("./package.json").dependencies["@narumitw/pi-plan-mode"]')" && \
+    node /opt/codeflare/scripts/patch-pi-plan-mode-tool-policy.mjs \
+      "$PLAN_MODE_VERSION" ./node_modules/@narumitw/pi-plan-mode && \
     node /opt/codeflare/scripts/verify-pi-lockstep.mjs \
       /opt/codeflare/npm-tools/package.json ./package.json \
       ./node_modules/@earendil-works/pi-coding-agent/package.json && \
@@ -512,8 +515,8 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # License posture (Apache-2.0): we install from the public PyPI registry at
 # build time. No redistribution. Friendlier license than context-mode's ELv2.
 # ---------------------------------------------------------------------------
-ARG UV_VERSION=0.12.5
-ARG UV_X86_64_LINUX_SHA256=68a509da24b06b4223a1c0175fb5eb5bc79342b76cbeff0cfe51ac3f5b17b6b2
+ARG UV_VERSION=0.12.6
+ARG UV_X86_64_LINUX_SHA256=8681d8921e7d520fb368991dcf5f9c1905b80f5bf2a265a0ed085c8d8e342477
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e

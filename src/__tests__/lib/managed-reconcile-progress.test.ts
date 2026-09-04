@@ -34,7 +34,7 @@ describe('managed reconciliation progress / REQ-STOR-034', () => {
     await expect(readManagedReconcileProgress(kv, 'bucket')).resolves.toBeUndefined();
   });
 
-  it('REQ-STOR-034 AC6: progress cleanup failure cannot change applied reconciliation outcome', async () => {
+  it('REQ-STOR-034 AC7: progress cleanup failure cannot change applied reconciliation outcome', async () => {
     const kv = {
       get: vi.fn().mockResolvedValue({
         schemaVersion: 1,

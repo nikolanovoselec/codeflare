@@ -9,7 +9,7 @@ Codeflare sessions are ephemeral - the container is rebuilt every time you start
 The vault solves that. It is the one place where:
 
 - Notes you write survive across sessions.
-- The agent's transcript captures (one file per ~15 prompts) land in `Raw/Sessions/`.
+- The agent's transcript captures (one file per 20 real user messages) land in `Raw/Sessions/`.
 - File edits trigger re-extraction into the knowledge graph - so the agent can find what you wrote when you ask it questions later.
 
 ## What is SilverBullet?
@@ -84,7 +84,7 @@ Anything you write in the vault gets extracted into the knowledge graph within ~
 | `Notes/` | you | Curated prose. Write freely. |
 | `Journal/` | you (via SB button) | Daily entries. |
 | `Inbox/` | you (via SB button) | Quick captures. |
-| `Raw/Sessions/` | agent | Transcript captures, ~one per 15 prompts. Don't hand-edit. |
+| `Raw/Sessions/` | agent | Transcript captures, one per 20 real user messages. Don't hand-edit. |
 | `Raw/Pasted/` | you (optional) | Optional manual archive. NOT the SB drag-drop target -- SB writes attachments next to the referencing note. Move files here yourself if you want them grouped. |
 | `Library/Codeflare/` | preseed (overwritten each boot) | Bundled SB plugs (PDF, treeview, github, graph). |
 | `Library/Std/` | served by the SilverBullet binary's built-in `base_fs` overlay (not on disk) | SB's standard widget/template library. Required for the dashboard. |

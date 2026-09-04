@@ -85,6 +85,12 @@ const AdminUsageResponseSchema = z.object({
     sessionCount: z.number().int().nonnegative(),
     activeUsers: z.number().int().nonnegative(),
   }),
+  series: z.array(z.object({
+    start: z.string(),
+    runtimeSeconds: z.number().nonnegative(),
+    sessionCount: z.number().int().nonnegative(),
+    historyUpdatedAt: z.string(),
+  })),
   dataSince: z.string().nullable(),
   historyUpdatedAt: z.string().nullable(),
   users: z.array(AdminUsageUserSchema),

@@ -177,6 +177,28 @@ async function seedDocuments(
   return { written, skipped };
 }
 
+async function verifyManagedDocument(
+  client: ReturnType<typeof createR2Client>,
+  url: string,
+  document: Pick<ManagedReleaseDocument, 'key' | 'content' | 'contentType'>,
+  targetDigest: string,
+  headers: Record<string, string>,
+): Promise<void> {
+  const response = await client.fetch(url, { method: 'GET', headers });
+  if (!response.ok) throw new Error(`Managed object verification failed for ${document.key}: HTTP ${response.status}`);
+  const expected = new TextEncoder().encode(document.content);
+  const actual = await readBoundedResponse(response, expected.byteLength, `Managed object ${document.key}`);
+  const bytesMatch = actual.byteLength === expected.byteLength
+    && actual.every((byte, index) => byte === expected[index]);
+  if (
+    !bytesMatch
+    || response.headers.get('Content-Type') !== document.contentType
+    || response.headers.get(PRESEED_MARKER_HEADER) !== targetDigest
+  ) {
+    throw new Error(`Managed object verification failed for ${document.key}`);
+  }
+}
+
 async function seedManagedDocuments(
   env: SeedEnv,
   bucketName: string,
@@ -211,11 +233,15 @@ async function seedManagedDocuments(
       const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
       if (head.ok) {
         const marker = head.headers.get(PRESEED_MARKER_HEADER);
-        if (
-          !options.overwrite
-          || marker === selection.digest
-          || (requiredMarkers && (!marker || !requiredMarkers.has(marker)))
-        ) {
+        if (marker === selection.digest) {
+          if (options.resumeFromTargetMarker) {
+            await verifyManagedDocument(client, url, document, selection.digest, sseHeaders);
+          }
+          skipped.add(document.key);
+          await options.onItemComplete?.();
+          return;
+        }
+        if (!options.overwrite || (requiredMarkers && (!marker || !requiredMarkers.has(marker)))) {
           skipped.add(document.key);
           await options.onItemComplete?.();
           return;
@@ -238,6 +264,9 @@ async function seedManagedDocuments(
       body: document.content,
     });
     if (!response.ok) throw new Error(`Failed to seed object ${document.key}: HTTP ${response.status}`);
+    if (options.resumeFromTargetMarker) {
+      await verifyManagedDocument(client, url, document, selection.digest, sseHeaders);
+    }
     written.add(document.key);
     await options.onItemComplete?.();
   });
@@ -791,7 +820,11 @@ async function seedAutomaticDocument(
     const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
     if (head.ok) {
       const marker = head.headers.get(PRESEED_MARKER_HEADER);
-      if (marker === targetDigest || (requiredMarkers && (!marker || !requiredMarkers.has(marker)))) {
+      if (marker === targetDigest) {
+        await verifyManagedDocument(client, url, document, targetDigest, sseHeaders);
+        return { written: false, skipped: true };
+      }
+      if (requiredMarkers && (!marker || !requiredMarkers.has(marker))) {
         return { written: false, skipped: true };
       }
     } else if (head.status !== 404) {
@@ -806,6 +839,7 @@ async function seedAutomaticDocument(
     body: document.content,
   });
   if (!response.ok) throw new Error(`Failed to seed object ${document.key}: HTTP ${response.status}`);
+  await verifyManagedDocument(client, url, document, targetDigest, sseHeaders);
   return { written: true, skipped: false };
 }
 
@@ -1272,7 +1306,6 @@ export async function reconcileAgentConfigs(
       seedResult.skipped.push(...extensionResult.skipped);
     }
   }
-
   let deleted: string[] = [];
   let warnings: string[] = [];
 
@@ -1372,6 +1405,16 @@ export async function reconcileAgentConfigs(
 
   if (exclusiveCandidates.length > 0) {
     deleted.push(...await deleteExclusiveCleanupCandidates(env, bucketName, endpoint, exclusiveCandidates));
+  }
+  if (automaticPlan && deleted.length > 0) {
+    const client = createR2Client(env);
+    const headers = getSseHeaders(env, options.r2SseDisabled);
+    await mapWithConcurrency([...new Set(deleted)], async (key) => {
+      const response = await client.fetch(getR2Url(endpoint, bucketName, key), { method: 'HEAD', headers });
+      if (response.status !== 404) {
+        throw new Error(`Managed object deletion verification failed for ${key}: HTTP ${response.status}`);
+      }
+    });
   }
 
   if (policy) {

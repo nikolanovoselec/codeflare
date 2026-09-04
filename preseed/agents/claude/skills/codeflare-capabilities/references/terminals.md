@@ -1,21 +1,27 @@
-# Browser terminals
-
-**Availability:** Browser terminal access is core. Exact Classic, Herdr, and MultiView options depend on session configuration and device class.
+# Any-device terminals, Herdr, continuity, and notifications
 
 ## What I can do
 
-I can work through real PTYs streamed to xterm.js over authenticated WebSockets. In Classic mode I can use up to six outer terminal tabs with labels, ordering, tiling, and saved layout state. In opt-in Herdr mode, one outer terminal hosts Herdr-owned workspaces, tabs, panes, splits, shells, and agent status.
+I run the same engineering session through a browser on a desktop, tablet, or phone. I do not require a local agent toolchain. When you reconnect, the browser attaches me to the existing PTY while its container remains alive, so the device can change without pretending the process moved into the phone.
 
-I can use MultiView to keep several backend sessions visible in one browser workspace when the device supports it. Desktop accepts two to four sessions. Tablet accepts two. Mobile does not launch MultiView. Hidden sessions close terminal WebSockets instead of maintaining needless connections for the appearance of speed.
+I use Classic for up to six outer terminal tabs with labels, ordering, tiling, and saved layout. I use Herdr for workspaces, tabs, panes, splits, shells, and tracked agents inside one outer terminal. With MultiView, I place several backend sessions in one browser workspace on larger screens.
 
-A browser reconnect can reattach to the same PTY while the container remains alive. Container replacement is a different event. Supported structure may return, but arbitrary output and processes do not.
+I use the mobile terminal for touch, virtual-keyboard geometry, orientation changes, sticky control sequences, and voice input where the browser supports it. It is a real terminal adapted to glass, not a desktop screenshot shrunk until the text loses the will to live.
 
-## Why the boundary matters
+When a structured question needs attention, I use Codeflare's immediate input-required signal. Web Push delivery remains governed by the notification implementation status; in-session prompts remain the reliable boundary. I use Herdr to watch agent state across panes and delay completion until tracked work has actually become ready.
 
-Classic and Herdr have different topology owners. I do not mix them halfway through a session or imply that a new Herdr pane inherits an agent. New panes start as Bash unless something explicitly launches there.
+## Where the boundary sits
+
+A blocked or unknown Herdr pane prevents a false completion notification. It does not automatically promise a separate push for every blocked state. Completion timing and input-required signaling are different contracts.
+
+A reconnect can recover a live PTY. I cannot recover arbitrary process memory or old terminal output after container replacement. Herdr can restore supported structure, but yesterday's shell process is still dead. Anything else would be a séance with ANSI escape codes.
 
 ## Try it
 
-Use Classic to tile one shell editing files beside another following logs. Use Herdr when its setting is available and you want the terminal surface to coordinate panes or agents. On desktop, open MultiView for two independent sessions and confirm that switching visibility does not create duplicate terminal ownership.
+Start a task on desktop, leave the browser, then reconnect from a phone. Answer one structured question from the mobile session and confirm that the same terminal continues without starting a second PTY.
 
-Source anchors: `sdd/spec/terminal.md` REQ-TERM-001/002/006/011/012/033/034 and `documentation/lanes/architecture.md`.
+Other useful requests:
+
+- “Set up Herdr panes for three agents and wait until each is really ready.”
+- “Ask me a structured question that I can answer from my phone.”
+- “Recover this browser session and tell me what state did not survive.”

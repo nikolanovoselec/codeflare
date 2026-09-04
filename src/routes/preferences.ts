@@ -5,7 +5,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { AgentTypeSchema, SessionModeSchema, SessionWorkspaceSchema, SleepAfterOptions, type Env, type UserPreferences } from '../types';
-import { getPreferencesKey, getSessionPrefix, listAllKvKeys, type SessionListMetadata } from '../lib/kv-keys';
+import { getPreferencesKey } from '../lib/kv-keys';
 import { authMiddleware, AuthVariables } from '../middleware/auth';
 import { ValidationError, BucketMigratingError, ManagedEnvironmentUpdatePendingError } from '../lib/error-types';
 import { parseJsonBody } from '../lib/request-helpers';
@@ -18,7 +18,7 @@ import { getEffectiveTier, getTierConfig, getEffectiveTierForUser, isEnterpriseM
 import { withEffectiveSessionMode } from '../lib/session-mode';
 import { allowedAgents } from '../lib/agent-allowlist';
 import { createLogger } from '../lib/logger';
-import { countsTowardSessionLimit } from './container/lifecycle-validation';
+import { hasOwningSessionContainer } from '../lib/session-helpers';
 import {
   appendManagedReconciliationTarget,
   getActiveManagedRelease,
@@ -187,16 +187,8 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
         throw new ManagedEnvironmentUpdatePendingError();
       }
     }
-    if (managedGateApplies) {
-      const sessionKeys = await listAllKvKeys(c.env.KV, getSessionPrefix(bucketName));
-      for (const sessionKey of sessionKeys) {
-        const metadata = sessionKey.metadata as SessionListMetadata | null;
-        if (metadata?.s && countsTowardSessionLimit(metadata.s)) throw new ManagedEnvironmentUpdatePendingError();
-        if (!metadata?.s) {
-          const session = await c.env.KV.get<{ status?: string }>(sessionKey.name, 'json');
-          if (countsTowardSessionLimit(session?.status)) throw new ManagedEnvironmentUpdatePendingError();
-        }
-      }
+    if (managedGateApplies && await hasOwningSessionContainer(c.env, bucketName)) {
+      throw new ManagedEnvironmentUpdatePendingError();
     }
     if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
   }

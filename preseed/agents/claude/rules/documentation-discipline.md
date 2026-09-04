@@ -1,19 +1,9 @@
-# Documentation Discipline
+# Documentation discipline
 
-Applies when `sdd/` AND `documentation/` both exist. Inert otherwise.
+Applies only when both `sdd/` and `documentation/` exist.
 
-**Trigger:**
-- PR-boundary event → doc-updater fires (sequentially after spec-reviewer).
-- `/sdd clean` invocation.
+For `/sdd clean` or PR-boundary documentation review, load `doc-enforce`. Its 16-row manifest delegates lane, shape, and truth checks to `doc-enforce-lanes`, `doc-enforce-shape`, and `doc-enforce-truth` when applicable.
 
-**Route:** invoke the `doc-enforce` skill (spine). Runs the 16-row execution manifest and conditionally invokes `doc-enforce-lanes` (per file in diff: lane-violation catalog), `doc-enforce-shape` (when canonical lane files touched: api-reference rendering), and `doc-enforce-truth` (when Implemented REQ docs touched or scope=all). REQ-backlink detection + auto-fix and forbidden-content allowlist live in `doc-enforce`.
+Boundary documentation review launches with the other required lanes and returns a report without mutation. `/sdd clean` checks documentation after applying specification fixes.
 
-## Lane summary (mid-task keepsake)
-
-`architecture.md` (system map and authority), `api-reference*.md` (HTTP routes), `configuration.md` (settings and consumers), `deployment.md` (deploy/verify/rollback), `security.md` (threats and controls), `observability.md` (signals and escalation), `troubleshooting.md` (symptom→cause→fix→verify), indexed first-level project lanes (unowned project concerns), and `decisions/README.md` (ADR ledger). ADR indexes strike fully superseded records, keep partially superseded records visible, and label merged/reclassified tombstones `Redirect anchor`; Security source maps link every ADR and requirement domain directly. `/sdd init`, `/sdd clean`, and review use the bundled `spec-driven-development/references/templates/documentation-*.md` shapes; the full owns / never-owns catalog lives in `doc-enforce-lanes`.
-
-## Severity / mode
-
-Same scale as `spec-discipline.md` (CRITICAL/HIGH/MEDIUM/LOW with the same mode-dependent action).
-
-Skipping `doc-enforce` invocation when the trigger fires is itself HIGH `enforcement-skill-not-invoked`.
+Skipping required documentation enforcement is HIGH `enforcement-skill-not-invoked`.

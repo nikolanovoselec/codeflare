@@ -651,21 +651,17 @@ a.admin-primary-button {
   font-size: 11px;
 }
 
+.admin-measurement-chart text {
+  fill: var(--color-text-secondary);
+}
+
 .admin-chart-axis {
   stroke: var(--color-border-default);
   stroke-width: 1;
 }
 
-.admin-chart-line {
-  fill: none;
-  stroke: var(--color-info);
-  stroke-width: 2;
-}
-
-.admin-chart-point {
-  fill: var(--color-bg-surface);
-  stroke: var(--color-info);
-  stroke-width: 3;
+.admin-chart-bar {
+  fill: var(--color-info);
 }
 
 .admin-period-summary dl {

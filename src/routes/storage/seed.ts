@@ -9,11 +9,11 @@ import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { createRateLimiter } from '../../middleware/rate-limit';
 import { AppError, ContainerError, BucketMigratingError, ManagedEnvironmentUpdatePendingError, toErrorMessage } from '../../lib/error-types';
 import { createLogger } from '../../lib/logger';
-import { getPreferencesKey, getSessionPrefix, listAllKvKeys, type SessionListMetadata } from '../../lib/kv-keys';
-import { clearMatchingManagedReconcileProgress, writeManagedReconcileProgress } from '../../lib/managed-reconcile-progress';
+import { getPreferencesKey } from '../../lib/kv-keys';
+import { writeManagedReconcileProgress } from '../../lib/managed-reconcile-progress';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { getEffectiveTier, isEnterpriseMode } from '../../lib/subscription';
-import { countsTowardSessionLimit } from '../container/lifecycle-validation';
+import { hasOwningSessionContainer } from '../../lib/session-helpers';
 import {
   appendManagedReconciliationTarget,
   getActiveManagedRelease,
@@ -35,15 +35,12 @@ const storageSeedRateLimiter = createRateLimiter({
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', storageSeedRateLimiter);
 
-async function assertNoOwningSession(kv: KVNamespace, bucketName: string): Promise<void> {
-  const sessionKeys = await listAllKvKeys(kv, getSessionPrefix(bucketName));
-  for (const key of sessionKeys) {
-    const metadata = key.metadata as SessionListMetadata | null;
-    if (metadata?.s && countsTowardSessionLimit(metadata.s)) throw new ManagedEnvironmentUpdatePendingError();
-    if (!metadata?.s) {
-      const session = await kv.get<{ status?: string }>(key.name, 'json');
-      if (countsTowardSessionLimit(session?.status)) throw new ManagedEnvironmentUpdatePendingError();
-    }
+async function assertNoOwningSession(
+  env: Pick<Env, 'KV' | 'CONTAINER'>,
+  bucketName: string,
+): Promise<void> {
+  if (await hasOwningSessionContainer(env, bucketName)) {
+    throw new ManagedEnvironmentUpdatePendingError();
   }
 }
 
@@ -146,7 +143,7 @@ async function reconcileAgentConfigsForRequest(
     // only while curation is active or while a prior curated state must converge
     // back to baked content.
     if (activeManagedRelease || applied || preferences?.managedEnvironmentReconciliation) {
-      await assertNoOwningSession(c.env.KV, bucketName);
+      await assertNoOwningSession(c.env, bucketName);
     }
 
     // REQ-ENTERPRISE-020: block reseed while the bucket's encryption regime is migrating.
@@ -216,7 +213,7 @@ async function reconcileAgentConfigsForRequest(
           const currentPreferences = await c.env.KV.get<UserPreferences>(preferencesKey, 'json') ?? {};
           const currentMode = await resolveEffectiveSessionMode(currentPreferences, user, c.env);
           const currentSseDisabled = await resolveBucketSseOnEnsure(c.env, bucketName, false);
-          await assertNoOwningSession(c.env.KV, bucketName);
+          await assertNoOwningSession(c.env, bucketName);
           if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
           if (
             !currentActive
@@ -232,6 +229,7 @@ async function reconcileAgentConfigsForRequest(
           }
         }
       : undefined;
+    let completionProgress: { phase: 'planning' | 'writing' | 'finalizing'; completed: number; total: number } | undefined;
     const managedOptions = activeManagedRelease
       ? {
           managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release },
@@ -244,12 +242,14 @@ async function reconcileAgentConfigsForRequest(
               beforeCleanup: validateAutomaticTarget,
               onProgress: async ({ completed, total }: { completed: number; total: number }) => {
                 if (completed === 0 || completed === total || completed % 25 === 0) {
+                  const phase = completed === total ? 'finalizing' : 'writing';
                   await writeManagedReconcileProgress(c.env.KV, bucketName, {
                     targetDigest: activeManagedRelease.digest,
-                    phase: completed === total ? 'finalizing' : 'writing',
+                    phase,
                     completed,
                     total,
                   });
+                  completionProgress = { phase, completed, total };
                 }
               },
             },
@@ -351,9 +351,6 @@ async function reconcileAgentConfigsForRequest(
           ...(enterpriseMode ? { sessionMode: 'advanced' as const } : {}),
         };
     await c.env.KV.put(preferencesKey, JSON.stringify(updatedPreferences));
-    if (automatic && activeManagedRelease) {
-      await clearMatchingManagedReconcileProgress(c.env.KV, bucketName, activeManagedRelease.digest);
-    }
 
     return c.json({
       success: true,
@@ -362,6 +359,9 @@ async function reconcileAgentConfigsForRequest(
       skipped: result.skipped,
       deleted: result.deleted,
       warnings: result.warnings,
+      ...(completionProgress && activeManagedRelease ? {
+        managedReleaseProgress: completionProgress,
+      } : {}),
     });
   } catch (error) {
     if (error instanceof AppError) throw error;

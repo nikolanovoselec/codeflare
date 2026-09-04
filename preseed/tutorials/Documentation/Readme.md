@@ -1,141 +1,69 @@
 # Codeflare
 
-I set out to prove that fully autonomous AI development actually works when done properly. Gave coding agents a detailed specification, made them follow TDD principles, and let them run unchecked. Somewhere along the way I accidentally built my favorite development environment.
+Codeflare is an agentic engineering workspace that runs in your browser. Give it a repository and an objective. The agent investigates, plans, changes code, proves behavior, follows review and CI, and records durable context for later sessions. A patch without evidence is unfinished work.
 
-Codeflare is the agentic engineering engine, and it runs entirely in your browser. Every session spins up an isolated container on Cloudflare, pre-loads your AI agent of choice, and tears itself down when you're done. Your files persist in R2 storage. The containers don't. Nothing touches your local machine.
+Each session runs in an isolated Linux container with root access, a real filesystem, terminal tabs, Browser VS Code, GitHub tooling, and the project’s own toolchain. Nothing needs to be installed on your laptop. The container is disposable. Work you push to Git and files included in synchronization are not.
 
-It's strongly optimized for mobile - because the best ideas hit while rewatching your favorite show for the 15th time, and your PC is just too far away.
+## Start here
 
-## The Problem
+Create a session, open it, and ask:
 
-Setting up a dev environment is tedious. Configuring one for AI-assisted coding is worse - you need the right CLI tools, API keys, a terminal multiplexer, and enough compute to feel responsive. Want to work from a different machine? Start over. Want to experiment without cluttering your local system? Out of luck.
+> What can you do?
 
-Codeflare moves the whole thing to the cloud. Open a browser, start a session, and within seconds you have a fully configured workspace. Your files and settings persist across sessions via R2. When you're done, the container is destroyed. When you come back, a new one spins up with your data already synced. Even if a session dies before you `git push`, R2 sync has got your back.
+The agent will explain the complete workspace and offer focused deep dives. Pick the part relevant to your job, or give it the objective immediately. A useful first task sounds like this:
 
-## Supported Agents
+> Clone my repository, inspect its project rules, trace the failing behavior, write the failing behavioral test, and make the smallest correction. Stop before deployment.
 
-Codeflare isn't tied to any single AI provider. Each session lets you choose which agent runs in your primary terminal tab:
+That is enough to begin. Configuration tourism can wait until a real task needs it.
 
-| Agent | Description |
-|-------|-------------|
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Anthropic's agentic coding tool running directly in the terminal |
-| [Codex](https://github.com/openai/codex) | OpenAI's coding CLI agent |
-| [Antigravity](https://antigravity.google) | Google's terminal coding agent |
-| [GitHub Copilot](https://docs.github.com/en/copilot) | GitHub's AI coding agent |
-| [OpenCode](https://github.com/opencode-ai/opencode) | Open-source multi-model AI coding CLI supporting 75+ model providers |
-| Bash | No AI agent - a plain terminal for the purists |
+## Agents
 
-All six are first-class citizens. Pick the one that fits your task, or use Bash if you prefer working without an AI assistant.
+Pi is the primary agent for Enterprise deployments. Every Enterprise session runs in advanced mode with the full Codeflare capability scope. Other supported runtimes remain selectable when enabled by administrators, with shared policy and portable skills projected where compatible. Commands, tools, and editor integrations follow each runtime’s native capabilities.
 
-Pro-mode features (knowledge graph, curated skills, advanced workflows, automatic review agents) are primarily designed for Claude Code. The other agents receive the same rules and agent definitions, but the slash-command workflow and graph integration are tuned for Claude.
+Bash remains available when you want a plain terminal without an agent.
 
-## What You Get
+## What persists
 
-- **Browser-native terminal with 6 tabs per session.** Full Linux containers with root access, available in seconds from any browser. No local installation required.
-- **One isolated container per session.** No shared state between sessions. Agents can't escape their sandbox (I checked).
-- **Pre-warmed terminals.** The agent starts loading during container startup. By the time you click Open, it's ready - not staring at a blank screen wondering if something broke.
-- **Persistent R2 storage with bisync every 15 minutes** plus a Sync-now button when you need it sooner and a final sync on stop. Files, shell config, credentials, vault notes, and uploads survive container teardown. Workspace is excluded from sync by default; fresh clones are recommended.
-- **Terminal tiling.** View 2-4 terminals side by side. Once you tile, you don't go back.
-- **Voice input.** A mic button on every terminal. Web Speech API, no extension. Brief your agent without thumb-typing a paragraph on mobile.
-- **R2 file browser.** Browse, upload, download, and manage files directly from the dashboard - without starting a container. Vault, Uploads, and Temporary are surfaced as special folders.
-- **Persistent vault (SilverBullet).** An Obsidian-compatible markdown editor running inside the container at `~/Vault/`, accessible from the header. Notes, journal entries, pasted screenshots, and an automatic 15-prompt session capture so a future agent can look up what a prior conversation decided.
-- **User management.** Email-based allowlists and role-based permissions (admin and user). Invite users or revoke them when they get too creative.
-- **Setup wizard.** First-time deployment walks you through DNS, auth, and storage config. Takes a few minutes, only happens once.
-- **Configurable auto-sleep.** 15m / 30m / 1h / 2h / 4h. Input-aware: typing keeps the session alive, background polls do not. Free tier is locked to 15m.
-- **Usage dashboard.** Daily and monthly compute hours with quota tracking. Per-user Timekeeper Durable Object flushes to KV every 5 minutes.
-- **Dashboard with live metrics.** CPU, memory, disk, uptime, and sync status at a glance. Three-color session status: green (active), yellow (idle but alive), gray (stopped).
+Git owns committed source history. Included files synchronize to your private storage on a schedule, during a bounded final stop sync, or when you use **Sync now**. Workspace synchronization follows your configured policy and is disabled by default, so push source changes you cannot afford to lose.
 
-## Pro Mode (Advanced Sessions)
+The Storage browser lets you browse, upload, download, preview, and delete durable files without starting a container. Vault, Uploads, Temporary, and Workspace appear as familiar folders rather than storage API object keys. Good. Nobody should need to think in object keys before breakfast.
 
-Advanced session mode adds a layer of agent tooling on top of the base IDE. Designed for Claude Code, but the rules and agent definitions ship for every agent.
+Codeflare’s memory subsystem continuously persists decisions, corrections, observations, debugging discoveries, and source references in the Vault. These captures join the cumulative knowledge graph as permanently queryable content, unless you remove them. I retrieve that history automatically in future sessions and connect it to current requirements, incidents, plans, and code.
 
-- **Spec-driven development (`/sdd`).** Bootstrap a `sdd/` folder with REQ-tracked requirements (`/sdd init`), clean it up periodically (`/sdd clean`), and let the agent work against the spec instead of vibes.
-- **Multi-perspective review (`/review`).** Static-analysis pass that spawns six parallel agents (security, architect, code-reviewer, refactor-cleaner, tdd-guide, doc-updater), cross-references findings, filters against your ADRs, runs them through a Reality Filter, then triages interactively with you. `/review --diff` during active work; `/review --all` for a whole-codebase audit. Add `--deep` to behaviorally verify SDD requirements against their implementation; add `--verify-high` to send surviving HIGH/CRITICAL findings to external LLMs (GPT + Gemini) for cross-check and fix proposals. Distinct from the auto review agents that fire on PR-boundary - `/review` is on-demand and heavier.
-- **Other slash commands.** `/debug` for systematic root-cause analysis, `/deploy` for driving a release through CI, `/brainstorm` for structured ideation.
-- **Knowledge graph (graphify).** Every repo you clone gets indexed into a per-repo graph; your vault is indexed too; both merge into a unified global graph at `~/.graphify/global-graph.json`. The agent queries the graph via `mcp__graphify__*` tools instead of grepping blindly. "What calls function X?" / "What depends on Z?" / "Where did we decide Y?" all get sharper answers.
-- **Automatic review agents.** When you open a PR from `develop` to `main`, code-reviewer + spec-reviewer + doc-updater fire on the diff. They report findings; they do not auto-merge.
-- **Curated skill family.** Pre-loaded skills for CI monitoring, deploy credentials, doc enforcement, spec enforcement, TDD enforcement, the SDD workflow, the PR workflow, and more.
-- **Hook plugins.** Session-memory capture (every 15 prompts), graph-first nudges when the agent tries to grep, destructive-action gates, vault-edit detection.
+Processes, sockets, unsynchronized files, editor databases, and terminal memory remain temporary. Destroying a container also cannot undo a Git push, deployment, migration, API call, or synchronized file that already happened.
 
-None of this needs configuration. Pick Claude Code + advanced mode on the session form and it's all preseeded.
+## What the agent handles
 
-## Architecture
+The agent works across implementation, debugging, Spec-Driven Development, Test-Driven Development, design, documentation, pull requests, CI, and approved releases. It can coordinate specialist reviewers and monitor long-running work without turning every task into a committee meeting.
 
-```mermaid
-flowchart LR
-    A[Browser] --> B["Cloudflare Worker
-    Hono router + SolidJS static UI"]
-    B --> C["Durable Object
-    session lifecycle + hibernation"]
-    C --> D["Cloudflare Container
-    isolated per session, pre-warmed PTY"]
-    D --> E["R2
-    per-user storage, bisync every 15min + manual triggers"]
-    D --> F["SilverBullet supervisor
-    localhost vault editor"]
-    D --> G["graphify CLI + MCP
-    unified knowledge graph"]
+Graphify connects supported repository structure with durable Vault knowledge. Todo tracks executable work and dependencies. Browser Run handles public research and explicitly authorized rendered verification. Browser VS Code gives you the normal editor, source control, diffs, search, extensions, and integrated terminals when a terminal-only workflow becomes needlessly painful.
+
+## Enterprise credential boundary
+
+In Enterprise deployments, supported GitHub and provider credentials remain outside the container. Codeflare injects them at Worker-side boundaries only for validated requests to approved destinations. Deployment credentials never enter session containers.
+
+The container receives non-secret placeholders for supported intercepted services. Terminal tools still work, but the reusable credential remains outside the workload. Cloudflare Access protects Enterprise ingress and binds each session to the authenticated user.
+
+To inspect the GitHub placeholder safely, open a Bash tab after connecting GitHub and run:
+
+```bash
+if [ "${GH_TOKEN-}" = "codeflare-enterprise" ]; then
+  printf 'GH_TOKEN=%s\n' "$GH_TOKEN"
+else
+  printf '%s\n' 'Enterprise GitHub placeholder is unavailable. No value printed.'
+fi
 ```
 
-Each session maps to a single container. The Worker handles routing and auth. Durable Objects manage session lifecycle. Containers provide the compute. R2 provides storage that outlives every container you'll ever start. SilverBullet runs supervised inside the container on a localhost port and is reached from the browser through a Worker proxy (`/api/vault/:sid/`). Graphify runs as a long-lived process inside the container and exposes its tools over MCP to the agent.
+Only after you see `GH_TOKEN=codeflare-enterprise`, verify boundary authorization:
 
-Containers scale to zero when idle (no sessions = no bill). Auth is handled automatically - via Cloudflare Access or GitHub OIDC depending on deployment mode.
+```bash
+gh api user --jq '{login, id}'
+```
 
-## Security
+## Where to go next
 
-- Every session runs in its own container. No shared shells, no cross-session access. Your agent can `rm -rf /` and the only victim is itself.
-- AI agents run with full terminal access *inside* the container - and can't get out. I gave them root and a sandbox. They got root in a sandbox.
-- All authenticated surfaces (`/app`, `/api`, `/setup`, `/api/vault/*`) are protected by JWT verification.
-- API tokens never enter the container at rest. Secrets stay in GitHub and Cloudflare. The agent doesn't know your passwords, and frankly, it doesn't want to.
-- The vault editor inside the container is bound to localhost only. The Worker proxy is the auth boundary - port 3030 is never exposed externally.
-- Optional Turnstile bot protection for public-facing onboarding flows.
+- **Getting Started** gives you one short first-session path.
+- **Toolchain** walks through GitHub Actions and a Cloudflare Workers deployment for your own project.
+- **Examples** contains complete starter specifications at three levels of scope.
 
-## Resource Tiers
-
-| Tier | vCPU | Memory | Disk |
-|------|------|--------|------|
-| Low | 0.25 vCPU | 1 GiB RAM | 4 GB |
-| Default | 1 vCPU | 3 GiB RAM | 6 GB |
-| High | 2 vCPU | 6 GiB RAM | 8 GB |
-
-Low tier handles light editing and AI agents fine. Default covers most dev workflows. High is for when your build process has ambitions.
-
-## Cost Estimate
-
-Runs on Cloudflare Containers - usage-based pricing on the Workers Paid plan ($5/month base). Realistic breakdown for default tier (1 vCPU, 3 GiB RAM), 8 hours/day, 20 days/month, 20% average CPU:
-
-**Total active time:** 8h x 20d = 160 hours = 576,000 seconds
-
-| Resource | Usage | Included Free | Overage | Rate | Cost |
-|----------|-------|---------------|---------|------|------|
-| vCPU | 0.20 x 1 vCPU x 576,000s = 115,200 vCPU-s | 22,500 vCPU-s | 92,700 vCPU-s | $0.000020/vCPU-s | $1.85 |
-| Memory | 3 GiB x 576,000s = 1,728,000 GiB-s | 90,000 GiB-s | 1,638,000 GiB-s | $0.0000025/GiB-s | $4.10 |
-| Disk | 6 GB x 576,000s = 3,456,000 GB-s | 720,000 GB-s | 2,736,000 GB-s | $0.00000007/GB-s | $0.19 |
-| **Workers Paid plan** | | | | | **$5.00** |
-| **Total** | | | | | **~$11/month** |
-
-Low tier at the same usage pattern: ~$6.50/month. If you offload builds to GitHub Actions, low tier is more than enough for editing and running agents.
-
-Pricing based on published Cloudflare Containers rates as of early 2026. Check the [Cloudflare Containers pricing page](https://developers.cloudflare.com/containers/pricing/) for current rates.
-
-## Deployment
-
-Fork the repo, set your Cloudflare credentials as GitHub secrets, go to `Actions` > `Deploy` > `Run workflow` > Branch: `main` > **Run workflow**. GitHub Actions builds, tests, and deploys. Takes about 2 minutes.
-
-After deployment, visit your Worker URL and the setup wizard handles:
-
-1. DNS configuration (CNAME for your custom domain)
-2. Authentication setup (Cloudflare Access or GitHub OAuth depending on mode)
-3. R2 credential derivation (automatic, no manual token creation)
-
-That's it. No Kubernetes. No Terraform. No existential crisis.
-
-## License
-
-PolyForm Noncommercial 1.0.0 - free for personal use, tinkering, and showing off.
-
-Commercial use, resale, or paid hosted offerings require a separate written license. You know who you are.
-
-## Built By
-
-[Nikola Novoselec](https://github.com/nikolanovoselec)
+Start with a real objective. The workspace makes more sense while it is doing work.

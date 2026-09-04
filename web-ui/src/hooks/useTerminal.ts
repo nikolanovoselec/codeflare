@@ -645,13 +645,12 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     });
   });
 
-  // Connect WebSocket: at mounting stage during init (agent loads in background),
-  // or immediately when session is already running (e.g. tab switch, page reload).
+  // Connect initializing sessions after terminal pre-warm is ready, or
+  // immediately when a session is already running (e.g. tab switch, page reload).
   createEffect(() => {
     const initializing = isInitializing();
     const stage = initProgress()?.stage;
-    // Terminal server is up at 'mounting' or 'ready' — safe to connect WS
-    const shouldConnect = !initializing || stage === 'mounting' || stage === 'ready';
+    const shouldConnect = !initializing || stage === 'ready';
 
     if ((!canConnect() || !shouldConnect) && cleanup) {
       cleanup();
@@ -680,7 +679,7 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     const focusedTerm = terminalInstance();
     const initializing = isInitializing();
     const stage = initProgress()?.stage;
-    const shouldConnect = !initializing || stage === 'mounting' || stage === 'ready';
+    const shouldConnect = !initializing || stage === 'ready';
     if (!isFocused() || !canConnect() || !shouldConnect || !focusedTerm) {
       terminalStore.clearPendingResizeAuthority(props.sessionId, props.terminalId);
       return;
@@ -776,7 +775,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
           resyncViewportScrollState(mountedTerm);
         }
         mountedTerm.refresh(0, mountedTerm.rows - 1);
-        if (isFocused() && !isTouchDevice()) mountedTerm.focus();
         if (canConnect()) {
           if (isFocused()) terminalStore.claimResizeAuthority(props.sessionId, props.terminalId);
           terminalStore.resize(props.sessionId, props.terminalId, mountedTerm.cols, mountedTerm.rows);

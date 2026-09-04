@@ -18,12 +18,22 @@ const state = vi.hoisted(() => ({
   cached: null as VerifiedManagedReleaseContent | null,
   cachedByDigest: new Map<string, VerifiedManagedReleaseContent>(),
   resourcePolicy: 'mutable' as 'mutable' | 'immutable' | 'exclusive',
+  containerStatus: 'running',
+  containerError: null as Error | null,
 }));
 const reconcile = vi.hoisted(() => vi.fn(async () => ({ written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined as string | undefined })));
 const reseedContext = vi.hoisted(() => vi.fn(async () => ({ written: [], skipped: [] })));
 const createBucket = vi.hoisted(() => vi.fn(async () => ({ success: true, created: false })));
 const fetchR2 = vi.hoisted(() => vi.fn(async () => new Response('', { status: 200 })));
 
+vi.mock('@cloudflare/containers', () => ({
+  getContainer: vi.fn(() => ({
+    getState: vi.fn(async () => {
+      if (state.containerError) throw state.containerError;
+      return { status: state.containerStatus };
+    }),
+  })),
+}));
 vi.mock('../../lib/managed-release-active', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/managed-release-active')>()),
   getActiveVerifiedManagedRelease: vi.fn(async () => {
@@ -119,6 +129,8 @@ describe('managed storage reconcile', () => {
     state.cached = null;
     state.cachedByDigest.clear();
     state.resourcePolicy = 'mutable';
+    state.containerStatus = 'running';
+    state.containerError = null;
     fetchR2.mockClear();
   });
 
@@ -261,6 +273,18 @@ describe('managed storage reconcile', () => {
     expect(reconcile).not.toHaveBeenCalled();
   });
 
+  it('retries automatic reconciliation when stale running metadata points to persisted stopped state', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+    kv._set('session:user-bucket:stale12345678', { id: 'stale12345678', status: 'stopped' }, { s: 'r' });
+    state.containerStatus = 'stopped';
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+
+    expect(response.status).toBe(200);
+    expect(reconcile).toHaveBeenCalledTimes(1);
+  });
+
   it('does not substitute baked content when enabled curation has no verified active release', async () => {
     state.active = null;
     state.activeError = new Error('verified active release unavailable');
@@ -386,6 +410,21 @@ describe('managed storage reconcile', () => {
       expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced',
       expect.not.objectContaining({ automatic: expect.anything() }),
     );
+  });
+
+  it('REQ-STOR-024 AC4 + REQ-STOR-039 AC1: failed automatic byte verification does not publish applied state', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+    reconcile.mockRejectedValueOnce(new Error('Managed object verification failed'));
+
+    const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
+
+    expect(response.status).toBe(500);
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentApplied).toBeUndefined();
+    expect(preferences.managedEnvironmentReconciliation).toEqual({
+      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' }],
+    });
   });
 
   it('REQ-STOR-035 AC1/AC2: failed manual Recreate records and retains its active target', async () => {
@@ -621,16 +660,34 @@ describe('managed storage reconcile', () => {
     expect(response.status).toBe(200);
   });
 
-  it('REQ-STOR-034 AC4/AC5: automatic progress is bounded, observational, and cleared after stamping', async () => {
+  it('REQ-STOR-034 AC4/AC5/AC6: response and stored completion survive a stale KV read', async () => {
     const kv = createMockKV();
     kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+    const read = kv.get.getMockImplementation()!;
+    kv.get.mockImplementation((key, type) => key === 'managed-reconcile-progress:user-bucket'
+      ? Promise.resolve({
+          schemaVersion: 1, targetDigest: 'd'.repeat(64), phase: 'planning', completed: 0, total: 0,
+          updatedAt: '2026-09-03T12:00:00.000Z',
+        })
+      : read(key, type));
+    reconcile.mockImplementationOnce(async (...args: any[]) => {
+      await args[4].automatic.onProgress({ completed: 61, total: 61 });
+      return { written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined };
+    });
 
     const response = await appFor(kv).request('/seed/agent-configs/upgrade', { method: 'POST' });
     expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      managedReleaseProgress: { phase: 'finalizing', completed: 61, total: 61 },
+    });
+    expect(await kv.get('managed-reconcile-progress:user-bucket', 'json')).toMatchObject({ phase: 'planning' });
     const progressWrites = kv.put.mock.calls.filter(([key]) => key === 'managed-reconcile-progress:user-bucket');
     expect(progressWrites.length).toBeGreaterThan(0);
     expect(progressWrites.every(([, , options]) => options?.expirationTtl === 86_400)).toBe(true);
     expect(kv.put.mock.calls.some(([key]) => key === 'user-prefs:user-bucket')).toBe(true);
-    expect(kv.delete.mock.calls.some(([key]) => key === 'managed-reconcile-progress:user-bucket')).toBe(true);
+    expect(kv.delete.mock.calls.some(([key]) => key === 'managed-reconcile-progress:user-bucket')).toBe(false);
+    expect(JSON.parse(kv._store.get('managed-reconcile-progress:user-bucket')!)).toMatchObject({
+      phase: 'finalizing', completed: 61, total: 61,
+    });
   });
 });

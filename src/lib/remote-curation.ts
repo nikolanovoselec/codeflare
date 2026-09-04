@@ -811,21 +811,27 @@ export async function resolveManagedEnvironmentRelease(input: {
   const state = await readFreshnessState(input.kv, input.stateKey);
   const lastChecked = state.lastCheckedAt ? Date.parse(state.lastCheckedAt) : Number.NaN;
   const freshnessAge = now.getTime() - lastChecked;
-  if (!input.requireFresh && state.active && Number.isFinite(lastChecked) && freshnessAge >= 0 && freshnessAge < FRESHNESS_MS) {
-    const cachedActive = await readActiveWithFallback(input.cache, undefined);
-    if (cachedActive?.runtimeDependencyHash === expectedRuntimeHash
-      && cachedActive.digest === state.active.digest
-      && await hasCachedRelease(input.cache, cachedActive)) {
-      return { active: cachedActive, freshness: state.lastError ? 'degraded' : 'fresh', lastCheckedAt: state.lastCheckedAt, lastError: state.lastError };
+  if (!input.requireFresh && Number.isFinite(lastChecked) && freshnessAge >= 0 && freshnessAge < FRESHNESS_MS) {
+    if (state.active) {
+      const cachedActive = await readActiveWithFallback(input.cache, undefined);
+      if (cachedActive?.runtimeDependencyHash === expectedRuntimeHash
+        && cachedActive.digest === state.active.digest
+        && await hasCachedRelease(input.cache, cachedActive)) {
+        return { active: cachedActive, freshness: state.lastError ? 'degraded' : 'fresh', lastCheckedAt: state.lastCheckedAt, lastError: state.lastError };
+      }
+    }
+    if (state.lastError) {
+      return { freshness: 'degraded', lastCheckedAt: state.lastCheckedAt, lastError: state.lastError };
     }
   }
 
+  const checkedAt = now.toISOString();
+  let observedEtag = state.etag;
   try {
     const latestUrl = `${GITHUB_API_ORIGIN}/repos/${input.repository}/releases/latest`;
     const headers = new Headers(githubHeaders(input.token));
     if (state.etag) headers.set('If-None-Match', state.etag);
     let response = await fetchGithub(fetcher, latestUrl, { headers, redirect: 'manual' });
-    const checkedAt = now.toISOString();
     let patExpiresAt = parsePatExpiration(response) ?? state.patExpiresAt;
 
     if (response.status === 304) {
@@ -858,6 +864,7 @@ export async function resolveManagedEnvironmentRelease(input: {
     const stateActive = state.active?.runtimeDependencyHash === expectedRuntimeHash ? state.active : undefined;
     const observedActive = cachedActive ?? stateActive;
     const etag = responseEtag(response);
+    observedEtag = etag ?? observedEtag;
     const returnCached = async (metadata: z.infer<typeof GithubReleaseSchema>) => {
       if (cachedActive?.releaseId !== metadata.id
         || cachedActive.releaseTag !== metadata.tag_name
@@ -888,7 +895,7 @@ export async function resolveManagedEnvironmentRelease(input: {
         fetcher,
       });
     } catch (error) {
-      if (!(error instanceof ManagedRuntimeMismatchError)) throw error;
+      if (!(error instanceof ManagedRuntimeMismatchError) || !input.requireFresh) throw error;
       for (let page = 1; page <= MAX_RELEASE_HISTORY_PAGES && !selected; page += 1) {
         const historyResponse = await fetchGithub(fetcher, `${GITHUB_API_ORIGIN}/repos/${input.repository}/releases?per_page=100&page=${page}`, {
           headers: githubHeaders(input.token),
@@ -956,15 +963,15 @@ export async function resolveManagedEnvironmentRelease(input: {
     const active = fallbackActive?.runtimeDependencyHash === expectedRuntimeHash ? fallbackActive : undefined;
     const failedState: ManagedEnvironmentFreshnessState = {
       schemaVersion: 1,
-      ...(state.etag ? { etag: state.etag } : {}),
+      ...(observedEtag ? { etag: observedEtag } : {}),
       ...(active ? { active } : {}),
-      ...(state.lastCheckedAt ? { lastCheckedAt: state.lastCheckedAt } : {}),
+      lastCheckedAt: checkedAt,
       ...(state.patExpiresAt ? { patExpiresAt: state.patExpiresAt } : {}),
       lastError: message,
     };
     await writeFreshnessState(input.kv, input.stateKey, failedState);
     if (input.requireFresh) throw new Error(message);
-    return { active, freshness: 'degraded', lastCheckedAt: state.lastCheckedAt, lastError: message };
+    return { active, freshness: 'degraded', lastCheckedAt: checkedAt, lastError: message };
   }
 }
 
@@ -1500,7 +1507,7 @@ export async function resolveManagedEnvironment(input: {
       now: input.now,
       requireFresh: input.requireFresh,
     });
-    if (resolved.active && preparedMigration.migration) {
+    if (preparedMigration.migration) {
       await cleanupLegacyManagedCache({
         config,
         migration: preparedMigration.migration,

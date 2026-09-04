@@ -28,7 +28,7 @@ Workers KV owns current Environment values, configuration revisions, active-run 
 
 Timekeeper Durable Objects and KV remain the live quota owners. D1 owns historical organization usage, deleted-user tombstones, report delivery claims, and retention claims. Historical analytics starts empty after rollout and never reconstructs old usage from quota records. The absence of a backfill is deliberate; invented history would be worse than an empty chart. ([REQ-SUB-025](../../sdd/spec/subscription.md#req-sub-025-durable-historical-usage-accounting)) <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
 
-Analytics, Reports, and Activity are demand-driven. They read on navigation, filter changes, explicit refresh, or run reconnect. They do not background-poll. ([REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope)) <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage -->
+Analytics, Reports, and Activity are demand-driven. They read on navigation, filter changes, explicit refresh, or run reconnect. They do not background-poll. Analytics charts a bounded history of actual totals from existing D1 period rows; `historyUpdatedAt` identifies the newest returned row because historical D1 snapshots can lag live Timekeeper usage. ([REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-029](../../sdd/spec/subscription.md#req-sub-029-bounded-organization-usage-history-presentation), [REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope)) <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageSeries --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage -->
 
 ## D1 database and migrations
 
@@ -48,9 +48,9 @@ Store the deployment token and deployment account ID in the existing repository 
 
 Historical rows use UTC periods. Active day rows retain the current day plus 399 preceding days, week rows retain 59 preceding ISO weeks, month rows retain 59 preceding months, and year rows retain four preceding years. Deleted users and their named aggregate rows remain for 60 calendar months. Report delivery records remain for 60 calendar months. Maintenance claims remain for 35 UTC days. ([REQ-SUB-025](../../sdd/spec/subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-028](../../sdd/spec/subscription.md#req-sub-028-historical-usage-and-report-retention)) <!-- @impl: src/lib/usage-report-scheduler.ts::retentionCutoffs -->
 
-One 15-minute scheduler owns report dispatch, recovery, and a once-daily token-guarded retention transaction. Reports are disabled by default. When enabled, each recipient gets a separate claimed delivery with at most three attempts. `accepted` means Resend accepted the request. It does not claim inbox delivery, and no provider ID is invented. ([REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports)) <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler -->
+One 15-minute scheduler owns report dispatch, recovery, and a once-daily token-guarded retention transaction. Reports are disabled by default. KV stores each schedule's next due instant under `admin:usage-reports:next:<settingsRevision>`, preventing a stale revision from consuming the current revision's schedule. When enabled, each recipient gets a separate claimed delivery with at most three attempts. `accepted` means Resend accepted the request. It does not claim inbox delivery, and no provider ID is invented. ([REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-SUB-030](../../sdd/spec/subscription.md#req-sub-030-monthly-usage-report-schedule-periods)) <!-- @impl: src/lib/usage-report-scheduler.ts::runUsageReportScheduler -->
 
-CSV attachments stop at 8 MiB. Scheduled messages use deterministic idempotency; test requests use their request identity so two test clicks remain two tests. ([REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports)) <!-- @impl: src/lib/usage-reports.ts::buildReportArtifacts -->
+CSV attachments stop at 8 MiB. Scheduled messages report the latest closed UTC month and use deterministic idempotency; test requests report the current UTC month and use their request identity so two test clicks remain two tests. ([REQ-SUB-027](../../sdd/spec/subscription.md#req-sub-027-monthly-organization-usage-reports), [REQ-SUB-030](../../sdd/spec/subscription.md#req-sub-030-monthly-usage-report-schedule-periods)) <!-- @impl: src/lib/usage-reports.ts::buildReportArtifacts --> <!-- @impl: src/routes/admin/usage-reports.ts::default -->
 
 ## Operation envelope and logging
 
@@ -72,8 +72,8 @@ Record exact commit and Deploy run before testing. Then verify:
 
 - Mode-aware navigation and every applicable Environment section in Default, Onboarding, SaaS, and Enterprise.
 - One non-destructive Environment review and apply, including conflict, reconnect, failure, and interrupted states.
-- Analytics empty-history and data-start states, user detail, deleted-user history, and CSV export.
-- Reports disabled state, schedule presentation, test email, provider failure, and delivery history.
+- Analytics empty-history and data-start states, actual period-history chart, Timekeeper-lag disclosure, user detail, deleted-user history, and CSV download.
+- Reports disabled state, schedule presentation, current-month test email, provider failure, and delivery history.
 - Activity empty and retained-run states. Confirm records contain no submitted secrets.
 - Five-second transition polling, 60-second stable polling, hidden cancellation, immediate visible refresh, and no overlapping requests in browser network tools.
 - Desktop and mobile hierarchy against the approved Administration and Analytics design catalog.

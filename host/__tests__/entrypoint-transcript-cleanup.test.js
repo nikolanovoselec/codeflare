@@ -200,14 +200,17 @@ bisync_with_r2 '' || true
       const releaseFlag = join(scratch.dir, 'init-complete');
       const startupRelease = extractShellFragment(
         '# The terminal server has been polling this flag before spawning tab 1.',
-        'release_agent_pty_after_cleanup',
+        'release_agent_pty_after_fast_start_updates',
       );
       const shell = `set -e
 EVENTS="$1"
 CODEFLARE_INIT_FLAG_FILE="$2"
+USER_HOME="${scratch.dir}"
 cleanup_main_transcripts() { printf '%s\\n' cleanup >> "$EVENTS"; }
 touch() { printf '%s\\n' release >> "$EVENTS"; }
+update_pi_and_codex_when_fast_start_disabled() { :; }
 ${extractShellFunction('release_agent_pty_after_cleanup')}
+${extractShellFunction('release_agent_pty_after_fast_start_updates')}
 ${startupRelease}
 `;
 

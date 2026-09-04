@@ -1,6 +1,6 @@
 # Toolchain: GitHub to Cloudflare Workers
 
-How to set up a deployment pipeline for your Cloudflare Workers projects. Every step shows two paths: ask your AI coding agent in Tab 1, or do it manually from a terminal tab.
+Build a GitHub Actions pipeline for your own Cloudflare Worker. Ask the agent to do the work or follow the shell path yourself. Both should produce the same result: a tested commit deployed by an auditable workflow. Deployment should be boring. Surprise belongs in the product, not the release log.
 
 ---
 
@@ -24,7 +24,7 @@ Cloudflare Workers (live)
 
 ## Step 1: Create a Cloudflare API Token
 
-> **If you've configured Push & Deploy in Settings**, your Cloudflare API token and account ID are already available in every session. You can skip this step for direct `wrangler` deploys. You'll still need to add secrets to GitHub for CI/CD (Step 3).
+> **In Enterprise deployments with Push & Deploy configured**, `wrangler` authenticates through the Worker boundary without exposing a reusable Cloudflare token in the terminal. You'll still need to add deployment credentials to GitHub for CI/CD (Step 3).
 
 You need a token that lets GitHub Actions deploy Workers on your behalf.
 
@@ -34,7 +34,7 @@ You need a token that lets GitHub Actions deploy Workers on your behalf.
 4. Under **Account Resources**, select the account you want to deploy to
 5. Under **Zone Resources**, select **All zones** (or a specific zone if you prefer)
 6. Click **Continue to summary**, then **Create Token**
-7. **Copy the token** - you will not see it again
+7. **Copy the token.** Cloudflare will not show it again.
 
 You also need your **Account ID**:
 1. Go to any zone in the Cloudflare dashboard
@@ -55,7 +55,7 @@ Create a new GitHub repo called "my-project", clone it into ~/workspace, and set
 
 ### Or do it yourself:
 
-**Option A - Create on GitHub first (easiest for beginners):**
+**Option A: Create the repository on GitHub first.**
 
 1. Go to https://github.com/new
 2. Name your repository, choose public or private, click **Create repository**
@@ -67,7 +67,7 @@ git clone https://github.com/your-username/your-project.git
 cd your-project
 ```
 
-**Option B - Create from the terminal (if you already have code):**
+**Option B: Create it from the terminal when the code already exists.**
 
 ```bash
 cd ~/workspace/your-project
@@ -83,22 +83,15 @@ The `gh` CLI is pre-installed in every Codeflare session.
 
 ## Step 3: Add Secrets to GitHub
 
-Your API token must never be committed to code or pasted into an AI agent. The safest method is to add secrets directly in the GitHub UI - the token never touches your terminal or any agent context.
+Never commit the API token or paste it into an agent conversation. Add it through GitHub’s secret form so it never enters terminal history or agent context.
 
-**From the GitHub UI (recommended):**
+**Use the GitHub UI:**
 
 1. Go to your repo on GitHub
 2. Settings > Secrets and variables > Actions
 3. Click **New repository secret**
 4. Add `CLOUDFLARE_API_TOKEN` with your token value
 5. Add `CLOUDFLARE_ACCOUNT_ID` with your account ID
-
-**From the terminal (alternative):**
-
-```bash
-gh secret set CLOUDFLARE_API_TOKEN --body "your-token-here"
-gh secret set CLOUDFLARE_ACCOUNT_ID --body "your-account-id-here"
-```
 
 ---
 
@@ -172,7 +165,7 @@ Go to your repo on GitHub and click the **Actions** tab. You should see the work
 
 ## Step 6: Deploy Updates
 
-After the initial setup, deploying changes is just a push:
+After setup, deployment becomes what it should have been all along: a push.
 
 ### Ask your agent:
 
@@ -194,27 +187,26 @@ GitHub Actions picks up the push, runs tests, and deploys automatically.
 
 ## Quick Deploy (No Pipeline)
 
-For quick iterations you can deploy directly from a terminal, but the GitHub Actions pipeline above is the recommended approach since your API token stays safely in GitHub secrets and never enters your terminal session.
-
-> **If Push & Deploy is configured**, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are already set. Just run `npx wrangler deploy` - no export needed.
+For quick iterations in an Enterprise deployment with Push & Deploy configured, deploy directly without printing or exporting a reusable credential:
 
 ```bash
-export CLOUDFLARE_API_TOKEN="your-token-here"
 npx wrangler deploy
 ```
+
+For repeatable delivery, use the GitHub Actions pipeline above. It keeps deployment credentials in GitHub secrets and records each deployment against its commit and workflow run.
 
 ---
 
 ## Project Structure Checklist
 
-Before deploying, make sure your project has these files:
+Before deploying, check that your project has these files:
 
-- `wrangler.toml` - Wrangler configuration (name, compatibility date, bindings)
-- `package.json` - Dependencies and scripts (npm test, npm run build)
-- `src/index.ts` - Worker entry point
-- `tsconfig.json` - TypeScript configuration
-- `.github/workflows/deploy.yml` - CI/CD pipeline
-- `.gitignore` - Exclude node_modules/, .wrangler/, .dev.vars
+- `wrangler.toml`: Worker name, compatibility date, and bindings
+- `package.json`: Dependencies and scripts
+- `src/index.ts`: Worker entry point
+- `tsconfig.json`: TypeScript configuration
+- `.github/workflows/deploy.yml`: CI/CD pipeline
+- `.gitignore`: Exclusions for dependencies, local state, and development secrets
 
 A minimal `.gitignore` for Workers projects:
 
@@ -277,21 +269,21 @@ tag = "v1"
 new_classes = ["MyDurableObject"]
 ```
 
-**Worker Secrets** (API keys, tokens that should not be in code):
+**Worker secrets** hold API keys and tokens that must not enter source control. Let Wrangler prompt for the value instead of placing it in shell history:
 
 ```bash
-echo "secret-value" | npx wrangler secret put SECRET_NAME
+npx wrangler secret put SECRET_NAME
 ```
 
-Secrets are available in your Worker as `env.SECRET_NAME`.
+Your Worker receives the secret as `env.SECRET_NAME`.
 
 ---
 
 ## Environment Variables vs Secrets
 
-- **[vars] in wrangler.toml** - stored in config file (committed), visible in code. Use for non-sensitive config like feature flags and URLs.
-- **wrangler secret put** - stored in Cloudflare (encrypted), not visible in code. Use for API keys, tokens, and credentials.
-- **.dev.vars** - local file (gitignored), only available during local development. Use for development secrets.
+- **`[vars]` in `wrangler.toml`:** Committed configuration for non-sensitive values such as feature flags and URLs.
+- **`wrangler secret put`:** Encrypted Cloudflare storage for API keys, tokens, and credentials.
+- **`.dev.vars`:** Gitignored values used only during local development.
 
 Example `wrangler.toml` vars:
 
@@ -315,17 +307,17 @@ API_VERSION = "v2"
 - Missing KV namespace or R2 bucket (create them first)
 - TypeScript errors (run `npm run build` locally to catch these)
 
-**Keep your token scoped.** The "Edit Cloudflare Workers" template grants only what is needed. Do not use a Global API Key - it has full account access.
+**Keep the token scoped.** The Edit Cloudflare Workers template grants the intended deployment permissions. Do not use a Global API Key. Giving a CI workflow full account access because it was convenient at 4 PM will not become less embarrassing during an incident at 4 AM.
 
 ---
 
 ## Pro-Mode Shortcuts (Claude Code, advanced session)
 
-If you're in an advanced Claude Code session, the manual pipeline above has shorter forms:
+Claude Code exposes slash-command shortcuts for the same delivery work. Pi, the primary Enterprise agent, uses its full native tool and skill scope instead.
 
-- **`/sdd init`** - bootstrap a `sdd/` folder with REQ-tracked requirements before writing code. The agent will then work against the spec instead of vibes.
-- **`/deploy`** - drive the GitHub Actions deploy workflow and watch CI until green, without having to ask "is it deployed yet" five times.
-- **`/review`** - static-analysis review across six perspectives (security, architect, code, refactor, TDD, docs) with cross-reference, ADR filtering, and interactive triage. Use `--diff` while iterating or `--all` for a whole-codebase pass; add `--deep` to behaviorally verify SDD requirements or `--verify-high` to send HIGH/CRITICAL findings to external LLMs for cross-check. Distinct from the auto review agents that fire on PR-boundary.
-- **`/debug`** - systematic root-cause workflow when CI fails or the deployed Worker misbehaves.
+- **`/sdd init`:** I use it to bootstrap a `sdd/` folder with REQ-tracked requirements before writing code, then work against the specification instead of vibes.
+- **`/deploy`:** I use it to drive the GitHub Actions deployment workflow and watch CI until green, without making you ask "is it deployed yet" five times.
+- **`/review`:** I use it for applicable security, architecture, code, refactoring, TDD, and documentation perspectives with cross-reference, ADR filtering, and interactive triage. I use `--diff` while iterating, `--all` for a whole-codebase pass, `--deep` for behavioral SDD verification, and `--verify-high` to send surviving HIGH or CRITICAL findings to configured external models for cross-checks and fix proposals. This on-demand workflow is distinct from automatic PR-boundary review and intentionally heavier.
+- **`/debug`:** I use it for systematic root-cause analysis when CI fails or the deployed Worker misbehaves.
 
-These are wrappers over the same tools described above. The manual path always still works.
+These shortcuts use the same underlying delivery path. The manual commands remain useful when you need to see exactly what happens.

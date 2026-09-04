@@ -1,42 +1,38 @@
 # Examples
 
-These are specifications. Each one describes a complete project - requirements, constraints, tests, and acceptance criteria. Everything an AI agent needs to build it from scratch without asking you a single question.
+These files are starter specifications, not screenshots of finished products. Each one gives the agent enough product behavior, constraints, and proof to build something real without inventing the important parts halfway through.
 
-## How to Use
+## Use one
 
-1. Create a session, pick your agent
-2. Open Tab 1
-3. Tell it: **"Plan implementation of the Advanced.md specification"** (or whichever one you picked)
-4. Go through the plan with the agent - you need to make some decisions in order to create an implementation plan
-5. Approve the implementation plan
-6. Go watch Game of Thrones again
+1. Create a session and open the first terminal.
+2. Choose `Simple.md`, `Intermediate.md`, or `Advanced.md`.
+3. Give the agent a direct objective:
 
-The planning step is not optional. The spec tells the agent *what* to build - the agent still needs to figure out *how*. During planning, the agent reads the spec, asks follow-up questions about scaffolding, file structure, dependency choices, and execution order, then produces a detailed implementation document - a step-by-step blueprint covering every file, every function, every test. Once you review and approve it, the agent exits planning mode and executes against that document. This is where a specification becomes a working project.
+   > Implement the Intermediate specification. Write failing behavioral tests first, make the smallest working implementation, and stop before deployment unless I approve it.
 
-After planning, the agent writes failing tests, implements until they pass, and deploys to Cloudflare. You come back to a working project with a full test suite and plausible deniability about who actually wrote it.
+4. Answer only decisions the repository cannot settle.
+5. Review the working result and its evidence.
 
-Each spec follows TDD - tests first, then implementation. This isn't a style preference. It's the single most effective way to keep a coding agent on track.
+The agent should plan enough to execute safely. It does not need a ceremonial document describing every function before the first test exists. That kind of plan looks impressive right up to the moment the repository disagrees with it.
 
-When the agent writes tests first, every subsequent `npm test` run injects your expectations back into its context. If it drifts off course - wrong return type, missing validation, broken edge case - the failing test tells it exactly what went wrong and what was expected. The agent course-corrects without you lifting a finger. Without tests, the agent has no feedback loop. It writes code, assumes it works, and moves on. By the time you notice something is wrong, it's three features deep into a broken foundation.
+## Why tests come first
 
-TDD turns your spec into a live guardrail. The agent can't cheat. If it says it's done and the tests don't pass, it lied. Make it try again.
+Each example requires Test-Driven Development. The agent writes a failing behavioral test, implements the behavior, and keeps iterating until the proof passes. Tests turn your expected outcomes into an executable correction loop.
 
-## Difficulty Levels
+A source-text assertion is not behavioral proof. Neither is a test that checks whether the implementation contains the class name it was told to write. The useful tests call the system and observe what a user or client receives.
 
-| Example | Time | What You Get |
-|---------|------|-------------|
-| [Simple](Simple.md) | ~15 min | Hello World Worker. The agent does all of it. You take the credit. |
-| [Intermediate](Intermediate.md) | ~30-45 min | CV website with Turnstile-protected contact form. Tell your recruiter you built it yourself. |
-| [Advanced](Advanced.md) | ~1-2 hours | Full blog with Durable Objects, R2 storage, and a CMS. The agent will complain less than an intern. |
+## Pick a scope
 
-Start with Simple if this is your first session.
+| Example | Scope | Result |
+|---------|-------|--------|
+| [Simple](Simple.md) | Small | A tested Hello World Worker with two routes and a real 404 path |
+| [Intermediate](Intermediate.md) | Medium | A responsive CV site with a Turnstile-protected contact flow and private message review |
+| [Advanced](Advanced.md) | Large | A public Astro blog with protected authoring, Durable Object counters, R2 images, and publishing feeds |
 
-## Writing Your Own Specs
+Start with Simple if this is your first session. Use Advanced when you want enough moving parts to expose weak architecture quickly. It usually does.
 
-These examples are meant to be a starting point. For your own projects, use your coding agent to develop a detailed specification *before* writing any code. Not a list of requirements - a specification. The difference matters.
+## Write your own specification
 
-A specification defines what the system does, what technology it uses, how components interact, what the data looks like, what edge cases exist, what the tests verify, and what acceptance looks like. It's specific enough that the agent can execute without asking you a single question. If the agent has to guess, the spec isn't done.
+A useful specification states what the system does, the boundaries it must preserve, the data it owns, the failures it handles, and what observable evidence proves completion. Technology choices belong there only when they are genuine constraints.
 
-If your agent supports planning modes (e.g., Claude Code's plan mode via /plan), use those to develop a detailed specification. The more precise the spec, the less the agent improvises - and improvisation is where things go sideways.
-
-For longer-running projects, advanced Claude Code sessions ship with `/sdd init` - a slash command that bootstraps a `sdd/` folder of REQ-tracked requirements, then keeps the spec, code, and docs in sync as you push commits. It's heavier than `/plan` and worth it once a project outgrows a single working session.
+For a longer-running repository, ask the agent to initialize Spec-Driven Development and show unresolved intent before changing production code. That creates a durable requirements baseline instead of leaving product decisions trapped in one chat transcript.

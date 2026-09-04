@@ -307,6 +307,7 @@
   },
   "rules/engineering-constitution.md": {
     "modes": [
+      "default",
       "advanced"
     ]
   },
@@ -321,26 +322,6 @@
       "advanced"
     ]
   },
-  "rules/golang/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/golang/patterns.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/golang/security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/golang/testing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "rules/memory.md": {
     "modes": [
       "advanced"
@@ -352,72 +333,12 @@
       "advanced"
     ]
   },
-  "rules/python/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/python/patterns.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/python/security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/python/testing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "rules/spec-discipline.md": {
     "modes": [
       "advanced"
     ]
   },
-  "rules/swift/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/swift/patterns.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/swift/security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/swift/testing.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "rules/tdd-discipline.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/typescript/coding-style.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/typescript/patterns.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/typescript/security.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "rules/typescript/testing.md": {
     "modes": [
       "advanced"
     ]
@@ -537,16 +458,6 @@
       "advanced"
     ]
   },
-  "skills/api-design/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/backend-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "skills/browser-e2e/SKILL.md": {
     "modes": [
       "advanced"
@@ -650,29 +561,9 @@
       "advanced"
     ]
   },
-  "skills/content-hash-cache-pattern/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/database-migrations/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "skills/deploy-credentials/SKILL.md": {
     "modes": [
       "default",
-      "advanced"
-    ]
-  },
-  "skills/deployment-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/design-taste-frontend/SKILL.md": {
-    "modes": [
       "advanced"
     ]
   },
@@ -796,11 +687,6 @@
       "advanced"
     ]
   },
-  "skills/frontend-patterns/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
   "skills/git-review-pipeline/SKILL.md": {
     "modes": [
       "advanced"
@@ -827,6 +713,11 @@
     ]
   },
   "skills/graphify/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/SKILL.md": {
     "modes": [
       "advanced"
     ]
@@ -1026,7 +917,27 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/.impeccable/hook.cache.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/build-phase.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/command-metadata.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/comp-diff.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/comp-spec.mjs": {
     "modes": [
       "advanced"
     ]
@@ -1047,6 +958,16 @@
     ]
   },
   "skills/impeccable/scripts/critique-storage.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/data/font-index-failures.json": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/data/font-index.json": {
     "modes": [
       "advanced"
     ]
@@ -1171,6 +1092,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/font-match.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/generate-image.mjs": {
     "modes": [
       "advanced"
@@ -1216,6 +1142,26 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/lib/font-fingerprint.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/font-index.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/hero-checks.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/image-metrics.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/lib/impeccable-config.mjs": {
     "modes": [
       "advanced"
@@ -1231,12 +1177,27 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/lib/live-path-globs.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/lib/open-system-browser.mjs": {
     "modes": [
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/lib/png.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/lib/provider.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/lib/raster.mjs": {
     "modes": [
       "advanced"
     ]
@@ -1287,6 +1248,11 @@
     ]
   },
   "skills/impeccable/scripts/live-browser-dom.js": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/impeccable/scripts/live-browser-ignores.js": {
     "modes": [
       "advanced"
     ]
@@ -1491,6 +1457,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/live/project-ignores.mjs": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/live/roots.mjs": {
     "modes": [
       "advanced"
@@ -1562,16 +1533,6 @@
     ]
   },
   "skills/impeccable/scripts/surface-brief.mjs": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/impeccable/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/iterative-retrieval/SKILL.md": {
     "modes": [
       "advanced"
     ]
@@ -1695,11 +1656,6 @@
     ]
   },
   "skills/sdd-init/SKILL.md": {
-    "modes": [
-      "advanced"
-    ]
-  },
-  "skills/search-first/SKILL.md": {
     "modes": [
       "advanced"
     ]
@@ -1844,18 +1800,6 @@
   },
   "skills/spec-enforce/SKILL.md": {
     "modes": [
-      "advanced"
-    ]
-  },
-  "skills/systematic-debugging/LICENSE": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
-  "skills/systematic-debugging/SKILL.md": {
-    "modes": [
-      "default",
       "advanced"
     ]
   },
@@ -2045,6 +1989,27 @@
   "skills/codeflare-capabilities/references/agentic-primitives.md": {
     "modes": [
       "default",
+      "advanced"
+    ]
+  },
+  "skills/codeflare-capabilities/references/design.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/humanize/SKILL.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "skills/humanize/reference/findings.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "rules/graphify-routing.md": {
+    "modes": [
       "advanced"
     ]
   }

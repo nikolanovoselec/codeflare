@@ -1,20 +1,14 @@
-# Cloudflare-Environment Defaults
+# Cloudflare environment
 
-This session runs inside codeflare (Cloudflare Workers container). New projects default to deploying on Cloudflare unless the user explicitly chooses another stack.
+For a preference-free new project, default to Cloudflare unless the user selects another stack. Load `cloudflare-stack` before choosing architecture.
 
-**Trigger:** any new project, "build me X", "create a website / app", or any tech-stack decision in a fresh project.
+## Session constraints
 
-**Route:** invoke the `cloudflare-stack` skill for the full default stack, web-standard API mappings, and tech-to-avoid list.
+- Follow `no-local-builds.md`.
+- Do not let CLIs launch a local GUI browser; use configured Browser Run only when authorized.
+- Use Git over HTTPS, not SSH keys.
+- Use `<username>@users.noreply.github.com` for Git identity, never the user's private email.
+- Use `printf '%s'`, not `echo`, when piping secrets.
+- Never commit secrets or API keys.
 
-## Hard constraints (never violate)
-
-- Resource-constrained container — see [no-local-builds.md](./no-local-builds.md).
-- No browser — use `BROWSER=""` prefix for CLI tools that try to open one.
-- Git over HTTPS only, no SSH keys.
-- Use `<username>@users.noreply.github.com` for git identity, never the user's real email.
-- Use `printf '%s'` (not `echo`) when piping secrets to commands.
-- Never commit secrets or API keys. Global gitignore at `~/.gitignore_global` covers common patterns.
-
-## Communication
-
-Assume users are non-technical unless they demonstrate otherwise. Avoid jargon. Focus on what the project does, not what technology it uses. Never say "that's not possible" — find the closest achievable version.
+Report hard boundaries honestly and offer the closest safe alternative.

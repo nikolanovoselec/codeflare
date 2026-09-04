@@ -158,6 +158,15 @@ describe('Claude marker-or-dialog ingress', () => {
     assert.equal(existsSync(completionPath(later, stateRoot)), true);
   });
 
+  it('ignores protected-base delivery in a repository without SDD', () => {
+    const fx = setup();
+    rmSync(join(fx.repo, 'sdd'), { recursive: true, force: true });
+
+    const result = postTool(fx, 'git push origin feature');
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, '');
+  });
+
   it('suppresses review ingress only during an open SDD transition', () => {
     const fx = setup();
     writeFileSync(join(fx.repo, 'sdd/spec/config.yml'), 'transition: true\n');

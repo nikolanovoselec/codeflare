@@ -6,15 +6,19 @@ Commit `<type>: <description>` using `feat|fix|refactor|docs|test|chore|perf|ci`
 
 ## Review exposure
 
-Startup, resume, clone, switch, checkout, pull, checked-out-branch push, PR creation, and PR reopen may expose an open protected-base PR. An exact marker stays silent. Successful push, PR creation, and PR reopen emit one plan; other misses show `Mark review complete` or `Launch review`. Never choose.
+Boundary review applies only when repository contains `sdd/README.md` and checked-out branch has an open PR targeting `develop`, `main`, or `master`. Without that SDD file, continue normal work. Startup, resume, clone, switch, checkout, and pull can expose an eligible PR.
 
-Fetch, inspection, local mutation, detached/path checkout, tags, unrelated-ref pushes, unsynchronized heads, and merges without a checkout or full-`HEAD` transition are inert. A successful transition uses consent for the resulting open protected-base PR.
+A push qualifies only when its branch heads such a PR. PR creation or reopen qualifies only when its base is protected. After any qualifying push, creation, or reopen, **end the turn immediately and invoke no more tools**. The boundary plan appears after the turn ends. Otherwise continue normal work.
+
+An exact completion marker stays silent. Other qualifying misses offer `Mark review complete` or `Launch review`; never choose. Fetch, inspection, local mutation, detached/path checkout, tags, unrelated pushes, failed transitions, and merges without a checkout or full-`HEAD` transition are inert.
 
 ## One current round
 
-Execute each plan once: start reviewers together, start independent CI next, then end. Never poll or duplicate. Interrupted work stores no progress; later exposure starts fresh.
+Never launch reviewers manually unless the user explicitly requests reviewer launch. `Continue` and `proceed` do not qualify.
 
-After all reviewers and terminal exact-head CI, publish triage without mutations. Verify evidence and scope, judge findings separately from fixes, reject unsupported or oversized proposals, and choose the smallest correction using existing machinery. Completion precedes the separate FIX reminder. Apply only accepted fixes then. Root alone mutates.
+Only execute a boundary plan when it appears in a later turn. Start reviewers together, start included exact-head CI next, then end. Never poll or duplicate. Interrupted work starts a fresh round on later exposure.
+
+After terminal review and CI results, publish mutation-free triage. Verify evidence and scope, judge findings separately, and choose the smallest correction. Record completion before FIX; root applies accepted fixes.
 
 <!-- git-workflow-hard-obligations -->
 

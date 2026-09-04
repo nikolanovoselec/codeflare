@@ -724,22 +724,22 @@ NODE
 # IMPORTANT: Uses timeout to prevent infinite hangs on network issues
 initial_sync_from_r2() {
     local SYNC_TIMEOUT=120  # 2 minutes max for initial sync
-    # REQ-STOR-017 / AD90: under Governed Mode (SSE-C off) R2 keeps usable MD5 ETags, so
-    # compare by --checksum — combined with the image-baked seed laid down below, this
-    # skips the unchanged seed files and transfers only user deltas, catching even
-    # same-size edits the bake can't. Under SSE-C (default) ETags are opaque, so keep the
-    # historical --size-only behavior (byte-identical to today). See create_rclone_config.
-    local COMPARE_FLAG="--size-only"
+    # REQ-STOR-017 / AD90: use checksums when R2 exposes usable hashes. Under SSE-C,
+    # use rclone's default size + modification-time comparison: unlike --size-only,
+    # it materializes same-size managed-release changes without forcing full copies.
+    local COMPARE_FLAGS=()
+    local COMPARE_LABEL="size+modtime"
     if [ "${R2_SSE_DISABLED:-}" = "true" ]; then
-        COMPARE_FLAG="--checksum"
+        COMPARE_FLAGS=("--checksum")
+        COMPARE_LABEL="checksum"
     fi
-    echo "[entrypoint] Step 1: One-way sync R2 → local (max ${SYNC_TIMEOUT}s, compare ${COMPARE_FLAG})..." | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+    echo "[entrypoint] Step 1: One-way sync R2 → local (max ${SYNC_TIMEOUT}s, compare ${COMPARE_LABEL})..." | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
 
     if timeout $SYNC_TIMEOUT rclone sync "r2:$R2_BUCKET_NAME/" "$USER_HOME/" \
         --config "$RCLONE_CONFIG" \
         "${RCLONE_FILTERS[@]}" \
         --fast-list \
-        "$COMPARE_FLAG" \
+        "${COMPARE_FLAGS[@]}" \
         --min-size 1B \
         --multi-thread-streams 4 \
         --transfers 32 \
@@ -780,9 +780,9 @@ repair_hook_exec_bits() {
 # $USER_HOME before the initial R2 sync. Only in Governed Mode (R2_SSE_DISABLED=true),
 # where the subsequent --checksum sync can prove the laid-down files match R2 and skip
 # them — transferring only the user's deltas instead of re-downloading the whole ~9 MB
-# seed every boot. Under SSE-C the bake is NOT laid down (a same-size seed edit could not
-# be detected by --size-only, so honoring "preserve in-container edits" keeps today's
-# full download). Idempotent and mode-aware.
+# seed every boot. Under SSE-C the bake is not laid down; initial restore compares size
+# plus modification time so same-size R2 changes still materialize without letting the
+# image bake overwrite an in-container edit. Idempotent and mode-aware.
 lay_down_agent_seed_preseed() {
     if [ "${REMOTE_CURATION_ACTIVE:-false}" = "true" ]; then
         echo "[entrypoint] Managed release active: skipping baked agent seed lay-down" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
@@ -2660,19 +2660,19 @@ warm_pi_npm_dependencies() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
-  'npm:@gotgenes/pi-subagents@19.3.2',
+  'npm:@gotgenes/pi-subagents@19.3.5',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
-  'npm:@juicesharp/rpiv-advisor@2.6.0',
-  'npm:@juicesharp/rpiv-ask-user-question@2.6.0',
-  'npm:@juicesharp/rpiv-todo@2.6.0',
-  'npm:pi-web-access@0.23.0',
-  'npm:pi-mcp-adapter@2.26.0',
+  'npm:@juicesharp/rpiv-advisor@2.7.1',
+  'npm:@juicesharp/rpiv-ask-user-question@2.7.1',
+  'npm:@juicesharp/rpiv-todo@2.7.1',
+  'npm:pi-web-access@0.25.0',
+  'npm:pi-mcp-adapter@2.29.0',
   'npm:pi-caveman@1.0.8',
   'npm:pi-evaluate@0.1.5',
-  'npm:@narumitw/pi-goal@0.53.0',
-  'npm:@narumitw/pi-plan-mode@0.52.0',
-  'npm:@narumitw/pi-usage@0.52.0',
+  'npm:@narumitw/pi-goal@0.54.3',
+  'npm:@narumitw/pi-plan-mode@0.55.3',
+  'npm:@narumitw/pi-usage@0.53.0',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable its extension and skills on every
 // fresh container start. The managed foreground-owner bridge attaches only after explicit enablement.
@@ -2734,17 +2734,83 @@ fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
 NODE
 }
 
-update_pi_when_fast_start_disabled() {
+update_pi_and_codex_when_fast_start_disabled() {
     if [ "${FAST_CLI_START:-true}" != "false" ]; then
         return 0
     fi
-    if ! command -v pi >/dev/null 2>&1; then
-        echo "[entrypoint] Pi CLI not found; skipping Pi auto-update"
-        return 0
+
+    local npm_tools_dir before_pi before_codex after_pi after_codex update_failed=0
+    local pi_installed=false codex_installed=false runtime_update_succeeded=false
+    local specs=()
+    npm_tools_dir="${CODEFLARE_NPM_TOOLS_DIR:-/opt/codeflare/npm-tools}"
+
+    if command -v pi >/dev/null 2>&1; then
+        pi_installed=true
+        specs+=("@earendil-works/pi-coding-agent@latest")
+        if before_pi="$(PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi --version 2>&1)"; then
+            echo "[entrypoint] Fast Start disabled; Pi version before update: $before_pi"
+        else
+            echo "[entrypoint] ERROR: Could not read Pi version before update"
+            update_failed=1
+        fi
+        if ! PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi update --extensions; then
+            echo "[entrypoint] ERROR: Pi package update failed"
+            update_failed=1
+        fi
+    else
+        echo "[entrypoint] Fast Start disabled; Pi is not installed"
     fi
-    echo "[entrypoint] Fast Start disabled; updating Pi and Pi packages"
-    PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi update || \
-        echo "[entrypoint] WARNING: Pi update failed; continuing startup"
+
+    if command -v codex >/dev/null 2>&1; then
+        codex_installed=true
+        specs+=("@openai/codex@latest")
+        if before_codex="$(codex --version 2>&1)"; then
+            echo "[entrypoint] Fast Start disabled; Codex version before update: $before_codex"
+        else
+            echo "[entrypoint] ERROR: Could not read Codex version before update"
+            update_failed=1
+        fi
+    else
+        echo "[entrypoint] Fast Start disabled; Codex is not installed"
+    fi
+
+    if [ "${#specs[@]}" -gt 0 ]; then
+        if npm install --prefix "$npm_tools_dir" --omit=dev --save-exact --ignore-scripts --no-audit --no-fund "${specs[@]}"; then
+            runtime_update_succeeded=true
+            hash -r
+        else
+            [ "$pi_installed" = false ] || echo "[entrypoint] ERROR: Pi runtime update failed"
+            [ "$codex_installed" = false ] || echo "[entrypoint] ERROR: Codex runtime update failed"
+            update_failed=1
+        fi
+    fi
+
+    if [ "$runtime_update_succeeded" = true ] && [ "$pi_installed" = true ]; then
+        if after_pi="$(PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi --version 2>&1)"; then
+            echo "[entrypoint] Fast Start disabled; Pi version after update: $after_pi"
+        else
+            echo "[entrypoint] ERROR: Could not read Pi version after update"
+            update_failed=1
+        fi
+    fi
+    if [ "$runtime_update_succeeded" = true ] && [ "$codex_installed" = true ]; then
+        if after_codex="$(codex --version 2>&1)"; then
+            echo "[entrypoint] Fast Start disabled; Codex version after update: $after_codex"
+        else
+            echo "[entrypoint] ERROR: Could not read Codex version after update"
+            update_failed=1
+        fi
+    fi
+
+    return "$update_failed"
+}
+
+release_agent_pty_after_fast_start_updates() {
+    update_pi_and_codex_when_fast_start_disabled || \
+        echo "[entrypoint] WARNING: update_pi_and_codex_when_fast_start_disabled failed; continuing startup"
+    # Runtime installs can repopulate npm's disposable download cache.
+    rm -rf "$USER_HOME/.npm" 2>/dev/null
+    release_agent_pty_after_cleanup
 }
 
 # Warm Pi extension npm dependencies from the image-local seed cache.
@@ -2759,11 +2825,6 @@ configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default config
 configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"
 configure_pi_caveman
 warm_pi_npm_dependencies || echo "[entrypoint] WARNING: warm_pi_npm_dependencies failed; continuing startup"
-update_pi_when_fast_start_disabled || echo "[entrypoint] WARNING: update_pi_when_fast_start_disabled failed; continuing startup"
-
-# Purge npm cache - regenerated on demand, 200MB+ of dead weight from
-# runtime npm install calls (Pi packages, context-mode, etc.)
-rm -rf "$USER_HOME/.npm" 2>/dev/null
 
 # Pre-accept Claude Code's bypass permissions consent
 # Claude Code stores this in ~/.claude.json (bypassPermissionsModeAccepted field)
@@ -3883,9 +3944,9 @@ complete_managed_curation_startup() {
     # file outside R2. Copy failure logs a warning without aborting PID 1.
     relay_managed_pi_extensions || true
 
-    # The terminal server has been polling this flag before spawning tab 1. Prune
-    # restored transcripts first, then release the agent PTY as one testable step.
-    release_agent_pty_after_cleanup
+    # The terminal server has been polling this flag before spawning tab 1. Run
+    # requested updates, prune restored transcripts, then release the agent PTY.
+    release_agent_pty_after_fast_start_updates
 
     # VS Code workspaces warm the editor as soon as initialization completes.
     # Terminal workspaces retain the existing lazy first-request launch below.

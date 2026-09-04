@@ -49,13 +49,18 @@ import {
 
 const textDecoder = new TextDecoder();
 
-// Callback keeps terminal transport independent from classic tab state.
+// Callbacks keep terminal transport independent from session/tab state.
 let onProcessName: ((sessionId: string, terminalId: string, processName: string) => void) | null = null;
+let onSessionStopped: ((sessionId: string) => void) | null = null;
 
 export function registerProcessNameCallback(
   callback: (sessionId: string, terminalId: string, processName: string) => void,
 ): void {
   onProcessName = callback;
+}
+
+function registerSessionStoppedCallback(callback: (sessionId: string) => void): void {
+  onSessionStopped = callback;
 }
 
 export type { AgentEventControlMessage } from './terminal-protocol';
@@ -115,6 +120,7 @@ let nextConnectionOwner = 0;
 // Bug 1 fix: Store inputDisposable outside the connect function to properly clean up
 const inputDisposables = new Map<string, { dispose: () => void }>();
 const herdrKeys = new Set<string>();
+const manualKeys = new Set<string>();
 
 // L26: FitAddon management and layout resize delegated to terminal-layout.ts
 // Register layout module dependencies at module init
@@ -204,6 +210,8 @@ function connect(
   disconnect(sessionId, terminalId);
   if (herdr) herdrKeys.add(key);
   else herdrKeys.delete(key);
+  if (manual) manualKeys.add(key);
+  else manualKeys.delete(key);
 
   const owner = ++nextConnectionOwner;
   connectionOwners.set(key, owner);
@@ -407,18 +415,26 @@ function connect(
 
       // Intentional disconnect from dashboard — do not reconnect
       if (event.reason === 'dashboard-disconnect') {
+        controller.abort();
+        abortControllers.delete(key);
+        connectionOwners.delete(key);
         releaseTrailingOutput(key, terminal);
         setConnectionState(sessionId, terminalId, 'disconnected');
         return;
       }
 
-      // Server-authoritative: container is definitively not running (4503 from DO).
-      // Don't retry — session status will be updated by KV polling or is already stopped.
+      // Server-authoritative: persisted Container lifecycle state is definitively
+      // stopping/stopped. Release transport ownership and report the stop directly;
+      // eventually-consistent KV polling is not involved in this transition.
       if (event.code === WS_CONTAINER_STOPPED_CODE) {
         logger.info(`[Terminal ${key}] Container stopped (4503)`);
+        controller.abort();
+        abortControllers.delete(key);
+        connectionOwners.delete(key);
         releaseTrailingOutput(key, terminal);
         setConnectionState(sessionId, terminalId, 'disconnected');
         setRetryMessage(sessionId, terminalId, 'Session stopped');
+        onSessionStopped?.(sessionId);
         return;
       }
 
@@ -434,6 +450,9 @@ function connect(
       }
 
       // Non-retryable close (normal closure, etc.)
+      controller.abort();
+      abortControllers.delete(key);
+      connectionOwners.delete(key);
       releaseTrailingOutput(key, terminal);
       setConnectionState(sessionId, terminalId, 'disconnected');
       setRetryMessage(sessionId, terminalId, null);
@@ -618,11 +637,21 @@ function isConnected(sessionId: string, terminalId: string): boolean {
   return getConnectionState(sessionId, terminalId) === 'connected';
 }
 
+/** True while transport owns a live socket, connection attempt, or retry loop. */
+function ownsSession(sessionId: string): boolean {
+  const prefix = `${sessionId}:`;
+  for (const [key, controller] of abortControllers) {
+    if (key.startsWith(prefix) && !controller.signal.aborted && connectionOwners.has(key)) return true;
+  }
+  return false;
+}
+
 // Dispose terminal UI resources without killing the server-side PTY.
 function disposeLocalTerminal(sessionId: string, terminalId: string): void {
   const key = makeKey(sessionId, terminalId);
   disconnect(sessionId, terminalId);
   herdrKeys.delete(key);
+  manualKeys.delete(key);
   clearPendingResizeAuthority(sessionId, terminalId);
   _unregisterFitAddon(sessionId, terminalId);
   const terminal = terminals.get(key);
@@ -644,6 +673,7 @@ function dispose(sessionId: string, terminalId: string): void {
 
   disconnect(sessionId, terminalId);
   herdrKeys.delete(key);
+  manualKeys.delete(key);
   clearPendingResizeAuthority(sessionId, terminalId);
   const terminal = terminals.get(key);
   if (terminal) {
@@ -668,10 +698,14 @@ function disposeSession(sessionId: string): void {
   cleanupMapByPrefix(terminals, prefix, (terminal) => terminal.dispose());
   cleanupFitAddonsByPrefix(prefix);
   cleanupMapByPrefix(abortControllers, prefix, (controller) => controller.abort());
+  cleanupMapByPrefix(connectionOwners, prefix);
   cleanupMapByPrefix(inputDisposables, prefix, (disposable) => disposable.dispose());
   cleanupOutputByPrefix(prefix);
   for (const key of [...herdrKeys]) {
     if (key.startsWith(prefix)) herdrKeys.delete(key);
+  }
+  for (const key of [...manualKeys]) {
+    if (key.startsWith(prefix)) manualKeys.delete(key);
   }
   for (const key of [...pendingFocusClaims]) {
     if (key.startsWith(prefix)) pendingFocusClaims.delete(key);
@@ -706,6 +740,7 @@ function disposeAll(): void {
   }
   terminals.clear();
   herdrKeys.clear();
+  manualKeys.clear();
 
   // Clear auxiliary Maps that live outside the reactive store
   for (const disposable of inputDisposables.values()) {
@@ -751,8 +786,9 @@ function reconnect(sessionId: string, terminalId: string, onError?: (error: stri
 
   // Close existing connection and reconnect
   const herdr = herdrKeys.has(key);
+  const manual = manualKeys.has(key);
   disconnect(sessionId, terminalId);
-  return connect(sessionId, terminalId, terminal, onError, undefined, !herdr, herdr);
+  return connect(sessionId, terminalId, terminal, onError, manual, !herdr, herdr);
 }
 
 // Send input text to a terminal's WebSocket connection
@@ -837,6 +873,17 @@ export function reconnectOnVisibilityReturn(activeSessionId?: string, visibleKey
   }
 }
 
+/** Replace every visible attachment for the opened session so host state replays. */
+export function restartVisibleTerminals(activeSessionId: string, visibleKeys: string[]): void {
+  const allowedKeys = new Set(visibleKeys);
+  for (const [key] of terminals) {
+    const [sessionId, terminalId] = key.split(':');
+    if (sessionId !== activeSessionId || !allowedKeys.has(key)) continue;
+    logger.info(`[Terminal ${key}] OPEN requested fresh attachment`);
+    reconnect(sessionId, terminalId);
+  }
+}
+
 /**
  * Close all WebSocket connections with a normal close code (1000).
  * Clears connection entries, input disposables, and retry state for every
@@ -918,6 +965,8 @@ export const terminalStore = {
   getRetryMessage,
   getTerminal,
   isConnected,
+  ownsSession,
+  registerSessionStoppedCallback,
 
   // URL detection signals
   get authUrl() {

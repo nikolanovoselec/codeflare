@@ -4,6 +4,7 @@ import type { Env } from '../../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
 import {
   queryAdminUsageRows,
+  queryAdminUsageSeries,
   queryAdminUsageSummary,
   queryAdminUsageUser,
   type AdminUsageRow,
@@ -14,6 +15,7 @@ import {
 const periods = ['day', 'week', 'month', 'year'] as const;
 const sorts = ['runtimeSeconds', 'sessionCount', 'email'] as const;
 const directions = ['asc', 'desc'] as const;
+const seriesLimits: Record<UsagePeriod, number> = { day: 14, week: 12, month: 12, year: 5 };
 
 const querySchema = z.object({
   period: z.enum(periods),
@@ -37,9 +39,24 @@ const cursorSchema = z.object({
 
 type UsageCursor = z.infer<typeof cursorSchema>;
 
+function validCalendarDate(start: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return month >= 1 && month <= 12 && day >= 1 && day <= (daysInMonth[month - 1] ?? 0);
+}
+
 function validStart(period: UsagePeriod, start: string): boolean {
-  if (period === 'day' || period === 'week') return /^\d{4}-\d{2}-\d{2}$/.test(start);
-  if (period === 'month') return /^\d{4}-\d{2}$/.test(start);
+  if (period === 'day') return validCalendarDate(start);
+  if (period === 'week') return validCalendarDate(start) && new Date(`${start}T00:00:00.000Z`).getUTCDay() === 1;
+  if (period === 'month') {
+    const match = /^\d{4}-(\d{2})$/.exec(start);
+    return match !== null && Number(match[1]) >= 1 && Number(match[1]) <= 12;
+  }
   return /^\d{4}$/.test(start);
 }
 
@@ -101,7 +118,7 @@ app.get('/', requireAdmin, async (c) => {
     }
   }
 
-  const rows = await queryAdminUsageRows(c.env.USAGE_DB, {
+  const rowsPromise = queryAdminUsageRows(c.env.USAGE_DB, {
     period: query.period,
     start: query.start,
     sort: query.sort,
@@ -110,7 +127,7 @@ app.get('/', requireAdmin, async (c) => {
     ...(cursor && { continuation: { lastValue: cursor.lastValue, userKey: cursor.userKey } }),
   });
   if (query.format === 'csv') {
-    return new Response(usageCsv(rows), {
+    return new Response(usageCsv(await rowsPromise), {
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="codeflare-usage-${query.period}-${query.start}.csv"`,
@@ -118,10 +135,14 @@ app.get('/', requireAdmin, async (c) => {
     });
   }
 
+  const [rows, summary, series] = await Promise.all([
+    rowsPromise,
+    queryAdminUsageSummary(c.env.USAGE_DB, query.period, query.start),
+    queryAdminUsageSeries(c.env.USAGE_DB, query.period, query.start, seriesLimits[query.period]),
+  ]);
   const hasMore = rows.length > query.limit;
   const users = rows.slice(0, query.limit);
   const last = users.at(-1);
-  const summary = await queryAdminUsageSummary(c.env.USAGE_DB, query.period, query.start);
   return c.json({
     period: query.period,
     start: query.start,
@@ -134,7 +155,8 @@ app.get('/', requireAdmin, async (c) => {
       activeUsers: summary.active_users,
     },
     dataSince: summary.data_since,
-    historyUpdatedAt: summary.history_updated_at,
+    historyUpdatedAt: summary.history_updated_at ?? series[series.length - 1]?.historyUpdatedAt ?? null,
+    series,
     users,
     nextCursor: hasMore && last ? encodeCursor({
       v: 1,

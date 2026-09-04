@@ -291,13 +291,24 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
   it('audits production lockfiles without depending on restored node_modules trees', () => {
     const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
-      jobs: { quality: { steps: Array<{ name?: string; run?: string; 'working-directory'?: string }> } };
+      jobs: {
+        quality: { steps: Array<{ name?: string; run?: string; if?: string; 'working-directory'?: string; 'timeout-minutes'?: number }> };
+        'browser-ide': { steps: Array<{ name?: string; run?: string; if?: string; 'working-directory'?: string; 'timeout-minutes'?: number }> };
+      };
     };
     const audits = workflow.jobs.quality.steps.filter((step) => step.name?.startsWith('Security audit'));
+    const dependencyGate = "github.event_name != 'pull_request' && (needs.changes.outputs.full == 'true' || needs.changes.outputs.dependencies == 'true')";
     expect(audits).toEqual([
-      { name: 'Security audit (backend)', run: 'npm audit --package-lock-only --audit-level=high --omit=dev' },
-      { name: 'Security audit (frontend)', run: 'npm audit --package-lock-only --audit-level=high --omit=dev', 'working-directory': 'web-ui' },
+      { name: 'Security audit (backend)', if: dependencyGate, run: 'npm audit --package-lock-only --audit-level=high --omit=dev', 'timeout-minutes': 1 },
+      { name: 'Security audit (frontend)', if: dependencyGate, run: 'npm audit --package-lock-only --audit-level=high --omit=dev', 'working-directory': 'web-ui', 'timeout-minutes': 1 },
     ]);
+    expect(workflow.jobs['browser-ide'].steps.find((step) => step.name === 'Audit pinned extension dependencies')).toEqual({
+      name: 'Audit pinned extension dependencies',
+      if: dependencyGate,
+      'timeout-minutes': 1,
+      run: 'npm audit --audit-level=high',
+      'working-directory': 'openvscode/agent-sidebar',
+    });
   });
 
   it('registers every owned extension test file for fail-closed report reconciliation', () => {
@@ -918,14 +929,23 @@ esac
     writeFileSync(join(piDirectory, 'package.json'), `${JSON.stringify({
       dependencies: {
         'context-mode': '1.0.0',
+        '@juicesharp/rpiv-todo': '2.6.0',
         'pi-caveman': '1.0.8',
         'pi-web-access': '0.18.0',
       },
     }, null, 2)}\n`);
-    writeFileSync(join(fixture, 'entrypoint.sh'), "required='npm:pi-caveman@1.0.8'\n");
+    writeFileSync(join(fixture, 'entrypoint.sh'), [
+      "required='npm:pi-caveman@1.0.8'",
+      "todo='npm:@juicesharp/rpiv-todo@2.6.0'",
+      '',
+    ].join('\n'));
     writeFileSync(
       join(hostTests, 'pi-settings-packages.test.js'),
-      "assert.equal(spec, 'npm:pi-caveman@1.0.8');\n",
+      [
+        "assert.equal(spec, 'npm:pi-caveman@1.0.8');",
+        "assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.6.0');",
+        '',
+      ].join('\n'),
     );
 
     const discover = workflow.jobs['pi-extensions-discover'].steps?.find(
@@ -939,6 +959,7 @@ esac
     });
     expect(discovered.status, discovered.stderr).toBe(0);
     expect(JSON.parse(readFileSync(output, 'utf8').trim().slice('packages='.length))).toEqual([
+      '@juicesharp/rpiv-todo',
       'pi-caveman',
       'pi-web-access',
     ]);
@@ -955,6 +976,16 @@ esac
     expect(JSON.parse(readFileSync(join(piDirectory, 'package.json'), 'utf8')).dependencies['pi-caveman']).toBe('1.0.9');
     expect(readFileSync(join(fixture, 'entrypoint.sh'), 'utf8')).toContain('npm:pi-caveman@1.0.9');
     expect(readFileSync(join(hostTests, 'pi-settings-packages.test.js'), 'utf8')).toContain('npm:pi-caveman@1.0.9');
+
+    const todoApplied = spawnSync(process.execPath, ['-e', updater ?? ''], {
+      cwd: fixture,
+      encoding: 'utf8',
+      env: { ...process.env, PKG: '@juicesharp/rpiv-todo', CUR: '2.6.0', LAT: '2.7.1' },
+    });
+    expect(todoApplied.status, todoApplied.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(join(piDirectory, 'package.json'), 'utf8')).dependencies['@juicesharp/rpiv-todo']).toBe('2.7.1');
+    expect(readFileSync(join(fixture, 'entrypoint.sh'), 'utf8')).toContain('npm:@juicesharp/rpiv-todo@2.7.1');
+    expect(readFileSync(join(hostTests, 'pi-settings-packages.test.js'), 'utf8')).toContain("pkg.dependencies['@juicesharp/rpiv-todo'], '2.7.1'");
   });
 
   it('REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch', () => {
@@ -966,6 +997,41 @@ esac
     expect(apply).toContain('(cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)');
     expect(apply).toContain('node scripts/patch-pi-goal-review-control.mjs');
     expect(apply).toContain('"$LAT" preseed/agents/pi/node_modules/@narumitw/pi-goal');
+  });
+
+  it('REQ-AGENT-152: Plan Mode shadow bumps execute the locked tool-policy preflight', () => {
+    const workflow = parseYaml(readFileSync(SHADOW_PINS_WORKFLOW, 'utf8')) as {
+      jobs: Record<string, { steps?: Array<{ name?: string; run?: string }> }>;
+    };
+    const apply = workflow.jobs['pi-extensions'].steps?.find((step) => step.name === 'Apply bump')?.run ?? '';
+    const planBranch = apply.match(/if \[ "\$PKG" = '@narumitw\/pi-plan-mode' \]; then\n([\s\S]*?)\nfi/)?.[1];
+    expect(planBranch).toBeDefined();
+
+    const fixture = join(work, 'plan-mode-preflight');
+    const fakeBin = join(fixture, 'bin');
+    const calls = join(fixture, 'calls.log');
+    mkdirSync(join(fixture, 'preseed/agents/pi'), { recursive: true });
+    mkdirSync(fakeBin);
+    writeFileSync(join(fakeBin, 'npm'), '#!/bin/sh\nexit 0\n');
+    writeFileSync(join(fakeBin, 'node'), '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$PLAN_CALLS"\n');
+    chmodSync(join(fakeBin, 'npm'), 0o755);
+    chmodSync(join(fakeBin, 'node'), 0o755);
+
+    const executed = spawnSync('bash', ['-c', planBranch ?? 'exit 1'], {
+      cwd: fixture,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+        LAT: '0.55.1',
+        PLAN_CALLS: calls,
+      },
+    });
+
+    expect(executed.status, executed.stderr).toBe(0);
+    expect(readFileSync(calls, 'utf8').trim()).toBe(
+      'scripts/patch-pi-plan-mode-tool-policy.mjs 0.55.1 preseed/agents/pi/node_modules/@narumitw/pi-plan-mode',
+    );
   });
 
   it('executes the configured workflow step through the updater boundary', () => {

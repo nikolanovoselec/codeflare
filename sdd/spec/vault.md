@@ -70,7 +70,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 ### REQ-VAULT-002: Conversation captures land in the vault as markdown
 
-**Intent:** The capture agent writes one markdown file per 50-prompt batch, plus an immediate uncaptured-tail capture on session resume, into the session capture directory; each capture becomes graph-queryable in the same turn.
+**Intent:** The capture agent writes one markdown file per 20-prompt batch, plus an immediate uncaptured-tail capture on session resume, into the session capture directory; each capture becomes graph-queryable in the same turn.
 
 **Applies To:** User
 
@@ -144,12 +144,12 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. The first real-user prompt of a resumed session with an uncaptured memory tail performs one Vault content-hash check. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::RESUME_VAULT_CHECK --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: host/__tests__/memory-capture-hook.test.js (resume hash-checks Vault and arms extraction only when content changed) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only the uncaptured tail and hash-checks Vault on the first resumed prompt) -->
-2. Regular Vault content-hash checks occur at each crossed 100-real-user-prompt epoch. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::VAULT_EVERY --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::shouldCheckVault --> <!-- @test: host/__tests__/memory-capture-hook.test.js (hash-checks Vault at prompt 100 without starting memory capture early) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (hash-checks at prompt 100 and launches only when Vault content changed) -->
+2. Regular Vault content-hash checks occur at each crossed 20-real-user-prompt epoch. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::VAULT_EVERY --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::shouldCheckVault --> <!-- @test: host/__tests__/memory-capture-hook.test.js (hash-checks Vault at prompt 20 without starting memory capture early) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (hash-checks at prompt 20 and launches only when Vault content changed) -->
 3. Claude advances its successful Vault-check counter after the manifest scanner succeeds, including when no content changed. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::arm_vault_check --> <!-- @test: host/__tests__/memory-capture-hook.test.js (advances the Vault check counter when a successful scan finds no changes) -->
 4. A failed manifest scan does not block the active user prompt. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::arm_vault_check --> <!-- @test: host/__tests__/memory-capture-hook.test.js (retries the Vault hash check on the next prompt after a partial file-read failure) -->
 5. A failed manifest scan leaves the successful-check counter unchanged. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::arm_vault_check --> <!-- @test: host/__tests__/memory-capture-hook.test.js (retries the Vault hash check on the next prompt after a partial file-read failure) -->
 6. A failed manifest scan retries on the next real-user prompt. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::arm_vault_check --> <!-- @test: host/__tests__/memory-capture-hook.test.js (retries the Vault hash check on the next prompt after a partial file-read failure) -->
-7. Exhausted Vault extraction leaves uncommitted edits discoverable only at the next eligible resumed-session or 100-prompt content-hash check. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::refreshPendingVaultRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (rediscovers exhausted Vault work only at the next eligible cadence) -->
+7. Exhausted Vault extraction leaves uncommitted edits discoverable only at the next eligible resumed-session or 20-prompt content-hash check. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::refreshPendingVaultRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (rediscovers exhausted Vault work only at the next eligible cadence) -->
 
 **Constraints:**
 
@@ -159,7 +159,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Priority:** P0
 
-**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion), [REQ-MEM-002](memory.md#req-mem-002-capture-triggers-every-50-user-messages-and-on-resume)
+**Dependencies:** [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion), [REQ-MEM-002](memory.md#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume)
 
 **Verification:** Automated tests ([Claude memory hook tests](../../host/__tests__/memory-capture-hook.test.js), [Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
 

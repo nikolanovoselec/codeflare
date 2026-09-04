@@ -664,7 +664,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toEqual([]);
     });
 
-    // REQ-SESSION-018 AC4: a deliberate stop (persisted shutdown marker set by
+    // REQ-SESSION-018 AC5: a deliberate stop (persisted shutdown marker set by
     // destroy()/user Stop) must NOT be self-healed back to running. The marker
     // is persisted (DO storage), not an in-memory field, so it survives a DO
     // eviction mid-shutdown that would reset an in-memory flag.
@@ -699,7 +699,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toEqual([]);
     });
 
-    // REQ-SESSION-018 AC4: a live container whose KV was wrongly flipped to
+    // REQ-SESSION-018 AC5: a live container whose KV was wrongly flipped to
     // stopped (e.g. by onError on a transient error) self-heals back to running
     // rather than hanging falsely-stopped on the dashboard until a restart.
     it('re-asserts running when the container is alive but KV reads stopped and no shutdown marker is set (self-heal)', async () => {
@@ -727,6 +727,28 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       // Self-heal also restores the metrics payload in the same write.
       expect(stored.metrics).toBeDefined();
       expect(stored.metrics!.cpu).toBe('45%');
+    });
+
+    it('re-asserts running when a stale KV read has no status and the container is alive', async () => {
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456',
+        name: 'Test',
+        userId: 'test-bucket',
+        createdAt: '2024-01-15T09:00:00.000Z',
+        lastAccessedAt: '2024-01-15T09:30:00.000Z',
+      });
+      testState.containerRunning = true;
+
+      await containerInstance.collectMetrics();
+
+      const putCall = mockKV.put.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('testsession123456')
+      );
+      expect(putCall).toBeDefined();
+      const stored = JSON.parse(putCall![1] as string) as Session;
+      expect(stored.status).toBe('running');
+      expect(stored.lastAccessedAt).toBe('2024-01-15T09:30:00.000Z');
+      expect(putCall![2]).toMatchObject({ metadata: expect.objectContaining({ s: 'r' }) });
     });
 
     // REQ-SESSION-020: the watchdog must survive the failure it exists to detect.
