@@ -4,9 +4,9 @@
 
 I can work with an agent environment whose skills, rules, specialists, hooks, extensions, and runtime projections are delivered as reviewed managed content. The curation repository owns that source. One compiler projects portable content into Claude, Pi, Codex, OpenCode, Antigravity, and the supported rule surfaces without pretending every runtime has identical APIs.
 
-I can ship a content change as a signed immutable seed without rebuilding the container image when it stays inside the existing compiler and runtime contract. The publication pipeline compiles every target, rebuilds the bundle twice, compares the bytes, signs the exact gzip payload, and publishes a monotonically increasing release. Each running image selects the newest verified release compatible with its runtime dependency hash.
+I publish reviewed policy and skills as signed immutable releases across supported agent runtimes without rebuilding the container image when the change stays inside the existing compiler and runtime contract. The publication pipeline compiles every target, rebuilds the bundle twice, compares the bytes, signs the exact gzip payload, and publishes a monotonically increasing release. Each running image selects the newest verified release compatible with its runtime dependency hash.
 
-I can update an organization's engineering policy or specialist workflow without rebuilding an entire workstation image. It also keeps the update auditable. “The prompt changed somewhere” is not release management.
+I update an organization's engineering policy or specialist workflow without rebuilding an entire workstation image. It also keeps the update auditable. “The prompt changed somewhere” is not release management.
 
 ## Where the boundary sits
 

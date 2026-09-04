@@ -2,11 +2,11 @@
 
 ## What I can do
 
-I can turn a repository into a system where intent, code, tests, and operating guidance agree with one another. SDD means Spec-Driven Development. TDD means Test-Driven Development. Used together, they stop the familiar trick where a team ships a patch first and writes a requirement afterward that happens to describe the patch perfectly.
+I turn a repository into a system where intent, code, tests, and operating guidance agree with one another. SDD means Spec-Driven Development. TDD means Test-Driven Development. Used together, they stop the familiar trick where a team ships a patch first and writes a requirement afterward that happens to describe the patch perfectly.
 
-For a legacy project, I can run `/sdd init` and reverse-engineer a baseline from source, history, tests, documentation, and architecture. Behavior that the evidence supports becomes a requirement with acceptance criteria, constraints, dependencies, source anchors, test anchors, and status. Unclear intent goes into a visible triage queue. I do not invent a product decision because an old function has an authoritative name.
+For a legacy project, I run `/sdd init` and reverse-engineer a baseline from source, history, tests, documentation, and architecture. Behavior that the evidence supports becomes a requirement with acceptance criteria, constraints, dependencies, source anchors, test anchors, and status. Unclear intent goes into a visible triage queue. I do not invent a product decision because an old function has an authoritative name.
 
-I can use Graphify to enrich that baseline with architecture links, central concepts, and dependency evidence. Source-anchor and enumeration checks then fail closed when the draft claims code that does not exist or forgets an implemented surface.
+I use Graphify to enrich that baseline with architecture links, central concepts, and dependency evidence. Source-anchor and enumeration checks then fail closed when the draft claims code that does not exist or forgets an implemented surface.
 
 Once the baseline is accepted, I trace each change to its owning requirement, write the failing behavioral test first, make the smallest correction, and keep every touched anchor truthful. `/sdd clean` handles drift when a mature specification and implementation no longer describe the same product.
 

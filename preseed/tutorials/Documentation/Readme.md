@@ -1,6 +1,6 @@
 # Codeflare
 
-I set out to prove that fully autonomous AI development actually works when done properly. Gave coding agents a detailed specification, made them follow TDD principles, and let them run unchecked. Somewhere along the way I accidentally built my favorite development environment.
+I set out to prove that an AI agent could carry real engineering work from specification to release without abandoning control. Codeflare gives the agent an isolated workspace, then holds delivery to explicit requirements, behavioral tests, review, CI, and approval boundaries. Autonomy handles the work. Evidence and authorization still decide what ships.
 
 Codeflare is the agentic engineering engine. I work entirely in your browser. For each session, I use an isolated Cloudflare container and your selected agent runtime; your files persist in R2 storage when the container is torn down. Nothing touches your local machine.
 
@@ -10,7 +10,7 @@ I work well from mobile browsers - because the best ideas hit while rewatching y
 
 Setting up a dev environment is tedious. Configuring one for AI-assisted coding is worse - you need the right CLI tools, API keys, a terminal multiplexer, and enough compute to feel responsive. Want to work from a different machine? Start over. Want to experiment without cluttering your local system? Out of luck.
 
-I work in a cloud-hosted workspace that you open from a browser. Start a session, and within seconds you have a fully configured workspace. Your files and settings persist across sessions via R2. When you're done, the container is destroyed. When you come back, a new one spins up with your data already synced. Even if a session dies before you `git push`, R2 sync has got your back.
+I work in a cloud-hosted workspace that you open from a browser. Start a session, and within seconds you have a fully configured workspace. Included synchronized files survive container replacement. Your workspace is excluded from synchronization by default, so an unpushed workspace change is not durable unless you enabled workspace synchronization and a sync completed. Git remains the reliable authority for source code.
 
 ## Supported Agents
 
@@ -23,11 +23,10 @@ I work through multiple supported agent runtimes. You choose the runtime for eac
 | [Antigravity](https://antigravity.google) | Google's terminal coding agent |
 | [GitHub Copilot](https://docs.github.com/en/copilot) | GitHub's AI coding agent |
 | [OpenCode](https://github.com/opencode-ai/opencode) | Open-source multi-model AI coding CLI supporting 75+ model providers |
+| Pi | Codeflare's primary Enterprise coding agent with the full capability scope |
 | Bash | No AI agent - a plain terminal for the purists |
 
-All six are first-class citizens. Pick the one that fits your task, or use Bash if you prefer working without an AI assistant.
-
-Pro-mode features (knowledge graph, curated skills, advanced workflows, automatic review agents) are primarily designed for Claude Code. The other agents receive the same rules and agent definitions, but the slash-command workflow and graph integration are tuned for Claude.
+Pi is the primary agent for Enterprise deployments and receives the full Codeflare capability scope. Other supported runtimes remain selectable when enabled by administrators, with shared policy and portable skills projected where compatible. Commands, tools, and editor integrations follow each runtime's native capabilities.
 
 ## What You Get
 
@@ -38,7 +37,7 @@ Pro-mode features (knowledge graph, curated skills, advanced workflows, automati
 - **Terminal tiling.** I work across two to four side-by-side terminals. Once you tile, you don't go back.
 - **Voice input.** I accept voice input through the terminal's mic button and Web Speech API. Brief me without thumb-typing a paragraph on mobile.
 - **R2 file browser.** The dashboard lets you browse, upload, download, and manage files without starting a container. Vault, Uploads, and Temporary appear as special folders.
-- **Persistent vault (SilverBullet).** I work with an Obsidian-compatible Markdown vault at `~/Vault/`, accessible from the header. It stores notes, journal entries, and pasted screenshots. Codeflare's memory hooks capture conversation decisions and references every 20 real user messages so I can recover prior context in a future session.
+- **Persistent vault (SilverBullet).** I work with an Obsidian-compatible Markdown vault accessible from the header. Codeflare's memory subsystem continuously persists decisions, corrections, observations, debugging discoveries, and source references in the Vault. These captures join the cumulative knowledge graph as permanently queryable content, unless you remove them. I retrieve that history automatically in future sessions and connect it to current requirements, incidents, plans, and code.
 - **User management.** Administrators manage email allowlists and admin or user roles. Invite users or revoke them when they get too creative.
 - **Setup wizard.** First deployment walks you through DNS, authentication, and storage configuration. It takes a few minutes and happens once.
 - **Configurable auto-sleep.** Codeflare applies the configured 15m / 30m / 1h / 2h / 4h timeout. Typing keeps the session alive; background polls do not. Free tier is locked to 15m.
@@ -47,48 +46,25 @@ Pro-mode features (knowledge graph, curated skills, advanced workflows, automati
 
 ## Pro Mode (Advanced Sessions)
 
-In an advanced session, I use additional agent tooling on top of the base IDE. It is designed for Claude Code, but the rules and agent definitions ship for every agent.
+Every Enterprise session runs in advanced mode with the full Codeflare capability scope. Pi is the primary Enterprise agent. Other runtimes remain available when enabled by administrators and receive compatible policy, skills, and native workflow surfaces.
 
 - **Spec-driven development (`/sdd`).** I use `/sdd init` to bootstrap a `sdd/` folder with REQ-tracked requirements, `/sdd clean` to maintain it, and the specification to guide implementation.
 - **Multi-perspective review (`/review`).** I use `/review` to launch applicable security, architecture, code, refactoring, TDD, and documentation perspectives, cross-reference findings, filter against your ADRs, apply the Reality Filter, and triage interactively with you. I use `--diff` during active work, `--all` for a whole-codebase audit, `--deep` for behavioral SDD verification, and `--verify-high` to send surviving HIGH or CRITICAL findings to configured external models for cross-checks and fix proposals. This on-demand workflow is separate from automatic PR-boundary review and intentionally heavier.
 - **Other slash commands.** I use `/debug` for systematic root-cause analysis, `/deploy` to drive a release through CI, and `/brainstorm` for structured ideation.
-- **Knowledge graph (Graphify).** I use Graphify to index supported repository and Vault content, merge the active repository with the cumulative Vault graph at `~/.graphify/global-graph.json`, and answer structural questions through its query tools instead of grepping blindly. “What calls function X?”, “What depends on Z?”, and “Where did we decide Y?” all get sharper answers.
+- **Knowledge graph (Graphify).** I combine supported repository structure with cumulative Vault knowledge and answer structural questions through graph queries instead of grepping blindly. “What calls function X?”, “What depends on Z?”, and “Where did we decide Y?” all get sharper answers.
 - **Automatic review agents.** At an eligible protected pull-request boundary, I use the classifier to launch the smallest applicable report-only review set. Reviewers report findings; they do not auto-merge.
 - **Curated skill family.** I use preloaded skills for CI monitoring, deploy credentials, documentation and specification enforcement, TDD, SDD, PR workflows, and more.
-- **Hook plugins.** Preseeded hooks capture session memory every 20 real user messages, provide bounded Graphify routing, gate destructive actions, and detect Vault edits. I work under those controls without having to invoke them manually.
+- **Managed runtime controls.** Codeflare persists session knowledge in the Vault, retrieves it automatically, provides bounded Graphify routing, gates destructive actions, and detects Vault edits without requiring manual activation.
 
-None of this needs configuration. Pick Claude Code + advanced mode on the session form and it's all preseeded.
-
-## Architecture
-
-```mermaid
-flowchart LR
-    A[Browser] --> B["Cloudflare Worker
-    Hono router + SolidJS static UI"]
-    B --> C["Durable Object
-    session lifecycle + hibernation"]
-    C --> D["Cloudflare Container
-    isolated per session, pre-warmed PTY"]
-    D --> E["R2
-    per-user storage, bisync every 15min + manual triggers"]
-    D --> F["SilverBullet supervisor
-    localhost vault editor"]
-    D --> G["graphify CLI + MCP
-    unified knowledge graph"]
-```
-
-Each session maps to a single container. The Worker handles routing and auth. Durable Objects manage session lifecycle. Containers provide the compute. R2 provides storage that outlives every container you'll ever start. SilverBullet runs supervised inside the container on a localhost port and is reached from the browser through a Worker proxy (`/api/vault/:sid/`). Graphify runs as a long-lived process inside the container and exposes its tools over MCP to the agent.
-
-Containers scale to zero when idle (no sessions = no bill). Auth is handled automatically - via Cloudflare Access or GitHub OIDC depending on deployment mode.
+None of this needs per-session configuration. Every Enterprise session already runs in advanced mode with the full Codeflare capability scope.
 
 ## Security
 
 - I run inside one session container with no shared shell or cross-session access. I can `rm -rf /`, and the only victim is my container.
 - I run with full terminal access inside the isolated container. I can modify that container's filesystem, but I cannot cross its isolation boundary.
-- All authenticated surfaces (`/app`, `/api`, `/setup`, `/api/vault/*`) are protected by JWT verification.
-- API tokens never enter the container at rest. Secrets stay in GitHub and Cloudflare. I do not know your passwords, and frankly, I do not want to.
-- The vault editor inside the container is bound to localhost only. The Worker proxy is the auth boundary - port 3030 is never exposed externally.
-- Optional Turnstile bot protection for public-facing onboarding flows.
+- In Enterprise deployments, supported GitHub and provider credentials remain outside the container; Codeflare injects them at Worker-side boundaries. Deployment credentials never enter session containers.
+- In Enterprise deployments, session containers receive non-secret placeholders for supported intercepted services. Reusable credentials remain at Worker-side boundaries.
+- In Enterprise deployments, Cloudflare Access protects ingress and binds each session to the authenticated user.
 
 ## Resource Tiers
 

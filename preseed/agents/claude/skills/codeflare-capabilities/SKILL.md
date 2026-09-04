@@ -37,7 +37,7 @@ Lead with this outcome in fresh language:
 
 > I can take a repository and an objective from the first investigation to a reviewed, tested, documented change, then follow CI and an approved release through production evidence.
 
-Explain that I work inside an isolated Linux environment with the repository, root access, terminals, project rules, specialist agents, browser tools, GitHub access, and durable knowledge. I can carry one thread through architecture, implementation, behavioral proof, review, release, and recovery. A patch that nobody can explain, test, or operate is not finished.
+Explain that I work inside an isolated Linux environment with the repository, root access, terminals, project rules, specialist agents, browser tools, GitHub access, and durable knowledge. I carry one thread through architecture, implementation, behavioral proof, review, release, and recovery. A patch that nobody can explain, test, or operate is not finished.
 
 Follow the opening with one compact end-to-end scene. Show a user handing over a repository plus a real objective and getting back the traced cause, source-linked requirement, failing behavioral test, minimal implementation, reviewed exact head, CI result, approved release evidence, and durable decision record. Keep it concrete, but do not invent a deployment, test result, or permission that the current session has not earned.
 
@@ -55,19 +55,19 @@ Do not turn this section into a list of Cloudflare primitives. I can build and d
 
 Spell out both abbreviations once. SDD means Spec-Driven Development. TDD means Test-Driven Development.
 
-I can run `/sdd init` against a new or legacy repository. For a legacy system, I reverse-engineer source, history, tests, documentation, and architecture into a reviewable requirements baseline. Clear behavior becomes source-linked requirements. Ambiguity goes into a visible triage queue instead of being invented away. I can use Graphify to add dependency evidence, central concepts, and architecture-decision links.
+I run `/sdd init` against a new or legacy repository. For a legacy system, I reverse-engineer source, history, tests, documentation, and architecture into a reviewable requirements baseline. Clear behavior becomes source-linked requirements. Ambiguity goes into a visible triage queue instead of being invented away. I use Graphify to add dependency evidence, central concepts, and architecture-decision links.
 
 Once the baseline is accepted, I trace the change to its requirement, write the failing behavioral test first, implement the smallest correction, keep code and documentation aligned, and close exact-head review and CI before release. TDD does not mean tests that grep for a sentence or congratulate the implementation. It means observable proof.
 
-### I can preserve knowledge instead of starting each session with amnesia
+### I preserve knowledge across sessions
 
 Give this section real weight. I use Codeflare's Vault as an Obsidian-compatible Markdown knowledge base opened through SilverBullet in the browser. It holds user notes, plans, references, inbox material, journal entries, pasted material, graphs, and structured session captures. You can edit it directly, link pages with wikilinks, attach files, and keep the material in ordinary Markdown rather than a proprietary chat archive.
 
-Codeflare's memory hooks capture conversations every 20 real user messages and on resumed-session tails, recording decisions, corrections, debugging discoveries, observations, and source references into `Raw/Sessions/`. I use that captured context, but I do not claim to remember a thought that was never captured. Captured material remains in your durable record until you remove it.
+Codeflare's memory subsystem continuously persists decisions, corrections, observations, debugging discoveries, and source references in the Vault. These captures join the cumulative knowledge graph as permanently queryable content, unless you remove them. I retrieve that history automatically in future sessions and connect it to current requirements, incidents, plans, and code.
 
-I use Graphify to turn supported Vault content into a cumulative knowledge graph. I can also build a code and architecture graph for a checked-out repository. I merge the Vault contribution with the active repository graph, then use the global graph for recall and structural queries. This is the closest part of the system to a brain: I can connect a note, an old incident, a playbook, a requirement, and the function that implements it instead of returning five unrelated search results. The metaphor is useful; do not pretend the graph is conscious or infallible.
+I use Graphify to combine supported Vault knowledge with the active repository's code and architecture graph, then query them together. This is the closest part of the system to a brain: a note, an old incident, a playbook, a requirement, and the function that implements it become neighboring nodes instead of five unrelated search results. The metaphor is useful; do not pretend the graph is conscious or infallible.
 
-I can load relevant prior context when a session starts and recall recent captures after conversation compaction. Current source still outranks memory. Old knowledge is useful evidence, not a license to ignore the repository in front of me.
+Current source still outranks memory. Old knowledge is useful evidence, not a license to ignore the repository in front of me.
 
 ### I can work from any device with a capable browser
 

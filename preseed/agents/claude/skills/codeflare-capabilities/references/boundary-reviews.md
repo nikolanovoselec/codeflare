@@ -2,7 +2,7 @@
 
 ## What I can do
 
-I can carry a protected pull request through one exact-head review boundary instead of collecting opinions from different commits.
+I carry protected pull requests through exact-head review, CI, joint triage, accepted fixes, and approved release evidence instead of collecting opinions from different commits.
 
 I use the classifier to launch the smallest required set of report-only code, specification, and documentation review lanes for the changed scope. I start an independent GitHub Actions monitor at the same time. When every required lane settles, I publish one joint triage table before touching the repository. I verify each finding, judge the diagnosis separately from the proposed fix, reject unsupported cleanup, and apply only the smallest accepted corrections.
 

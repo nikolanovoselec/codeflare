@@ -1,6 +1,6 @@
 # Getting Started
 
-You have a full Linux container in your browser. An AI agent is loaded and waiting in Tab 1. Five more terminals behind it. Files included by your sync settings move to cloud storage that outlives every container you'll ever start (every 15 minutes plus a final sync on stop, with a Sync-now button when you want it sooner). Your notes sync too. I recall captured context from prior sessions. Your hands are free if you want them to be. Here's what to do with all of that.
+You have a full Linux container in your browser. An AI agent is loaded and waiting in Tab 1. Five more terminals behind it. Files included by your sync settings move to cloud storage that outlives every container you'll ever start (every 15 minutes plus a final sync on stop, with a Sync-now button when you want it sooner). Your notes sync too. I automatically retrieve captured history from prior sessions and connect it to current work. Your hands are free if you want them to be. Here's what to do with all of that.
 
 ---
 
@@ -57,7 +57,7 @@ What it's for:
 - Pasted screenshots, PDFs, anything you want to keep
 - Daily journal entries (`Journal: Today` button)
 - Quick capture (`Quick Note` button - the timestamped note lands in `Inbox/`)
-- Automatic session capture every 20 real user messages, plus an uncaptured tail after resume, so I can look up prior decisions in a future session
+- Codeflare's memory subsystem continuously persists decisions, corrections, observations, debugging discoveries, and source references in the Vault. These captures join the cumulative knowledge graph as permanently queryable content, unless you remove them. I retrieve that history automatically in future sessions and connect it to current requirements, incidents, plans, and code.
 
 Bisync mirrors the vault to R2 every 15 minutes - same plumbing as the rest of `~`. If you want an edit you just made in SilverBullet pushed to R2 right now (or want a freshly-pasted note picked up from another device), hit the Sync-now button on the R2 panel and it fans out to every running session. Vault contents on a fresh container appear as soon as the first bisync round completes.
 
@@ -67,7 +67,7 @@ There's a built-in dashboard at the vault root (`Index`) that surfaces recent qu
 
 ## Pro Mode (Advanced Sessions)
 
-If you picked the **Claude Code** agent and enabled advanced mode on the session, you get a bigger toolbelt:
+Every Enterprise session runs in advanced mode with the full Codeflare capability scope. Pi is the primary Enterprise agent. Other supported runtimes remain selectable when enabled by administrators, with shared policy and portable skills projected where compatible. Commands, tools, and editor integrations follow each runtime's native capabilities. Claude Code exposes these slash-command shortcuts:
 
 - **`/sdd`** - I use `/sdd init` to bootstrap a `sdd/` folder with REQ-tracked requirements for the project you're in, then work against the specification instead of vibes.
 - **`/review`** - I use `/review` to launch applicable specialist perspectives, cross-reference findings, filter against your ADRs, apply the Reality Filter, and triage interactively with you. I use `--diff` during active work, `--all` for a whole-codebase pass, `--deep` to verify SDD requirements against implementation, and `--verify-high` for configured external cross-checks. This remains distinct from automatic PR-boundary review.
@@ -77,7 +77,7 @@ If you picked the **Claude Code** agent and enabled advanced mode on the session
 - **Knowledge graph (Graphify)** - I use Graphify to index supported repository and Vault content into a unified graph, then answer structural questions through graph queries instead of grepping blindly.
 - **Auto review agents** - at an eligible protected pull-request boundary, I use the classifier to launch the smallest required review set for the changed scope. Reviewers report findings; they don't auto-merge.
 
-Preseeded hook plugins capture session memory, gate destructive actions, and keep your specification synchronized. I work under those controls without requiring extra configuration in a fresh advanced session.
+Codeflare's memory subsystem persists session knowledge in the Vault and retrieves it automatically in future work. Managed runtime controls gate destructive actions and keep your specification synchronized without extra configuration in a fresh advanced session.
 
 Agent runtimes receive runtime-specific projections and do not all use identical rules, tools, or workflow surfaces. Use the capabilities exposed by the selected runtime rather than assuming Claude-specific commands exist everywhere.
 

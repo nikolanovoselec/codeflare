@@ -16,13 +16,17 @@ Named interceptors cover named services. They are not a universal secret manager
 
 ## Try it
 
-In Enterprise deployments, open a new Bash terminal tab and run:
+In an Enterprise deployment, connect your GitHub identity, open a new Bash terminal tab, and run:
 
 ```bash
-printf 'GH_TOKEN=%s\n' "$GH_TOKEN"
+if [ "${GH_TOKEN-}" = "codeflare-enterprise" ]; then
+  printf 'GH_TOKEN=%s\n' "$GH_TOKEN"
+else
+  printf '%s\n' 'Enterprise GitHub placeholder is unavailable. No value printed.'
+fi
 ```
 
-You should see `GH_TOKEN=codeflare-enterprise`. That value is a non-secret placeholder, not your GitHub token. Now test Worker-side authorization:
+A connected Enterprise session prints `GH_TOKEN=codeflare-enterprise`. That value is a non-secret placeholder, not your GitHub token. Only after you see that placeholder, test Worker-side authorization:
 
 ```bash
 gh api user --jq '{login, id}'

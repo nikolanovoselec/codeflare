@@ -2,13 +2,13 @@
 
 ## What I can do
 
-I can preserve the useful parts of a long engineering life instead of treating every new session as amnesia with a terminal.
+I preserve the useful parts of a long engineering life instead of treating every new session as amnesia with a terminal.
 
 I use the Vault as an Obsidian-compatible Markdown knowledge base opened through SilverBullet. It carries notes, plans, references, journal entries, inbox material, attachments, pasted content, and structured session captures. You can edit it directly, create wikilinks, and keep the source as ordinary files.
 
-Codeflare's memory hooks capture every 20 real user messages and resumed-session tails into `Raw/Sessions/`. They retain decisions, corrections, observations, debugging discoveries, and source references in your durable storage until you remove them. I use that durable context without claiming every uncaptured thought survives forever.
+Codeflare's memory subsystem continuously persists decisions, corrections, observations, debugging discoveries, and source references in the Vault. These captures join the cumulative knowledge graph as permanently queryable content, unless you remove them. I retrieve that history automatically in future sessions and connect it to current requirements, incidents, plans, and code.
 
-I use Graphify to turn supported Vault content into a cumulative knowledge graph. I can add source and architecture from a checked-out repository, merge it with the Vault contribution, and query the resulting global graph. That lets me connect a prior incident, a playbook, a requirement, and the function that implements it. I can load relevant graph context on a session's first useful prompt and recall recent captures after compaction.
+I use Graphify to combine supported Vault knowledge with source and architecture from the active repository, then query them as one graph. That connects a prior incident, a playbook, a requirement, and the function that implements it. I automatically retrieve relevant graph context when current work connects to it.
 
 I use Todo to keep executable work and dependencies honest. I delegate investigation, review, CI monitoring, and knowledge extraction to specialist subagents when parallel work helps. I remain the root owner that combines their evidence and controls mutations.
 
