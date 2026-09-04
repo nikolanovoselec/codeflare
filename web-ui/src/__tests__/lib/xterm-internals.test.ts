@@ -142,7 +142,7 @@ describe('xterm-internals', () => {
       expect(() => resyncViewportScrollState(term)).not.toThrow();
     });
 
-    it('REQ-TERM-043 AC8: does not abort OPEN when viewport dimensions are not initialized yet', () => {
+    it('REQ-TERM-044 AC2: does not abort OPEN when viewport dimensions are not initialized yet', () => {
       const term = makeMockTerminal({ buffer: { active: { viewportY: 0, baseY: 0 } } });
       term._core._viewport = {
         scrollToLine: vi.fn(() => {
@@ -151,6 +151,14 @@ describe('xterm-internals', () => {
       };
 
       expect(() => resyncViewportScrollState(term)).not.toThrow();
+    });
+
+    it('propagates unexpected viewport failures', () => {
+      const unexpected = new Error('unexpected viewport failure');
+      const term = makeMockTerminal({ buffer: { active: { viewportY: 0, baseY: 0 } } });
+      term._core._viewport = { scrollToLine: vi.fn(() => { throw unexpected; }) };
+
+      expect(() => resyncViewportScrollState(term)).toThrow(unexpected);
     });
   });
 });
