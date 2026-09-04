@@ -3101,7 +3101,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-051](#req-agent-051-pi-deploy-and-brainstorm-commands), [REQ-AGENT-070](#req-agent-070-claude-on-demand-ci-monitoring-policy), [REQ-AGENT-071](#req-agent-071-pr-boundary-review-agent-dispatch)
 
-**Verification:** Manual verification
+**Verification:** Manual check
 
 **Status:** Implemented
 
