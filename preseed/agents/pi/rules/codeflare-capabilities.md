@@ -1,3 +1,3 @@
 # Capability route
 
-For broad Codeflare capability/onboarding questions, tours, or numbered tutorial replies, load `codeflare-capabilities`, never generic discovery; otherwise use task context.
+For broad Codeflare capability/onboarding questions, tours, or numbered replies, read `~/.pi/agent/skills/codeflare-capabilities/SKILL.md` directly; never use `capability`. Otherwise use task context.

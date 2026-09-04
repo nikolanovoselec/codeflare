@@ -141,6 +141,10 @@ describe('REQ-AGENT-096: registered Pi tool discovery and activation', () => {
         ],
       },
     });
+    await expect(capability.execute('activate-skill', { name: 'codeflare-capabilities' }))
+      .rejects.toThrow(
+        'Unknown tool: codeflare-capabilities. capability activates registered Pi tools only; read ~/.pi/agent/skills/<name>/SKILL.md to load a skill.',
+      );
     expect(await capability.execute('activate', { name: 'subagent' })).toEqual({
       content: [{
         type: 'text',
