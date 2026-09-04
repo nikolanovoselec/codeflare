@@ -40,6 +40,7 @@ export function buildBaseOpenVscodeSettings(managedExtensions = [], sessionWorks
     "workbench.startupEditor": "none",
     "terminal.integrated.defaultProfile.linux": defaultTerminalProfile(sessionWorkspace),
     "terminal.integrated.profiles.linux": {
+      bash: null,
       Bash: {
         path: "/bin/bash",
         args: ["-l"],
