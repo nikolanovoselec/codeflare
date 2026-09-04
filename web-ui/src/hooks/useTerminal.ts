@@ -645,20 +645,23 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
     });
   });
 
-  // Readiness remains UI-owned until the user opens the session. That state
-  // transition creates the first attachment; no hidden socket competes with OPEN.
+  // The terminal server is available at mounting. Attach once there so tab 1
+  // adopts the prewarmed PTY before its bounded orphan window expires. OPEN only
+  // removes the overlay; it never replaces this hook-owned transport.
   createEffect(() => {
     const initializing = isInitializing();
+    const stage = initProgress()?.stage;
+    const terminalServerReady = !initializing || stage === 'mounting' || stage === 'ready';
 
-    if ((!canConnect() || initializing) && cleanup) {
+    if ((!canConnect() || !terminalServerReady) && cleanup) {
       cleanup();
       cleanup = undefined;
       terminalStore.stopUrlDetection(props.sessionId, props.terminalId);
       return;
     }
 
-    if (canConnect() && !initializing && term && !cleanup) {
-      logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Connecting WebSocket`);
+    if (canConnect() && terminalServerReady && term && !cleanup) {
+      logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Connecting WebSocket (stage: ${stage || 'running'})`);
       const terminals = sessionStore.getTerminalsForSession(props.sessionId);
       const tab = terminals?.tabs.find((candidate) => candidate.id === props.terminalId);
       cleanup = terminalStore.connect(

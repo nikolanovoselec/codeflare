@@ -497,18 +497,20 @@ None.
 
 ### REQ-TERM-043: Visible terminal readiness gating
 
-**Intent:** Visible terminal panes attach and focus only when their session startup state can provide authoritative terminal output.
+**Intent:** Visible terminal panes adopt the prepared PTY as soon as the terminal service is available, while focus and display remain behind explicit readiness acknowledgement.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A visible initializing session opens no terminal connection while readiness remains unacknowledged, including after startup reaches `ready`. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC1/AC2: OPEN owns the first connection after acknowledged readiness) -->
-2. A visible initializing session focuses no terminal before the user opens it; acknowledging readiness creates and focuses exactly one first attachment. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC1/AC2: OPEN owns the first connection after acknowledged readiness) -->
-3. An already-running visible session connects immediately. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC3: connects immediately when the session is already ready) -->
-4. Opening a ready terminal dismisses readiness without directly manipulating transport; the terminal hook creates the first attachment and host attach replay restores current screen state. <!-- @impl: web-ui/src/components/Layout.tsx::handleOpenSessionById --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @impl: host/src/session.ts::attach --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-043 AC4: OPEN dismisses readiness without directly manipulating transport) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (attach() sends a restore frame as JSON carrying type="restore" once buffer has state) -->
+1. A visible initializing session opens no terminal connection before startup reaches `mounting`. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC1: does not connect before the terminal service reaches mounting) -->
+2. At `mounting`, the visible pane creates exactly one hook-owned attachment that remains unchanged through `ready` and OPEN. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC2/AC3: adopts prewarm once at mounting and OPEN only enables focus) -->
+3. The pane does not focus while readiness remains unacknowledged; OPEN enables focus on the existing attachment. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC2/AC3: adopts prewarm once at mounting and OPEN only enables focus) -->
+4. An already-running visible session connects immediately. <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/hooks/useTerminal.test.ts (REQ-TERM-043 AC4: connects immediately when the session is already ready) -->
+5. OPEN dismisses readiness without creating, replacing, or reconnecting terminal transport. <!-- @impl: web-ui/src/components/Layout.tsx::handleOpenSessionById --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (REQ-TERM-043 AC5: OPEN dismisses readiness without directly manipulating transport) -->
+6. Reattaching an existing PTY restores its current serialized screen before normal output continues. <!-- @impl: host/src/session.ts::attach --> <!-- @test: host/__tests__/session-wire-protocol.test.js (attach() sends a restore frame as JSON carrying type="restore" once buffer has state) -->
 
-**Constraints:** The three-minute startup guard and MultiView visible-pane ownership remain unchanged.
+**Constraints:** The three-minute startup guard, bounded prewarm orphan window, and MultiView visible-pane ownership remain unchanged.
 
 **Priority:** P0
 

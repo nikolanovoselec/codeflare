@@ -640,7 +640,7 @@ describe('useTerminal hook', () => {
   // that connect() runs, nor that its returned cleanup (which tears down /
   // allows reconnect of the socket) is invoked on unmount.
   describe('WebSocket connect / stop path', () => {
-    it('REQ-TERM-043 AC3: connects immediately when the session is already ready', () => {
+    it('REQ-TERM-043 AC4: connects immediately when the session is already ready', () => {
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
 
       const dispose = createRoot((dispose) => {
@@ -684,7 +684,7 @@ describe('useTerminal hook', () => {
       expect(connectCleanup).toHaveBeenCalledTimes(1);
     });
 
-    it('should NOT connect while the session is initializing before the ready stage', () => {
+    it('REQ-TERM-043 AC1: does not connect before the terminal service reaches mounting', () => {
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(true);
       vi.mocked(sessionStore.getInitProgressForSession).mockReturnValue({ stage: 'provisioning' } as any);
 
@@ -699,7 +699,7 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
-    it('REQ-TERM-043 AC1/AC2: OPEN owns the first connection after acknowledged readiness', async () => {
+    it('REQ-TERM-043 AC2/AC3: adopts prewarm once at mounting and OPEN only enables focus', async () => {
       const [stage, setStage] = createSignal<'mounting' | 'ready'>('mounting');
       const [initializing, setInitializing] = createSignal(true);
       vi.mocked(sessionStore.isSessionInitializing).mockImplementation(() => initializing());
@@ -711,21 +711,21 @@ describe('useTerminal hook', () => {
         return dispose;
       });
 
-      expect(terminalStore.connect).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(terminalStore.connect).toHaveBeenCalledTimes(1));
       expect(terminalStore.startUrlDetection).not.toHaveBeenCalled();
       expect(mockFocus).not.toHaveBeenCalled();
 
       setStage('ready');
       await Promise.resolve();
 
-      expect(terminalStore.connect).not.toHaveBeenCalled();
+      expect(terminalStore.connect).toHaveBeenCalledTimes(1);
       expect(terminalStore.startUrlDetection).not.toHaveBeenCalled();
       expect(mockFocus).not.toHaveBeenCalled();
 
       setInitializing(false);
 
-      await vi.waitFor(() => expect(terminalStore.connect).toHaveBeenCalledTimes(1));
-      expect(terminalStore.startUrlDetection).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(terminalStore.startUrlDetection).toHaveBeenCalledTimes(1));
+      expect(terminalStore.connect).toHaveBeenCalledTimes(1);
       expect(terminalStore.startUrlDetection).toHaveBeenCalledWith(defaultProps.sessionId, defaultProps.terminalId);
       expect(mockFocus).toHaveBeenCalledTimes(1);
 

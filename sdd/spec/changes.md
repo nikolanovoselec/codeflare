@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-04
 
-- **Open owns the first terminal attachment after readiness** ([REQ-TERM-043](terminal.md#req-term-043-visible-terminal-readiness-gating) AC1-AC2 and AC4 amended; remains Implemented). A ready-but-unacknowledged terminal no longer opens a hidden WebSocket that OPEN immediately replaces through a second transport owner. OPEN now only dismisses readiness, after which the terminal hook creates and owns one first attachment and receives host screen replay through the existing attach protocol.
+- **Mounting restores single-owner terminal prewarm adoption** ([REQ-TERM-043](terminal.md#req-term-043-visible-terminal-readiness-gating) Intent and AC1-AC6 amended; remains Implemented). Comparing the regression with the August 27 known-good lifecycle showed that moving attachment from `mounting` to `ready` bypassed the prepared PTY ownership path and made delayed OPEN depend on replacement sockets and replay. The visible pane now creates one hook-owned attachment when the terminal service reaches `mounting`; it remains unchanged through `ready` and OPEN. OPEN only dismisses readiness and enables focus, while later reattachments retain host replay.
 
 - **Capability tutorials run without Caveman compression** ([REQ-AGENT-189](agents.md#req-agent-189-layered-codeflare-capability-discovery) AC5 added; remains Implemented). Caveman stays in image-owned Lite mode for ordinary Pi responses, but its version-locked auto-clarity policy yields to Codeflare capability and onboarding tutorials, including numbered replies, then resumes afterward.
 

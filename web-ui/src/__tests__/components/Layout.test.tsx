@@ -1049,7 +1049,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
   // =========================================================================
 
   describe('Terminal workspace transitions / REQ-TERM-011 through REQ-TERM-013', () => {
-    it('REQ-TERM-043 AC4: OPEN dismisses readiness without directly manipulating transport', async () => {
+    it('REQ-TERM-043 AC5: OPEN dismisses readiness without directly manipulating transport', async () => {
       const { sessionStore } = await import('../../stores/session');
       mockSessions = [createMockSession({ id: 'sess1', status: 'running' })];
       mockActiveSessionId = 'sess1';
