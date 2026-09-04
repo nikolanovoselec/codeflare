@@ -640,7 +640,7 @@ describe('useTerminal hook', () => {
   // that connect() runs, nor that its returned cleanup (which tears down /
   // allows reconnect of the socket) is invoked on unmount.
   describe('WebSocket connect / stop path', () => {
-    it('REQ-TERM-043 AC4: connects immediately when the session is already ready', () => {
+    it('REQ-TERM-043 AC5: connects immediately when the session is already ready', () => {
       vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
 
       const dispose = createRoot((dispose) => {
@@ -699,7 +699,7 @@ describe('useTerminal hook', () => {
       dispose();
     });
 
-    it('REQ-TERM-043 AC2/AC3: adopts prewarm once at mounting and OPEN only enables focus', async () => {
+    it('REQ-TERM-043 AC2-AC4: adopts prewarm once at mounting and OPEN only enables focus', async () => {
       const [stage, setStage] = createSignal<'mounting' | 'ready'>('mounting');
       const [initializing, setInitializing] = createSignal(true);
       vi.mocked(sessionStore.isSessionInitializing).mockImplementation(() => initializing());
