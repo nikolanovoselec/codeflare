@@ -12,7 +12,8 @@ interface Props {
 
 function generatedId(name: string): string {
   const slug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 57).replace(/-+$/g, '');
-  return `custom-${slug || 'profile'}`;
+  const base = slug || 'profile';
+  return base === 'custom' || base.startsWith('custom-') ? base : `custom-${base}`;
 }
 
 const ReasoningProfileEditor: Component<Props> = (props) => {
@@ -79,7 +80,7 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
           <strong>{discovered().classification} compatibility</strong>
           <span>Matched deterministic protocol: {discovered().matchedCandidateProfileId}</span>
           <span>Logical probes: {discovered().accounting?.logicalProbes ?? 0}; HTTP attempts: {discovered().accounting?.httpAttempts ?? 0}</span>
-          <small>Review the result, name it, then add the immutable revision to the configuration draft. Saving here does not assign or activate it.</small>
+          <small>Review the result, name it, then add the immutable revision to the configuration draft. Discovery evidence is retained, but custom revisions remain unverified and require explicit warned activation.</small>
         </div>
         <div class="admin-profile-grid">
           <label class="admin-form-field"><span>Profile name</span><input aria-label="Profile name" maxlength="128" value={name()} onInput={(event) => setName(event.currentTarget.value)} /></label>

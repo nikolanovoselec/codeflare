@@ -209,9 +209,6 @@ function generatedProfileDraft(profile: Record<string, unknown>, report: Record<
   const levels = isPlainObject(profile.levels)
     ? Object.fromEntries(Object.entries(profile.levels).filter(([level]) => verifiedLevels.includes(level as any)))
     : {};
-  const transports = [...new Set((Array.isArray(report.distinctMappings) ? report.distinctMappings : [])
-    .flatMap((item: any) => [item?.reasoningProbe?.transport, item?.toolLifecycle?.first?.transport, item?.toolLifecycle?.replay?.transport])
-    .filter((transport: unknown): transport is string => transport === 'rest' || transport === 'compat'))];
   return {
     schemaVersion: 1,
     enabled: true,
@@ -223,10 +220,10 @@ function generatedProfileDraft(profile: Record<string, unknown>, report: Record<
     levels,
     aliases,
     offSemantics: profile.offSemantics,
-    toolCompatibility: { status: 'verified', levels: verifiedLevels },
+    toolCompatibility: { status: 'unverified', levels: [] },
     recognizedResponseFields: isPlainObject(profile.recognizedResponseFields) ? profile.recognizedResponseFields : {},
-    validatedTransports: transports,
-    classification: report.classification,
+    validatedTransports: [],
+    classification: 'Compatible, unverified',
     limitations: Array.isArray(report.limitations) ? report.limitations : [],
     originallyCreatedAgainst: { route, observedAt, evidenceType: 'deterministic-pi-discovery' },
     evidence: [{ ...report.evidence, route, observedAt, evidenceType: 'deterministic-pi-discovery' }],

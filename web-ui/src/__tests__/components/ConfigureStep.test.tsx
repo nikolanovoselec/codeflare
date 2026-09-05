@@ -461,6 +461,12 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
       }
     });
 
+    it('shows the required gateway token permissions (REQ-ENTERPRISE-017 AC7)', () => {
+      storeState.enterpriseMode = true;
+      render(() => <ConfigureStep />);
+      expect(screen.getByText(/Workers AI, AI Gateway Run, and AI Gateway Read/)).toBeInTheDocument();
+    });
+
     it('enables AI-routing Continue once route, Gateway URL, and token exist (REQ-ENTERPRISE-012 AC6)', () => {
       storeState.enterpriseMode = true;
       storeState.customDomain = 'claude.example.com';
@@ -470,7 +476,6 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
       storeState.aigGatewayUrl = 'https://gateway.ai.cloudflare.com/v1/account/gateway';
       storeState.aigToken = 'token';
       render(() => <ConfigureStep />);
-      expect(screen.getByText(/Workers AI, AI Gateway Run, and AI Gateway Read/)).toBeInTheDocument();
 
       fireEvent.click(screen.getByText('Continue'));
       expect((screen.getByText('Continue').closest('button') as HTMLButtonElement).disabled).toBe(false);

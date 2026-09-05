@@ -311,14 +311,24 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     });
     expect(body.profileDraft).not.toHaveProperty('id');
     expect(body.profileDraft).not.toHaveProperty('name');
+    expect(body.profileDraft).toMatchObject({
+      classification: 'Compatible, unverified',
+      toolCompatibility: { status: 'unverified', levels: [] },
+      validatedTransports: [],
+    });
     const actualProfiles = await vi.importActual<typeof import('../../lib/reasoning-profiles')>('../../lib/reasoning-profiles');
-    expect(() => actualProfiles.normalizeCustomProfile({
+    const normalized = actualProfiles.normalizeCustomProfile({
       ...body.profileDraft,
       id: 'custom-generated',
       name: 'Generated profile',
       revision: 1,
-    })).not.toThrow();
-    expect(kv.put).not.toHaveBeenCalled();
+    });
+    expect(normalized).toMatchObject({
+      classification: 'Compatible, unverified',
+      toolCompatibility: { status: 'unverified', levels: [] },
+      validatedTransports: [],
+    });
+    expect(vi.mocked(kv.put).mock.calls.some(([key]) => key === SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
   });
 
   it('returns exact active-version leg/path summaries and only administrator-owned custom-provider identity', async () => {
