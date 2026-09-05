@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render } from '@solidjs/testing-library';
+import { cleanup, fireEvent, render, waitFor } from '@solidjs/testing-library';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import EnvironmentAreaFields, { environmentValues } from '../../components/admin/EnvironmentAreaFields';
 
@@ -66,7 +66,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('REQ-ENTERPRISE-034 route-scoped profile discovery', () => {
+describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
   it('uses one route-scoped discovery flow without exposing model-family candidate labels', async () => {
     const { getByRole, getByLabelText, queryByLabelText, queryByText, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
     await findByText(/Mesh binary thinking/);
@@ -85,7 +85,7 @@ describe('REQ-ENTERPRISE-034 route-scoped profile discovery', () => {
   });
 
   it('adds an immutable unassigned revision and surfaces the required Review and Apply path', async () => {
-    const { container, getByRole, getByLabelText, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    const { container, getByRole, getByLabelText, getByText, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
     await findByText(/Mesh binary thinking/);
     await fireEvent.click(getByRole('button', { name: /discover mesh compatibility/i }));
     await fireEvent.click(getByRole('button', { name: /check compatibility/i }));
@@ -128,8 +128,8 @@ describe('REQ-ENTERPRISE-034 route-scoped profile discovery', () => {
 
   it('does not expose discovery for a stored route missing from the gateway', async () => {
     const staleCurrent = { ...current, dynamicRoutes: ['mesh', 'retired'], routeContextWindows: { mesh: 262144, retired: 65536 } };
-    const { getByRole, queryByRole, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={staleCurrent} />);
-    await findByText(/Mesh binary thinking/);
+    const { getByRole, getByLabelText, queryByRole } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={staleCurrent} />);
+    await waitFor(() => expect((getByLabelText('mesh reasoning profile') as HTMLSelectElement).options.length).toBe(2));
 
     expect(getByRole('button', { name: /discover mesh compatibility/i })).toBeEnabled();
     expect(queryByRole('button', { name: /discover retired compatibility/i })).toBeNull();

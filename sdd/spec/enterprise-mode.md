@@ -294,25 +294,21 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-### REQ-ENTERPRISE-034: Enterprise Pi Administration Workflow
+### REQ-ENTERPRISE-034: Enterprise Pi Route Administration
 
-**Intent:** Administrators can configure route reasoning and create safe custom profiles without duplicating gateway routes or authoring low-level mappings.
+**Intent:** Administrators can configure gateway-owned route reasoning without duplicating routes or authoring low-level mappings.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
 1. Administration discovers gateway routes from supported management responses. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (accepts documented data.routes and returns the exact sanitized catalog schema) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (reuses the saved gateway credential and accepts the compatible result.routes envelope) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (returns exact active-version leg/path summaries and only administrator-owned custom-provider identity) -->
-2. Each route presents one primary compatibility-discovery action beside typed context and profile controls; gateway inventory, selected-profile verification, leg compatibility records, and limitations remain available only through advanced disclosures. Group, default, preview, and Apply controls require neither editable JSON nor manual route duplication. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (offers one primary route discovery action and runs route-only protocol discovery) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (keeps gateway inventory and compatibility records in collapsed advanced route details) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (automatically adds gateway routes, confirms apply-to-all, and serializes the shared typed draft) -->
-3. Custom profile discovery tests bounded protocol candidates for one auto-discovered route and reports compatible reasoning behavior without presenting an internal candidate identifier as model-family identification. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (discovers a route-only matching protocol and returns a non-activating custom profile draft) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (uses one route-scoped discovery flow without exposing model-family candidate labels) -->
-4. A maximal compatible mapping subsumes matching subsets only when their shared mutations match. <!-- @impl: src/routes/admin/reasoning.ts::selectUnambiguousCandidateMatch --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (prefers one compatible superset protocol over its matching off-only subset) -->
-5. Divergent compatible mappings remain ambiguous. <!-- @impl: src/routes/admin/reasoning.ts::selectUnambiguousCandidateMatch --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (keeps divergent compatible protocols ambiguous) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (does not let a superset dominate when its shared mapping differs) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (REQ-ENTERPRISE-034 AC5: returns an ambiguous non-activating result when compatible candidate mappings diverge) -->
-6. Naming adds an immutable custom revision to the configuration draft without assignment or activation. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (adds an immutable unassigned revision and surfaces the required Review and Apply path) -->
-7. Continuing from a named discovery result opens configuration Review immediately, identifies the draft as pending save, unassigned, and inactive, retains it after Back to edit, and persists it only after Apply succeeds. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (continues a discovered profile directly into Review with the immutable unassigned draft) -->
+2. Each route presents one primary compatibility-discovery action beside typed context and profile controls. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (offers one primary route discovery action and runs route-only protocol discovery) -->
+3. Gateway inventory, selected-profile verification, leg compatibility records, and limitations remain available only through advanced disclosures. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (keeps gateway inventory and compatibility records in collapsed advanced route details) -->
+4. Group, default, preview, and Apply controls require neither editable JSON nor manual route duplication. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (automatically adds gateway routes, confirms apply-to-all, and serializes the shared typed draft) -->
 
 **Constraints:**
 
-- Custom profile drafts retain sanitized advisory evidence, remain unverified, and require warning confirmation before activation.
 - Gateway routes and backend legs remain gateway-owned and cannot be forced or inferred by this workflow.
 
 **Priority:** P1
@@ -320,6 +316,59 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Dependencies:** [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence)
 
 **Verification:** Automated tests in the anchored Administration API and web-ui suites above.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-035: Enterprise Pi Protocol Match Selection
+
+**Intent:** Route-scoped discovery reports compatible reasoning behavior without claiming to identify the backend model family.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Route-scoped discovery reports compatible reasoning behavior without presenting an internal candidate identifier as model-family identification. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (discovers a route-only matching protocol and returns a non-activating custom profile draft) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (uses one route-scoped discovery flow without exposing model-family candidate labels) -->
+2. A maximal compatible mapping subsumes matching subsets only when their shared mutations match. <!-- @impl: src/routes/admin/reasoning.ts::selectUnambiguousCandidateMatch --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (prefers one compatible superset protocol over its matching off-only subset) -->
+3. Divergent compatible mappings remain ambiguous. <!-- @impl: src/routes/admin/reasoning.ts::selectUnambiguousCandidateMatch --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (keeps divergent compatible protocols ambiguous) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (does not let a superset dominate when its shared mapping differs) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (REQ-ENTERPRISE-035 AC3: returns an ambiguous non-activating result when compatible candidate mappings diverge) -->
+
+**Constraints:**
+
+- Match selection remains bounded, deterministic, sanitized, non-assigning, and non-activating.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence), [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration)
+
+**Verification:** Automated tests in the anchored discovery and Administration API suites above.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-036: Enterprise Pi Custom Profile Draft Lifecycle
+
+**Intent:** Administrators can review and durably save a discovered custom profile without silently assigning or activating it.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Naming adds an immutable custom revision to the configuration draft without assignment or activation. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (adds an immutable unassigned revision and surfaces the required Review and Apply path) -->
+2. Continuing from a named discovery result opens configuration Review and identifies the draft as pending save, unassigned, and inactive. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (continues a discovered profile directly into Review with the immutable unassigned draft) -->
+3. Returning from Review to edit retains the named custom revision in the configuration draft. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (continues a discovered profile directly into Review with the immutable unassigned draft) -->
+4. The named custom revision is persisted only after Apply succeeds. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (continues a discovered profile directly into Review with the immutable unassigned draft) --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (applies AI routing and Browser Run without clobbering saved credentials) -->
+
+**Constraints:**
+
+- Custom profile drafts retain sanitized advisory evidence, remain unverified, and require warning confirmation before activation.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration), [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection)
+
+**Verification:** Automated tests in the anchored Administration web-ui suites above.
 
 **Status:** Implemented
 

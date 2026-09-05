@@ -1,4 +1,4 @@
-import { cleanup, render } from '@solidjs/testing-library';
+import { cleanup, render, waitFor } from '@solidjs/testing-library';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import EnvironmentAreaFields, { environmentValues } from '../../components/admin/EnvironmentAreaFields';
 
@@ -50,10 +50,10 @@ describe('Environment report fields', () => {
       reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: { development: { activeProfile: { id: 'workers-ai-kimi-k-thinking', revision: 1, hash: 'a'.repeat(64) } } } },
       groupRouting: [{ accessGroup: 'developers', routes: ['development'], defaultRoute: 'development', reasoning: 'medium' }],
     };
-    const { getByLabelText, queryByLabelText, queryByRole, findByText, container } = render(() => (
+    const { getByLabelText, queryByLabelText, queryByRole, container } = render(() => (
       <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />
     ));
-    await findByText('Selected: Kimi thinking');
+    await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).selectedOptions[0]?.textContent).toContain('Kimi thinking'));
 
     expect(queryByRole('button', { name: /add route/i })).toBeNull();
     expect((getByLabelText('development context window') as HTMLInputElement).value).toBe('262144');

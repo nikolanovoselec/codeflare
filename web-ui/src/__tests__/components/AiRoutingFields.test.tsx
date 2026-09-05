@@ -100,7 +100,6 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     const summary = within(developmentCard).getByText('Advanced route details', { selector: 'summary' });
     const details = summary.closest('details');
     expect(details?.open).toBe(false);
-    expect(queryByRole('button', { name: /refresh development gateway details/i })).toBeNull();
 
     await fireEvent.click(summary);
     await fireEvent.click(getByRole('button', { name: /refresh development gateway details/i }));

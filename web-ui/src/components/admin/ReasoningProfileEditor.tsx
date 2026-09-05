@@ -16,6 +16,11 @@ function generatedId(name: string): string {
   return base === 'custom' || base.startsWith('custom-') ? base : `custom-${base}`;
 }
 
+function discoveredLevels(result: ReasoningDiscoveryResult): string {
+  const levels = result.profileDraft?.supportedLevels;
+  return Array.isArray(levels) ? levels.map(String).join(', ') : 'Not reported';
+}
+
 function unsuccessfulOutcome(result: ReasoningDiscoveryResult): string {
   const candidateClassifications = result.candidateResults?.map((candidate) => candidate.classification.toLowerCase()) ?? [];
   if (result.warnings?.includes('ambiguous_profile_mapping') || candidateClassifications.includes('heterogeneous')) {
@@ -91,7 +96,7 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
         <div class="admin-discovery-success">
           <strong>Compatible reasoning behavior found</strong>
           <p>The route completed bounded reasoning, Pi tool-call, and tool-result replay checks.</p>
-          <span>Supported levels: {discovered().profileDraft?.supportedLevels?.join(', ') || 'Not reported'}</span>
+          <span>Supported levels: {discoveredLevels(discovered())}</span>
         </div>
         <label class="admin-form-field admin-profile-name"><span>Profile name</span><input aria-label="Profile name" maxlength="128" placeholder={`For example, ${props.route} reasoning`} value={name()} onInput={(event) => setName(event.currentTarget.value)} /></label>
         <div class="admin-review-action">
