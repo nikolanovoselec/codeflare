@@ -50,7 +50,7 @@ interface DiscoveryProfile {
   levels: Partial<Record<ReasoningLevel, SemanticMapping>>;
 }
 
-export interface DiscoveryEndpoint {
+interface DiscoveryEndpoint {
   rest: string;
   compat: string;
 }
@@ -84,7 +84,7 @@ export interface ParsedPiSse {
   malformedEvents: number;
 }
 
-export interface ChatCompletionsAttemptInput {
+interface ChatCompletionsAttemptInput {
   accountId?: string;
   gatewayId?: string;
   apiToken: string;
@@ -95,7 +95,7 @@ export interface ChatCompletionsAttemptInput {
   maxResponseBytes?: number;
 }
 
-export interface ChatCompletionsAttempt {
+interface ChatCompletionsAttempt {
   response: Response;
   attempts: number;
   transport: 'rest' | 'compat';
@@ -544,7 +544,7 @@ async function fetchWithTimeout(fetcher: typeof fetch, url: string, init: Reques
  * 404 body has been consumed completely, and removes only store and
  * prompt_cache_key from the replayed request.
  */
-export async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInput): Promise<ChatCompletionsAttempt> {
+async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInput): Promise<ChatCompletionsAttempt> {
   const fetcher = input.fetcher ?? fetch;
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxResponseBytes = input.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;

@@ -15,17 +15,17 @@ import {
   type ScalarWrite,
 } from './reasoning-profiles';
 
-export const MAX_REASONING_CONFIGURATION_BYTES = 256 * 1024;
-export const MAX_CUSTOM_PROFILE_IDS = 32;
-export const MAX_CUSTOM_PROFILE_REVISIONS = 64;
+const MAX_REASONING_CONFIGURATION_BYTES = 256 * 1024;
+const MAX_CUSTOM_PROFILE_IDS = 32;
+const MAX_CUSTOM_PROFILE_REVISIONS = 64;
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const MAX_ROUTE_NAME = 256;
 const MAX_REFERENCE_TEXT = 256;
 const MAX_MAPPING_ENTRIES = 16;
 
-export interface EvidenceRef extends Record<string, ScalarValue | ScalarValue[]> {}
+interface EvidenceRef extends Record<string, ScalarValue | ScalarValue[]> {}
 
-export interface RouteLegAssignment {
+interface RouteLegAssignment {
   nodeId: string;
   provider: string;
   declaredModel: string;
@@ -34,7 +34,7 @@ export interface RouteLegAssignment {
   evidence?: EvidenceRef;
 }
 
-export interface RouteReasoningAssignment {
+interface RouteReasoningAssignment {
   activeProfile: ProfileRevisionRef;
   routeVersion?: string;
   legs?: RouteLegAssignment[];
@@ -231,7 +231,7 @@ export function serializeReasoningConfiguration(input: unknown): string {
   return serialized;
 }
 
-export function getProfileForRef(configuration: ReasoningConfiguration, ref: ProfileRevisionRef): NormalizedReasoningProfile {
+function getProfileForRef(configuration: ReasoningConfiguration, ref: ProfileRevisionRef): NormalizedReasoningProfile {
   const customMap = new Map(configuration.customProfileRevisions.map((profile) => [`${profile.id}:${profile.revision}`, profile]));
   return resolveRef(ref, customMap, 'profile reference');
 }
@@ -478,8 +478,4 @@ export function reasoningConfigurationWarnings(configuration: ReasoningConfigura
     }
   }
   return warnings.filter((warning, index, all) => all.findIndex((candidate) => candidate.code === warning.code) === index);
-}
-
-export function builtInCatalog(): readonly NormalizedReasoningProfile[] {
-  return BUILT_IN_REASONING_PROFILES;
 }

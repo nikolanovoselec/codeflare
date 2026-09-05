@@ -7,7 +7,12 @@ import { getAigConfig } from '../../lib/aig-config';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { createLogger } from '../../lib/logger';
 import { parseReasoningConfiguration } from '../../lib/reasoning-configuration';
-import * as profileCatalog from '../../lib/reasoning-profiles';
+import {
+  BUILT_IN_REASONING_PROFILES,
+  COMPATIBILITY_NOTICES,
+  canonicalHash,
+  isPiReasoningLevel,
+} from '../../lib/reasoning-profiles';
 import { discoverPiCompatibility } from '../../lib/reasoning-discovery';
 import {
   DynamicRouteInventoryError,
@@ -39,13 +44,6 @@ interface ReasoningConfigurationView {
   customProfileRevisions: Record<string, unknown>[];
   routeAssignments: Record<string, Record<string, unknown>>;
 }
-
-interface ProfileModuleShape {
-  BUILT_IN_REASONING_PROFILES?: readonly Record<string, unknown>[];
-  COMPATIBILITY_NOTICES?: readonly Record<string, unknown>[];
-}
-
-const catalogModule = profileCatalog as unknown as ProfileModuleShape;
 
 const discoveryRateLimiter = createRateLimiter({
   windowMs: 60_000,
@@ -142,7 +140,7 @@ function profileRefFor(profile: Record<string, unknown>): ProfileRef | null {
 }
 
 function allProfiles(configuration: ReasoningConfigurationView): Record<string, unknown>[] {
-  return [...(catalogModule.BUILT_IN_REASONING_PROFILES ?? []), ...configuration.customProfileRevisions];
+  return [...(BUILT_IN_REASONING_PROFILES as unknown as readonly Record<string, unknown>[]), ...configuration.customProfileRevisions];
 }
 
 function resolveProfile(configuration: ReasoningConfigurationView, requested: ProfileRef): Record<string, unknown> | null {
@@ -307,7 +305,7 @@ function buildInventoryResponse(
     const levels: LegMappingEvidence['levels'] = {};
     if (profile && isPlainObject(profile.levels) && Array.isArray(profile.removePaths)) {
       for (const level of Array.isArray(profile.supportedLevels) ? profile.supportedLevels : []) {
-        if (!profileCatalog.isPiReasoningLevel(level) || !Array.isArray(profile.levels[level])) continue;
+        if (!isPiReasoningLevel(level) || !Array.isArray(profile.levels[level])) continue;
         levels[level] = {
           removePaths: [...profile.removePaths] as string[],
           writes: (profile.levels[level] as Array<Record<string, unknown>>).map((write) => ({
@@ -339,12 +337,12 @@ function buildInventoryResponse(
     legs,
     paths: inventory.paths,
     commonLevels: Object.keys(common.levels),
-    ...(Object.keys(common.levels).length > 0 && { commonMapping: { levels: common.levels, digest: profileCatalog.canonicalHash(common.levels) } }),
+    ...(Object.keys(common.levels).length > 0 && { commonMapping: { levels: common.levels, digest: canonicalHash(common.levels) } }),
     warnings: [...new Set(warnings)],
   };
 }
 
-export const reasoningRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+const reasoningRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 reasoningRoutes.use('*', authMiddleware);
 
 reasoningRoutes.get('/catalog', requireAdmin, async (c) => {
@@ -367,7 +365,7 @@ reasoningRoutes.get('/catalog', requireAdmin, async (c) => {
   return c.json({
     schemaVersion: 1,
     profiles: allProfiles(configuration).map(sanitizeProfile),
-    notices: (catalogModule.COMPATIBILITY_NOTICES ?? []).map(sanitizeNotice),
+    notices: COMPATIBILITY_NOTICES.map(sanitizeNotice),
     usage: assignmentUsage(configuration),
     routes,
     routeCatalogStatus,

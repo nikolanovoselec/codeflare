@@ -17,6 +17,20 @@ const NOTICE_IDS = [
   'responses-required',
 ];
 
+function customProfile(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'custom-validation', name: 'Custom validation', schemaVersion: 1, enabled: true,
+    supportedLevels: ['off', 'medium'], removePaths: [],
+    levels: {
+      off: [{ path: 'thinking_mode', value: 'disabled' }],
+      medium: [{ path: 'reasoning_effort', value: 'medium' }],
+    },
+    offSemantics: { status: 'explicit-value', path: 'thinking_mode', value: 'disabled' },
+    recognizedResponseFields: { content: ['choices[].message.content'] },
+    ...overrides,
+  };
+}
+
 describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
   it('ships exactly the six executable built-ins and keeps failed families as notices', () => {
     expect(profiles.REASONING_PROFILE_IDS).toEqual(BUILTIN_IDS);
@@ -84,5 +98,73 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     const kimi = (profiles as any).BUILT_IN_REASONING_PROFILES.find((profile: any) => profile.id === 'workers-ai-kimi-k-thinking');
     expect(kimi.supportedLevels).not.toContain('off');
     expect(kimi.unsupportedLevels).toContain('off');
+  });
+
+  it('REQ-ENTERPRISE-031 AC2: requires off to be a literal disable rather than an alias or enabled toggle', () => {
+    expect(() => profiles.normalizeCustomProfile(customProfile({
+      levels: { off: 'medium', medium: [{ path: 'reasoning_effort', value: 'medium' }] },
+    }))).toThrow(/off cannot alias/i);
+    expect(() => profiles.normalizeCustomProfile(customProfile({
+      levels: {
+        off: [{ path: 'chat_template_kwargs.enable_thinking', value: true }],
+        medium: [{ path: 'reasoning_effort', value: 'medium' }],
+      },
+      offSemantics: { status: 'explicit-toggle', path: 'chat_template_kwargs.enable_thinking', value: true },
+    }))).toThrow(/toggle must be false/i);
+    expect(() => profiles.normalizeCustomProfile(customProfile({
+      supportedLevels: ['medium'],
+      levels: { medium: [{ path: 'reasoning_effort', value: 'medium' }] },
+      offSemantics: { status: 'explicit-value', path: 'thinking_mode', value: 'disabled' },
+    }))).toThrow(/must be unsupported/i);
+  });
+
+  it('REQ-ENTERPRISE-031 AC2: rejects self-referential, unsupported, and cyclic level aliases', () => {
+    expect(() => profiles.normalizeCustomProfile(customProfile({
+      levels: { off: [{ path: 'thinking_mode', value: 'disabled' }], medium: 'medium' },
+    }))).toThrow(/alias for medium is invalid/i);
+    expect(() => profiles.normalizeCustomProfile(customProfile({
+      levels: { off: [{ path: 'thinking_mode', value: 'disabled' }], medium: 'high' },
+    }))).toThrow(/alias for medium is invalid/i);
+    expect(() => profiles.normalizeCustomProfile(customProfile({
+      supportedLevels: ['low', 'medium'],
+      levels: { low: 'medium', medium: 'low' },
+      offSemantics: { status: 'unsupported' },
+    }))).toThrow(/aliases contain a cycle/i);
+  });
+
+  it('REQ-ENTERPRISE-031 AC2: sanitizes evidence copies and rejects malformed evidence summaries', () => {
+    const sourceTags = ['current', 'tool-replay'];
+    const normalized = profiles.normalizeCustomProfile(customProfile({
+      evidence: [{ current: true, attempts: 3, tags: sourceTags }],
+      validatedAgainst: [{ routeVersion: 'route-v2' }],
+    }));
+    sourceTags.push('mutated-after-normalization');
+    expect(normalized.evidence).toEqual([{ current: true, attempts: 3, tags: ['current', 'tool-replay'] }]);
+    expect(normalized.validatedAgainst).toEqual([{ routeVersion: 'route-v2' }]);
+
+    for (const evidence of [
+      [{ 'invalid-key': true }],
+      [{ nested: { unsafe: true } }],
+      [{ tags: ['safe', 2] }],
+    ]) {
+      expect(() => profiles.normalizeCustomProfile(customProfile({ evidence })))
+        .toThrow(/invalid field|sanitized scalar summaries/i);
+    }
+    expect(() => profiles.normalizeCustomProfile(customProfile({
+      evidence: Array.from({ length: 20 }, () => ({ current: true })),
+      validatedAgainst: [{ routeVersion: 'one-too-many' }],
+    }))).toThrow(/validation summaries/i);
+  });
+
+  it('REQ-ENTERPRISE-031 AC2: accepts only allowlisted response evidence fields and paths', () => {
+    expect(() => profiles.normalizeCustomProfile(customProfile({
+      recognizedResponseFields: { secret: ['choices[].message.content'] },
+    }))).toThrow(/recognized response fields are invalid/i);
+    expect(() => profiles.normalizeCustomProfile(customProfile({
+      recognizedResponseFields: { reasoning: ['choices[].message.unknown'] },
+    }))).toThrow(/response path is unsupported/i);
+    expect(() => profiles.normalizeCustomProfile(customProfile({
+      recognizedResponseFields: { content: Array.from({ length: 17 }, () => 'choices[].message.content') },
+    }))).toThrow(/recognized response fields are invalid/i);
   });
 });

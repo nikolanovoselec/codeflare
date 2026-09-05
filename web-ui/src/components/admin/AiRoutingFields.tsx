@@ -67,7 +67,7 @@ function routeAssignment(value: unknown): AssignmentDraft {
     ...(profileRef(candidate.activeProfile) && { activeProfile: profileRef(candidate.activeProfile) }),
     ...(text(candidate.routeVersion) && { routeVersion: text(candidate.routeVersion) }),
     ...(legs && { legs }),
-    ...(candidate.commonMapping && { commonMapping: candidate.commonMapping as ReasoningRouteAssignment['commonMapping'] }),
+    ...(candidate.commonMapping !== undefined ? { commonMapping: candidate.commonMapping as ReasoningRouteAssignment['commonMapping'] } : {}),
   };
 }
 function groupDrafts(value: unknown): GroupDraft[] {
@@ -133,8 +133,11 @@ const AiRoutingFields: Component<Props> = (props) => {
         setGatewayRoutes(loaded.routes);
         setRoutes((items) => {
           const byName = new Map(items.map((route) => [route.name, route]));
-          const discovered = loaded.routes.map((name) => byName.get(name) ?? { name, contextWindow: DEFAULT_CONTEXT_WINDOW, assignment: {} });
-          return [...discovered, ...items.filter((route) => !loaded.routes.includes(route.name))];
+          const discovered = loaded.routes.map((name) => {
+            const existing = byName.get(name);
+            return existing ? { ...existing } : { name, contextWindow: DEFAULT_CONTEXT_WINDOW, assignment: {} };
+          });
+          return [...discovered, ...items.filter((route) => !loaded.routes.includes(route.name)).map((route) => ({ ...route }))];
         });
         if (!defaultRoute() && loaded.routes[0]) setDefaultRoute(loaded.routes[0]);
       }

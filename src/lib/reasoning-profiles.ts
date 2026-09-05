@@ -1,4 +1,4 @@
-export const PI_REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+const PI_REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type PiReasoningLevel = typeof PI_REASONING_LEVELS[number];
 export type ScalarValue = string | number | boolean | null;
 

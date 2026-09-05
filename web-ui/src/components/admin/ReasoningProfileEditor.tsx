@@ -63,7 +63,7 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
   const toggleLevel = (level: PiReasoningLevel, enabled: boolean) => {
     if (level === 'off') {
       setOffSemantics(enabled ? 'explicit-disable' : 'unsupported');
-      setSupported((levels) => enabled ? [...new Set([...levels, 'off'])] : levels.filter((item) => item !== 'off'));
+      setSupported((levels) => enabled ? [...new Set<PiReasoningLevel>([...levels, 'off'])] : levels.filter((item) => item !== 'off'));
       if (enabled && !mappings().some((row) => row.level === 'off')) {
         setMappings((rows) => [...rows, { id: nextId++, level: 'off', path: 'reasoning_effort', type: 'string', rawValue: 'none' }]);
       }

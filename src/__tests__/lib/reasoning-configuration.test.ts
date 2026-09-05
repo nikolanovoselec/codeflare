@@ -8,6 +8,17 @@ async function subject(): Promise<any> {
 
 const empty = { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} };
 
+function customRevision(overrides: Record<string, unknown> = {}) {
+  return normalizeCustomProfile({
+    id: 'custom-revision', name: 'Custom revision', schemaVersion: 1, revision: 1, enabled: true,
+    supportedLevels: ['off'], removePaths: ['reasoning_effort'],
+    levels: { off: [{ path: 'thinking_mode', value: 'disabled' }] },
+    offSemantics: { status: 'explicit-value', path: 'thinking_mode', value: 'disabled' },
+    recognizedResponseFields: { content: ['choices[].message.content'] },
+    ...overrides,
+  });
+}
+
 describe('REQ-ENTERPRISE-031 atomic reasoning configuration', () => {
   it('parses one bounded document and preserves exact route and leg profile references', async () => {
     const { parseReasoningConfiguration } = await subject();
@@ -181,5 +192,92 @@ describe('REQ-ENTERPRISE-031 atomic reasoning configuration', () => {
       .toThrow(/referenced/i);
     expect(() => validateReasoningConfigurationUpdate(current, { ...current, customProfileRevisions: [], routeAssignments: {} }))
       .toThrow(/referenced/i);
+  });
+
+  it('REQ-ENTERPRISE-031 AC3: rejects an in-place mutation of an existing custom revision', async () => {
+    const { validateReasoningConfigurationUpdate } = await subject();
+    const currentRevision = customRevision();
+    const mutatedRevision = customRevision({ name: 'Mutated revision' });
+    const current = { ...empty, customProfileRevisions: [currentRevision] };
+
+    expect(() => validateReasoningConfigurationUpdate(current, { ...current, customProfileRevisions: [mutatedRevision] }))
+      .toThrow(/immutable/i);
+  });
+
+  it('REQ-ENTERPRISE-031 AC3: raw references protect revisions before malformed assignments can bypass collection or disable checks', async () => {
+    const { validateReasoningConfigurationUpdate } = await subject();
+    const revision = customRevision();
+    const profileRef = { id: revision.id, revision: revision.revision, hash: revision.hash };
+    const malformedAssignment = {
+      activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking'),
+      legs: [{ profileRef }],
+    };
+    const current = { ...empty, customProfileRevisions: [revision], routeAssignments: { route: malformedAssignment } };
+
+    expect(() => validateReasoningConfigurationUpdate(current, { ...empty, customProfileRevisions: [] }))
+      .toThrow(/referenced and cannot be collected/i);
+
+    const disabled = customRevision({ enabled: false });
+    expect(() => validateReasoningConfigurationUpdate(
+      { ...empty, customProfileRevisions: [revision] },
+      { ...empty, customProfileRevisions: [disabled], routeAssignments: { route: malformedAssignment } },
+    )).toThrow(/referenced and cannot be disabled/i);
+  });
+
+  it('REQ-ENTERPRISE-031 AC3: rejects malformed route assignments and route legs', async () => {
+    const { parseReasoningConfiguration } = await subject();
+    const activeProfile = getBuiltInProfileRef('workers-ai-glm-thinking');
+    const leg = { nodeId: 'primary', provider: 'workers-ai', declaredModel: 'glm', profileRef: activeProfile };
+    const malformed = [
+      { assignment: null, error: /must be an object/i },
+      { assignment: { activeProfile, legs: {} }, error: /legs must be an array/i },
+      { assignment: { activeProfile, legs: [{ ...leg, provider: 'custom-mesh' }] }, error: /backend provenance/i },
+      { assignment: { activeProfile, legs: [leg, leg] }, error: /duplicate nodeId/i },
+    ];
+
+    for (const { assignment, error } of malformed) {
+      expect(() => parseReasoningConfiguration({ ...empty, routeAssignments: { route: assignment } })).toThrow(error);
+    }
+  });
+
+  it('REQ-ENTERPRISE-031 AC3: rejects non-canonical common mappings', async () => {
+    const { parseReasoningConfiguration } = await subject();
+    const activeProfile = getBuiltInProfileRef('workers-ai-glm-thinking');
+    const invalidLevels = [
+      { turbo: { removePaths: [], writes: [] } },
+      { medium: { removePaths: ['reasoning_effort', 'reasoning_effort'], writes: [] } },
+      { medium: { removePaths: [], writes: [{ path: 'reasoning_effort', value: 'low' }, { path: 'reasoning_effort', value: 'high' }] } },
+    ];
+
+    for (const levels of invalidLevels) {
+      expect(() => parseReasoningConfiguration({
+        ...empty,
+        routeAssignments: { route: { activeProfile, commonMapping: { levels, digest: canonicalHash(levels) } } },
+      })).toThrow(/unsupported level|unique|duplicate path/i);
+    }
+    const levels = { medium: { removePaths: [], writes: [] } };
+    expect(() => parseReasoningConfiguration({
+      ...empty,
+      routeAssignments: { route: { activeProfile, commonMapping: { levels, digest: '0'.repeat(64) } } },
+    })).toThrow(/digest is not canonical/i);
+  });
+
+  it('REQ-ENTERPRISE-031 AC3: rejects unsafe route-leg evidence summaries', async () => {
+    const { parseReasoningConfiguration } = await subject();
+    const activeProfile = getBuiltInProfileRef('workers-ai-glm-thinking');
+    const assignmentWithEvidence = (evidence: unknown) => ({
+      activeProfile,
+      legs: [{ nodeId: 'primary', provider: 'workers-ai', declaredModel: 'glm', profileRef: activeProfile, evidence }],
+    });
+
+    for (const evidence of [
+      { 'invalid-key': true },
+      { attempts: Array.from({ length: 21 }, () => true) },
+      { current: { nested: true } },
+    ]) {
+      expect(() => parseReasoningConfiguration({
+        ...empty, routeAssignments: { route: assignmentWithEvidence(evidence) },
+      })).toThrow(/invalid key|too many summaries|sanitized scalar/i);
+    }
   });
 });

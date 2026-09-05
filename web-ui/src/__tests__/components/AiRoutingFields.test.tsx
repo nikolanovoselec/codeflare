@@ -102,7 +102,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     expect(getByLabelText('primary custom provider backend')).toBeTruthy();
     expect(getByLabelText('primary evidence profile')).toBeTruthy();
     expect(await findByText(/runtime uses the active route-wide profile/i)).toBeTruthy();
-    expect(await findByText(/common route levels.*medium/i)).toBeTruthy();
+    expect(await findByText((_content, element) => element?.tagName === 'P' && element.textContent?.includes('Common route levels: medium') === true)).toBeTruthy();
 
     await fireEvent.click(getByRole('button', { name: /revalidate development compatibility/i }));
     expect(getByText(/at most 5 reasoning probes/i)).toBeTruthy();

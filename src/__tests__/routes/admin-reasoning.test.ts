@@ -301,6 +301,58 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     expect(await missing.json()).toEqual({ error: 'Dynamic route not found', code: 'not_found' });
   });
 
+  it.each([
+    ['empty', () => new Response(null, { status: 200 })],
+    ['malformed', () => new Response('{"data":', { status: 200, headers: { 'content-type': 'application/json' } })],
+    ['oversized', () => new Response('private-management-payload'.repeat(50_000), { status: 200 })],
+  ])('REQ-ENTERPRISE-033: keeps the catalog available after an %s management response', async (_case, response) => {
+    const { app } = await createApp();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(response());
+
+    const result = await app.request('/admin/reasoning/catalog');
+    const text = await result.text();
+    const body = JSON.parse(text);
+    expect(result.status).toBe(200);
+    expect(body).toMatchObject({ routeCatalogStatus: 'unavailable', routes: [], schemaVersion: 1 });
+    expect(body.profiles).toHaveLength(6);
+    expect(text).not.toContain('private-management-payload');
+  });
+
+  it('REQ-ENTERPRISE-033: rejects a malformed active route version with the sanitized inventory contract', async () => {
+    const { app } = await createApp();
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(Response.json({ data: { routes: [{ id: 'route-id', name: 'codeflare-mesh' }] } }))
+      .mockResolvedValueOnce(Response.json({ result: { version: { version_id: 'route-v1', active: false, data: [{ private: 'graph-secret' }] } } }));
+
+    const result = await app.request('/admin/reasoning/routes/codeflare-mesh/inventory');
+    const text = await result.text();
+    expect(result.status).toBe(502);
+    expect(JSON.parse(text)).toEqual({ error: 'Dynamic route inventory unavailable', code: 'inventory_unavailable' });
+    expect(text).not.toContain('graph-secret');
+  });
+
+  it('REQ-ENTERPRISE-033: returns sanitized discovery evidence for an upstream provider failure', async () => {
+    const { app } = await createApp();
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(Response.json({ data: { routes: [{ id: 'route-id', name: 'codeflare-mesh' }] } }))
+      .mockResolvedValueOnce(Response.json({ errors: [{ code: 'provider_unavailable', message: 'private-provider-detail' }] }, { status: 503 }));
+
+    const result = await app.request('/admin/reasoning/discover', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(discoveryBody()),
+    });
+    const text = await result.text();
+    const body = JSON.parse(text);
+    expect(result.status).toBe(200);
+    expect(body).toMatchObject({
+      classification: 'Inconclusive',
+      assignable: false,
+      accounting: { logicalProbes: 1, httpAttempts: 1 },
+      distinctMappings: [{ reasoningProbe: { status: 503, code: 'provider_unavailable' }, toolLifecycle: { stage: 'not-run' } }],
+    });
+    expect(text).not.toContain('private-provider-detail');
+    expect(text).not.toContain('gateway-secret');
+  });
+
   it('aborts bounded management requests and maps timeouts through sanitized existing responses', async () => {
     vi.useFakeTimers();
     const { app } = await createApp();

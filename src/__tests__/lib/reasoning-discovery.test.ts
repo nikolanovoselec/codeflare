@@ -253,6 +253,86 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
     expect(report).not.toHaveProperty('activated');
     expect(report.normalizedDraft).toMatchObject({ schemaVersion: 1, profileId: 'mesh-binary', classification: 'Verified' });
   });
+
+  it('REQ-ENTERPRISE-033: stops on malformed reasoning SSE without starting the tool lifecycle', async () => {
+    const fetcher = vi.fn(async () => sse(['{"private-upstream-fragment":', '[DONE]']));
+    const report = await discoverPiCompatibility({
+      endpoint: { rest: 'https://example.invalid/rest', compat: 'https://example.invalid/compat' },
+      apiToken: 'secret-token', route: 'dynamic/test', profile: PROFILE, maxCompletionTokens: 32, fetcher,
+    });
+
+    expect(report).toMatchObject({
+      classification: 'Inconclusive',
+      accounting: { logicalProbes: 1, httpAttempts: 1 },
+      distinctMappings: [{
+        reasoningProbe: { status: 200, malformedEvents: 1 },
+        toolLifecycle: { passed: false, stage: 'not-run', first: null, replay: null },
+      }],
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(report)).not.toContain('private-upstream-fragment');
+  });
+
+  it('REQ-ENTERPRISE-033: reports an invalid first-turn tool outcome without replaying it', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(sse([{ choices: [{ delta: { content: 'reasoning-ok' }, finish_reason: 'stop' }] }, '[DONE]']))
+      .mockResolvedValueOnce(sse([{ choices: [{ delta: { content: 'not-a-tool-call' }, finish_reason: 'stop' }] }, '[DONE]']));
+    const report = await discoverPiCompatibility({
+      endpoint: { rest: 'https://example.invalid/rest', compat: 'https://example.invalid/compat' },
+      apiToken: 'secret-token', route: 'dynamic/test',
+      profile: { id: 'off-only', supportedLevels: ['off'], levels: { off: {} } },
+      maxCompletionTokens: 32, fetcher,
+    });
+
+    expect(report).toMatchObject({
+      classification: 'Unsupported',
+      assignable: false,
+      accounting: { logicalProbes: 2, httpAttempts: 2 },
+      distinctMappings: [{ toolLifecycle: { passed: false, stage: 'tool-call-validation', replay: null, validationError: 'invalid tool call' } }],
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('REQ-ENTERPRISE-033: marks malformed tool replay SSE inconclusive without exposing the event', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(sse([{ choices: [{ delta: { content: 'reasoning-ok' }, finish_reason: 'stop' }] }, '[DONE]']))
+      .mockResolvedValueOnce(sse([{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-id', type: 'function', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' } }] }, finish_reason: 'tool_calls' }] }, '[DONE]']))
+      .mockResolvedValueOnce(sse(['{"private-replay-fragment":', '[DONE]']));
+    const report = await discoverPiCompatibility({
+      endpoint: { rest: 'https://example.invalid/rest', compat: 'https://example.invalid/compat' },
+      apiToken: 'secret-token', route: 'dynamic/test',
+      profile: { id: 'off-only', supportedLevels: ['off'], levels: { off: {} } },
+      maxCompletionTokens: 32, fetcher,
+    });
+
+    expect(report).toMatchObject({
+      classification: 'Inconclusive',
+      assignable: false,
+      accounting: { logicalProbes: 2, httpAttempts: 3 },
+      distinctMappings: [{
+        toolLifecycle: { passed: false, stage: 'final-response', replay: { malformedEvents: 1, effectiveFinishReason: 'stop' } },
+      }],
+    });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(JSON.stringify(report)).not.toContain('private-replay-fragment');
+  });
+
+  it('REQ-ENTERPRISE-033: sanitizes an oversized REST 404 instead of attempting compat fallback', async () => {
+    const fetcher = vi.fn(async () => new Response('private-body-'.repeat(8), { status: 404 }));
+    const report = await discoverPiCompatibility({
+      endpoint: { rest: 'https://example.invalid/rest', compat: 'https://example.invalid/compat' },
+      apiToken: 'secret-token', route: 'dynamic/test', profile: PROFILE,
+      maxCompletionTokens: 32, maxResponseBytes: 16, fetcher,
+    });
+
+    expect(report).toMatchObject({
+      classification: 'Inconclusive',
+      accounting: { logicalProbes: 1, httpAttempts: 1 },
+      distinctMappings: [{ reasoningProbe: { status: null, code: 'response_too_large', bodyLength: 0 } }],
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(report)).not.toContain('private-body');
+  });
 });
 
 const meshGraph = [
@@ -346,6 +426,34 @@ describe('REQ-ENTERPRISE-033 dynamic-route inventory', () => {
       expect(error).toMatchObject({ code });
       expect(JSON.stringify(error)).not.toContain('missing-model');
     }
+  });
+
+  it.each([
+    ['an empty element list', 'route-v1', []],
+    ['an invalid version identifier', 'route version', meshGraph],
+    ['an end node with outgoing edges', 'route-v1', [{ id: 'start', type: 'start', outputs: { next: { elementId: 'end' } } }, { id: 'end', type: 'end', outputs: { next: { elementId: 'end' } } }]],
+    ['a model summary containing control characters', 'route-v1', [{ id: 'start', type: 'start', outputs: { next: { elementId: 'model' } } }, { id: 'model', type: 'model', properties: { provider: 'workers-ai\nprivate', model: 'safe' }, outputs: {} }]],
+  ])('REQ-ENTERPRISE-033: rejects %s as a malformed inventory', (_case, versionId, elements) => {
+    try {
+      inventoryDynamicRoute({ versionId, elements });
+      throw new Error('inventory unexpectedly accepted malformed input');
+    } catch (error) {
+      expect(error).toMatchObject({ code: 'inventory_malformed_graph' });
+    }
+  });
+
+  it('REQ-ENTERPRISE-033: accepts exact node and edge inventory limits', () => {
+    const exactNodes = [
+      { id: 'start', type: 'start', outputs: {} },
+      ...Array.from({ length: 255 }, (_, index) => ({ id: `node-${index}`, type: 'conditional', outputs: {} })),
+    ];
+    expect(inventoryDynamicRoute({ versionId: 'route-v1', elements: exactNodes })).toMatchObject({ reachableNodeCount: 1, paths: [] });
+
+    const exactEdges = [{
+      id: 'start', type: 'start',
+      outputs: Object.fromEntries(Array.from({ length: 512 }, (_, index) => [`branch-${index}`, { elementId: 'end' }])),
+    }];
+    expect(inventoryDynamicRoute({ versionId: 'route-v1', elements: exactEdges })).toMatchObject({ reachableNodeCount: 1, paths: [] });
   });
 
   it('derives only byte-identical levels with current compatible tool/replay evidence', () => {

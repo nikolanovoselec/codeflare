@@ -38,13 +38,13 @@ export interface DynamicRouteVersionInput {
   elements: unknown;
 }
 
-export interface DynamicRouteModelSummary {
+interface DynamicRouteModelSummary {
   nodeId: string;
   provider: string;
   model: string;
 }
 
-export interface DynamicRoutePathSummary {
+interface DynamicRoutePathSummary {
   modelNodeId: string;
   branches: string[];
 }
@@ -192,7 +192,7 @@ export function inventoryDynamicRoute(input: DynamicRouteVersionInput): DynamicR
   return { schemaVersion: 1, versionId: input.versionId, models, paths, reachableNodeCount };
 }
 
-export interface CommonLevelMapping {
+interface CommonLevelMapping {
   removePaths: string[];
   writes: Array<{ path: string; value: string | number | boolean | null }>;
 }
@@ -207,7 +207,7 @@ export interface LegMappingEvidence {
   levels: Partial<Record<PiReasoningLevel, CommonLevelMapping>>;
 }
 
-export type CommonMappingWarning =
+type CommonMappingWarning =
   | 'missing_leg_evidence'
   | 'stale_leg_evidence'
   | 'missing_tool_replay_evidence'
