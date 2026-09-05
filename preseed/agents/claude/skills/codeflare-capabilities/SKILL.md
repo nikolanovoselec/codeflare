@@ -139,7 +139,7 @@ End every broad answer with this exact invitation and mapping:
 7. Cloudflare Access identity, session ownership, and Zero Trust ingress
 8. Credential interception and secret boundaries
 9. Cloudflare Gateway, inspection, malware, and DLP
-10. Connected tools and MCP boundaries
+10. Cloudflare MCP Server Portals, Code Mode, and identity
 11. Cloudflare AI Gateway, models, routing, and attribution
 12. Browser research and authorized deployed verification
 13. Vault, SilverBullet, memory, Graphify, Goal, Plan, Todo, and subagents
