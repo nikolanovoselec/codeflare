@@ -680,8 +680,8 @@ export interface McpRow {
 /**
  * MCP portals: the external tools an agent can reach, governed. Many MCP servers
  * collapse behind one portal endpoint; every call is made as the signed-in user
- * with least privilege and is attributed; and code mode collapses the whole tool
- * surface into a single typed `code` tool the agent drives in an isolated worker.
+ * with least privilege and is attributed; and code mode keeps the upstream tool
+ * surface behind search and execute in an isolated worker.
  * Rendered as a dynamic proof terminal (rolling governance rows in the gate
  * grammar), the page's terminal idiom, not prose.
  */
@@ -691,14 +691,14 @@ export const MCP = {
   lead:
     'An agent is only as safe as the tools it can reach. Codeflare routes every MCP server ' +
     'through one portal where each call runs as the signed-in user, scoped to least privilege ' +
-    'and logged by name. Code mode folds the surface into one typed `code` tool in a sandbox.',
+    'and logged by name. Code mode keeps the surface to search and execute in a sandbox.',
   portal: {
     title: 'mcp portal · one endpoint',
     rows: [
       { actor: 'portal', state: 'pass', label: 'unified', text: 'internal and SaaS MCP servers on one endpoint' },
       { actor: 'identity', state: 'pass', label: 'as the user', text: 'the agent authenticates as you, scoped to least privilege' },
       { actor: 'policy', state: 'pass', label: 'scoped', text: 'each group sees only the tools it is entitled to' },
-      { actor: 'code mode', state: 'work', label: '40 → 1', text: 'the whole tool surface becomes one typed `code` tool' },
+      { actor: 'code mode', state: 'work', label: '40 → 2', text: 'search discovers tools; execute calls only what the task needs' },
       { actor: 'sandbox', state: 'pass', label: 'isolated', text: 'agent-written code runs in a throwaway worker' },
       { actor: 'audit', state: 'pass', label: 'attributed', text: 'every tool call logged to your tenancy, by name' },
     ] satisfies McpRow[],

@@ -281,7 +281,7 @@ const mcpRows = MCP.portal.rows.map((row) => ({
 
     <!-- MCP portals: the external tools an agent can reach, governed. Many MCP
          servers collapse to one endpoint; every call runs as the signed-in user;
-         code mode collapses the tool surface into one typed `code` tool. -->
+         code mode keeps the tool surface behind search and execute. -->
     <Section id={MCP.id} alt>
       <SectionHead kicker={SECTION_KICKERS.mcp} title={MCP.title} lead={MCP.lead} />
       <Terminal variant="gate" foot={MCP.portal.caption}>
