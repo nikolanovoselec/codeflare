@@ -198,6 +198,15 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
       values: { ...enterpriseAiValues, routeContextWindows: {} },
     });
     expect(missingContext.status).toBe(400);
+
+    for (const contextWindow of [0, -1]) {
+      const nonPositive = await post(app, {
+        section: 'aiRouting',
+        baseRevision: 0,
+        values: { ...enterpriseAiValues, routeContextWindows: { claude: contextWindow } },
+      });
+      expect(nonPositive.status).toBe(400);
+    }
     expect(kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, expect.anything());
   });
 
