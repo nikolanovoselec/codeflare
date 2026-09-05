@@ -1118,6 +1118,104 @@ a.admin-primary-button {
   gap: var(--space-5, 24px);
 }
 
+.admin-routing-guide,
+.admin-unsaved-banner,
+.admin-discovery-callout,
+.admin-review-action {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-tertiary);
+}
+
+.admin-routing-guide > span,
+.admin-unsaved-banner > div,
+.admin-discovery-callout > div,
+.admin-review-action > div,
+.admin-route-profile {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.admin-routing-guide > span,
+.admin-unsaved-banner span,
+.admin-discovery-callout span,
+.admin-review-action span,
+.admin-route-profile span,
+.admin-route-profile small,
+.admin-route-presence {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: 18px;
+}
+
+.admin-routing-guide > strong,
+.admin-unsaved-banner strong,
+.admin-discovery-callout strong,
+.admin-review-action strong,
+.admin-route-profile strong { color: var(--color-text-primary); }
+
+.admin-unsaved-banner {
+  border-color: var(--color-info);
+  background: var(--color-bg-surface);
+}
+
+.admin-pending-profiles {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-4);
+}
+.admin-pending-profiles > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+}
+.admin-pending-profiles span { color: var(--color-text-secondary); font-size: var(--text-sm); }
+
+.admin-routing-disclosure { padding: 0; }
+.admin-routing-disclosure > summary,
+.admin-route-details > summary {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.admin-routing-disclosure > summary > span:first-child { display: grid; gap: 2px; }
+.admin-routing-disclosure > summary small { color: var(--color-text-muted); font-size: var(--text-xs); }
+.admin-disclosure-content { margin: 0; padding: 0 var(--space-4) var(--space-4); }
+.admin-route-presence { white-space: nowrap; }
+.admin-route-profile { margin-top: var(--space-3); }
+.admin-route-discover { width: fit-content; margin-top: var(--space-4); }
+.admin-route-details { margin-top: var(--space-3); border-top: 1px solid var(--color-border-subtle); }
+.admin-route-details > summary { justify-content: flex-start; padding-inline: 0; color: var(--color-info); font-weight: var(--font-medium); }
+.admin-route-details-content { padding-bottom: var(--space-2); }
+.admin-route-details-content > .admin-status-text { max-width: 72ch; }
+.admin-profile-editor { margin-top: var(--space-4); background: var(--color-bg-surface); }
+.admin-step-label { margin: 0 0 var(--space-1) !important; color: var(--color-info) !important; font-size: var(--text-xs) !important; font-weight: var(--font-semibold); letter-spacing: .04em; text-transform: uppercase; }
+.admin-discovery-callout { margin-top: var(--space-4); }
+.admin-discovery-success { display: grid; gap: var(--space-1); padding: var(--space-4); border: 1px solid var(--color-success-strong); border-radius: var(--radius-md); background: var(--color-success-bg); }
+.admin-discovery-success p { margin: 0; color: var(--color-text-secondary); font-size: var(--text-sm); }
+.admin-discovery-success span { color: var(--color-text-muted); font-size: var(--text-xs); }
+.admin-profile-name { max-width: 480px; margin-top: var(--space-4); }
+.admin-review-action { margin-top: var(--space-4); border-color: var(--color-info); }
+.admin-inline-technical-details { margin: var(--space-4) 0 0; }
+
 .admin-routing-section,
 .admin-profile-editor {
   min-width: 0;
@@ -1152,6 +1250,7 @@ a.admin-primary-button {
 
 .admin-subsection-heading h3,
 .admin-subsection-heading h4,
+.admin-subsection-heading h5,
 .admin-route-card h4,
 .admin-discovery h5 {
   margin: 0;
@@ -1352,7 +1451,8 @@ a.admin-primary-button {
 .admin-discovery-result {
   margin-top: var(--space-3);
   padding: var(--space-3);
-  border-left: 3px solid var(--color-info);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
   background: var(--color-bg-tertiary);
 }
 
@@ -1497,10 +1597,21 @@ a.admin-primary-button {
   .admin-leg-row,
   .admin-mapping-row,
   .admin-alias-row { grid-template-columns: minmax(0, 1fr); }
+  .admin-routing-guide,
+  .admin-unsaved-banner,
+  .admin-pending-profiles > div,
+  .admin-discovery-callout,
+  .admin-review-action { flex-direction: column; align-items: stretch; }
+  .admin-routing-disclosure > summary { align-items: flex-start; }
+  .admin-routing-disclosure > summary > span:last-child { display: none; }
   .admin-add-row .admin-primary-button,
   .admin-route-actions button,
   .admin-profile-actions button,
-  .admin-confirmation button { width: 100%; min-height: 44px; justify-content: center; }
+  .admin-confirmation button,
+  .admin-route-discover,
+  .admin-unsaved-banner button,
+  .admin-discovery-callout button,
+  .admin-review-action button { width: 100%; min-height: 44px; justify-content: center; }
   .admin-link-button,
   .admin-route-chip,
   .admin-route-chip span { min-height: 44px; }

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, waitFor } from '@solidjs/testing-library';
+import { cleanup, fireEvent, render, waitFor, within } from '@solidjs/testing-library';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import EnvironmentAreaFields, { environmentValues } from '../../components/admin/EnvironmentAreaFields';
 
@@ -73,7 +73,7 @@ afterEach(() => {
 describe('REQ-ENTERPRISE-031 structured AI routing', () => {
   it('preserves many-to-many group routes with one scope default route and reasoning', async () => {
     const { getByLabelText, getByRole } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    await waitFor(() => expect((getByLabelText('development capability profile') as HTMLSelectElement).options.length).toBe(7));
+    await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
     expect(getByLabelText('developers allowed routes')).toBeTruthy();
     expect((getByLabelText('developers default route') as HTMLSelectElement).value).toBe('development');
     expect((getByLabelText('developers default reasoning') as HTMLSelectElement).value).toBe('medium');
@@ -85,48 +85,66 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     expect(() => getByLabelText('research-team allowed routes')).toThrow();
   });
 
-  it('uses the exact API catalog and exposes inventory, provenance, evidence, and discovery results', async () => {
+  it('keeps gateway inventory and compatibility records in collapsed advanced route details', async () => {
     const { getByRole, getByLabelText, getByText, findByText, queryByRole } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    const profile = getByLabelText('development capability profile') as HTMLSelectElement;
+    const profile = getByLabelText('development reasoning profile') as HTMLSelectElement;
     await waitFor(() => expect(profile.options.length).toBe(7));
     expect(api.catalog).toHaveBeenCalledTimes(1);
     expect(Array.from(profile.options, (option) => option.textContent)).toEqual([
-      'Select capability profile',
+      'Select reasoning profile',
       ...catalog.profiles.map((item) => `${item.name} · revision ${item.revision}`),
     ]);
     expect(queryByRole('option', { name: 'GPT-OSS tool replay' })).toBeNull();
-    expect(await findByText('Tool-result replay is unsupported.')).toBeTruthy();
 
-    await fireEvent.click(getByRole('button', { name: /inspect development route/i }));
+    const developmentCard = getByRole('heading', { name: 'development' }).closest('article')!;
+    const summary = within(developmentCard).getByText('Advanced route details', { selector: 'summary' });
+    const details = summary.closest('details');
+    expect(details?.open).toBe(false);
+    expect(queryByRole('button', { name: /refresh development gateway details/i })).toBeNull();
+
+    await fireEvent.click(summary);
+    await fireEvent.click(getByRole('button', { name: /refresh development gateway details/i }));
     expect(await findByText('development-alias')).toBeTruthy();
     expect(getByLabelText('primary custom provider backend')).toBeTruthy();
-    expect(getByLabelText('primary evidence profile')).toBeTruthy();
-    expect(await findByText(/runtime uses the active route-wide profile/i)).toBeTruthy();
-    expect(await findByText((_content, element) => element?.tagName === 'P' && element.textContent?.includes('Common route levels: medium') === true)).toBeTruthy();
-
-    await fireEvent.click(getByRole('button', { name: /revalidate development compatibility/i }));
-    expect(getByText(/at most 5 reasoning probes/i)).toBeTruthy();
-    await fireEvent.click(getByRole('button', { name: /start development discovery/i }));
-    expect(await findByText('Compatible, unverified')).toBeTruthy();
-    expect(api.discover).toHaveBeenCalledWith(expect.objectContaining({ route: 'development', maxCompletionTokens: 32 }));
+    expect(getByLabelText('primary compatibility record')).toBeTruthy();
+    expect(getByText(/documents observed behavior and never chooses a backend/i)).toBeTruthy();
+    expect(await findByText((_content, element) => element?.tagName === 'P' && element.textContent?.includes('Shared supported levels: medium') === true)).toBeTruthy();
+    await fireEvent.click(getByRole('button', { name: /verify development selected profile/i }));
+    expect(await findByText(/selected profile check: inconclusive/i)).toBeTruthy();
+    expect(queryByRole('button', { name: /add compatibility record/i })).toBeNull();
+    expect(api.discover).toHaveBeenCalledWith(expect.objectContaining({ route: 'development', profileRef: current.reasoningConfiguration.routeAssignments.development.activeProfile, maxCompletionTokens: 32 }));
   });
 
-  it('attaches discovery evidence only through an explicit draft action for a single-leg route', async () => {
+  it('offers one primary route discovery action and runs route-only protocol discovery', async () => {
+    const { getByRole, getAllByRole, getByLabelText, findByText, queryByRole } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
+
+    expect(getAllByRole('button', { name: /discover .* compatibility/i })).toHaveLength(3);
+    expect(queryByRole('button', { name: /revalidate|start discovery|use evidence/i })).toBeNull();
+    await fireEvent.click(getByRole('button', { name: /discover development compatibility/i }));
+    await fireEvent.click(getByRole('button', { name: /check compatibility/i }));
+    expect(await findByText(/compatibility could not be confirmed/i)).toBeTruthy();
+    expect(api.discover).toHaveBeenCalledWith({ route: 'development', maxCompletionTokens: 512 });
+  });
+
+  it('attaches a verified compatibility record only after inventory confirms one reachable leg', async () => {
     api.inventory.mockResolvedValueOnce({
       route: 'development', routeVersion: 'route-v2',
       legs: [{ nodeId: 'only', provider: 'workers-ai', declaredModel: '@cf/model' }],
       commonLevels: [], warnings: ['missing_leg_evidence'],
     });
     api.discover.mockResolvedValueOnce({
-      classification: 'Verified', accounting: { logicalProbes: 2, httpAttempts: 3 },
+      classification: 'Verified', assignable: true, accounting: { logicalProbes: 2, httpAttempts: 3 },
       evidence: { current: true, toolReplay: true, ingress: 'ai-gateway-chat-completions' },
     });
-    const { container, getByLabelText, getByRole, findByRole } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    await waitFor(() => expect((getByLabelText('development capability profile') as HTMLSelectElement).options.length).toBe(7));
-    await fireEvent.click(getByRole('button', { name: /inspect development route/i }));
-    await fireEvent.click(getByRole('button', { name: /revalidate development compatibility/i }));
-    await fireEvent.click(getByRole('button', { name: /start development discovery/i }));
-    await fireEvent.click(await findByRole('button', { name: /use evidence in draft/i }));
+    const { container, getByLabelText, getByRole, findByRole, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
+    const developmentCard = getByRole('heading', { name: 'development' }).closest('article')!;
+    await fireEvent.click(within(developmentCard).getByText('Advanced route details', { selector: 'summary' }));
+    await fireEvent.click(getByRole('button', { name: /refresh development gateway details/i }));
+    await fireEvent.click(getByRole('button', { name: /verify development selected profile/i }));
+    await findByText(/selected profile check: verified/i);
+    await fireEvent.click(await findByRole('button', { name: /add compatibility record/i }));
 
     const form = document.createElement('form');
     form.append(container.firstElementChild!);
@@ -138,15 +156,14 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
 
   it('automatically adds gateway routes, confirms apply-to-all, and serializes the shared typed draft', async () => {
     const { container, getByLabelText, queryByLabelText, getByRole, getByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    await waitFor(() => expect((getByLabelText('development capability profile') as HTMLSelectElement).options.length).toBe(7));
+    await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
 
     expect(getByLabelText('research context window')).toBeTruthy();
     expect(queryByLabelText('New route handle')).toBeNull();
-    expect(getByRole('button', { name: /inspect research route/i })).toBeEnabled();
     expect(getByRole('button', { name: /discover research compatibility/i })).toBeEnabled();
 
     await fireEvent.input(getByLabelText('research context window'), { target: { value: '65536' } });
-    const profile = getByLabelText('research capability profile') as HTMLSelectElement;
+    const profile = getByLabelText('research reasoning profile') as HTMLSelectElement;
     const glm = Array.from(profile.options).find((option) => option.textContent?.startsWith('GLM thinking'))!;
     await fireEvent.change(profile, { target: { value: glm.value } });
     await fireEvent.click(getByLabelText('developers research route'));
@@ -184,7 +201,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
       },
     };
     const { getByLabelText, getByRole, getByText, queryByLabelText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={staleCurrent} />);
-    await waitFor(() => expect((getByLabelText('retired capability profile') as HTMLSelectElement).options.length).toBe(7));
+    await waitFor(() => expect((getByLabelText('retired reasoning profile') as HTMLSelectElement).options.length).toBe(7));
     await fireEvent.click(getByRole('button', { name: /remove retired stale route/i }));
     expect(getByText(/Affected references: global default/i)).toBeTruthy();
     expect(queryByLabelText('retired context window')).toBeTruthy();

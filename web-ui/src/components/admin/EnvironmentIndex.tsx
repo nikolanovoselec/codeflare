@@ -102,6 +102,27 @@ export const EnvironmentAreaDetail: Component = () => {
   const [error, setError] = createSignal<string>();
   const [confirmedWarnings, setConfirmedWarnings] = createSignal<string[]>([]);
 
+  const editedCurrent = () => {
+    const section = area()?.section;
+    const submitted = submittedValues();
+    if (section !== 'aiRouting' || !submitted || typeof submitted !== 'object') return section ? configuration.sections[section] : undefined;
+    return { ...(configuration.sections[section] as Record<string, unknown>), ...(submitted as Record<string, unknown>) };
+  };
+
+  const pendingCustomProfiles = () => {
+    if (area()?.section !== 'aiRouting') return [];
+    const submitted = submittedValues();
+    if (!submitted || typeof submitted !== 'object') return [];
+    const reasoning = (submitted as Record<string, unknown>).reasoningConfiguration;
+    const revisions = reasoning && typeof reasoning === 'object' ? (reasoning as Record<string, unknown>).customProfileRevisions : undefined;
+    const currentSection = configuration.sections.aiRouting;
+    const currentReasoning = currentSection && typeof currentSection === 'object' ? (currentSection as Record<string, unknown>).reasoningConfiguration : undefined;
+    const configuredRevisions = currentReasoning && typeof currentReasoning === 'object' ? (currentReasoning as Record<string, unknown>).customProfileRevisions : undefined;
+    const currentRevisions = Array.isArray(configuredRevisions) ? configuredRevisions : [];
+    if (!Array.isArray(revisions)) return [];
+    return revisions.filter((revision): revision is Record<string, unknown> => Boolean(revision && typeof revision === 'object') && !currentRevisions.some((current) => current && typeof current === 'object' && (current as Record<string, unknown>).id === (revision as Record<string, unknown>).id && (current as Record<string, unknown>).revision === (revision as Record<string, unknown>).revision));
+  };
+
   const review = async (event: SubmitEvent) => {
     event.preventDefault();
     const section = area()?.section;
@@ -163,7 +184,7 @@ export const EnvironmentAreaDetail: Component = () => {
         <form class="admin-panel admin-environment-form" onSubmit={(event) => void review(event)}>
           <div class="admin-panel-heading"><div><h2>Edit current settings</h2><p>Blank secret fields preserve their stored value.</p></div><span class="admin-revision">Revision <strong class="admin-mono">{configuration.revision}</strong></span></div>
           <div class="admin-editor-layout">
-            <EnvironmentAreaFields section={resolved().section} mode={configuration.mode} current={configuration.sections[resolved().section]} />
+            <EnvironmentAreaFields section={resolved().section} mode={configuration.mode} current={editedCurrent()} />
             <aside class="admin-editor-context">
               <h3>Before you apply</h3>
               <dl>
@@ -177,7 +198,8 @@ export const EnvironmentAreaDetail: Component = () => {
         </form>
       </Show>
       <Show when={!run() ? preview() : undefined}>{(reviewed) => <section class="admin-panel">
-        <div class="admin-panel-heading"><div><h2>Review changes</h2><p>Only tasks listed below will run.</p></div></div>
+        <div class="admin-panel-heading"><div><h2>Review changes</h2><p>Nothing is saved until Apply change. Only the tasks listed below will run.</p></div></div>
+        <Show when={pendingCustomProfiles().length > 0}><div class="admin-pending-profiles" aria-label="Profiles pending save"><For each={pendingCustomProfiles()}>{(profile) => <div><strong>{String(profile.name ?? profile.id ?? 'New profile')}</strong><span>Pending save · Unassigned · Inactive</span></div>}</For></div></Show>
         <Show when={reviewed().changes.length > 0} fallback={<div class="admin-state-panel"><h3>No changes detected</h3><p>Return to edit before applying.</p></div>}>
           <dl class="admin-change-list"><For each={reviewed().changes}>{(change) => <div><dt>{change.field}</dt><dd>{change.secret ? (change.secret.willReplace ? 'Replace saved secret' : 'Preserve saved secret') : changeValue(change.field, change.after)}</dd></div>}</For></dl>
           <h3>Execution plan</h3><ol class="admin-task-plan"><For each={reviewed().tasks}>{(task) => <li>{operatorTaskLabel(task.id)}</li>}</For></ol>

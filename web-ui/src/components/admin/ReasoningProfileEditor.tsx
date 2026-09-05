@@ -1,10 +1,10 @@
 /* v8 ignore start -- user-validated administration UI */
-import { For, Show, createMemo, createSignal, onMount, type Component } from 'solid-js';
+import { Show, createMemo, createSignal, onMount, type Component } from 'solid-js';
 import { discoverReasoningCompatibility } from '../../api/client';
 import type { ReasoningDiscoveryResult } from '../../types';
 
 interface Props {
-  routes: string[];
+  route: string;
   existingRevisions: Array<Record<string, unknown>>;
   onSave: (revision: Record<string, unknown>) => void;
   onCancel: () => void;
@@ -16,10 +16,21 @@ function generatedId(name: string): string {
   return base === 'custom' || base.startsWith('custom-') ? base : `custom-${base}`;
 }
 
+function unsuccessfulOutcome(result: ReasoningDiscoveryResult): string {
+  const candidateClassifications = result.candidateResults?.map((candidate) => candidate.classification.toLowerCase()) ?? [];
+  if (result.warnings?.includes('ambiguous_profile_mapping') || candidateClassifications.includes('heterogeneous')) {
+    return 'Multiple reasoning behaviors matched. No safe profile was created.';
+  }
+  if (result.classification.toLowerCase() === 'unsupported' || (candidateClassifications.length > 0 && candidateClassifications.every((classification) => classification === 'unsupported'))) {
+    return 'No compatible reasoning behavior was found. Nothing was changed.';
+  }
+  return 'Compatibility could not be confirmed. Nothing was changed.';
+}
+
 const ReasoningProfileEditor: Component<Props> = (props) => {
+  let editor!: HTMLElement;
   let heading!: HTMLHeadingElement;
   onMount(() => heading.focus());
-  const [route, setRoute] = createSignal(props.routes[0] ?? '');
   const [result, setResult] = createSignal<ReasoningDiscoveryResult>();
   const [name, setName] = createSignal('');
   const [busy, setBusy] = createSignal(false);
@@ -31,17 +42,13 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
     .map((item) => typeof item.revision === 'number' ? item.revision : 0)) + 1);
 
   const discover = async () => {
-    if (!route()) {
-      setError('Choose a discovered dynamic route.');
-      return;
-    }
     setBusy(true);
     setError('');
     setResult(undefined);
     try {
-      setResult(await discoverReasoningCompatibility({ route: route(), maxCompletionTokens: 512 }));
+      setResult(await discoverReasoningCompatibility({ route: props.route, maxCompletionTokens: 512 }));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Profile discovery failed.');
+      setError(reason instanceof Error ? reason.message : 'Compatibility check failed.');
     } finally {
       setBusy(false);
     }
@@ -50,43 +57,54 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
   const save = () => {
     const discovered = result()?.profileDraft;
     if (!discovered || result()?.assignable !== true) {
-      setError('Run a successful profile discovery before saving.');
+      setError('Run a successful compatibility check before continuing.');
       return;
     }
     if (!name().trim()) {
       setError('Profile name is required.');
       return;
     }
+    const form = editor.closest('form');
     setError('');
     props.onSave({ ...discovered, id: id(), name: name().trim(), revision: revision() });
+    queueMicrotask(() => form?.requestSubmit());
   };
 
-  return <section class="admin-profile-editor admin-form-wide" aria-labelledby="custom-profile-heading">
+  return <section ref={editor} class="admin-profile-editor admin-form-wide" aria-labelledby="custom-profile-heading">
     <div class="admin-subsection-heading">
-      <div><h3 id="custom-profile-heading" tabIndex={-1} ref={heading}>Create custom profile</h3><p>Choose an existing Dynamic Route. Codeflare tests bounded known reasoning protocols and creates the profile from the observed compatible mapping.</p></div>
-      <button type="button" class="admin-secondary-button" onClick={props.onCancel}>Close</button>
+      <div>
+        <p class="admin-step-label">Compatibility check</p>
+        <h5 id="custom-profile-heading" tabIndex={-1} ref={heading}>Discover compatibility for {props.route}</h5>
+        <p>Codeflare checks which safe reasoning behavior this route supports. It does not change the route, assign a profile, or activate anything.</p>
+      </div>
+      <button type="button" class="admin-link-button" onClick={props.onCancel}>Cancel</button>
     </div>
     <Show when={error()}><div class="admin-inline-error" role="alert">{error()}</div></Show>
-    <div class="admin-profile-grid">
-      <label class="admin-form-field"><span>Dynamic route</span><select aria-label="Dynamic route" value={route()} disabled={busy() || props.routes.length === 0} onChange={(event) => { setRoute(event.currentTarget.value); setResult(undefined); setName(''); }}><For each={props.routes}>{(item) => <option value={item}>{item}</option>}</For></select></label>
-      <div class="admin-readonly-field"><span>Credential</span><strong>Saved AI Gateway connection</strong><small>The encrypted URL and token already configured in Administration are reused Worker-side and are never returned to this page.</small></div>
+
+    <div class="admin-discovery-callout">
+      <div><strong>Ready to check</strong><span>This uses the saved AI Gateway connection and may create provider usage.</span></div>
+      <button type="button" class="admin-primary-button" disabled={busy()} onClick={() => void discover()}>{busy() ? 'Checking…' : 'Check compatibility'}</button>
     </div>
-    <p class="admin-status-text">Discovery is deterministic and non-activating. It tests bounded built-in protocol candidates with a 512-token output ceiling, Pi tool calls, and tool-result replay. Provider billing may differ.</p>
-    <button type="button" class="admin-primary-button" disabled={busy() || !route()} onClick={() => void discover()}>{busy() ? 'Discovering…' : 'Run profile discovery'}</button>
 
     <Show when={result()}>{(discovered) => <section class="admin-profile-section" aria-live="polite">
-      <Show when={discovered().assignable === true && discovered().profileDraft} fallback={<div class="admin-inline-error" role="alert">No unambiguous compatible profile mapping was discovered. The route was not changed.</div>}>
-        <div class="admin-profile-summary">
-          <strong>{discovered().classification} compatibility</strong>
-          <span>Matched deterministic protocol: {discovered().matchedCandidateProfileId}</span>
-          <span>Logical probes: {discovered().accounting?.logicalProbes ?? 0}; HTTP attempts: {discovered().accounting?.httpAttempts ?? 0}</span>
-          <small>Review the result, name it, then add the immutable revision to the configuration draft. Discovery evidence is retained, but custom revisions remain unverified and require explicit warned activation.</small>
+      <Show when={discovered().assignable === true && discovered().profileDraft} fallback={<div class="admin-inline-error" role="alert">{unsuccessfulOutcome(discovered())}</div>}>
+        <div class="admin-discovery-success">
+          <strong>Compatible reasoning behavior found</strong>
+          <p>The route completed bounded reasoning, Pi tool-call, and tool-result replay checks.</p>
+          <span>Supported levels: {discovered().profileDraft?.supportedLevels?.join(', ') || 'Not reported'}</span>
         </div>
-        <div class="admin-profile-grid">
-          <label class="admin-form-field"><span>Profile name</span><input aria-label="Profile name" maxlength="128" value={name()} onInput={(event) => setName(event.currentTarget.value)} /></label>
-          <div class="admin-readonly-field"><span>Profile ID</span><strong>{id()}</strong><small>Immutable revision {revision()}</small></div>
+        <label class="admin-form-field admin-profile-name"><span>Profile name</span><input aria-label="Profile name" maxlength="128" placeholder={`For example, ${props.route} reasoning`} value={name()} onInput={(event) => setName(event.currentTarget.value)} /></label>
+        <div class="admin-review-action">
+          <div><strong>Next: review and save</strong><span>The profile remains unassigned and inactive. Nothing is stored until you confirm Apply change.</span></div>
+          <button type="button" class="admin-primary-button" onClick={save}>Continue to review</button>
         </div>
-        <button type="button" class="admin-primary-button" onClick={save}>Add discovered profile to draft</button>
+        <details class="admin-technical-details admin-inline-technical-details">
+          <summary>Technical check details</summary>
+          <dl>
+            <div><dt>Logical probes</dt><dd>{discovered().accounting?.logicalProbes ?? 0}</dd></div>
+            <div><dt>HTTP attempts</dt><dd>{discovered().accounting?.httpAttempts ?? 0}</dd></div>
+          </dl>
+        </details>
       </Show>
     </section>}</Show>
   </section>;

@@ -61,6 +61,19 @@ beforeEach(() => {
     warnings: [{ code: 'reasoning_profile_unverified', message: 'Route development has incomplete profile evidence' }],
     exclusions: [],
   });
+  api.discover.mockResolvedValue({
+    route: 'development', classification: 'Verified', assignable: true,
+    matchedCandidateProfileId: 'workers-ai-gemma-thinking',
+    accounting: { logicalProbes: 23, httpAttempts: 33 },
+    profileDraft: {
+      schemaVersion: 1, enabled: true, ingressContract: 'ai-gateway-chat-completions',
+      supportedLevels: ['off', 'medium'], removePaths: ['reasoning_effort'],
+      levels: { off: [{ path: 'reasoning_effort', value: null }], medium: [{ path: 'reasoning_effort', value: 'medium' }] },
+      aliases: {}, offSemantics: { status: 'explicit-value', path: 'reasoning_effort', value: null },
+      recognizedResponseFields: {}, classification: 'Compatible, unverified',
+      toolCompatibility: { status: 'unverified', levels: [] }, validatedTransports: [], limitations: [], evidence: [],
+    },
+  });
   api.start.mockResolvedValue(new Response(''));
 });
 
@@ -70,10 +83,53 @@ afterEach(() => {
 });
 
 describe('REQ-ENTERPRISE-031 warned activation', () => {
+  it('continues a discovered profile directly into Review with the immutable unassigned draft', async () => {
+    render(() => <Router><Route path="/admin" component={AdministrationLayout}><Route path="/environment/:section" component={EnvironmentAreaDetail} /></Route></Router>);
+
+    await waitFor(() => expect((screen.getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(2));
+    await fireEvent.click(screen.getByRole('button', { name: /discover development compatibility/i }));
+    await fireEvent.click(screen.getByRole('button', { name: /check compatibility/i }));
+    await screen.findByText(/compatible reasoning behavior found/i);
+    await fireEvent.input(screen.getByLabelText('Profile name'), { target: { value: 'GLM 4.7 Flash' } });
+    await fireEvent.click(screen.getByRole('button', { name: /continue to review/i }));
+
+    await waitFor(() => expect(api.preview).toHaveBeenCalledWith(
+      'aiRouting',
+      7,
+      expect.objectContaining({
+        reasoningConfiguration: expect.objectContaining({
+          customProfileRevisions: [expect.objectContaining({ id: 'custom-glm-4-7-flash', name: 'GLM 4.7 Flash', revision: 1 })],
+          routeAssignments: aiRouting.reasoningConfiguration.routeAssignments,
+        }),
+      }),
+    ));
+    expect(await screen.findByText(/nothing is saved until apply change/i)).toBeInTheDocument();
+    expect(screen.getByText('GLM 4.7 Flash')).toBeInTheDocument();
+    expect(screen.getByText('Pending save · Unassigned · Inactive')).toBeInTheDocument();
+    expect(api.start).not.toHaveBeenCalled();
+
+    await fireEvent.click(screen.getByRole('button', { name: /back to edit/i }));
+    expect(await screen.findByText(/GLM 4\.7 Flash is ready to review/i)).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: /review and save profile/i }));
+    await waitFor(() => expect(api.preview).toHaveBeenCalledTimes(2));
+    await fireEvent.click(screen.getByRole('checkbox', { name: /confirm warning/i }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Apply change' }));
+    await waitFor(() => expect(api.start).toHaveBeenCalledWith(
+      'aiRouting',
+      7,
+      expect.objectContaining({
+        reasoningConfiguration: expect.objectContaining({
+          customProfileRevisions: [expect.objectContaining({ name: 'GLM 4.7 Flash' })],
+        }),
+      }),
+      ['reasoning_profile_unverified'],
+    ));
+  });
+
   it('blocks Apply until the API warning is confirmed and submits that exact code', async () => {
     render(() => <Router><Route path="/admin" component={AdministrationLayout}><Route path="/environment/:section" component={EnvironmentAreaDetail} /></Route></Router>);
 
-    await waitFor(() => expect(screen.getByText('Selected: GLM thinking')).toBeInTheDocument());
+    await waitFor(() => expect((screen.getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(2));
     await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
     await waitFor(() => expect(screen.getByText('Route development has incomplete profile evidence')).toBeInTheDocument());
 

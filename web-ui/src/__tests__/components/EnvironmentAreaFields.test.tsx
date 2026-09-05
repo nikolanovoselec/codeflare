@@ -57,7 +57,7 @@ describe('Environment report fields', () => {
 
     expect(queryByRole('button', { name: /add route/i })).toBeNull();
     expect((getByLabelText('development context window') as HTMLInputElement).value).toBe('262144');
-    expect((getByLabelText('development capability profile') as HTMLSelectElement).selectedOptions[0]?.textContent).toContain('Kimi thinking');
+    expect((getByLabelText('development reasoning profile') as HTMLSelectElement).selectedOptions[0]?.textContent).toContain('Kimi thinking');
     expect(getByLabelText('developers allowed routes')).toBeTruthy();
     expect(queryByLabelText(/route context windows.*json/i)).toBeNull();
     expect(queryByLabelText(/per-group routing.*json/i)).toBeNull();
