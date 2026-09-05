@@ -210,6 +210,34 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     expect(kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, expect.anything());
   });
 
+  it('REQ-ENTERPRISE-031 AC3/AC10: accepts an exact enabled profile for explicit testing and returns an evidence warning without writes', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'deployment-token' });
+    const values = {
+      ...enterpriseAiValues,
+      routeReasoningProfiles: undefined,
+      reasoningConfiguration: {
+        schemaVersion: 1,
+        customProfileRevisions: [],
+        routeAssignments: {
+          claude: {
+            activeProfile: { id: 'workers-ai-gemma-thinking', revision: 1, hash: 'a'.repeat(64) },
+            routeVersion: 'route-v1',
+            legs: [{
+              nodeId: 'primary', provider: 'custom-enterprise', declaredModel: 'claude-alias',
+              customProviderBackend: 'administrator-owned-model',
+              profileRef: { id: 'workers-ai-gemma-thinking', revision: 1, hash: 'a'.repeat(64) },
+            }],
+          },
+        },
+      },
+    };
+    const response = await post(app, { section: 'aiRouting', baseRevision: 0, values });
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.warnings.map((warning: any) => warning.code)).toContain('reasoning_profile_unverified');
+    expect(kv.put).not.toHaveBeenCalledWith('setup:reasoning_configuration', expect.anything());
+  });
+
   it('resolves AI Gateway URL and token independently across Administration and deployment sources', async () => {
     const administrationUrl = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'deployment-token' });
     await administrationUrl.kv.put(SETUP_KEYS.AIG_GATEWAY_URL, enterpriseAiValues.gatewayUrl);

@@ -30,6 +30,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
 import { LlmInterceptor } from '../llm-interceptor';
+import { getBuiltInProfileRef } from '../lib/reasoning-profiles';
 
 const GATEWAY = 'https://gateway.ai.cloudflare.com/v1/acct/gw';
 const REST_BASE = 'https://api.cloudflare.com/client/v4/accounts/acct/ai';
@@ -243,102 +244,83 @@ describe('REQ-ENTERPRISE-004: placeholder-auth stripping', () => {
   });
 });
 
-describe('REQ-ENTERPRISE-031: profile-specific reasoning translation', () => {
-  const profiledRoute = (profile: string, reasoning = 'medium') => ({
+describe('REQ-ENTERPRISE-031: selected-route capability translation', () => {
+  const configuredRoutes = () => ({
     __kv: {
-      'setup:dynamic_routes': JSON.stringify(['development']),
-      'setup:default_route': JSON.stringify({ route: 'development', reasoning }),
-      'setup:route_context_windows': JSON.stringify({
-        development: { contextWindow: 262144, reasoningProfile: profile },
+      'setup:dynamic_routes': JSON.stringify(['general_usage', 'development']),
+      'setup:default_route': JSON.stringify({ route: 'general_usage', reasoning: 'off' }),
+      'setup:route_context_windows': JSON.stringify({ general_usage: 262144, development: 262144 }),
+      'setup:reasoning_configuration': JSON.stringify({
+        schemaVersion: 1,
+        customProfileRevisions: [],
+        routeAssignments: {
+          general_usage: { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') },
+          development: { activeProfile: getBuiltInProfileRef('workers-ai-kimi-k-thinking') },
+        },
       }),
     },
   } as unknown as Partial<Env>);
 
-  const send = async (profile: string, effort?: unknown) => {
-    const payload: Record<string, unknown> = {
-      model: 'development',
-      messages: [{ role: 'user', content: 'hello' }],
-      ...(effort !== undefined && { reasoning_effort: effort }),
-      reasoning: { effort: 'high' },
-      thinking: { type: 'enabled' },
-      chat_template_kwargs: { unrelated: 'preserved', enable_thinking: true, thinking: true, clear_thinking: true },
-    };
-    const response = await makeInterceptor(profiledRoute(profile)).fetch(
+  const send = async (model: string, effort?: unknown) => {
+    const response = await makeInterceptor(configuredRoutes()).fetch(
       new Request('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: 'hello' }],
+          ...(effort !== undefined && { reasoning_effort: effort }),
+          reasoning: { effort: 'high' },
+          chat_template_kwargs: { unrelated: 'preserved', enable_thinking: false },
+        }),
       }),
     );
     return { response, payload: lastFetch ? JSON.parse(lastFetch.body) as Record<string, any> : null };
   };
 
-  it('AC5: GPT-OSS maps canonical off to explicit null and enabled levels to Workers AI effort', async () => {
-    const off = await send('workers-ai-gpt-oss', 'off');
-    expect(off.response.status).toBe(200);
-    expect(off.payload!.reasoning_effort).toBeNull();
-    expect(off.payload!.reasoning).toBeUndefined();
-    expect(off.payload!.thinking).toBeUndefined();
-    expect(off.payload!.chat_template_kwargs).toEqual({ unrelated: 'preserved' });
+  it('AC5: loads the profile for the route selected through Pi /model', async () => {
+    const glm = await send('general_usage', 'off');
+    expect(glm.response.status).toBe(200);
+    expect(glm.payload!.model).toBe('dynamic/general_usage');
+    expect(glm.payload!.chat_template_kwargs.enable_thinking).toBe(false);
 
-    const max = await send('workers-ai-gpt-oss', 'max');
-    expect(max.payload!.reasoning_effort).toBe('high');
+    const kimi = await send('development', 'medium');
+    expect(kimi.response.status).toBe(200);
+    expect(kimi.payload!.model).toBe('dynamic/development');
+    expect(kimi.payload!.chat_template_kwargs.enable_thinking).toBe(true);
   });
 
-  it('AC5: GLM and Kimi apply their documented chat-template toggle plus explicit effort', async () => {
-    const glm = await send('workers-ai-glm-5.3', 'max');
-    expect(glm.payload!.reasoning_effort).toBe('max');
-    expect(glm.payload!.chat_template_kwargs).toEqual({ unrelated: 'preserved', enable_thinking: true, clear_thinking: false });
-
-    const kimi = await send('workers-ai-kimi-k2.6', 'off');
-    expect(kimi.payload!.reasoning_effort).toBeNull();
-    expect(kimi.payload!.chat_template_kwargs).toEqual({ unrelated: 'preserved', thinking: false, clear_thinking: false });
+  it('AC5: unknown or disallowed handles preserve the existing safe fallback to the scope default', async () => {
+    const { response, payload } = await send('not-allowed');
+    expect(response.status).toBe(200);
+    expect(payload!.model).toBe('dynamic/general_usage');
+    expect(payload!.chat_template_kwargs.enable_thinking).toBe(false);
   });
 
-  it('AC7: uses the resolved route default when the client sends no canonical effort', async () => {
-    const { payload } = await send('workers-ai-kimi-k2.6');
-    expect(payload!.reasoning_effort).toBe('medium');
-    expect(payload!.chat_template_kwargs.thinking).toBe(true);
+  it('AC5: uses the scope default only when Pi sends no canonical level', async () => {
+    const { payload } = await send('general_usage');
+    expect(payload!.chat_template_kwargs.enable_thinking).toBe(false);
   });
 
-  it('AC6: fails closed before gateway fetch for a missing profile, unknown profile, or invalid level', async () => {
-    const cases: Array<{ env: Partial<Env>; effort: unknown }> = [
-      { env: { __kv: { 'setup:dynamic_routes': '["development"]', 'setup:default_route': '{"route":"development","reasoning":"low"}', 'setup:route_context_windows': '{"development":262144}' } } as unknown as Partial<Env>, effort: 'low' },
-      { env: profiledRoute('unknown-profile'), effort: 'low' },
-      { env: profiledRoute('workers-ai-gpt-oss'), effort: 'extreme' },
-    ];
-    for (const item of cases) {
+  it('AC5: fails closed before provider I/O when the selected route profile does not map the level', async () => {
+    lastFetch = null;
+    const { response } = await send('development', 'off');
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'UNSUPPORTED_REASONING_LEVEL' });
+    expect(lastFetch).toBeNull();
+  });
+
+  it('AC5: fails closed when the atomic configuration is missing or unreadable', async () => {
+    for (const reasoningConfiguration of [undefined, '{not-json']) {
       lastFetch = null;
-      const response = await makeInterceptor(item.env).fetch(new Request('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        body: JSON.stringify({ model: 'development', messages: [], reasoning_effort: item.effort }),
+      const env = configuredRoutes() as any;
+      if (reasoningConfiguration === undefined) delete env.__kv['setup:reasoning_configuration'];
+      else env.__kv['setup:reasoning_configuration'] = reasoningConfiguration;
+      const response = await makeInterceptor(env).fetch(new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST', body: JSON.stringify({ model: 'development', messages: [], reasoning_effort: 'low' }),
       }));
       expect(response.status).toBe(400);
       expect(lastFetch).toBeNull();
     }
-  });
-
-  it('AC6: fails closed when stored profile configuration cannot be read', async () => {
-    const stored: Record<string, string> = {
-      'setup:dynamic_routes': '["development"]',
-      'setup:default_route': '{"route":"development","reasoning":"low"}',
-    };
-    const env = {
-      KV: {
-        get: async (key: string, type?: string) => {
-          if (key === 'setup:route_context_windows') throw new Error('malformed stored JSON');
-          const raw = stored[key];
-          return type === 'json' && raw ? JSON.parse(raw) : raw ?? null;
-        },
-      },
-    } as unknown as Partial<Env>;
-
-    const response = await makeInterceptor(env).fetch(new Request('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      body: JSON.stringify({ model: 'development', messages: [], reasoning_effort: 'low' }),
-    }));
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ code: 'REASONING_CONFIGURATION_UNAVAILABLE' });
-    expect(lastFetch).toBeNull();
   });
 });
 

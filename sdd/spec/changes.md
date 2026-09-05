@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-05
 
-- **Enterprise Pi reasoning follows each route's declared model protocol** ([REQ-ENTERPRISE-031](enterprise-mode.md#req-enterprise-031-enterprise-pi-gateway-provider-compatibility) AC3-AC7 added; remains Implemented). Administration now pairs every dynamic route's context window with one finite Workers AI reasoning profile. Pi emits explicit canonical levels from `off` through `max`; the Worker removes conflicting controls and translates each level for GPT-OSS, GLM 5.3, or Kimi K2.6. Legacy unprofiled routes stay visible but chat-completion requests fail closed until an administrator completes the route configuration.
+- **Enterprise Pi reasoning uses Administration-owned capability profiles** ([REQ-ENTERPRISE-031](enterprise-mode.md#req-enterprise-031-enterprise-pi-capability-profiles-and-dynamic-route-compatibility) superseded; Partial while implementation is in progress). Six lifecycle-verified built-ins replace the rejected three-model allowlist, bounded custom revisions remain declarative, and deterministic discovery validates Pi streaming tools plus replay. Each opaque dynamic route keeps one runtime profile while per-leg evidence covers every reachable branch/fallback; administrators retain warned test authority. Structured route/context/profile and many-to-many group controls restore the pre-Administration workflow, Pi still lists every allowed route, and `/model` switching continues to select the request-time route profile.
 
 ## 2026-09-04
 

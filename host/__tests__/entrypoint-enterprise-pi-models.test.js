@@ -75,7 +75,7 @@ function runSettingsBlock(defaultRoute, reasoning, existingSettings) {
 }
 
 // Run the extracted block with the given catalog and return { code, modelsJson }.
-function runBlock(catalogJson, defaultRoute, contextWindowsJson) {
+function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevelsJson) {
   const block = extractModelsBlock();
   const dir = mkdtempSync(join(tmpdir(), 'ent-pi-models-'));
   const modelsPath = join(dir, 'models.json');
@@ -84,6 +84,7 @@ function runBlock(catalogJson, defaultRoute, contextWindowsJson) {
     `ENTERPRISE_ROUTE_CATALOG='${catalogJson}'`,
     `ENTERPRISE_DEFAULT_ROUTE='${defaultRoute}'`,
     ...(contextWindowsJson !== undefined ? [`ENTERPRISE_ROUTE_CONTEXT_WINDOWS='${contextWindowsJson}'`] : []),
+    ...(reasoningLevelsJson !== undefined ? [`ENTERPRISE_ROUTE_REASONING_LEVELS='${reasoningLevelsJson}'`] : []),
     "ENTERPRISE_PLACEHOLDER_TOKEN='codeflare-enterprise'",
     "PI_GATEWAY_BASE_URL='https://api.openai.com/v1'",
     `PI_MODELS_JSON='${modelsPath}'`,
@@ -144,17 +145,21 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     });
   });
 
-  it('REQ-ENTERPRISE-031 AC3: declares explicit canonical thinking-level mappings including off and max', () => {
-    const { code, stderr, modelsJson } = runBlock('["development"]', 'development');
+  it('REQ-ENTERPRISE-031 AC4: emits each route profile supported-level map without removing allowed routes', () => {
+    const catalog = ['general_usage', 'development'];
+    const levels = {
+      general_usage: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      development: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+    };
+    const { code, stderr, modelsJson } = runBlock(JSON.stringify(catalog), 'general_usage', undefined, JSON.stringify(levels));
     assert.equal(code, 0, `entrypoint block exited non-zero: ${stderr}`);
-    assert.deepEqual(modelsJson.providers['codeflare-gateway'].models[0].thinkingLevelMap, {
-      off: 'off',
-      minimal: 'minimal',
-      low: 'low',
-      medium: 'medium',
-      high: 'high',
-      xhigh: 'xhigh',
-      max: 'max',
+    const models = modelsJson.providers['codeflare-gateway'].models;
+    assert.deepEqual(models.map((model) => model.id), catalog);
+    assert.deepEqual(models[0].thinkingLevelMap, {
+      off: 'off', minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max',
+    });
+    assert.deepEqual(models[1].thinkingLevelMap, {
+      minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max',
     });
   });
 

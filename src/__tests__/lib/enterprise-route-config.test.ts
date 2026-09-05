@@ -19,7 +19,7 @@ function makeEnv(kv: MockKV, enterprise = true): Env {
 describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-012)', () => {
   it('AC5: returns empty config when ENTERPRISE_MODE is not active', async () => {
     const cfg = await loadEnterpriseRouteConfig(makeEnv(createMockKV(), false));
-    expect(cfg).toEqual({ routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {} });
+    expect(cfg).toEqual({ routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {} });
   });
 
   it('AC2: parses the route catalog (JSON string[]) from KV', async () => {
@@ -36,6 +36,22 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-012)', () => {
     const cfg = await loadEnterpriseRouteConfig(makeEnv(kv));
     expect(cfg.defaultRoute).toBe('development');
     expect(cfg.defaultReasoning).toBe('medium');
+  });
+
+  it('REQ-ENTERPRISE-031 AC4: returns supported canonical levels for every allowed route profile', async () => {
+    const kv = createMockKV();
+    kv._store.set('setup:dynamic_routes', JSON.stringify(['general_usage', 'development']));
+    kv._store.set('setup:reasoning_configuration', JSON.stringify({
+      schemaVersion: 1,
+      customProfileRevisions: [],
+      routeAssignments: {
+        general_usage: { activeProfile: { id: 'workers-ai-glm-thinking', revision: 1, hash: 'a'.repeat(64) } },
+        development: { activeProfile: { id: 'workers-ai-kimi-k-thinking', revision: 1, hash: 'b'.repeat(64) } },
+      },
+    }));
+    const cfg = await loadEnterpriseRouteConfig(makeEnv(kv));
+    expect(cfg.routeReasoningLevels.general_usage).toEqual(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(cfg.routeReasoningLevels.development).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
   });
 
   it('AC2: falls back to the first catalog route AND drops the reasoning when the configured default is absent from the catalog', async () => {
@@ -148,6 +164,6 @@ describe('loadEnterpriseRouteConfig per-group routing (REQ-ENTERPRISE-013)', () 
 
   it('non-enterprise ignores groups and returns empty config', async () => {
     const cfg = await loadEnterpriseRouteConfig(makeEnv(withGlobalAndGroups(createMockKV()), false), ['developers']);
-    expect(cfg).toEqual({ routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {} });
+    expect(cfg).toEqual({ routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {} });
   });
 });

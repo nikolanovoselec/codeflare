@@ -403,6 +403,33 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(recovered.tasks[0].state).toBe('failed');
   });
 
+  it('REQ-ENTERPRISE-031 AC10: recomputes profile warnings and requires explicit codes at the same base revision', async () => {
+    const { app } = createApp({
+      ENTERPRISE_MODE: 'active',
+      AIG_GATEWAY_URL: 'https://gateway.ai.cloudflare.com/v1/account/gateway',
+      AIG_TOKEN: 'deployment-token',
+    });
+    const values = {
+      gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/account/gateway', replacementToken: '',
+      dynamicRoutes: ['mesh'], defaultRoute: { route: 'mesh', reasoning: 'medium' },
+      routeContextWindows: { mesh: 262144 }, groupRouting: [],
+      reasoningConfiguration: {
+        schemaVersion: 1, customProfileRevisions: [],
+        routeAssignments: { mesh: { activeProfile: { id: 'codeflare-inference-mesh-binary-thinking', revision: 1, hash: 'a'.repeat(64) } } },
+      },
+    };
+
+    const unconfirmed = await post(app, { section: 'aiRouting', baseRevision: 0, values });
+    expect(unconfirmed.status).toBe(400);
+    expect(await unconfirmed.json()).toMatchObject({ code: 'configuration_warning_confirmation_required' });
+
+    const confirmed = await post(app, {
+      section: 'aiRouting', baseRevision: 0, values,
+      confirmedWarnings: ['reasoning_profile_unverified'],
+    });
+    expect(confirmed.status).toBe(200);
+  });
+
   it('persists failure, skips remaining tasks, leaves revision unchanged, and releases admission', async () => {
     const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
     vi.mocked(kv.put).mockImplementation(async (key, value) => {
