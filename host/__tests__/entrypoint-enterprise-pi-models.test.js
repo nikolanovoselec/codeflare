@@ -140,6 +140,21 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     assert.equal(code, 0, `entrypoint block exited non-zero: ${stderr}`);
     assert.deepEqual(modelsJson.providers['codeflare-gateway'].compat, {
       supportsDeveloperRole: false,
+      supportsReasoningEffort: true,
+    });
+  });
+
+  it('REQ-ENTERPRISE-031 AC3: declares explicit canonical thinking-level mappings including off and max', () => {
+    const { code, stderr, modelsJson } = runBlock('["development"]', 'development');
+    assert.equal(code, 0, `entrypoint block exited non-zero: ${stderr}`);
+    assert.deepEqual(modelsJson.providers['codeflare-gateway'].models[0].thinkingLevelMap, {
+      off: 'off',
+      minimal: 'minimal',
+      low: 'low',
+      medium: 'medium',
+      high: 'high',
+      xhigh: 'xhigh',
+      max: 'max',
     });
   });
 

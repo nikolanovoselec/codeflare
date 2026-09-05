@@ -350,6 +350,7 @@ describe('configuration runs (REQ-SETUP-018)', () => {
         dynamicRoutes: ['claude'],
         defaultRoute: { route: 'claude', reasoning: 'medium' },
         routeContextWindows: { claude: 200000 },
+        routeReasoningProfiles: { claude: 'workers-ai-gpt-oss' },
         groupRouting: [],
       },
     });
@@ -357,6 +358,9 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(snapshots(await aiResponse.text()).at(-1).run.state).toBe('succeeded');
     expect(await ai.kv.get(SETUP_KEYS.AIG_GATEWAY_URL)).toBe('https://gateway.ai.cloudflare.com/v1/account/gateway');
     expect(await ai.kv.get(SETUP_KEYS.DYNAMIC_ROUTES)).toBe(JSON.stringify(['claude']));
+    expect(JSON.parse(await ai.kv.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS) as string)).toEqual({
+      claude: { contextWindow: 200000, reasoningProfile: 'workers-ai-gpt-oss' },
+    });
     expect(ai.kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.AIG_TOKEN, expect.anything(), expect.anything());
 
     const browser = createApp({ ENTERPRISE_MODE: 'active' });

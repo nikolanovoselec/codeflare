@@ -46,6 +46,8 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from './types';
 import { resolveRouteCatalog } from './lib/access';
+import { SETUP_KEYS } from './lib/kv-keys';
+import { isPiReasoningLevel, parseRouteSettings, translateReasoningRequest } from './lib/reasoning-profiles';
 
 /**
  * Hosts the DO must intercept for enterprise LLM routing. Only the OpenAI host
@@ -416,10 +418,21 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
       const catalog = await this.loadRouteCatalog(groups);
       if (catalog.routes.length > 0) {
         try {
-          const payload = JSON.parse(raw) as Record<string, unknown>;
+          let payload = JSON.parse(raw) as Record<string, unknown>;
           if (payload && typeof payload === 'object' && !Array.isArray(payload) && typeof payload.model === 'string') {
             const handle = payload.model.replace(/^dynamic\//, ''); // tolerate a pre-prefixed handle
             const route = catalog.routes.includes(handle) ? handle : catalog.defaultRoute;
+            if (url.pathname.endsWith('/chat/completions')) {
+              const profile = (await this.loadRouteReasoningProfiles())[route];
+              const canonicalLevel = payload.reasoning_effort ?? catalog.defaultReasoning;
+              if (!profile || !isPiReasoningLevel(canonicalLevel)) {
+                return new Response(JSON.stringify({
+                  error: !profile ? `Reasoning profile required for route ${route}` : 'Unsupported reasoning level',
+                  code: !profile ? 'REASONING_PROFILE_REQUIRED' : 'UNSUPPORTED_REASONING_LEVEL',
+                }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+              }
+              payload = translateReasoningRequest(payload, profile, canonicalLevel);
+            }
             payload.model = `dynamic/${route}`;
             outboundBody = JSON.stringify(payload);
           }
@@ -498,9 +511,15 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
    * (interceptor prop); the first matched group with its own routes wins, else the
    * global catalog. No KV ⇒ no catalog ⇒ no rewrite (agent handle forwarded verbatim).
    */
-  private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string }> {
-    if (!this.env.KV) return { routes: [], defaultRoute: '' };
-    const { routeCatalog, defaultRoute } = await resolveRouteCatalog(this.env.KV, groups);
-    return { routes: routeCatalog, defaultRoute };
+  private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string; defaultReasoning: string }> {
+    if (!this.env.KV) return { routes: [], defaultRoute: '', defaultReasoning: 'off' };
+    const { routeCatalog, defaultRoute, defaultReasoning } = await resolveRouteCatalog(this.env.KV, groups);
+    return { routes: routeCatalog, defaultRoute, defaultReasoning };
+  }
+
+  private async loadRouteReasoningProfiles() {
+    if (!this.env.KV) return {};
+    const raw = await this.env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, 'json');
+    return parseRouteSettings(raw).reasoningProfiles;
   }
 }

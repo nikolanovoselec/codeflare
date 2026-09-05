@@ -41,7 +41,10 @@ function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string;
   // The interceptor now reads the route catalog from KV; tests pass a __kv map
   // of key -> JSON string via envOverrides, which backs a minimal KV.get stub.
   const kvStore: Record<string, string> = (envOverrides as { __kv?: Record<string, string> }).__kv ?? {};
-  const env = { AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN, KV: { get: async (k: string) => kvStore[k] ?? null }, ...envOverrides } as unknown as Env;
+  const env = { AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN, KV: { get: async (k: string, type?: string) => {
+    const raw = kvStore[k];
+    return raw !== undefined && type === 'json' ? JSON.parse(raw) : raw ?? null;
+  } }, ...envOverrides } as unknown as Env;
   // The DO instantiates this via ctx.exports.LlmInterceptor({ props }); props
   // land on ctx.props. A minimal ctx stub mirrors that shape for the unit test.
   const ctx = { props } as unknown as ExecutionContext;
@@ -240,6 +243,81 @@ describe('REQ-ENTERPRISE-004: placeholder-auth stripping', () => {
   });
 });
 
+describe('REQ-ENTERPRISE-031: profile-specific reasoning translation', () => {
+  const profiledRoute = (profile: string, reasoning = 'medium') => ({
+    __kv: {
+      'setup:dynamic_routes': JSON.stringify(['development']),
+      'setup:default_route': JSON.stringify({ route: 'development', reasoning }),
+      'setup:route_context_windows': JSON.stringify({
+        development: { contextWindow: 262144, reasoningProfile: profile },
+      }),
+    },
+  } as unknown as Partial<Env>);
+
+  const send = async (profile: string, effort?: unknown) => {
+    const payload: Record<string, unknown> = {
+      model: 'development',
+      messages: [{ role: 'user', content: 'hello' }],
+      ...(effort !== undefined && { reasoning_effort: effort }),
+      reasoning: { effort: 'high' },
+      thinking: { type: 'enabled' },
+      chat_template_kwargs: { unrelated: 'preserved', enable_thinking: true, thinking: true, clear_thinking: true },
+    };
+    const response = await makeInterceptor(profiledRoute(profile)).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    );
+    return { response, payload: lastFetch ? JSON.parse(lastFetch.body) as Record<string, any> : null };
+  };
+
+  it('AC5: GPT-OSS maps canonical off to explicit null and enabled levels to Workers AI effort', async () => {
+    const off = await send('workers-ai-gpt-oss', 'off');
+    expect(off.response.status).toBe(200);
+    expect(off.payload.reasoning_effort).toBeNull();
+    expect(off.payload.reasoning).toBeUndefined();
+    expect(off.payload.thinking).toBeUndefined();
+    expect(off.payload.chat_template_kwargs).toEqual({ unrelated: 'preserved' });
+
+    const max = await send('workers-ai-gpt-oss', 'max');
+    expect(max.payload.reasoning_effort).toBe('high');
+  });
+
+  it('AC5: GLM and Kimi apply their documented chat-template toggle plus explicit effort', async () => {
+    const glm = await send('workers-ai-glm-5.3', 'max');
+    expect(glm.payload.reasoning_effort).toBe('max');
+    expect(glm.payload.chat_template_kwargs).toEqual({ unrelated: 'preserved', enable_thinking: true, clear_thinking: false });
+
+    const kimi = await send('workers-ai-kimi-k2.6', 'off');
+    expect(kimi.payload.reasoning_effort).toBeNull();
+    expect(kimi.payload.chat_template_kwargs).toEqual({ unrelated: 'preserved', thinking: false, clear_thinking: false });
+  });
+
+  it('AC7: uses the resolved route default when the client sends no canonical effort', async () => {
+    const { payload } = await send('workers-ai-kimi-k2.6');
+    expect(payload.reasoning_effort).toBe('medium');
+    expect(payload.chat_template_kwargs.thinking).toBe(true);
+  });
+
+  it('AC6: fails closed before gateway fetch for a missing profile, unknown profile, or invalid level', async () => {
+    const cases: Array<{ env: Partial<Env>; effort: unknown }> = [
+      { env: { __kv: { 'setup:dynamic_routes': '["development"]', 'setup:default_route': '{"route":"development","reasoning":"low"}', 'setup:route_context_windows': '{"development":262144}' } } as unknown as Partial<Env>, effort: 'low' },
+      { env: profiledRoute('unknown-profile'), effort: 'low' },
+      { env: profiledRoute('workers-ai-gpt-oss'), effort: 'extreme' },
+    ];
+    for (const item of cases) {
+      lastFetch = null;
+      const response = await makeInterceptor(item.env).fetch(new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        body: JSON.stringify({ model: 'development', messages: [], reasoning_effort: item.effort }),
+      }));
+      expect(response.status).toBe(400);
+      expect(lastFetch).toBeNull();
+    }
+  });
+});
+
 describe('REQ-ENTERPRISE-004: streaming passthrough (no buffering)', () => {
   it('AC3: preserves the text/event-stream content-type and streams the body', async () => {
     const res = await makeInterceptor().fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }));
@@ -369,6 +447,7 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
     ({
       __kv: {
         'setup:dynamic_routes': JSON.stringify(routes),
+        'setup:route_context_windows': JSON.stringify(Object.fromEntries(routes.map((route) => [route, { contextWindow: 262144, reasoningProfile: 'workers-ai-gpt-oss' }]))),
         ...(def !== undefined && { 'setup:default_route': JSON.stringify({ route: def, reasoning: 'off' }) }),
       },
     } as unknown as Partial<Env>);
@@ -422,6 +501,7 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
       __kv: {
         'setup:dynamic_routes': JSON.stringify(['general_usage', 'development', 'code_review']),
         'setup:default_route': JSON.stringify({ route: 'general_usage', reasoning: 'off' }),
+        'setup:route_context_windows': JSON.stringify(Object.fromEntries(['general_usage', 'development', 'code_review'].map((route) => [route, { contextWindow: 262144, reasoningProfile: 'workers-ai-gpt-oss' }]))),
         'setup:group_routing': JSON.stringify({
           developers: { routes: ['code_review', 'development'], defaultRoute: 'code_review', reasoning: 'high' },
         }),
@@ -439,6 +519,7 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
       __kv: {
         'setup:dynamic_routes': JSON.stringify(['general_usage', 'development']),
         'setup:default_route': JSON.stringify({ route: 'general_usage', reasoning: 'off' }),
+        'setup:route_context_windows': JSON.stringify(Object.fromEntries(['general_usage', 'development'].map((route) => [route, { contextWindow: 262144, reasoningProfile: 'workers-ai-gpt-oss' }]))),
         'setup:group_routing': JSON.stringify({
           developers: { routes: ['development'], defaultRoute: 'development', reasoning: 'high' },
         }),
@@ -533,7 +614,11 @@ describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD
   it('replays the SAME buffered (catalog-mapped) body on the compat leg', async () => {
     const calls = mockRestThenCompat();
     const env = {
-      __kv: { 'setup:dynamic_routes': JSON.stringify(['codeflare']), 'setup:default_route': JSON.stringify({ route: 'codeflare', reasoning: 'off' }) },
+      __kv: {
+        'setup:dynamic_routes': JSON.stringify(['codeflare']),
+        'setup:default_route': JSON.stringify({ route: 'codeflare', reasoning: 'off' }),
+        'setup:route_context_windows': JSON.stringify({ codeflare: { contextWindow: 262144, reasoningProfile: 'workers-ai-gpt-oss' } }),
+      },
     } as unknown as Partial<Env>;
     await makeInterceptor(env).fetch(
       new Request('https://api.openai.com/v1/chat/completions', {

@@ -10,6 +10,7 @@ import { getAllUsers } from '../../lib/access-policy';
 import { parseAccessGroups } from '../../lib/access';
 import { installedAgents, CONFIGURABLE_ENTERPRISE_AGENTS, readActiveAgents } from '../../lib/agent-allowlist';
 import { getManagedEnvironmentPrefill } from '../../lib/remote-curation';
+import { parseRouteSettings } from '../../lib/reasoning-profiles';
 import {
   ADMIN_CONFIGURATION_KEYS,
   getAdminConfigurationLatestKey,
@@ -157,12 +158,14 @@ app.get('/', requireAdmin, async (c) => {
       userAccessGroups: parseAccessGroups(enterpriseAccessGroup),
       adminAccessGroups: parseAccessGroups(enterpriseAdminAccessGroup),
     };
+    const routeSettings = parseRouteSettings(parseObject(routeContextWindows) ?? {});
     sections.aiRouting = {
       gatewayUrl: aigGatewayUrl || c.env.AIG_GATEWAY_URL || '',
       tokenState: secretState(aigToken, c.env.AIG_TOKEN),
       dynamicRoutes: parseArray(dynamicRoutes),
       defaultRoute: parseObject(defaultRoute),
-      routeContextWindows: parseObject(routeContextWindows) ?? {},
+      routeContextWindows: routeSettings.contextWindows,
+      routeReasoningProfiles: routeSettings.reasoningProfiles,
       groupRouting: parseObject(groupRouting) ?? {},
     };
     sections.codingAgents = { activeAgents, configurableAgents };

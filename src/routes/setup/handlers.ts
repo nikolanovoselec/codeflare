@@ -12,6 +12,7 @@ import { isEnterpriseMode } from '../../lib/subscription';
 import { isOnboardingLandingPageActive } from '../../lib/onboarding';
 import { readActiveAgents, installedAgents, CONFIGURABLE_ENTERPRISE_AGENTS } from '../../lib/agent-allowlist';
 import { getManagedEnvironmentPrefill } from '../../lib/remote-curation';
+import { parseRouteSettings } from '../../lib/reasoning-profiles';
 
 const statusRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 30, keyPrefix: 'setup-status' });
 const detectTokenRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 10, keyPrefix: 'setup-detect-token' });
@@ -176,8 +177,11 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     // prefills each route's field (the wizard fills DEFAULT_ROUTE_CONTEXT_WINDOW for any
     // route absent from this map).
     let routeContextWindows: Record<string, number> = {};
+    let routeReasoningProfiles: Record<string, string> = {};
     try {
-      routeContextWindows = (await c.env.KV.get<Record<string, number>>(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, 'json')) ?? {};
+      const settings = parseRouteSettings(await c.env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, 'json') ?? {});
+      routeContextWindows = settings.contextWindows;
+      routeReasoningProfiles = settings.reasoningProfiles;
     } catch { /* malformed stored JSON → wizard starts from empty */ }
     // REQ-ENTERPRISE-016: surface the strict gateway egress toggle (default OFF on absent).
     const strictGatewayEgress = (await c.env.KV.get(SETUP_KEYS.STRICT_EGRESS)) === 'active';
@@ -195,7 +199,7 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     const activeAgents = installedActiveAgents.length > 0 ? installedActiveAgents : configurableAgents;
     enterpriseExtras = {
       ...enterpriseExtras,
-      enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, browserRenderTokenSet, browserRenderAccountId,
+      enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, routeReasoningProfiles, browserRenderTokenSet, browserRenderAccountId,
       aigGatewayUrl, aigTokenSet, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled,
       activeAgents, configurableAgents,
     };

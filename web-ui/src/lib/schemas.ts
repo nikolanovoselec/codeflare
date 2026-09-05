@@ -227,6 +227,7 @@ export const SetupPrefillResponseSchema = z.object({
   defaultRoute: z.object({ route: z.string(), reasoning: RouteReasoningSchema }).nullable().default(null),
   // REQ-ENTERPRISE-012: per-route context window map (route name -> tokens).
   routeContextWindows: z.record(z.string(), z.number()).default({}),
+  routeReasoningProfiles: z.record(z.string(), z.enum(['workers-ai-gpt-oss', 'workers-ai-glm-5.3', 'workers-ai-kimi-k2.6'])).default({}),
   // REQ-BROWSER-007: admin Browser Rendering token state (masked — the server returns
   // only whether it is set, never the token) + the non-secret account id.
   browserRenderTokenSet: z.boolean().default(false),

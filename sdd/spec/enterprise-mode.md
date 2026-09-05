@@ -203,7 +203,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-031: Enterprise Pi Gateway Provider Compatibility
 
-**Intent:** Pi's Enterprise provider configuration must remain compatible when dynamic routes resolve to backends with different supported conversation roles.
+**Intent:** Pi's Enterprise provider configuration must preserve system instructions and turn every selectable thinking level into an explicit request that the Worker translates for the configured dynamic-route model family.
 
 **Applies To:** User
 
@@ -211,17 +211,25 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. Pi's Enterprise provider configuration contains one selectable model for each configured dynamic route. <!-- @impl: entrypoint.sh::PI_PROVIDER_CONFIG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-031 AC1: builds models.json with one model per catalog route under set -euo pipefail) -->
 2. Pi's Enterprise provider configuration declares developer-role messages unsupported. <!-- @impl: entrypoint.sh::PI_PROVIDER_CONFIG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-031 AC2: declares developer-role messages unsupported for dynamic routes) -->
+3. Pi emits every selectable level, including `off`, as an explicit canonical `reasoning_effort` value; the intercepted OpenAI hostname does not decide backend semantics. <!-- @impl: entrypoint.sh::PI_PROVIDER_CONFIG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-031 AC3: declares explicit canonical thinking-level mappings including off and max) -->
+4. Administration associates every dynamic route with one supported reasoning profile alongside its context window; existing unprofiled routes remain visible but cannot serve model requests until completed. <!-- @impl: src/lib/admin-configuration.ts::aiRoutingSchema --> <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-ENTERPRISE-031 AC4: route reasoning profiles are required and validated) -->
+5. The interceptor translates the canonical level into the configured profile's request fields, with an explicit disabled encoding for `off`, and removes conflicting profile-owned reasoning controls before forwarding. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-031 AC5: profile-specific reasoning translation) -->
+6. A missing profile, unknown profile, or unsupported canonical level fails closed before gateway fetch. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-031 AC6: invalid reasoning configuration fails closed) -->
+7. When a client sends no canonical level, the interceptor applies the configured default route or group reasoning level. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-031 AC7: missing client effort uses the resolved configured default) -->
 
 **Constraints:**
 
-- Prompt content, tool schemas, reasoning controls, and dynamic-route selection remain unchanged.
+- Reasoning profiles are a finite, evidence-backed application allowlist; administrators cannot submit arbitrary request transforms.
+- `reasoning_effort: "off"` is an interceptor-private canonical value and is never forwarded unchanged.
+- Every branch and fallback in an external AI Gateway dynamic route must use the selected profile; incompatible legs require separate routes.
+- Gateway credentials remain Worker-side. Pi's existing response parser, tool replay, and stream-terminator repair remain unchanged.
 - The compatibility setting applies only to Pi's Enterprise custom provider.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning)
+**Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)
 
-**Verification:** Automated test ([Pi models.json build test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js) (AC1 — provider construction, catalog models, empty-catalog fallback, and reserved-keyword jq guard; AC2 — developer-role compatibility declaration).)
+**Verification:** Automated tests ([Pi models.json build](../../host/__tests__/entrypoint-enterprise-pi-models.test.js), [Administration validation](../../src/__tests__/routes/admin-configuration-preview.test.ts), [interceptor translation](../../src/__tests__/llm-interceptor.test.ts)).
 
 **Status:** Implemented
 

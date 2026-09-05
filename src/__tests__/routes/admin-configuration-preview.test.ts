@@ -55,6 +55,7 @@ const enterpriseAiValues = {
   dynamicRoutes: ['claude'],
   defaultRoute: { route: 'claude', reasoning: 'medium' },
   routeContextWindows: { claude: 200000 },
+  routeReasoningProfiles: { claude: 'workers-ai-gpt-oss' },
   groupRouting: [],
 };
 
@@ -172,6 +173,25 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
       { id: 'create_access_app', dependsOn: ['configure_access_groups'] },
     ]);
     expect(kv.put).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-031 AC4: requires one supported reasoning profile for every route', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'deployment-token' });
+
+    const missing = await post(app, {
+      section: 'aiRouting',
+      baseRevision: 0,
+      values: { ...enterpriseAiValues, routeReasoningProfiles: {} },
+    });
+    expect(missing.status).toBe(400);
+
+    const unknown = await post(app, {
+      section: 'aiRouting',
+      baseRevision: 0,
+      values: { ...enterpriseAiValues, routeReasoningProfiles: { claude: 'arbitrary-transform' } },
+    });
+    expect(unknown.status).toBe(400);
+    expect(kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, expect.anything());
   });
 
   it('resolves AI Gateway URL and token independently across Administration and deployment sources', async () => {

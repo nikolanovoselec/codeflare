@@ -8,6 +8,7 @@ import { isEnterpriseMode } from './subscription';
 import { parseUserRecord } from './user-record';
 import { listAllKvKeys, SETUP_KEYS } from './kv-keys';
 import { reactivateUsageUser } from './admin-usage';
+import { parseRouteSettings } from './reasoning-profiles';
 
 const logger = createLogger('access');
 
@@ -735,13 +736,7 @@ async function loadRouteContextWindows(kv: KVNamespace): Promise<Record<string, 
   try {
     const raw = await kv.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS);
     const parsed = raw ? JSON.parse(raw) : null;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      const out: Record<string, number> = {};
-      for (const [route, win] of Object.entries(parsed)) {
-        if (typeof win === 'number' && Number.isInteger(win) && win > 0) out[route] = win;
-      }
-      return out;
-    }
+    return parseRouteSettings(parsed).contextWindows;
   } catch {
     /* malformed -> empty, entrypoint applies the per-route default */
   }

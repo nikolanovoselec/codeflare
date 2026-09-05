@@ -13,6 +13,7 @@ const storeState = vi.hoisted(() => ({
   adminAccessGroups: [] as string[],
   dynamicRoutes: [] as string[],
   routeContextWindows: {} as Record<string, number>,
+  routeReasoningProfiles: {} as Record<string, string>,
   defaultRouteName: '',
   defaultRouteReasoning: 'off' as 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max',
   cloudflareBrowserToken: '',
@@ -60,6 +61,7 @@ const storeMethods = vi.hoisted(() => ({
   removeDynamicRoute: vi.fn((name: string) => { storeState.dynamicRoutes = storeState.dynamicRoutes.filter(r => r !== name); }),
   setRouteContextWindow: vi.fn((name: string, tokens: number) => { storeState.routeContextWindows[name] = tokens; }),
   resetRouteContextWindow: vi.fn((name: string) => { storeState.routeContextWindows[name] = 256000; }),
+  setRouteReasoningProfile: vi.fn((name: string, profile: string) => { storeState.routeReasoningProfiles[name] = profile; }),
   setDefaultRouteName: vi.fn((name: string) => { storeState.defaultRouteName = name; }),
   setDefaultRouteReasoning: vi.fn((level: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max') => { storeState.defaultRouteReasoning = level; }),
   setCloudflareBrowserToken: vi.fn((val: string) => { storeState.cloudflareBrowserToken = val; }),
@@ -96,6 +98,7 @@ vi.mock('../../stores/setup', () => ({
     get adminAccessGroups() { return storeState.adminAccessGroups; },
     get dynamicRoutes() { return storeState.dynamicRoutes; },
     get routeContextWindows() { return storeState.routeContextWindows; },
+    get routeReasoningProfiles() { return storeState.routeReasoningProfiles; },
     get defaultRouteName() { return storeState.defaultRouteName; },
     get defaultRouteReasoning() { return storeState.defaultRouteReasoning; },
     get cloudflareBrowserToken() { return storeState.cloudflareBrowserToken; },
@@ -155,6 +158,7 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
     storeState.adminAccessGroups = [];
     storeState.dynamicRoutes = [];
     storeState.routeContextWindows = {};
+    storeState.routeReasoningProfiles = {};
     storeState.defaultRouteName = '';
     storeState.defaultRouteReasoning = 'off';
     storeState.cloudflareBrowserToken = '';

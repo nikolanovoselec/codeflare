@@ -76,8 +76,10 @@ export function applyEnterprisePrefill(s: SetupState, prefill: SetupPrefill, cus
   // REQ-ENTERPRISE-012: hydrate per-route windows, then fill the default for
   // any catalog route the stored map doesn't cover so every field shows a value.
   s.routeContextWindows = { ...prefill.routeContextWindows };
+  s.routeReasoningProfiles = { ...prefill.routeReasoningProfiles };
   for (const r of prefill.dynamicRoutes) {
     if (s.routeContextWindows[r] === undefined) s.routeContextWindows[r] = DEFAULT_ROUTE_CONTEXT_WINDOW;
+    if (s.routeReasoningProfiles[r] === undefined) s.routeReasoningProfiles[r] = '';
   }
   applyProviderPrefill(s, prefill);
   s.groupRouting = prefill.groupRouting;

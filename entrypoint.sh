@@ -3209,7 +3209,16 @@ COPILOT_BYOK_EOF
         --argjson cw "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" \
         --argjson dflt 256000 '
         (if type=="array" and length>0 then . else [$defroute] end)
-        | map({ id: ., reasoning: true, input: ["text", "image"], contextWindow: ($cw[.] // $dflt) })' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
+        | map({
+            id: .,
+            reasoning: true,
+            thinkingLevelMap: {
+                off: "off", minimal: "minimal", low: "low", medium: "medium",
+                high: "high", xhigh: "xhigh", max: "max"
+            },
+            input: ["text", "image"],
+            contextWindow: ($cw[.] // $dflt)
+        })' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
     PI_PROVIDER_CONFIG=""
     if [ "$PI_GATEWAY_CONFIG_OK" = "1" ]; then
         PI_PROVIDER_CONFIG="$(jq -n \
@@ -3222,7 +3231,7 @@ COPILOT_BYOK_EOF
                     api: "openai-completions",
                     apiKey: $apiKey,
                     authHeader: true,
-                    compat: { supportsDeveloperRole: false },
+                    compat: { supportsDeveloperRole: false, supportsReasoningEffort: true },
                     models: $models
                 }
             }

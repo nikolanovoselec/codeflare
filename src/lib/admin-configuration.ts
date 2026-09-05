@@ -13,6 +13,7 @@ import { handleCreateAccessApp } from '../routes/setup/access';
 import { handleConfigureCustomDomain } from '../routes/setup/custom-domain';
 import { getWorkerNameFromHostname } from '../routes/setup/shared';
 import { reactivateUsageUser } from './admin-usage';
+import { REASONING_PROFILE_IDS, parseRouteSettings, serializeRouteSettings } from './reasoning-profiles';
 import {
   configureManagedEnvironment,
   readManagedEnvironmentSnapshot,
@@ -87,6 +88,7 @@ const aiRoutingSchema = z.object({
   dynamicRoutes: z.array(name).min(1),
   defaultRoute: z.object({ route: name, reasoning }).strict(),
   routeContextWindows: z.record(name, z.number().int().positive()),
+  routeReasoningProfiles: z.record(name, z.enum(REASONING_PROFILE_IDS)),
   groupRouting: z.array(z.object({
     accessGroup: name,
     routes: z.array(name).min(1),
@@ -96,6 +98,12 @@ const aiRoutingSchema = z.object({
 }).strict().superRefine((value, context) => {
   if (!value.dynamicRoutes.includes(value.defaultRoute.route)) {
     context.addIssue({ code: 'custom', message: 'Default route must be in dynamicRoutes', path: ['defaultRoute', 'route'] });
+  }
+  if (value.dynamicRoutes.some((route) => !value.routeReasoningProfiles[route])) {
+    context.addIssue({ code: 'custom', message: 'Every dynamic route requires a reasoning profile', path: ['routeReasoningProfiles'] });
+  }
+  if (Object.keys(value.routeReasoningProfiles).some((route) => !value.dynamicRoutes.includes(route))) {
+    context.addIssue({ code: 'custom', message: 'Reasoning profiles must use the route catalog', path: ['routeReasoningProfiles'] });
   }
   for (const [index, group] of value.groupRouting.entries()) {
     if (!group.routes.includes(group.defaultRoute) || group.routes.some((route) => !value.dynamicRoutes.includes(route))) {
@@ -256,14 +264,17 @@ async function readCurrentConfigurationValues(
     }
     case 'domain':
       return { customDomain: (await env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN)) ?? '' };
-    case 'aiRouting':
+    case 'aiRouting': {
+      const routeSettings = parseRouteSettings(parseJson(await env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS), {}));
       return {
         gatewayUrl: (await env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL)) || env.AIG_GATEWAY_URL || '',
         dynamicRoutes: parseJson(await env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES), []),
         defaultRoute: parseJson(await env.KV.get(SETUP_KEYS.DEFAULT_ROUTE), null),
-        routeContextWindows: parseJson(await env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS), {}),
+        routeContextWindows: routeSettings.contextWindows,
+        routeReasoningProfiles: routeSettings.reasoningProfiles,
         groupRouting: parseJson(await env.KV.get(SETUP_KEYS.GROUP_ROUTING), {}),
       };
+    }
     case 'codingAgents':
       return { activeAgents: CONFIGURABLE_ENTERPRISE_AGENTS.filter((agent) => installedAgents(env).includes(agent)) };
     case 'browserRendering':
@@ -536,7 +547,9 @@ export async function executeConfigurationTask(
       if (values.defaultRoute) await env.KV.put(SETUP_KEYS.DEFAULT_ROUTE, JSON.stringify(values.defaultRoute));
       else await env.KV.delete(SETUP_KEYS.DEFAULT_ROUTE);
       const windows = values.routeContextWindows as Record<string, number>;
-      if (Object.keys(windows).length) await env.KV.put(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, JSON.stringify(windows));
+      const profiles = values.routeReasoningProfiles as Record<string, (typeof REASONING_PROFILE_IDS)[number]>;
+      const routeSettings = serializeRouteSettings(windows, profiles);
+      if (Object.keys(routeSettings).length) await env.KV.put(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, JSON.stringify(routeSettings));
       else await env.KV.delete(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS);
       const submittedGroups = values.groupRouting;
       const groups = Array.isArray(submittedGroups)
