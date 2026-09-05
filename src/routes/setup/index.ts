@@ -187,6 +187,11 @@ const ConfigureBodySchema = z.object({
     Object.keys(data.routeReasoningProfiles).every((route) => (data.dynamicRoutes ?? []).includes(route)),
   { message: 'reasoning profiles must use the dynamic route catalog', path: ['routeReasoningProfiles'] }
 ).refine(
+  (data) =>
+    data.routeReasoningProfiles === undefined ||
+    (data.dynamicRoutes ?? []).every((route) => Boolean(data.routeContextWindows?.[route])),
+  { message: 'every profiled dynamic route requires a context window', path: ['routeContextWindows'] }
+).refine(
   // REQ-ENTERPRISE-013: each group's defaultRoute must be one of that group's routes.
   (data) =>
     !data.groupRouting ||

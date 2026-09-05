@@ -47,7 +47,7 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from './types';
 import { resolveRouteCatalog } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
-import { isPiReasoningLevel, parseRouteSettings, translateReasoningRequest } from './lib/reasoning-profiles';
+import { isPiReasoningLevel, parseRouteSettings, translateReasoningRequest, type ReasoningProfileId } from './lib/reasoning-profiles';
 
 /**
  * Hosts the DO must intercept for enterprise LLM routing. Only the OpenAI host
@@ -417,27 +417,37 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
       // non-fatal — forward the original bytes unchanged.
       const catalog = await this.loadRouteCatalog(groups);
       if (catalog.routes.length > 0) {
+        let payload: Record<string, unknown> | null = null;
         try {
-          let payload = JSON.parse(raw) as Record<string, unknown>;
-          if (payload && typeof payload === 'object' && !Array.isArray(payload) && typeof payload.model === 'string') {
-            const handle = payload.model.replace(/^dynamic\//, ''); // tolerate a pre-prefixed handle
-            const route = catalog.routes.includes(handle) ? handle : catalog.defaultRoute;
-            if (url.pathname.endsWith('/chat/completions')) {
-              const profile = (await this.loadRouteReasoningProfiles())[route];
-              const canonicalLevel = payload.reasoning_effort ?? catalog.defaultReasoning;
-              if (!profile || !isPiReasoningLevel(canonicalLevel)) {
-                return new Response(JSON.stringify({
-                  error: !profile ? `Reasoning profile required for route ${route}` : 'Unsupported reasoning level',
-                  code: !profile ? 'REASONING_PROFILE_REQUIRED' : 'UNSUPPORTED_REASONING_LEVEL',
-                }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-              }
-              payload = translateReasoningRequest(payload, profile, canonicalLevel);
-            }
-            payload.model = `dynamic/${route}`;
-            outboundBody = JSON.stringify(payload);
-          }
+          const parsed = JSON.parse(raw) as unknown;
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) payload = parsed as Record<string, unknown>;
         } catch {
           /* not JSON: forward the original bytes unchanged */
+        }
+        if (payload && typeof payload.model === 'string') {
+          const handle = payload.model.replace(/^dynamic\//, ''); // tolerate a pre-prefixed handle
+          const route = catalog.routes.includes(handle) ? handle : catalog.defaultRoute;
+          if (url.pathname.endsWith('/chat/completions')) {
+            let profile: ReasoningProfileId | undefined;
+            try {
+              profile = (await this.loadRouteReasoningProfiles())[route];
+            } catch {
+              return new Response(JSON.stringify({ error: 'Reasoning profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+              });
+            }
+            const canonicalLevel = payload.reasoning_effort ?? catalog.defaultReasoning;
+            if (!profile || !isPiReasoningLevel(canonicalLevel)) {
+              return new Response(JSON.stringify({
+                error: !profile ? `Reasoning profile required for route ${route}` : 'Unsupported reasoning level',
+                code: !profile ? 'REASONING_PROFILE_REQUIRED' : 'UNSUPPORTED_REASONING_LEVEL',
+              }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+            }
+            payload = translateReasoningRequest(payload, profile, canonicalLevel);
+          }
+          payload.model = `dynamic/${route}`;
+          outboundBody = JSON.stringify(payload);
         }
       }
     }
@@ -514,10 +524,10 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
   private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string; defaultReasoning: string }> {
     if (!this.env.KV) return { routes: [], defaultRoute: '', defaultReasoning: 'off' };
     const { routeCatalog, defaultRoute, defaultReasoning } = await resolveRouteCatalog(this.env.KV, groups);
-    return { routes: routeCatalog, defaultRoute, defaultReasoning };
+    return { routes: routeCatalog, defaultRoute, defaultReasoning: defaultReasoning || 'off' };
   }
 
-  private async loadRouteReasoningProfiles() {
+  private async loadRouteReasoningProfiles(): Promise<Record<string, ReasoningProfileId>> {
     if (!this.env.KV) return {};
     const raw = await this.env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, 'json');
     return parseRouteSettings(raw).reasoningProfiles;

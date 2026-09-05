@@ -287,6 +287,7 @@ const ConfigureStep: Component = () => {
                   <div class="route-cw-row" data-testid={`route-cw-${name}`}>
                     <span class="route-cw-name">{name}</span>
                     <Select
+                      class="route-profile-select"
                       value={setupStore.routeReasoningProfiles[name] ?? ''}
                       options={REASONING_PROFILE_OPTIONS}
                       onChange={(value) => setupStore.setRouteReasoningProfile(name, value as ReasoningProfileId | '')}

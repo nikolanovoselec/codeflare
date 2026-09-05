@@ -130,9 +130,9 @@ The registry below keeps one stable evidence-bearing dossier per runtime compone
 
 **Responsibility:** Route configured enterprise LLM traffic through the customer's AI Gateway without exposing its credential to the container.
 
-**Inputs:** Intercepted OpenAI-wire requests, the configured route catalogue, matched configured user-access groups, and Worker-held gateway configuration.
+**Inputs:** Intercepted OpenAI-wire requests, the configured route catalogue, each route's finite reasoning profile, the canonical reasoning level, matched configured user-access groups, and Worker-held gateway configuration.
 
-**Outputs:** Authenticated gateway requests, normalized streamed responses, or bounded fail-closed errors.
+**Outputs:** Authenticated gateway requests with profile-specific reasoning fields, normalized streamed responses, or bounded fail-closed configuration errors before gateway fetch.
 
 **State owned:** No durable state; it receives request-scoped and session-scoped props from the Container DO.
 
@@ -140,7 +140,7 @@ The registry below keeps one stable evidence-bearing dossier per runtime compone
 
 **Source:** `src/llm-interceptor.ts`, `src/container/container-interception.ts`.
 
-**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing)
+**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-031](../../sdd/spec/enterprise-mode.md#req-enterprise-031-enterprise-pi-gateway-provider-compatibility)
 
 **Decisions:** [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing), [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api)
 
@@ -586,17 +586,21 @@ sequenceDiagram
     participant I as LlmInterceptor
     participant G as Customer AI Gateway
     participant P as Selected backend
-    C->>I: HTTPS to intercepted provider host with placeholder credential
-    I->>G: Worker-held auth, route, user, and configured-group metadata
+    C->>I: HTTPS with placeholder credential and canonical reasoning level
+    alt Route has a valid reasoning profile and level
+        I->>G: Worker-held auth, route, metadata, and translated reasoning fields
+    else Profile missing or configuration/level invalid
+        I-->>C: Bounded 400 configuration error
+    end
     G->>P: Gateway-selected backend
     P-->>G: Response stream
     G-->>I: Response
     I-->>C: Transparent normalized response
 ```
 
-Interception is wired before container start so the platform CA is available to the workload. Gateway URL and token remain Worker-side. Missing mandatory routing fails closed. Detailed transport, route, and streaming behavior belongs to [Security](security.md), [Configuration](configuration.md), and [Architecture Internals](architecture-internals.md).
+Interception is wired before container start so the platform CA is available to the workload. Gateway URL and token remain Worker-side. For chat requests, the interceptor removes conflicting reasoning controls and translates Pi's canonical level through the selected route profile. Missing mandatory routing, a missing or unreadable profile, and unsupported levels fail closed before gateway fetch. Detailed transport, route, and streaming behavior belongs to [Security](security.md), [Configuration](configuration.md), and [Architecture Internals](architecture-internals.md).
 
-**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering)
+**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering), [REQ-ENTERPRISE-031](../../sdd/spec/enterprise-mode.md#req-enterprise-031-enterprise-pi-gateway-provider-compatibility)
 
 ### Strict Gateway Egress
 

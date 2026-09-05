@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-05
+
+- **Enterprise Pi reasoning follows each route's declared model protocol** ([REQ-ENTERPRISE-031](enterprise-mode.md#req-enterprise-031-enterprise-pi-gateway-provider-compatibility) AC3-AC7 added; remains Implemented). Administration now pairs every dynamic route's context window with one finite Workers AI reasoning profile. Pi emits explicit canonical levels from `off` through `max`; the Worker removes conflicting controls and translates each level for GPT-OSS, GLM 5.3, or Kimi K2.6. Legacy unprofiled routes stay visible but model requests fail closed until an administrator completes the route configuration.
+
 ## 2026-09-04
 
 - **OPEN reinitializes the browser terminal from authoritative host replay** ([REQ-TERM-043](terminal.md#req-term-043-visible-terminal-readiness-gating) AC2, AC4, and AC6 amended and AC7 added; [REQ-TERM-044](terminal.md#req-term-044-terminal-restore-and-readiness-rendering) remains Implemented). Two deployment HAR captures showed the current browser bundle receiving serialized restore and tens of kilobytes of PTY output before Ready, then sending focus and resize on OPEN while the screen stayed blank; page reload consistently repaired it. OPEN now disposes the startup browser terminal and attachment, mounts one fresh local instance for the selected session, and receives the existing host PTY's serialized screen without reloading the page.

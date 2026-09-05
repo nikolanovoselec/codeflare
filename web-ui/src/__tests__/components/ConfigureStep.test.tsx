@@ -361,6 +361,19 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
       expect(screen.queryByText('Default Route')).not.toBeInTheDocument();
     });
 
+    it('selects a finite reasoning profile for each route', () => {
+      storeState.enterpriseMode = true;
+      storeState.dynamicRoutes = ['development'];
+      render(() => <ConfigureStep />);
+
+      const profileSelect = document.querySelector('.route-profile-select') as HTMLSelectElement;
+      expect(Array.from(profileSelect.options).map((option) => option.value)).toEqual([
+        '', 'workers-ai-gpt-oss', 'workers-ai-glm-5.3', 'workers-ai-kimi-k2.6',
+      ]);
+      fireEvent.change(profileSelect, { target: { value: 'workers-ai-gpt-oss' } });
+      expect(storeMethods.setRouteReasoningProfile).toHaveBeenCalledWith('development', 'workers-ai-gpt-oss');
+    });
+
     it('shows the Default Route selector and lists routes as options when routes exist', () => {
       storeState.enterpriseMode = true;
       storeState.dynamicRoutes = ['development', 'prod'];
@@ -453,6 +466,7 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
       storeState.customDomain = 'claude.example.com';
       storeState.adminUsers = ['admin@test.com'];
       storeState.dynamicRoutes = ['development'];
+      storeState.routeReasoningProfiles = { development: 'workers-ai-gpt-oss' };
       storeState.aigGatewayUrl = 'https://gateway.ai.cloudflare.com/v1/account/gateway';
       storeState.aigToken = 'token';
       render(() => <ConfigureStep />);

@@ -334,6 +334,27 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).toHaveBeenCalledWith('setup:route_context_windows', JSON.stringify(routeContextWindows));
       });
 
+      it('REQ-ENTERPRISE-031 AC4: persists finite reasoning profiles with route context windows', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active' });
+        mockFullSuccessFlow();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({
+            dynamicRoutes: ['development'],
+            routeContextWindows: { development: 262144 },
+            routeReasoningProfiles: { development: 'workers-ai-gpt-oss' },
+          })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:route_context_windows', JSON.stringify({
+          development: { contextWindow: 262144, reasoningProfile: 'workers-ai-gpt-oss' },
+        }));
+      });
+
       it('REQ-ENTERPRISE-012: clears the per-route context-window map when empty', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active' });
         mockFullSuccessFlow();

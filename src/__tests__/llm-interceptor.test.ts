@@ -275,29 +275,29 @@ describe('REQ-ENTERPRISE-031: profile-specific reasoning translation', () => {
   it('AC5: GPT-OSS maps canonical off to explicit null and enabled levels to Workers AI effort', async () => {
     const off = await send('workers-ai-gpt-oss', 'off');
     expect(off.response.status).toBe(200);
-    expect(off.payload.reasoning_effort).toBeNull();
-    expect(off.payload.reasoning).toBeUndefined();
-    expect(off.payload.thinking).toBeUndefined();
-    expect(off.payload.chat_template_kwargs).toEqual({ unrelated: 'preserved' });
+    expect(off.payload!.reasoning_effort).toBeNull();
+    expect(off.payload!.reasoning).toBeUndefined();
+    expect(off.payload!.thinking).toBeUndefined();
+    expect(off.payload!.chat_template_kwargs).toEqual({ unrelated: 'preserved' });
 
     const max = await send('workers-ai-gpt-oss', 'max');
-    expect(max.payload.reasoning_effort).toBe('high');
+    expect(max.payload!.reasoning_effort).toBe('high');
   });
 
   it('AC5: GLM and Kimi apply their documented chat-template toggle plus explicit effort', async () => {
     const glm = await send('workers-ai-glm-5.3', 'max');
-    expect(glm.payload.reasoning_effort).toBe('max');
-    expect(glm.payload.chat_template_kwargs).toEqual({ unrelated: 'preserved', enable_thinking: true, clear_thinking: false });
+    expect(glm.payload!.reasoning_effort).toBe('max');
+    expect(glm.payload!.chat_template_kwargs).toEqual({ unrelated: 'preserved', enable_thinking: true, clear_thinking: false });
 
     const kimi = await send('workers-ai-kimi-k2.6', 'off');
-    expect(kimi.payload.reasoning_effort).toBeNull();
-    expect(kimi.payload.chat_template_kwargs).toEqual({ unrelated: 'preserved', thinking: false, clear_thinking: false });
+    expect(kimi.payload!.reasoning_effort).toBeNull();
+    expect(kimi.payload!.chat_template_kwargs).toEqual({ unrelated: 'preserved', thinking: false, clear_thinking: false });
   });
 
   it('AC7: uses the resolved route default when the client sends no canonical effort', async () => {
     const { payload } = await send('workers-ai-kimi-k2.6');
-    expect(payload.reasoning_effort).toBe('medium');
-    expect(payload.chat_template_kwargs.thinking).toBe(true);
+    expect(payload!.reasoning_effort).toBe('medium');
+    expect(payload!.chat_template_kwargs.thinking).toBe(true);
   });
 
   it('AC6: fails closed before gateway fetch for a missing profile, unknown profile, or invalid level', async () => {
@@ -315,6 +315,30 @@ describe('REQ-ENTERPRISE-031: profile-specific reasoning translation', () => {
       expect(response.status).toBe(400);
       expect(lastFetch).toBeNull();
     }
+  });
+
+  it('AC6: fails closed when stored profile configuration cannot be read', async () => {
+    const stored: Record<string, string> = {
+      'setup:dynamic_routes': '["development"]',
+      'setup:default_route': '{"route":"development","reasoning":"low"}',
+    };
+    const env = {
+      KV: {
+        get: async (key: string, type?: string) => {
+          if (key === 'setup:route_context_windows') throw new Error('malformed stored JSON');
+          const raw = stored[key];
+          return type === 'json' && raw ? JSON.parse(raw) : raw ?? null;
+        },
+      },
+    } as unknown as Partial<Env>;
+
+    const response = await makeInterceptor(env).fetch(new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      body: JSON.stringify({ model: 'development', messages: [], reasoning_effort: 'low' }),
+    }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'REASONING_CONFIGURATION_UNAVAILABLE' });
+    expect(lastFetch).toBeNull();
   });
 });
 

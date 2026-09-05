@@ -37,7 +37,7 @@ describe('Environment report fields', () => {
       .toBe('workers-ai-kimi-k2.6');
 
     const form = document.createElement('form');
-    form.append(...Array.from(container.querySelectorAll('input, select, textarea')).map((node) => node.cloneNode(true)));
+    form.append(container.firstElementChild!);
     const values = environmentValues('aiRouting', 'enterprise', new FormData(form)) as Record<string, unknown>;
     expect(values.routeReasoningProfiles).toEqual({ development: 'workers-ai-kimi-k2.6' });
   });

@@ -102,6 +102,9 @@ const aiRoutingSchema = z.object({
   if (value.dynamicRoutes.some((route) => !value.routeReasoningProfiles[route])) {
     context.addIssue({ code: 'custom', message: 'Every dynamic route requires a reasoning profile', path: ['routeReasoningProfiles'] });
   }
+  if (value.dynamicRoutes.some((route) => !value.routeContextWindows[route])) {
+    context.addIssue({ code: 'custom', message: 'Every dynamic route requires a context window', path: ['routeContextWindows'] });
+  }
   if (Object.keys(value.routeReasoningProfiles).some((route) => !value.dynamicRoutes.includes(route))) {
     context.addIssue({ code: 'custom', message: 'Reasoning profiles must use the route catalog', path: ['routeReasoningProfiles'] });
   }

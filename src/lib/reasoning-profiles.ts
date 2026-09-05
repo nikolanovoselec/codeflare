@@ -5,7 +5,7 @@ export const REASONING_PROFILE_IDS = [
 ] as const;
 
 export type ReasoningProfileId = typeof REASONING_PROFILE_IDS[number];
-export const PI_REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+const PI_REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type PiReasoningLevel = typeof PI_REASONING_LEVELS[number];
 
 interface StoredRouteSettings {
@@ -18,7 +18,7 @@ export interface RouteSettings {
   reasoningProfiles: Record<string, ReasoningProfileId>;
 }
 
-export function isReasoningProfileId(value: unknown): value is ReasoningProfileId {
+function isReasoningProfileId(value: unknown): value is ReasoningProfileId {
   return typeof value === 'string' && (REASONING_PROFILE_IDS as readonly string[]).includes(value);
 }
 
