@@ -60,31 +60,6 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 
 ---
 
-### REQ-LANDING-016: MCP Portal Code Mode proof
-
-**Intent:** Visitors understand that a Cloudflare MCP Server Portal can keep a growing upstream tool catalog out of model context through a fixed Code Mode interface.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. The MCP Portal proof presents Code Mode as a two-tool model-facing surface—search and execute—regardless of how many upstream MCP servers and tools are registered. <!-- @impl: landing/src/content/site.ts::MCP --> <!-- @manual -->
-
-**Constraints:**
-
-- The claim describes the Portal's `search_and_execute` Code Mode interface.
-- Editorial wording and illustrative upstream-tool counts remain manually reviewed rather than pinned by source-text tests.
-
-**Priority:** P2
-
-**Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
-
-**Verification:** Manual
-
-**Status:** Implemented
-
----
-
 ### REQ-LANDING-009: Decorative flare failure fallback
 
 **Intent:** The landing's decorative flare retires cleanly when a browser can no longer render it reliably, leaving the complete marketing surface readable on its stable CSS background.
