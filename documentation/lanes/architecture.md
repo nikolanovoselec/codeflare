@@ -589,16 +589,16 @@ sequenceDiagram
     C->>I: HTTPS with placeholder credential and canonical reasoning level
     alt Route has a valid reasoning profile and level
         I->>G: Worker-held auth, route, metadata, and translated reasoning fields
+        G->>P: Gateway-selected backend
+        P-->>G: Response stream
+        G-->>I: Response
+        I-->>C: Transparent normalized response
     else Profile missing or configuration/level invalid
         I-->>C: Bounded 400 configuration error
     end
-    G->>P: Gateway-selected backend
-    P-->>G: Response stream
-    G-->>I: Response
-    I-->>C: Transparent normalized response
 ```
 
-Interception is wired before container start so the platform CA is available to the workload. Gateway URL and token remain Worker-side. For chat requests, the interceptor removes conflicting reasoning controls and translates Pi's canonical level through the selected route profile. Missing mandatory routing, a missing or unreadable profile, and unsupported levels fail closed before gateway fetch. Detailed transport, route, and streaming behavior belongs to [Security](security.md), [Configuration](configuration.md), and [Architecture Internals](architecture-internals.md).
+Interception is wired before container start so the platform CA is available to the workload. Gateway URL and token remain Worker-side. For chat-completion requests, the interceptor removes conflicting reasoning controls and translates Pi's canonical level through the selected route profile. Missing mandatory routing, a missing or unreadable profile, and unsupported levels fail closed before gateway fetch. Detailed transport, route, and streaming behavior belongs to [Security](security.md), [Configuration](configuration.md), and [Architecture Internals](architecture-internals.md).
 
 **Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering), [REQ-ENTERPRISE-031](../../sdd/spec/enterprise-mode.md#req-enterprise-031-enterprise-pi-gateway-provider-compatibility)
 
