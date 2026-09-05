@@ -65,7 +65,9 @@ vi.mock('../../lib/reasoning-profiles', () => {
     isPiReasoningLevel: (value: unknown) => ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(String(value)),
     normalizeCustomProfile: (value: unknown) => value,
     validateRequestPath: (value: unknown) => value,
-    canonicalHash: () => PROFILE_HASH,
+    canonicalHash: (value: unknown) => value && typeof value === 'object' && 'supportedLevels' in value
+      ? JSON.stringify(value)
+      : PROFILE_HASH,
     canonicalJson: (value: unknown) => JSON.stringify(value),
     PI_REASONING_LEVELS: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
     COMPATIBILITY_NOTICES: [
@@ -281,6 +283,37 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     const offOnly = { profile: { supportedLevels: ['off'], removePaths: [], levels: { off: [{ path: 'reasoning_effort', value: 'none' }] } }, report: { assignable: true } };
 
     expect(selectUnambiguousCandidateMatch([offOnly, full])).toBeNull();
+  });
+
+  it('REQ-ENTERPRISE-034 AC4: returns an ambiguous non-activating result when compatible candidate mappings diverge', async () => {
+    const { app, kv } = await createApp();
+    const profilesModule = await import('../../lib/reasoning-profiles');
+    const candidate = profilesModule.BUILT_IN_REASONING_PROFILES[1] as any;
+    const originalLevels = candidate.levels;
+    candidate.levels = { off: [{ path: 'thinking', value: false }] };
+    mockSuccessfulProvider();
+    vi.mocked(kv.put).mockClear();
+
+    try {
+      const response = await app.request('/admin/reasoning/discover', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ route: 'codeflare-mesh', maxCompletionTokens: 32 }),
+      });
+      const body = await response.json() as any;
+
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({
+        route: 'codeflare-mesh',
+        classification: 'Inconclusive',
+        assignable: false,
+        warnings: ['ambiguous_profile_mapping'],
+      });
+      expect(body).not.toHaveProperty('profileDraft');
+      expect(vi.mocked(kv.put).mock.calls.some(([key]) => key === SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
+    } finally {
+      candidate.levels = originalLevels;
+    }
   });
 
   it('discovers a route-only matching protocol and returns a non-activating custom profile draft', async () => {

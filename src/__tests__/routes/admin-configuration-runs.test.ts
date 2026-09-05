@@ -406,7 +406,7 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(recovered.tasks[0].state).toBe('failed');
   });
 
-  it('REQ-ENTERPRISE-031 AC10: recomputes profile warnings and requires explicit codes at the same base revision', async () => {
+  it('REQ-ENTERPRISE-031 AC5: recomputes profile warnings and requires explicit codes at the same base revision', async () => {
     const { app } = createApp({
       ENTERPRISE_MODE: 'active',
       AIG_GATEWAY_URL: 'https://gateway.ai.cloudflare.com/v1/account/gateway',

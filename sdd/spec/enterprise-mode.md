@@ -213,9 +213,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 2. Custom revisions accept bounded scalar mappings and reject protected request fields or executable transforms. <!-- @impl: src/lib/reasoning-profiles.ts::normalizeCustomProfile --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (normalizes bounded scalar mappings and rejects protected request roots) -->
 3. Profile assignments reference immutable revisions, and referenced custom revisions cannot be disabled or collected. <!-- @impl: src/lib/reasoning-configuration.ts::validateReasoningConfigurationUpdate --> <!-- @test: src/__tests__/lib/reasoning-configuration.test.ts (rejects disabling or collecting a custom revision while a route or leg references it) -->
 4. Legacy GLM and Kimi assignments appear as migration proposals; GPT-OSS remains unresolved and unsupported defaults require correction. <!-- @impl: src/lib/reasoning-configuration.ts::migrateLegacyReasoningAssignments --> <!-- @test: src/__tests__/lib/reasoning-configuration.test.ts (leaves GPT-OSS unresolved and requires correction for a Kimi off startup default) -->
-5. Valid but unverified assignments remain available after the administrator confirms recomputed warnings for the current revision. <!-- @impl: src/lib/admin-configuration.ts::buildConfigurationPreview --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-ENTERPRISE-031 AC10: recomputes profile warnings and requires explicit codes at the same base revision) -->
-6. Administration discovers gateway routes from supported management responses and provides typed context, profile, group, default, discovery, preview, and Apply controls without editable JSON or manual route duplication. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (accepts documented data.routes and returns the exact sanitized catalog schema) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (reuses the saved gateway credential and accepts the compatible result.routes envelope) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (returns exact active-version leg/path summaries and only administrator-owned custom-provider identity) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (automatically adds gateway routes, confirms apply-to-all, and serializes the shared typed draft) -->
-7. Custom profile creation selects an auto-discovered route and tests bounded protocol candidates. A maximal mapping wins only when shared mutations match; divergent mappings remain ambiguous. Naming adds an immutable, non-activating, unassigned draft. <!-- @impl: src/routes/admin/reasoning.ts::selectUnambiguousCandidateMatch --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (prefers one compatible superset protocol over its matching off-only subset) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (keeps divergent compatible protocols ambiguous) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (does not let a superset dominate when its shared mapping differs) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (discovers a route-only matching protocol and returns a non-activating custom profile draft) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (asks only for an auto-discovered route, runs deterministic discovery, then asks for a name) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (creates a named immutable revision from the discovered mapping without assigning or activating it) -->
+5. Valid but unverified assignments remain available after the administrator confirms recomputed warnings for the current revision. <!-- @impl: src/lib/admin-configuration.ts::buildConfigurationPreview --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-ENTERPRISE-031 AC5: recomputes profile warnings and requires explicit codes at the same base revision) -->
 
 **Constraints:**
 
@@ -291,6 +289,35 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration)
 
 **Verification:** Automated tests in the anchored discovery and Administration API suites above.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-034: Enterprise Pi Administration Workflow
+
+**Intent:** Administrators can configure route reasoning and create safe custom profiles without duplicating gateway routes or authoring low-level mappings.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Administration discovers gateway routes from supported management responses. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (accepts documented data.routes and returns the exact sanitized catalog schema) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (reuses the saved gateway credential and accepts the compatible result.routes envelope) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (returns exact active-version leg/path summaries and only administrator-owned custom-provider identity) -->
+2. Typed context, profile, group, default, discovery, preview, and Apply controls require neither editable JSON nor manual route duplication. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (automatically adds gateway routes, confirms apply-to-all, and serializes the shared typed draft) -->
+3. Custom profile discovery tests bounded protocol candidates for one auto-discovered route. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (discovers a route-only matching protocol and returns a non-activating custom profile draft) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (asks only for an auto-discovered route, runs deterministic discovery, then asks for a name) -->
+4. A maximal compatible mapping subsumes matching subsets only when their shared mutations match; divergent mappings remain ambiguous. <!-- @impl: src/routes/admin/reasoning.ts::selectUnambiguousCandidateMatch --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (prefers one compatible superset protocol over its matching off-only subset) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (keeps divergent compatible protocols ambiguous) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (does not let a superset dominate when its shared mapping differs) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (REQ-ENTERPRISE-034 AC4: returns an ambiguous non-activating result when compatible candidate mappings diverge) -->
+5. Naming adds an immutable custom revision to the configuration draft without assignment or activation. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (creates a named immutable revision from the discovered mapping without assigning or activating it) -->
+
+**Constraints:**
+
+- Custom profile drafts retain sanitized advisory evidence, remain unverified, and require warning confirmation before activation.
+- Gateway routes and backend legs remain gateway-owned and cannot be forced or inferred by this workflow.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence)
+
+**Verification:** Automated tests in the anchored Administration API and web-ui suites above.
 
 **Status:** Implemented
 
