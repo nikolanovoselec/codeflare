@@ -84,6 +84,20 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     expect(getByRole('button', { name: /continue to review/i })).toBeTruthy();
   });
 
+  it('reports an empty supported-level list instead of rendering a blank value', async () => {
+    discoverMock.mockResolvedValueOnce({
+      route: 'mesh', classification: 'Verified', assignable: true,
+      accounting: { logicalProbes: 5, httpAttempts: 12 },
+      profileDraft: { ...discoveredDraft, supportedLevels: [] },
+    });
+    const { getByRole, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    await findByText(/Mesh binary thinking/);
+    await fireEvent.click(getByRole('button', { name: /discover mesh compatibility/i }));
+    await fireEvent.click(getByRole('button', { name: /check compatibility/i }));
+
+    expect(await findByText('Supported levels: Not reported')).toBeTruthy();
+  });
+
   it('adds an immutable unassigned revision and surfaces the required Review and Apply path', async () => {
     const { container, getByRole, getByLabelText, getByText, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
     await findByText(/Mesh binary thinking/);

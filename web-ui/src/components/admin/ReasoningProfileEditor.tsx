@@ -18,7 +18,7 @@ function generatedId(name: string): string {
 
 function discoveredLevels(result: ReasoningDiscoveryResult): string {
   const levels = result.profileDraft?.supportedLevels;
-  return Array.isArray(levels) ? levels.map(String).join(', ') : 'Not reported';
+  return Array.isArray(levels) && levels.length > 0 ? levels.map(String).join(', ') : 'Not reported';
 }
 
 function unsuccessfulOutcome(result: ReasoningDiscoveryResult): string {
