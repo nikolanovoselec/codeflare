@@ -244,7 +244,7 @@ describe('REQ-ENTERPRISE-004: placeholder-auth stripping', () => {
   });
 });
 
-describe('REQ-ENTERPRISE-031: selected-route capability translation', () => {
+describe('REQ-ENTERPRISE-032: selected-route capability translation', () => {
   const configuredRoutes = () => ({
     __kv: {
       'setup:dynamic_routes': JSON.stringify(['general_usage', 'development']),
@@ -277,7 +277,7 @@ describe('REQ-ENTERPRISE-031: selected-route capability translation', () => {
     return { response, payload: lastFetch ? JSON.parse(lastFetch.body) as Record<string, any> : null };
   };
 
-  it('AC5: loads the profile for the route selected through Pi /model', async () => {
+  it('AC2: loads the profile for the route selected through Pi /model', async () => {
     const glm = await send('general_usage', 'off');
     expect(glm.response.status).toBe(200);
     expect(glm.payload!.model).toBe('dynamic/general_usage');
@@ -289,19 +289,19 @@ describe('REQ-ENTERPRISE-031: selected-route capability translation', () => {
     expect(kimi.payload!.chat_template_kwargs.enable_thinking).toBe(true);
   });
 
-  it('AC5: unknown or disallowed handles preserve the existing safe fallback to the scope default', async () => {
+  it('AC2: unknown or disallowed handles preserve the existing safe fallback to the scope default', async () => {
     const { response, payload } = await send('not-allowed');
     expect(response.status).toBe(200);
     expect(payload!.model).toBe('dynamic/general_usage');
     expect(payload!.chat_template_kwargs.enable_thinking).toBe(false);
   });
 
-  it('AC5: uses the scope default only when Pi sends no canonical level', async () => {
+  it('AC2: uses the scope default only when Pi sends no canonical level', async () => {
     const { payload } = await send('general_usage');
     expect(payload!.chat_template_kwargs.enable_thinking).toBe(false);
   });
 
-  it('AC5: fails closed before provider I/O when the selected route profile does not map the level', async () => {
+  it('AC3: fails closed before provider I/O when the selected route profile does not map the level', async () => {
     lastFetch = null;
     const { response } = await send('development', 'off');
     expect(response.status).toBe(400);
@@ -309,7 +309,7 @@ describe('REQ-ENTERPRISE-031: selected-route capability translation', () => {
     expect(lastFetch).toBeNull();
   });
 
-  it('AC5: fails closed when the atomic configuration is missing or unreadable', async () => {
+  it('AC3: fails closed when the atomic configuration is missing or unreadable', async () => {
     for (const reasoningConfiguration of [undefined, '{not-json']) {
       lastFetch = null;
       const env = configuredRoutes() as any;
@@ -453,7 +453,12 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
     ({
       __kv: {
         'setup:dynamic_routes': JSON.stringify(routes),
-        'setup:route_context_windows': JSON.stringify(Object.fromEntries(routes.map((route) => [route, { contextWindow: 262144, reasoningProfile: 'workers-ai-gpt-oss' }]))),
+        'setup:route_context_windows': JSON.stringify(Object.fromEntries(routes.map((route) => [route, 262144]))),
+        'setup:reasoning_configuration': JSON.stringify({
+          schemaVersion: 1,
+          customProfileRevisions: [],
+          routeAssignments: Object.fromEntries(routes.map((route) => [route, { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') }])),
+        }),
         ...(def !== undefined && { 'setup:default_route': JSON.stringify({ route: def, reasoning: 'off' }) }),
       },
     } as unknown as Partial<Env>);
@@ -507,7 +512,11 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
       __kv: {
         'setup:dynamic_routes': JSON.stringify(['general_usage', 'development', 'code_review']),
         'setup:default_route': JSON.stringify({ route: 'general_usage', reasoning: 'off' }),
-        'setup:route_context_windows': JSON.stringify(Object.fromEntries(['general_usage', 'development', 'code_review'].map((route) => [route, { contextWindow: 262144, reasoningProfile: 'workers-ai-gpt-oss' }]))),
+        'setup:route_context_windows': JSON.stringify(Object.fromEntries(['general_usage', 'development', 'code_review'].map((route) => [route, 262144]))),
+        'setup:reasoning_configuration': JSON.stringify({
+          schemaVersion: 1, customProfileRevisions: [],
+          routeAssignments: Object.fromEntries(['general_usage', 'development', 'code_review'].map((route) => [route, { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') }])),
+        }),
         'setup:group_routing': JSON.stringify({
           developers: { routes: ['code_review', 'development'], defaultRoute: 'code_review', reasoning: 'high' },
         }),
@@ -525,7 +534,11 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
       __kv: {
         'setup:dynamic_routes': JSON.stringify(['general_usage', 'development']),
         'setup:default_route': JSON.stringify({ route: 'general_usage', reasoning: 'off' }),
-        'setup:route_context_windows': JSON.stringify(Object.fromEntries(['general_usage', 'development'].map((route) => [route, { contextWindow: 262144, reasoningProfile: 'workers-ai-gpt-oss' }]))),
+        'setup:route_context_windows': JSON.stringify(Object.fromEntries(['general_usage', 'development'].map((route) => [route, 262144]))),
+        'setup:reasoning_configuration': JSON.stringify({
+          schemaVersion: 1, customProfileRevisions: [],
+          routeAssignments: Object.fromEntries(['general_usage', 'development'].map((route) => [route, { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') }])),
+        }),
         'setup:group_routing': JSON.stringify({
           developers: { routes: ['development'], defaultRoute: 'development', reasoning: 'high' },
         }),
@@ -623,7 +636,11 @@ describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD
       __kv: {
         'setup:dynamic_routes': JSON.stringify(['codeflare']),
         'setup:default_route': JSON.stringify({ route: 'codeflare', reasoning: 'off' }),
-        'setup:route_context_windows': JSON.stringify({ codeflare: { contextWindow: 262144, reasoningProfile: 'workers-ai-gpt-oss' } }),
+        'setup:route_context_windows': JSON.stringify({ codeflare: 262144 }),
+        'setup:reasoning_configuration': JSON.stringify({
+          schemaVersion: 1, customProfileRevisions: [],
+          routeAssignments: { codeflare: { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') } },
+        }),
       },
     } as unknown as Partial<Env>;
     await makeInterceptor(env).fetch(

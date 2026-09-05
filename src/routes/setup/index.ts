@@ -27,7 +27,14 @@ import {
 } from '../../lib/remote-curation';
 import { executeConfigurationTask, resolveAdministrationMode } from '../../lib/admin-configuration';
 import { reactivateUsageUser } from '../../lib/admin-usage';
-import { REASONING_PROFILE_IDS, parseRouteSettings } from '../../lib/reasoning-profiles';
+import { parseRouteSettings } from '../../lib/reasoning-profiles';
+import {
+  createReasoningConfigurationFromProfileIds,
+  getRouteReasoningProfile,
+  parseReasoningConfiguration,
+  validateReasoningConfigurationUpdate,
+  type ReasoningConfiguration,
+} from '../../lib/reasoning-configuration';
 
 // Feature A/C: a Cloudflare Access group name or a gateway route name. Trimmed,
 // 1–256 chars, and MUST NOT contain comma or newline — those are the delimiters
@@ -85,7 +92,8 @@ const ConfigureBodySchema = z.object({
   routeContextWindows: z.record(accessNameSchema, z.number().int().positive()).optional(),
   // REQ-ENTERPRISE-031: one audited reasoning protocol per route. Kept separate
   // in the API while sharing the existing route-context KV object at rest.
-  routeReasoningProfiles: z.record(accessNameSchema, z.enum(REASONING_PROFILE_IDS)).optional(),
+  routeReasoningProfiles: z.record(accessNameSchema, z.string().max(64)).optional(),
+  reasoningConfiguration: z.unknown().optional(),
   // REQ-BROWSER-007 (enterprise-only): the admin-global Cloudflare Browser Rendering
   // token + account id used by every enterprise session's browser-run. The token is
   // masked on prefill; a blank/masked value on save leaves the stored token in place.
@@ -251,7 +259,7 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, routeReasoningProfiles, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, managedEnvironment, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled, activeAgents } = body;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, routeReasoningProfiles, reasoningConfiguration, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, managedEnvironment, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled, activeAgents } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   if (managedEnvironment !== undefined || strictGatewayEgress === false) {
@@ -291,6 +299,67 @@ app.post('/configure', async (c) => {
   // before any KV write, so a rejected configure leaves no partial state.
   if (isEnterpriseMode(c.env) && (dynamicRoutes ?? []).length === 0) {
     throw new ValidationError('At least one dynamic route is required in enterprise mode');
+  }
+
+  let submittedReasoningConfiguration: ReasoningConfiguration | undefined;
+  if (isEnterpriseMode(c.env) && (reasoningConfiguration !== undefined || routeReasoningProfiles !== undefined)) {
+    try {
+      submittedReasoningConfiguration = reasoningConfiguration !== undefined
+        ? parseReasoningConfiguration(reasoningConfiguration)
+        : createReasoningConfigurationFromProfileIds(routeReasoningProfiles!, {
+            global: defaultRoute,
+            groups: groupRouting,
+          });
+      const currentReasoningConfiguration = await c.env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION);
+      if (currentReasoningConfiguration) {
+        submittedReasoningConfiguration = validateReasoningConfigurationUpdate(
+          currentReasoningConfiguration,
+          submittedReasoningConfiguration,
+        );
+      }
+      const assignmentRoutes = Object.keys(submittedReasoningConfiguration.routeAssignments);
+      if ((dynamicRoutes ?? []).some((route) => !submittedReasoningConfiguration!.routeAssignments[route])
+        || assignmentRoutes.some((route) => !(dynamicRoutes ?? []).includes(route))) {
+        throw new Error('Reasoning assignments must match the dynamic route catalog');
+      }
+      if ((dynamicRoutes ?? []).some((route) => !routeContextWindows?.[route])) {
+        throw new Error('Every assigned route requires a positive context window');
+      }
+      if (defaultRoute) {
+        const profile = getRouteReasoningProfile(submittedReasoningConfiguration, defaultRoute.route);
+        if (!profile.supportedLevels.includes(defaultRoute.reasoning)) throw new Error('Default reasoning is not mapped by its route profile');
+      }
+      for (const [group, routing] of Object.entries(groupRouting ?? {})) {
+        const profile = getRouteReasoningProfile(submittedReasoningConfiguration, routing.defaultRoute);
+        if (!profile.supportedLevels.includes(routing.reasoning)) throw new Error(`Group ${group} reasoning is not mapped by its default route profile`);
+      }
+    } catch (error) {
+      throw new ValidationError(error instanceof Error ? error.message : 'Invalid reasoning configuration');
+    }
+  }
+  if (isEnterpriseMode(c.env) && !submittedReasoningConfiguration) {
+    const stored = await c.env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION);
+    if (stored) {
+      try {
+        submittedReasoningConfiguration = parseReasoningConfiguration(stored);
+        const routes = dynamicRoutes ?? [];
+        const assignmentRoutes = Object.keys(submittedReasoningConfiguration.routeAssignments);
+        if (routes.some((route) => !submittedReasoningConfiguration!.routeAssignments[route])
+          || assignmentRoutes.some((route) => !routes.includes(route))) {
+          throw new Error('Stored reasoning assignments must be corrected for the submitted route catalog');
+        }
+        if (defaultRoute && !getRouteReasoningProfile(submittedReasoningConfiguration, defaultRoute.route).supportedLevels.includes(defaultRoute.reasoning)) {
+          throw new Error('Default reasoning is not mapped by its route profile');
+        }
+        for (const [group, routing] of Object.entries(groupRouting ?? {})) {
+          if (!getRouteReasoningProfile(submittedReasoningConfiguration, routing.defaultRoute).supportedLevels.includes(routing.reasoning)) {
+            throw new Error(`Group ${group} reasoning is not mapped by its default route profile`);
+          }
+        }
+      } catch (error) {
+        throw new ValidationError(error instanceof Error ? error.message : 'Invalid stored reasoning configuration');
+      }
+    }
   }
 
   // REQ-ENTERPRISE-016: refuse to enable strict Gateway egress while the EGRESS VPC
@@ -523,15 +592,20 @@ app.post('/configure', async (c) => {
         // Model routing: the gateway dynamic-route catalog + default route+reasoning
         // (Feature C) and the per-group routing map (REQ-ENTERPRISE-013). Stored as JSON;
         // group routing is cleared when empty.
-        if (dynamicRoutes !== undefined || defaultRoute !== undefined || groupRouting !== undefined || routeContextWindows !== undefined || routeReasoningProfiles !== undefined) {
+        if (dynamicRoutes !== undefined || defaultRoute !== undefined || groupRouting !== undefined || routeContextWindows !== undefined || routeReasoningProfiles !== undefined || reasoningConfiguration !== undefined) {
           const storedRouteSettings = parseRouteSettings(await c.env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, 'json') ?? {});
+          let effectiveReasoningConfiguration = submittedReasoningConfiguration;
+          if (!effectiveReasoningConfiguration) {
+            const stored = await c.env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION);
+            if (stored) effectiveReasoningConfiguration = parseReasoningConfiguration(stored);
+          }
           await runStep('configure_model_routing', async () => executeConfigurationTask(c.env, 'configure_model_routing', {
             dynamicRoutes: dynamicRoutes ?? await c.env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES, 'json') ?? [],
             defaultRoute: defaultRoute !== undefined
               ? defaultRoute
               : await c.env.KV.get(SETUP_KEYS.DEFAULT_ROUTE, 'json'),
             routeContextWindows: routeContextWindows ?? storedRouteSettings.contextWindows,
-            routeReasoningProfiles: routeReasoningProfiles ?? storedRouteSettings.reasoningProfiles,
+            ...(effectiveReasoningConfiguration && { reasoningConfiguration: effectiveReasoningConfiguration }),
             groupRouting: groupRouting ?? await c.env.KV.get(SETUP_KEYS.GROUP_ROUTING, 'json') ?? {},
           }, administrationContext));
         }

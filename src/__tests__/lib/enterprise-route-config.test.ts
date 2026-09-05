@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { loadEnterpriseRouteConfig } from '../../lib/access';
 import { createMockKV, type MockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
+import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
 
 /**
  * REQ-ENTERPRISE-012: the Setup-configured dynamic-route catalog + default route are
@@ -45,8 +46,8 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-012)', () => {
       schemaVersion: 1,
       customProfileRevisions: [],
       routeAssignments: {
-        general_usage: { activeProfile: { id: 'workers-ai-glm-thinking', revision: 1, hash: 'a'.repeat(64) } },
-        development: { activeProfile: { id: 'workers-ai-kimi-k-thinking', revision: 1, hash: 'b'.repeat(64) } },
+        general_usage: { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') },
+        development: { activeProfile: getBuiltInProfileRef('workers-ai-kimi-k-thinking') },
       },
     }));
     const cfg = await loadEnterpriseRouteConfig(makeEnv(kv));

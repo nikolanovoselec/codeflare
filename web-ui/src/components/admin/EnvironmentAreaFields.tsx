@@ -1,7 +1,8 @@
 /* v8 ignore start -- user-validated administration UI */
-import { For, Match, Switch, createSignal, type Component } from 'solid-js';
+import { For, Match, Switch, type Component } from 'solid-js';
 import type { AdministrationMode, ConfigurationSection } from '../../types';
 import { ianaTimezoneOptions } from '../../lib/iana-timezones';
+import AiRoutingFields from './AiRoutingFields';
 
 interface Props {
   section: ConfigurationSection;
@@ -15,21 +16,9 @@ function record(value: unknown): Record<string, unknown> {
 function text(value: unknown): string { return typeof value === 'string' ? value : ''; }
 function list(value: unknown): string[] { return Array.isArray(value) ? value.map(String) : []; }
 function lines(value: unknown): string { return list(value).join('\n'); }
-function json(value: unknown, fallback: unknown): string { return JSON.stringify(value ?? fallback, null, 2); }
-function groupRouting(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value;
-  return Object.entries(record(value)).map(([accessGroup, routing]) => ({ accessGroup, ...record(routing) }));
-}
-
-const REASONING_PROFILES = [
-  ['workers-ai-gpt-oss', 'Workers AI · GPT-OSS'],
-  ['workers-ai-glm-5.3', 'Workers AI · GLM 5.3'],
-  ['workers-ai-kimi-k2.6', 'Workers AI · Kimi K2.6'],
-] as const;
 
 const EnvironmentAreaFields: Component<Props> = (props) => {
   const current = () => record(props.current);
-  const [routeCatalog, setRouteCatalog] = createSignal(list(current().dynamicRoutes));
   const field = (name: string, label: string, type = 'text', value: unknown = current()[name]) => (
     <label class="admin-form-field"><span>{label}</span><input name={name} type={type} value={value === null || value === undefined ? '' : String(value)} /></label>
   );
@@ -48,15 +37,7 @@ const EnvironmentAreaFields: Component<Props> = (props) => {
         : textarea('allowedUsers', 'Allowed user emails, one per line', lines(current().allowedUsers))}
     </Match>
     <Match when={props.section === 'domain'}>{field('customDomain', 'Custom domain')}</Match>
-    <Match when={props.section === 'aiRouting'}>
-      {field('gatewayUrl', 'AI Gateway URL')}{field('replacementToken', 'Replacement API token', 'password', '')}
-      <label class="admin-form-field admin-form-wide"><span>Route catalog, one route per line</span><textarea name="dynamicRoutes" rows="4" onInput={(event) => setRouteCatalog(split(event.currentTarget.value))}>{lines(current().dynamicRoutes)}</textarea></label>
-      <div class="admin-form-wide"><span class="admin-field-label">Route reasoning profiles</span><For each={routeCatalog()}>{(route) => <label class="admin-form-field"><span>{route}</span><input type="hidden" name="routeProfileRoute" value={route} /><select name="routeReasoningProfile" aria-label={`${route} reasoning profile`} value={text(record(current().routeReasoningProfiles)[route])}><option value="">Select profile</option><For each={REASONING_PROFILES}>{([profile, label]) => <option value={profile}>{label}</option>}</For></select></label>}</For></div>
-      {field('defaultRoute', 'Default route', 'text', record(current().defaultRoute).route)}
-      <label class="admin-form-field"><span>Default reasoning</span><select name="reasoning" value={text(record(current().defaultRoute).reasoning) || 'off'}><For each={['off','minimal','low','medium','high','xhigh','max']}>{(item) => <option value={item}>{item}</option>}</For></select></label>
-      {textarea('routeContextWindows', 'Route context windows (JSON object)', json(current().routeContextWindows, {}))}
-      {textarea('groupRouting', 'Per-group routing (JSON array)', json(groupRouting(current().groupRouting), []))}
-    </Match>
+    <Match when={props.section === 'aiRouting'}><AiRoutingFields current={props.current} /></Match>
     <Match when={props.section === 'codingAgents'}>
       <div class="admin-form-wide"><span class="admin-field-label">Active agents</span><div class="admin-checkbox-list"><For each={list(current().configurableAgents)}>{(agent) => <label class="admin-toggle-field"><input type="checkbox" name="activeAgents" value={agent} checked={list(current().activeAgents).includes(agent)} /><span>{agent}</span></label>}</For></div></div>
     </Match>
@@ -83,10 +64,14 @@ function split(value: FormDataEntryValue | null): string[] {
 }
 function value(data: FormData, key: string): string { return String(data.get(key) ?? '').trim(); }
 function checked(data: FormData, key: string): boolean { return data.has(key); }
-function routeReasoningProfiles(data: FormData): Record<string, string> {
-  const routes = data.getAll('routeProfileRoute').map(String);
-  const profiles = data.getAll('routeReasoningProfile').map(String);
-  return Object.fromEntries(routes.map((route, index) => [route, profiles[index] ?? '']));
+function parsed(data: FormData, key: string, fallback: unknown): unknown {
+  const raw = value(data, key);
+  return raw ? JSON.parse(raw) : fallback;
+}
+function routeContextWindows(data: FormData): Record<string, number> {
+  const routes = data.getAll('routeContextRoute').map(String);
+  const windows = data.getAll('routeContextWindow').map((item) => Number(item));
+  return Object.fromEntries(routes.map((route, index) => [route, windows[index]]));
 }
 
 export function environmentValues(section: ConfigurationSection, mode: AdministrationMode, data: FormData): unknown {
@@ -95,7 +80,15 @@ export function environmentValues(section: ConfigurationSection, mode: Administr
       ? { adminUsers: split(data.get('adminUsers')), userAccessGroups: split(data.get('userAccessGroups')), adminAccessGroups: split(data.get('adminAccessGroups')) }
       : { adminUsers: split(data.get('adminUsers')), allowedUsers: split(data.get('allowedUsers')) };
     case 'domain': return { customDomain: value(data, 'customDomain') };
-    case 'aiRouting': return { gatewayUrl: value(data, 'gatewayUrl'), replacementToken: value(data, 'replacementToken'), dynamicRoutes: split(data.get('dynamicRoutes')), defaultRoute: { route: value(data, 'defaultRoute'), reasoning: value(data, 'reasoning') }, routeContextWindows: JSON.parse(value(data, 'routeContextWindows')), routeReasoningProfiles: routeReasoningProfiles(data), groupRouting: JSON.parse(value(data, 'groupRouting')) };
+    case 'aiRouting': return {
+      gatewayUrl: value(data, 'gatewayUrl'),
+      replacementToken: value(data, 'replacementToken'),
+      dynamicRoutes: data.getAll('dynamicRoutes').map(String),
+      defaultRoute: { route: value(data, 'defaultRoute'), reasoning: value(data, 'reasoning') },
+      routeContextWindows: routeContextWindows(data),
+      reasoningConfiguration: parsed(data, 'reasoningConfiguration', { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} }),
+      groupRouting: parsed(data, 'groupRouting', []),
+    };
     case 'codingAgents': return { activeAgents: data.getAll('activeAgents').map(String) };
     case 'browserRendering': return { accountId: value(data, 'accountId'), replacementToken: value(data, 'replacementToken') };
     case 'securityEgress': return { strictGatewayEgress: checked(data, 'strictGatewayEgress') };

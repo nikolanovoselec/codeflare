@@ -3204,20 +3204,32 @@ COPILOT_BYOK_EOF
     # for the unset case, where the default `{` + the stray `}` happened to form `{}`.
     ENTERPRISE_ROUTE_CONTEXT_WINDOWS="${ENTERPRISE_ROUTE_CONTEXT_WINDOWS:-}"
     [ -n "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" ] || ENTERPRISE_ROUTE_CONTEXT_WINDOWS='{}'
+    ENTERPRISE_ROUTE_REASONING_LEVELS="${ENTERPRISE_ROUTE_REASONING_LEVELS:-}"
+    [ -n "$ENTERPRISE_ROUTE_REASONING_LEVELS" ] || ENTERPRISE_ROUTE_REASONING_LEVELS='{}'
     PI_MODELS_ARRAY="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -c \
         --arg defroute "$ENTERPRISE_DEFAULT_ROUTE" \
+        --arg defaultreasoning "$ENTERPRISE_DEFAULT_REASONING" \
         --argjson cw "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" \
+        --argjson routelevels "$ENTERPRISE_ROUTE_REASONING_LEVELS" \
         --argjson dflt 256000 '
+        def canonical_levels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
         (if type=="array" and length>0 then . else [$defroute] end)
-        | map({
-            id: .,
+        | if ($defaultreasoning != "") and ((($routelevels[$defroute] // []) | index($defaultreasoning)) == null)
+          then error("default reasoning is not supported by the default route")
+          else .
+          end
+        | map(. as $route | {
+            id: $route,
             reasoning: true,
-            thinkingLevelMap: {
-                off: "off", minimal: "minimal", low: "low", medium: "medium",
-                high: "high", xhigh: "xhigh", max: "max"
-            },
+            thinkingLevelMap: (($routelevels[$route]) as $levels
+                | if (($levels | type) != "array") or (($levels | length) == 0)
+                    or ($levels | any(. as $level | (canonical_levels | index($level)) == null))
+                    or (($levels | unique | length) != ($levels | length))
+                  then error("missing or invalid route reasoning levels for \($route)")
+                  else ($levels | map({key: ., value: .}) | from_entries)
+                  end),
             input: ["text", "image"],
-            contextWindow: ($cw[.] // $dflt)
+            contextWindow: ($cw[$route] // $dflt)
         })' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
     PI_PROVIDER_CONFIG=""
     if [ "$PI_GATEWAY_CONFIG_OK" = "1" ]; then

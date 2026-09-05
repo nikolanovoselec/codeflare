@@ -335,6 +335,9 @@ export const SETUP_KEYS = {
   // entrypoint sets each Pi model's contextWindow. A route with no entry falls back
   // to the default. Non-secret (route names + integers).
   ROUTE_CONTEXT_WINDOWS: 'setup:route_context_windows',
+  // Atomic capability-profile revisions and exact route assignments. Built-ins remain
+  // code-owned; this bounded document stores only custom revisions and assignments.
+  REASONING_CONFIGURATION: 'setup:reasoning_configuration',
   // REQ-ENTERPRISE-013: per-group dynamic routing. A JSON map keyed by Access group
   // name -> { routes: string[] (subset of DYNAMIC_ROUTES), defaultRoute, reasoning }.
   // When set and the user matches a configured group, it overrides DYNAMIC_ROUTES /

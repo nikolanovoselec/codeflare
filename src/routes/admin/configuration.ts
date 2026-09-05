@@ -11,6 +11,7 @@ import { parseAccessGroups } from '../../lib/access';
 import { installedAgents, CONFIGURABLE_ENTERPRISE_AGENTS, readActiveAgents } from '../../lib/agent-allowlist';
 import { getManagedEnvironmentPrefill } from '../../lib/remote-curation';
 import { parseRouteSettings } from '../../lib/reasoning-profiles';
+import { migrateLegacyReasoningAssignments, parseReasoningConfiguration } from '../../lib/reasoning-configuration';
 import {
   ADMIN_CONFIGURATION_KEYS,
   getAdminConfigurationLatestKey,
@@ -132,6 +133,7 @@ app.get('/', requireAdmin, async (c) => {
       dynamicRoutes,
       defaultRoute,
       routeContextWindows,
+      reasoningConfigurationRaw,
       groupRouting,
       storedActiveAgents,
     ] = await Promise.all([
@@ -147,6 +149,7 @@ app.get('/', requireAdmin, async (c) => {
       c.env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES),
       c.env.KV.get(SETUP_KEYS.DEFAULT_ROUTE),
       c.env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS),
+      c.env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION),
       c.env.KV.get(SETUP_KEYS.GROUP_ROUTING),
       readActiveAgents(c.env.KV),
     ]);
@@ -158,15 +161,36 @@ app.get('/', requireAdmin, async (c) => {
       userAccessGroups: parseAccessGroups(enterpriseAccessGroup),
       adminAccessGroups: parseAccessGroups(enterpriseAdminAccessGroup),
     };
-    const routeSettings = parseRouteSettings(parseObject(routeContextWindows) ?? {});
+    const rawRouteSettings = routeContextWindows === null
+      ? {}
+      : (() => {
+          try { return JSON.parse(routeContextWindows) as unknown; }
+          catch { return routeContextWindows; }
+        })();
+    const routeSettings = parseRouteSettings(rawRouteSettings);
+    const parsedDefaultRoute = parseObject(defaultRoute);
+    const parsedGroupRouting = parseObject(groupRouting) ?? {};
+    const migration = reasoningConfigurationRaw ? null : migrateLegacyReasoningAssignments({
+      routeSettings: rawRouteSettings,
+      defaults: {
+        global: parsedDefaultRoute,
+        groups: parsedGroupRouting as Record<string, { defaultRoute?: unknown; reasoning?: unknown }>,
+      },
+    });
+    const reasoningConfiguration = reasoningConfigurationRaw
+      ? parseReasoningConfiguration(reasoningConfigurationRaw)
+      : migration!.proposed;
     sections.aiRouting = {
       gatewayUrl: aigGatewayUrl || c.env.AIG_GATEWAY_URL || '',
       tokenState: secretState(aigToken, c.env.AIG_TOKEN),
       dynamicRoutes: parseArray(dynamicRoutes),
-      defaultRoute: parseObject(defaultRoute),
+      defaultRoute: parsedDefaultRoute,
       routeContextWindows: routeSettings.contextWindows,
-      routeReasoningProfiles: routeSettings.reasoningProfiles,
-      groupRouting: parseObject(groupRouting) ?? {},
+      routeReasoningProfiles: Object.fromEntries(Object.entries(reasoningConfiguration.routeAssignments).map(([route, assignment]) => [route, assignment.activeProfile.id])),
+      reasoningConfiguration,
+      ...(migration && { reasoningMigration: { persisted: false, errors: migration.errors } }),
+      availableAccessGroups: parseAccessGroups(enterpriseAccessGroup),
+      groupRouting: parsedGroupRouting,
     };
     sections.codingAgents = { activeAgents, configurableAgents };
     sections.browserRendering = {

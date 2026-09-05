@@ -40,6 +40,121 @@ export interface AdminConfigurationResponse {
   latest: Partial<Record<ConfigurationSection, Record<string, unknown>>>;
 }
 
+export type PiReasoningLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type ReasoningScalar = string | number | boolean | null;
+
+export interface ProfileRevisionRef {
+  id: string;
+  revision: number;
+  hash: string;
+}
+
+export interface NormalizedReasoningMapping {
+  removePaths: string[];
+  writes: Array<{ path: string; value: ReasoningScalar }>;
+}
+
+export interface ReasoningProfileCatalogEntry extends ProfileRevisionRef {
+  name: string;
+  description?: string;
+  family?: string;
+  enabled?: boolean;
+  assignable?: boolean;
+  classification?: string;
+  ingressContract?: string;
+  supportedLevels: PiReasoningLevel[];
+  unsupportedLevels?: PiReasoningLevel[];
+  levels?: Partial<Record<PiReasoningLevel, Array<{ path: string; value: ReasoningScalar }>>>;
+  aliases?: Partial<Record<PiReasoningLevel, PiReasoningLevel>>;
+  removePaths?: string[];
+  offSemantics?: string | { status?: string; path?: string; value?: ReasoningScalar };
+  limitations?: string[];
+  validatedTransports?: string[];
+  toolCompatibility?: { status?: string; levels?: PiReasoningLevel[] };
+  originallyCreatedAgainst?: Record<string, unknown>;
+  validatedAgainst?: Array<Record<string, unknown>>;
+}
+
+export interface ReasoningCompatibilityNotice {
+  id: string;
+  name: string;
+  title?: string;
+  assignable: false;
+  summary?: string;
+  classification?: string;
+  limitations?: string[];
+}
+
+export interface ReasoningCatalog {
+  schemaVersion: 1;
+  profiles: ReasoningProfileCatalogEntry[];
+  notices: ReasoningCompatibilityNotice[];
+  usage: Array<{ profileRef: ProfileRevisionRef; routes: string[] }>;
+  routes: string[];
+  routeCatalogStatus: 'ready' | 'unavailable';
+}
+
+export interface ReasoningEvidenceRef {
+  id?: string;
+  status?: string;
+  current?: boolean;
+  toolReplay?: boolean;
+  observedAt?: string;
+  [key: string]: unknown;
+}
+
+export interface ReasoningRouteLeg {
+  nodeId: string;
+  provider: string;
+  declaredModel: string;
+  customProviderBackend?: string;
+  profileRef?: ProfileRevisionRef;
+  evidence?: ReasoningEvidenceRef;
+  paths?: string[];
+}
+
+export interface ReasoningRouteAssignment {
+  activeProfile: ProfileRevisionRef;
+  routeVersion?: string;
+  legs?: ReasoningRouteLeg[];
+  commonMapping?: {
+    levels: Partial<Record<PiReasoningLevel, NormalizedReasoningMapping>>;
+    digest: string;
+  };
+}
+
+export interface ReasoningConfiguration {
+  schemaVersion: 1;
+  customProfileRevisions: Array<Record<string, unknown>>;
+  routeAssignments: Record<string, ReasoningRouteAssignment>;
+}
+
+export interface ReasoningRouteInventory {
+  route?: string;
+  routeVersion?: string;
+  versionId?: string;
+  legs: ReasoningRouteLeg[];
+  paths?: Array<Record<string, unknown>>;
+  commonMapping?: ReasoningRouteAssignment['commonMapping'];
+  commonLevels?: PiReasoningLevel[];
+  warnings?: string[];
+}
+
+export interface ReasoningDiscoveryRequest {
+  route: string;
+  profileRef: ProfileRevisionRef;
+  maxCompletionTokens: number;
+}
+
+export interface ReasoningDiscoveryResult {
+  classification: string;
+  warnings?: string[];
+  accounting?: { logicalProbes?: number; httpAttempts?: number };
+  supportedLevels?: PiReasoningLevel[];
+  evidence?: ReasoningEvidenceRef;
+  normalizedDraft?: Record<string, unknown>;
+}
+
 export function resolveTerminalMode(value: unknown): TerminalMode {
   return value === 'herdr' ? 'herdr' : 'classic';
 }

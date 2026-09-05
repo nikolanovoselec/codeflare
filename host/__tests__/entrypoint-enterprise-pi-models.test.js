@@ -75,16 +75,20 @@ function runSettingsBlock(defaultRoute, reasoning, existingSettings) {
 }
 
 // Run the extracted block with the given catalog and return { code, modelsJson }.
-function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevelsJson) {
+function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevelsJson, defaultReasoning = 'off') {
   const block = extractModelsBlock();
+  const effectiveReasoningLevels = reasoningLevelsJson ?? JSON.stringify(Object.fromEntries(
+    JSON.parse(catalogJson).map((route) => [route, ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']]),
+  ));
   const dir = mkdtempSync(join(tmpdir(), 'ent-pi-models-'));
   const modelsPath = join(dir, 'models.json');
   const script = [
     'set -euo pipefail',
     `ENTERPRISE_ROUTE_CATALOG='${catalogJson}'`,
     `ENTERPRISE_DEFAULT_ROUTE='${defaultRoute}'`,
+    `ENTERPRISE_DEFAULT_REASONING='${defaultReasoning}'`,
     ...(contextWindowsJson !== undefined ? [`ENTERPRISE_ROUTE_CONTEXT_WINDOWS='${contextWindowsJson}'`] : []),
-    ...(reasoningLevelsJson !== undefined ? [`ENTERPRISE_ROUTE_REASONING_LEVELS='${reasoningLevelsJson}'`] : []),
+    `ENTERPRISE_ROUTE_REASONING_LEVELS='${effectiveReasoningLevels}'`,
     "ENTERPRISE_PLACEHOLDER_TOKEN='codeflare-enterprise'",
     "PI_GATEWAY_BASE_URL='https://api.openai.com/v1'",
     `PI_MODELS_JSON='${modelsPath}'`,
@@ -116,8 +120,8 @@ describe('entrypoint enterprise Pi settings.json thinking-level passthrough (REQ
   });
 });
 
-describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-ENTERPRISE-031)', () => {
-  it('REQ-ENTERPRISE-031 AC1: builds models.json with one model per catalog route under set -euo pipefail', () => {
+describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-ENTERPRISE-032)', () => {
+  it('REQ-ENTERPRISE-032 AC1: builds models.json with one model per catalog route under set -euo pipefail', () => {
     const catalog = ['general_usage', 'development', 'code_review', 'documentation'];
     const { code, stderr, modelsJson } = runBlock(JSON.stringify(catalog), 'general_usage');
     assert.equal(code, 0, `entrypoint enterprise block exited non-zero: ${stderr}`);
@@ -136,7 +140,7 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     }
   });
 
-  it('REQ-ENTERPRISE-031 AC2: declares developer-role messages unsupported for dynamic routes', () => {
+  it('REQ-ENTERPRISE-032 AC1: declares developer-role messages unsupported for dynamic routes', () => {
     const { code, stderr, modelsJson } = runBlock('["development"]', 'development');
     assert.equal(code, 0, `entrypoint block exited non-zero: ${stderr}`);
     assert.deepEqual(modelsJson.providers['codeflare-gateway'].compat, {
@@ -145,7 +149,7 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     });
   });
 
-  it('REQ-ENTERPRISE-031 AC4: emits each route profile supported-level map without removing allowed routes', () => {
+  it('REQ-ENTERPRISE-032 AC1: emits each route profile supported-level map without removing allowed routes', () => {
     const catalog = ['general_usage', 'development'];
     const levels = {
       general_usage: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
@@ -161,6 +165,20 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     assert.deepEqual(models[1].thinkingLevelMap, {
       minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max',
     });
+  });
+
+  it('REQ-ENTERPRISE-032 AC3: fails closed when any allowed route lacks supported levels', () => {
+    const { code } = runBlock('["general_usage","development"]', 'general_usage', undefined, JSON.stringify({
+      general_usage: ['off', 'medium'],
+    }));
+    assert.notEqual(code, 0);
+  });
+
+  it('REQ-ENTERPRISE-032 AC3: fails closed when the startup reasoning is unsupported by its route', () => {
+    const { code } = runBlock('["development"]', 'development', undefined, JSON.stringify({
+      development: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+    }), 'off');
+    assert.notEqual(code, 0);
   });
 
   it('REQ-ENTERPRISE-005 AC5: outer Enterprise gate skips Pi provider config when mode is unset', () => {

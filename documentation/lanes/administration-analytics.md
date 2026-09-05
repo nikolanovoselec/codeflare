@@ -7,6 +7,7 @@
 ## Contents
 
 - [Runtime ownership](#runtime-ownership)
+- [Enterprise capability profiles](#enterprise-capability-profiles)
 - [D1 database and migrations](#d1-database-and-migrations)
 - [Deployment credentials](#deployment-credentials)
 - [Retention and reports](#retention-and-reports)
@@ -28,7 +29,15 @@ Workers KV owns current Environment values, configuration revisions, active-run 
 
 Timekeeper Durable Objects and KV remain the live quota owners. D1 owns historical organization usage, deleted-user tombstones, report delivery claims, and retention claims. Historical analytics starts empty after rollout and never reconstructs old usage from quota records. The absence of a backfill is deliberate; invented history would be worse than an empty chart. ([REQ-SUB-025](../../sdd/spec/subscription.md#req-sub-025-durable-historical-usage-accounting)) <!-- @impl: src/timekeeper/index.ts::Timekeeper -->
 
-Analytics, Reports, and Activity are demand-driven. They read on navigation, filter changes, explicit refresh, or run reconnect. They do not background-poll. Analytics charts a bounded history of actual totals from existing D1 period rows; `historyUpdatedAt` identifies the newest returned row because historical D1 snapshots can lag live Timekeeper usage. ([REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-analytics-and-deletion-history), [REQ-SUB-029](../../sdd/spec/subscription.md#req-sub-029-bounded-organization-usage-history-presentation), [REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope)) <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageSeries --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage -->
+Analytics, Reports, and Activity are demand-driven. They read on navigation, filter changes, explicit refresh, or run reconnect. They do not background-poll. Analytics charts a bounded history of actual totals from existing D1 period rows; `historyUpdatedAt` identifies the newest returned row because historical D1 snapshots can lag live Timekeeper usage. ([REQ-SUB-026](../../sdd/spec/subscription.md#req-sub-026-admin-organization-usage-and-deletion-history), [REQ-SUB-029](../../sdd/spec/subscription.md#req-sub-029-bounded-organization-usage-history-presentation), [REQ-OPS-057](../../sdd/spec/operations.md#req-ops-057-bounded-administration-operation-envelope)) <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageSeries --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage -->
+
+## Enterprise capability profiles
+
+Administration discovers Dynamic Routes from the configured AI Gateway and gives every route a positive context window and one active capability-profile revision. The assignable built-ins are exactly `openai-gpt-chat-tools-reasoning`, `openai-gpt-chat-tools-off`, `workers-ai-gemma-thinking`, `workers-ai-kimi-k-thinking`, `workers-ai-glm-thinking`, and `codeflare-inference-mesh-binary-thinking`. GPT-OSS tool replay, Gemini Chat Completions tools, GPT-6 Astra tools, and Responses-required behavior appear only as nonassignable notices.
+
+The gateway, not Codeflare, chooses conditional and fallback legs after request translation, so runtime activation is route-wide. Inventory records each reachable leg, conditional/fallback path, profile reference, and sanitized evidence, but per-leg references never select the runtime profile. Custom-provider backend identity is administrator-declared provenance; changing it makes its evidence stale. A common level is reported only when every reachable leg has current Pi tool/replay evidence through Chat Completions and byte-identical normalized removals and scalar writes.
+
+Custom profiles are immutable revisions created through typed scalar mapping controls. Discovery is an administrator-initiated, non-activating Pi 0.84.4 streaming/tool/replay canary for one route target. Incomplete, stale, heterogeneous, unsupported, or inconclusive evidence produces a warning rather than an authorization decision: an enabled, structurally valid Chat Completions profile can still be activated after the operator confirms the warning during Review. Preview and Apply use the same configuration revision; Apply recomputes required warnings and rejects stale revisions. Custom revisions and assignments are validated together and written as one `setup:reasoning_configuration` document. ([REQ-ENTERPRISE-031](../../sdd/spec/enterprise-mode.md#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-032](../../sdd/spec/enterprise-mode.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation)) <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: src/lib/admin-configuration.ts::buildConfigurationPreview -->
 
 ## D1 database and migrations
 
@@ -72,6 +81,10 @@ Record exact commit and Deploy run before testing. Then verify:
 
 - Mode-aware navigation and every applicable Environment section in Default, Onboarding, SaaS, and Enterprise.
 - One non-destructive Environment review and apply, including conflict, reconnect, failure, and interrupted states.
+- In Enterprise AI Routing, confirm the gateway route catalog loads without editable JSON; create and Apply one bounded immutable custom revision; inspect a route containing conditional and fallback legs; declare any custom-provider backend; and verify per-leg evidence does not change the selected route-wide profile.
+- Run bounded discovery for one target and verify Pi 0.84.4 streaming, tool call, exact result replay, logical-probe/HTTP-attempt counts, and non-activation. Revalidate after a route version or declared backend changes.
+- Activate one structurally valid profile with incomplete or heterogeneous evidence only after explicitly confirming the recomputed warning; verify a stale `baseRevision` is rejected.
+- Start Pi for the global fallback and for a matching group: verify all allowed routes appear, startup route/reasoning match that scope, `/model` switches routes, and a tool call completes after replay.
 - Analytics empty-history and data-start states, actual period-history chart, Timekeeper-lag disclosure, user detail, deleted-user history, and CSV download.
 - Reports disabled state, schedule presentation, current-month test email, provider failure, and delivery history.
 - Activity empty and retained-run states. Confirm records contain no submitted secrets.

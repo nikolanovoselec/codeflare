@@ -8,7 +8,8 @@ import { isEnterpriseMode } from './subscription';
 import { parseUserRecord } from './user-record';
 import { listAllKvKeys, SETUP_KEYS } from './kv-keys';
 import { reactivateUsageUser } from './admin-usage';
-import { parseRouteSettings } from './reasoning-profiles';
+import { parseRouteSettings, type PiReasoningLevel } from './reasoning-profiles';
+import { getRouteReasoningProfile, parseReasoningConfiguration } from './reasoning-configuration';
 
 const logger = createLogger('access');
 
@@ -719,10 +720,27 @@ export async function resolveAdminAccessGroup(request: Request, env: Env): Promi
 export async function loadEnterpriseRouteConfig(
   env: Env,
   groups?: string[],
-): Promise<{ routeCatalog: string[]; defaultRoute: string; defaultReasoning: string; routeContextWindows: Record<string, number> }> {
-  if (!isEnterpriseMode(env)) return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {} };
+): Promise<{
+  routeCatalog: string[];
+  defaultRoute: string;
+  defaultReasoning: string;
+  routeContextWindows: Record<string, number>;
+  routeReasoningLevels: Record<string, PiReasoningLevel[]>;
+}> {
+  if (!isEnterpriseMode(env)) {
+    return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {} };
+  }
   const resolved = await resolveRouteCatalog(env.KV, groups);
-  return { ...resolved, routeContextWindows: await loadRouteContextWindows(env.KV) };
+  const rawConfiguration = await env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION);
+  const routeReasoningLevels: Record<string, PiReasoningLevel[]> = {};
+  if (rawConfiguration) {
+    const configuration = parseReasoningConfiguration(rawConfiguration);
+    for (const route of resolved.routeCatalog) {
+      const assignment = configuration.routeAssignments[route];
+      if (assignment) routeReasoningLevels[route] = [...getRouteReasoningProfile(configuration, route).supportedLevels];
+    }
+  }
+  return { ...resolved, routeContextWindows: await loadRouteContextWindows(env.KV), routeReasoningLevels };
 }
 
 /**

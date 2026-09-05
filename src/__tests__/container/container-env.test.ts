@@ -40,6 +40,7 @@ function baseState(): ContainerEnvState {
     // REQ-ENTERPRISE-012: the enterprise branch of buildEnvVars reads
     // Object.keys(_routeContextWindows), so the fixture must carry the {} default.
     _routeContextWindows: {},
+    _routeReasoningLevels: {},
   } as unknown as ContainerEnvState;
 }
 

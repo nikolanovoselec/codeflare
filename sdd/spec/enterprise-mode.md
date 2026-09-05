@@ -201,42 +201,95 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-### REQ-ENTERPRISE-031: Enterprise Pi Capability Profiles and Dynamic-Route Compatibility
+### REQ-ENTERPRISE-031: Enterprise Pi Capability Profile Administration
 
-**Intent:** Administrators must be able to configure Pi reasoning safely for opaque, versioned AI Gateway dynamic routes without exposing credentials, editing JSON, or binding Codeflare to a finite model list.
+**Intent:** Administrators can define and assign safe capability profiles without binding Codeflare to a finite model list.
 
-**Applies To:** Admin, User
+**Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. Codeflare exposes exactly six immutable executable built-ins—OpenAI GPT reasoning, OpenAI GPT off-only, Workers AI Gemma, Kimi, GLM, and Codeflare Inference Mesh binary thinking—plus non-assignable compatibility notices for GPT-OSS, Gemini Chat Completions, GPT-6 Astra, and Responses-required behavior. Custom profiles use the same normalized revision contract. <!-- @impl: src/lib/reasoning-profiles.ts --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts -->
-2. A custom profile revision is bounded declarative data only: canonical levels map to validated removal paths and scalar writes; protected model, message, input, tool, stream, credential, header, URL, and gateway-metadata fields cannot be changed. Built-ins are immutable and custom revisions are addressed by stable ID, revision, and canonical hash. <!-- @impl: src/lib/reasoning-profiles.ts --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts -->
-3. `setup:reasoning_configuration` atomically stores custom revisions and exact route/leg profile references. Disabling or collecting a referenced revision is rejected. Legacy GLM/Kimi mappings are proposed only in preview, unsupported Kimi `off` defaults require correction, GPT-OSS stays unresolved, and no migration persists before Apply. <!-- @impl: src/lib/reasoning-configuration.ts --> <!-- @impl: src/lib/admin-configuration.ts --> <!-- @test: src/__tests__/lib/reasoning-configuration.test.ts --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts -->
-4. Group↔route access remains many-to-many. The first configured matching group, or global fallback, supplies all allowed routes plus one startup default route/reasoning. Pi `models.json` contains every allowed slash-free route with its context window and profile-supported level map, and users may switch among them with `/model`. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @impl: entrypoint.sh::PI_PROVIDER_CONFIG --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js -->
-5. For each Chat Completions request, the interceptor resolves the route selected by Pi, falls back safely to the effective default for an unknown/disallowed handle, loads that route's active profile, and applies the selected canonical level or scope default. Missing/disabled/malformed profiles and unmapped levels fail closed before provider I/O. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts -->
-6. Profile translation is transport-independent. Chat Completions remains REST-first with compat replay only after a complete REST `404`; compat strips only `store` and `prompt_cache_key`. `/responses`, Pi parsing/tool/reasoning replay, and `ensureStreamTerminator` remain unchanged. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts -->
-7. Administrator-initiated discovery handles one target per run and reproduces Pi 0.84.4 streaming reasoning, inert function-tool emission, fixed synthetic result replay, assistant/tool history, and final completion. It enforces documented probe, attempt, token, endpoint, timeout, and retry bounds; records logical probes separately from HTTP attempts; returns only sanitized structural evidence; and never saves, assigns, activates, or performs external tool side effects. <!-- @impl: src/lib/reasoning-discovery.ts --> <!-- @impl: src/routes/admin/reasoning.ts --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts -->
-8. Dynamic-route inventory traverses every reachable conditional, percentage, limit, and fallback edge from the active version, accepts documented terminal sentinels, and rejects cycles, duplicate IDs, malformed nodes, or unresolved non-terminal edges. Custom-provider backend identity is administrator-owned provenance and is not introspected. <!-- @impl: src/lib/dynamic-route-inventory.ts --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts -->
-9. Per-leg profile/evidence references are validation provenance only. A common route mapping is verified only where every reachable leg has current Pi tool/replay evidence and byte-identical normalized mutations. Runtime always applies one active route-wide profile and never predicts a leg or switches profiles from response headers. <!-- @impl: src/lib/dynamic-route-inventory.ts --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts --> <!-- @test: src/__tests__/llm-interceptor.test.ts -->
-10. Any enabled, structurally valid executable Chat Completions profile may be explicitly assigned route-wide for testing. Unsupported, inconclusive, heterogeneous, stale, or missing-leg evidence produces recomputed preview warnings and requires warning-code confirmation at the same base revision; it is not a permission gate. <!-- @impl: src/lib/admin-configuration.ts --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts -->
-11. Administration provides typed route add/remove, positive context windows, API-fed exact profile revisions, global/group route access and defaults, custom revision creation, discovery, leg evidence, human-readable preview, and Apply controls. No successful workflow requires editable JSON. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx -->
-12. Gateway credentials remain Worker-side. Discovery and persisted evidence contain no credentials, prompts, generated content, complete provider response IDs, or arbitrary provider error bodies. <!-- @impl: src/routes/admin/reasoning.ts --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts -->
+1. The catalog exposes the six approved executable built-ins and keeps failed families as non-assignable notices. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @impl: src/lib/reasoning-profiles.ts::COMPATIBILITY_NOTICES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-031 capability profile catalog / ships exactly the six executable built-ins and keeps failed families as notices) -->
+2. Custom revisions accept bounded scalar mappings and reject protected request fields or executable transforms. <!-- @impl: src/lib/reasoning-profiles.ts::normalizeCustomProfile --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-031 capability profile catalog / normalizes bounded scalar mappings and rejects protected request roots) -->
+3. Profile assignments reference immutable revisions, and referenced custom revisions cannot be disabled or collected. <!-- @impl: src/lib/reasoning-configuration.ts::validateReasoningConfigurationUpdate --> <!-- @test: src/__tests__/lib/reasoning-configuration.test.ts (REQ-ENTERPRISE-031 atomic reasoning configuration / rejects disabling or collecting a custom revision while a route or leg references it) -->
+4. Legacy GLM and Kimi assignments appear as migration proposals; GPT-OSS remains unresolved and unsupported defaults require correction. <!-- @impl: src/lib/reasoning-configuration.ts::migrateLegacyReasoningAssignments --> <!-- @test: src/__tests__/lib/reasoning-configuration.test.ts (REQ-ENTERPRISE-031 atomic reasoning configuration / leaves GPT-OSS unresolved and requires correction for a Kimi off startup default) -->
+5. Valid but unverified assignments remain available after the administrator confirms recomputed warnings for the current revision. <!-- @impl: src/lib/admin-configuration.ts::buildConfigurationPreview --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018) / REQ-ENTERPRISE-031 AC10: recomputes profile warnings and requires explicit codes at the same base revision) -->
+6. Administration automatically discovers gateway routes and provides typed context, profile, group, default, discovery, preview, and Apply controls without editable JSON or manual route duplication. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (REQ-ENTERPRISE-033 Administration reasoning API / returns an exact sanitized catalog schema with discovered routes, six executable built-ins, notices, and assignment usage) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-031 structured AI routing / automatically adds gateway routes, confirms apply-to-all, and serializes the shared typed draft) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (REQ-ENTERPRISE-031 typed custom profile workflow) -->
 
 **Constraints:**
 
-- Canonical levels remain `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; `off` is never mapped to `low`. Binary profiles map all non-off aliases to identical enabled bytes and disclose the aliasing.
-- Route/profile evidence is advisory. Missing, disabled, malformed, non-executable, protected-field, and unmapped-level failures remain hard gates.
-- Route versions are checked during inventory, Revalidate, preview, and Apply—not by per-request management polling.
-- Fallback evidence comes from separately addressable single-leg routes. Discovery never intentionally breaks a production primary and this release adds no branch-forcing selector.
-- Anthropic direct, Bedrock-backed Claude, and Azure OpenAI remain deferred until isolated evidence exists.
+- Canonical levels remain `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; `off` never aliases an enabled level.
+- Built-ins are immutable. Custom profiles are bounded declarative data and cannot control credentials, providers, transport, messages, tools, models, or streams.
+- Missing, disabled, malformed, non-executable, protected-field, and unmapped-level failures remain hard gates; compatibility evidence remains advisory.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](#req-enterprise-013-per-group-dynamic-route-mapping)
+**Dependencies:** [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](#req-enterprise-013-per-group-dynamic-routing)
 
-**Verification:** Automated tests in the anchored backend, host, and web-ui suites above.
+**Verification:** Automated tests in the anchored backend and web-ui suites above.
 
-**Status:** Partial
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-032: Enterprise Pi Route Selection and Runtime Translation
+
+**Intent:** Users can select any allowed dynamic route while Codeflare applies that route's configured reasoning contract safely.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pi lists every route allowed by the user's effective group and starts with that scope's configured route and reasoning defaults. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @impl: entrypoint.sh::PI_PROVIDER_CONFIG --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (loadEnterpriseRouteConfig per-group routing (REQ-ENTERPRISE-013) / uses the matched group config over the global catalog/default) --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-ENTERPRISE-032) / REQ-ENTERPRISE-032 AC1: emits each route profile supported-level map without removing allowed routes) -->
+2. A `/model` selection uses the selected allowed route's active profile; an unknown handle falls back to the effective default. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-032: selected-route capability translation / AC2: loads the profile for the route selected through Pi /model) -->
+3. Missing or invalid profiles and unmapped levels fail before any provider request. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-032: selected-route capability translation / AC3: fails closed before provider I/O when the selected route profile does not map the level) -->
+4. Existing Chat Completions fallback, Responses passthrough, parsing, replay, and stream repair behavior remains unchanged. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD74 amendment)) -->
+
+**Constraints:**
+
+- Group-to-route access remains many-to-many; the first configured matching group wins, otherwise global fallback applies.
+- Runtime uses one active profile per route and never predicts a gateway leg from route names or response headers.
+- Gateway credentials and backend model identities remain outside the container.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration)
+
+**Verification:** Automated tests in the anchored runtime and host suites above.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-033: Enterprise Pi Discovery and Multi-Model Evidence
+
+**Intent:** Administrators can collect bounded compatibility evidence for every reachable route leg without changing runtime routing.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Discovery handles one target per run, enforces its limits, returns sanitized evidence, and never activates its result. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-033 deterministic Pi discovery / rejects excessive ceilings and reasoning-probe budgets before provider I/O) -->
+2. Tool verification requires a streamed Pi-compatible function call, synthetic result replay, and final assistant completion. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-033 deterministic Pi discovery / preserves the validated Pi 0.84.4 canary request and replay fixtures) -->
+3. Inventory returns every reachable model path and accepts documented terminal sentinels while rejecting malformed graphs. <!-- @impl: src/lib/dynamic-route-inventory.ts::inventoryDynamicRoute --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-033 dynamic-route inventory / finds every conditional and fallback model while accepting mixed end/END sentinels) --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-033 dynamic-route inventory / retains every path when branches converge before a downstream model) -->
+4. Custom-provider backend identity remains administrator-owned provenance and is never inferred. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (REQ-ENTERPRISE-033 Administration reasoning API / returns exact active-version leg/path summaries and only administrator-owned custom-provider identity) -->
+5. Common mappings contain only levels with current tool/replay evidence and byte-identical mutations across every reachable leg. <!-- @impl: src/lib/dynamic-route-inventory.ts::deriveCommonMapping --> <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-033 dynamic-route inventory / derives only byte-identical levels with current compatible tool/replay evidence) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (REQ-ENTERPRISE-033 Administration reasoning API / derives and returns common levels from current byte-identical per-leg evidence) -->
+6. Discovery exposes only the approved authenticated endpoints and does not add branch forcing or runtime profile switching. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (REQ-ENTERPRISE-033 Administration reasoning API / exposes exactly catalog, route inventory, and one-target discovery) -->
+
+**Constraints:**
+
+- Discovery reproduces the installed Pi 0.84.4 streaming envelope and counts logical probes separately from HTTP attempts.
+- Fallback evidence comes from separately addressable single-leg routes; discovery never intentionally fails a production primary.
+- Generated content, credentials, complete provider response IDs, and arbitrary provider error bodies are not retained.
+- Route versions are checked during inventory, Revalidate, preview, and Apply, never by per-request management polling.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration)
+
+**Verification:** Automated tests in the anchored discovery and Administration API suites above.
+
+**Status:** Implemented
 
 ---
 
@@ -714,6 +767,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 - Grouping fields into `SetupSection`s preserves every field, store binding, and conditional gate; only visual grouping changes.
 - `SetupSection` is a reusable structure-only component with no copy.
 - Routine Administration reads and validates the same effective URL and token through [REQ-SETUP-017](setup.md#req-setup-017-mode-aware-administration-configuration-read); no Worker-binding or unauthenticated transport is added.
+- The effective token carries Workers AI, AI Gateway Run, and AI Gateway Read so authenticated Administration can discover the gateway-owned Dynamic Route catalog without exposing the credential or duplicating route handles.
 
 **Priority:** P2
 

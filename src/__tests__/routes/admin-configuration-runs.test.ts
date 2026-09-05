@@ -6,6 +6,7 @@ import type { AuthVariables } from '../../middleware/auth';
 import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS } from '../../lib/kv-keys';
+import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
 
 let mockRole = 'admin';
 let mockAuthReject = false;
@@ -350,16 +351,18 @@ describe('configuration runs (REQ-SETUP-018)', () => {
         dynamicRoutes: ['claude'],
         defaultRoute: { route: 'claude', reasoning: 'medium' },
         routeContextWindows: { claude: 200000 },
-        routeReasoningProfiles: { claude: 'workers-ai-gpt-oss' },
+        routeReasoningProfiles: { claude: 'workers-ai-glm-thinking' },
         groupRouting: [],
       },
+      confirmedWarnings: ['reasoning_profile_unverified'],
     });
     expect(aiResponse.status).toBe(200);
     expect(snapshots(await aiResponse.text()).at(-1).run.state).toBe('succeeded');
     expect(await ai.kv.get(SETUP_KEYS.AIG_GATEWAY_URL)).toBe('https://gateway.ai.cloudflare.com/v1/account/gateway');
     expect(await ai.kv.get(SETUP_KEYS.DYNAMIC_ROUTES)).toBe(JSON.stringify(['claude']));
-    expect(JSON.parse(await ai.kv.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS) as string)).toEqual({
-      claude: { contextWindow: 200000, reasoningProfile: 'workers-ai-gpt-oss' },
+    expect(JSON.parse(await ai.kv.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS) as string)).toEqual({ claude: 200000 });
+    expect(JSON.parse(await ai.kv.get(SETUP_KEYS.REASONING_CONFIGURATION) as string)).toMatchObject({
+      routeAssignments: { claude: { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') } },
     });
     expect(ai.kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.AIG_TOKEN, expect.anything(), expect.anything());
 
@@ -415,7 +418,7 @@ describe('configuration runs (REQ-SETUP-018)', () => {
       routeContextWindows: { mesh: 262144 }, groupRouting: [],
       reasoningConfiguration: {
         schemaVersion: 1, customProfileRevisions: [],
-        routeAssignments: { mesh: { activeProfile: { id: 'codeflare-inference-mesh-binary-thinking', revision: 1, hash: 'a'.repeat(64) } } },
+        routeAssignments: { mesh: { activeProfile: getBuiltInProfileRef('codeflare-inference-mesh-binary-thinking') } },
       },
     };
 

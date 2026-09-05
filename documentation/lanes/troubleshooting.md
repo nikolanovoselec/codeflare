@@ -617,14 +617,32 @@ In the agent's tab run `grep -A3 'enterprise-ca-trust' ~/.bashrc` — the three 
 
 When `ENTERPRISE_MODE=active`, entrypoint.sh registers each agent against the `codeflare-gateway` provider with the fixed slash-free handle `codeflare` and pins Pi via `~/.pi/agent/settings.json` (`defaultProvider`/`defaultModel`). If Pi shows the wrong provider: check `~/.pi/agent/models.json` has a `codeflare-gateway` entry **and** `settings.json` has the default pin. Do not configure a slash-bearing model id in the container — Pi parses `a/b` as `provider/model` and misroutes.
 
-The real route is mapped by the `LlmInterceptor` from the agent's slash-free handle to `dynamic/<route>` using the Setup-configured catalog ([REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)) — verify the catalog/default are configured in the setup wizard and that the resolved route is an OpenAI-wire model that supports streaming + tool-calling. (Claude Code is not in the enterprise agent set; only Copilot, Pi, and Bash run under `ENTERPRISE_MODE=active`.)
+The real route is mapped by the `LlmInterceptor` from the agent's slash-free handle to `dynamic/<route>` using the gateway-discovered catalog saved through Administration ([REQ-ENTERPRISE-012](../../sdd/spec/enterprise-mode.md#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)) — verify AI Routing can read the gateway catalog, the route/default were applied, and the route has one active capability profile mapping the selected reasoning level. The gateway chooses conditional/fallback legs after this translation; changing per-leg evidence does not change runtime selection. (Claude Code is not in the enterprise agent set; only Copilot, Pi, and Bash run under `ENTERPRISE_MODE=active`.)
+
+<a id="enterprise-ai-routing-cannot-load-routes-or-inventory"></a>
+#### Enterprise AI Routing cannot load routes or inventory
+
+**Symptom:** Administration shows that Dynamic Routes could not be read, the catalog reports `routeCatalogStatus: unavailable`, or inventory returns `inventory_unavailable` while inference may still work.
+
+**Cause:** The configured Worker-side AI Gateway token may have Workers AI and AI Gateway Run for the REST/compat data planes but lack **AI Gateway Read** for route listing and active-version retrieval. A malformed active graph also fails closed rather than returning a partial inventory.
+
+**Fix:** Reissue the saved `setup:aig_token`/`AIG_TOKEN` with Workers AI, AI Gateway Run, and AI Gateway Read; save it through Administration and reload AI Routing. If listing succeeds but one inventory fails, correct duplicate node IDs, a missing start, cycles, unresolved non-terminal edges, or malformed nodes in that route, then redeploy its active version. Verify all reachable conditional and fallback legs appear.
+
+<a id="enterprise-reasoning-migration-or-activation-is-blocked"></a>
+#### Enterprise reasoning migration or activation is blocked
+
+**Symptom:** A legacy route has no executable profile, GPT-OSS cannot be selected, a Kimi default at `off` is rejected, or Apply asks for warning confirmation.
+
+**Cause:** GLM 5.3 and Kimi K2.6 are migration proposals only; GPT-OSS tool replay remains a nonassignable unresolved notice. Kimi's built-in has no `off` mapping. Separately, missing/stale Pi tool replay, changed custom-provider identity, or heterogeneous conditional/fallback mappings intentionally produce a warning.
+
+**Fix:** Review and Apply the proposed GLM/Kimi assignment, choosing a supported Kimi default; explicitly assign another built-in or bounded custom revision for GPT-OSS. Inspect the active inventory, declare custom-provider backend identity, and revalidate each separately addressable leg with the Pi 0.84.4 streaming/tool/replay discovery. If evidence cannot become current and byte-identical, prefer separate homogeneous routes. A structurally valid enabled Chat Completions profile may still be activated for an explicit test by checking the warning in Review; reload and preview again if the `baseRevision` changed.
 
 <a id="enterprise-mode-agent-retries-every-streamed-reply-and-token-usage-mul"></a>
 #### Enterprise Mode: agent retries every streamed reply and token usage multiplies (Pi logs `Stream ended without finish_reason`)
 
 **Fix detail:**
 
-Handled in-product by the `LlmInterceptor` streaming-terminator shim ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC3), which synthesizes the missing terminator on streaming `/chat/completions`. If the loop persists: confirm the deploy includes the shim (`[LlmInterceptor]` present in `wrangler tail`); confirm the response is actually `text/event-stream` on `/chat/completions` (the shim is bypassed for non-streaming and `/responses`); and confirm the resolved dynamic route is an OpenAI-wire model — a non-conformant backend can emit a stream the shim cannot repair. Note the gateway's stored response log is normalized and shows `finish_reason: stop` even when the live wire omits it; trust `wrangler tail`, not the stored log.
+Handled in-product by the unchanged `LlmInterceptor` `ensureStreamTerminator` shim ([REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC3), which synthesizes the missing terminator on streaming `/chat/completions`. `/responses` remains passthrough. If the loop persists: confirm the deploy includes the shim (`[LlmInterceptor]` present in `wrangler tail`); confirm the response is actually `text/event-stream` on `/chat/completions` (the shim is bypassed for non-streaming and `/responses`); and confirm the resolved dynamic route is an OpenAI-wire model — a non-conformant backend can emit a stream the shim cannot repair. Note the gateway's stored response log is normalized and shows `finish_reason: stop` even when the live wire omits it; trust `wrangler tail`, not the stored log.
 
 <a id="enterprise-mode-the-vault-editor-never-loads-silverbullet-service-work"></a>
 #### Enterprise Mode: the Vault editor never loads / SilverBullet service worker fails to register (browser console shows a redirect on `service_worker.js`, 302 to `*.cloudflareaccess.com`)

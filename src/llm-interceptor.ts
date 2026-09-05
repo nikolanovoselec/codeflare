@@ -47,7 +47,8 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from './types';
 import { resolveRouteCatalog } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
-import { isPiReasoningLevel, parseRouteSettings, translateReasoningRequest, type ReasoningProfileId } from './lib/reasoning-profiles';
+import { isPiReasoningLevel, translateReasoningRequest } from './lib/reasoning-profiles';
+import { getRouteReasoningProfile, parseReasoningConfiguration } from './lib/reasoning-configuration';
 
 /**
  * Hosts the DO must intercept for enterprise LLM routing. Only the OpenAI host
@@ -428,23 +429,32 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
           const handle = payload.model.replace(/^dynamic\//, ''); // tolerate a pre-prefixed handle
           const route = catalog.routes.includes(handle) ? handle : catalog.defaultRoute;
           if (url.pathname.endsWith('/chat/completions')) {
-            let profile: ReasoningProfileId | undefined;
+            let profile;
             try {
-              profile = (await this.loadRouteReasoningProfiles())[route];
+              const configuration = await this.loadReasoningConfiguration();
+              profile = getRouteReasoningProfile(configuration, route);
+            } catch (error) {
+              const missing = error instanceof Error && error.message.includes('required for route');
+              return new Response(JSON.stringify({
+                error: missing ? `Reasoning profile required for route ${route}` : 'Reasoning profile configuration unavailable',
+                code: missing ? 'REASONING_PROFILE_REQUIRED' : 'REASONING_CONFIGURATION_UNAVAILABLE',
+              }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+            }
+            const canonicalLevel = payload.reasoning_effort ?? catalog.defaultReasoning;
+            if (!isPiReasoningLevel(canonicalLevel) || !profile.supportedLevels.includes(canonicalLevel)) {
+              return new Response(JSON.stringify({ error: 'Unsupported reasoning level', code: 'UNSUPPORTED_REASONING_LEVEL' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+              });
+            }
+            try {
+              payload = translateReasoningRequest(payload, profile, canonicalLevel);
             } catch {
               return new Response(JSON.stringify({ error: 'Reasoning profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), {
                 status: 400,
                 headers: { 'Content-Type': 'application/json' },
               });
             }
-            const canonicalLevel = payload.reasoning_effort ?? catalog.defaultReasoning;
-            if (!profile || !isPiReasoningLevel(canonicalLevel)) {
-              return new Response(JSON.stringify({
-                error: !profile ? `Reasoning profile required for route ${route}` : 'Unsupported reasoning level',
-                code: !profile ? 'REASONING_PROFILE_REQUIRED' : 'UNSUPPORTED_REASONING_LEVEL',
-              }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-            }
-            payload = translateReasoningRequest(payload, profile, canonicalLevel);
           }
           payload.model = `dynamic/${route}`;
           outboundBody = JSON.stringify(payload);
@@ -527,9 +537,10 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     return { routes: routeCatalog, defaultRoute, defaultReasoning: defaultReasoning || 'off' };
   }
 
-  private async loadRouteReasoningProfiles(): Promise<Record<string, ReasoningProfileId>> {
-    if (!this.env.KV) return {};
-    const raw = await this.env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, 'json');
-    return parseRouteSettings(raw).reasoningProfiles;
+  private async loadReasoningConfiguration() {
+    if (!this.env.KV) throw new Error('reasoning configuration unavailable');
+    const raw = await this.env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION);
+    if (!raw) throw new Error('reasoning configuration unavailable');
+    return parseReasoningConfiguration(raw);
   }
 }

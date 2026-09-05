@@ -6,6 +6,7 @@ import type { AuthVariables } from '../../middleware/auth';
 import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS } from '../../lib/kv-keys';
+import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
 
 let mockRole = 'admin';
 let mockAuthReject = false;
@@ -55,7 +56,7 @@ const enterpriseAiValues = {
   dynamicRoutes: ['claude'],
   defaultRoute: { route: 'claude', reasoning: 'medium' },
   routeContextWindows: { claude: 200000 },
-  routeReasoningProfiles: { claude: 'workers-ai-gpt-oss' },
+  routeReasoningProfiles: { claude: 'workers-ai-glm-thinking' },
   groupRouting: [],
 };
 
@@ -192,6 +193,13 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     });
     expect(unknown.status).toBe(400);
 
+    const unresolvedGptOss = await post(app, {
+      section: 'aiRouting',
+      baseRevision: 0,
+      values: { ...enterpriseAiValues, routeReasoningProfiles: { claude: 'workers-ai-gpt-oss' } },
+    });
+    expect(unresolvedGptOss.status).toBe(400);
+
     const missingContext = await post(app, {
       section: 'aiRouting',
       baseRevision: 0,
@@ -220,12 +228,12 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
         customProfileRevisions: [],
         routeAssignments: {
           claude: {
-            activeProfile: { id: 'workers-ai-gemma-thinking', revision: 1, hash: 'a'.repeat(64) },
+            activeProfile: getBuiltInProfileRef('workers-ai-gemma-thinking'),
             routeVersion: 'route-v1',
             legs: [{
               nodeId: 'primary', provider: 'custom-enterprise', declaredModel: 'claude-alias',
               customProviderBackend: 'administrator-owned-model',
-              profileRef: { id: 'workers-ai-gemma-thinking', revision: 1, hash: 'a'.repeat(64) },
+              profileRef: getBuiltInProfileRef('workers-ai-gemma-thinking'),
             }],
           },
         },

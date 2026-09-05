@@ -36,16 +36,40 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
         off: [{ path: 'chat_template_kwargs.enable_thinking', value: false }],
         medium: [{ path: 'chat_template_kwargs.enable_thinking', value: true }],
       },
+      offSemantics: { status: 'explicit-toggle', path: 'chat_template_kwargs.enable_thinking', value: false },
       recognizedResponseFields: { reasoning: ['choices[].message.reasoning_content'], content: ['choices[].message.content'] },
     });
     expect(valid.supportedLevels).toEqual(['off', 'medium']);
 
-    for (const path of ['model', 'messages.0.content', 'tools', 'stream', 'headers.authorization']) {
+    for (const path of ['model', 'messages.0.content', 'tools', 'stream', 'headers.authorization', 'provider', 'chat_template_kwargs.__proto__.polluted']) {
       expect(() => normalize({ ...valid, id: `blocked-${path}`, levels: { off: [{ path, value: null }] } }))
         .toThrow(/protected|path/i);
     }
     expect(() => normalize({ ...valid, id: 'nested-value', levels: { off: [{ path: 'thinking', value: { enabled: false } }] } }))
       .toThrow(/scalar/i);
+    expect(() => normalize({
+      ...valid,
+      id: 'mismatched-off',
+      offSemantics: { status: 'explicit-value', path: 'reasoning_effort', value: 'none' },
+    })).toThrow(/off semantics/i);
+  });
+
+  it('applies only validated removal paths and scalar writes while preserving transport fields', () => {
+    const profile = (profiles as any).normalizeCustomProfile({
+      id: 'custom-safe', name: 'Custom safe', schemaVersion: 1, enabled: true,
+      supportedLevels: ['off'], removePaths: ['reasoning_effort', 'chat_template_kwargs.enable_thinking'],
+      levels: { off: [{ path: 'chat_template_kwargs.enable_thinking', value: false }] },
+      offSemantics: { status: 'explicit-toggle', path: 'chat_template_kwargs.enable_thinking', value: false },
+      recognizedResponseFields: { content: ['choices[].message.content'] },
+    });
+    const translated = (profiles as any).translateReasoningRequest({
+      model: 'selected', messages: [{ role: 'user', content: 'hello' }], tools: [{ type: 'function' }],
+      reasoning_effort: 'high', chat_template_kwargs: { enable_thinking: true, unrelated: 'kept' },
+    }, profile, 'off');
+    expect(translated).toMatchObject({
+      model: 'selected', messages: [{ role: 'user', content: 'hello' }], tools: [{ type: 'function' }],
+      chat_template_kwargs: { enable_thinking: false, unrelated: 'kept' },
+    });
   });
 
   it('maps binary non-off aliases to identical bytes and never aliases off to enabled', () => {
