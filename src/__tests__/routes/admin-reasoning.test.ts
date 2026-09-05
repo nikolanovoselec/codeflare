@@ -285,7 +285,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     expect(selectUnambiguousCandidateMatch([offOnly, full])).toBeNull();
   });
 
-  it('REQ-ENTERPRISE-034 AC4: returns an ambiguous non-activating result when compatible candidate mappings diverge', async () => {
+  it('REQ-ENTERPRISE-034 AC5: returns an ambiguous non-activating result when compatible candidate mappings diverge', async () => {
     const { app, kv } = await createApp();
     const profilesModule = await import('../../lib/reasoning-profiles');
     const candidate = profilesModule.BUILT_IN_REASONING_PROFILES[1] as any;
