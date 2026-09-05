@@ -22,6 +22,7 @@ const MAX_REASONING_PROBES = 5;
 const MAX_TOOL_CANARIES = 7;
 const SAFE_MAPPING_ROOTS = new Set(['reasoning_effort', 'reasoning', 'thinking', 'chat_template_kwargs']);
 const SAFE_CHAT_TEMPLATE_KEYS = new Set(['enable_thinking', 'thinking', 'clear_thinking']);
+const DANGEROUS_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 
 const CANARY_TOOL = Object.freeze({
   type: 'function',
@@ -37,11 +38,6 @@ const CANARY_TOOL = Object.freeze({
     strict: false,
   },
 });
-
-interface ProfileWrite {
-  path: string;
-  value: JsonScalar;
-}
 
 interface SemanticMapping {
   mapping: PlainObject;
@@ -134,6 +130,7 @@ function deletePath(target: PlainObject, path: string): void {
 
 function setPath(target: PlainObject, path: string, value: JsonScalar): void {
   const parts = path.split('.');
+  if (parts.some((part) => DANGEROUS_PATH_SEGMENTS.has(part))) throw new TypeError('Invalid profile mapping path');
   let cursor = target;
   for (let index = 0; index < parts.length - 1; index += 1) {
     const part = parts[index];
@@ -165,6 +162,7 @@ function isScalar(value: unknown): value is JsonScalar {
 function validatePath(path: unknown): asserts path is string {
   if (typeof path !== 'string' || path.length === 0 || path.length > 120) throw new TypeError('Invalid profile mapping path');
   const parts = path.split('.');
+  if (parts.some((part) => DANGEROUS_PATH_SEGMENTS.has(part))) throw new TypeError('Invalid profile mapping path');
   if (!SAFE_MAPPING_ROOTS.has(parts[0])) throw new TypeError(`Unsafe profile mapping root: ${parts[0]}`);
   if (parts[0] === 'chat_template_kwargs') {
     if (parts.length !== 2 || !SAFE_CHAT_TEMPLATE_KEYS.has(parts[1])) throw new TypeError('Unsafe chat_template_kwargs key');
@@ -499,7 +497,12 @@ async function readBoundedText(response: Response, maxBytes: number): Promise<st
   return result + decoder.decode();
 }
 
-function sanitizedError(status: number | null, text: string, codeOverride?: string): Record<string, unknown> {
+function sanitizedError(status: number | null, text: string, codeOverride?: string): {
+  status: number | null;
+  code: unknown;
+  type: unknown;
+  bodyLength: number;
+} {
   let body: unknown;
   try { body = JSON.parse(text); } catch { body = null; }
   const candidate = isPlainObject(body) ? body : {};
@@ -813,9 +816,10 @@ function addEvidence(accounting: Accounting, evidence: Record<string, unknown> |
   accounting.totalTokens += total;
 }
 
-function publicProbe<T extends Record<string, unknown>>(probe: T): Omit<T, 'stop'> {
-  const { stop: _stop, ...result } = probe;
-  return result;
+function publicProbe<T extends Record<string, unknown> & { stop: boolean }>(probe: T): Omit<T, 'stop'> {
+  const result: Record<string, unknown> = { ...probe };
+  delete result.stop;
+  return result as Omit<T, 'stop'>;
 }
 
 export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Record<string, any>> {

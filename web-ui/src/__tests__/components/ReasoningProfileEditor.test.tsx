@@ -37,7 +37,7 @@ afterEach(() => {
 describe('REQ-ENTERPRISE-031 typed custom profile workflow', () => {
   it('creates mappings with typed scalar rows and aliases without an editable JSON field', async () => {
     const { getByRole, getByLabelText, queryByRole, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    await findByText('Mesh binary thinking');
+    await findByText(/Mesh binary thinking/);
     await fireEvent.click(getByRole('button', { name: /create custom profile/i }));
     expect(getByLabelText('Profile name')).toBeTruthy();
     expect(getByLabelText('Supported reasoning levels')).toBeTruthy();
@@ -51,7 +51,7 @@ describe('REQ-ENTERPRISE-031 typed custom profile workflow', () => {
 
   it('normalizes scalar types and aliases into a read-only preview', async () => {
     const { getByRole, getByLabelText, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    await findByText('Mesh binary thinking');
+    await findByText(/Mesh binary thinking/);
     await fireEvent.click(getByRole('button', { name: /create custom profile/i }));
     await fireEvent.change(getByLabelText('Mapping value type'), { target: { value: 'boolean' } });
     await fireEvent.change(getByLabelText('Mapping boolean value'), { target: { value: 'true' } });
@@ -62,7 +62,7 @@ describe('REQ-ENTERPRISE-031 typed custom profile workflow', () => {
 
   it('serializes a typed custom revision and explicit alias without editable JSON', async () => {
     const { container, getByRole, getByLabelText, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    await findByText('Mesh binary thinking');
+    await findByText(/Mesh binary thinking/);
     await fireEvent.click(getByRole('button', { name: /create custom profile/i }));
     await fireEvent.input(getByLabelText('Profile ID'), { target: { value: 'custom-mesh' } });
     await fireEvent.input(getByLabelText('Profile name'), { target: { value: 'Custom mesh' } });
@@ -84,7 +84,7 @@ describe('REQ-ENTERPRISE-031 typed custom profile workflow', () => {
 
   it('shows off semantics, limitations, immutable provenance, and a read-only wire preview', async () => {
     const { getByRole, getByText, getByLabelText, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    await findByText('Mesh binary thinking');
+    await findByText(/Mesh binary thinking/);
     await fireEvent.click(getByRole('button', { name: /create custom profile/i }));
     expect(getByLabelText('Off semantics')).toBeTruthy();
     expect(getByText('Immutable revision 1')).toBeTruthy();

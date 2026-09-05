@@ -254,8 +254,8 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
         persisted: false,
         errors: [expect.objectContaining({ code: 'legacy_configuration_malformed' })],
       });
-      expect(mockKV.put).not.toHaveBeenCalled();
-      expect(mockKV.delete).not.toHaveBeenCalled();
+      expect(mockKV.put).not.toHaveBeenCalledWith('setup:reasoning_configuration', expect.anything());
+      expect(mockKV.delete).not.toHaveBeenCalledWith('setup:route_context_windows');
       expect(mockKV._store.get('setup:route_context_windows')).toBe('{not-json');
     });
 

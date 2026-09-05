@@ -55,6 +55,32 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-012)', () => {
     expect(cfg.routeReasoningLevels.development).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
   });
 
+  it('keeps legacy installations startable by deriving supported levels in memory when atomic configuration is absent', async () => {
+    const kv = createMockKV();
+    kv._store.set('setup:dynamic_routes', JSON.stringify(['general_usage', 'development']));
+    kv._store.set('setup:default_route', JSON.stringify({ route: 'general_usage', reasoning: 'off' }));
+    kv._store.set('setup:route_context_windows', JSON.stringify({
+      general_usage: { contextWindow: 262144, reasoningProfile: 'workers-ai-glm-5.3' },
+      development: { contextWindow: 262144, reasoningProfile: 'workers-ai-kimi-k2.6' },
+    }));
+
+    const cfg = await loadEnterpriseRouteConfig(makeEnv(kv));
+
+    expect(cfg.routeReasoningLevels.general_usage).toEqual(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(cfg.routeReasoningLevels.development).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(cfg.routeContextWindows).toEqual({ general_usage: 262144, development: 262144 });
+    expect(kv.put).not.toHaveBeenCalled();
+  });
+
+  it('fails closed at startup for unresolved GPT-OSS legacy assignments', async () => {
+    const kv = createMockKV();
+    kv._store.set('setup:dynamic_routes', JSON.stringify(['review']));
+    kv._store.set('setup:route_context_windows', JSON.stringify({
+      review: { contextWindow: 262144, reasoningProfile: 'workers-ai-gpt-oss' },
+    }));
+    await expect(loadEnterpriseRouteConfig(makeEnv(kv))).rejects.toThrow(/GPT-OSS/i);
+  });
+
   it('AC2: falls back to the first catalog route AND drops the reasoning when the configured default is absent from the catalog', async () => {
     const kv = createMockKV();
     kv._store.set('setup:dynamic_routes', JSON.stringify(['general_usage', 'development']));

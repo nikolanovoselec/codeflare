@@ -309,12 +309,38 @@ describe('REQ-ENTERPRISE-032: selected-route capability translation', () => {
     expect(lastFetch).toBeNull();
   });
 
-  it('AC3: fails closed when the atomic configuration is missing or unreadable', async () => {
-    for (const reasoningConfiguration of [undefined, '{not-json']) {
+  it('uses a valid legacy assignment at runtime when the atomic configuration is absent', async () => {
+    const env = configuredRoutes() as any;
+    delete env.__kv['setup:reasoning_configuration'];
+    env.__kv['setup:route_context_windows'] = JSON.stringify({
+      general_usage: { contextWindow: 262144, reasoningProfile: 'workers-ai-glm-5.3' },
+      development: { contextWindow: 262144, reasoningProfile: 'workers-ai-kimi-k2.6' },
+    });
+    const response = await makeInterceptor(env).fetch(new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', body: JSON.stringify({ model: 'development', messages: [], reasoning_effort: 'low' }),
+    }));
+    expect(response.status).toBe(200);
+    expect(JSON.parse(lastFetch!.body)).toMatchObject({
+      model: 'dynamic/development',
+      chat_template_kwargs: { enable_thinking: true },
+    });
+  });
+
+  it('AC3: fails closed when atomic data is unreadable or legacy data is malformed, ambiguous, or GPT-OSS', async () => {
+    const fixtures: Array<{ atomic?: string; legacy: string | Record<string, unknown> }> = [
+      { atomic: '{not-json', legacy: { development: { contextWindow: 262144, reasoningProfile: 'workers-ai-kimi-k2.6' } } },
+      { legacy: '{not-json' },
+      { legacy: { development: { contextWindow: 262144, reasoningProfile: 'workers-ai-gpt-oss' } } },
+      { legacy: { development: 262144 } },
+    ];
+    for (const fixture of fixtures) {
       lastFetch = null;
       const env = configuredRoutes() as any;
-      if (reasoningConfiguration === undefined) delete env.__kv['setup:reasoning_configuration'];
-      else env.__kv['setup:reasoning_configuration'] = reasoningConfiguration;
+      if (fixture.atomic === undefined) delete env.__kv['setup:reasoning_configuration'];
+      else env.__kv['setup:reasoning_configuration'] = fixture.atomic;
+      env.__kv['setup:route_context_windows'] = typeof fixture.legacy === 'string'
+        ? fixture.legacy
+        : JSON.stringify(fixture.legacy);
       const response = await makeInterceptor(env).fetch(new Request('https://api.openai.com/v1/chat/completions', {
         method: 'POST', body: JSON.stringify({ model: 'development', messages: [], reasoning_effort: 'low' }),
       }));

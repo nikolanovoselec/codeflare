@@ -77,8 +77,10 @@ function runSettingsBlock(defaultRoute, reasoning, existingSettings) {
 // Run the extracted block with the given catalog and return { code, modelsJson }.
 function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevelsJson, defaultReasoning = 'off') {
   const block = extractModelsBlock();
+  const fixtureCatalog = JSON.parse(catalogJson);
+  const fixtureRoutes = fixtureCatalog.length > 0 ? fixtureCatalog : [defaultRoute];
   const effectiveReasoningLevels = reasoningLevelsJson ?? JSON.stringify(Object.fromEntries(
-    JSON.parse(catalogJson).map((route) => [route, ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']]),
+    fixtureRoutes.map((route) => [route, ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']]),
   ));
   const dir = mkdtempSync(join(tmpdir(), 'ent-pi-models-'));
   const modelsPath = join(dir, 'models.json');
@@ -93,10 +95,15 @@ function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevels
     "PI_GATEWAY_BASE_URL='https://api.openai.com/v1'",
     `PI_MODELS_JSON='${modelsPath}'`,
     block,
+    // The production block deliberately keeps the container alive and leaves Pi
+    // unpinned on invalid input. For this focused helper, surface that guarded jq
+    // failure as a non-zero status so failure assertions do not fall through to
+    // reading a models.json that was intentionally never written.
+    'test "${PI_GATEWAY_CONFIG_OK:-0}" = "1"',
   ].join('\n');
   const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
   let modelsJson = null;
-  if (res.status === 0) modelsJson = JSON.parse(readFileSync(modelsPath, 'utf8'));
+  if (res.status === 0 && existsSync(modelsPath)) modelsJson = JSON.parse(readFileSync(modelsPath, 'utf8'));
   return { code: res.status, stderr: res.stderr, modelsJson };
 }
 

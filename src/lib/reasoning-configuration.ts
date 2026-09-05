@@ -1,6 +1,5 @@
 import {
   BUILT_IN_REASONING_PROFILES,
-  PI_REASONING_LEVELS,
   canonicalHash,
   canonicalJson,
   getBuiltInProfile,
@@ -308,11 +307,17 @@ export function validateReasoningConfigurationUpdate(currentInput: unknown, prop
   return proposed;
 }
 
+interface LegacyDefaultSelection {
+  route?: unknown;
+  defaultRoute?: unknown;
+  reasoning?: unknown;
+}
+
 export interface LegacyMigrationInput {
   routeSettings: unknown;
   defaults?: {
-    global?: { route?: unknown; reasoning?: unknown } | null;
-    groups?: Record<string, { route?: unknown; defaultRoute?: unknown; reasoning?: unknown }>;
+    global?: LegacyDefaultSelection | null;
+    groups?: Record<string, LegacyDefaultSelection>;
   };
 }
 
@@ -356,15 +361,19 @@ export function migrateLegacyReasoningAssignments(input: LegacyMigrationInput): 
       continue;
     }
     const legacy = (raw as Record<string, unknown>).reasoningProfile;
+    if (legacy === undefined) {
+      errors.push({ code: 'legacy_assignment_missing', route, message: `Route ${route} requires an explicit profile assignment` });
+      continue;
+    }
+    if (typeof legacy !== 'string') {
+      errors.push({ code: 'legacy_assignment_malformed', route, message: `Route ${route} has a malformed legacy reasoning profile` });
+      continue;
+    }
     if (legacy === 'workers-ai-gpt-oss') {
       errors.push({ code: 'legacy_profile_unresolved', route, message: 'GPT-OSS tool replay is unsupported; select another profile' });
       continue;
     }
-    if (legacy !== undefined && typeof legacy !== 'string') {
-      errors.push({ code: 'legacy_assignment_malformed', route, message: `Route ${route} has a malformed legacy reasoning profile` });
-      continue;
-    }
-    const mapped = typeof legacy === 'string' ? LEGACY_PROFILE_MAPPINGS[legacy as keyof typeof LEGACY_PROFILE_MAPPINGS] : undefined;
+    const mapped = LEGACY_PROFILE_MAPPINGS[legacy as keyof typeof LEGACY_PROFILE_MAPPINGS];
     if (!mapped) {
       errors.push({ code: 'legacy_assignment_missing', route, message: `Route ${route} requires an explicit profile assignment` });
       continue;
@@ -391,6 +400,36 @@ export function migrateLegacyReasoningAssignments(input: LegacyMigrationInput): 
     }
   }
   return { proposed, errors, persisted: false };
+}
+
+/**
+ * Parse the atomic document when present, otherwise derive an in-memory view of
+ * the historical combined route settings. The fallback is intentionally strict:
+ * any unresolved, malformed, or ambiguous legacy entry rejects the whole view,
+ * and no KV write is performed.
+ */
+export function parseReasoningConfigurationWithLegacyFallback(
+  configurationInput: unknown,
+  legacyRouteSettingsInput: unknown,
+  defaults?: LegacyMigrationInput['defaults'],
+): ReasoningConfiguration {
+  if (configurationInput !== undefined && configurationInput !== null) {
+    return parseReasoningConfiguration(configurationInput);
+  }
+
+  let routeSettings = legacyRouteSettingsInput;
+  if (typeof legacyRouteSettingsInput === 'string') {
+    try {
+      routeSettings = JSON.parse(legacyRouteSettingsInput) as unknown;
+    } catch {
+      routeSettings = legacyRouteSettingsInput;
+    }
+  }
+  const migration = migrateLegacyReasoningAssignments({ routeSettings, defaults });
+  if (migration.errors.length > 0) {
+    throw new Error(migration.errors.map((error) => error.message).join('; '));
+  }
+  return parseReasoningConfiguration(migration.proposed);
 }
 
 export function createReasoningConfigurationFromProfileIds(

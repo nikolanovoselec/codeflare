@@ -42,7 +42,7 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     expect(valid.supportedLevels).toEqual(['off', 'medium']);
 
     for (const path of ['model', 'messages.0.content', 'tools', 'stream', 'headers.authorization', 'provider', 'chat_template_kwargs.__proto__.polluted']) {
-      expect(() => normalize({ ...valid, id: `blocked-${path}`, levels: { off: [{ path, value: null }] } }))
+      expect(() => normalize({ ...valid, id: 'blocked-path', levels: { off: [{ path, value: null }] } }))
         .toThrow(/protected|path/i);
     }
     expect(() => normalize({ ...valid, id: 'nested-value', levels: { off: [{ path: 'thinking', value: { enabled: false } }] } }))

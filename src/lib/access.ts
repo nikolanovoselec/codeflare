@@ -9,7 +9,7 @@ import { parseUserRecord } from './user-record';
 import { listAllKvKeys, SETUP_KEYS } from './kv-keys';
 import { reactivateUsageUser } from './admin-usage';
 import { parseRouteSettings, type PiReasoningLevel } from './reasoning-profiles';
-import { getRouteReasoningProfile, parseReasoningConfiguration } from './reasoning-configuration';
+import { getRouteReasoningProfile, parseReasoningConfigurationWithLegacyFallback } from './reasoning-configuration';
 
 const logger = createLogger('access');
 
@@ -711,7 +711,11 @@ export async function resolveAdminAccessGroup(request: Request, env: Env): Promi
  * and cannot await KV) and threaded into the DO alongside userGroups.
  *
  * Setup persists SETUP_KEYS.DYNAMIC_ROUTES (JSON string[]) and
- * SETUP_KEYS.DEFAULT_ROUTE (JSON { route, reasoning }). The default-route rule is
+ * SETUP_KEYS.DEFAULT_ROUTE (JSON { route, reasoning }). When the atomic reasoning
+ * document is absent on a legacy installation, supported levels are derived in
+ * memory from valid historical route settings; malformed or unresolved legacy
+ * assignments reject startup configuration and are never persisted.
+ * The default-route rule is
  * kept IDENTICAL to the interceptor's loadRouteCatalog: explicit default if it is
  * in the catalog; else the first configured route; else '' (empty catalog).
  * Returns empty fields when not enterprise so a non-enterprise body is unchanged.
@@ -731,34 +735,28 @@ export async function loadEnterpriseRouteConfig(
     return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {} };
   }
   const resolved = await resolveRouteCatalog(env.KV, groups);
-  const rawConfiguration = await env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION);
+  const [rawConfiguration, rawLegacyRouteSettings] = await Promise.all([
+    env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION),
+    env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS),
+  ]);
+  const configuration = parseReasoningConfigurationWithLegacyFallback(
+    rawConfiguration,
+    rawLegacyRouteSettings,
+    { global: { route: resolved.defaultRoute, reasoning: resolved.defaultReasoning } },
+  );
   const routeReasoningLevels: Record<string, PiReasoningLevel[]> = {};
-  if (rawConfiguration) {
-    const configuration = parseReasoningConfiguration(rawConfiguration);
-    for (const route of resolved.routeCatalog) {
-      const assignment = configuration.routeAssignments[route];
-      if (assignment) routeReasoningLevels[route] = [...getRouteReasoningProfile(configuration, route).supportedLevels];
+  for (const route of resolved.routeCatalog) {
+    const assignment = configuration.routeAssignments[route];
+    if (assignment) routeReasoningLevels[route] = [...getRouteReasoningProfile(configuration, route).supportedLevels];
+  }
+  const routeContextWindows = (() => {
+    try {
+      return parseRouteSettings(rawLegacyRouteSettings ? JSON.parse(rawLegacyRouteSettings) : null).contextWindows;
+    } catch {
+      return {};
     }
-  }
-  return { ...resolved, routeContextWindows: await loadRouteContextWindows(env.KV), routeReasoningLevels };
-}
-
-/**
- * REQ-ENTERPRISE-012: the global per-route context-window map (route name -> tokens),
- * persisted under SETUP_KEYS.ROUTE_CONTEXT_WINDOWS. Keyed by route name (not group), so
- * it applies to whatever catalog a session resolves. Validated at the boundary: only
- * positive-integer values survive; a malformed/absent value degrades to an empty map
- * (entrypoint then falls back to DEFAULT_ROUTE_CONTEXT_WINDOW for every route).
- */
-async function loadRouteContextWindows(kv: KVNamespace): Promise<Record<string, number>> {
-  try {
-    const raw = await kv.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return parseRouteSettings(parsed).contextWindows;
-  } catch {
-    /* malformed -> empty, entrypoint applies the per-route default */
-  }
-  return {};
+  })();
+  return { ...resolved, routeContextWindows, routeReasoningLevels };
 }
 
 /** Per-group routing entry persisted under SETUP_KEYS.GROUP_ROUTING (REQ-ENTERPRISE-013). */

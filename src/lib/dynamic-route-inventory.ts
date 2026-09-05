@@ -5,7 +5,8 @@ export type InventoryErrorCode =
   | 'inventory_duplicate_node'
   | 'inventory_missing_start'
   | 'inventory_cycle'
-  | 'inventory_unresolved_edge';
+  | 'inventory_unresolved_edge'
+  | 'inventory_budget_exceeded';
 
 export class DynamicRouteInventoryError extends Error {
   constructor(public readonly code: InventoryErrorCode) {
@@ -15,6 +16,7 @@ export class DynamicRouteInventoryError extends Error {
       inventory_missing_start: 'Dynamic route graph has no unique start node',
       inventory_cycle: 'Dynamic route graph contains a cycle',
       inventory_unresolved_edge: 'Dynamic route graph contains an unresolved edge',
+      inventory_budget_exceeded: 'Dynamic route graph exceeds inventory limits',
     }[code]);
     this.name = 'DynamicRouteInventoryError';
   }
@@ -58,6 +60,9 @@ export interface DynamicRouteInventory {
 const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SAFE_BRANCH = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const MAX_SUMMARY_VALUE_LENGTH = 256;
+const MAX_INVENTORY_NODES = 256;
+const MAX_INVENTORY_EDGES = 512;
+const MAX_INVENTORY_OUTPUT_PATHS = 1024;
 const CONTINUATION_OUTPUTS = new Set(['next', 'success', 'end']);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -77,6 +82,8 @@ function safeSummaryValue(value: unknown): value is string {
 
 function parseElements(raw: unknown): DynamicRouteElement[] {
   if (!Array.isArray(raw) || raw.length === 0) throw new DynamicRouteInventoryError('inventory_malformed_graph');
+  if (raw.length > MAX_INVENTORY_NODES) throw new DynamicRouteInventoryError('inventory_budget_exceeded');
+  let edgeCount = 0;
   return raw.map((candidate) => {
     if (!isPlainObject(candidate)
       || typeof candidate.id !== 'string'
@@ -90,7 +97,10 @@ function parseElements(raw: unknown): DynamicRouteElement[] {
       throw new DynamicRouteInventoryError('inventory_malformed_graph');
     }
     const outputs: Record<string, DynamicRouteEdge> = {};
-    for (const [branch, edge] of Object.entries(candidate.outputs)) {
+    const entries = Object.entries(candidate.outputs);
+    edgeCount += entries.length;
+    if (edgeCount > MAX_INVENTORY_EDGES) throw new DynamicRouteInventoryError('inventory_budget_exceeded');
+    for (const [branch, edge] of entries) {
       if (!SAFE_BRANCH.test(branch)
         || !isPlainObject(edge)
         || typeof edge.elementId !== 'string'
@@ -153,19 +163,23 @@ export function inventoryDynamicRoute(input: DynamicRouteVersionInput): DynamicR
     state.set(nodeId, 'visiting');
     reachableNodeCount += 1;
     const paths: DynamicRoutePathSummary[] = [];
+    const appendPath = (path: DynamicRoutePathSummary): void => {
+      if (paths.length >= MAX_INVENTORY_OUTPUT_PATHS) throw new DynamicRouteInventoryError('inventory_budget_exceeded');
+      paths.push(path);
+    };
     if (node.type.toLowerCase() === 'model') {
       models.push({
         nodeId: node.id,
         provider: node.properties?.provider as string,
         model: node.properties?.model as string,
       });
-      paths.push({ modelNodeId: node.id, branches: [] });
+      appendPath({ modelNodeId: node.id, branches: [] });
     }
     if (node.type.toLowerCase() !== 'end') {
       for (const [output, edge] of Object.entries(node.outputs)) {
         const prefix = nextBranches([], output);
         for (const path of visit(edge.elementId)) {
-          paths.push({ modelNodeId: path.modelNodeId, branches: [...prefix, ...path.branches] });
+          appendPath({ modelNodeId: path.modelNodeId, branches: [...prefix, ...path.branches] });
         }
       }
     }

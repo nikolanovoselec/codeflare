@@ -18,6 +18,7 @@ import {
 } from '../../lib/dynamic-route-inventory';
 
 const MAX_MANAGEMENT_RESPONSE_BYTES = 1024 * 1024;
+const MANAGEMENT_REQUEST_TIMEOUT_MS = 10_000;
 const logger = createLogger('admin-reasoning');
 
 const routeSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/);
@@ -226,19 +227,26 @@ function extractVersion(value: unknown): { versionId: string; elements: unknown 
 }
 
 async function managementRequest(url: string, token: string): Promise<unknown> {
-  let response: Response;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort('management request timeout'), MANAGEMENT_REQUEST_TIMEOUT_MS);
   try {
-    response = await fetch(url, {
-      method: 'GET',
-      headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
-      redirect: 'manual',
-    });
-  } catch {
-    throw new Error('management_transport_failure');
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+        redirect: 'manual',
+        signal: controller.signal,
+      });
+    } catch {
+      throw new Error('management_transport_failure');
+    }
+    const payload = await readBoundedJson(response);
+    if (!response.ok || (isPlainObject(payload) && payload.success === false)) throw new Error('management_request_failed');
+    return payload;
+  } finally {
+    clearTimeout(timeout);
   }
-  const payload = await readBoundedJson(response);
-  if (!response.ok || (isPlainObject(payload) && payload.success === false)) throw new Error('management_request_failed');
-  return payload;
 }
 
 async function listDynamicRoutes(accountId: string, gatewayId: string, token: string): Promise<Array<{ id: string; name: string }>> {

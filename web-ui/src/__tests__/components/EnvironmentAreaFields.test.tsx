@@ -15,6 +15,8 @@ beforeEach(() => {
     profiles: [{ id: 'workers-ai-kimi-k-thinking', revision: 1, hash: 'a'.repeat(64), name: 'Kimi thinking', supportedLevels: ['medium', 'high'] }],
     notices: [],
     usage: [],
+    routes: ['development'],
+    routeCatalogStatus: 'ready',
   });
 });
 
@@ -48,12 +50,12 @@ describe('Environment report fields', () => {
       reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: { development: { activeProfile: { id: 'workers-ai-kimi-k-thinking', revision: 1, hash: 'a'.repeat(64) } } } },
       groupRouting: [{ accessGroup: 'developers', routes: ['development'], defaultRoute: 'development', reasoning: 'medium' }],
     };
-    const { getByLabelText, getByRole, queryByLabelText, findByText, container } = render(() => (
+    const { getByLabelText, queryByLabelText, queryByRole, findByText, container } = render(() => (
       <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />
     ));
-    await findByText('Kimi thinking');
+    await findByText('Selected: Kimi thinking');
 
-    expect(getByRole('button', { name: /add route/i })).toBeTruthy();
+    expect(queryByRole('button', { name: /add route/i })).toBeNull();
     expect((getByLabelText('development context window') as HTMLInputElement).value).toBe('262144');
     expect((getByLabelText('development capability profile') as HTMLSelectElement).selectedOptions[0]?.textContent).toContain('Kimi thinking');
     expect(getByLabelText('developers allowed routes')).toBeTruthy();

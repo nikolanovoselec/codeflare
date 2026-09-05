@@ -104,6 +104,29 @@ describe('REQ-ENTERPRISE-031 atomic reasoning configuration', () => {
     expect(result.persisted).toBe(false);
   });
 
+  it('uses valid legacy assignments only when the atomic configuration is absent, without persistence', async () => {
+    const { parseReasoningConfigurationWithLegacyFallback } = await subject();
+    const configuration = parseReasoningConfigurationWithLegacyFallback(undefined, JSON.stringify({
+      general: { contextWindow: 262144, reasoningProfile: 'workers-ai-glm-5.3' },
+      development: { contextWindow: 262144, reasoningProfile: 'workers-ai-kimi-k2.6' },
+    }));
+    expect(configuration.routeAssignments.general.activeProfile.id).toBe('workers-ai-glm-thinking');
+    expect(configuration.routeAssignments.development.activeProfile.id).toBe('workers-ai-kimi-k-thinking');
+  });
+
+  it('does not fall back over an unreadable atomic configuration or accept malformed/GPT-OSS legacy data', async () => {
+    const { parseReasoningConfigurationWithLegacyFallback } = await subject();
+    const validLegacy = JSON.stringify({
+      general: { contextWindow: 262144, reasoningProfile: 'workers-ai-glm-5.3' },
+    });
+    expect(() => parseReasoningConfigurationWithLegacyFallback('{not-json', validLegacy)).toThrow(/invalid JSON/i);
+    expect(() => parseReasoningConfigurationWithLegacyFallback('', validLegacy)).toThrow(/invalid JSON/i);
+    expect(() => parseReasoningConfigurationWithLegacyFallback(undefined, '{not-json')).toThrow(/administrator correction/i);
+    expect(() => parseReasoningConfigurationWithLegacyFallback(undefined, JSON.stringify({
+      review: { contextWindow: 262144, reasoningProfile: 'workers-ai-gpt-oss' },
+    }))).toThrow(/GPT-OSS/i);
+  });
+
   it('surfaces malformed legacy records as safe migration errors without proposing assignments', async () => {
     const { migrateLegacyReasoningAssignments } = await subject();
     const malformedDocument = migrateLegacyReasoningAssignments({ routeSettings: '{not-json' });

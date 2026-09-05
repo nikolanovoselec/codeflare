@@ -48,7 +48,7 @@ import type { Env } from './types';
 import { resolveRouteCatalog } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
 import { isPiReasoningLevel, translateReasoningRequest } from './lib/reasoning-profiles';
-import { getRouteReasoningProfile, parseReasoningConfiguration } from './lib/reasoning-configuration';
+import { getRouteReasoningProfile, parseReasoningConfigurationWithLegacyFallback } from './lib/reasoning-configuration';
 
 /**
  * Hosts the DO must intercept for enterprise LLM routing. Only the OpenAI host
@@ -539,8 +539,10 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
 
   private async loadReasoningConfiguration() {
     if (!this.env.KV) throw new Error('reasoning configuration unavailable');
-    const raw = await this.env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION);
-    if (!raw) throw new Error('reasoning configuration unavailable');
-    return parseReasoningConfiguration(raw);
+    const [rawConfiguration, rawLegacyRouteSettings] = await Promise.all([
+      this.env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION),
+      this.env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS),
+    ]);
+    return parseReasoningConfigurationWithLegacyFallback(rawConfiguration, rawLegacyRouteSettings);
   }
 }

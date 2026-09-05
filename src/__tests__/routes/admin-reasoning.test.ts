@@ -156,6 +156,7 @@ function mockSuccessfulProvider() {
 
 describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     role = 'admin';
     authReject = false;
     gatewayConfig = {
@@ -298,6 +299,29 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     const missing = await app.request('/admin/reasoning/routes/not-configured/inventory');
     expect(missing.status).toBe(404);
     expect(await missing.json()).toEqual({ error: 'Dynamic route not found', code: 'not_found' });
+  });
+
+  it('aborts bounded management requests and maps timeouts through sanitized existing responses', async () => {
+    vi.useFakeTimers();
+    const { app } = await createApp();
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new Error('private management timeout')), { once: true });
+    }));
+
+    const inventoryPending = app.request('/admin/reasoning/routes/codeflare-mesh/inventory');
+    await vi.advanceTimersByTimeAsync(10_000);
+    const inventory = await inventoryPending;
+    expect(inventory.status).toBe(502);
+    expect(await inventory.json()).toEqual({ error: 'Dynamic route inventory unavailable', code: 'inventory_unavailable' });
+
+    const discoveryPending = app.request('/admin/reasoning/discover', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(discoveryBody()),
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    const discovery = await discoveryPending;
+    expect(discovery.status).toBe(502);
+    expect(await discovery.json()).toEqual({ error: 'Reasoning discovery unavailable', code: 'discovery_unavailable' });
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it('validates a single target and exact profile revision before any provider I/O', async () => {

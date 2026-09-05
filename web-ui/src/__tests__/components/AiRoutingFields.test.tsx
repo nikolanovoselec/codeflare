@@ -86,7 +86,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
   });
 
   it('uses the exact API catalog and exposes inventory, provenance, evidence, and discovery results', async () => {
-    const { getByRole, getByLabelText, findByText, queryByRole } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    const { getByRole, getByLabelText, getByText, findByText, queryByRole } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
     const profile = getByLabelText('development capability profile') as HTMLSelectElement;
     await waitFor(() => expect(profile.options.length).toBe(7));
     expect(api.catalog).toHaveBeenCalledTimes(1);

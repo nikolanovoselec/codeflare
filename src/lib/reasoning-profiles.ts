@@ -187,7 +187,7 @@ export function canonicalHash(value: unknown): string {
   const rotr = (value: number, count: number) => value >>> count | value << (32 - count);
   let hash = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
   for (let offset = 0; offset < words.length; offset += 16) {
-    const schedule = new Array<number>(64);
+    const schedule = Array<number>(64);
     for (let i = 0; i < 16; i += 1) schedule[i] = words[offset + i] | 0;
     for (let i = 16; i < 64; i += 1) {
       const a = schedule[i - 15]; const b = schedule[i - 2];

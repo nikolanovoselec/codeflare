@@ -217,6 +217,24 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it.each(['__proto__', 'prototype', 'constructor'])('rejects the dangerous prototype path segment %s before assignment', async (segment) => {
+    const fetcher = vi.fn();
+    await expect(discoverPiCompatibility({
+      route: 'dynamic/test',
+      profile: {
+        id: 'unsafe-path',
+        supportedLevels: ['off'],
+        levels: { off: [{ path: `chat_template_kwargs.${segment}`, value: true }] },
+      },
+      maxCompletionTokens: 32,
+      apiToken: 'secret-token',
+      endpoint: { rest: 'https://example.invalid/rest', compat: 'https://example.invalid/compat' },
+      fetcher,
+    })).rejects.toThrow(/profile mapping path/i);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(Object.prototype).not.toHaveProperty('polluted');
+  });
+
   it('returns sanitized non-activating evidence with no credentials, generated text, response IDs, or error bodies', async () => {
     const requests: Array<{ url: string; body: Record<string, unknown>; headers: Headers }> = [];
     const report = await discoverPiCompatibility({
@@ -277,6 +295,38 @@ describe('REQ-ENTERPRISE-033 dynamic-route inventory', () => {
       { modelNodeId: 'model', branches: ['true'] },
       { modelNodeId: 'model', branches: ['false'] },
     ]);
+  });
+
+  it.each([
+    ['node', [
+      { id: 'start', type: 'start', outputs: {} },
+      ...Array.from({ length: 256 }, (_, index) => ({ id: `private-node-${index}`, type: 'conditional', outputs: {} })),
+    ]],
+    ['edge', [{
+      id: 'start',
+      type: 'start',
+      outputs: Object.fromEntries(Array.from({ length: 513 }, (_, index) => [`private-${index}`, { elementId: 'end' }])),
+    }]],
+    ['output-path', [
+      { id: 'start', type: 'start', outputs: { next: { elementId: 'split-0' } } },
+      ...Array.from({ length: 11 }, (_, index) => ({
+        id: `split-${index}`,
+        type: 'conditional',
+        outputs: {
+          true: { elementId: index === 10 ? 'model' : `split-${index + 1}` },
+          false: { elementId: index === 10 ? 'model' : `split-${index + 1}` },
+        },
+      })),
+      { id: 'model', type: 'model', properties: { provider: 'workers-ai', model: 'private-model' }, outputs: {} },
+    ]],
+  ])('rejects graphs exceeding the %s budget with a sanitized code', (_budget, elements) => {
+    try {
+      inventoryDynamicRoute({ versionId: 'route-v1', elements });
+      throw new Error('inventory unexpectedly accepted an over-budget graph');
+    } catch (error) {
+      expect(error).toMatchObject({ code: 'inventory_budget_exceeded' });
+      expect(JSON.stringify(error)).not.toContain('private-');
+    }
   });
 
   it.each([
