@@ -38,7 +38,7 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 1. An unauthenticated GET `/` in SaaS mode is served the prerendered landing app (the asset request is rewritten to `/landing/`). <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: serves the static landing at / when onboarding mode is active (unauthenticated)) -->
 2. An unauthenticated GET `/` in onboarding mode is served the same landing app. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: serves the static landing at / when onboarding mode is active (unauthenticated)) -->
 3. In default mode, GET `/` redirects to `/app/` and the landing is never served. <!-- @impl: src/index.ts::default --> <!-- @test: src/__tests__/index.test.ts (REQ-LANDING-001: keeps redirecting / to /app in default mode (no landing)) -->
-4. The static page composes the typed content model into the ordered enterprise narrative, shared proof terminals, folded substations, orchestration, cost, platform, governance, dogfood, FAQ, and contact surfaces without requiring JavaScript; its MCP Portal proof keeps the model-facing Code Mode surface at search and execute regardless of registered upstream tools. <!-- @impl: landing/src/pages/index.astro::gate-req --> <!-- @impl: landing/src/content/site.ts::MCP --> <!-- @test: landing/src/__tests__/index-page.test.ts (landing page composition (REQ-LANDING-001)) --> <!-- @manual -->
+4. The static page composes the typed content model into the ordered enterprise narrative, shared proof terminals, folded substations, orchestration, cost, platform, governance, dogfood, FAQ, and contact surfaces without requiring JavaScript. <!-- @impl: landing/src/pages/index.astro::gate-req --> <!-- @test: landing/src/__tests__/index-page.test.ts (landing page composition (REQ-LANDING-001)) -->
 5. Client enhancements animate terminal proofs, capability text, orchestration, reveals, and the page flare while preserving the complete server-rendered resting state and honoring reduced-motion preferences. <!-- @test: landing/src/__tests__/scramble.script.test.ts (scramble.ts (REQ-LANDING-001)) --> <!-- @manual -->
 6. At mobile, tablet, and desktop widths, peer and subordinate sections remain visually distinct without overlap, clipping, or hidden content. <!-- @manual -->
 7. Each navigation, trust, disclosure, contact, sign-in, and footer control reaches its intended destination by keyboard and remains visible without overlap or clipping at mobile, tablet, and desktop widths. <!-- @test: landing/src/__tests__/index-page.test.ts (grids, chips, nav, social proof, faq) --> <!-- @manual -->
@@ -55,6 +55,31 @@ Public enterprise marketing landing page (codeflare.ch), its mode-aware serving,
 **Dependencies:** None.
 
 **Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-LANDING-016: MCP Portal Code Mode proof
+
+**Intent:** Visitors understand that a Cloudflare MCP Server Portal can keep a growing upstream tool catalog out of model context through a fixed Code Mode interface.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The MCP Portal proof presents Code Mode as a two-tool model-facing surface—search and execute—regardless of how many upstream MCP servers and tools are registered. <!-- @impl: landing/src/content/site.ts::MCP --> <!-- @manual -->
+
+**Constraints:**
+
+- The claim describes the Portal's `search_and_execute` Code Mode interface.
+- Editorial wording and illustrative upstream-tool counts remain manually reviewed rather than pinned by source-text tests.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-LANDING-001](#req-landing-001-mode-aware-public-landing-serving)
+
+**Verification:** Manual
 
 **Status:** Implemented
 
