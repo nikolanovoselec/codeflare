@@ -11,6 +11,7 @@ import {
   BUILT_IN_REASONING_PROFILES,
   COMPATIBILITY_NOTICES,
   canonicalHash,
+  canonicalJson,
   isPiReasoningLevel,
 } from '../../lib/reasoning-profiles';
 import { discoverPiCompatibility } from '../../lib/reasoning-discovery';
@@ -34,8 +35,8 @@ const profileRefSchema = z.object({
 }).strict();
 const discoverySchema = z.object({
   route: routeSchema,
-  profileRef: profileRefSchema,
-  maxCompletionTokens: z.number().int().min(32).max(16_384).default(32),
+  profileRef: profileRefSchema.optional(),
+  maxCompletionTokens: z.number().int().min(32).max(16_384).default(512),
 }).strict();
 
 type ProfileRef = z.infer<typeof profileRefSchema>;
@@ -150,6 +151,88 @@ function resolveProfile(configuration: ReasoningConfigurationView, requested: Pr
   }) ?? null;
 }
 
+function profileDiscoveryContract(profile: Record<string, unknown>): Record<string, unknown> {
+  return {
+    supportedLevels: profile.supportedLevels,
+    removePaths: profile.removePaths,
+    levels: profile.levels,
+    aliases: profile.aliases,
+    offSemantics: profile.offSemantics,
+  };
+}
+
+function distinctDiscoveryCandidates(): Record<string, unknown>[] {
+  const seen = new Set<string>();
+  return (BUILT_IN_REASONING_PROFILES as unknown as readonly Record<string, unknown>[]).filter((profile) => {
+    const digest = canonicalHash(profileDiscoveryContract(profile));
+    if (seen.has(digest)) return false;
+    seen.add(digest);
+    return true;
+  });
+}
+
+interface DiscoveryCandidateReport {
+  profile: Record<string, unknown>;
+  report: Record<string, any>;
+}
+
+function dominatesCandidate(left: DiscoveryCandidateReport, right: DiscoveryCandidateReport): boolean {
+  const leftLevels = Array.isArray(left.profile.supportedLevels) ? left.profile.supportedLevels.filter(isPiReasoningLevel) : [];
+  const rightLevels = Array.isArray(right.profile.supportedLevels) ? right.profile.supportedLevels.filter(isPiReasoningLevel) : [];
+  if (leftLevels.length <= rightLevels.length || !rightLevels.every((level) => leftLevels.includes(level))) return false;
+  const leftMappings = left.profile.levels;
+  const rightMappings = right.profile.levels;
+  if (!isPlainObject(leftMappings) || !isPlainObject(rightMappings)) return false;
+  return canonicalJson({
+    removePaths: left.profile.removePaths,
+    levels: Object.fromEntries(rightLevels.map((level) => [level, leftMappings[level]])),
+  }) === canonicalJson({
+    removePaths: right.profile.removePaths,
+    levels: Object.fromEntries(rightLevels.map((level) => [level, rightMappings[level]])),
+  });
+}
+
+export function selectUnambiguousCandidateMatch(reports: DiscoveryCandidateReport[]): DiscoveryCandidateReport | null {
+  const compatible = reports.filter(({ report }) => report.assignable === true);
+  const maximal = compatible.filter((candidate) => !compatible.some((other) => other !== candidate && dominatesCandidate(other, candidate)));
+  return maximal.length === 1 ? maximal[0] : null;
+}
+
+function generatedProfileDraft(profile: Record<string, unknown>, report: Record<string, any>, route: string): Record<string, unknown> {
+  const observedAt = new Date().toISOString();
+  const verifiedLevels = Array.isArray(report.piCompatibility?.verifiedLevels)
+    ? report.piCompatibility.verifiedLevels.filter(isPiReasoningLevel)
+    : [];
+  const aliases = isPlainObject(profile.aliases)
+    ? Object.fromEntries(Object.entries(profile.aliases).filter(([level, target]) => verifiedLevels.includes(level) && verifiedLevels.includes(target as any)))
+    : {};
+  const levels = isPlainObject(profile.levels)
+    ? Object.fromEntries(Object.entries(profile.levels).filter(([level]) => verifiedLevels.includes(level as any)))
+    : {};
+  const transports = [...new Set((Array.isArray(report.distinctMappings) ? report.distinctMappings : [])
+    .flatMap((item: any) => [item?.reasoningProbe?.transport, item?.toolLifecycle?.first?.transport, item?.toolLifecycle?.replay?.transport])
+    .filter((transport: unknown): transport is string => transport === 'rest' || transport === 'compat'))];
+  return {
+    schemaVersion: 1,
+    enabled: true,
+    family: 'Discovered',
+    description: `Deterministically discovered from dynamic route ${route}.`,
+    ingressContract: 'ai-gateway-chat-completions',
+    supportedLevels: verifiedLevels,
+    removePaths: Array.isArray(profile.removePaths) ? profile.removePaths : [],
+    levels,
+    aliases,
+    offSemantics: profile.offSemantics,
+    toolCompatibility: { status: 'verified', levels: verifiedLevels },
+    recognizedResponseFields: isPlainObject(profile.recognizedResponseFields) ? profile.recognizedResponseFields : {},
+    validatedTransports: transports,
+    classification: report.classification,
+    limitations: Array.isArray(report.limitations) ? report.limitations : [],
+    originallyCreatedAgainst: { route, observedAt, evidenceType: 'deterministic-pi-discovery' },
+    evidence: [{ ...report.evidence, route, observedAt, evidenceType: 'deterministic-pi-discovery' }],
+  };
+}
+
 function assignmentUsage(configuration: ReasoningConfigurationView): Array<{ profileRef: ProfileRef; routes: string[] }> {
   const grouped = new Map<string, { profileRef: ProfileRef; routes: string[] }>();
   for (const [route, assignment] of Object.entries(configuration.routeAssignments)) {
@@ -194,6 +277,15 @@ async function readBoundedJson(response: Response): Promise<unknown> {
 
 function extractElements(value: Record<string, unknown>): unknown {
   if (Array.isArray(value.data)) return value.data;
+  if (typeof value.data === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(value.data);
+      if (Array.isArray(parsed)) return parsed;
+      if (isPlainObject(parsed) && Array.isArray(parsed.elements)) return parsed.elements;
+    } catch {
+      return undefined;
+    }
+  }
   if (Array.isArray(value.elements)) return value.elements;
   if (isPlainObject(value.configuration) && Array.isArray(value.configuration.elements)) return value.configuration.elements;
   if (isPlainObject(value.config) && Array.isArray(value.config.elements)) return value.config.elements;
@@ -214,13 +306,13 @@ function extractVersion(value: unknown): { versionId: string; elements: unknown 
     .find((candidate): candidate is string => safeString(candidate, 128));
   if (!versionId) return null;
   if (isPlainObject(result.version)) {
-    if (active.active !== true) return null;
+    if (active.active !== true && active.active !== 'true') return null;
     const deployedVersion = isPlainObject(result.deployment)
       ? [result.deployment.version_id, result.deployment.versionId].find((candidate): candidate is string => safeString(candidate, 128))
       : undefined;
     if (deployedVersion && deployedVersion !== versionId) return null;
   }
-  const elements = extractElements(active);
+  const elements = extractElements(active) ?? extractElements(result);
   return elements === undefined ? { versionId } : { versionId, elements };
 }
 
@@ -250,8 +342,10 @@ async function managementRequest(url: string, token: string): Promise<unknown> {
 async function listDynamicRoutes(accountId: string, gatewayId: string, token: string): Promise<Array<{ id: string; name: string }>> {
   const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/routes`;
   const payload = await managementRequest(base, token);
-  if (!isPlainObject(payload) || !isPlainObject(payload.data) || !Array.isArray(payload.data.routes)) throw new Error('route_list_malformed');
-  return payload.data.routes.map((candidate) => {
+  if (!isPlainObject(payload)) throw new Error('route_list_malformed');
+  const envelope = isPlainObject(payload.data) ? payload.data : isPlainObject(payload.result) ? payload.result : null;
+  if (!envelope || !Array.isArray(envelope.routes)) throw new Error('route_list_malformed');
+  return envelope.routes.map((candidate) => {
     if (!isPlainObject(candidate) || !safeString(candidate.id, 128) || !routeSchema.safeParse(candidate.name).success) {
       throw new Error('route_list_malformed');
     }
@@ -410,8 +504,8 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
   try { configuration = await readReasoningConfiguration(c.env.KV); } catch {
     return c.json({ error: 'Reasoning configuration unavailable', code: 'reasoning_configuration_unavailable' }, 503);
   }
-  const profile = resolveProfile(configuration, request.data.profileRef);
-  if (!profile) return c.json({ error: 'Reasoning profile revision not found', code: 'not_found' }, 404);
+  const profile = request.data.profileRef ? resolveProfile(configuration, request.data.profileRef) : null;
+  if (request.data.profileRef && !profile) return c.json({ error: 'Reasoning profile revision not found', code: 'not_found' }, 404);
 
   const gateway = await getAigConfig(c.env);
   const parsedGateway = parseGatewayUrl(gateway.gatewayUrl);
@@ -424,27 +518,77 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
     if (!routes.some((route) => route.name === request.data.route)) {
       return c.json({ error: 'Dynamic route not found', code: 'not_found' }, 404);
     }
-    const report = await discoverPiCompatibility({
-      accountId: parsedGateway.accountId,
-      gatewayId: parsedGateway.gatewayId,
-      apiToken: gateway.token,
-      route: `dynamic/${request.data.route}`,
-      profile,
-      maxCompletionTokens: request.data.maxCompletionTokens,
-    });
-    logger.info('Reasoning discovery completed', {
+    if (profile && request.data.profileRef) {
+      const report = await discoverPiCompatibility({
+        accountId: parsedGateway.accountId,
+        gatewayId: parsedGateway.gatewayId,
+        apiToken: gateway.token,
+        route: `dynamic/${request.data.route}`,
+        profile,
+        maxCompletionTokens: request.data.maxCompletionTokens,
+      });
+      logger.info('Reasoning discovery completed', {
+        initiatedBy: c.get('user')?.email ?? 'unknown',
+        route: request.data.route,
+        profileId: request.data.profileRef.id,
+        classification: report.classification,
+        logicalProbes: report.accounting.logicalProbes,
+        httpAttempts: report.accounting.httpAttempts,
+      });
+      return c.json(report);
+    }
+
+    const reports: DiscoveryCandidateReport[] = [];
+    for (const candidate of distinctDiscoveryCandidates()) {
+      const report = await discoverPiCompatibility({
+        accountId: parsedGateway.accountId,
+        gatewayId: parsedGateway.gatewayId,
+        apiToken: gateway.token,
+        route: `dynamic/${request.data.route}`,
+        profile: candidate,
+        maxCompletionTokens: request.data.maxCompletionTokens,
+      });
+      reports.push({ profile: candidate, report });
+    }
+    const matches = reports.filter(({ report }) => report.assignable === true);
+    const accounting = reports.reduce((total, { report }) => ({
+      logicalProbes: total.logicalProbes + Number(report.accounting?.logicalProbes ?? 0),
+      httpAttempts: total.httpAttempts + Number(report.accounting?.httpAttempts ?? 0),
+      promptTokens: total.promptTokens + Number(report.accounting?.promptTokens ?? 0),
+      completionTokens: total.completionTokens + Number(report.accounting?.completionTokens ?? 0),
+      totalTokens: total.totalTokens + Number(report.accounting?.totalTokens ?? 0),
+    }), { logicalProbes: 0, httpAttempts: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 });
+    const selected = selectUnambiguousCandidateMatch(reports);
+    const result = {
+      schemaVersion: 1,
+      route: request.data.route,
+      classification: selected ? selected.report.classification : 'Inconclusive',
+      assignable: selected !== null,
+      accounting,
+      candidateResults: reports.map(({ profile: candidate, report }) => ({
+        profileId: candidate.id,
+        classification: report.classification,
+        assignable: report.assignable,
+      })),
+      ...(selected && {
+        matchedCandidateProfileId: selected.profile.id,
+        profileDraft: generatedProfileDraft(selected.profile, selected.report, request.data.route),
+      }),
+      ...(!selected && { warnings: [matches.length > 1 ? 'ambiguous_profile_mapping' : 'no_compatible_profile_mapping'] }),
+    };
+    logger.info('Custom reasoning profile discovery completed', {
       initiatedBy: c.get('user')?.email ?? 'unknown',
       route: request.data.route,
-      profileId: request.data.profileRef.id,
-      classification: report.classification,
-      logicalProbes: report.accounting.logicalProbes,
-      httpAttempts: report.accounting.httpAttempts,
+      matchedCandidateProfileId: selected?.profile.id ?? null,
+      candidateMatches: matches.length,
+      logicalProbes: accounting.logicalProbes,
+      httpAttempts: accounting.httpAttempts,
     });
-    return c.json(report);
+    return c.json(result);
   } catch {
     logger.warn('Reasoning discovery failed', {
       route: request.data.route,
-      profileId: request.data.profileRef.id,
+      profileId: request.data.profileRef?.id ?? 'auto-discovery',
       initiatedBy: c.get('user')?.email ?? 'unknown',
     });
     return c.json({ error: 'Reasoning discovery unavailable', code: 'discovery_unavailable' }, 502);

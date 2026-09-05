@@ -1372,17 +1372,21 @@ describe('API Client', () => {
           routeCatalogStatus: 'ready',
         }))
         .mockResolvedValueOnce(response({ schemaVersion: 1, route: 'development', routeVersion: 'route-v1', legs: [{ nodeId: 'primary', provider: 'workers-ai', declaredModel: '@cf/zai-org/glm' }], paths: [], warnings: [] }))
-        .mockResolvedValueOnce(response({ classification: 'Verified', accounting: { logicalProbes: 2, httpAttempts: 3 }, normalizedDraft: { schemaVersion: 1 } }));
+        .mockResolvedValueOnce(response({ classification: 'Verified', accounting: { logicalProbes: 2, httpAttempts: 3 }, normalizedDraft: { schemaVersion: 1 } }))
+        .mockResolvedValueOnce(response({ route: 'development', classification: 'Verified', assignable: true, matchedCandidateProfileId: 'workers-ai-glm-thinking', profileDraft: { schemaVersion: 1 } }));
 
       const catalog = await getReasoningCatalog();
       await getReasoningRouteInventory('development');
       await discoverReasoningCompatibility({ route: 'development', profileRef: { id: 'workers-ai-glm-thinking', revision: 1, hash }, maxCompletionTokens: 32 });
+      const generated = await discoverReasoningCompatibility({ route: 'development', maxCompletionTokens: 512 });
 
       expect(catalog.notices[0].name).toBe('GPT-OSS tool replay unsupported');
       expect(catalog.routes).toEqual(['development']);
       expect(mockFetch).toHaveBeenNthCalledWith(1, '/api/admin/reasoning/catalog', expect.objectContaining({ credentials: 'same-origin' }));
       expect(mockFetch).toHaveBeenNthCalledWith(2, '/api/admin/reasoning/routes/development/inventory', expect.objectContaining({ credentials: 'same-origin' }));
       expect(mockFetch).toHaveBeenNthCalledWith(3, '/api/admin/reasoning/discover', expect.objectContaining({ method: 'POST', body: JSON.stringify({ route: 'development', profileRef: { id: 'workers-ai-glm-thinking', revision: 1, hash }, maxCompletionTokens: 32 }) }));
+      expect(mockFetch).toHaveBeenNthCalledWith(4, '/api/admin/reasoning/discover', expect.objectContaining({ method: 'POST', body: JSON.stringify({ route: 'development', maxCompletionTokens: 512 }) }));
+      expect(generated.profileDraft).toEqual({ schemaVersion: 1 });
     });
 
     it('submits exact preview, run, and report-test contracts', async () => {

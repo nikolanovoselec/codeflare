@@ -142,12 +142,17 @@ export interface ReasoningRouteInventory {
 
 export interface ReasoningDiscoveryRequest {
   route: string;
-  profileRef: ProfileRevisionRef;
+  profileRef?: ProfileRevisionRef;
   maxCompletionTokens: number;
 }
 
 export interface ReasoningDiscoveryResult {
+  route?: string;
   classification: string;
+  assignable?: boolean;
+  matchedCandidateProfileId?: string;
+  profileDraft?: Record<string, unknown>;
+  candidateResults?: Array<{ profileId: string; classification: string; assignable: boolean }>;
   warnings?: string[];
   accounting?: { logicalProbes?: number; httpAttempts?: number };
   supportedLevels?: PiReasoningLevel[];

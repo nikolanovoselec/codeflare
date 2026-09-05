@@ -470,6 +470,7 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
       storeState.aigGatewayUrl = 'https://gateway.ai.cloudflare.com/v1/account/gateway';
       storeState.aigToken = 'token';
       render(() => <ConfigureStep />);
+      expect(screen.getByText(/Workers AI, AI Gateway Run, and AI Gateway Read/)).toBeInTheDocument();
 
       fireEvent.click(screen.getByText('Continue'));
       expect((screen.getByText('Continue').closest('button') as HTMLButtonElement).disabled).toBe(false);

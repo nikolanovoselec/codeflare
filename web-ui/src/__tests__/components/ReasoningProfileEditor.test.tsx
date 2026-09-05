@@ -2,11 +2,14 @@ import { cleanup, fireEvent, render } from '@solidjs/testing-library';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import EnvironmentAreaFields, { environmentValues } from '../../components/admin/EnvironmentAreaFields';
 
-const catalogMock = vi.hoisted(() => vi.fn());
+const { catalogMock, discoverMock } = vi.hoisted(() => ({
+  catalogMock: vi.fn(),
+  discoverMock: vi.fn(),
+}));
 vi.mock('../../api/client', () => ({
   getReasoningCatalog: (...args: unknown[]) => catalogMock(...args),
   getReasoningRouteInventory: vi.fn(),
-  discoverReasoningCompatibility: vi.fn(),
+  discoverReasoningCompatibility: (...args: unknown[]) => discoverMock(...args),
 }));
 
 const current = {
@@ -18,6 +21,25 @@ const current = {
   groupRouting: [],
 };
 
+const discoveredDraft = {
+  schemaVersion: 1,
+  enabled: true,
+  ingressContract: 'ai-gateway-chat-completions',
+  supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  removePaths: ['reasoning_effort'],
+  levels: {
+    off: [{ path: 'reasoning_effort', value: 'none' }],
+    medium: [{ path: 'reasoning_effort', value: 'medium' }],
+  },
+  aliases: { minimal: 'medium', low: 'medium', high: 'medium', xhigh: 'medium', max: 'medium' },
+  offSemantics: { status: 'explicit-value', path: 'reasoning_effort', value: 'none' },
+  recognizedResponseFields: { reasoning: [], content: ['choices[].message.content'], tools: ['choices[].message.tool_calls'] },
+  classification: 'Verified',
+  originallyCreatedAgainst: { route: 'mesh', observedAt: '2026-09-05T20:30:00.000Z' },
+  evidence: [{ current: true, toolReplay: true, route: 'mesh' }],
+  limitations: ['Discovery validates only the exercised route path and current backend configuration.'],
+};
+
 beforeEach(() => {
   catalogMock.mockResolvedValue({
     schemaVersion: 1,
@@ -27,6 +49,14 @@ beforeEach(() => {
     routes: ['mesh'],
     routeCatalogStatus: 'ready',
   });
+  discoverMock.mockResolvedValue({
+    route: 'mesh',
+    classification: 'Verified',
+    assignable: true,
+    matchedCandidateProfileId: 'openai-gpt-chat-tools-reasoning',
+    accounting: { logicalProbes: 5, httpAttempts: 12 },
+    profileDraft: discoveredDraft,
+  });
 });
 
 afterEach(() => {
@@ -34,40 +64,30 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('REQ-ENTERPRISE-031 typed custom profile workflow', () => {
-  it('creates mappings with typed scalar rows and aliases without an editable JSON field', async () => {
-    const { getByRole, getByLabelText, queryByRole, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+describe('REQ-ENTERPRISE-031 discovery-created custom profile workflow', () => {
+  it('asks only for an auto-discovered route, runs deterministic discovery, then asks for a name', async () => {
+    const { getByRole, getByLabelText, queryByLabelText, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
     await findByText(/Mesh binary thinking/);
     await fireEvent.click(getByRole('button', { name: /create custom profile/i }));
+
+    expect(getByLabelText('Dynamic route')).toHaveValue('mesh');
+    expect(queryByLabelText('Profile name')).toBeNull();
+    expect(queryByLabelText(/property path/i)).toBeNull();
+
+    await fireEvent.click(getByRole('button', { name: /run profile discovery/i }));
+    expect(discoverMock).toHaveBeenCalledWith({ route: 'mesh', maxCompletionTokens: 512 });
+    expect(await findByText(/verified compatibility/i)).toBeTruthy();
     expect(getByLabelText('Profile name')).toBeTruthy();
-    expect(getByLabelText('Supported reasoning levels')).toBeTruthy();
-    expect(getByRole('button', { name: /add mapping row/i })).toBeTruthy();
-    expect(getByLabelText('Mapping value type')).toBeTruthy();
-    await fireEvent.click(getByRole('button', { name: /alias reasoning level/i }));
-    expect(getByLabelText('Alias level')).toBeTruthy();
-    expect(getByLabelText('Alias target')).toBeTruthy();
-    expect(queryByRole('textbox', { name: /json/i })).toBeNull();
   });
 
-  it('normalizes scalar types and aliases into a read-only preview', async () => {
-    const { getByRole, getByLabelText, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    await findByText(/Mesh binary thinking/);
-    await fireEvent.click(getByRole('button', { name: /create custom profile/i }));
-    await fireEvent.change(getByLabelText('Mapping value type'), { target: { value: 'boolean' } });
-    await fireEvent.change(getByLabelText('Mapping boolean value'), { target: { value: 'true' } });
-    const preview = getByLabelText('Normalized wire preview') as HTMLTextAreaElement;
-    expect(preview).toHaveAttribute('readonly');
-    expect(JSON.parse(preview.value).levels.medium[0].value).toBe(true);
-  });
-
-  it('serializes a typed custom revision and explicit alias without editable JSON', async () => {
+  it('creates a named immutable revision from the discovered mapping without assigning or activating it', async () => {
     const { container, getByRole, getByLabelText, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
     await findByText(/Mesh binary thinking/);
     await fireEvent.click(getByRole('button', { name: /create custom profile/i }));
-    await fireEvent.input(getByLabelText('Profile ID'), { target: { value: 'custom-mesh' } });
+    await fireEvent.click(getByRole('button', { name: /run profile discovery/i }));
+    await findByText(/verified compatibility/i);
     await fireEvent.input(getByLabelText('Profile name'), { target: { value: 'Custom mesh' } });
-    await fireEvent.click(getByRole('button', { name: /alias reasoning level/i }));
-    await fireEvent.click(getByRole('button', { name: /add immutable revision to draft/i }));
+    await fireEvent.click(getByRole('button', { name: /add discovered profile to draft/i }));
 
     const form = document.createElement('form');
     form.append(container.firstElementChild!);
@@ -76,21 +96,30 @@ describe('REQ-ENTERPRISE-031 typed custom profile workflow', () => {
       id: 'custom-mesh',
       name: 'Custom mesh',
       revision: 1,
-      levels: { medium: [{ path: 'reasoning_effort', value: 'medium' }] },
-      aliases: { minimal: 'medium' },
-      offSemantics: { status: 'unsupported' },
+      levels: discoveredDraft.levels,
+      originallyCreatedAgainst: { route: 'mesh' },
     });
+    expect(values.reasoningConfiguration.routeAssignments).toEqual({});
   });
 
-  it('shows off semantics, limitations, immutable provenance, and a read-only wire preview', async () => {
-    const { getByRole, getByText, getByLabelText, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+  it('does not offer saving when discovery cannot produce an assignable profile', async () => {
+    discoverMock.mockResolvedValueOnce({ route: 'mesh', classification: 'Inconclusive', assignable: false, accounting: { logicalProbes: 6, httpAttempts: 6 } });
+    const { getByRole, queryByLabelText, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
     await findByText(/Mesh binary thinking/);
     await fireEvent.click(getByRole('button', { name: /create custom profile/i }));
-    expect(getByLabelText('Off semantics')).toBeTruthy();
-    expect(getByText('Immutable revision 1')).toBeTruthy();
-    expect(getByRole('heading', { name: 'Limitations' })).toBeTruthy();
-    expect(getByLabelText('Provenance provider')).toBeTruthy();
-    expect(getByLabelText('Normalized wire preview')).toHaveAttribute('readonly');
+    await fireEvent.click(getByRole('button', { name: /run profile discovery/i }));
+
+    expect(await findByText(/no unambiguous compatible profile mapping was discovered/i)).toBeTruthy();
+    expect(queryByLabelText('Profile name')).toBeNull();
+    expect(queryByLabelText(/property path/i)).toBeNull();
+  });
+
+  it('uses only routes returned by the saved-credential catalog', async () => {
+    const { getByRole, getByLabelText, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    await findByText(/Mesh binary thinking/);
+    await fireEvent.click(getByRole('button', { name: /create custom profile/i }));
+    const options = Array.from((getByLabelText('Dynamic route') as HTMLSelectElement).options, (option) => option.value);
+    expect(options).toEqual(['mesh']);
   });
 
   it('renders failed families as non-assignable compatibility notices', async () => {

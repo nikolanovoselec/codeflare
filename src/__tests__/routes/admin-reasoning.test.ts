@@ -52,6 +52,9 @@ vi.mock('../../lib/reasoning-profiles', () => {
     unsupportedLevels: [],
     removePaths: [],
     levels: { off: [{ path: 'reasoning_effort', value: null }] },
+    aliases: {},
+    offSemantics: { status: 'explicit-value', path: 'reasoning_effort', value: null },
+    recognizedResponseFields: { content: ['choices[].message.content'], tools: ['choices[].message.tool_calls'] },
     limitations: [],
   }));
   return {
@@ -63,7 +66,7 @@ vi.mock('../../lib/reasoning-profiles', () => {
     normalizeCustomProfile: (value: unknown) => value,
     validateRequestPath: (value: unknown) => value,
     canonicalHash: () => PROFILE_HASH,
-    canonicalJson: JSON.stringify,
+    canonicalJson: (value: unknown) => JSON.stringify(value),
     PI_REASONING_LEVELS: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
     COMPATIBILITY_NOTICES: [
       { id: 'gpt-oss-tool-replay', assignable: false, summary: 'Tool replay unsupported' },
@@ -134,13 +137,13 @@ function mockSuccessfulProvider() {
         result: {
           version: {
             version_id: 'route-v1',
-            active: true,
-            data: [
+            active: 'true',
+            data: JSON.stringify([
               { id: 'start', type: 'start', outputs: { next: { elementId: 'split' } } },
               { id: 'split', type: 'conditional', outputs: { true: { elementId: 'mesh' }, false: { elementId: 'glm' } } },
               { id: 'mesh', type: 'model', properties: { provider: 'custom-codeflare-inference-mesh', model: 'codeflare-mesh' }, outputs: { success: { elementId: 'end' }, fallback: { elementId: 'glm' } } },
               { id: 'glm', type: 'model', properties: { provider: 'workers-ai', model: '@cf/zai-org/glm-5.3' }, outputs: { success: { elementId: 'END' } } },
-            ],
+            ]),
           },
         },
       });
@@ -189,7 +192,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     expect((await app.request('/admin/reasoning/discover', { method: 'POST' })).status).toBe(403);
   });
 
-  it('returns an exact sanitized catalog schema with discovered routes, six executable built-ins, notices, and assignment usage', async () => {
+  it('accepts documented data.routes and returns the exact sanitized catalog schema', async () => {
     const { app } = await createApp({ AIG_TOKEN: 'deployment-secret-must-not-leak' });
     mockSuccessfulProvider();
     const response = await app.request('/admin/reasoning/catalog');
@@ -213,6 +216,22 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     expect(text).not.toContain('management-secret');
   });
 
+  it('reuses the saved gateway credential and accepts the compatible result.routes envelope', async () => {
+    const { app } = await createApp();
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({
+      success: true,
+      result: { routes: [{ id: 'route-id', name: 'codeflare-mesh' }] },
+    }));
+
+    const response = await app.request('/admin/reasoning/catalog');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ routeCatalogStatus: 'ready', routes: ['codeflare-mesh'] });
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.stringMatching(/\/routes$/),
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: 'Bearer gateway-secret' }) }),
+    );
+  });
+
   it('returns a sanitized unavailable route-catalog status without hiding the profile catalog', async () => {
     const { app } = await createApp();
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({ errors: [{ message: 'private management error' }] }, { status: 403 }));
@@ -224,6 +243,82 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     expect(body.routeCatalogStatus).toBe('unavailable');
     expect(body.profiles).toHaveLength(6);
     expect(text).not.toContain('private management error');
+  });
+
+  it('prefers one compatible superset protocol over its matching off-only subset', async () => {
+    const { selectUnambiguousCandidateMatch } = await import('../../routes/admin/reasoning');
+    const full = {
+      profile: {
+        supportedLevels: ['off', 'low'],
+        removePaths: ['reasoning_effort'],
+        levels: { off: [{ path: 'reasoning_effort', value: 'none' }], low: [{ path: 'reasoning_effort', value: 'low' }] },
+      },
+      report: { assignable: true },
+    };
+    const offOnly = {
+      profile: {
+        supportedLevels: ['off'],
+        removePaths: ['reasoning_effort'],
+        levels: { off: [{ path: 'reasoning_effort', value: 'none' }] },
+      },
+      report: { assignable: true },
+    };
+
+    expect(selectUnambiguousCandidateMatch([offOnly, full])).toBe(full);
+  });
+
+  it('keeps divergent compatible protocols ambiguous', async () => {
+    const { selectUnambiguousCandidateMatch } = await import('../../routes/admin/reasoning');
+    const first = { profile: { supportedLevels: ['off'], removePaths: [], levels: { off: [{ path: 'reasoning_effort', value: 'none' }] } }, report: { assignable: true } };
+    const second = { profile: { supportedLevels: ['off'], removePaths: [], levels: { off: [{ path: 'thinking', value: false }] } }, report: { assignable: true } };
+
+    expect(selectUnambiguousCandidateMatch([first, second])).toBeNull();
+  });
+
+  it('does not let a superset dominate when its shared mapping differs', async () => {
+    const { selectUnambiguousCandidateMatch } = await import('../../routes/admin/reasoning');
+    const full = { profile: { supportedLevels: ['off', 'low'], removePaths: [], levels: { off: [{ path: 'thinking', value: false }], low: [{ path: 'thinking', value: true }] } }, report: { assignable: true } };
+    const offOnly = { profile: { supportedLevels: ['off'], removePaths: [], levels: { off: [{ path: 'reasoning_effort', value: 'none' }] } }, report: { assignable: true } };
+
+    expect(selectUnambiguousCandidateMatch([offOnly, full])).toBeNull();
+  });
+
+  it('discovers a route-only matching protocol and returns a non-activating custom profile draft', async () => {
+    const { app, kv } = await createApp();
+    mockSuccessfulProvider();
+    vi.mocked(kv.put).mockClear();
+
+    const response = await app.request('/admin/reasoning/discover', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ route: 'codeflare-mesh', maxCompletionTokens: 32 }),
+    });
+    const body = await response.json() as any;
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      route: 'codeflare-mesh',
+      classification: 'Verified',
+      assignable: true,
+      matchedCandidateProfileId: BUILTIN_IDS[0],
+      profileDraft: {
+        schemaVersion: 1,
+        enabled: true,
+        supportedLevels: ['off'],
+        levels: { off: [{ path: 'reasoning_effort', value: null }] },
+        originallyCreatedAgainst: { route: 'codeflare-mesh' },
+      },
+    });
+    expect(body.profileDraft).not.toHaveProperty('id');
+    expect(body.profileDraft).not.toHaveProperty('name');
+    const actualProfiles = await vi.importActual<typeof import('../../lib/reasoning-profiles')>('../../lib/reasoning-profiles');
+    expect(() => actualProfiles.normalizeCustomProfile({
+      ...body.profileDraft,
+      id: 'custom-generated',
+      name: 'Generated profile',
+      revision: 1,
+    })).not.toThrow();
+    expect(kv.put).not.toHaveBeenCalled();
   });
 
   it('returns exact active-version leg/path summaries and only administrator-owned custom-provider identity', async () => {

@@ -334,10 +334,10 @@ const AiRoutingFields: Component<Props> = (props) => {
     </section>
 
     <section class="admin-routing-section" aria-labelledby="catalog-heading">
-      <div class="admin-subsection-heading"><div><h3 id="catalog-heading">Route catalog</h3><p>Routes are discovered automatically from the configured AI Gateway. Every route needs a context window and one route-wide capability profile.</p></div><button type="button" class="admin-secondary-button" onClick={() => setProfileEditorOpen(true)}>Create custom profile</button></div>
+      <div class="admin-subsection-heading"><div><h3 id="catalog-heading">Route catalog</h3><p>Routes are discovered automatically from the configured AI Gateway. Every route needs a context window and one route-wide capability profile.</p></div><button type="button" class="admin-secondary-button" disabled={catalogBusy() || gatewayRoutes().length === 0} onClick={() => setProfileEditorOpen(true)}>Create custom profile</button></div>
       <Show when={catalogBusy()}><p class="admin-status-text" role="status">Loading capability profiles…</p></Show>
       <Show when={catalogError()}><div class="admin-inline-error" role="alert">{catalogError()}</div></Show>
-      <Show when={!catalogBusy() && catalog().routeCatalogStatus === 'unavailable'}><div class="admin-inline-error" role="alert">Dynamic routes could not be read. Verify the saved token has AI Gateway Read permission.</div></Show>
+      <Show when={!catalogBusy() && catalog().routeCatalogStatus === 'unavailable'}><div class="admin-inline-error" role="alert">Dynamic routes could not be read with the saved AI Gateway connection. Verify the URL and that the saved token includes AI Gateway Read.</div></Show>
 
       <div class="admin-route-list"><For each={routes()}>{(route) => {
         const selectedProfile = () => findProfile(route.assignment.activeProfile);
@@ -363,7 +363,7 @@ const AiRoutingFields: Component<Props> = (props) => {
       }}</For></div>
     </section>
 
-    <Show when={profileEditorOpen()}><ReasoningProfileEditor existingRevisions={customRevisions()} onCancel={() => setProfileEditorOpen(false)} onSave={(revision) => { setCustomRevisions((items) => [...items, revision]); setProfileEditorOpen(false); }} /></Show>
+    <Show when={profileEditorOpen()}><ReasoningProfileEditor routes={gatewayRoutes()} existingRevisions={customRevisions()} onCancel={() => setProfileEditorOpen(false)} onSave={(revision) => { setCustomRevisions((items) => [...items, revision]); setProfileEditorOpen(false); }} /></Show>
     <Show when={customRevisions().some((revision) => !catalog().profiles.some((profile) => profile.id === revision.id && profile.revision === revision.revision))}><p class="admin-status-text">Apply new custom revisions once to issue their canonical references; they become assignable from this catalog after Apply.</p></Show>
 
     <section class="admin-routing-section" aria-labelledby="notices-heading"><div class="admin-subsection-heading"><div><h3 id="notices-heading">Compatibility notices</h3><p>These families are read-only evidence and cannot be assigned.</p></div></div><Show when={catalog().notices.length > 0} fallback={<p class="admin-status-text">No compatibility notices reported.</p>}><div class="admin-notice-list"><For each={catalog().notices}>{(notice) => <article><strong>{notice.name}</strong><span class="admin-status">Not assignable</span><Show when={notice.summary}><p>{notice.summary}</p></Show><For each={notice.limitations ?? []}>{(limitation) => <small>{limitation}</small>}</For></article>}</For></div></Show></section>

@@ -252,7 +252,7 @@ const ConfigureStep: Component = () => {
           <div class="setup-field">
             <label class="setup-field-label">AI Gateway Token</label>
             <p class="setup-field-description">
-              A Cloudflare API token with Workers AI + AI Gateway Run scopes; stored encrypted.
+              A Cloudflare API token with Workers AI, AI Gateway Run, and AI Gateway Read scopes; stored encrypted.
               <Show when={setupStore.aigTokenSet}> A token is already saved — leave blank to keep it, or enter a new one to replace it.</Show>
             </p>
             <Input
