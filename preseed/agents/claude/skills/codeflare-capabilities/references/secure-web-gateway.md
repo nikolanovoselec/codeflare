@@ -2,24 +2,16 @@
 
 ## What I can do
 
-I work through Cloudflare Gateway for direct-internet HTTP, HTTPS, and WebSocket traffic. Configured policies can allow, block, isolate, inspect for malware, and apply data-loss-prevention rules. I reuse the controls the security team already operates instead of creating a second pretend firewall in a developer settings page.
+With Strict Gateway Egress enabled, I route direct-internet HTTP, HTTPS, and WebSocket traffic through Cloudflare Gateway, where the customer's existing policy can allow, block, isolate, inspect for malware, or apply DLP. The transport starts before agent work, fails closed if Cloudflare Gateway is unavailable, and denies raw TCP and UDP internet egress.
 
-I work under strict egress. The interception transport starts before agent work begins, fails closed when Cloudflare Gateway is unavailable, and denies raw TCP and UDP internet egress.
-
-Named credential interceptors stay on their exact destinations and use strict transport where their contracts require it. My unmatched web traffic passes through the catch-all controller, which applies the customer's policy result.
+Destination-specific credential interceptors keep their exact routes. Remaining web traffic uses the catch-all controller and inherits the customer's policy decision.
 
 ## Where the boundary sits
 
-Not all my traffic crosses Cloudflare Gateway. Codeflare routes its own-account control-plane destinations through documented direct exceptions, including bounded storage and account-scoped service paths with their own authorization and audit surfaces. Claiming otherwise would make the diagram tidier and the security review worse.
-
-Cloudflare Gateway does not determine which customer malware, DLP, retention, or isolation rules exist. I verify configured rules with the matching Cloudflare Gateway event, action, and rule, not merely a successful HTTP response.
+Codeflare's own-account control-plane and bounded storage paths are scoped direct exceptions with separate authorization and audit boundaries. The customer owns Cloudflare Gateway policy; Codeflare neither creates it nor infers a DLP or malware decision from a successful request. I verify those decisions against the matching event, action, and rule when that evidence is available.
 
 ## Try it
 
-Choose one destination allowed by configured Cloudflare Gateway policy and one safe test destination that policy blocks. Ask me to call both. When Cloudflare Gateway events and rule evidence are available through connected systems, I correlate the observed results with them; otherwise I report only what the request evidence proves.
+Paste this request:
 
-Other useful requests:
-
-- “Check whether this package registry request is allowed by policy evidence.”
-- “Compare one blocked URL and one allowed URL without bypassing Cloudflare Gateway.”
-- “When Cloudflare Gateway evidence is available, trace a malware or DLP block to the recorded decision.”
+> Inventory the external destinations this project needs for install, build, test, and runtime. Separate HTTP, HTTPS, and WebSocket traffic from raw TCP or UDP, identify which calls carry credentials, and produce a least-privilege destination list I can give my Cloudflare Gateway administrator.

@@ -111,7 +111,7 @@ I work through Cloudflare Gateway for direct-internet HTTP, HTTPS, and WebSocket
 
 Git owns committed history. The user's storage bucket owns selected synchronized files. Vault and the cumulative knowledge graph own durable knowledge. Supported browser and Herdr state have their own bounded continuity contracts.
 
-Processes, sockets, terminal output, editor databases, browser sessions, unsynchronized files, and in-memory state remain ephemeral. Destroying the container cannot undo a Git push, deployment, API call, migration, or synchronized file that already happened.
+Running processes, sockets, browser tabs, unsynchronized files, and in-memory state remain ephemeral. While the container and PTY remain alive, reconnecting restores bounded terminal output. After container replacement, synchronized agent session transcripts remain durable: Classic restores supported conversation history through `/resume`, while Herdr restores supported agent sessions automatically from persisted references. This does not restore arbitrary shell output, process memory, or the old process tree. Browser VS Code persists bounded UI state—theme, keyboard layout, Explorer state, and open-file resources—for restoration in future sessions; this does not persist live editor databases or make unsynchronized workspace files durable. Destroying the container cannot undo a Git push, deployment, API call, migration, or synchronized file that already happened.
 
 ### Start with one real bounded task
 
@@ -139,7 +139,7 @@ End every broad answer with this exact invitation and mapping:
 7. Cloudflare Access identity, session ownership, and Zero Trust ingress
 8. Credential interception and secret boundaries
 9. Cloudflare Gateway, inspection, malware, and DLP
-10. Connected tools and MCP boundaries
+10. Cloudflare MCP Server Portals, Code Mode, and identity
 11. Cloudflare AI Gateway, models, routing, and attribution
 12. Browser research and authorized deployed verification
 13. Vault, SilverBullet, memory, Graphify, Goal, Plan, Todo, and subagents
