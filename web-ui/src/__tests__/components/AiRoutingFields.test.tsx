@@ -109,7 +109,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     expect(within(developmentCard).getByText(/document observed behavior and never choose a backend/i)).toBeTruthy();
     expect(await findByText((_content, element) => element?.tagName === 'P' && element.textContent?.includes('Shared supported levels: medium') === true)).toBeTruthy();
     await fireEvent.click(getByRole('button', { name: /verify development selected profile/i }));
-    expect(await findByText((_content, element) => element?.tagName === 'STRONG' && element.textContent === 'Selected profile check: Inconclusive')).toBeTruthy();
+    expect(await findByText((_content, element) => element?.tagName === 'STRONG' && element.textContent === 'Selected profile check: Compatible, unverified')).toBeTruthy();
     expect(queryByRole('button', { name: /add compatibility record/i })).toBeNull();
     expect(api.discover).toHaveBeenCalledWith(expect.objectContaining({ route: 'development', profileRef: current.reasoningConfiguration.routeAssignments.development.activeProfile, maxCompletionTokens: 32 }));
   });
