@@ -130,6 +130,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     unzip \
     # Sandbox for OpenAI Codex
     bubblewrap \
+    # REQ-SEC-011: require Debian's CVE-2026-58050 fix and invalidate the stale apt layer.
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libssh2-1)" ge '1.10.0-3+deb12u1' \
     && rm -rf /var/lib/apt/lists/* \
     # Symlinks for Debian-renamed binaries
     && ln -s "$(which fdfind)" /usr/local/bin/fd \
