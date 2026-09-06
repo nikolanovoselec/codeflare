@@ -27,6 +27,38 @@ function readArgs(path) {
   return readFileSync(path, 'utf8').trim().split('\n');
 }
 
+describe('REQ-AGENT-206: updated runtime dependencies and cache ownership', () => {
+  it('rejects an installed Pi package whose required image dependency is missing', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'pi-health-'));
+    try {
+      const manifest = join(directory, 'package.json');
+      writeJson(manifest, { name: '@earendil-works/pi-coding-agent', version: '0.85.1', dependencies: { '@silvia-odwyer/photon-node': '0.3.4' } });
+      const result = spawnSync(process.execPath, [script, '--verify-runtime', manifest], { encoding: 'utf8' });
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /photon-node/);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it('replaces the runtime jiti link without clearing the image cache', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'pi-cache-reset-'));
+    try {
+      const imageCache = join(directory, 'image-cache');
+      const runtime = join(directory, 'runtime');
+      mkdirSync(imageCache); mkdirSync(join(runtime, 'pi-tmp'), { recursive: true });
+      writeFileSync(join(imageCache, 'baked.mjs'), 'baked');
+      symlinkSync(imageCache, join(runtime, 'pi-tmp/jiti'));
+      const reset = () => spawnSync(process.execPath, [script, '--reset-runtime-jiti', runtime], { encoding: 'utf8' });
+      const first = reset(); assert.equal(first.status, 0, first.stderr);
+      assert.equal(readFileSync(join(imageCache, 'baked.mjs'), 'utf8'), 'baked');
+      assert.equal(realpathSync(join(runtime, 'pi-tmp/jiti')), join(runtime, 'pi-tmp/jiti'));
+      writeFileSync(join(runtime, 'pi-tmp/jiti/stale.mjs'), 'stale');
+      const second = reset(); assert.equal(second.status, 0, second.stderr);
+      assert.throws(() => readFileSync(join(runtime, 'pi-tmp/jiti/stale.mjs')));
+      assert.equal(readFileSync(join(imageCache, 'baked.mjs'), 'utf8'), 'baked');
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+});
+
 describe('REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification', () => {
   it('rejects a missing @narumitw/pi-goal entrypoint artifact and accepts the expected artifact', () => {
     const directory = mkdtempSync(join(tmpdir(), 'codeflare-goal-cache-'));

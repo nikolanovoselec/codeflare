@@ -1032,11 +1032,16 @@ Multi-agent support, preseed system, and session modes.
 2. The Pi update path reconciles configured packages before updating the runtime. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012/REQ-AGENT-206: Fast Start controls suppression and updates Pi and Codex) -->
 3. Startup logs each installed runtime's before and after versions or visible failure evidence. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: Fast Start OFF surfaces Pi package and agent runtime update failures) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: version-read failures do not suppress either runtime update) -->
 4. An update failure does not prevent the terminal readiness signal. <!-- @impl: entrypoint.sh::release_agent_pty_after_fast_start_updates --> <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (REQ-AGENT-206: executes the update before readiness and continues after failure) -->
+5. Pi runtime validation rejects missing required dependencies or failed image processing. <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyPiRuntime --> <!-- @test: host/__tests__/pi-lockstep.test.js (rejects an installed Pi package whose required image dependency is missing) --> <!-- @manual: CI's installed-runtime check and image build require real Photon encoding and Pi image processing to succeed. -->
+6. An incomplete Pi installation receives one lockfile-based dependency repair attempt. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: repairs incomplete dependencies from the lock and isolates the updated cache) -->
+7. Updated Pi processes use a cleared runtime-owned transpile cache without changing the baked image cache. <!-- @impl: scripts/verify-pi-lockstep.mjs::resetRuntimeJitiCache --> <!-- @test: host/__tests__/pi-lockstep.test.js (replaces the runtime jiti link without clearing the image cache) -->
 
 **Constraints:**
 
 - Runtimes omitted from the selected image remain omitted.
 - Restored user-added Pi packages outside the image cache may require Fast Start Off once.
+- Temporary update downloads use the Codeflare runtime filesystem and are removed after the attempt.
+- Dependency-repair failure stays visible; it is not reported as a successful runtime update.
 
 **Priority:** P1
 

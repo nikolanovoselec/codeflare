@@ -204,6 +204,7 @@ describe('entrypoint production helpers', () => {
       `pi() { if [ "$1" = "--version" ]; then echo 'pi 0.84.4'; else printf 'pi:%s offline=%s skip=%s\\n' "$*" "\${PI_OFFLINE:-}" "\${PI_SKIP_VERSION_CHECK:-}" >> "$CALLS"; fi; }\n` +
       `codex() { echo 'codex-cli 0.151.0'; }\n` +
       `npm() { printf 'npm:%s\\n' "$*" >> "$CALLS"; }\n` +
+      'node() { return 0; }\n' +
       'FAST_CLI_START=true\nconfigure_fast_start_environment\nupdate_pi_and_codex_when_fast_start_disabled\n' +
       'printf "on:%s:%s:%s:%s:%s\\n" "$DISABLE_AUTOUPDATER" "$OPENCODE_DISABLE_AUTOUPDATE" "$COPILOT_AUTO_UPDATE" "$PI_OFFLINE" "$PI_SKIP_VERSION_CHECK"\n' +
       'FAST_CLI_START=false PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 DISABLE_AUTOUPDATER=1 OPENCODE_DISABLE_AUTOUPDATE=1 DISABLE_INSTALLATION_CHECKS=1 COPILOT_AUTO_UPDATE=false\n' +
@@ -225,11 +226,31 @@ describe('entrypoint production helpers', () => {
     ]);
   });
 
+  it('REQ-AGENT-206: repairs incomplete dependencies from the lock and isolates the updated cache', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-update-repair-'));
+    const calls = join(fixture, 'calls');
+    const healthy = join(fixture, 'healthy');
+    const script = `${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +
+      `pi() { [ "$1" != "--version" ] || echo 'pi 0.85.1'; }\n` +
+      'codex() { echo codex; }\n' +
+      `npm() { echo "$1" >> '${calls}'; [ "$1" != ci ] || touch '${healthy}'; }\n` +
+      `node() { if [ "$2" = --verify-runtime ]; then [ -f '${healthy}' ]; elif [ "$2" = --reset-runtime-jiti ]; then echo cache-reset >> '${calls}'; fi; }\n` +
+      'FAST_CLI_START=false\nupdate_pi_and_codex_when_fast_start_disabled\n';
+    try {
+      const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: runtimeEnv() });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(readFileSync(calls, 'utf8').trim().split('\n'), ['install', 'install', 'ci', 'cache-reset']);
+      assert.equal(existsSync(healthy), true);
+      assert.match(result.stdout, /repairing Pi dependencies from the lockfile/);
+    } finally { rmSync(fixture, { recursive: true, force: true }); }
+  });
+
   it('REQ-AGENT-206: Fast Start OFF surfaces Pi package and agent runtime update failures', () => {
     const script = `${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +
       `pi() { [ "$1" = "--version" ] && { echo 'pi 0.84.4'; return 0; }; return 7; }\n` +
       `codex() { echo 'codex-cli 0.150.1'; }\n` +
       `npm() { return 9; }\n` +
+      'node() { return 0; }\n' +
       'FAST_CLI_START=false\n' +
       'update_pi_and_codex_when_fast_start_disabled || echo update-failed\n';
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
@@ -246,6 +267,7 @@ describe('entrypoint production helpers', () => {
       `pi() { [ "$1" = "update" ] && return 0; return 7; }\n` +
       `codex() { return 8; }\n` +
       `npm() { printf 'runtime-update %s\\n' "$*"; }\n` +
+      'node() { return 0; }\n' +
       'FAST_CLI_START=false\n' +
       'update_pi_and_codex_when_fast_start_disabled || echo update-failed\n';
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });

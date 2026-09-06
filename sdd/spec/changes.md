@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-06
 
+- **Pi runtime updates validate dependencies and isolate caches** ([REQ-AGENT-206](agents.md#req-agent-206-fast-start-off-runtime-updates)). Pi and its SDK pins advance together to 0.85.1 with CI-generated locks and seed. Fast Start Off checks required dependencies and image processing, attempts locked repair of an incomplete installation, and replaces only the runtime jiti cache. The baked cache remains intact, temporary downloads use runtime storage, and failures remain visible without stranding terminal readiness.
+
 - **Mapping preserves completed matches after throttling** ([REQ-ENTERPRISE-035](enterprise-mode.md#req-enterprise-035-enterprise-pi-protocol-match-selection), [REQ-ENTERPRISE-041](enterprise-mode.md#req-enterprise-041-enterprise-pi-administrator-workspace)). HTTP 429 stops further probes without discarding earlier complete catalog matches. No retry, custom draft, or activation follows automatically. Mapping errors no longer lock profile selection, and mapping/verification progress stays beside the route rather than repeating at the bottom.
 
 - **Routing review requires actual edits** ([REQ-ENTERPRISE-044](enterprise-mode.md#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies), [REQ-ENTERPRISE-046](enterprise-mode.md#req-enterprise-046-enterprise-pi-configuration-confirmation)). AI routing uses Review changes consistently with other Environment areas. Loading routes alone does not enable review; reverting edits disables it again. Back to edit retains the draft, and execution shows per-task progress without opening Technical details. Actionable help remains while the redundant ready-to-save message is removed.

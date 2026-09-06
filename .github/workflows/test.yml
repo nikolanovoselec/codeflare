@@ -791,6 +791,9 @@ jobs:
           key-prefix: pi-prompt
           ignore-scripts: 'true'
 
+      - name: Verify installed Pi dependencies and image processing
+        run: node scripts/verify-pi-lockstep.mjs --verify-runtime "$GITHUB_WORKSPACE/preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent/package.json"
+
       - name: Verify real Pi prompt budget
         run: |
           set -euo pipefail

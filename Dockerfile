@@ -432,6 +432,12 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     node /opt/codeflare/scripts/verify-pi-lockstep.mjs \
       /opt/codeflare/npm-tools/package.json ./package.json \
       ./node_modules/@earendil-works/pi-coding-agent/package.json && \
+    if [ -f /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/package.json ]; then \
+      node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-runtime \
+        /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/package.json; \
+    fi && \
+    node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-runtime \
+      /opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/package.json && \
     apt-get purge -y make gcc g++ && \
     apt-get autoremove -y && \
     npm cache clean --force && \

@@ -2715,6 +2715,8 @@ update_pi_and_codex_when_fast_start_disabled() {
     fi
 
     local npm_tools_dir before_pi before_codex after_pi after_codex update_failed=0
+    local update_cache
+    update_cache="$(mktemp -d "${CODEFLARE_RUNTIME_ROOT:-${TMPDIR:-/tmp}}/npm-update.XXXXXX")" || return 1
     local pi_installed=false codex_installed=false runtime_update_succeeded=false
     local specs=()
     npm_tools_dir="${CODEFLARE_NPM_TOOLS_DIR:-/opt/codeflare/npm-tools}"
@@ -2728,7 +2730,7 @@ update_pi_and_codex_when_fast_start_disabled() {
             echo "[entrypoint] ERROR: Could not read Pi version before update"
             update_failed=1
         fi
-        if ! PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi update --extensions; then
+        if ! npm_config_cache="$update_cache" PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi update --extensions; then
             echo "[entrypoint] ERROR: Pi package update failed"
             update_failed=1
         fi
@@ -2750,7 +2752,8 @@ update_pi_and_codex_when_fast_start_disabled() {
     fi
 
     if [ "${#specs[@]}" -gt 0 ]; then
-        if npm install --prefix "$npm_tools_dir" --omit=dev --save-exact --ignore-scripts --no-audit --no-fund "${specs[@]}"; then
+        if node /opt/codeflare/scripts/coding-agent-selection.mjs select-manifest "${CODEFLARE_CODING_AGENTS:-}" "$npm_tools_dir/package.json" && \
+           npm_config_cache="$update_cache" npm install --prefix "$npm_tools_dir" --omit=dev --save-exact --ignore-scripts --no-audit --no-fund "${specs[@]}"; then
             runtime_update_succeeded=true
             hash -r
         else
@@ -2759,6 +2762,27 @@ update_pi_and_codex_when_fast_start_disabled() {
             update_failed=1
         fi
     fi
+
+    if [ "$pi_installed" = true ]; then
+        if ! node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-runtime "$npm_tools_dir/node_modules/@earendil-works/pi-coding-agent/package.json"; then
+            echo "[entrypoint] Incomplete runtime; repairing Pi dependencies from the lockfile"
+            if npm_config_cache="$update_cache" npm install --package-lock-only --prefix "$npm_tools_dir" --omit=dev --ignore-scripts --no-audit --no-fund && \
+               npm_config_cache="$update_cache" npm ci --prefix "$npm_tools_dir" --omit=dev --ignore-scripts --no-audit --no-fund && \
+               node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-runtime "$npm_tools_dir/node_modules/@earendil-works/pi-coding-agent/package.json"; then
+                runtime_update_succeeded=true
+                hash -r
+            else
+                echo "[entrypoint] ERROR: Pi dependency repair failed; the runtime is incomplete"
+                runtime_update_succeeded=false
+                update_failed=1
+            fi
+        fi
+        if ! node /opt/codeflare/scripts/verify-pi-lockstep.mjs --reset-runtime-jiti "$CODEFLARE_RUNTIME_ROOT"; then
+            echo "[entrypoint] ERROR: Could not isolate the updated Pi jiti cache"
+            update_failed=1
+        fi
+    fi
+    rm -rf -- "$update_cache"
 
     if [ "$runtime_update_succeeded" = true ] && [ "$pi_installed" = true ]; then
         if after_pi="$(PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi --version 2>&1)"; then

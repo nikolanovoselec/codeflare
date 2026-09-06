@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { createHash, getFips } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -9,6 +11,28 @@ const PI_PACKAGE = '@earendil-works/pi-coding-agent';
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'));
+}
+
+export async function verifyPiRuntime(packagePath) {
+  const manifest = readJson(packagePath);
+  if (manifest.name !== PI_PACKAGE) throw new Error('Expected the installed Pi package manifest');
+  const require = createRequire(packagePath);
+  for (const dependency of Object.keys(manifest.dependencies ?? {})) require.resolve(dependency);
+  const photon = require('@silvia-odwyer/photon-node');
+  const image = new photon.PhotonImage(new Uint8Array([255, 0, 0, 255]), 1, 1);
+  let bytes;
+  try { bytes = image.get_bytes(); } finally { image.free(); }
+  const { processImage } = await import(pathToFileURL(join(dirname(packagePath), 'dist/utils/image-process.js')).href);
+  const result = await processImage(bytes, 'image/png');
+  if (!result.ok) throw new Error(`Pi image processing failed: ${result.message}`);
+}
+
+export function resetRuntimeJitiCache(runtimeRoot) {
+  if (!runtimeRoot || runtimeRoot === '/') throw new Error('A dedicated Codeflare runtime root is required');
+  const cache = join(runtimeRoot, 'pi-tmp/jiti');
+  // rmSync unlinks symlinks; it never traverses into the image-owned cache target.
+  rmSync(cache, { recursive: true, force: true });
+  mkdirSync(cache, { recursive: true });
 }
 
 export function resolveJitiCachePath(sourcePath, cacheDirectory) {
@@ -70,7 +94,11 @@ export function verifyPiLockstep(runtimeManifestPath, prewarmManifestPath, insta
 
 try {
   const args = process.argv.slice(2);
-  if (args[0] === '--jiti-cache-path' || args[0] === '--verify-jiti-cache') {
+  if (args[0] === '--verify-runtime') {
+    await verifyPiRuntime(args[1]);
+  } else if (args[0] === '--reset-runtime-jiti') {
+    resetRuntimeJitiCache(args[1]);
+  } else if (args[0] === '--jiti-cache-path' || args[0] === '--verify-jiti-cache') {
     const [command, sourcePath, cacheDirectory] = args;
     if (!sourcePath || !cacheDirectory) {
       throw new Error(`usage: verify-pi-lockstep.mjs ${command} <source> <cache-directory>`);
