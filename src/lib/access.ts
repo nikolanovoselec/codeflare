@@ -12,7 +12,7 @@ import { parseRouteSettings, type PiReasoningLevel } from './reasoning-profiles'
 import { getRouteReasoningProfile, parseReasoningConfiguration } from './reasoning-configuration';
 import { getAigConfig } from './aig-config';
 import type { GatewayConnection } from './ai-gateway-management';
-import { assignmentBackendDescriptions, loadCheckedRouteInventory, preferredReasoningLevel, verificationMatches } from './reasoning-verification';
+import { preferredReasoningLevel, verificationMatches } from './reasoning-verification';
 
 const logger = createLogger('access');
 
@@ -789,7 +789,8 @@ function applyDefaultDrift(
  *
  * REQ-ENTERPRISE-013/-043/-044: the first matching policy is selected before
  * eligibility filtering. Only server-verified routes matching the effective
- * connection and fresh active inventory can be returned. No matching group uses
+ * connection can be returned. Topology is revalidated by admin Verify/Save, not
+ * runtime management requests. No matching group uses
  * explicitly enabled fallback, never the historical global default mirror.
  */
 export async function resolveRouteCatalog(
@@ -816,19 +817,15 @@ export async function resolveRouteCatalog(
     if (!policy || !Array.isArray(policy.routes)) return empty;
     const connection = effectiveGateway ?? await getAigConfig({ KV: kv } as Env);
     const eligible: string[] = [];
-    for (const route of [...new Set(policy.routes)]) {
+    for (const route of new Set(policy.routes)) {
       if (typeof route !== 'string' || !activeRoutes.includes(route)) continue;
       const assignment = configuration.routeAssignments[route];
       if (!assignment?.verification) continue;
       try {
         const profile = getRouteReasoningProfile(configuration, route);
         if (!verificationMatches(assignment.verification, profile, connection)) continue;
-        const inventory = await loadCheckedRouteInventory(connection, route, assignmentBackendDescriptions(assignment));
-        if (!verificationMatches(assignment.verification, profile, connection, inventory)
-          || (assignment.routeVersion && assignment.routeVersion !== inventory.inventory.versionId)
-          || assignment.legs?.some((leg) => !inventory.inventory.models.some((model) => model.nodeId === leg.nodeId && model.provider === leg.provider && model.model === leg.declaredModel))) continue;
         eligible.push(route);
-      } catch { /* Unavailable, stale, or unverified routes never activate. */ }
+      } catch { /* Invalid or unverified saved assignments never activate. */ }
     }
     const resolved = applyDefaultDrift(eligible, typeof policy.defaultRoute === 'string' ? policy.defaultRoute : null, typeof policy.reasoning === 'string' ? policy.reasoning : '');
     if (!resolved.defaultRoute) return empty;

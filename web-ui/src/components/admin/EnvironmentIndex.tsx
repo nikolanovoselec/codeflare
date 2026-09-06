@@ -108,7 +108,10 @@ export const EnvironmentAreaDetail: Component = () => {
     const section = area()?.section;
     const submitted = submittedValues();
     if (section !== 'aiRouting' || !submitted || typeof submitted !== 'object') return section ? configuration.sections[section] : undefined;
-    return { ...(configuration.sections[section] as Record<string, unknown>), ...(submitted as Record<string, unknown>) };
+    // REQ-ENTERPRISE-041: back-to-edit-gateway-baseline stays durable when the displayed URL is a draft.
+    return { ...(configuration.sections[section] as Record<string, unknown>), ...(submitted as Record<string, unknown>),
+      savedGatewayUrl: (configuration.sections[section] as Record<string, unknown>).gatewayUrl,
+    };
   };
 
   const review = async (event: SubmitEvent) => {

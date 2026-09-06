@@ -14,7 +14,20 @@ import {
   type ScalarWrite,
 } from './reasoning-profiles';
 
-import { fallbackRoutingSchema, routeVerificationSchema, type FallbackRouting, type RouteVerification } from './reasoning-verification';
+export interface RouteVerification {
+  schemaVersion: 1;
+  profileRef: ProfileRevisionRef;
+  routeVersion: string;
+  inventoryDigest: string;
+  connectionFingerprint: string;
+  canaryVersion: string;
+  supportedLevels: PiReasoningLevel[];
+  scope: 'single-model' | 'observed-path';
+  checkedAt: string;
+}
+export type FallbackRouting = { enabled: false } | {
+  enabled: true; routes: string[]; defaultRoute: string; reasoning: PiReasoningLevel;
+};
 
 const MAX_REASONING_CONFIGURATION_BYTES = 256 * 1024;
 const MAX_CUSTOM_PROFILE_IDS = 32;
@@ -105,6 +118,55 @@ function parseRef(value: unknown, label: string): ProfileRevisionRef {
   return { id, revision: record.revision as number, hash: record.hash };
 }
 
+export function parseRouteVerification(value: unknown): RouteVerification {
+  const label = 'route verification';
+  const record = asRecord(value, label);
+  assertOnly(record, ['schemaVersion', 'profileRef', 'routeVersion', 'inventoryDigest', 'connectionFingerprint', 'canaryVersion', 'supportedLevels', 'scope', 'checkedAt'], label);
+  if (record.schemaVersion !== 1) throw new Error(`${label}.schemaVersion must be 1`);
+  const profileRef = parseRef(record.profileRef, `${label}.profileRef`);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(profileRef.id)) throw new Error(`${label}.profileRef.id is invalid`);
+  const routeVersion = bounded(record.routeVersion, `${label}.routeVersion`, 128);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(routeVersion)) throw new Error(`${label}.routeVersion is invalid`);
+  const hash = (value: unknown, field: string): string => {
+    if (typeof value !== 'string' || !HASH_PATTERN.test(value)) throw new Error(`${label}.${field} is invalid`);
+    return value;
+  };
+  if (!Array.isArray(record.supportedLevels) || record.supportedLevels.length < 1 || record.supportedLevels.length > 7
+    || !record.supportedLevels.every(isPiReasoningLevel) || new Set(record.supportedLevels).size !== record.supportedLevels.length) throw new Error(`${label}.supportedLevels is invalid`);
+  if (record.scope !== 'single-model' && record.scope !== 'observed-path') throw new Error(`${label}.scope is invalid`);
+  if (typeof record.canaryVersion !== 'string' || record.canaryVersion.length < 1 || record.canaryVersion.length > 128) throw new Error(`${label}.canaryVersion is invalid`);
+  if (typeof record.checkedAt !== 'string') throw new Error(`${label}.checkedAt is invalid`);
+  const checkedAt = record.checkedAt;
+  // Match the UTC ISO datetime contract, including real calendar dates.
+  if (!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?Z$/.test(checkedAt)
+    || !Number.isFinite(Date.parse(checkedAt)) || new Date(checkedAt).toISOString().slice(0, 10) !== checkedAt.slice(0, 10)) throw new Error(`${label}.checkedAt is invalid`);
+  return {
+    schemaVersion: 1, profileRef, routeVersion,
+    inventoryDigest: hash(record.inventoryDigest, 'inventoryDigest'),
+    connectionFingerprint: hash(record.connectionFingerprint, 'connectionFingerprint'),
+    canaryVersion: record.canaryVersion,
+    supportedLevels: [...record.supportedLevels], scope: record.scope, checkedAt,
+  };
+}
+
+export function parseFallbackRouting(value: unknown): FallbackRouting {
+  const record = asRecord(value, 'fallback routing');
+  if (record.enabled === false) {
+    assertOnly(record, ['enabled'], 'fallback routing');
+    return { enabled: false };
+  }
+  assertOnly(record, ['enabled', 'routes', 'defaultRoute', 'reasoning'], 'fallback routing');
+  if (record.enabled !== true || !Array.isArray(record.routes) || record.routes.length < 1 || record.routes.length > 256) throw new Error('fallback routing is invalid');
+  const parseRoute = (value: unknown): string => {
+    if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value)) throw new Error('fallback route is invalid');
+    return routeName(value);
+  };
+  const routes = record.routes.map(parseRoute);
+  const defaultRoute = parseRoute(record.defaultRoute);
+  if (new Set(routes).size !== routes.length || !routes.includes(defaultRoute) || !isPiReasoningLevel(record.reasoning)) throw new Error('fallback default must belong to its allowed routes with a valid reasoning level');
+  return { enabled: true, routes, defaultRoute, reasoning: record.reasoning };
+}
+
 function parseWrites(value: unknown, label: string): ScalarWrite[] {
   if (!Array.isArray(value) || value.length > MAX_MAPPING_ENTRIES) throw new Error(`${label} has too many writes`);
   const seen = new Set<string>();
@@ -141,7 +203,7 @@ function parseAssignment(value: unknown, customs: Map<string, NormalizedReasonin
   const activeProfile = parseRef(record.activeProfile, `${label}.activeProfile`);
   resolveRef(activeProfile, customs, `${label}.activeProfile`);
   const result: RouteReasoningAssignment = { activeProfile };
-  if (record.verification !== undefined) result.verification = routeVerificationSchema.parse(record.verification);
+  if (record.verification !== undefined) result.verification = parseRouteVerification(record.verification);
   if (record.routeVersion !== undefined) result.routeVersion = bounded(record.routeVersion, `${label}.routeVersion`);
   if (record.legs !== undefined) {
     if (!Array.isArray(record.legs)) throw new Error(`${label}.legs must be an array`);
@@ -224,7 +286,7 @@ export function parseReasoningConfiguration(input: unknown): ReasoningConfigurat
     routeAssignments[routeName(route)] = parseAssignment(assignment, customMap, `routeAssignments.${route}`);
   }
   const result: ReasoningConfiguration = { schemaVersion: 1, customProfileRevisions, routeAssignments,
-    ...(record.fallbackRouting !== undefined && { fallbackRouting: fallbackRoutingSchema.parse(record.fallbackRouting) }),
+    ...(record.fallbackRouting !== undefined && { fallbackRouting: parseFallbackRouting(record.fallbackRouting) }),
   };
   if (byteLength(result) > MAX_REASONING_CONFIGURATION_BYTES) throw new Error('reasoning configuration exceeds the 256 KiB size limit');
   return result;

@@ -221,7 +221,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 - Canonical levels remain `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; `off` never aliases an enabled level.
 - Built-ins are immutable. Custom profiles are bounded declarative data and cannot control credentials, providers, transport, messages, tools, models, or streams.
-- Missing, disabled, malformed, non-executable, protected-field, and unmapped-level failures remain hard gates; legacy compatibility evidence remains advisory, while activation authority follows REQ-ENTERPRISE-043.
+- Missing, disabled, malformed, non-executable, protected-field, and unmapped-level failures remain hard gates; legacy compatibility evidence remains advisory, while activation authority follows [REQ-ENTERPRISE-043](#req-enterprise-043-enterprise-pi-verified-route-activation).
 
 **Priority:** P1
 
@@ -241,15 +241,17 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. Pi lists every route allowed by the user's effective group and starts with that scope's configured route and reasoning defaults. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @impl: entrypoint.sh::PI_PROVIDER_CONFIG --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (uses the matched group config over the global catalog/default) --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-032 AC1: emits each route profile supported-level map without removing allowed routes) -->
+1. Pi lists the verified routes allowed by the user's effective policy and starts with that scope's configured supported defaults. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (returns only the allowed verified routes with exact profile levels and scope defaults) -->
 2. A `/model` selection uses the selected allowed route's active profile; an unknown handle falls back to the effective default. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (AC2: loads the profile for the route selected through Pi /model) -->
 3. Missing or invalid profiles and unmapped levels fail before any provider request. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (AC3: fails closed before provider I/O when the selected route profile does not map the level) -->
-4. Existing Chat Completions fallback, Responses passthrough, parsing, replay, and stream repair behavior remains unchanged. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (AC1: replays a model-routable request to the compat path when the REST API returns 404) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (does not touch a non-chat-completions stream (e.g. /responses passes through unchanged)) --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (preserves the validated Pi 0.84.4 canary request and replay fixtures) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (injects a finish_reason:"stop" chunk before [DONE] when the upstream omits it (dynamic-route bug)) -->
-5. Until the atomic document exists, valid legacy GLM/Kimi assignments resolve in memory; unreadable, malformed, ambiguous, or GPT-OSS legacy state fails closed and is never persisted automatically. <!-- @impl: src/lib/reasoning-configuration.ts::parseReasoningConfigurationWithLegacyFallback --> <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/lib/reasoning-configuration.test.ts (uses valid legacy assignments only when the atomic configuration is absent, without persistence) --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (keeps legacy installations startable by deriving supported levels in memory when atomic configuration is absent) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (AC3: fails closed when atomic data is unreadable or legacy data is malformed, ambiguous, or GPT-OSS) -->
+4. For authorized requests, existing Chat Completions fallback, Responses passthrough, parsing, replay, and stream repair behavior remains unchanged. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (AC1: replays a model-routable request to the compat path when the REST API returns 404) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (does not touch a non-chat-completions stream (e.g. /responses passes through unchanged)) --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (preserves the validated Pi 0.84.4 canary request and replay fixtures) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (injects a finish_reason:"stop" chunk before [DONE] when the upstream omits it (dynamic-route bug)) -->
+5. Without an atomic configuration containing server-owned verification, legacy assignments grant no runtime routes. <!-- @impl: src/lib/access.ts::resolveRouteCatalog --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (does not silently grandfather legacy %s evidence into authority) -->
+
+6. An empty or ineligible runtime catalog denies inference before upstream I/O. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (denies an empty catalog on %s before any upstream I/O) -->
 
 **Constraints:**
 
-- Group-to-route access remains many-to-many; the first configured matching group wins, otherwise global fallback applies.
+- Group-to-route access remains many-to-many; the first configured matching group wins, otherwise only explicitly enabled fallback applies.
 - Runtime uses one active profile per route and never predicts a gateway leg from route names or response headers.
 - Gateway credentials and backend model identities remain outside the container.
 
@@ -432,7 +434,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. Verify accepts an exact selected saved or canonical draft revision without requiring Save first. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (verifies an unsaved canonical custom profile and draft gateway without activation) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-042: custom backend provenance is editable before Verify without requiring Save) -->
 2. Selected-profile results show one row per supported level with Compatibility, Tool call, and Tool replay columns, using labeled green Passed, red Failed, and orange Unclear states derived from level/stage evidence rather than classification alone. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningCheckOverview --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (uses one row per level with associated headers and never passes classification alone) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (associates passed, failed, and incomplete checks with their exact level and stage) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (gives diagnostics priority and leaves unattempted replay unclear without an irrelevant Off control) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (retains successful tool-call evidence when %s does not complete) -->
-3. A successful selected check attaches server-issued verification to the exact route draft only when its before/after inventory is unchanged. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (issues no receipt when inventory drifts during an otherwise complete canary) -->
+3. A successful selected check attaches server-issued verification to the exact route draft only when its before/after inventory is unchanged. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (issues no receipt when inventory drifts during an otherwise complete canary) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (persists reconciled backend identities after successful re-verification of a changed model) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-038: Verify Profile uses fixed 4096 and attaches the server receipt only to the exact route draft) -->
 4. Multi-model success is eligible as an observed path with an untested-backend warning, without inventing per-leg or whole-route evidence. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-043: a successful observed-path check enables assignment with an untested-backup warning) -->
 5. Explicit confirmed Save persists attached evidence through configuration GET. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-038: saves automatic verification with the route and restores its indicator after reload) --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-ENTERPRISE-038: retains exact single-leg verification through confirmed Save and configuration GET) -->
 6. Reloaded verification status requires matching fresh inventory and current server-owned verification. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (copies inventory verification only while current connection and topology still match) --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-038: saves automatic verification with the route and restores its indicator after reload) -->
@@ -466,12 +468,12 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Acceptance Criteria:**
 
 1. Each fallback or group default reasoning selector offers only levels supported by its default route's selected profile. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-039: supported levels and associated helpers explain checked group and fallback defaults) -->
-2. Associated help explains absent eligible routes and single-mode disabled states. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-044: a single eligible route defaults to a supported preference %s) -->
+2. Associated help explains absent eligible routes and single-mode disabled states. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-039: supported levels and associated helpers explain checked group and fallback defaults) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-039: default reasoning help distinguishes pending connection from missing checked route assignment) -->
 3. Disabling a single-mode selector preserves that mode in the Save payload. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-039: a single non-off mode stays disabled yet serializes its selected policy value) -->
 
 **Constraints:**
 
-- Verification is not required to choose a default.
+- Policy defaults require eligible checked routes; unverified profile selection remains a draft operation.
 - Catalog hydration preserves existing selections; changing the route or profile replaces an unsupported selection with a supported level.
 
 **Priority:** P1
@@ -514,7 +516,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-041: Enterprise Pi Administrator Workspace
 
-**Intent:** Administrators can find a route, understand its state, and review configuration changes without scanning implementation details.
+**Intent:** Administrators can find a route, understand its state, without scanning implementation details.
 
 **Applies To:** Admin
 
@@ -523,13 +525,10 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. The initial route overview presents route names and status without expanding every route's controls. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: starts with a compact route overview and expands only the selected route) -->
 2. Opening another route preserves unsaved edits in the previous route. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: switching route details preserves unsaved values) -->
 3. Connection, routes, and access policies have distinct, keyboard-operable section navigation. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: section navigation retains configuration state) -->
-4. Save confirmation presents connection, route profiles, and access changes as labeled, readable summaries rather than raw field keys or a flattened configuration string. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-041: summarizes routing changes in human-readable sections) -->
-5. Save warnings remain visible and require their existing explicit acknowledgements before confirmation. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-041: warnings require individual acknowledgement and an explicit Confirm Save action) -->
 
 **Constraints:**
 
 - The incumbent Administration tokens, responsive layout and accessible controls remain authoritative.
-- Secret values never appear in summaries; technical identifiers remain in a disclosure.
 - Section and route navigation must not discard drafts or start paid checks.
 
 **Priority:** P1
@@ -552,7 +551,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. Connection status reports route-management readiness rather than merely the presence of a token. <!-- @impl: src/lib/ai-gateway-management.ts::connectionStatus --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (reports sanitized permission-denied for management %s without asserting the exact missing scope) -->
 2. Invalid draft gateway credentials or provenance are rejected before external I/O. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (rejects draft gateway credentials, unsafe hosts and provenance before external I/O) -->
-3. Transient connection overlays reuse saved encrypted credentials without persisting replacements during checks. <!-- @impl: src/lib/ai-gateway-management.ts::resolveGatewayConnection --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-042: checking changed credentials does not save or run model probes) -->
+3. Transient connection overlays reuse saved encrypted credentials without persisting replacements during checks. <!-- @impl: src/lib/ai-gateway-management.ts::resolveGatewayConnection --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (reuses the saved encrypted token for draft inspection without changing storage) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-042: checking changed credentials does not save or run model probes) -->
 4. Selected verification accepts one bounded canonical unsaved custom revision with its exact reference. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (verifies an unsaved canonical custom profile and draft gateway without activation) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (rejects invalid, mismatched and mutated or disabled existing custom drafts before provider I/O) -->
 5. Administrator-owned custom backend descriptions can be checked in the draft without Save first. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-042: custom backend provenance is editable before Verify without requiring Save) -->
 
@@ -563,6 +562,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 - Saved credentials are never returned to the browser.
 
 **Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-017](#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard), [REQ-ENTERPRISE-038](#req-enterprise-038-enterprise-pi-selected-profile-verification)
 
 **Verification:** Anchored behavioral fixtures; execution is CI-only and pending for this change.
 
@@ -583,8 +584,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 3. Save accepts only matching server-issued receipts or unchanged current server-owned verification, never submitted evidence flags. <!-- @impl: src/lib/admin-configuration.ts::normalizeAiReasoningConfiguration --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (never trusts forged verification or legacy evidence flags in Save) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (rejects a receipt after %s identity changes) -->
 4. A successful observed path may be assigned with a warning that other backends remain untested. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-043: a successful observed-path check enables assignment with an untested-backup warning) -->
 5. Unavailable receipts fail closed with retry guidance rather than automatic paid rechecks. <!-- @impl: src/lib/reasoning-verification.ts::readRouteCheck --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (fails closed on delayed receipt visibility with retry advice and no automatic paid checks) -->
-6. An empty or ineligible runtime catalog denies inference before upstream I/O. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (denies an empty catalog on %s before any upstream I/O) -->
-7. Save preserves new verification on inactive drafts without granting policy access. <!-- @impl: src/lib/admin-configuration.ts::normalizeAiReasoningConfiguration --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (persists a newly checked inactive draft without granting policy access or repeating paid checks) -->
+6. Save preserves new verification on inactive drafts without granting policy access. <!-- @impl: src/lib/admin-configuration.ts::normalizeAiReasoningConfiguration --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (persists a newly checked inactive draft without granting policy access or repeating paid checks) -->
 
 **Constraints:**
 
@@ -595,6 +595,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 - Legacy Setup cannot inject verification authority.
 
 **Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-042](#req-enterprise-042-enterprise-pi-draft-connection-and-verification)
 
 **Verification:** Anchored behavioral fixtures; execution is CI-only and pending for this change.
 
@@ -627,6 +629,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 - Save and Confirm Save retain warning acknowledgements and baseRevision protection.
 
 **Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-043](#req-enterprise-043-enterprise-pi-verified-route-activation)
 
 **Verification:** Anchored behavioral fixtures; execution is CI-only and pending for this change.
 
@@ -662,6 +666,33 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Status:** Implemented
 
 ---
+
+### REQ-ENTERPRISE-046: Enterprise Pi Configuration Confirmation
+
+**Intent:** Administrators understand and explicitly confirm routing changes before persistence.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Save confirmation presents connection, route profiles, and access changes as labeled, readable summaries rather than raw field keys or a flattened configuration string. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-041: summarizes routing changes in human-readable sections) -->
+2. Save warnings remain visible and require their existing explicit acknowledgements before confirmation. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-041: warnings require individual acknowledgement and an explicit Confirm Save action) -->
+
+**Constraints:**
+
+- Secret values never appear in summaries; technical identifiers remain in a disclosure.
+- Confirmation preserves the reviewed values, warning codes, and baseRevision.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration)
+
+**Verification:** Anchored behavioral fixtures; execution is CI-only.
+
+**Status:** Implemented
+
+---
+
 
 <a id="req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var"></a>
 ### REQ-ENTERPRISE-006: Deploy-Time AIG Secrets and ENTERPRISE_MODE Var
@@ -706,14 +737,16 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. On model-routable requests, catalog handles map to `dynamic/<route>`; unknown or pre-prefixed handles re-resolve to the configured default when valid, otherwise the first catalog entry. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE_MODEL)) -->
-2. When the catalog is empty, or the body is non-JSON, has no `model` field, or the path is not model-routable, the request body is forwarded unchanged. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE_MODEL)) -->
+1. On model-routable requests, catalog handles map to dynamic/<route>; absent, unknown, or pre-prefixed handles resolve to the eligible scope default. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (assigns the eligible scope default when a JSON inference body omits model) -->
+2. Model-routable requests without an eligible catalog or valid JSON body are rejected before upstream I/O. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (denies an empty catalog without forwarding an agent model) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (rejects non-JSON inference bodies that cannot be assigned an eligible route) -->
 
 **Constraints:**
 
 - The route catalog and default live in KV; slash-free handles reach agents, while gateway routes resolve Worker-side ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list)).
 - Only the request `model` field is rewritten; no other request field and no response byte is altered.
 - Route mapping runs only when interception is active ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)); when `ENTERPRISE_MODE` is unset the interceptor is never instantiated.
+
+- Requests outside model-routable paths retain their bodies unchanged. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (does NOT rewrite a non-model-routable path (e.g. /v1/embeddings)) -->
 
 **Priority:** P1
 
@@ -862,10 +895,10 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. Existing setup configure saves chip-list access groups and routes without a new endpoint. Names are trimmed, 1–256 characters, allow spaces, and reject commas, carriage returns, or line feeds; groups use lossless joined storage and prefill returns the trimmed values. <!-- @impl: src/routes/setup/index.ts::ConfigureBodySchema --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (rejects a group containing %s before setup starts) --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (round-trips trimmed access-group values through prefill) -->
 2. The JSON route catalog defaults to its first entry with reasoning off; configured defaults must belong or return 400. Optional per-group route/default/reasoning maps persist separately. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
 3. `GET /api/setup/prefill` round-trips the stored groups, catalog, and default route so a setup re-run shows the current configuration; a malformed stored value degrades to empty defaults rather than failing the prefill. <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill degrades to empty defaults when stored route JSON is malformed) -->
-4. One route configuration supplies interception, container routing, JIT access, group metadata, and per-group editing ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-ENTERPRISE-013](#req-enterprise-013-per-group-dynamic-routing)). <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (loadEnterpriseRouteConfig per-group routing (REQ-ENTERPRISE-013)) -->
+4. One route configuration supplies interception, container routing, JIT access, group metadata, and per-group editing ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-010](#req-enterprise-010-access-gated-jit-user-provisioning), [REQ-ENTERPRISE-013](#req-enterprise-013-per-group-dynamic-routing)). <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (first matching group and optional fallback (REQ-ENTERPRISE-013/-044)) -->
 5. When `ENTERPRISE_MODE` is unset, the dynamic-route catalog UI and KV reads add no behavior; the access-group field already existed and is unchanged for non-enterprise deployments. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (GET /prefill omits the enterprise extras when ENTERPRISE_MODE is unset (regression)) -->
 6. In enterprise mode, the AI-routing stage blocks "Continue" until at least one dynamic route, a Gateway URL, and a saved or newly entered Gateway token are present. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (blocks AI-routing Continue when route, Gateway URL, or token is missing (REQ-ENTERPRISE-012 AC6)) --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (enables AI-routing Continue once route, Gateway URL, and token exist (REQ-ENTERPRISE-012 AC6)) -->
-7. `POST /api/setup/configure` rejects empty or absent `dynamicRoutes` with `400` before any KV write. The interceptor's empty-catalog passthrough ([REQ-ENTERPRISE-007](#req-enterprise-007-gateway-route-pinning) AC2) is defensive only. <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: src/__tests__/routes/setup.test.ts (POST /api/setup/configure) -->
+7. `POST /api/setup/configure` rejects empty or absent `dynamicRoutes` with `400` before any KV write. Runtime empty-catalog denial follows [REQ-ENTERPRISE-032](#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation) AC6. <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: src/__tests__/routes/setup.test.ts (POST /api/setup/configure) -->
 
 **Constraints:**
 
@@ -915,10 +948,10 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. With no per-group routing configured, behavior is unchanged: every session resolves the global `DYNAMIC_ROUTES` catalog and `DEFAULT_ROUTE`. <!-- @impl: src/lib/access.ts::resolveRouteCatalog --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (loadEnterpriseRouteConfig per-group routing (REQ-ENTERPRISE-013)) -->
-2. A session uses its first matched group with non-empty routing configuration; otherwise it falls back to the global catalog. <!-- @impl: src/lib/access.ts::resolveRouteCatalog --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (loadEnterpriseRouteConfig per-group routing (REQ-ENTERPRISE-013)) -->
+1. Without a matching configured group policy, a session receives only the explicitly enabled fallback subset. <!-- @impl: src/lib/access.ts::resolveRouteCatalog --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (unmatched users use only the enabled fallback subset) -->
+2. The first matching configured group remains authoritative even when filtering leaves no eligible routes. <!-- @impl: src/lib/access.ts::resolveRouteCatalog --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (selects the first matching group before eligibility filtering) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (does not fall through from the first matching policy when its routes become ineligible) -->
 3. Setup stores per-group route maps, rejects unknown groups, out-of-catalog routes, or defaults outside their group routes with 400, and deletes empty maps. <!-- @impl: src/lib/kv-keys.ts::SETUP_KEYS --> <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) -->
-4. Both routing sinks — the LLM interceptor's per-request route enforcement ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC4) and the container env fan ([REQ-ENTERPRISE-005](#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls) AC1) — read the same group-aware route catalog, so they cannot drift; the existing default-drift rule is preserved. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (loadEnterpriseRouteConfig per-group routing (REQ-ENTERPRISE-013)) -->
+4. The LLM interceptor and container environment consume the same verified policy catalog and supported scope defaults. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (returns only the allowed verified routes with exact profile levels and scope defaults) -->
 5. The Setup wizard renders one per-group routing card per Access group (only when ≥1 group and ≥1 route exist): toggleable route **pills** (selected = green, deselected = gray). <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (ConfigureStep) -->
 6. All reads/writes are inside the existing `ENTERPRISE_MODE` gate; in non-enterprise modes the Setup request/response shape and route resolution are byte-identical to before. <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) --> <!-- @manual -->
 
@@ -1125,8 +1158,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. Enterprise setup accepts gateway URL and token, preserves each on blank, rejects token storage without encryption, and reports its progress step; non-enterprise setup writes neither. <!-- @impl: src/routes/setup/index.ts::app --> <!-- @test: src/__tests__/routes/setup-enterprise-groups.test.ts (Feature A/C: enterprise groups chip list + dynamic routes) -->
 2. `GET /api/setup/prefill` round-trips the AI Gateway config (enterprise-only): it surfaces the non-secret `aigGatewayUrl` and a masked `aigTokenSet` boolean (never the token itself), reports unset/empty when nothing is stored, and omits both fields entirely in a non-enterprise prefill. <!-- @impl: src/routes/setup/handlers.ts::handlers --> <!-- @test: src/__tests__/routes/setup/handlers.test.ts (Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup endpoints) / REQ-SETUP-006 (setup config persistence + reload) / REQ-SETUP-008 (setup wizard step state machine and validation) / REQ-SETUP-011 (allowlist persisted as KV user records via setup endpoint)) -->
-3. Gateway configuration resolves wizard values before per-field deployment fallbacks and falls back without throwing on KV or crypto errors. <!-- @impl: src/lib/aig-config.ts::getAigConfig --> <!-- @test: src/__tests__/lib/aig-config.test.ts (getAigConfig (REQ-ENTERPRISE-017)) -->
-4. The container DO resolves the gateway URL + token once and passes them to the LLM interceptor as per-session properties; the interceptor prefers the props and falls back to its own env only when a prop is absent. The token never enters the container. <!-- @impl: src/container/container-interception.ts::llm --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) with env fallback) -->
+3. Gateway configuration prefers saved fields and permits deployment fallback only when saved state is absent; unreadable saved credentials fail closed without throwing. <!-- @impl: src/lib/aig-config.ts::getAigConfig --> <!-- @test: src/__tests__/lib/aig-config.test.ts (env fallback: with KV unset, the deploy-secret env values are used) --> <!-- @test: src/__tests__/lib/aig-config.test.ts (fails closed without throwing when a saved credential cannot be decrypted) -->
+4. The container DO resolves the gateway URL + token once and passes them to the LLM interceptor as per-session properties; the interceptor prefers the props and falls back to its own env only when a prop is absent. Unreadable saved credentials still deny inference. The token never enters the container. <!-- @impl: src/container/container-interception.ts::llm --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) with env fallback) -->
 5. The Setup wizard renders the enterprise-only AI Gateway URL + token fields inside an organized group; they are not rendered outside enterprise mode, and their inputs persist the entered URL and token through setup state. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @impl: web-ui/src/components/setup/SetupSection.tsx::SetupSection --> <!-- @impl: web-ui/src/stores/setup.ts::setupStore --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (ConfigureStep) -->
 6. The "Configuring Codeflare" progress screen reflects the steps it runs: the configure endpoint emits named `configure_*` steps (`configure_access_groups`, `configure_model_routing`, `configure_ai_gateway`, `configure_browser_rendering`, `configure_strict_egress`), and the progress UI maps each to a friendly label. <!-- @test: src/__tests__/routes/setup.test.ts (Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-SETUP-002 (step sequence) / REQ-SETUP-004 (idempotent setup) / REQ-SETUP-012 (setup completion record)) --> <!-- @manual -->
 7. Enterprise AI Gateway guidance names the Workers AI, AI Gateway Run, and AI Gateway Read permissions required for inference and route discovery. <!-- @impl: web-ui/src/components/setup/ConfigureStep.tsx::ConfigureStep --> <!-- @test: web-ui/src/__tests__/components/ConfigureStep.test.tsx (shows the required gateway token permissions (REQ-ENTERPRISE-017 AC7)) -->
@@ -1134,7 +1167,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Constraints:**
 
 - The token is a secret: stored encrypted (kv-crypto, same shape as the Browser Rendering token, [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)), masked on prefill, no-clobber on blank, and never returned to the client; The URL is non-secret and stored plain.
-- URL and token resolve independently with wizard KV before deploy secrets, allowing mixed sources while deploy secrets remain a silent fallback ([REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC1).
+- URL and token resolve independently with wizard KV before deploy secrets, allowing mixed sources only when the corresponding saved value is absent ([REQ-ENTERPRISE-006](#req-enterprise-006-deploy-time-aig-secrets-and-enterprise_mode-var) AC1).
 - Grouping fields into `SetupSection`s preserves every field, store binding, and conditional gate; only visual grouping changes.
 - `SetupSection` is a reusable structure-only component with no copy.
 - Routine Administration reads and validates the same effective URL and token through [REQ-SETUP-017](setup.md#req-setup-017-mode-aware-administration-configuration-read); no Worker-binding or unauthenticated transport is added.

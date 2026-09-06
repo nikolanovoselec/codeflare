@@ -108,7 +108,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const [replacementToken, setReplacementToken] = createSignal(text(current.replacementToken));
   const [checkedConnection, setCheckedConnection] = createSignal<string>();
   const connectionKey = () => JSON.stringify([gatewayUrl().trim(), replacementToken().trim()]);
-  const gatewayDraft = (): ReasoningGatewayDraft | undefined => gatewayUrl().trim() !== text(current.gatewayUrl).trim() || replacementToken().trim()
+  const gatewayDraft = (): ReasoningGatewayDraft | undefined => gatewayUrl().trim() !== text(current.savedGatewayUrl ?? current.gatewayUrl).trim() || replacementToken().trim()
     ? { gatewayUrl: gatewayUrl().trim(), ...(replacementToken().trim() && { replacementToken: replacementToken().trim() }) } : undefined;
   const [catalog, setCatalog] = createSignal<ReasoningCatalog>({ schemaVersion: 1, profiles: [], notices: [], usage: [], routes: [], routeCatalogStatus: 'unavailable' });
   const [catalogBusy, setCatalogBusy] = createSignal(true);
@@ -177,8 +177,11 @@ const AiRoutingFields: Component<Props> = (props) => {
   const normalizedFallback = () => normalizedPolicy(fallbackPolicy());
   const fallbackRouting = (): FallbackRouting => fallbackEnabled() ? { enabled: true, ...normalizedFallback() } : { enabled: false };
   const activeNames = createMemo(() => [...new Set([...activeGroups().flatMap((group) => group.routes), ...(fallbackEnabled() ? normalizedFallback().routes : [])])]);
-  const canSave = () => connectionReady() && !checksBusy() && activeGroups().length > 0 && (!fallbackEnabled() || normalizedFallback().routes.length > 0);
-  const saveHelp = () => !connectionReady() ? 'Check the AI Gateway connection before saving.' : checksBusy() ? 'Wait for the current profile check to finish.' : !eligibleRoutes().length ? 'Verify at least one route before assigning access and saving.' : !activeGroups().length ? 'Assign a checked route to at least one group before saving.' : fallbackEnabled() && !normalizedFallback().routes.length ? 'Choose a checked route for fallback access, or turn fallback off.' : 'Ready to save. Incomplete routes stay inactive and do not block these settings.';
+  // REQ-ENTERPRISE-044: pending-policy-inventory must settle before Save can normalize selections.
+  const policyInventoryPending = () => [...groups().flatMap((group) => group.routes), ...(fallbackEnabled() ? fallbackPolicy().routes : [])]
+    .some((name) => gatewayRoutes().includes(name) && Boolean(routeByName(name)?.inventoryBusy));
+  const canSave = () => connectionReady() && !policyInventoryPending() && !checksBusy() && activeGroups().length > 0 && (!fallbackEnabled() || normalizedFallback().routes.length > 0);
+  const saveHelp = () => !connectionReady() ? 'Check the AI Gateway connection before saving.' : policyInventoryPending() ? 'Wait for selected route models to finish loading.' : checksBusy() ? 'Wait for the current profile check to finish.' : !eligibleRoutes().length ? 'Verify at least one route before assigning access and saving.' : !activeGroups().length ? 'Assign a checked route to at least one group before saving.' : fallbackEnabled() && !normalizedFallback().routes.length ? 'Choose a checked route for fallback access, or turn fallback off.' : 'Ready to save. Incomplete routes stay inactive and do not block these settings.';
   createEffect(() => props.onReadyChange?.(canSave()));
 
   const clearRouteVerification = (name: string) => {
@@ -223,7 +226,7 @@ const AiRoutingFields: Component<Props> = (props) => {
         setCheckedConnection(key); setGatewayRoutes(loaded.routes);
         setRoutes((items) => {
           const byName = new Map(items.map((route) => [route.name, route]));
-          return [...loaded.routes.map((name) => byName.has(name) ? { ...byName.get(name)! } : { name, contextWindow: DEFAULT_CONTEXT_WINDOW, assignment: routeAssignment(assignments[name]) }), ...items.filter((route) => !loaded.routes.includes(route.name)).map((route) => ({ ...route }))];
+          return [...loaded.routes.map((name) => byName.has(name) ? { ...byName.get(name)!, inventoryBusy: true } : { name, contextWindow: DEFAULT_CONTEXT_WINDOW, assignment: routeAssignment(assignments[name]), inventoryBusy: true }), ...items.filter((route) => !loaded.routes.includes(route.name)).map((route) => ({ ...route }))];
         });
       } else setCheckedConnection(undefined);
     } catch {
@@ -260,7 +263,18 @@ const AiRoutingFields: Component<Props> = (props) => {
       updateVerification(name, { result, routeChanged: changed });
       if (!changed && completeVerification(result) && result.verification && refKey(result.verification.profileRef) === refKey(selectedRef)) {
         setRouteChecks((checks) => ({ ...checks, [name]: result.checkId! }));
-        updateRoute(name, (item) => ({ ...item, assignment: { ...item.assignment, routeVersion: result.verification!.routeVersion, verification: { ...result.verification! } } }));
+        // REQ-ENTERPRISE-038: reconcile-verified-legs uses fresh identities, never per-leg proof from a route receipt.
+        updateRoute(name, (item) => ({ ...item, assignment: { ...item.assignment,
+          ...(item.assignment.legs && { legs: after!.legs.map((leg) => {
+            const declared = item.assignment.legs?.find((saved) => saved.nodeId === leg.nodeId && saved.provider === leg.provider);
+            const backend = declared?.customProviderBackend ?? leg.customProviderBackend;
+            return { nodeId: leg.nodeId, provider: leg.provider, declaredModel: leg.declaredModel,
+              profileRef: declared?.profileRef ?? selectedRef,
+              ...(leg.provider.toLowerCase().startsWith('custom') && backend && { customProviderBackend: backend }),
+            };
+          }) }),
+          routeVersion: result.verification!.routeVersion, verification: { ...result.verification! },
+        } }));
       }
     } catch {
       if (!disposed) updateVerification(name, { error: 'Verification failed. Check the connection and try again. This route cannot be activated.' });
@@ -333,7 +347,7 @@ const AiRoutingFields: Component<Props> = (props) => {
       <h3 id="connection-heading">AI Gateway connection</h3><p>Check that Codeflare can read your routes. Profile verification separately checks model requests and tool calling.</p>
       <div class="admin-route-controls">
         <label class="admin-form-field"><span>AI Gateway URL</span><input name="gatewayUrl" type="url" value={gatewayUrl()} disabled={checksBusy()} onInput={(event) => changeConnection('url', event.currentTarget.value)} /></label>
-        <label class="admin-form-field"><span>Replacement API token</span><input name="replacementToken" type="password" value={replacementToken()} autocomplete="new-password" disabled={checksBusy()} onInput={(event) => changeConnection('token', event.currentTarget.value)} /><small>Leave blank to keep the saved token. Token permissions must allow route reads and gateway requests.</small></label>
+        <label class="admin-form-field"><span>Replacement API token</span><input aria-label="Replacement API token" name="replacementToken" type="password" value={replacementToken()} autocomplete="new-password" disabled={checksBusy()} onInput={(event) => changeConnection('token', event.currentTarget.value)} /><small>Leave blank to keep the saved token. Token permissions must allow route reads and gateway requests.</small></label>
       </div>
       <button type="button" class="admin-secondary-button" disabled={catalogBusy() || checksBusy()} onClick={() => void checkConnection()}>Check connection</button>
       <p class="admin-field-help">Connection checks do not save credentials or run paid model probes.</p>
@@ -400,7 +414,7 @@ const AiRoutingFields: Component<Props> = (props) => {
       <Show when={unconfiguredGroups().length}><div class="admin-add-row"><label class="admin-form-field"><span>Access group</span><select aria-label="Unconfigured access group" value={groupToAdd()} onChange={(event) => setGroupToAdd(event.currentTarget.value)}><For each={unconfiguredGroups()}>{(group) => <option value={group} selected={group === groupToAdd()}>{group}</option>}</For></select></label><button type="button" class="admin-secondary-button" onClick={addGroupPolicy}>Add group policy</button></div></Show>
       <Show when={!availableAccessGroups.length}><p class="admin-status-text">Configure an Access group in Environment → Access before assigning a route.</p></Show>
       <For each={groups()}>{(group) => <section class="admin-access-policy">
-        <div class="admin-policy-heading"><button type="button" class="admin-policy-toggle" aria-expanded={expandedGroup() === group.accessGroup} onClick={() => setExpandedGroup(expandedGroup() === group.accessGroup ? undefined : group.accessGroup)}><strong>{group.accessGroup}</strong><span>{normalizedPolicy(group).routes.length} available routes</span></button><button type="button" class="admin-link-button admin-danger-link" aria-label={`Remove ${group.accessGroup} policy`} onClick={() => setGroups((items) => items.filter((item) => item.accessGroup !== group.accessGroup))}>Remove policy</button></div>
+        <div class="admin-policy-heading"><button type="button" class="admin-policy-toggle" aria-label={`${group.accessGroup} policy`} aria-expanded={expandedGroup() === group.accessGroup} onClick={() => setExpandedGroup(expandedGroup() === group.accessGroup ? undefined : group.accessGroup)}><strong>{group.accessGroup}</strong><span>{normalizedPolicy(group).routes.length} available routes</span></button><button type="button" class="admin-link-button admin-danger-link" aria-label={`Remove ${group.accessGroup} policy`} onClick={() => setGroups((items) => items.filter((item) => item.accessGroup !== group.accessGroup))}>Remove policy</button></div>
         <div hidden={expandedGroup() !== group.accessGroup}>
           <Show when={group.routes.some((name) => !eligibleNames().includes(name))}><p class="admin-route-scope-warning">Unchecked or unavailable routes are inactive and will not be included when you Save.</p></Show>
           <PolicyFields label={group.accessGroup} options={eligibleRoutes()} policy={normalizedPolicy(group)} levels={supportedLevels(normalizedPolicy(group).defaultRoute)} onToggle={(name) => setGroups((items) => items.map((item) => item.accessGroup === group.accessGroup ? togglePolicyRoute(item, name) : item))} onDefault={(name) => setGroups((items) => items.map((item) => item.accessGroup === group.accessGroup ? { ...normalizedPolicy(item), defaultRoute: name, reasoning: preferredLevel(name) } : item))} onReasoning={(level) => setGroups((items) => items.map((item) => item.accessGroup === group.accessGroup ? { ...normalizedPolicy(item), reasoning: level } : item))} />

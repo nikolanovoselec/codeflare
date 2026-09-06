@@ -8,6 +8,7 @@ import { getBuiltInProfile, getBuiltInProfileRef, normalizeCustomProfile } from 
 import { validateConfigurationValues, buildConfigurationPreview, executeConfigurationTask } from '../../lib/admin-configuration';
 import { loadEnterpriseRouteConfig } from '../../lib/access';
 import { getAigConfig } from '../../lib/aig-config';
+import { encryptForKV, importEncryptionKey } from '../../lib/kv-crypto';
 import { LlmInterceptor } from '../../llm-interceptor';
 import reasoningRoutes from '../../routes/admin/reasoning';
 import setupRoutes from '../../routes/setup';
@@ -107,6 +108,23 @@ describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
     }
     expect((await f.post('routes/working/inventory', { backendDescriptions: { model: 'bad\nvalue' } })).status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it('reuses the saved encrypted token for draft inspection without changing storage', async () => {
+    const f = setup();
+    f.env.ENCRYPTION_KEY = Buffer.alloc(32, 1).toString('base64');
+    const savedToken = 'saved-inspection-token';
+    const encrypted = await encryptForKV(JSON.stringify({ token: savedToken }), await importEncryptionKey(f.env.ENCRYPTION_KEY), SETUP_KEYS.AIG_TOKEN);
+    f.kv._store.set(SETUP_KEYS.AIG_TOKEN, encrypted);
+    const before = new Map(f.kv._store);
+    const response = await f.post('catalog', { gateway: { gatewayUrl } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ connection: { status: 'ready' } });
+    expect(fetch).toHaveBeenCalled();
+    for (const [input, init] of vi.mocked(fetch).mock.calls) {
+      expect(new Headers(input instanceof Request ? input.headers : init?.headers).get('authorization')).toBe(`Bearer ${savedToken}`);
+    }
+    expect(f.kv._store).toEqual(before);
+    expect(f.kv.put).not.toHaveBeenCalled();
   });
   it('does not substitute a deployment token for an unreadable saved encrypted credential', async () => {
     const f = setup(); f.kv._set(SETUP_KEYS.AIG_TOKEN, 'v1:corrupted');
@@ -259,7 +277,7 @@ describe('REQ-ENTERPRISE-044 minimum routing and optional fallback', () => {
     const f = setup(); const body = await (await f.check()).json() as any;
     const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ routeChecks: { working: body.checkId }, routeContextWindows: { working: 10000, unfinished: 'not-a-number', '': -1 }, reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: { working: { activeProfile: profileRef }, unfinished: { activeProfile: profileRef } } } }));
     expect(result.fieldErrors).toBeUndefined(); expect(result.values?.dynamicRoutes).toEqual(['working']);
-    expect((result.values?.reasoningConfiguration as any).routeAssignments.unfinished).toEqual({ activeProfile: profileRef });
+    expect((result.values?.reasoningConfiguration as any)?.routeAssignments?.unfinished).toEqual({ activeProfile: profileRef });
   });
   it('preserves valid inactive draft context windows and ignores invalid replacements without exposing inactive routes', async () => {
     const f = setup(); const checked = await (await f.check()).json() as any;
@@ -290,6 +308,30 @@ describe('REQ-ENTERPRISE-044 minimum routing and optional fallback', () => {
     expect(saved.routeAssignments.other.verification).toEqual(checked.verification);
     expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toEqual(['working']);
     expect(providerCalls).toBe(calls);
+  });
+  it('persists reconciled backend identities after successful re-verification of a changed model', async () => {
+    const f = setup();
+    await activate(f, { reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {
+      working: { activeProfile: profileRef, legs: [{ nodeId: 'model', provider: 'openai', declaredModel: 'test-model', profileRef }] },
+    } } });
+    const configuration = JSON.parse(f.kv._store.get(SETUP_KEYS.REASONING_CONFIGURATION)!);
+    version = 'version-2';
+    elements = [structuredClone(topology[0]), { ...structuredClone(model), properties: { provider: 'openai', model: 'replacement-model' } }];
+    const checked = await (await f.check()).json() as any;
+    expect(checked.checkId).toBeDefined();
+    configuration.routeAssignments.working = { ...configuration.routeAssignments.working,
+      routeVersion: checked.verification.routeVersion,
+      legs: [{ nodeId: 'model', provider: 'openai', declaredModel: 'replacement-model', profileRef }],
+    };
+    const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      reasoningConfiguration: configuration, routeChecks: { working: checked.checkId },
+    }));
+    expect(result.fieldErrors).toBeUndefined();
+    await executeConfigurationTask(f.env, 'configure_model_routing', result.values!, { mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 2 });
+    const saved = JSON.parse(f.kv._store.get(SETUP_KEYS.REASONING_CONFIGURATION)!);
+    expect(saved.routeAssignments.working.legs).toEqual([{ nodeId: 'model', provider: 'openai', declaredModel: 'replacement-model', profileRef }]);
+    expect(saved.routeAssignments.working.verification).toEqual(checked.verification);
+    expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toEqual(['working']);
   });
   it('requires a group assignment rather than fallback alone', async () => {
     const f = setup(); const body = await (await f.check()).json() as any;
@@ -331,7 +373,7 @@ describe('REQ-ENTERPRISE-044 minimum routing and optional fallback', () => {
     const f = setup(); const { receipt } = await activate(f);
     const proposed = values({ reasoningConfiguration: undefined, routeReasoningProfiles: { working: profileRef.id } });
     const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', proposed);
-    expect((result.values?.reasoningConfiguration as any).routeAssignments.working.verification).toEqual(receipt.verification);
+    expect((result.values?.reasoningConfiguration as any)?.routeAssignments?.working?.verification).toEqual(receipt.verification);
     expect((await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', { ...proposed, routeChecks: { working: null } })).values).toBeUndefined();
   });
   it('null clears inactive authority without blocking a different verified group route', async () => {
@@ -341,8 +383,8 @@ describe('REQ-ENTERPRISE-044 minimum routing and optional fallback', () => {
     f.kv._set(SETUP_KEYS.REASONING_CONFIGURATION, configuration);
     const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ reasoningConfiguration: configuration, routeChecks: { other: null } }));
     expect(result.fieldErrors).toBeUndefined();
-    expect((result.values?.reasoningConfiguration as any).routeAssignments.other).not.toHaveProperty('verification');
-    expect((result.values?.reasoningConfiguration as any).routeAssignments.working.verification).toEqual(receipt.verification);
+    expect((result.values?.reasoningConfiguration as any)?.routeAssignments?.other).toEqual({ activeProfile: profileRef });
+    expect((result.values?.reasoningConfiguration as any)?.routeAssignments?.working?.verification).toEqual(receipt.verification);
   });
   it('stores gateway credentials before activating routing and requires an encryption key for replacement', async () => {
     const f = setup(); const { validated } = await activate(f);
@@ -368,11 +410,13 @@ describe('REQ-ENTERPRISE-044 minimum routing and optional fallback', () => {
     const props = { user: 'user@example.com', groups: ['engineering'], gatewayUrl, token: 'different-token' };
     const denied = await new LlmInterceptor({ props } as unknown as ExecutionContext, f.env).fetch(new Request('https://api.openai.com/v1/responses', { method: 'POST', body: '{"model":"working","input":"hello"}' }));
     expect(denied.status).toBe(403); expect(providerCalls).toBe(0);
-    const fetcher = vi.mocked(fetch); fetcher.mockResolvedValueOnce(Response.json({ result: { routes: [{ id: 'working', name: 'working' }] } })).mockResolvedValueOnce(Response.json({ result: { version: { id: version, active: true, data: elements } } })).mockResolvedValueOnce(Response.json({ output: [] }));
+    const fetcher = vi.mocked(fetch); fetcher.mockClear(); fetcher.mockResolvedValueOnce(Response.json({ output: [] }));
     const requestBody = { model: 'working', input: 'hello', reasoning: { effort: 'high' }, store: true };
     const allowed = await new LlmInterceptor({ props: { ...props, token } } as unknown as ExecutionContext, f.env).fetch(new Request('https://api.openai.com/v1/responses', { method: 'POST', body: JSON.stringify(requestBody) }));
     expect(allowed.status).toBe(200);
+    expect(fetcher).toHaveBeenCalledTimes(1);
     const upstream = fetcher.mock.calls.at(-1)![0] as Request;
+    expect(upstream.method).toBe('POST');
     expect(await upstream.json()).toEqual({ ...requestBody, model: 'dynamic/working' });
   });
 });

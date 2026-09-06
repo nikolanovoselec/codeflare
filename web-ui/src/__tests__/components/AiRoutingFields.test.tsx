@@ -113,7 +113,7 @@ async function ready(view: View, route = 'development') {
 }
 async function openGroup(view: View, group: string) {
   await section(view, 'Access & fallback');
-  const toggle = view.getByRole('button', { name: new RegExp(`^${group} \\d+ available routes$`) });
+  const toggle = view.getByRole('button', { name: `${group} policy` });
   if (toggle.getAttribute('aria-expanded') !== 'true') await fireEvent.click(toggle);
 }
 async function verifyProfile(view: View, route = 'development') {
@@ -148,6 +148,22 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Behavioral fixtures are execution-pending; CI owns RED/GREEN verification.
 describe('Structured AI routing', () => {
+  it.each(['provider', 'model', 'node'] as const)('REQ-ENTERPRISE-038: drift-before-Verify reconciles saved %s identity for Save without per-leg evidence', async (drift) => {
+    const fresh = singleInventory('development');
+    if (drift === 'provider') fresh.legs[0].provider = 'openai';
+    if (drift === 'model') fresh.legs[0].declaredModel = 'replacement-model';
+    if (drift === 'node') fresh.legs[0].nodeId = 'replacement-node';
+    api.inventory.mockImplementation(async (route: string) => route === 'development' ? fresh : singleInventory(route));
+    api.discover.mockResolvedValueOnce(verifiedReport());
+    const saved = withDevelopment(legacyDevelopmentAssignment());
+    const view = mount(saved); await ready(view); await verifyProfile(view);
+    await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
+    const assignment = formValues(view.container).reasoningConfiguration.routeAssignments.development;
+    expect(assignment.legs).toEqual(fresh.legs.map(({ nodeId, provider, declaredModel }) => ({ nodeId, provider, declaredModel, profileRef: kimiRef })));
+    expect(assignment.verification).toEqual(proof());
+    expect(formValues(view.container).routeChecks.development).toBe('development-check');
+    expect(saved.reasoningConfiguration.routeAssignments.development).toEqual(legacyDevelopmentAssignment());
+  });
   it('REQ-ENTERPRISE-034: preserves checked many-to-many group routes with one scope default route and reasoning', async () => {
     const view = mount(checkedCurrent());
     await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
@@ -322,6 +338,7 @@ describe('Structured AI routing', () => {
   });
 
   it('REQ-ENTERPRISE-038: observed-path receipts enable access with a backup warning without fabricating per-leg evidence', async () => {
+    api.inventory.mockImplementation(async (route: string) => ({ ...routeInventory(route), legs: routeInventory(route).legs.map((leg) => ({ ...leg, provider: 'workers-ai' })) }));
     api.discover.mockResolvedValueOnce(verifiedReport('development', kimiRef, 'observed-path'));
     const view = mount(); await ready(view); await verifyProfile(view);
     expect(await view.findByText('Compatible · backup untested', { exact: true })).toBeVisible();
@@ -426,6 +443,7 @@ describe('Structured AI routing', () => {
   });
 
   it('REQ-ENTERPRISE-038: failed verification hides provider bodies and restores the Verify action without access', async () => {
+    api.inventory.mockImplementation(async (route: string) => singleInventory(route));
     api.discover.mockRejectedValueOnce(new Error('PRIVATE PROVIDER BODY'));
     const view = mount(); await ready(view); await verifyProfile(view);
     expect(await view.findByRole('alert')).toHaveTextContent('Verification failed. Check the connection and try again.');
@@ -500,7 +518,7 @@ describe('Structured AI routing', () => {
   });
 
   it('REQ-ENTERPRISE-038: saved per-leg evidence cannot certify a fresh multi-leg route', async () => {
-    const saved = withDevelopment({ activeProfile: kimiRef, routeVersion: 'development-v2', legs: routeInventory('development').legs.map((leg) => ({ ...leg, profileRef: kimiRef, evidence: legacyEvidence() })) });
+    const saved = withDevelopment({ activeProfile: kimiRef, routeVersion: 'development-v2', legs: routeInventory('development').legs.map((leg) => ({ ...leg, ...(leg.provider.startsWith('custom') && { customProviderBackend: 'Declared enterprise backend' }), profileRef: kimiRef, evidence: legacyEvidence() })) });
     const view = mount(saved); await ready(view);
     await view.findByText('development-alias');
     expect(view.queryByText('Verified', { exact: true })).toBeNull();

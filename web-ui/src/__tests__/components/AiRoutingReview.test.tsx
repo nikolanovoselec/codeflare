@@ -218,7 +218,7 @@ describe('AI routing review', () => {
     expect(container.innerHTML).not.toContain('secret-after-save');
   });
 
-  it('REQ-ENTERPRISE-041: Back to edit retains the draft and confirmed Save submits unchanged values, warning codes and baseRevision', async () => {
+  it.each(['replacement', 'saved'] as const)('REQ-ENTERPRISE-041: Back to edit retains the URL draft with %s token and confirmed Save submits unchanged values, warning codes and baseRevision', async (tokenMode) => {
     const storedProfile = normalizeCustomProfile({
       id: custom.id, name: custom.name, revision: custom.revision, schemaVersion: 1, enabled: true,
       supportedLevels: ['off', 'medium', 'high'], removePaths: ['reasoning_effort'],
@@ -236,7 +236,7 @@ describe('AI routing review', () => {
     const initial = { ...values(), reasoningConfiguration: { ...values().reasoningConfiguration, customProfileRevisions: [storedProfile], fallbackRouting: { enabled: false },
       routeAssignments: Object.fromEntries(Object.entries(refs).map(([route, activeProfile]) => [route, { activeProfile, verification: proof(route, 'saved-connection') }])),
     } };
-    const gateway = { gatewayUrl: `${gatewayUrl}-edited`, replacementToken: 'never-display-this-token' };
+    const gateway = { gatewayUrl: `${gatewayUrl}-edited`, ...(tokenMode === 'replacement' && { replacementToken: 'never-display-this-token' }) };
     api.configuration.mockResolvedValue({ mode: 'enterprise', revision: 7, applicableSections: ['aiRouting'], sections: { aiRouting: { ...initial, tokenState: 'administration', availableAccessGroups: ['Platform engineers'] } }, activeRunId: null, latest: {} });
     api.catalog.mockResolvedValue({ schemaVersion: 1, profiles: [
       { ...builtin, name: 'GLM thinking', enabled: true, supportedLevels: ['off', 'medium', 'high'] },
@@ -256,7 +256,7 @@ describe('AI routing review', () => {
     }));
     api.preview.mockImplementation(async (_section, _revision, submitted) => preview({ changes: [
       { field: 'gatewayUrl', after: submitted.gatewayUrl },
-      { field: 'replacementToken', secret: { willReplace: true } },
+      { field: 'replacementToken', secret: { willReplace: tokenMode === 'replacement' } },
       { field: 'reasoningConfiguration', after: submitted.reasoningConfiguration },
     ], warnings: [{ code: 'reasoning_observed_path', message: 'Production passed on the observed path. Other backends remain untested.' }] }));
     api.start.mockResolvedValue(new Response(`${JSON.stringify({ type: 'snapshot', run: { runId: 'private-execution-id', section: 'aiRouting', state: 'succeeded', tasks: [{ id: 'configure_model_routing', state: 'succeeded' }], resultingRevision: 8 } })}\n`));
@@ -270,7 +270,7 @@ describe('AI routing review', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
     await section('Connection');
     await fireEvent.input(screen.getByLabelText('AI Gateway URL'), { target: { value: gateway.gatewayUrl } });
-    await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: gateway.replacementToken } });
+    if (gateway.replacementToken) await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: gateway.replacementToken } });
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
     await fireEvent.submit(screen.getByRole('button', { name: 'Save' }).closest('form')!);
     expect(api.preview).not.toHaveBeenCalled();
@@ -300,7 +300,7 @@ describe('AI routing review', () => {
     await screen.findByRole('heading', { name: 'Confirm Save' });
     expect(screen.getByRole('table', { name: 'Route profiles' })).toBeVisible();
     expect(screen.getByText('No fallback access')).toBeVisible();
-    expect(document.body.textContent).not.toContain(gateway.replacementToken);
+    if (gateway.replacementToken) expect(document.body.textContent).not.toContain(gateway.replacementToken);
     expect(api.start).not.toHaveBeenCalled();
     const firstPreview = api.preview.mock.calls[api.preview.mock.calls.length - 1]![2];
     expect(firstPreview).toEqual({ ...initial, ...gateway, defaultRoute: { route: 'production', reasoning: 'high' },
@@ -312,7 +312,8 @@ describe('AI routing review', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Back to edit' }));
     await section('Connection');
     expect(screen.getByLabelText('AI Gateway URL')).toHaveValue(gateway.gatewayUrl);
-    expect(screen.getByLabelText('Replacement API token')).toHaveValue(gateway.replacementToken);
+    expect(screen.getByLabelText('Replacement API token')).toHaveValue(gateway.replacementToken ?? '');
+    await waitFor(() => expect(api.catalog).toHaveBeenLastCalledWith(gateway));
     await section('Routes');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Configure production' })).toHaveTextContent('Compatible · backup untested'));
     expect(screen.getByRole('button', { name: 'Configure development' })).toHaveTextContent('Verified');
@@ -320,6 +321,10 @@ describe('AI routing review', () => {
     // Back rereads inventories with the draft credentials and reuses the receipts;
     // it must neither discard the replacement token nor incur paid Verify again.
     expect(api.discover).toHaveBeenCalledTimes(2);
+    for (const route of initial.dynamicRoutes) {
+      const reads = api.inventory.mock.calls.filter(([name]) => name === route);
+      expect(reads[reads.length - 1]).toEqual([route, { gateway }]);
+    }
     await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await screen.findByRole('heading', { name: 'Confirm Save' });
     expect(api.preview).toHaveBeenLastCalledWith('aiRouting', 7, firstPreview);
@@ -327,13 +332,13 @@ describe('AI routing review', () => {
     await fireEvent.click(screen.getByRole('checkbox', { name: /confirm warning/i }));
     expect(api.start).not.toHaveBeenCalled();
     await fireEvent.click(screen.getByRole('button', { name: 'Confirm Save' }));
-    await screen.findByText('Saved token replaced');
+    await screen.findByText(tokenMode === 'replacement' ? 'Saved token replaced' : 'Saved token preserved');
     expect(api.start).toHaveBeenCalledWith('aiRouting', 7, firstPreview, ['reasoning_observed_path']);
     expect(screen.getByRole('table', { name: 'Route profiles' })).toBeVisible();
     expect(screen.getByText('Platform reasoning')).toBeVisible();
     const technical = screen.getByText('Technical details').closest('details')!;
     expect(technical.open).toBe(false);
     expect(within(technical).getByText('private-execution-id')).not.toBeVisible();
-    expect(document.body.textContent).not.toContain(gateway.replacementToken);
+    if (gateway.replacementToken) expect(document.body.textContent).not.toContain(gateway.replacementToken);
   });
 });

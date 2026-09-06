@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { loadEnterpriseRouteConfig } from '../../lib/access';
+import { loadActiveRouteVersion } from '../../lib/ai-gateway-management';
 import { createMockKV, type MockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
 import { getBuiltInProfileRef, normalizeCustomProfile } from '../../lib/reasoning-profiles';
@@ -46,13 +47,14 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
     expect((await loadEnterpriseRouteConfig(makeEnv(kv))).routeCatalog).toEqual([]);
     expect(kv.put).not.toHaveBeenCalled();
   });
-  it('drops stale routes, their context windows and levels after route version drift', async () => {
+  it('uses saved authority without management I/O even when remote topology changes', async () => {
     const { env } = saved();
     routingInventoryFixtures.set('development', { ...routingInventoryFixtures.get('development')!, versionId: 'changed' });
+    vi.mocked(loadActiveRouteVersion).mockClear();
     const cfg = await loadEnterpriseRouteConfig(env);
-    expect(cfg.routeCatalog).toEqual(['general_usage', 'code_review']);
-    expect(cfg.routeReasoningLevels).not.toHaveProperty('development'); expect(cfg.routeContextWindows).not.toHaveProperty('development');
-    expect(cfg.defaultRoute).toBe('general_usage'); expect(cfg.defaultReasoning).toBe('medium');
+    expect(cfg.routeCatalog).toEqual(['general_usage', 'development', 'code_review']);
+    expect(cfg.defaultRoute).toBe('development');
+    expect(loadActiveRouteVersion).not.toHaveBeenCalled();
   });
   it.each(['medium', 'off', 'low'] as const)('prefers Medium then Off then first supported when default drifts: %s', async (expected) => {
     const kv = createMockKV();
@@ -87,7 +89,7 @@ describe('first matching group and optional fallback (REQ-ENTERPRISE-013/-044)',
     const cfg = await loadEnterpriseRouteConfig(env, ['ops', 'developers']);
     expect(cfg.routeCatalog).toEqual(['general_usage']); expect(cfg.defaultReasoning).toBe('low');
   });
-  it.each([[], ['unverified']])('does not fall through from the first group with routes %j', async (routes) => {
+  it.each([{ routes: [] }, { routes: ['unverified'] }])('does not fall through from the first group with routes %j', async ({ routes }) => {
     const { kv, env } = saved();
     kv._set(SETUP_KEYS.GROUP_ROUTING, { first: { routes, defaultRoute: '', reasoning: 'off' }, second: { routes: ['development'], defaultRoute: 'development', reasoning: 'medium' } });
     expect((await loadEnterpriseRouteConfig(env, ['first', 'second'])).routeCatalog).toEqual([]);

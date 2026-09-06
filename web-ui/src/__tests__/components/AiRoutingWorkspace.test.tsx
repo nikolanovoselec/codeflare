@@ -47,6 +47,38 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Administrator route workspace', () => {
+  it.each(['initial', 'refresh'] as const)('REQ-ENTERPRISE-044: selected policy inventory pending during %s blocks Save without dropping routes', async (phase) => {
+    const data = current();
+    data.reasoningConfiguration.routeAssignments.development = { activeProfile: ref, verification: proof('development') } as typeof data.reasoningConfiguration.routeAssignments.general_usage;
+    data.groupRouting[0].routes.push('development');
+    let release!: (value: ReturnType<typeof inventory>) => void;
+    let pending = phase === 'initial';
+    api.inventory.mockImplementation((route: string) => route === 'development' && pending
+      ? new Promise((resolve) => { release = resolve; }) : Promise.resolve(inventory(route, true)));
+    const view = mount(data);
+    if (phase === 'refresh') {
+      await ready(view);
+      pending = true;
+      await openRoute(view, 'development');
+      await fireEvent.click(view.getByRole('button', { name: 'Refresh development models' }));
+    }
+    await waitFor(() => expect(release).toBeDefined());
+    expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
+    release(inventory('development', true));
+    await ready(view);
+    expect(values(view.container).groupRouting[0].routes).toEqual(['general_usage', 'development']);
+    expect(api.discover).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-044: failed selected inventory settles inactive without blocking a working route', async () => {
+    const data = current(); data.groupRouting[0].routes.push('development');
+    api.inventory.mockImplementation(async (route: string) => {
+      if (route === 'development') throw new Error('unavailable');
+      return inventory(route);
+    });
+    const view = mount(data); await ready(view);
+    expect(values(view.container).groupRouting[0].routes).toEqual(['general_usage']);
+  });
   it('REQ-ENTERPRISE-041: starts with a compact route overview and expands only the selected route', async () => {
     const view = mount(); await ready(view);
     expect(view.getByRole('button', { name: 'Configure general_usage' })).toHaveAttribute('aria-expanded', 'false');
@@ -85,7 +117,7 @@ describe('Administrator route workspace', () => {
     expect(within(select).getByRole('option', { name: 'Workers AI · Kimi' })).toBeInTheDocument();
     expect(within(select).getByRole('option', { name: 'OpenAI · GPT — reasoning off' })).toBeInTheDocument();
     expect(view.getByText(/translates Pi.*tool calling and reasoning/i)).toBeVisible();
-    expect(view.getByText('Tested with Kimi through Workers AI.')).toBeVisible();
+    expect(within(view.getByRole('article', { name: 'general_usage route' })).getByText('Tested with Kimi through Workers AI.')).toBeVisible();
     expect(values(view.container).reasoningConfiguration.routeAssignments.general_usage.activeProfile).toEqual(ref);
   });
   it('REQ-ENTERPRISE-042: distinguishes unreadable routes from a merely stored token', async () => {

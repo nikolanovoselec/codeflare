@@ -4,26 +4,25 @@ import { PI_WIRE_CANARY_VERSION } from './reasoning-discovery';
 import { inventoryDynamicRoute, type DynamicRouteInventory, type DynamicRouteVersionInput } from './dynamic-route-inventory';
 import { backendDescriptionsSchema, dynamicRouteSchema, loadActiveRouteVersion, parseGatewayUrl, type GatewayConnection } from './ai-gateway-management';
 
-const levelSchema = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+import { parseFallbackRouting, parseRouteVerification, type RouteVerification } from './reasoning-configuration';
+export type { FallbackRouting, RouteVerification } from './reasoning-configuration';
 const hashSchema = z.string().regex(/^[a-f0-9]{64}$/);
 export const profileRevisionRefSchema = z.object({
   id: z.string().min(1).max(64).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
   revision: z.number().int().positive(), hash: hashSchema,
 }).strict();
-export const routeVerificationSchema = z.object({
-  schemaVersion: z.literal(1), profileRef: profileRevisionRefSchema,
-  routeVersion: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/),
-  inventoryDigest: hashSchema, connectionFingerprint: hashSchema,
-  canaryVersion: z.string().min(1).max(128),
-  supportedLevels: z.array(levelSchema).min(1).max(7).refine((levels) => new Set(levels).size === levels.length),
-  scope: z.enum(['single-model', 'observed-path']), checkedAt: z.string().datetime(),
-}).strict();
-export type RouteVerification = z.infer<typeof routeVerificationSchema>;
-export const fallbackRoutingSchema = z.discriminatedUnion('enabled', [
-  z.object({ enabled: z.literal(false) }).strict(),
-  z.object({ enabled: z.literal(true), routes: z.array(dynamicRouteSchema).min(1).max(256), defaultRoute: dynamicRouteSchema, reasoning: levelSchema }).strict(),
-]).refine((value) => !value.enabled || (new Set(value.routes).size === value.routes.length && value.routes.includes(value.defaultRoute)), 'Fallback default must belong to its allowed routes');
-export type FallbackRouting = z.infer<typeof fallbackRoutingSchema>;
+// Worker request schemas delegate to the dependency-free document parsers used
+// by the browser, keeping saved data validation under one owner.
+function parsedSchema<T>(parse: (value: unknown) => T) {
+  return z.unknown().transform((value, context): T | typeof z.NEVER => {
+    try { return parse(value); } catch (error) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: error instanceof Error ? error.message : 'Invalid configuration' });
+      return z.NEVER;
+    }
+  });
+}
+export const routeVerificationSchema = parsedSchema(parseRouteVerification);
+export const fallbackRoutingSchema = parsedSchema(parseFallbackRouting);
 export const ROUTE_CHECK_TTL_SECONDS = 15 * 60;
 const CHECK_PREFIX = 'admin:reasoning:check:';
 const receiptSchema = z.object({ route: dynamicRouteSchema, verification: routeVerificationSchema }).strict();
