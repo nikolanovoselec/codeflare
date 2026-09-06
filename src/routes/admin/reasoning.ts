@@ -199,13 +199,8 @@ function dominatesCandidate(left: DiscoveryCandidateReport, right: DiscoveryCand
 }
 
 function distinctCandidateReports(reports: DiscoveryCandidateReport[]): DiscoveryCandidateReport[] {
-  const seen = new Set<string>();
-  return reports.filter(({ profile }) => {
-    const digest = canonicalHash(profileDiscoveryContract(profile));
-    if (seen.has(digest)) return false;
-    seen.add(digest);
-    return true;
-  });
+  return reports.filter(({ profile }, index) => !reports.slice(0, index).some((previous) =>
+    coversProfile(previous.profile, profile) && coversProfile(profile, previous.profile)));
 }
 
 function observedCandidate({ profile, report }: DiscoveryCandidateReport): DiscoveryCandidateReport | null {
@@ -218,7 +213,8 @@ function observedCandidate({ profile, report }: DiscoveryCandidateReport): Disco
       supportedLevels,
       levels: Object.fromEntries(supportedLevels.map((level) => [level, mappings[level]])),
       aliases: isPlainObject(profile.aliases) ? Object.fromEntries(Object.entries(profile.aliases)
-        .filter(([level, target]) => supportedLevels.includes(level) && supportedLevels.includes(target))) : {},
+        .filter(([level, target]) => isPiReasoningLevel(level) && isPiReasoningLevel(target)
+          && supportedLevels.includes(level) && supportedLevels.includes(target))) : {},
       offSemantics: supportedLevels.includes('off') ? profile.offSemantics : { status: 'unsupported' },
     },
     report: {

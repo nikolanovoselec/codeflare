@@ -79,6 +79,31 @@ describe('REQ-ENTERPRISE-035 actionable route discovery', () => {
     for (const privateValue of ['saved-gateway-secret', 'private-answer', 'private-reasoning', 'private-final', 'private-response', 'private-call', 'private unsupported mapping']) expect(JSON.stringify(body)).not.toContain(privateValue);
   });
 
+  it('retains equivalent Kimi and saved custom choices when alias representations differ', async () => {
+    const kimi = getBuiltInProfile('workers-ai-kimi-k-thinking')!;
+    const saved = normalizeCustomProfile({
+      schemaVersion: 1, id: 'custom-kimi-direct', name: 'Kimi direct mappings', revision: 2, enabled: true,
+      supportedLevels: kimi.supportedLevels, removePaths: kimi.removePaths, levels: kimi.levels,
+      aliases: {}, offSemantics: { status: 'unsupported' },
+    });
+    const { app, kv } = appWithProfiles([saved]);
+    provider((body) => body.chat_template_kwargs?.clear_thinking === false
+      ? lifecycle(body)
+      : Response.json({}, { status: 400 }));
+
+    const body = await discover(app);
+
+    expect(body).toMatchObject({ outcome: 'existing-profile', assignable: true });
+    expect(body.matchedProfiles).toEqual([kimi, saved].map((profile) => ({
+      name: profile.name,
+      profileRef: { id: profile.id, revision: profile.revision, hash: profile.hash },
+      supportedLevels: profile.supportedLevels,
+    })));
+    expect(body).not.toHaveProperty('profileDraft');
+    expect(body.warnings ?? []).not.toContain('ambiguous_profile_mapping');
+    expect(vi.mocked(kv.put).mock.calls.some(([key]) => key === SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
+  });
+
   it('retains equivalent Gemma and GLM choices instead of mistaking deduplication order for identity', async () => {
     const { app } = appWithProfiles();
     provider((body) => body.chat_template_kwargs?.clear_thinking === false
@@ -99,7 +124,9 @@ describe('REQ-ENTERPRISE-035 actionable route discovery', () => {
       supportedLevels: ['minimal', 'low'], aliases: { minimal: 'low' }, offSemantics: { status: 'unsupported' },
       classification: 'Compatible, unverified', toolCompatibility: { status: 'unverified', levels: [] }, validatedTransports: [],
     } });
-    expect(Object.keys(body.profileDraft.levels)).toEqual(['minimal', 'low']);
+    const kimi = getBuiltInProfile('workers-ai-kimi-k-thinking')!;
+    expect(body.profileDraft.removePaths).toEqual(kimi.removePaths);
+    expect(body.profileDraft.levels).toEqual({ minimal: kimi.levels.minimal, low: kimi.levels.low });
     const normalized = normalizeCustomProfile({ ...body.profileDraft, id: 'custom-discovered', name: 'Discovered low', revision: 1 });
     expect(normalized.supportedLevels).toEqual(['minimal', 'low']);
     expect(normalized.unsupportedLevels).toContain('off');

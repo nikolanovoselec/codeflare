@@ -796,7 +796,7 @@ function groupMappings(profile: DiscoveryProfile): Array<{ levels: ReasoningLeve
   return [...groups.values()];
 }
 
-export interface DiscoveryDiagnostic {
+interface DiscoveryDiagnostic {
   levels: ReasoningLevel[];
   stage: 'reasoning' | 'tool-call' | 'tool-replay' | 'final-response';
   code: 'completion_limit' | 'no_tool_call' | 'invalid_tool_call' | 'replay_rejected' | 'request_rejected'
