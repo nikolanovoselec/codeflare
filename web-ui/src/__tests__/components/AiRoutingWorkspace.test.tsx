@@ -47,6 +47,35 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Administrator route workspace', () => {
+  it('REQ-ENTERPRISE-041: mapping failure unlocks profile selection and keeps progress local', async () => {
+    let finish!: (value: unknown) => void;
+    api.discover.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const view = mount();
+    await ready(view);
+    await openRoute(view, 'development');
+    await fireEvent.click(view.getByRole('button', { name: 'Map Profile for development' }));
+    expect(await view.findByText('Mapping profiles for development…')).toBeVisible();
+    expect(view.getByRole('combobox', { name: 'development Pi compatibility profile' })).toBeDisabled();
+    expect(view.queryByText('Wait for the current profile check to finish.')).toBeNull();
+    finish({ outcome: 'inconclusive', classification: 'Inconclusive', assignable: false, diagnostics: [{ code: 'request_rejected', stage: 'reasoning', status: 429 }] });
+    await waitFor(() => expect(view.getByRole('combobox', { name: 'development Pi compatibility profile' })).toBeEnabled());
+    await fireEvent.change(view.getByRole('combobox', { name: 'development Pi compatibility profile' }), { target: { value: `${offRef.id}\u001f${offRef.revision}\u001f${offRef.hash}` } });
+    expect(view.queryByRole('heading', { name: 'Discover compatibility for development' })).toBeNull();
+    expect(view.getByRole('button', { name: 'Verify Profile for development' })).toBeEnabled();
+  });
+
+  it('REQ-ENTERPRISE-041: verification progress is visible beside the route without a bottom duplicate', async () => {
+    let finish!: (value: unknown) => void;
+    api.discover.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const view = mount();
+    await ready(view);
+    await openRoute(view, 'development');
+    await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
+    expect(await view.findByText('Verifying profile for development…')).toBeVisible();
+    expect(view.queryByText('Wait for the current profile check to finish.')).toBeNull();
+    finish({ classification: 'Inconclusive', assignable: false, diagnostics: [] });
+    await waitFor(() => expect(view.queryByText('Verifying profile for development…')).toBeNull());
+  });
   it.each(['initial', 'refresh'] as const)('REQ-ENTERPRISE-044: selected policy inventory pending during %s blocks Save without dropping routes', async (phase) => {
     const data = current();
     data.reasoningConfiguration.routeAssignments.development = { activeProfile: ref, verification: proof('development') } as typeof data.reasoningConfiguration.routeAssignments.general_usage;

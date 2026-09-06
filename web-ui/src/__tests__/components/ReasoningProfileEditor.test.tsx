@@ -31,6 +31,17 @@ function standalone() {
 }
 
 describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
+  it('REQ-ENTERPRISE-035: offers completed matches with a rate-limit notice without retrying', async () => {
+    const profileRef = { id: 'workers-ai-glm-thinking', revision: 1, hash: 'a'.repeat(64) };
+    discoverMock.mockResolvedValueOnce({ classification: 'Verified', assignable: true, outcome: 'existing-profile', matchedProfiles: [{ name: 'GLM thinking', profileRef, supportedLevels: ['off', 'medium'] }], diagnostics: [{ code: 'request_rejected', status: 429, stage: 'reasoning' }] });
+    const view = standalone();
+    const assign = await view.findByRole('button', { name: 'Assign profile' });
+    expect(view.getByText('The remaining checks stopped because of rate limiting. Completed matches are shown below; no automatic retry was made.')).toBeVisible();
+    await fireEvent.click(assign);
+    expect(view.onSelectProfile).toHaveBeenCalledExactlyOnceWith(profileRef);
+    expect(discoverMock).toHaveBeenCalledTimes(1);
+    expect(view.onSave).not.toHaveBeenCalled();
+  });
   it('REQ-ENTERPRISE-045: matched predefined profiles identify their tested provider without changing the selected ref', async () => {
     const profileRef = { id: 'codeflare-inference-mesh-binary-thinking', revision: 1, hash: 'a'.repeat(64) };
     discoverMock.mockResolvedValueOnce({ classification: 'Verified', assignable: true, outcome: 'existing-profile', matchedProfiles: [{ name: 'Mesh binary thinking', profileRef, supportedLevels: ['off', 'medium'] }] });

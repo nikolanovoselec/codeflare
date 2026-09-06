@@ -222,7 +222,7 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
     </div>
     <Show when={error()}><div class="admin-inline-error" role="alert">{error()}</div></Show>
 
-    <Show when={busy()}><p class="admin-status-text" role="status">Mapping profile…</p></Show>
+    <Show when={busy()}><div class="admin-state-panel" role="status" aria-live="polite"><strong>Mapping profiles for {props.route}…</strong><p>Checking reasoning, tool calls, and tool-result replay. Results appear when the check finishes.</p></div></Show>
 
     <Show when={result()}>{(discovered) => <div aria-live="polite">
       <Show when={matchedProfiles().length > 0}>
@@ -230,6 +230,7 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
           <strong>Compatible Pi profiles found</strong>
           <p>These translations fit the observed behavior. Provider labels describe original testing, not the model currently behind this route.</p>
           <span>Assign a profile to the draft, Verify it, then Save. Mapping alone does not enable access.</span>
+          <Show when={discovered().diagnostics?.some((diagnostic) => diagnostic.status === 429)}><p role="status">The remaining checks stopped because of rate limiting. Completed matches are shown below; no automatic retry was made.</p></Show>
         </div>
         <For each={matchedProfiles()}>{(profile) => {
           const nameId = createUniqueId();

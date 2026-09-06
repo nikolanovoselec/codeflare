@@ -383,7 +383,7 @@ const AiRoutingFields: Component<Props> = (props) => {
               <Show when={legs().length > 1}><p class="admin-field-help">AI Gateway may use a backup or another branch. A check tests the path selected for that request.</p></Show>
             </section>
             <div class="admin-route-controls">
-              <label class="admin-form-field"><span>Pi compatibility profile</span><select aria-label={`${route.name} Pi compatibility profile`} value={refKey(route.assignment.activeProfile)} disabled={catalogBusy() || check().busy || profileEditorRoute() === route.name} onChange={(event) => setRouteProfile(route.name, event.currentTarget.value)}>
+              <label class="admin-form-field"><span>Pi compatibility profile</span><select aria-label={`${route.name} Pi compatibility profile`} value={refKey(route.assignment.activeProfile)} disabled={catalogBusy() || check().busy || profileEditorBusy()} onChange={(event) => { setProfileEditorRoute(undefined); setRouteProfile(route.name, event.currentTarget.value); }}>
                 <option value="" selected={!route.assignment.activeProfile}>Choose a profile</option><For each={assignableProfiles()}>{(option) => <option value={refKey(option)} selected={refKey(option) === refKey(route.assignment.activeProfile)}>{profileDisplayName(option)}</option>}</For>
               </select><small>Mapping translates request settings; it does not identify the model behind a route.</small></label>
               <label class="admin-form-field"><span>Context window</span><input type="text" inputmode="numeric" aria-label={`${route.name} context window`} value={route.contextWindow} onInput={(event) => updateRoute(route.name, (item) => ({ ...item, contextWindow: Number(event.currentTarget.value) }))} /><small>Maximum conversation size, in tokens.</small></label>
@@ -394,7 +394,7 @@ const AiRoutingFields: Component<Props> = (props) => {
               <dl><div><dt>Reasoning options</dt><dd>{selected().supportedLevels.map(levelLabel).join(', ')}</dd></div><div><dt>Reasoning off</dt><dd>{selected().supportedLevels.includes('off') ? 'Supported' : 'Not supported'}</dd></div></dl>
             </div>}</Show>
             <div class="admin-route-actions"><button type="button" class="admin-secondary-button" aria-label={`Map Profile for ${route.name}`} disabled={!connectionReady() || check().busy || Boolean(profileEditorRoute()) || !gatewayRoutes().includes(route.name)} onClick={() => setProfileEditorRoute(route.name)}>Map Profile</button>
-              <button type="button" class="admin-primary-button" aria-label={`Verify Profile for ${route.name}`} disabled={!connectionReady() || !profile() || needsBackendDescription(route) || check().busy || route.inventoryBusy || Boolean(profileEditorRoute()) || !gatewayRoutes().includes(route.name)} onClick={() => void verifySelectedProfile(route.name)}>{check().busy ? 'Verifying…' : 'Verify Profile'}</button>
+              <button type="button" class="admin-primary-button" aria-label={`Verify Profile for ${route.name}`} disabled={!connectionReady() || !profile() || needsBackendDescription(route) || check().busy || route.inventoryBusy || profileEditorBusy() || !gatewayRoutes().includes(route.name)} onClick={() => { setProfileEditorRoute(undefined); void verifySelectedProfile(route.name); }}>{check().busy ? 'Verifying…' : 'Verify Profile'}</button>
             </div>
             <p class="admin-field-help">Map finds compatible profiles. If none fit, a successful mapping can offer custom Create &amp; Assign. Verify checks your selection. Checks may use provider credits; Save activates your settings.</p>
             <Show when={check().error}><p role="alert" class="admin-inline-error">{check().error}</p></Show>
@@ -405,6 +405,7 @@ const AiRoutingFields: Component<Props> = (props) => {
               <Show when={!completeVerification(result())}><p class="admin-status-text">{reasoningCheckSummary(result())}</p></Show>
               <Show when={verifiedAssignment(route)}><p class="admin-status-text">Check passed. Assign access and confirm Save to activate this draft.</p></Show><ReasoningCheckDetails result={result()} />
             </section>}</Show>
+            <Show when={check().busy}><div class="admin-state-panel" role="status" aria-live="polite"><strong>Verifying profile for {route.name}…</strong><p>Checking reasoning, tool calls, and tool-result replay. Results appear when the check finishes.</p></div></Show>
             <Show when={profileEditorRoute() === route.name}><ReasoningProfileEditor route={route.name} context={managementContext(route.name)} onBusyChange={setProfileEditorBusy} existingRevisions={customRevisions()} onCancel={() => setProfileEditorRoute(undefined)} onSelectProfile={(ref) => { setProfileEditorRoute(undefined); setRouteProfile(route.name, refKey(ref)); }} onSave={(revision) => { setProfileEditorRoute(undefined); setCustomRevisions((items) => [...items, revision]); setRouteProfile(route.name, refKey(profileRef(revision))); setPendingProfileName(String(revision.name ?? 'New profile')); }} /></Show>
             <Show when={needsBackendDescription(route)}><p class="admin-field-help">Describe each custom-provider backend below before Verify. This does not require Save first.</p></Show>
             <details class="admin-route-reference" open={needsBackendDescription(route)}><summary>Advanced profile and gateway details</summary>
@@ -439,7 +440,7 @@ const AiRoutingFields: Component<Props> = (props) => {
       </section>
     </section>
     <Show when={pendingProfileName()}><div class="admin-unsaved-banner" role="status"><strong>{pendingProfileName()} is a draft</strong><span>Verify it, assign a group, then confirm Save to keep the profile and assignment.</span></div></Show>
-    <Show when={saveHelp()}><p class="admin-routing-save-help" role="status" data-ready={canSave()}>{saveHelp()}</p></Show>
+    <Show when={!checksBusy() && saveHelp()}><p class="admin-routing-save-help" role="status" data-ready={canSave()}>{saveHelp()}</p></Show>
     <For each={activeNames()}>{(name) => <input type="hidden" name="dynamicRoutes" value={name} />}</For>
     <For each={routes().filter((route) => route.assignment.activeProfile && validContext(route))}>{(route) => <><input type="hidden" name="routeContextRoute" value={route.name} /><input type="hidden" name="routeContextWindow" value={route.contextWindow} /></>}</For>
     <input type="hidden" name="defaultRoute" value={compatibilityDefault()?.defaultRoute ?? ''} /><input type="hidden" name="reasoning" value={compatibilityDefault()?.reasoning ?? 'off'} />

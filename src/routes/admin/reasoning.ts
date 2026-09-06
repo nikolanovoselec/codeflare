@@ -549,7 +549,12 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
     }), { logicalProbes: 0, httpAttempts: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 });
     // Existing revisions are independent administrator choices, not competing
     // runtime mappings. Only a new draft requires one coherent observed fit.
-    const existingMatches = stopped ? [] : matches;
+    const rateLimited = reports.some(({ report }) => report.stopDiscovery
+      && report.diagnostics?.some((diagnostic: { status?: number }) => diagnostic.status === 429));
+    // Stop paid requests on throttling, but retain independently completed mappings.
+    const existingMatches = stopped
+      ? rateLimited ? matches.filter(({ report }) => !report.stopDiscovery) : []
+      : matches;
     const candidates = distinctCandidateReports(observed);
     const selected = stopped || existingMatches.length > 0 ? null : selectUnambiguousCandidateMatch(candidates);
     const diagnostics = reports.flatMap(({ report }) => report.diagnostics ?? []);

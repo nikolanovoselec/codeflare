@@ -187,10 +187,28 @@ describe('REQ-ENTERPRISE-035 actionable route discovery', () => {
     expect(await discover(app)).toMatchObject({ outcome: 'custom-profile', matchedProfiles: [] });
   });
 
+  it('retains complete Gemma and GLM matches when a later candidate is rate limited', async () => {
+    const { app, kv } = appWithProfiles();
+    let mappedAttempts = 0;
+    provider((body) => {
+      if (body.chat_template_kwargs?.clear_thinking !== false) return Response.json({}, { status: 400 });
+      if (++mappedAttempts > 12) return Response.json({}, { status: 429 });
+      return lifecycle(body, body.chat_template_kwargs.enable_thinking !== false);
+    });
+    const body = await discover(app);
+    expect(body.outcome).toBe('existing-profile');
+    expect(body.matchedProfiles.map((profile: any) => profile.profileRef.id)).toContain('workers-ai-glm-thinking');
+    expect(body.matchedProfiles.map((profile: any) => profile.profileRef.id)).toContain('workers-ai-gemma-thinking');
+    expect(body.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ status: 429 })]));
+    expect(mappedAttempts).toBe(13);
+    expect(body).not.toHaveProperty('profileDraft');
+    expect(vi.mocked(kv.put).mock.calls.some(([key]) => key === SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
+  });
+
   it('suppresses earlier matches when a later candidate encounters a fatal failure', async () => {
     const { app } = appWithProfiles();
     let attempts = 0;
-    const fetcher = provider((body) => ++attempts <= 12 ? lifecycle(body, false) : Response.json({}, { status: 429 }));
+    const fetcher = provider((body) => ++attempts <= 12 ? lifecycle(body, false) : Response.json({}, { status: 500 }));
     const body = await discover(app);
     expect(body).toMatchObject({ outcome: 'inconclusive', assignable: false, matchedProfiles: [], accounting: { httpAttempts: 13 } });
     expect(body.candidateResults[0].assignable).toBe(true);
