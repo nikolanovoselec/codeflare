@@ -52,7 +52,6 @@ function normalizeEmail(email: string): string {
 // independent second factor that proves client token knowledge - the Origin
 // allowlist (checkVaultOrigin) remains the primary CSRF defense. The token
 // layers on top and leaves room for a future client-echoed double-submit.
-export { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from './constants';
 
 /** Constant-time string equality for the double-submit token compare. */
 async function timingSafeEqualStrings(a: string, b: string): Promise<boolean> {
