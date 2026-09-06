@@ -16,7 +16,7 @@ import type {
   ReasoningRouteInventory,
   ReasoningRouteLeg,
 } from '../../types';
-import ReasoningProfileEditor from './ReasoningProfileEditor';
+import ReasoningProfileEditor, { completionTokenCeiling, ReasoningCheckDetails, reasoningCheckSummary } from './ReasoningProfileEditor';
 
 interface Props { current: unknown }
 interface GroupDraft { accessGroup: string; routes: string[]; defaultRoute: string; reasoning: PiReasoningLevel }
@@ -28,9 +28,12 @@ interface RouteDraft {
   inventory?: ReasoningRouteInventory;
   inventoryBusy?: boolean;
   inventoryError?: string;
-  verificationBusy?: boolean;
-  verificationResult?: ReasoningDiscoveryResult;
-  verificationError?: string;
+}
+interface VerificationDraft {
+  ceiling: string;
+  busy?: boolean;
+  result?: ReasoningDiscoveryResult;
+  error?: string;
 }
 
 const LEVELS: PiReasoningLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -122,6 +125,9 @@ const AiRoutingFields: Component<Props> = (props) => {
   const [applyGroupSource, setApplyGroupSource] = createSignal(groups()[0]?.accessGroup ?? '');
   const [profileEditorRoute, setProfileEditorRoute] = createSignal<string>();
   const [pendingProfileName, setPendingProfileName] = createSignal('');
+  const [verifications, setVerifications] = createSignal<Record<string, VerificationDraft>>({});
+  const verificationFor = (name: string): VerificationDraft => verifications()[name] ?? { ceiling: '32' };
+  const updateVerification = (name: string, update: (draft: VerificationDraft) => VerificationDraft) => setVerifications((items) => ({ ...items, [name]: update(items[name] ?? { ceiling: '32' }) }));
 
   onMount(async () => {
     try {
@@ -158,6 +164,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const setRouteProfile = (name: string, key: string) => {
     const selected = assignableProfiles().find((profile) => refKey(profileRefFromEntry(profile)) === key);
     const selectedRef = selected ? profileRefFromEntry(selected) : undefined;
+    updateVerification(name, (draft) => ({ ceiling: draft.ceiling }));
     updateRoute(name, (route) => ({
       ...route,
       assignment: {
@@ -270,31 +277,37 @@ const AiRoutingFields: Component<Props> = (props) => {
   };
 
   const verifySelectedProfile = async (name: string) => {
+    if (verificationFor(name).busy) return;
     const route = routeByName(name);
     if (!route?.assignment.activeProfile) {
-      updateRoute(name, (item) => ({ ...item, verificationError: 'Select a reasoning profile before verification.' }));
+      updateVerification(name, (draft) => ({ ...draft, error: 'Select a reasoning profile before verification.' }));
       return;
     }
-    updateRoute(name, (item) => ({ ...item, verificationBusy: true, verificationResult: undefined, verificationError: undefined }));
+    const maxCompletionTokens = completionTokenCeiling(verificationFor(name).ceiling);
+    if (maxCompletionTokens === undefined) {
+      updateVerification(name, (draft) => ({ ...draft, error: 'Completion token ceiling must be a whole number from 32 to 16384.' }));
+      return;
+    }
+    updateVerification(name, (draft) => ({ ...draft, busy: true, result: undefined, error: undefined }));
     try {
-      const result = await discoverReasoningCompatibility({ route: name, profileRef: route.assignment.activeProfile, maxCompletionTokens: 32 });
-      updateRoute(name, (item) => ({ ...item, verificationBusy: false, verificationResult: result }));
-    } catch (reason) {
-      updateRoute(name, (item) => ({ ...item, verificationBusy: false, verificationError: reason instanceof Error ? reason.message : 'Profile verification failed.' }));
+      const result = await discoverReasoningCompatibility({ route: name, profileRef: route.assignment.activeProfile, maxCompletionTokens });
+      updateVerification(name, (draft) => ({ ...draft, busy: false, result }));
+    } catch {
+      updateVerification(name, (draft) => ({ ...draft, busy: false, error: 'Profile verification failed. Check the saved AI Gateway connection and try again.' }));
     }
   };
 
   const attachCompatibilityRecord = (name: string) => {
     const route = routeByName(name);
-    const evidence = route?.verificationResult?.evidence;
+    const evidence = verificationFor(name).result?.evidence;
     const legs = route?.assignment.legs ?? [];
     if (!route || !evidence || legs.length !== 1 || !route.assignment.activeProfile) {
-      updateRoute(name, (item) => ({ ...item, verificationError: 'Refresh gateway details first. A record can be attached only when the route has one reachable leg.' }));
+      updateVerification(name, (draft) => ({ ...draft, error: 'Refresh gateway details first. A record can be attached only when the route has one reachable leg.' }));
       return;
     }
+    updateVerification(name, (draft) => ({ ...draft, error: undefined }));
     updateRoute(name, (item) => ({
       ...item,
-      verificationError: undefined,
       assignment: {
         ...item.assignment,
         commonMapping: undefined,
@@ -340,6 +353,7 @@ const AiRoutingFields: Component<Props> = (props) => {
 
       <div class="admin-route-list"><For each={routes()}>{(route) => {
         const selectedProfile = () => findProfile(route.assignment.activeProfile);
+        const verification = () => verificationFor(route.name);
         const inventoryLegs = () => route.assignment.legs ?? [];
         const commonLevels = () => route.assignment.commonMapping
           ? LEVELS.filter((level) => route.assignment.commonMapping?.levels[level])
@@ -349,12 +363,21 @@ const AiRoutingFields: Component<Props> = (props) => {
           <div class="admin-route-controls">
             <label class="admin-form-field"><span>Context window</span><input name="routeContextWindow" type="number" min="1" step="1" aria-label={`${route.name} context window`} value={route.contextWindow} onInput={(event) => updateRoute(route.name, (item) => ({ ...item, contextWindow: Number(event.currentTarget.value) }))} /></label>
             <input type="hidden" name="routeContextRoute" value={route.name} />
-            <label class="admin-form-field"><span>Reasoning profile</span><select aria-label={`${route.name} reasoning profile`} value={refKey(route.assignment.activeProfile)} disabled={catalogBusy() || Boolean(catalogError())} onChange={(event) => setRouteProfile(route.name, event.currentTarget.value)}><option value="">Select reasoning profile</option><For each={assignableProfiles()}>{(profile) => <option value={refKey(profileRefFromEntry(profile))}>{profile.name} · revision {profile.revision}</option>}</For></select></label>
+            <label class="admin-form-field"><span>Reasoning profile</span><select aria-label={`${route.name} reasoning profile`} value={refKey(route.assignment.activeProfile)} disabled={catalogBusy() || Boolean(catalogError()) || verification().busy} onChange={(event) => setRouteProfile(route.name, event.currentTarget.value)}><option value="">Select reasoning profile</option><For each={assignableProfiles()}>{(profile) => <option value={refKey(profileRefFromEntry(profile))}>{profile.name} · revision {profile.revision}</option>}</For></select></label>
           </div>
           <Show when={selectedProfile()}>{(profile) => <div class="admin-route-profile"><span>Selected profile</span><strong>{profile().name}</strong><small>{profile().supportedLevels.length} reasoning levels available</small></div>}</Show>
-          <Show when={gatewayRoutes().includes(route.name)}><button type="button" class="admin-primary-button admin-route-discover" aria-label={`Discover ${route.name} compatibility`} onClick={() => setProfileEditorRoute(route.name)}>Discover compatibility</button></Show>
-          <Show when={profileEditorRoute() === route.name}><ReasoningProfileEditor route={route.name} existingRevisions={customRevisions()} onCancel={() => setProfileEditorRoute(undefined)} onSave={(revision) => { setCustomRevisions((items) => [...items, revision]); setPendingProfileName(String(revision.name ?? 'New profile')); setProfileEditorRoute(undefined); }} /></Show>
-          <details class="admin-route-details"><summary>Advanced route details</summary><div class="admin-route-details-content"><Show when={selectedProfile()}>{(profile) => <div class="admin-profile-summary"><strong>Profile behavior</strong><span>Supported levels: {profile().supportedLevels.join(', ')}</span><span>{offSummary(profile())}</span><span>Pi tools: {profile().toolCompatibility?.status ?? 'Not checked'}</span><Show when={profile().validatedTransports?.length}><span>Validated transport: {profile().validatedTransports?.join(', ')}</span></Show><Show when={catalog().usage.find((item) => refKey(item.profileRef) === refKey(profileRefFromEntry(profile())))}>{(usage) => <span>Assigned routes: {usage().routes.join(', ')}</span>}</Show><For each={profile().limitations ?? []}>{(limitation) => <small>{limitation}</small>}</For></div>}</Show><p class="admin-status-text">Gateway legs and compatibility records are diagnostic only. They document observed behavior and never choose a backend or alter runtime.</p><div class="admin-route-actions"><button type="button" class="admin-secondary-button" disabled={route.inventoryBusy || !gatewayRoutes().includes(route.name)} aria-label={`Refresh ${route.name} gateway details`} onClick={() => void inspect(route.name)}>{route.inventoryBusy ? 'Refreshing…' : 'Refresh gateway details'}</button><button type="button" class="admin-secondary-button" disabled={route.verificationBusy || !route.assignment.activeProfile || !gatewayRoutes().includes(route.name)} aria-label={`Verify ${route.name} selected profile`} onClick={() => void verifySelectedProfile(route.name)}>{route.verificationBusy ? 'Verifying…' : 'Verify selected profile'}</button></div><Show when={route.verificationError}><div class="admin-inline-error" role="alert">{route.verificationError}</div></Show><Show when={route.verificationResult}>{(result) => <div class="admin-discovery-result" role="status"><strong>Selected profile check: {result().classification}</strong><span>Logical probes: {result().accounting?.logicalProbes ?? 'Not reported'}</span><span>HTTP attempts: {result().accounting?.httpAttempts ?? 'Not reported'}</span><For each={result().warnings ?? []}>{(warning) => <small>{warning}</small>}</For><Show when={result().assignable === true && result().evidence && inventoryLegs().length === 1}><button type="button" class="admin-secondary-button" onClick={() => attachCompatibilityRecord(route.name)}>Add compatibility record</button></Show></div>}</Show>
+          <Show when={gatewayRoutes().includes(route.name)}><button type="button" class="admin-primary-button admin-route-discover" aria-label={`Discover ${route.name} compatibility`} disabled={verification().busy} onClick={() => setProfileEditorRoute(route.name)}>Discover compatibility</button></Show>
+          <Show when={profileEditorRoute() === route.name}><ReasoningProfileEditor route={route.name} existingRevisions={customRevisions()} onCancel={() => setProfileEditorRoute(undefined)} onSelectProfile={(ref) => { setRouteProfile(route.name, refKey(ref)); setProfileEditorRoute(undefined); }} onSave={(revision) => { setCustomRevisions((items) => [...items, revision]); setPendingProfileName(String(revision.name ?? 'New profile')); setProfileEditorRoute(undefined); }} /></Show>
+          <details class="admin-route-details"><summary>Advanced route details</summary><div class="admin-route-details-content"><Show when={selectedProfile()}>{(profile) => <div class="admin-profile-summary"><strong>Profile behavior</strong><span>Supported levels: {profile().supportedLevels.join(', ')}</span><span>{offSummary(profile())}</span><span>Pi tools: {profile().toolCompatibility?.status ?? 'Not checked'}</span><Show when={profile().validatedTransports?.length}><span>Validated transport: {profile().validatedTransports?.join(', ')}</span></Show><Show when={catalog().usage.find((item) => refKey(item.profileRef) === refKey(profileRefFromEntry(profile())))}>{(usage) => <span>Assigned routes: {usage().routes.join(', ')}</span>}</Show><For each={profile().limitations ?? []}>{(limitation) => <small>{limitation}</small>}</For></div>}</Show><p class="admin-status-text">Gateway legs and compatibility records are diagnostic only. They document observed behavior and never choose a backend or alter runtime.</p>
+          <label class="admin-form-field admin-profile-name"><span>Verification completion token ceiling</span><input type="number" min="32" max="16384" step="1" aria-label={`${route.name} verification completion token ceiling`} value={verification().ceiling} disabled={verification().busy} onInput={(event) => { const ceiling = event.currentTarget.value; updateVerification(route.name, (draft) => ({ ...draft, ceiling })); }} /></label>
+          <p class="admin-status-text">Verification uses the saved AI Gateway connection and may create provider usage. Codeflare never retries at a higher ceiling automatically.</p>
+          <div class="admin-route-actions"><button type="button" class="admin-secondary-button" disabled={route.inventoryBusy || !gatewayRoutes().includes(route.name)} aria-label={`Refresh ${route.name} gateway details`} onClick={() => void inspect(route.name)}>{route.inventoryBusy ? 'Refreshing…' : 'Refresh gateway details'}</button><button type="button" class="admin-secondary-button" disabled={verification().busy || !route.assignment.activeProfile || !gatewayRoutes().includes(route.name) || profileEditorRoute() === route.name} aria-label={`Verify ${route.name} selected profile`} onClick={() => void verifySelectedProfile(route.name)}>{verification().busy ? 'Verifying…' : 'Verify selected profile'}</button></div>
+          <Show when={verification().error}><div class="admin-inline-error" role="alert">{verification().error}</div></Show>
+          <Show when={verification().result}>{(result) => <div class="admin-discovery-result" role="status">
+            <strong>Selected profile check: {reasoningCheckSummary(result(), result().assignable === false ? undefined : result().classification)}</strong>
+            <ReasoningCheckDetails result={result()} />
+            <Show when={result().assignable === true && result().evidence && inventoryLegs().length === 1}><button type="button" class="admin-secondary-button" onClick={() => attachCompatibilityRecord(route.name)}>Add compatibility record</button></Show>
+          </div>}</Show>
           <Show when={!gatewayRoutes().includes(route.name)}><p class="admin-status-text">This stored route is no longer present in the gateway. Remove it or restore it in AI Gateway.</p></Show>
           <Show when={route.inventoryError}><div class="admin-inline-error" role="alert">{route.inventoryError}</div></Show>
           <Show when={inventoryLegs().length > 0}><section class="admin-inventory" aria-label={`${route.name} route inventory`}><p class="admin-status-text">AI Gateway privately selects conditional and fallback legs after Codeflare applies the route-wide profile.</p><div class="admin-inventory-heading"><strong>Active route version</strong><span class="admin-mono">{route.assignment.routeVersion ?? 'Unavailable'}</span></div><div class="admin-leg-list"><For each={inventoryLegs()}>{(leg) => <div class="admin-leg-row"><div class="admin-leg-identity"><strong>{leg.nodeId}</strong><span>{leg.declaredModel}</span><small>{leg.provider}</small></div><label class="admin-form-field"><span>Compatibility record</span><select aria-label={`${leg.nodeId} compatibility record`} value={refKey(leg.profileRef)} onChange={(event) => setLeg(route.name, leg.nodeId, { profileRef: event.currentTarget.value ? profileRefFromEntry(assignableProfiles().find((profile) => refKey(profileRefFromEntry(profile)) === event.currentTarget.value)!) : undefined })}><option value="">No compatibility record</option><For each={assignableProfiles()}>{(profile) => <option value={refKey(profileRefFromEntry(profile))}>{profile.name} · revision {profile.revision}</option>}</For></select></label><Show when={leg.provider.toLowerCase().startsWith('custom')}><label class="admin-form-field"><span>Administrator-declared backend</span><input aria-label={`${leg.nodeId} custom provider backend`} value={leg.customProviderBackend ?? ''} onInput={(event) => setLeg(route.name, leg.nodeId, { customProviderBackend: event.currentTarget.value, evidence: { ...leg.evidence, current: false, status: 'stale' } })} /></label></Show><div class="admin-evidence-status"><span>Compatibility</span><strong>{compatibilitySummary(leg)}</strong></div></div>}</For></div><p class="admin-status-text">Shared supported levels: <strong>{commonLevels().join(', ') || 'None checked'}</strong></p><Show when={route.inventory?.warnings?.length}><ul class="admin-warning-list"><For each={route.inventory?.warnings}>{(warning) => <li>{warning}</li>}</For></ul></Show></section></Show>

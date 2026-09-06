@@ -628,6 +628,14 @@ The real route is mapped by the `LlmInterceptor` from the agent's slash-free han
 
 **Fix:** Reissue the saved `setup:aig_token`/`AIG_TOKEN` with Workers AI, AI Gateway Run, and AI Gateway Read; save it through Administration and reload AI Routing. If listing succeeds but one inventory fails, correct duplicate node IDs, a missing start, cycles, unresolved non-terminal edges, or malformed nodes in that route, then redeploy its active version. Verify all reachable conditional and fallback legs appear.
 
+#### Discovery does not confirm a profile
+
+**Check the outcome before changing configuration:** An existing-profile result names compatible revisions; use its explicit selection action, then Review and Apply. It does not identify the gateway-selected model. The Kimi preset supports non-off levels and can fit Kimi-compatible behavior without requiring a new profile. Equivalent mappings may offer more than one named profile.
+
+For `completion_limit`, a tool call or replay exhausted the selected token ceiling. The result is inconclusive, not proof that the model cannot use tools. Increase the visible ceiling (up to 16,384) and explicitly run again if the cost is acceptable. The default is 32; Codeflare never raises it automatically. Technical details distinguish request rejection, missing tool calls, replay rejection, incomplete final completion, and off that still emits reasoning.
+
+If no existing revision fits but a unique subset passes, name the generated custom draft and continue to Review; only Apply saves it. Failed modes are not included. Divergent mappings produce no draft. Authentication, rate-limit, provider-server, transport, and malformed-stream failures stop the whole scan. Fix that boundary before another run. Unknown provider request properties cannot be discovered by the finite protocol bank; do not invent mapping values to bypass a failure. ([REQ-ENTERPRISE-035](../../sdd/spec/enterprise-mode.md#req-enterprise-035-enterprise-pi-protocol-match-selection))
+
 <a id="enterprise-reasoning-migration-or-activation-is-blocked"></a>
 #### Enterprise reasoning migration or activation is blocked
 

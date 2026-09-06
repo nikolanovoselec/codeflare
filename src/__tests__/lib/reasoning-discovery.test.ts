@@ -293,6 +293,41 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it.each(['tool-call', 'final-response'])('REQ-ENTERPRISE-035: reports completion limits at %s without retrying or claiming incompatibility', async (stage) => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (!body.tools) return sse([{ choices: [{ delta: { content: 'answer' }, finish_reason: 'stop' }] }, '[DONE]']);
+      if (stage === 'final-response' && !body.messages.some((message: any) => message.role === 'tool')) {
+        return sse([{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'private-call', type: 'function', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' } }] }, finish_reason: 'tool_calls' }] }, '[DONE]']);
+      }
+      return sse([{ choices: [{ delta: { reasoning_content: 'private-cap-limited' }, finish_reason: 'length' }] }, '[DONE]']);
+    });
+    const report = await discoverPiCompatibility({
+      accountId: ACCOUNT_ID, gatewayId: 'gateway', apiToken: 'secret-token', route: 'dynamic/test',
+      profile: { id: 'low', supportedLevels: ['low'], levels: { low: { reasoning_effort: 'low' } } },
+      maxCompletionTokens: 32, fetcher,
+    });
+    expect(report).toMatchObject({ classification: 'Inconclusive', assignable: false, compatibleLevels: [], diagnostics: [{ levels: ['low'], stage, code: 'completion_limit' }] });
+    expect(fetcher).toHaveBeenCalledTimes(stage === 'tool-call' ? 2 : 3);
+    expect(JSON.stringify(report)).not.toContain('private-cap-limited');
+  });
+
+  it('REQ-ENTERPRISE-035: excludes off from compatible modes when hidden reasoning tokens are reported', async () => {
+    const requests: Array<{ url: string; body: Record<string, unknown>; headers: Headers }> = [];
+    const success = successfulFetcher(requests);
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (!body.tools) return sse([{ choices: [{ delta: { content: 'answer' }, finish_reason: 'stop' }], usage: { completion_tokens_details: { reasoning_tokens: 12 } } }, '[DONE]']);
+      return success(input, init);
+    });
+    const report = await discoverPiCompatibility({
+      accountId: ACCOUNT_ID, gatewayId: 'gateway', apiToken: 'secret-token', route: 'dynamic/test',
+      profile: { id: 'off', supportedLevels: ['off'], levels: { off: { reasoning_effort: 'none' } } },
+      maxCompletionTokens: 32, fetcher,
+    });
+    expect(report).toMatchObject({ assignable: false, compatibleLevels: [], diagnostics: [{ levels: ['off'], stage: 'reasoning', code: 'off_not_disabled' }] });
+  });
+
   it('REQ-ENTERPRISE-033: marks malformed tool replay SSE inconclusive without exposing the event', async () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(sse([{ choices: [{ delta: { content: 'reasoning-ok' }, finish_reason: 'stop' }] }, '[DONE]']))

@@ -146,13 +146,32 @@ export interface ReasoningDiscoveryRequest {
   maxCompletionTokens: number;
 }
 
+export interface ReasoningDiscoveryDiagnostic {
+  levels: PiReasoningLevel[];
+  stage: string;
+  code: string;
+  status?: number;
+  transport?: string;
+}
+
 export interface ReasoningDiscoveryResult {
   route?: string;
   classification: string;
   assignable?: boolean;
+  outcome?: 'existing-profile' | 'custom-profile' | 'ambiguous' | 'inconclusive' | 'unsupported';
+  matchedProfiles?: Array<{ profileRef: ProfileRevisionRef; name: string; supportedLevels: PiReasoningLevel[] }>;
+  diagnostics?: ReasoningDiscoveryDiagnostic[];
+  requestedCompletionCeiling?: number;
   matchedCandidateProfileId?: string;
   profileDraft?: Record<string, unknown>;
-  candidateResults?: Array<{ profileId: string; classification: string; assignable: boolean }>;
+  candidateResults?: Array<{
+    profileId: string;
+    classification: string;
+    assignable: boolean;
+    profileName?: string;
+    verifiedLevels?: PiReasoningLevel[];
+    diagnostics?: ReasoningDiscoveryDiagnostic[];
+  }>;
   warnings?: string[];
   accounting?: { logicalProbes?: number; httpAttempts?: number };
   supportedLevels?: PiReasoningLevel[];

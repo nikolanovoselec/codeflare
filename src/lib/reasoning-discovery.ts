@@ -796,6 +796,54 @@ function groupMappings(profile: DiscoveryProfile): Array<{ levels: ReasoningLeve
   return [...groups.values()];
 }
 
+export interface DiscoveryDiagnostic {
+  levels: ReasoningLevel[];
+  stage: 'reasoning' | 'tool-call' | 'tool-replay' | 'final-response';
+  code: 'completion_limit' | 'no_tool_call' | 'invalid_tool_call' | 'replay_rejected' | 'request_rejected'
+    | 'timeout' | 'transport_error' | 'malformed_response' | 'response_too_large'
+    | 'off_not_disabled' | 'incomplete_final_response';
+  status?: number;
+  transport?: string;
+}
+
+function probeDiagnostic(probe: Record<string, any> | null, levels: ReasoningLevel[], stage: DiscoveryDiagnostic['stage']): DiscoveryDiagnostic | null {
+  if (!probe) return null;
+  const boundary = {
+    ...(typeof probe.status === 'number' ? { status: probe.status } : {}),
+    ...(['rest', 'compat'].includes(probe.transport) ? { transport: String(probe.transport) } : {}),
+  };
+  for (const code of ['timeout', 'transport_error', 'malformed_response', 'response_too_large'] as const) {
+    if (probe.code === code) return { levels, stage, code, ...boundary };
+  }
+  if (probe.malformedEvents > 0) return { levels, stage, code: 'malformed_response', ...boundary };
+  if (probe.status !== 200) return { levels, stage, code: stage === 'tool-replay' ? 'replay_rejected' : 'request_rejected', ...boundary };
+  return null;
+}
+
+function mappingDiagnostics(items: Array<Record<string, any>>): DiscoveryDiagnostic[] {
+  const diagnostics: DiscoveryDiagnostic[] = [];
+  for (const item of items) {
+    const levels = item.levels as ReasoningLevel[];
+    const probe = item.reasoningProbe;
+    const reasoningFailure = probeDiagnostic(probe, levels, 'reasoning');
+    if (reasoningFailure) diagnostics.push(reasoningFailure);
+    else if (levels.includes('off')) {
+      if (probe.reasoningLength > 0 || probe.reasoningTokens > 0) diagnostics.push({ levels: ['off'], stage: 'reasoning', code: 'off_not_disabled' });
+      else if (probe.finishReason === 'length') diagnostics.push({ levels: ['off'], stage: 'reasoning', code: 'completion_limit' });
+    }
+    const tool = item.toolLifecycle;
+    if (tool.stage === 'not-run' || tool.passed) continue;
+    const firstFailure = probeDiagnostic(tool.first, levels, 'tool-call');
+    const replayFailure = probeDiagnostic(tool.replay, levels, 'tool-replay');
+    if (firstFailure || replayFailure) diagnostics.push((firstFailure ?? replayFailure)!);
+    else if (tool.first?.effectiveFinishReason === 'length') diagnostics.push({ levels, stage: 'tool-call', code: 'completion_limit' });
+    else if (tool.replay?.effectiveFinishReason === 'length') diagnostics.push({ levels, stage: 'final-response', code: 'completion_limit' });
+    else if (tool.replay) diagnostics.push({ levels, stage: 'final-response', code: 'incomplete_final_response' });
+    else diagnostics.push({ levels, stage: 'tool-call', code: tool.first?.toolCallCount === 0 ? 'no_tool_call' : 'invalid_tool_call' });
+  }
+  return diagnostics;
+}
+
 interface Accounting {
   logicalProbes: number;
   httpAttempts: number;
@@ -908,6 +956,7 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
   const offItem = distinctMappings.find((item) => (item.levels as ReasoningLevel[]).includes('off'));
   const off = profile.supportedLevels.includes('off')
     ? offItem?.reasoningProbe.status === 200 && offItem.reasoningProbe.reasoningLength === 0
+      && !(offItem.reasoningProbe.reasoningTokens > 0) && offItem.reasoningProbe.finishReason !== 'length'
       ? 'verified-disabled'
       : offItem?.reasoningProbe.status === 200 ? 'not-disabled' : 'not-verified'
     : offCandidateEvidence?.status === 200 && (offCandidateEvidence.reasoningLength as number) > 0
@@ -916,11 +965,20 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
         ? 'candidate-disabled-profile-mismatch'
         : 'unsupported-by-profile';
 
+  const diagnostics = mappingDiagnostics(distinctMappings);
+  // A capped reasoning observation may still validate an enabled mode through its complete
+  // tool lifecycle. A capped tool call/replay, or an unproven off mode, never does.
+  const compatibleLevels = verifiedLevels.filter((level) => !diagnostics.some((diagnostic) => diagnostic.levels.includes(level)));
+  const completionLimited = diagnostics.some((diagnostic) => diagnostic.code === 'completion_limit');
+  const stopDiscovery = diagnostics.some((diagnostic) =>
+    ['timeout', 'transport_error', 'malformed_response', 'response_too_large'].includes(diagnostic.code)
+    || diagnostic.status === 401 || diagnostic.status === 403 || diagnostic.status === 429
+    || (diagnostic.status !== undefined && diagnostic.status >= 500));
   const assignable = !stopped
     && allToolsPassed
     && !reasoningTransportFailures
     && !['not-disabled', 'not-verified', 'candidate-disabled-profile-mismatch'].includes(off);
-  const classification = stopped
+  const classification = stopped || completionLimited
     ? 'Inconclusive'
     : assignable
       ? 'Verified'
@@ -933,7 +991,7 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
       ? 'tool-replay-unsupported'
       : verifiedLevels.length > 0
         ? 'partial'
-        : stopped
+        : stopped || completionLimited
           ? 'inconclusive'
           : 'unsupported';
 
@@ -944,6 +1002,9 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
     route: input.route,
     requestedCompletionCeiling: input.maxCompletionTokens,
     distinctMappings,
+    diagnostics,
+    compatibleLevels,
+    stopDiscovery,
     piCompatibility: { status: piStatus, verifiedLevels, failedLevels },
     reasoningConfiguration: {
       off,

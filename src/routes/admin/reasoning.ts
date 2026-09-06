@@ -36,7 +36,7 @@ const profileRefSchema = z.object({
 const discoverySchema = z.object({
   route: routeSchema,
   profileRef: profileRefSchema.optional(),
-  maxCompletionTokens: z.number().int().min(32).max(16_384).default(512),
+  maxCompletionTokens: z.number().int().min(32).max(16_384).default(32),
 }).strict();
 
 type ProfileRef = z.infer<typeof profileRefSchema>;
@@ -176,20 +176,59 @@ interface DiscoveryCandidateReport {
   report: Record<string, any>;
 }
 
-function dominatesCandidate(left: DiscoveryCandidateReport, right: DiscoveryCandidateReport): boolean {
-  const leftLevels = Array.isArray(left.profile.supportedLevels) ? left.profile.supportedLevels.filter(isPiReasoningLevel) : [];
-  const rightLevels = Array.isArray(right.profile.supportedLevels) ? right.profile.supportedLevels.filter(isPiReasoningLevel) : [];
-  if (leftLevels.length <= rightLevels.length || !rightLevels.every((level) => leftLevels.includes(level))) return false;
-  const leftMappings = left.profile.levels;
-  const rightMappings = right.profile.levels;
-  if (!isPlainObject(leftMappings) || !isPlainObject(rightMappings)) return false;
+function coversProfile(observed: Record<string, unknown>, requested: Record<string, unknown>): boolean {
+  const observedLevels = Array.isArray(observed.supportedLevels) ? observed.supportedLevels.filter(isPiReasoningLevel) : [];
+  const requestedLevels = Array.isArray(requested.supportedLevels) ? requested.supportedLevels.filter(isPiReasoningLevel) : [];
+  if (requestedLevels.length === 0 || !requestedLevels.every((level) => observedLevels.includes(level))) return false;
+  const observedMappings = observed.levels;
+  const requestedMappings = requested.levels;
+  if (!isPlainObject(observedMappings) || !isPlainObject(requestedMappings)) return false;
   return canonicalJson({
-    removePaths: left.profile.removePaths,
-    levels: Object.fromEntries(rightLevels.map((level) => [level, leftMappings[level]])),
+    removePaths: observed.removePaths,
+    levels: Object.fromEntries(requestedLevels.map((level) => [level, observedMappings[level]])),
   }) === canonicalJson({
-    removePaths: right.profile.removePaths,
-    levels: Object.fromEntries(rightLevels.map((level) => [level, rightMappings[level]])),
+    removePaths: requested.removePaths,
+    levels: Object.fromEntries(requestedLevels.map((level) => [level, requestedMappings[level]])),
   });
+}
+
+function dominatesCandidate(left: DiscoveryCandidateReport, right: DiscoveryCandidateReport): boolean {
+  return Array.isArray(left.profile.supportedLevels) && Array.isArray(right.profile.supportedLevels)
+    && left.profile.supportedLevels.length > right.profile.supportedLevels.length
+    && coversProfile(left.profile, right.profile);
+}
+
+function distinctCandidateReports(reports: DiscoveryCandidateReport[]): DiscoveryCandidateReport[] {
+  const seen = new Set<string>();
+  return reports.filter(({ profile }) => {
+    const digest = canonicalHash(profileDiscoveryContract(profile));
+    if (seen.has(digest)) return false;
+    seen.add(digest);
+    return true;
+  });
+}
+
+function observedCandidate({ profile, report }: DiscoveryCandidateReport): DiscoveryCandidateReport | null {
+  const supportedLevels = Array.isArray(report.compatibleLevels) ? report.compatibleLevels.filter(isPiReasoningLevel) : [];
+  if (supportedLevels.length === 0 || !isPlainObject(profile.levels)) return null;
+  const mappings = profile.levels;
+  return {
+    profile: {
+      ...profile,
+      supportedLevels,
+      levels: Object.fromEntries(supportedLevels.map((level) => [level, mappings[level]])),
+      aliases: isPlainObject(profile.aliases) ? Object.fromEntries(Object.entries(profile.aliases)
+        .filter(([level, target]) => supportedLevels.includes(level) && supportedLevels.includes(target))) : {},
+      offSemantics: supportedLevels.includes('off') ? profile.offSemantics : { status: 'unsupported' },
+    },
+    report: {
+      ...report,
+      assignable: true,
+      classification: report.assignable ? report.classification : 'Compatible, unverified',
+      piCompatibility: { status: 'verified', verifiedLevels: supportedLevels, failedLevels: [] },
+      evidence: { ...report.evidence, toolReplay: true, status: 'Compatible, unverified' },
+    },
+  };
 }
 
 export function selectUnambiguousCandidateMatch(reports: DiscoveryCandidateReport[]): DiscoveryCandidateReport | null {
@@ -546,8 +585,18 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
         maxCompletionTokens: request.data.maxCompletionTokens,
       });
       reports.push({ profile: candidate, report });
+      // A rejected candidate is not a retry. Authentication, quota, server, stream,
+      // and transport failures stop the entire scan, including later candidates.
+      if (report.stopDiscovery) break;
     }
-    const matches = reports.filter(({ report }) => report.assignable === true);
+    const stopped = reports.some(({ report }) => report.stopDiscovery === true);
+    const observed = reports.map(observedCandidate).filter((candidate): candidate is DiscoveryCandidateReport => candidate !== null);
+    // Reuse the finite protocol observations for catalog matching. Saved custom
+    // revisions do not expand the paid probe campaign or inject new request paths.
+    const matches = allProfiles(configuration).filter((profile) => profile.enabled !== false).flatMap((profile) => {
+      const observation = observed.find((candidate) => coversProfile(candidate.profile, profile));
+      return observation ? [{ profile, report: observation.report }] : [];
+    });
     const accounting = reports.reduce((total, { report }) => ({
       logicalProbes: total.logicalProbes + Number(report.accounting?.logicalProbes ?? 0),
       httpAttempts: total.httpAttempts + Number(report.accounting?.httpAttempts ?? 0),
@@ -555,23 +604,39 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
       completionTokens: total.completionTokens + Number(report.accounting?.completionTokens ?? 0),
       totalTokens: total.totalTokens + Number(report.accounting?.totalTokens ?? 0),
     }), { logicalProbes: 0, httpAttempts: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 });
-    const selected = selectUnambiguousCandidateMatch(reports);
+    const candidates = distinctCandidateReports(matches.length > 0 ? matches : observed);
+    const selected = stopped ? null : selectUnambiguousCandidateMatch(candidates);
+    const diagnostics = reports.flatMap(({ report }) => report.diagnostics ?? []);
+    const ambiguous = !stopped && !selected && candidates.length > 1;
+    const inconclusive = stopped || diagnostics.some((diagnostic) => diagnostic.code === 'completion_limit'
+      || diagnostic.code === 'request_rejected' || diagnostic.code === 'replay_rejected');
+    const outcome = selected ? (matches.length > 0 ? 'existing-profile' : 'custom-profile')
+      : ambiguous ? 'ambiguous' : inconclusive ? 'inconclusive' : 'unsupported';
+    const matchedProfiles = selected && matches.length > 0
+      ? matches.filter(({ profile: candidate }) => coversProfile(selected.profile, candidate)).map(({ profile: candidate }) => ({
+        profileRef: profileRefFor(candidate)!, name: candidate.name, supportedLevels: candidate.supportedLevels,
+      })) : [];
     const result = {
       schemaVersion: 1,
       route: request.data.route,
-      classification: selected ? selected.report.classification : 'Inconclusive',
+      outcome,
+      requestedCompletionCeiling: request.data.maxCompletionTokens,
+      classification: selected ? selected.report.classification : outcome === 'unsupported' ? 'Unsupported' : 'Inconclusive',
       assignable: selected !== null,
+      matchedProfiles,
+      diagnostics,
       accounting,
       candidateResults: reports.map(({ profile: candidate, report }) => ({
         profileId: candidate.id,
+        profileName: candidate.name,
         classification: report.classification,
         assignable: report.assignable,
+        verifiedLevels: report.compatibleLevels,
+        diagnostics: report.diagnostics,
       })),
-      ...(selected && {
-        matchedCandidateProfileId: selected.profile.id,
-        profileDraft: generatedProfileDraft(selected.profile, selected.report, request.data.route),
-      }),
-      ...(!selected && { warnings: [matches.length > 1 ? 'ambiguous_profile_mapping' : 'no_compatible_profile_mapping'] }),
+      ...(selected && { matchedCandidateProfileId: selected.profile.id }),
+      ...(selected && outcome === 'custom-profile' && { profileDraft: generatedProfileDraft(selected.profile, selected.report, request.data.route) }),
+      ...(!selected && { warnings: [ambiguous ? 'ambiguous_profile_mapping' : 'no_compatible_profile_mapping'] }),
     };
     logger.info('Custom reasoning profile discovery completed', {
       initiatedBy: c.get('user')?.email ?? 'unknown',

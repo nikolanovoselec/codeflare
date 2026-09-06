@@ -316,7 +316,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     }
   });
 
-  it('discovers a route-only matching protocol and returns a non-activating custom profile draft', async () => {
+  it('recommends existing catalog revisions without creating a duplicate profile draft', async () => {
     const { app, kv } = await createApp();
     mockSuccessfulProvider();
     vi.mocked(kv.put).mockClear();
@@ -333,34 +333,11 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
       route: 'codeflare-mesh',
       classification: 'Verified',
       assignable: true,
+      outcome: 'existing-profile',
       matchedCandidateProfileId: BUILTIN_IDS[0],
-      profileDraft: {
-        schemaVersion: 1,
-        enabled: true,
-        supportedLevels: ['off'],
-        levels: { off: [{ path: 'reasoning_effort', value: null }] },
-        originallyCreatedAgainst: { route: 'codeflare-mesh' },
-      },
+      matchedProfiles: BUILTIN_IDS.map((id) => ({ name: id, profileRef: { id, revision: 1, hash: PROFILE_HASH }, supportedLevels: ['off'] })),
     });
-    expect(body.profileDraft).not.toHaveProperty('id');
-    expect(body.profileDraft).not.toHaveProperty('name');
-    expect(body.profileDraft).toMatchObject({
-      classification: 'Compatible, unverified',
-      toolCompatibility: { status: 'unverified', levels: [] },
-      validatedTransports: [],
-    });
-    const actualProfiles = await vi.importActual<typeof import('../../lib/reasoning-profiles')>('../../lib/reasoning-profiles');
-    const normalized = actualProfiles.normalizeCustomProfile({
-      ...body.profileDraft,
-      id: 'custom-generated',
-      name: 'Generated profile',
-      revision: 1,
-    });
-    expect(normalized).toMatchObject({
-      classification: 'Compatible, unverified',
-      toolCompatibility: { status: 'unverified', levels: [] },
-      validatedTransports: [],
-    });
+    expect(body).not.toHaveProperty('profileDraft');
     expect(vi.mocked(kv.put).mock.calls.some(([key]) => key === SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
   });
 

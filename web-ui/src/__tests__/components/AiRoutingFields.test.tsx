@@ -123,7 +123,111 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     await fireEvent.click(getByRole('button', { name: /discover development compatibility/i }));
     await fireEvent.click(getByRole('button', { name: /check compatibility/i }));
     expect(await findByText(/compatibility could not be confirmed/i)).toBeTruthy();
-    expect(api.discover).toHaveBeenCalledWith({ route: 'development', maxCompletionTokens: 512 });
+    expect(api.discover).toHaveBeenCalledWith({ route: 'development', maxCompletionTokens: 32 });
+  });
+
+  it.each([
+    { id: 'workers-ai-kimi-k-thinking', revision: 4, hash: hash('d'), name: 'Kimi thinking', supportedLevels: ['medium', 'high'] },
+    { id: 'custom-saved-reasoning', revision: 3, hash: hash('e'), name: 'Saved custom reasoning', supportedLevels: ['medium', 'high'] },
+  ])('uses the exact matched $name catalog revision only in the route draft', async (match) => {
+    const profileRef = { id: match.id, revision: match.revision, hash: match.hash };
+    api.catalog.mockResolvedValueOnce({ ...catalog, profiles: [...catalog.profiles, match] });
+    api.discover.mockResolvedValueOnce({
+      classification: 'Verified', assignable: true, outcome: 'existing-profile',
+      matchedProfiles: [{ profileRef, name: match.name, supportedLevels: match.supportedLevels }],
+    });
+    const savedCurrent = { ...current, reasoningConfiguration: { ...current.reasoningConfiguration, customProfileRevisions: match.id.startsWith('custom-') ? [match] : [] } };
+    const { container, getByRole, findByRole, getByLabelText, queryByRole, queryByLabelText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={savedCurrent} />);
+    await waitFor(() => expect((getByLabelText('general_usage reasoning profile') as HTMLSelectElement).options.length).toBe(8));
+    const draft = () => JSON.parse((container.querySelector('input[name="reasoningConfiguration"]') as HTMLInputElement).value);
+    const before = draft();
+    await fireEvent.click(getByRole('button', { name: /discover general_usage compatibility/i }));
+    await fireEvent.click(getByRole('button', { name: 'Check compatibility' }));
+    const useProfile = await findByRole('button', { name: `Use ${match.name}` });
+    expect(draft()).toEqual(before);
+    expect(queryByLabelText('Profile name')).toBeNull();
+    await fireEvent.click(useProfile);
+
+    expect(draft()).toEqual({ ...before, routeAssignments: { ...before.routeAssignments, general_usage: { activeProfile: profileRef } } });
+    expect(getByLabelText('general_usage reasoning profile')).toHaveValue(`${match.id}\u001f${match.revision}\u001f${match.hash}`);
+    expect(queryByRole('heading', { name: /discover compatibility for general_usage/i })).toBeNull();
+    expect(queryByRole('button', { name: /review and save profile/i })).toBeNull();
+    expect(current.reasoningConfiguration.routeAssignments.general_usage.activeProfile).toEqual({ id: 'workers-ai-glm-thinking', revision: 1, hash: hash('a') });
+    expect(api.discover).toHaveBeenCalledExactlyOnceWith({ route: 'general_usage', maxCompletionTokens: 32 });
+  });
+
+  it.each([false, undefined])('sends the chosen verification ceiling and exposes budget diagnostics without retrying (assignable: %s)', async (assignable) => {
+    let complete!: (value: unknown) => void;
+    api.discover.mockReturnValueOnce(new Promise((resolve) => { complete = resolve; }));
+    const { getByLabelText, getByRole, findByText, container } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
+    const card = getByRole('heading', { name: 'development' }).closest('article')!;
+    await fireEvent.click(within(card).getByText('Advanced route details', { selector: 'summary' }));
+    const ceiling = getByRole('spinbutton', { name: 'development verification completion token ceiling' });
+    expect(ceiling).toHaveValue(32);
+    expect(ceiling).toHaveAttribute('min', '32');
+    expect(ceiling).toHaveAttribute('max', '16384');
+    expect(ceiling).toHaveAttribute('step', '1');
+    expect(within(card).getByText(/may create provider usage/i)).toBeInTheDocument();
+    await fireEvent.input(ceiling, { target: { value: '1024' } });
+    const before = (container.querySelector('input[name="reasoningConfiguration"]') as HTMLInputElement).value;
+    await fireEvent.click(getByRole('button', { name: /verify development selected profile/i }));
+    expect(getByRole('spinbutton', { name: 'development verification completion token ceiling' })).toBeDisabled();
+    expect(getByRole('button', { name: /verify development selected profile/i })).toBeDisabled();
+    expect(getByLabelText('development reasoning profile')).toBeDisabled();
+    expect(api.discover).toHaveBeenCalledExactlyOnceWith({ route: 'development', profileRef: current.reasoningConfiguration.routeAssignments.development.activeProfile, maxCompletionTokens: 1024 });
+    complete({
+      classification: 'Unsupported', assignable, outcome: 'inconclusive', requestedCompletionCeiling: 1024,
+      diagnostics: [{ levels: ['high'], stage: 'tool-replay', code: 'completion_limit', body: 'PRIVATE PROVIDER BODY' }],
+      candidateResults: [{ profileId: 'workers-ai-kimi-k-thinking', profileName: 'Kimi thinking', classification: 'Inconclusive', assignable: false, verifiedLevels: ['medium'], diagnostics: [{ levels: ['high'], stage: 'tool-replay', code: 'incomplete_final_response' }] }],
+    });
+    expect(await findByText(/selected profile check:.*incomplete at the chosen token budget/i)).toBeInTheDocument();
+    const details = within(getByRole('heading', { name: 'development' }).closest('article')!).getByText('Technical check details').closest('details')!;
+    await fireEvent.click(within(details).getByText('Technical check details'));
+    expect(details).toHaveTextContent('Kimi thinking');
+    expect(details).toHaveTextContent('Verified levels: medium');
+    expect(details).toHaveTextContent('Levels: high');
+    expect(details).toHaveTextContent('Stage: tool-replay');
+    expect(details).toHaveTextContent(/did not complete the final response after tool replay/i);
+    expect(container).not.toHaveTextContent('PRIVATE');
+    expect(getByRole('spinbutton', { name: 'development verification completion token ceiling' })).toBeEnabled();
+    expect(api.discover).toHaveBeenCalledTimes(1);
+    expect((container.querySelector('input[name="reasoningConfiguration"]') as HTMLInputElement).value).toBe(before);
+  });
+
+  it.each(['', '31', '16385', '32.5', 'not-a-number'])('blocks invalid selected-verification ceiling %j without a provider call', async (budget) => {
+    const { getByLabelText, getByRole, findByRole } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
+    const card = getByRole('heading', { name: 'development' }).closest('article')!;
+    await fireEvent.click(within(card).getByText('Advanced route details', { selector: 'summary' }));
+    await fireEvent.input(getByRole('spinbutton', { name: 'development verification completion token ceiling' }), { target: { value: budget } });
+    await fireEvent.click(getByRole('button', { name: /verify development selected profile/i }));
+    expect(await findByRole('alert')).toHaveTextContent(/whole number from 32 to 16384/i);
+    expect(api.discover).not.toHaveBeenCalled();
+  });
+
+  it('does not expose provider response bodies from failed selected verification', async () => {
+    api.discover.mockRejectedValueOnce(new Error('PRIVATE PROVIDER BODY'));
+    const { getByRole, getByLabelText, findByRole, container } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
+    const card = getByRole('heading', { name: 'development' }).closest('article')!;
+    await fireEvent.click(within(card).getByText('Advanced route details', { selector: 'summary' }));
+    await fireEvent.click(getByRole('button', { name: /verify development selected profile/i }));
+    expect(await findByRole('alert')).toHaveTextContent(/profile verification failed.*saved AI Gateway connection/i);
+    expect(container).not.toHaveTextContent('PRIVATE');
+    expect(getByRole('button', { name: /verify development selected profile/i })).toBeEnabled();
+  });
+
+  it('discards selected-profile verification when the profile draft changes', async () => {
+    api.discover.mockResolvedValueOnce({ classification: 'Verified', assignable: true, evidence: { current: true, toolReplay: true } });
+    const { getByLabelText, getByRole, findByText, queryByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
+    const card = getByRole('heading', { name: 'development' }).closest('article')!;
+    await fireEvent.click(within(card).getByText('Advanced route details', { selector: 'summary' }));
+    await fireEvent.click(getByRole('button', { name: /verify development selected profile/i }));
+    await findByText('Selected profile check: Verified');
+    await fireEvent.change(getByLabelText('development reasoning profile'), { target: { value: `workers-ai-glm-thinking\u001f1\u001f${hash('a')}` } });
+    expect(queryByText('Selected profile check: Verified')).toBeNull();
   });
 
   it('attaches a verified compatibility record only after inventory confirms one reachable leg', async () => {
