@@ -261,7 +261,7 @@ describe('Structured AI routing', () => {
 
   it('REQ-ENTERPRISE-034: offers one primary action on the expanded route and runs route-only protocol discovery', async () => {
     const view = mount(); await ready(view);
-    expect(view.getAllByRole('button', { name: /map profile for /i })).toHaveLength(1);
+    expect(view.getAllByRole('button', { name: /discover profile for /i })).toHaveLength(1);
     expect(view.queryByRole('button', { name: /revalidate|start discovery|use evidence/i })).toBeNull();
     const before = draftConfiguration(view.container);
     await fireEvent.click(view.getByRole('button', { name: 'Discover Profile for development' }));

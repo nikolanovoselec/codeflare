@@ -245,6 +245,45 @@ describe('entrypoint production helpers', () => {
     } finally { rmSync(fixture, { recursive: true, force: true }); }
   });
 
+  it('REQ-AGENT-206: restores a real locked installation and reports unrecoverable repair', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-locked-repair-'));
+    const tools = join(fixture, 'tools');
+    const source = join(fixture, 'package');
+    const scripts = resolve(__dirname, '../../scripts');
+    const env = runtimeEnv({ CODEFLARE_RUNTIME_ROOT: fixture, CODEFLARE_NPM_TOOLS_DIR: tools, CODEFLARE_CODING_AGENTS: 'pi', npm_config_cache: join(fixture, 'cache') });
+    const npm = (args, cwd) => {
+      const result = spawnSync('npm', args, { cwd, env, encoding: 'utf8', timeout: 60_000 });
+      assert.equal(result.status, 0, result.stderr);
+      return result;
+    };
+    try {
+      mkdirSync(join(source, 'dist/utils'), { recursive: true }); mkdirSync(tools);
+      writeFileSync(join(source, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-coding-agent', version: '1.0.0', type: 'module' }));
+      writeFileSync(join(source, 'dist/utils/photon.js'), 'export async function loadPhoton() { return { PhotonImage: class { get_bytes() { return new Uint8Array([1]); } free() {} } }; }');
+      writeFileSync(join(source, 'dist/utils/image-process.js'), 'export async function processImage() { return { ok: true }; }');
+      const packed = JSON.parse(npm(['pack', '--json', '--ignore-scripts', '--offline'], source).stdout)[0].filename;
+      const tarball = join(source, packed);
+      writeFileSync(join(tools, 'package.json'), JSON.stringify({ private: true, dependencies: { '@earendil-works/pi-coding-agent': `file:${tarball}` } }));
+      npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'], tools);
+      const installed = join(tools, 'node_modules/@earendil-works/pi-coding-agent');
+      const processor = join(installed, 'dist/utils/image-process.js');
+      const verify = () => spawnSync(process.execPath, [join(scripts, 'verify-pi-lockstep.mjs'), '--verify-runtime', join(installed, 'package.json')], { encoding: 'utf8' });
+      const body = extractFunction('update_pi_and_codex_when_fast_start_disabled').replaceAll('/opt/codeflare/scripts', scripts);
+      // Suppress latest-version network updates; execute the production repair commands with real npm.
+      const run = () => spawnSync('bash', ['-c', `${body}\npi() { echo fixture-pi; }\ncodex() { echo fixture-codex; }\nnpm() { if [[ " $* " == *" --save-exact "* ]]; then return 0; fi; command npm "$@" --offline; }\nFAST_CLI_START=false\nupdate_pi_and_codex_when_fast_start_disabled`], { env, encoding: 'utf8', timeout: 120_000 });
+      rmSync(processor);
+      assert.notEqual(verify().status, 0);
+      const repaired = run(); assert.equal(repaired.status, 0, repaired.stdout + repaired.stderr);
+      assert.equal(readFileSync(processor, 'utf8'), readFileSync(join(source, 'dist/utils/image-process.js'), 'utf8'));
+      const healthy = verify(); assert.equal(healthy.status, 0, healthy.stderr);
+      assert.match(repaired.stdout, /repairing Pi dependencies from the lockfile/);
+      rmSync(processor); rmSync(tarball);
+      const failed = run(); assert.notEqual(failed.status, 0);
+      assert.match(failed.stdout, /Pi dependency repair failed; the runtime is incomplete/);
+      assert.doesNotMatch(failed.stdout, /Pi version after update/);
+    } finally { rmSync(fixture, { recursive: true, force: true }); }
+  });
+
   it('REQ-AGENT-206: Fast Start OFF surfaces Pi package and agent runtime update failures', () => {
     const script = `${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +
       `pi() { [ "$1" = "--version" ] && { echo 'pi 0.84.4'; return 0; }; return 7; }\n` +

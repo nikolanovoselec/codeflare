@@ -39,6 +39,25 @@ describe('REQ-AGENT-206: updated runtime dependencies and cache ownership', () =
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
+  it('accepts import-only dependency exports and rejects failed image processing', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'pi-image-health-'));
+    try {
+      writeJson(join(directory, 'package.json'), { name: '@earendil-works/pi-coding-agent', type: 'module', dependencies: { 'image-fixture': '1.0.0' } });
+      mkdirSync(join(directory, 'node_modules/image-fixture'), { recursive: true });
+      writeJson(join(directory, 'node_modules/image-fixture/package.json'), { type: 'module', exports: { import: './index.js' } });
+      writeFileSync(join(directory, 'node_modules/image-fixture/index.js'), 'export default true;');
+      mkdirSync(join(directory, 'dist/utils'), { recursive: true });
+      writeFileSync(join(directory, 'dist/utils/photon.js'), 'export async function loadPhoton() { return { PhotonImage: class { get_bytes() { return new Uint8Array([1]); } free() {} } }; }');
+      const processor = join(directory, 'dist/utils/image-process.js');
+      const check = () => spawnSync(process.execPath, [script, '--verify-runtime', join(directory, 'package.json')], { encoding: 'utf8' });
+      writeFileSync(processor, 'export async function processImage() { return { ok: true }; }');
+      const healthy = check(); assert.equal(healthy.status, 0, healthy.stderr);
+      writeFileSync(processor, 'export async function processImage() { return { ok: false, message: "fixture decode failure" }; }');
+      const failed = check(); assert.notEqual(failed.status, 0);
+      assert.match(failed.stderr, /Pi image processing failed: fixture decode failure/);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
   it('replaces the runtime jiti link without clearing the image cache', () => {
     const directory = mkdtempSync(join(tmpdir(), 'pi-cache-reset-'));
     try {

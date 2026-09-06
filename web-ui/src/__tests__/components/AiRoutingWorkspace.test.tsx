@@ -54,9 +54,10 @@ describe('Administrator route workspace', () => {
     await ready(view);
     await openRoute(view, 'development');
     await fireEvent.click(view.getByRole('button', { name: 'Discover Profile for development' }));
-    expect(await view.findByRole('status')).toHaveTextContent('Discovering profiles for development…');
-    expect(view.getAllByRole('status')).toHaveLength(1);
-    expect(view.getByRole('status').closest('.admin-state-panel')).toBeNull();
+    const discovery = within(view.getByRole('region', { name: 'Discover compatibility for development' }));
+    expect(await discovery.findByRole('status')).toHaveTextContent('Discovering profiles for development…');
+    expect(discovery.getAllByRole('status')).toHaveLength(1);
+    expect(discovery.getByRole('status').closest('.admin-state-panel')).toBeNull();
     expect(view.getByRole('combobox', { name: 'development Pi compatibility profile' })).toBeDisabled();
     expect(view.queryByText('Wait for the current profile check to finish.')).toBeNull();
     finish({ outcome: 'inconclusive', classification: 'Inconclusive', assignable: false, diagnostics: [{ code: 'request_rejected', stage: 'reasoning', status: 429, levels: ['high'] }] });

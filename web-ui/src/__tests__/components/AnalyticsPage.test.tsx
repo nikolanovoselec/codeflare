@@ -38,9 +38,9 @@ describe('Analytics historical usage presentation', () => {
   it('requests the selected period immediately rather than leaving day totals under a week selection', async () => {
     render(() => <Router><Route path="*" component={AnalyticsPage} /></Router>);
     await screen.findByRole('img', { name: /accounted runtime history/i });
-    await fireEvent.click(screen.getByRole('button', { name: 'week', exact: true }));
-    await waitFor(() => expect(getAdminUsageMock).toHaveBeenLastCalledWith(expect.objectContaining({ period: 'week' })));
-    const request = getAdminUsageMock.mock.calls.at(-1)![0];
+    await fireEvent.click(screen.getByRole('button', { name: /^week$/ }));
+    await waitFor(() => expect(getAdminUsageMock.mock.calls[getAdminUsageMock.mock.calls.length - 1]?.[0]).toEqual(expect.objectContaining({ period: 'week' })));
+    const request = getAdminUsageMock.mock.calls[getAdminUsageMock.mock.calls.length - 1][0];
     expect(new Date(`${request.start}T00:00:00Z`).getUTCDay()).toBe(1);
     expect(screen.getByText('Week start (Monday, 00:00 UTC)')).toBeVisible();
   });

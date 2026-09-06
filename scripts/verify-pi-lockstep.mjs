@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { createHash, getFips } from 'node:crypto';
 import { basename, dirname, extname, join } from 'node:path';
@@ -16,8 +15,18 @@ function readJson(path) {
 export async function verifyPiRuntime(packagePath) {
   const manifest = readJson(packagePath);
   if (manifest.name !== PI_PACKAGE) throw new Error('Expected the installed Pi package manifest');
-  const require = createRequire(packagePath);
-  for (const dependency of Object.keys(manifest.dependencies ?? {})) require.resolve(dependency);
+  const dependencies = spawnSync(process.execPath, ['--input-type=module', '--eval', `
+    import { existsSync } from 'node:fs';
+    import { fileURLToPath } from 'node:url';
+    for (const name of JSON.parse(process.argv[1])) {
+      const resolved = import.meta.resolve(name);
+      if (!existsSync(fileURLToPath(resolved))) throw new Error('Missing Pi dependency: ' + name);
+    }
+  `, JSON.stringify(Object.keys(manifest.dependencies ?? {}))], {
+    cwd: dirname(packagePath), encoding: 'utf8', timeout: 30_000,
+  });
+  if (dependencies.error) throw dependencies.error;
+  if (dependencies.status !== 0) throw new Error(dependencies.stderr || 'Pi dependency resolution failed');
   const { loadPhoton } = await import(pathToFileURL(join(dirname(packagePath), 'dist/utils/photon.js')).href);
   const photon = await loadPhoton();
   if (!photon) throw new Error('Pi image dependency could not be loaded');
