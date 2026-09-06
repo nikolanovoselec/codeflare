@@ -123,10 +123,17 @@ export const EnvironmentAreaDetail: Component = () => {
     return revisions.filter((revision): revision is Record<string, unknown> => Boolean(revision && typeof revision === 'object') && !currentRevisions.some((current) => current && typeof current === 'object' && (current as Record<string, unknown>).id === (revision as Record<string, unknown>).id && (current as Record<string, unknown>).revision === (revision as Record<string, unknown>).revision));
   };
 
+  const pendingProfileRoutes = (profile: Record<string, unknown>): string[] => {
+    const submitted = submittedValues() as { reasoningConfiguration?: { routeAssignments?: Record<string, { activeProfile?: { id: string; revision: number } }> } } | undefined;
+    return Object.entries(submitted?.reasoningConfiguration?.routeAssignments ?? {})
+      .filter(([, assignment]) => assignment.activeProfile?.id === profile.id && assignment.activeProfile?.revision === profile.revision)
+      .map(([route]) => route);
+  };
+
   const review = async (event: SubmitEvent) => {
     event.preventDefault();
     const section = area()?.section;
-    if (!section) return;
+    if (!section || busy() || configuration.activeRunId) return;
     setBusy(true); setError(undefined);
     try {
       const values = environmentValues(section, configuration.mode, new FormData(event.currentTarget as HTMLFormElement));
@@ -140,7 +147,8 @@ export const EnvironmentAreaDetail: Component = () => {
 
   const apply = async () => {
     const section = area()?.section;
-    if (!section || !submittedValues()) return;
+    const reviewed = preview();
+    if (!section || !submittedValues() || !reviewed || busy() || configuration.activeRunId || reviewed.warnings.some((warning) => !confirmedWarnings().includes(warning.code))) return;
     setBusy(true); setError(undefined);
     try {
       const response = await startConfigurationRun(section, configuration.revision, submittedValues(), confirmedWarnings());
@@ -194,12 +202,12 @@ export const EnvironmentAreaDetail: Component = () => {
               </dl>
             </aside>
           </div>
-          <div class="admin-form-actions"><button type="submit" class="admin-primary-button" disabled={busy() || Boolean(configuration.activeRunId)}>{busy() ? 'Reviewing…' : 'Review changes'}</button></div>
+          <div class="admin-form-actions"><button type="submit" class="admin-primary-button" disabled={busy() || Boolean(configuration.activeRunId)}>{busy() ? 'Reviewing…' : resolved().section === 'aiRouting' ? 'Save' : 'Review changes'}</button></div>
         </form>
       </Show>
       <Show when={!run() ? preview() : undefined}>{(reviewed) => <section class="admin-panel">
-        <div class="admin-panel-heading"><div><h2>Review changes</h2><p>Nothing is saved until Apply change. Only the tasks listed below will run.</p></div></div>
-        <Show when={pendingCustomProfiles().length > 0}><div class="admin-pending-profiles" aria-label="Profiles pending save"><For each={pendingCustomProfiles()}>{(profile) => <div><strong>{String(profile.name ?? profile.id ?? 'New profile')}</strong><span>Pending save · Unassigned · Inactive</span></div>}</For></div></Show>
+        <div class="admin-panel-heading"><div><h2>{resolved().section === 'aiRouting' ? 'Confirm Save' : 'Review changes'}</h2><p>{resolved().section === 'aiRouting' ? 'Save the route assignments and any new profiles together. Nothing is saved until you confirm below.' : 'Nothing is saved until Apply change. Only the tasks listed below will run.'}</p></div></div>
+        <Show when={pendingCustomProfiles().length > 0}><div class="admin-pending-profiles" aria-label="Profiles pending save"><For each={pendingCustomProfiles()}>{(profile) => <div><strong>{String(profile.name ?? profile.id ?? 'New profile')}</strong><span>Pending save · {pendingProfileRoutes(profile).length ? `Assigned to ${pendingProfileRoutes(profile).join(', ')}` : 'Unassigned'} · Inactive</span></div>}</For></div></Show>
         <Show when={reviewed().changes.length > 0} fallback={<div class="admin-state-panel"><h3>No changes detected</h3><p>Return to edit before applying.</p></div>}>
           <dl class="admin-change-list"><For each={reviewed().changes}>{(change) => <div><dt>{change.field}</dt><dd>{change.secret ? (change.secret.willReplace ? 'Replace saved secret' : 'Preserve saved secret') : changeValue(change.field, change.after)}</dd></div>}</For></dl>
           <h3>Execution plan</h3><ol class="admin-task-plan"><For each={reviewed().tasks}>{(task) => <li>{operatorTaskLabel(task.id)}</li>}</For></ol>
@@ -211,7 +219,7 @@ export const EnvironmentAreaDetail: Component = () => {
               <div><dt>Excluded setup work</dt><dd class="admin-mono">{reviewed().exclusions.join(', ') || 'None'}</dd></div>
             </dl>
           </details>
-          <div class="admin-form-actions"><button type="button" class="admin-secondary-button" onClick={() => { setPreview(undefined); setConfirmedWarnings([]); }}>Back to edit</button><button type="button" class="admin-primary-button" disabled={busy() || reviewed().warnings.some((warning) => !confirmedWarnings().includes(warning.code))} onClick={() => void apply()}>{busy() ? 'Applying…' : 'Apply change'}</button></div>
+          <div class="admin-form-actions"><button type="button" class="admin-secondary-button" onClick={() => { setPreview(undefined); setConfirmedWarnings([]); }}>Back to edit</button><button type="button" class="admin-primary-button" disabled={busy() || reviewed().warnings.some((warning) => !confirmedWarnings().includes(warning.code))} onClick={() => void apply()}>{busy() ? 'Applying…' : resolved().section === 'aiRouting' ? 'Confirm Save' : 'Apply change'}</button></div>
         </Show>
       </section>}</Show>
       <Show when={run()}>{(currentRun) => <section class="admin-panel">

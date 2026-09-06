@@ -291,9 +291,22 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
   const dynamicRoutes = values.dynamicRoutes as string[];
   const defaultRoute = values.defaultRoute as { route: string; reasoning: string };
   const groupRouting = values.groupRouting as Array<{ accessGroup: string; routes: string[]; defaultRoute: string; reasoning: string }>;
+  const currentRaw = await env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION);
+  const current = currentRaw ? parseReasoningConfiguration(currentRaw) : null;
   let configuration: ReasoningConfiguration;
   if (values.reasoningConfiguration !== undefined) {
     configuration = parseReasoningConfiguration(values.reasoningConfiguration);
+  } else if (current) {
+    // Legacy ID-only forms can change built-in assignments, but omission of the
+    // atomic document must not collect saved revisions or discard unchanged evidence.
+    const routeAssignments = Object.fromEntries(Object.entries(values.routeReasoningProfiles as Record<string, string>).map(([route, id]) => {
+      const saved = current.routeAssignments[route];
+      if (saved?.activeProfile.id === id) return [route, saved];
+      const builtIn = getBuiltInProfile(id);
+      if (!builtIn) throw new Error('Custom profile assignment requires an exact revision in reasoningConfiguration');
+      return [route, { activeProfile: getBuiltInProfileRef(id as (typeof REASONING_PROFILE_IDS)[number]) }];
+    }));
+    configuration = parseReasoningConfiguration({ ...current, routeAssignments });
   } else {
     configuration = configurationFromProfileIds(values.routeReasoningProfiles as Record<string, string>, defaultRoute, groupRouting);
   }
@@ -308,8 +321,7 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
   validateDefault('Global', defaultRoute.route, defaultRoute.reasoning);
   for (const group of groupRouting) validateDefault(`Group ${group.accessGroup}`, group.defaultRoute, group.reasoning);
 
-  const currentRaw = await env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION);
-  if (currentRaw) configuration = validateReasoningConfigurationUpdate(parseReasoningConfiguration(currentRaw), configuration);
+  if (current) configuration = validateReasoningConfigurationUpdate(current, configuration);
   return configuration;
 }
 

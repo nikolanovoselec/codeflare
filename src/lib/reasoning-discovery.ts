@@ -978,7 +978,7 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
     && allToolsPassed
     && !reasoningTransportFailures
     && !['not-disabled', 'not-verified', 'candidate-disabled-profile-mismatch'].includes(off);
-  const classification = stopped || completionLimited
+  const classification = stopDiscovery || completionLimited
     ? 'Inconclusive'
     : assignable
       ? 'Verified'
@@ -991,7 +991,7 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
       ? 'tool-replay-unsupported'
       : verifiedLevels.length > 0
         ? 'partial'
-        : stopped || completionLimited
+        : stopDiscovery || completionLimited
           ? 'inconclusive'
           : 'unsupported';
 

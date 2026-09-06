@@ -111,19 +111,18 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     await fireEvent.click(getByRole('button', { name: /verify development selected profile/i }));
     expect(await findByText((_content, element) => element?.tagName === 'STRONG' && element.textContent === 'Selected profile check: Compatible, unverified')).toBeTruthy();
     expect(queryByRole('button', { name: /add compatibility record/i })).toBeNull();
-    expect(api.discover).toHaveBeenCalledWith(expect.objectContaining({ route: 'development', profileRef: current.reasoningConfiguration.routeAssignments.development.activeProfile, maxCompletionTokens: 32 }));
+    expect(api.discover).toHaveBeenCalledWith(expect.objectContaining({ route: 'development', profileRef: current.reasoningConfiguration.routeAssignments.development.activeProfile, maxCompletionTokens: 4096 }));
   });
 
   it('offers one primary route discovery action and runs route-only protocol discovery', async () => {
     const { getByRole, getAllByRole, getByLabelText, findByText, queryByRole } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
     await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
 
-    expect(getAllByRole('button', { name: /discover .* compatibility/i })).toHaveLength(3);
+    expect(getAllByRole('button', { name: /map profile for /i })).toHaveLength(3);
     expect(queryByRole('button', { name: /revalidate|start discovery|use evidence/i })).toBeNull();
-    await fireEvent.click(getByRole('button', { name: /discover development compatibility/i }));
-    await fireEvent.click(getByRole('button', { name: /check compatibility/i }));
+    await fireEvent.click(getByRole('button', { name: /map profile for development/i }));
     expect(await findByText(/compatibility could not be confirmed/i)).toBeTruthy();
-    expect(api.discover).toHaveBeenCalledWith({ route: 'development', maxCompletionTokens: 32 });
+    expect(api.discover).toHaveBeenCalledExactlyOnceWith({ route: 'development', maxCompletionTokens: 4096 });
   });
 
   it.each([
@@ -141,9 +140,8 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     await waitFor(() => expect((getByLabelText('general_usage reasoning profile') as HTMLSelectElement).options.length).toBe(8));
     const draft = () => JSON.parse((container.querySelector('input[name="reasoningConfiguration"]') as HTMLInputElement).value);
     const before = draft();
-    await fireEvent.click(getByRole('button', { name: /discover general_usage compatibility/i }));
-    await fireEvent.click(getByRole('button', { name: 'Check compatibility' }));
-    const useProfile = await findByRole('button', { name: `Use ${match.name}` });
+    await fireEvent.click(getByRole('button', { name: /map profile for general_usage/i }));
+    const useProfile = await findByRole('button', { name: `Assign ${match.name}` });
     expect(draft()).toEqual(before);
     expect(queryByLabelText('Profile name')).toBeNull();
     await fireEvent.click(useProfile);
@@ -153,7 +151,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     expect(queryByRole('heading', { name: /discover compatibility for general_usage/i })).toBeNull();
     expect(queryByRole('button', { name: /review and save profile/i })).toBeNull();
     expect(current.reasoningConfiguration.routeAssignments.general_usage.activeProfile).toEqual({ id: 'workers-ai-glm-thinking', revision: 1, hash: hash('a') });
-    expect(api.discover).toHaveBeenCalledExactlyOnceWith({ route: 'general_usage', maxCompletionTokens: 32 });
+    expect(api.discover).toHaveBeenCalledExactlyOnceWith({ route: 'general_usage', maxCompletionTokens: 4096 });
   });
 
   it.each([false, undefined])('sends the chosen verification ceiling and exposes budget diagnostics without retrying (assignable: %s)', async (assignable) => {
@@ -164,7 +162,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     const card = getByRole('heading', { name: 'development' }).closest('article')!;
     await fireEvent.click(within(card).getByText('Advanced route details', { selector: 'summary' }));
     const ceiling = getByRole('spinbutton', { name: 'development verification completion token ceiling' });
-    expect(ceiling).toHaveValue(32);
+    expect(ceiling).toHaveValue(4096);
     expect(ceiling).toHaveAttribute('min', '32');
     expect(ceiling).toHaveAttribute('max', '16384');
     expect(ceiling).toHaveAttribute('step', '1');
@@ -257,13 +255,52 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     });
   });
 
-  it('automatically adds gateway routes, confirms apply-to-all, and serializes the shared typed draft', async () => {
+  it('keeps unconfigured gateway rows visible without adding them to saved routing or new group defaults', async () => {
+    const view = render(() => <form><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} /></form>);
+    await waitFor(() => expect((view.getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
+    const values = () => environmentValues('aiRouting', 'enterprise', new FormData(view.container.querySelector('form')!)) as Record<string, any>;
+    expect(view.getByRole('button', { name: 'Map Profile for research' })).toBeEnabled();
+    expect(values().dynamicRoutes).toEqual(current.dynamicRoutes);
+    expect(values().routeContextWindows).toEqual(current.routeContextWindows);
+    expect(values().reasoningConfiguration).toEqual(current.reasoningConfiguration);
+    expect(Array.from((view.getByLabelText('Global default route') as HTMLSelectElement).options, (option) => option.value)).toEqual(current.dynamicRoutes);
+    expect(view.queryByLabelText('developers research route')).toBeNull();
+    await fireEvent.change(view.getByLabelText('Unconfigured access group'), { target: { value: 'research-team' } });
+    await fireEvent.click(view.getByRole('button', { name: 'Add group policy' }));
+    expect(values().groupRouting[2]).toEqual({ accessGroup: 'research-team', routes: current.dynamicRoutes, defaultRoute: 'general_usage', reasoning: 'off' });
+    await fireEvent.change(view.getByLabelText('development reasoning profile'), { target: { value: '' } });
+    expect(values().dynamicRoutes).toEqual(current.dynamicRoutes);
+    expect(values().groupRouting[0].routes).toEqual(current.groupRouting[0].routes);
+    expect(view.getByLabelText('developers default route')).toHaveValue('development');
+  });
+
+  it('uses the first assigned route as the initial default instead of an unrelated gateway row', async () => {
+    const view = render(() => <form><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={{ ...current, dynamicRoutes: [], defaultRoute: null, reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} }, groupRouting: [] }} /></form>);
+    await waitFor(() => expect((view.getByLabelText('research reasoning profile') as HTMLSelectElement).options.length).toBe(7));
+    expect(view.getByLabelText('Global default route')).toHaveValue('');
+    await fireEvent.change(view.getByLabelText('research reasoning profile'), { target: { value: `workers-ai-glm-thinking\u001f1\u001f${hash('a')}` } });
+    const values = environmentValues('aiRouting', 'enterprise', new FormData(view.container.querySelector('form')!)) as Record<string, any>;
+    expect(values.dynamicRoutes).toEqual(['research']);
+    expect(values.defaultRoute).toEqual({ route: 'research', reasoning: 'off' });
+    expect(view.getByRole('button', { name: 'Map Profile for development' })).toBeEnabled();
+  });
+
+  it('does not treat unconfigured gateway rows as replacements for the last configured route', async () => {
+    const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={{ ...current, dynamicRoutes: ['retired'], defaultRoute: { route: 'retired', reasoning: 'off' }, reasoningConfiguration: { ...current.reasoningConfiguration, routeAssignments: { retired: current.reasoningConfiguration.routeAssignments.general_usage } }, groupRouting: [] }} />);
+    await waitFor(() => expect(view.getByRole('button', { name: 'Map Profile for research' })).toBeEnabled());
+    await fireEvent.click(view.getByRole('button', { name: 'Remove retired stale route' }));
+    expect(view.getByRole('alert')).toHaveTextContent('At least one route must remain in the catalog.');
+    expect(view.queryByRole('button', { name: 'Confirm remove retired' })).toBeNull();
+    expect(view.getByLabelText('Global default route')).toHaveValue('retired');
+  });
+
+  it('adds a discovered gateway route to routing only after assignment and preserves group apply-to-all', async () => {
     const { container, getByLabelText, queryByLabelText, getByRole, getByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
     await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
 
     expect(getByLabelText('research context window')).toBeTruthy();
     expect(queryByLabelText('New route handle')).toBeNull();
-    expect(getByRole('button', { name: /discover research compatibility/i })).toBeEnabled();
+    expect(getByRole('button', { name: /map profile for research/i })).toBeEnabled();
 
     await fireEvent.input(getByLabelText('research context window'), { target: { value: '65536' } });
     const profile = getByLabelText('research reasoning profile') as HTMLSelectElement;

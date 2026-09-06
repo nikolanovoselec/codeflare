@@ -170,8 +170,28 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
     });
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(report.accounting).toEqual({ logicalProbes: 1, httpAttempts: 1, promptTokens: 0, completionTokens: 0, totalTokens: 0 });
-    expect(report.classification).toBe('Inconclusive');
+    expect(report.classification).toBe(status === 400 ? 'Unsupported' : 'Inconclusive');
+    expect(report.diagnostics).toEqual([expect.objectContaining({ code: 'request_rejected', status })]);
     expect(JSON.stringify(report)).not.toContain('private provider body');
+  });
+
+  it('classifies explicit replay 400/7003 as unsupported rather than budget exhaustion', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(sse([{ choices: [{ delta: { content: 'answer' }, finish_reason: 'stop' }] }, '[DONE]']))
+      .mockResolvedValueOnce(sse([{ choices: [{ delta: { reasoning_content: 'private thinking', tool_calls: [{ index: 0, id: 'call-id', type: 'function', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' } }] }, finish_reason: 'tool_calls' }] }, '[DONE]']))
+      .mockResolvedValueOnce(Response.json({ errors: [{ code: 7003, message: 'private rejection' }] }, { status: 400 }));
+    const report = await discoverPiCompatibility({
+      accountId: ACCOUNT_ID, gatewayId: 'gateway', apiToken: 'secret-token', route: 'dynamic/test',
+      profile: { id: 'low', supportedLevels: ['low'], levels: { low: { reasoning_effort: 'low' } } },
+      maxCompletionTokens: 4096, fetcher,
+    });
+    expect(report).toMatchObject({
+      classification: 'Unsupported', assignable: false, compatibleLevels: [], stopDiscovery: false,
+      piCompatibility: { status: 'tool-replay-unsupported' },
+      diagnostics: [{ code: 'replay_rejected', stage: 'tool-replay', status: 400 }],
+    });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(JSON.stringify(report)).not.toContain('private rejection');
   });
 
   it('classifies a per-attempt timeout without retrying or exposing the transport error', async () => {

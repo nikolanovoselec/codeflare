@@ -285,7 +285,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     expect(selectUnambiguousCandidateMatch([offOnly, full])).toBeNull();
   });
 
-  it('REQ-ENTERPRISE-035 AC3: returns an ambiguous non-activating result when compatible candidate mappings diverge', async () => {
+  it('REQ-ENTERPRISE-035 AC3: offers existing revisions without activation when compatible mappings diverge', async () => {
     const { app, kv } = await createApp();
     const profilesModule = await import('../../lib/reasoning-profiles');
     const candidate = profilesModule.BUILT_IN_REASONING_PROFILES[1] as any;
@@ -305,9 +305,10 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
       expect(response.status).toBe(200);
       expect(body).toMatchObject({
         route: 'codeflare-mesh',
-        classification: 'Inconclusive',
-        assignable: false,
-        warnings: ['ambiguous_profile_mapping'],
+        classification: 'Verified',
+        assignable: true,
+        outcome: 'existing-profile',
+        matchedProfiles: BUILTIN_IDS.map((id) => ({ profileRef: { id, revision: 1, hash: PROFILE_HASH } })),
       });
       expect(body).not.toHaveProperty('profileDraft');
       expect(vi.mocked(kv.put).mock.calls.some(([key]) => key === SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
@@ -334,7 +335,6 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
       classification: 'Verified',
       assignable: true,
       outcome: 'existing-profile',
-      matchedCandidateProfileId: BUILTIN_IDS[0],
       matchedProfiles: BUILTIN_IDS.map((id) => ({ name: id, profileRef: { id, revision: 1, hash: PROFILE_HASH }, supportedLevels: ['off'] })),
     });
     expect(body).not.toHaveProperty('profileDraft');

@@ -480,7 +480,7 @@ function deletePath(target: Record<string, unknown>, path: string): void {
     if (!child || typeof child !== 'object' || Array.isArray(child)) return;
     cursor = child as Record<string, unknown>;
   }
-  delete cursor[segments.at(-1)!];
+  delete cursor[segments[segments.length - 1]];
 }
 
 function writePath(target: Record<string, unknown>, write: ScalarWrite): void {
@@ -492,7 +492,7 @@ function writePath(target: Record<string, unknown>, write: ScalarWrite): void {
     else if (!existing || typeof existing !== 'object' || Array.isArray(existing)) throw new Error(`reasoning mapping cannot descend through ${segments[i]}`);
     cursor = cursor[segments[i]] as Record<string, unknown>;
   }
-  cursor[segments.at(-1)!] = write.value;
+  cursor[segments[segments.length - 1]] = write.value;
 }
 
 export interface RouteSettings {

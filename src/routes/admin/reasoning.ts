@@ -36,7 +36,7 @@ const profileRefSchema = z.object({
 const discoverySchema = z.object({
   route: routeSchema,
   profileRef: profileRefSchema.optional(),
-  maxCompletionTokens: z.number().int().min(32).max(16_384).default(32),
+  maxCompletionTokens: z.number().int().min(32).max(16_384).default(4096),
 }).strict();
 
 type ProfileRef = z.infer<typeof profileRefSchema>;
@@ -600,25 +600,29 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
       completionTokens: total.completionTokens + Number(report.accounting?.completionTokens ?? 0),
       totalTokens: total.totalTokens + Number(report.accounting?.totalTokens ?? 0),
     }), { logicalProbes: 0, httpAttempts: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 });
-    const candidates = distinctCandidateReports(matches.length > 0 ? matches : observed);
-    const selected = stopped ? null : selectUnambiguousCandidateMatch(candidates);
+    // Existing revisions are independent administrator choices, not competing
+    // runtime mappings. Only a new draft requires one coherent observed fit.
+    const existingMatches = stopped ? [] : matches;
+    const candidates = distinctCandidateReports(observed);
+    const selected = stopped || existingMatches.length > 0 ? null : selectUnambiguousCandidateMatch(candidates);
     const diagnostics = reports.flatMap(({ report }) => report.diagnostics ?? []);
-    const ambiguous = !stopped && !selected && candidates.length > 1;
-    const inconclusive = stopped || diagnostics.some((diagnostic) => diagnostic.code === 'completion_limit'
-      || diagnostic.code === 'request_rejected' || diagnostic.code === 'replay_rejected');
-    const outcome = selected ? (matches.length > 0 ? 'existing-profile' : 'custom-profile')
+    const ambiguous = !stopped && existingMatches.length === 0 && !selected && candidates.length > 1;
+    const inconclusive = stopped || diagnostics.some((diagnostic) => diagnostic.code === 'completion_limit');
+    const outcome = existingMatches.length > 0 ? 'existing-profile' : selected ? 'custom-profile'
       : ambiguous ? 'ambiguous' : inconclusive ? 'inconclusive' : 'unsupported';
-    const matchedProfiles = selected && matches.length > 0
-      ? matches.filter(({ profile: candidate }) => coversProfile(selected.profile, candidate)).map(({ profile: candidate }) => ({
-        profileRef: profileRefFor(candidate)!, name: candidate.name, supportedLevels: candidate.supportedLevels,
-      })) : [];
+    const matchedProfiles = existingMatches.map(({ profile: candidate }) => ({
+      profileRef: profileRefFor(candidate)!, name: candidate.name, supportedLevels: candidate.supportedLevels,
+    }));
+    const assignable = existingMatches.length > 0 || selected !== null;
     const result = {
       schemaVersion: 1,
       route: request.data.route,
       outcome,
       requestedCompletionCeiling: request.data.maxCompletionTokens,
-      classification: selected ? selected.report.classification : outcome === 'unsupported' ? 'Unsupported' : 'Inconclusive',
-      assignable: selected !== null,
+      classification: existingMatches.length > 0
+        ? existingMatches.every(({ report }) => report.classification === 'Verified') ? 'Verified' : 'Compatible, unverified'
+        : selected ? selected.report.classification : outcome === 'unsupported' ? 'Unsupported' : 'Inconclusive',
+      assignable,
       matchedProfiles,
       diagnostics,
       accounting,
@@ -632,7 +636,7 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
       })),
       ...(selected && { matchedCandidateProfileId: selected.profile.id }),
       ...(selected && outcome === 'custom-profile' && { profileDraft: generatedProfileDraft(selected.profile, selected.report, request.data.route) }),
-      ...(!selected && { warnings: [ambiguous ? 'ambiguous_profile_mapping' : 'no_compatible_profile_mapping'] }),
+      ...(!assignable && { warnings: [ambiguous ? 'ambiguous_profile_mapping' : 'no_compatible_profile_mapping'] }),
     };
     logger.info('Custom reasoning profile discovery completed', {
       initiatedBy: c.get('user')?.email ?? 'unknown',

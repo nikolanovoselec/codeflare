@@ -1,10 +1,12 @@
 /* v8 ignore start -- user-validated administration UI */
 import { For, Show, createMemo, createSignal, onMount, type Component } from 'solid-js';
 import { discoverReasoningCompatibility } from '../../api/client';
+import { normalizeCustomProfile } from '../../../../src/lib/reasoning-profiles';
 import type { ProfileRevisionRef, ReasoningDiscoveryDiagnostic, ReasoningDiscoveryResult } from '../../types';
 
 interface Props {
   route: string;
+  startOnMount?: boolean;
   existingRevisions: Array<Record<string, unknown>>;
   onSave: (revision: Record<string, unknown>) => void;
   onSelectProfile: (ref: ProfileRevisionRef) => void;
@@ -51,7 +53,7 @@ export function reasoningCheckSummary(result: ReasoningDiscoveryResult, fallback
   const diagnostics = [...(result.diagnostics ?? []), ...(result.candidateResults?.flatMap((candidate) => candidate.diagnostics ?? []) ?? [])];
   const fatal = diagnostics.find((diagnostic) => ['timeout', 'transport_error', 'malformed_response', 'response_too_large'].includes(diagnostic.code)
     || diagnostic.status === 401 || diagnostic.status === 403 || diagnostic.status === 429 || (diagnostic.status !== undefined && diagnostic.status >= 500));
-  if (fatal) return `Compatibility check stopped during ${fatal.stage}${fatal.status ? ` (HTTP ${fatal.status})` : ` (${fatal.code.split('_').join(' ')})`}. See technical details before retrying.`;
+  if (fatal) return `${diagnosticMessage(fatal.code)} Compatibility check stopped during ${fatal.stage}${fatal.status ? ` (HTTP ${fatal.status})` : ''}. See technical details before retrying.`;
   if (diagnostics.some((diagnostic) => diagnostic.code === 'completion_limit') || result.warnings?.includes('completion_limit')) {
     return diagnosticMessage('completion_limit');
   }
@@ -59,6 +61,8 @@ export function reasoningCheckSummary(result: ReasoningDiscoveryResult, fallback
   if (result.outcome === 'ambiguous' || result.warnings?.includes('ambiguous_profile_mapping') || candidateClassifications.includes('heterogeneous')) {
     return 'Multiple reasoning behaviors matched. No safe profile was created.';
   }
+  const concrete = diagnostics.find((diagnostic) => Object.prototype.hasOwnProperty.call(DIAGNOSTIC_MESSAGES, diagnostic.code));
+  if (concrete) return `${diagnosticMessage(concrete.code)} Nothing was changed.`;
   if (result.outcome === 'unsupported' || (!result.outcome && (result.classification.toLowerCase() === 'unsupported' || (candidateClassifications.length > 0 && candidateClassifications.every((classification) => classification === 'unsupported'))))) {
     return 'No compatible reasoning behavior was found. Nothing was changed.';
   }
@@ -91,12 +95,11 @@ export const ReasoningCheckDetails: Component<{ result: ReasoningDiscoveryResult
 </>;
 
 const ReasoningProfileEditor: Component<Props> = (props) => {
-  let editor!: HTMLElement;
   let heading!: HTMLHeadingElement;
-  onMount(() => heading.focus());
+  onMount(() => { heading.focus(); if (props.startOnMount) void discover(); });
   const [result, setResult] = createSignal<ReasoningDiscoveryResult>();
   const [name, setName] = createSignal('');
-  const [ceiling, setCeiling] = createSignal('32');
+  const [ceiling, setCeiling] = createSignal('4096');
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal('');
 
@@ -141,13 +144,16 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
       setError('Profile name is required.');
       return;
     }
-    const form = editor.closest('form');
-    setError('');
-    props.onSave({ ...discovered, id: id(), name: name().trim(), revision: revision() });
-    queueMicrotask(() => form?.requestSubmit());
+    try {
+      const normalized = normalizeCustomProfile({ ...discovered, id: id(), name: name().trim(), revision: revision() });
+      setError('');
+      props.onSave({ ...normalized });
+    } catch {
+      setError('The generated profile could not be prepared for assignment. Nothing was changed. Run Map Profile again.');
+    }
   };
 
-  return <section ref={editor} class="admin-profile-editor admin-form-wide" aria-labelledby="custom-profile-heading">
+  return <section class="admin-profile-editor admin-form-wide" aria-labelledby="custom-profile-heading" onKeyDown={(event) => { if (event.key === 'Enter' && event.target instanceof HTMLInputElement) event.preventDefault(); }}>
     <div class="admin-subsection-heading">
       <div>
         <p class="admin-step-label">Compatibility check</p>
@@ -158,22 +164,25 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
     </div>
     <Show when={error()}><div class="admin-inline-error" role="alert">{error()}</div></Show>
 
+    <Show when={busy()}><p class="admin-status-text" role="status">Mapping profile…</p></Show>
+    <details class="admin-technical-details"><summary>Advanced mapping controls</summary>
     <label class="admin-form-field admin-profile-name"><span>Discovery completion token ceiling</span><input type="number" min="32" max="16384" step="1" value={ceiling()} disabled={busy()} onInput={(event) => setCeiling(event.currentTarget.value)} /></label>
     <div class="admin-discovery-callout">
       <div><strong>Ready to check</strong><span>This uses the saved AI Gateway connection and may create provider usage. Codeflare never retries at a higher ceiling automatically.</span></div>
       <button type="button" class="admin-primary-button" disabled={busy()} onClick={() => void discover()}>{busy() ? 'Checking…' : 'Check compatibility'}</button>
     </div>
+    </details>
 
     <Show when={result()}>{(discovered) => <section class="admin-profile-section" aria-live="polite">
       <Show when={matchedProfiles().length > 0}>
         <div class="admin-discovery-success">
           <strong>Compatible reasoning profiles found</strong>
           <p>These profiles fit the observed safe reasoning behavior. This does not identify the backend model.</p>
-          <span>Choose a profile for the route draft, then Review and Apply. Nothing is saved or activated by this check.</span>
+          <span>Assign a profile to this route draft, then Save. Nothing is saved or activated by this check.</span>
         </div>
         <For each={matchedProfiles()}>{(profile) => <div class="admin-review-action">
           <div><strong>{profile.name}</strong><span>Supported levels: {profile.supportedLevels.join(', ') || 'Not reported'}</span></div>
-          <button type="button" class="admin-primary-button" onClick={() => props.onSelectProfile(profile.profileRef)}>Use {profile.name}</button>
+          <button type="button" class="admin-primary-button" onClick={() => props.onSelectProfile(profile.profileRef)}>Assign {profile.name}</button>
         </div>}</For>
       </Show>
       <Show when={customDraft()}>
@@ -184,8 +193,8 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
         </div>
         <label class="admin-form-field admin-profile-name"><span>Profile name</span><input aria-label="Profile name" maxlength="128" placeholder={`For example, ${props.route} reasoning`} value={name()} onInput={(event) => setName(event.currentTarget.value)} /></label>
         <div class="admin-review-action">
-          <div><strong>Next: review and save</strong><span>The profile remains unassigned and inactive. Nothing is stored until you confirm Apply change.</span></div>
-          <button type="button" class="admin-primary-button" onClick={save}>Continue to review</button>
+          <div><strong>Assign to {props.route}</strong><span>Create this named profile and assign it to the route draft. Nothing is stored until Save is confirmed.</span></div>
+          <button type="button" class="admin-primary-button" onClick={save}>Create &amp; Assign</button>
         </div>
       </Show>
       <Show when={matchedProfiles().length === 0 && !customDraft()}><div class="admin-inline-error" role="alert">{reasoningCheckSummary(discovered())}</div></Show>

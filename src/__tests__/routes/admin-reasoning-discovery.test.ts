@@ -208,12 +208,86 @@ describe('REQ-ENTERPRISE-035 actionable route discovery', () => {
     expect(JSON.stringify(body)).not.toContain('private-invalid-json');
   });
 
-  it('preserves divergent complete mappings as ambiguous without creating a profile', async () => {
-    const { app } = appWithProfiles();
+  it('offers every distinct complete built-in and enabled custom revision without choosing a runtime mapping', async () => {
+    const saved = partialProfile();
+    const { app, kv } = appWithProfiles([saved]);
     provider((body) => lifecycle(body, false));
     const body = await discover(app);
-    expect(body).toMatchObject({ outcome: 'ambiguous', assignable: false, warnings: ['ambiguous_profile_mapping'] });
+    expect(body).toMatchObject({ outcome: 'existing-profile', assignable: true });
+    expect(body.matchedProfiles).toEqual([...BUILT_IN_REASONING_PROFILES, saved].map((profile) => ({
+      profileRef: { id: profile.id, revision: profile.revision, hash: profile.hash },
+      name: profile.name, supportedLevels: profile.supportedLevels,
+    })));
+    expect(body).not.toHaveProperty('matchedCandidateProfileId');
     expect(body).not.toHaveProperty('profileDraft');
-    expect(BUILT_IN_REASONING_PROFILES).toHaveLength(6);
+    expect(body.warnings ?? []).not.toContain('ambiguous_profile_mapping');
+    expect(vi.mocked(kv.put).mock.calls.some(([key]) => key === SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
+  });
+
+  it('offers GPT full and off plus Kimi when worker and Mesh off modes still reason', async () => {
+    const { app } = appWithProfiles();
+    provider((body) => lifecycle(body, body.reasoning_effort !== 'none'));
+    const body = await discover(app);
+    expect(body).toMatchObject({ outcome: 'existing-profile', assignable: true });
+    expect(body.matchedProfiles).toEqual(BUILT_IN_REASONING_PROFILES.filter((profile) => [
+      'openai-gpt-chat-tools-reasoning', 'openai-gpt-chat-tools-off', 'workers-ai-kimi-k-thinking',
+    ].includes(profile.id)).map((profile) => ({
+      profileRef: { id: profile.id, revision: profile.revision, hash: profile.hash },
+      name: profile.name, supportedLevels: profile.supportedLevels,
+    })));
+    expect(body.candidateResults.filter((result: any) => result.verifiedLevels.length > 0)).toHaveLength(5);
+    expect(body).not.toHaveProperty('profileDraft');
+    expect(body).not.toHaveProperty('matchedCandidateProfileId');
+  });
+
+  it.each(['request', 'replay', 'no-tool'])('reports incompatible %s with a clear diagnostic and no invented draft', async (failure) => {
+    const { app } = appWithProfiles();
+    const fetcher = provider((body) => {
+      if (failure === 'request' || (failure === 'replay' && body.messages.some((message: any) => message.role === 'tool'))) {
+        return Response.json({ errors: [{ code: 7003, message: 'private rejection' }] }, { status: 400 });
+      }
+      return failure === 'no-tool' && body.tools ? streamed({ content: 'no function' }) : lifecycle(body, false);
+    });
+    const body = await discover(app);
+    expect(body).toMatchObject({ outcome: 'unsupported', classification: 'Unsupported', assignable: false, matchedProfiles: [] });
+    expect(body.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({
+      code: failure === 'request' ? 'request_rejected' : failure === 'replay' ? 'replay_rejected' : 'no_tool_call',
+    })]));
+    expect(body.diagnostics.some((diagnostic: any) => diagnostic.code === 'completion_limit')).toBe(false);
+    expect(body).not.toHaveProperty('profileDraft');
+    expect(fetcher.mock.calls.every(([url]) => !String(url).includes('/compat/'))).toBe(true);
+    expect(JSON.stringify(body)).not.toContain('private rejection');
+  });
+
+  it('does not combine divergent passing subsets into a custom draft', async () => {
+    const { app } = appWithProfiles();
+    provider((body) => body.reasoning_effort === 'low'
+      ? lifecycle(body)
+      : streamed({ content: 'no tool', reasoning_content: 'thinking' }));
+    const body = await discover(app);
+    expect(body).toMatchObject({ outcome: 'ambiguous', assignable: false, matchedProfiles: [], warnings: ['ambiguous_profile_mapping'] });
+    expect(body).not.toHaveProperty('profileDraft');
+  });
+
+  it.each([undefined, 32, 16_384])('uses the requested ceiling %s or defaults to 4096 without escalation', async (ceiling) => {
+    const { app } = appWithProfiles();
+    const fetcher = provider((body) => lifecycle(body, false));
+    const body = await discover(app, { maxCompletionTokens: ceiling });
+    expect(body.requestedCompletionCeiling).toBe(ceiling ?? 4096);
+    for (const [, init] of fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')) {
+      expect(JSON.parse(String(init?.body)).max_completion_tokens).toBe(ceiling ?? 4096);
+      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer saved-gateway-secret');
+    }
+  });
+
+  it.each([31, 16_385])('rejects ceiling %s before gateway I/O', async (maxCompletionTokens) => {
+    const { app } = appWithProfiles();
+    const fetcher = provider((body) => lifecycle(body));
+    const response = await app.request('/admin/reasoning/discover', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ route: 'kimi-route', maxCompletionTokens }),
+    });
+    expect(response.status).toBe(400);
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });
