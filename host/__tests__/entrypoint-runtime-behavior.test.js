@@ -268,7 +268,9 @@ describe('entrypoint production helpers', () => {
       const installed = join(tools, 'node_modules/@earendil-works/pi-coding-agent');
       const processor = join(installed, 'dist/utils/image-process.js');
       const verify = () => spawnSync(process.execPath, [join(scripts, 'verify-pi-lockstep.mjs'), '--verify-runtime', join(installed, 'package.json')], { encoding: 'utf8' });
-      const body = extractFunction('update_pi_and_codex_when_fast_start_disabled').replaceAll('/opt/codeflare/scripts', scripts);
+      const body = extractFunction('update_pi_and_codex_when_fast_start_disabled')
+        .replaceAll('/opt/codeflare/scripts/coding-agent-selection.mjs', join(scripts, 'ci/coding-agent-selection.mjs'))
+        .replaceAll('/opt/codeflare/scripts', scripts);
       // Suppress latest-version network updates; execute the production repair commands with real npm.
       const run = () => spawnSync('bash', ['-c', `${body}\npi() { echo fixture-pi; }\ncodex() { echo fixture-codex; }\nnpm() { if [[ " $* " == *" --save-exact "* ]]; then return 0; fi; command npm "$@" --offline; }\nFAST_CLI_START=false\nupdate_pi_and_codex_when_fast_start_disabled`], { env, encoding: 'utf8', timeout: 120_000 });
       rmSync(processor);
