@@ -1,6 +1,25 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import finalizeToolExposure from '../../preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts';
+import { pathToFileURL } from 'node:url';
+
+const extensions = new URL('../../preseed/agents/pi/extensions/', import.meta.url);
+const directory = await mkdtemp(join(tmpdir(), 'pi-tool-exposure-finalizer-'));
+let finalizeToolExposure;
+try {
+  const source = await readFile(new URL('zz-tool-exposure-finalizer.ts', extensions), 'utf8');
+  const fixturePath = join(directory, 'finalizer.ts');
+  // Resolve the Pi extensionless import only in the native Node test fixture.
+  await writeFile(fixturePath, source.replace(
+    '"./capability-helpers"',
+    JSON.stringify(new URL('capability-helpers.ts', extensions).href),
+  ));
+  ({ default: finalizeToolExposure } = await import(pathToFileURL(fixturePath).href));
+} finally {
+  await rm(directory, { recursive: true, force: true });
+}
 
 function fixture() {
   const handlers = new Map();
