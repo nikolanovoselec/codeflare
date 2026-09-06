@@ -1,5 +1,7 @@
 name: Generate scoped Pi artifacts
 on:
+  push:
+    branches: [chore/pi-0851-artifacts]
   workflow_dispatch:
 permissions:
   contents: read
