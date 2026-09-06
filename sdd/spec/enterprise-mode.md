@@ -373,9 +373,6 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 2. Continuing from a named discovery result opens configuration Review and identifies the draft as pending save, unassigned, and inactive. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (continues a discovered profile directly into Review with the immutable unassigned draft) -->
 3. Returning from Review to edit retains the named custom revision in the configuration draft. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (continues a discovered profile directly into Review with the immutable unassigned draft) -->
 4. The named custom revision is persisted only after Apply succeeds. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (continues a discovered profile directly into Review with the immutable unassigned draft) --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (applies AI routing and Browser Run without clobbering saved credentials) -->
-5. Discovery generates a custom draft only when no existing revision fits an unambiguous set of passed modes. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (recommends existing catalog revisions without creating a duplicate profile draft) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (creates a normalized custom draft from passed modes when no complete existing profile fits) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (does not recommend disabled custom revisions) -->
-6. Generated drafts exclude failed, incomplete, and unproven off modes together with dangling aliases. <!-- @impl: src/routes/admin/reasoning.ts::observedCandidate --> <!-- @impl: src/routes/admin/reasoning.ts::generatedProfileDraft --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (creates a normalized custom draft from passed modes when no complete existing profile fits) --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-035: excludes off from compatible modes when hidden reasoning tokens are reported) -->
-7. Each retained mode preserves the observed removals and literal writes. <!-- @impl: src/routes/admin/reasoning.ts::generatedProfileDraft --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (creates a normalized custom draft from passed modes when no complete existing profile fits) -->
 
 **Constraints:**
 
@@ -383,9 +380,36 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration), [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection)
+**Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration), [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection), [REQ-ENTERPRISE-037](#req-enterprise-037-enterprise-pi-custom-profile-generation)
 
-**Verification:** Automated tests in the anchored discovery, Administration API, and web-ui suites above.
+**Verification:** Automated tests in the anchored Administration web-ui and configuration-run suites above.
+
+**Status:** Implemented
+
+---
+
+<a id="req-enterprise-037-enterprise-pi-custom-profile-generation"></a>
+### REQ-ENTERPRISE-037: Enterprise Pi Custom Profile Generation
+
+**Intent:** Discovery produces safe custom drafts when existing catalog revisions do not fit.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Discovery generates a custom draft only when no existing revision fits an unambiguous set of passed modes. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (recommends existing catalog revisions without creating a duplicate profile draft) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (creates a normalized custom draft from passed modes when no complete existing profile fits) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (does not recommend disabled custom revisions) -->
+2. Generated drafts exclude failed, incomplete, and unproven off modes together with dangling aliases. <!-- @impl: src/routes/admin/reasoning.ts::observedCandidate --> <!-- @impl: src/routes/admin/reasoning.ts::generatedProfileDraft --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (creates a normalized custom draft from passed modes when no complete existing profile fits) --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-035: excludes off from compatible modes when hidden reasoning tokens are reported) -->
+3. Each retained mode preserves the observed removals and literal writes. <!-- @impl: src/routes/admin/reasoning.ts::generatedProfileDraft --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (creates a normalized custom draft from passed modes when no complete existing profile fits) -->
+
+**Constraints:**
+
+- Generation does not persist, assign, or activate the draft.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection)
+
+**Verification:** Automated tests in the anchored Administration API and discovery suites above.
 
 **Status:** Implemented
 

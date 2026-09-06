@@ -44,14 +44,14 @@ const DIAGNOSTIC_MESSAGES: Record<string, string> = {
 };
 
 function diagnosticMessage(code: string): string {
-  return Object.hasOwn(DIAGNOSTIC_MESSAGES, code) ? DIAGNOSTIC_MESSAGES[code] : 'The compatibility check could not be completed.';
+  return Object.prototype.hasOwnProperty.call(DIAGNOSTIC_MESSAGES, code) ? DIAGNOSTIC_MESSAGES[code] : 'The compatibility check could not be completed.';
 }
 
 export function reasoningCheckSummary(result: ReasoningDiscoveryResult, fallback = 'Compatibility could not be confirmed. Nothing was changed.'): string {
   const diagnostics = [...(result.diagnostics ?? []), ...(result.candidateResults?.flatMap((candidate) => candidate.diagnostics ?? []) ?? [])];
   const fatal = diagnostics.find((diagnostic) => ['timeout', 'transport_error', 'malformed_response', 'response_too_large'].includes(diagnostic.code)
     || diagnostic.status === 401 || diagnostic.status === 403 || diagnostic.status === 429 || (diagnostic.status !== undefined && diagnostic.status >= 500));
-  if (fatal) return `Compatibility check stopped during ${fatal.stage}${fatal.status ? ` (HTTP ${fatal.status})` : ` (${fatal.code.replaceAll('_', ' ')})`}. See technical details before retrying.`;
+  if (fatal) return `Compatibility check stopped during ${fatal.stage}${fatal.status ? ` (HTTP ${fatal.status})` : ` (${fatal.code.split('_').join(' ')})`}. See technical details before retrying.`;
   if (diagnostics.some((diagnostic) => diagnostic.code === 'completion_limit') || result.warnings?.includes('completion_limit')) {
     return diagnosticMessage('completion_limit');
   }
@@ -76,7 +76,7 @@ export const ReasoningCheckDetails: Component<{ result: ReasoningDiscoveryResult
   <details class="admin-technical-details admin-inline-technical-details">
     <summary>Technical check details</summary>
     <Show when={!props.result.candidateResults?.length}><DiagnosticList diagnostics={props.result.diagnostics} /></Show>
-    <For each={props.result.warnings?.filter((warning) => Object.hasOwn(DIAGNOSTIC_MESSAGES, warning) && !props.result.diagnostics?.some((diagnostic) => diagnostic.code === warning))}>{(warning) => <p class="admin-status-text">{diagnosticMessage(warning)}</p>}</For>
+    <For each={props.result.warnings?.filter((warning) => Object.prototype.hasOwnProperty.call(DIAGNOSTIC_MESSAGES, warning) && !props.result.diagnostics?.some((diagnostic) => diagnostic.code === warning))}>{(warning) => <p class="admin-status-text">{diagnosticMessage(warning)}</p>}</For>
     <dl>
       <div><dt>Logical probes</dt><dd>{props.result.accounting?.logicalProbes ?? 'Not reported'}</dd></div>
       <div><dt>HTTP attempts</dt><dd>{props.result.accounting?.httpAttempts ?? 'Not reported'}</dd></div>
