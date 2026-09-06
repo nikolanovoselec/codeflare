@@ -133,6 +133,29 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
+  it.each(['developers', 'Fallback'])('REQ-ENTERPRISE-044: reverting %s route membership disables review', async (policy) => {
+    const initial = aiRouting();
+    const routes = ['development', 'staging', 'production'];
+    initial.dynamicRoutes = routes;
+    initial.groupRouting = [{ ...group, routes }];
+    initial.reasoningConfiguration.routeAssignments = Object.fromEntries(routes.map((route) => [route, { activeProfile: ref, verification: proof(route) }]));
+    initial.reasoningConfiguration.fallbackRouting = { enabled: true, routes, defaultRoute: 'development', reasoning: 'medium' };
+    api.configuration.mockResolvedValueOnce(configuration(initial));
+    api.catalog.mockResolvedValue({ ...catalog(), routes });
+    api.inventory.mockImplementation(async (route: string) => inventory(route, proof(route)));
+    mount();
+    await section('Access & fallback');
+    await screen.findByRole('checkbox', { name: `${policy} production route` });
+    const action = screen.getByRole('button', { name: 'Review changes' });
+    expect(action).toBeDisabled();
+    await fireEvent.click(screen.getByRole('checkbox', { name: `${policy} staging route` }));
+    expect(action).toBeEnabled();
+    await fireEvent.click(screen.getByRole('checkbox', { name: `${policy} staging route` }));
+    expect(screen.getByRole('checkbox', { name: `${policy} staging route` })).toBeChecked();
+    expect(action).toBeDisabled();
+    await fireEvent.submit(action.closest('form')!);
+    expect(api.preview).not.toHaveBeenCalled();
+  });
   it('REQ-ENTERPRISE-044: loading and normalization stay clean; edits and reverts control review', async () => {
     api.catalog.mockResolvedValue({ ...catalog(), routes: ['development', 'unconfigured'] });
     mount();

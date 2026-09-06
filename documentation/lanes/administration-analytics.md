@@ -95,7 +95,7 @@ Record exact commit and Deploy run before testing. Then verify:
 - One non-destructive Environment review and apply, including conflict, reconnect, failure, and interrupted states.
 - In Enterprise AI Routing, confirm the compact gateway route catalog loads without editable JSON; use Create & Assign for a bounded custom draft, supply required custom-backend descriptions, and Verify the exact selection before assigning access and confirming Save.
 - Run bounded discovery for one target and verify Pi 0.84.4 streaming, tool call, exact result replay, logical-probe/HTTP-attempt counts, and non-activation. Revalidate after a route version or declared backend changes.
-- Activate a successfully checked route through explicit Save and Confirm Save; observed-path success requires acknowledging that other backends remain untested. Verify unchecked routes cannot be activated and a stale `baseRevision` is rejected.
+- Activate a successfully checked route through explicit Review changes and Confirm Save; observed-path success requires acknowledging that other backends remain untested. Verify unchecked routes cannot be activated and a stale `baseRevision` is rejected.
 - Start Pi for an explicitly enabled fallback policy and a matching group: verify only eligible allowed routes appear, startup defaults match the policy, `/model` switches routes, and tool replay completes. Disabled fallback and empty first-matching policies must grant no routes.
 - Analytics empty-history and data-start states, actual period-history chart, Timekeeper-lag disclosure, user detail, deleted-user history, and CSV download.
 - Reports disabled state, schedule presentation, current-month test email, provider failure, and delivery history.

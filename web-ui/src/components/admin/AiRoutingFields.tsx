@@ -141,7 +141,8 @@ const AiRoutingFields: Component<Props> = (props) => {
     gatewayUrl: gatewayUrl().trim(), replacementToken: replacementToken().trim(),
     routes: routes().filter((route) => storedRoutes.includes(route.name) || route.assignment.activeProfile || route.contextWindow !== DEFAULT_CONTEXT_WINDOW)
       .map((route) => ({ name: route.name, contextWindow: route.contextWindow, assignment: route.assignment })).sort((a, b) => a.name.localeCompare(b.name)),
-    groups: groups(), fallback: fallbackEnabled() ? { enabled: true, ...fallbackPolicy() } : { enabled: false },
+    groups: groups().map((group) => ({ ...group, routes: [...group.routes].sort() })),
+    fallback: fallbackEnabled() ? { enabled: true, ...fallbackPolicy(), routes: [...fallbackPolicy().routes].sort() } : { enabled: false },
     customRevisions: customRevisions(),
   });
   const initialDraftKey = draftKey();

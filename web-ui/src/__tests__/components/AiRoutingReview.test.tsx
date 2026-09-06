@@ -266,19 +266,18 @@ describe('AI routing review', () => {
       const navigation = await screen.findByRole('navigation', { name: 'AI Gateway configuration sections' });
       await fireEvent.click(within(navigation).getByRole('button', { name }));
     };
-    await screen.findByRole('button', { name: 'Save' });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+    expect(await screen.findByRole('button', { name: 'Review changes' })).toBeDisabled();
     await section('Connection');
     await fireEvent.input(screen.getByLabelText('AI Gateway URL'), { target: { value: gateway.gatewayUrl } });
     if (gateway.replacementToken) await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: gateway.replacementToken } });
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
-    await fireEvent.submit(screen.getByRole('button', { name: 'Save' }).closest('form')!);
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
+    await fireEvent.submit(screen.getByRole('button', { name: 'Review changes' }).closest('form')!);
     expect(api.preview).not.toHaveBeenCalled();
     await fireEvent.click(screen.getByRole('button', { name: 'Check connection' }));
     await waitFor(() => expect(screen.getByText('Connected · 2 routes readable')).toBeVisible());
     expect(api.catalog).toHaveBeenLastCalledWith(gateway);
     expect(api.discover).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
     await section('Routes');
     for (const route of initial.dynamicRoutes) {
       await fireEvent.click(screen.getByRole('button', { name: `Configure ${route}` }));
@@ -295,11 +294,12 @@ describe('AI routing review', () => {
     expect(screen.getByRole('checkbox', { name: 'Platform engineers development route' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Platform engineers production route' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Enable fallback access' })).not.toBeChecked();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
-    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled());
+    await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
     await screen.findByRole('heading', { name: 'Confirm Save' });
     expect(screen.getByRole('table', { name: 'Route profiles' })).toBeVisible();
-    expect(screen.getByText('No fallback access')).toBeVisible();
+    const reviewPanel = screen.getByRole('heading', { name: 'Confirm Save' }).closest('section')!;
+    expect(within(reviewPanel).getByText('No fallback access')).toBeVisible();
     if (gateway.replacementToken) expect(document.body.textContent).not.toContain(gateway.replacementToken);
     expect(api.start).not.toHaveBeenCalled();
     const firstPreview = api.preview.mock.calls[api.preview.mock.calls.length - 1]![2];
@@ -317,15 +317,15 @@ describe('AI routing review', () => {
     await section('Routes');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Configure production' })).toHaveTextContent('Compatible · backup untested'));
     expect(screen.getByRole('button', { name: 'Configure development' })).toHaveTextContent('Verified');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
-    // Back rereads inventories with the draft credentials and reuses the receipts;
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled());
+    // Back retains inventories checked with the draft credentials and reuses the receipts;
     // it must neither discard the replacement token nor incur paid Verify again.
     expect(api.discover).toHaveBeenCalledTimes(2);
     for (const route of initial.dynamicRoutes) {
       const reads = api.inventory.mock.calls.filter(([name]) => name === route);
       expect(reads[reads.length - 1]).toEqual([route, { gateway }]);
     }
-    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
     await screen.findByRole('heading', { name: 'Confirm Save' });
     expect(api.preview).toHaveBeenLastCalledWith('aiRouting', 7, firstPreview);
     expect(screen.getByRole('button', { name: 'Confirm Save' })).toBeDisabled();
