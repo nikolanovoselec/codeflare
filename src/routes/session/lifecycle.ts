@@ -295,7 +295,7 @@ app.get('/batch-status', async (c) => {
  */
 app.post('/sync', sessionsSyncRateLimiter, async (c) => {
   const bucketName = c.get('bucketName');
-  const results = await fanOutBisyncTrigger(c.env, bucketName);
+  const results = await fanOutBisyncTrigger(c.env, bucketName, 'manual');
   return c.json({ sessions: results, count: results.length });
 });
 

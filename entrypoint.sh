@@ -888,7 +888,19 @@ relay_managed_pi_extensions() {
 # Step 2: Establish bisync baseline (after data is restored)
 # IMPORTANT: Uses timeout to prevent infinite hangs
 # Recovery: if a vanishing file causes failure, excludes it and retries (max 3 attempts)
+record_sync_disk_failure() {
+    if grep -Eiq 'no space left on device|preallocate: file too big for remaining disk space' "$1"; then
+        touch "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked"
+        update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry."
+    fi
+    return 0
+}
+
 establish_bisync_baseline() {
+    if [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
+        echo "[sync] Recovery blocked by disk space; free space and explicitly clear the disk-space-blocked marker before resync"
+        return 1
+    fi
     local BISYNC_TIMEOUT=600  # 10 minutes max for baseline (large buckets with many files)
     local MAX_RECOVERY=3
 
@@ -921,6 +933,11 @@ establish_bisync_baseline() {
         fi
         cat "$BASELINE_OUTPUT" >> $CODEFLARE_RUNTIME_ROOT/sync/sync.log
         cat "$BASELINE_OUTPUT" >&2
+        record_sync_disk_failure "$BASELINE_OUTPUT"
+        if [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
+            rm -f "$BASELINE_OUTPUT"
+            return 1
+        fi
 
         if [ $SYNC_RESULT -eq 0 ]; then
             rm -f "$BASELINE_OUTPUT"
@@ -988,6 +1005,10 @@ release_agent_pty_after_cleanup() {
 # Regular bisync (after baseline is established)
 # Syncs config, credentials. Workspace included when SYNC_MODE=full; caches always excluded.
 bisync_with_r2() {
+    if [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
+        echo "[sync] Sync blocked by disk space; explicit recovery is required"
+        return 1
+    fi
     local verbose_flag="${1:--v}"  # Default to -v (verbose); pass "" for quiet
     local verbose_args=()
     if [ -n "$verbose_flag" ]; then
@@ -1045,9 +1066,9 @@ bisync_with_r2() {
     # Note: SYNC_OUTPUT ($CODEFLARE_RUNTIME_ROOT/sync/last-bisync-output.txt) is NOT deleted here.
     # The daemon reads it for vanishing-file recovery. It's overwritten each invocation.
 
-    # Auto-clean conflict artifacts after successful bisync
+    record_sync_disk_failure "$SYNC_OUTPUT"
+    # Conflict copies may contain unique user content; never delete them blindly.
     if [ $RESULT -eq 0 ]; then
-        find /home/user -name "*.conflict*" -type f -delete 2>/dev/null || true
         # A sync that rewrote a hook from R2 dropped its exec bit; restore it here so
         # the window is seconds rather than the rest of the daemon cycle.
         repair_hook_exec_bits
@@ -1088,6 +1109,8 @@ start_sync_daemon() {
             BISYNC_IN_FLIGHT=
             # shellcheck disable=SC2064
             trap 'if [ -n "$BISYNC_IN_FLIGHT" ]; then BISYNC_RERUN_REQUESTED=1; else BISYNC_REQUESTED=1; fi' USR1
+            BISYNC_RECOVERY_REQUESTED=0
+            trap 'BISYNC_RECOVERY_REQUESTED=1; if [ -n "$BISYNC_IN_FLIGHT" ]; then BISYNC_RERUN_REQUESTED=1; else BISYNC_REQUESTED=1; fi' USR2
             CONSECUTIVE_FAILURES=0
             TRAP_INSTALLED=1
         fi
@@ -1120,6 +1143,17 @@ start_sync_daemon() {
 
         BISYNC_IN_FLIGHT=1
 
+        if [ "$BISYNC_RECOVERY_REQUESTED" = "1" ]; then
+            # Only the authenticated, user-driven Sync now endpoint requests recovery.
+            rm -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked"
+            BISYNC_RECOVERY_REQUESTED=0
+        fi
+        if [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
+            update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry."
+            BISYNC_IN_FLIGHT=
+            continue
+        fi
+
         # Rotate sync log if too large (keep last 256KB when exceeding 512KB)
         if [ -f $CODEFLARE_RUNTIME_ROOT/sync/sync.log ] && [ "$(stat -c%s $CODEFLARE_RUNTIME_ROOT/sync/sync.log 2>/dev/null || echo 0)" -gt 524288 ]; then
             tail -c 262144 $CODEFLARE_RUNTIME_ROOT/sync/sync.log > $CODEFLARE_RUNTIME_ROOT/sync/sync.log.tmp && mv $CODEFLARE_RUNTIME_ROOT/sync/sync.log.tmp $CODEFLARE_RUNTIME_ROOT/sync/sync.log
@@ -1143,6 +1177,11 @@ start_sync_daemon() {
             echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync completed successfully" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
             update_sync_status "success" "null"
         else
+            if [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
+                update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry."
+                BISYNC_IN_FLIGHT=
+                continue
+            fi
             # Try vanishing-file recovery before counting as failure
             if recover_vanished_files "$(cat $CODEFLARE_RUNTIME_ROOT/sync/last-bisync-output.txt 2>/dev/null)"; then
                 echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Vanished file recovered, retrying immediately..." | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log

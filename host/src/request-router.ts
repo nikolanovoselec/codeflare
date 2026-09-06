@@ -32,7 +32,7 @@ import {
 } from './vscode-proxy.js';
 import type { SessionManager } from './session-manager.js';
 import type { ActivityTracker, Logger, WsEvent } from './types.js';
-import { SYNC_DAEMON_PID_FILE, SYNC_LOG_FILE, SYNC_STATUS_FILE } from './runtime-paths.js';
+import { SYNC_DAEMON_PID_FILE, SYNC_LOG_FILE, SYNC_STATUS_FILE, SYNC_RUNTIME_DIR } from './runtime-paths.js';
 
 /**
  * When the current Browser IDE warming episode started, so the warming page can
@@ -473,7 +473,8 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
           return;
         }
         try {
-          process.kill(pid, 'SIGUSR1');
+          // Automatic upload/final-sync triggers must not lift a disk-full block.
+          process.kill(pid, req.headers['x-codeflare-sync-recovery'] === 'retry' ? 'SIGUSR2' : 'SIGUSR1');
         } catch {
           // ESRCH: process gone (daemon crashed or container restarting).
           // Treat as not-running; the next container wake forces a
@@ -585,6 +586,13 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     // triggered - the daemon coalesces our SIGUSR1 into a rerun whose `syncing`
     // ts lands after our trigger.
     if (pathname === '/internal/final-sync' && method === 'POST') {
+      const reportDiskBlock = (): boolean => {
+        if (!fs.existsSync(`${SYNC_RUNTIME_DIR}/disk-space-blocked`)) return false;
+        res.writeHead(409, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ synced: false, reason: 'disk-space-blocked' }));
+        return true;
+      };
+      if (reportDiskBlock()) return;
       const finalSync = deps.finalSync ?? {
         now: () => Date.now(),
         readStatus: (): { status?: string; ts?: number } => {
@@ -623,6 +631,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       // unit-testable without spawning the daemon; this loop owns only the I/O.
       let runStartedTs = -1;
       while (finalSync.now() - triggerTs < timeoutMs) {
+        if (reportDiskBlock()) return;
         const ev = evaluateFinalSync(finalSync.readStatus(), triggerTs, runStartedTs);
         runStartedTs = ev.runStartedTs;
         if (ev.result === 'success') {

@@ -2689,6 +2689,8 @@ a prompt-injected read now yields only a non-secret placeholder; R2 access is ga
 
 **Amendment (2026-08-25):** Current containers expose this diagnostic at `/run/codeflare/sync/sync.log`; the historical path above records the original deployment. <!-- @impl: entrypoint.sh::bisync_with_r2 -->
 
+**Amendment (2026-09-07):** Retain server-modtime and fast listing. Pin the narrow rclone bookkeeping patch: each completed transfer records its own destination metadata rather than the source timestamp for both sides. Validate upload identity against the existing S3 HEAD response, without adding all-object metadata requests. CI rejects unreviewed pins/incompatible source and runs unpatched-red/patched-green S3 regressions with request counts. Disk-full errors block automatic resync until the cloud Sync now action requests recovery after local space is freed. Never blindly delete conflict copies. See [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) and [REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake).
+
 **Related:** [REQ-STOR-017](../../sdd/spec/storage.md#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake), [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers), [Storage & Sync lane](../lanes/storage-and-sync.md).
 
 ---

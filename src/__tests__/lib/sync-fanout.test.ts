@@ -82,6 +82,15 @@ describe('fanOutBisyncTrigger (REQ-STOR-015 backfill)', () => {
     expect(testState.containerFetch).toHaveBeenCalledTimes(2);
   });
 
+  it('marks only explicit Sync now as an authorized disk-space retry', async () => {
+    seedSession(kv, bucket, 'aaaaaaaaaaaaaaaaaaaaaaaa', 'running');
+    testState.containerFetch.mockResolvedValue(new Response(null, { status: 202 }));
+    await fanOutBisyncTrigger(buildEnv(kv), bucket);
+    expect(testState.containerFetch.mock.calls[0][1].headers.get('X-Codeflare-Sync-Recovery')).toBeNull();
+    await fanOutBisyncTrigger(buildEnv(kv), bucket, 'manual');
+    expect(testState.containerFetch.mock.calls[1][1].headers.get('X-Codeflare-Sync-Recovery')).toBe('retry');
+  });
+
   it('AC1: returns empty array when the user has zero running sessions', async () => {
     seedSession(kv, bucket, 'dddddddddddddddddddddddd', 'stopped');
     seedSession(kv, bucket, 'eeeeeeeeeeeeeeeeeeeeeeee', 'stopped');

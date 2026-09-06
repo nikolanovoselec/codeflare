@@ -245,6 +245,44 @@ describe('entrypoint production helpers', () => {
     } finally { rmSync(fixture, { recursive: true, force: true }); }
   });
 
+  it('starts a reachable recovery daemon when baseline fails for disk space', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'bisync-startup-disk-'));
+    try {
+      const source = readFileSync(ENTRYPOINT, 'utf8');
+      const start = source.indexOf('            if establish_bisync_baseline; then');
+      const end = source.indexOf('            start_sync_daemon', start);
+      assert.ok(start >= 0 && end > start);
+      const startup = source.slice(start, end) + 'start_sync_daemon';
+      const code = `${extractFunction('update_sync_status')}\n${extractFunction('record_sync_disk_failure')}\n${extractFunction('establish_bisync_baseline')}\n` +
+        'timeout() { shift; "$@"; }\nrclone() { echo "preallocate: file too big for remaining disk space"; return 7; }\n' +
+        'init_user_vault() { :; }\nstart_sync_daemon() { echo recovery-daemon-reachable; }\n' + startup;
+      const result = spawnSync('bash', ['-c', code], { encoding: 'utf8', env: runtimeEnv({ CODEFLARE_RUNTIME_ROOT: directory }) });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /recovery-daemon-reachable/);
+      const status = JSON.parse(readFileSync(join(directory, 'sync/sync-status.json'), 'utf8'));
+      assert.equal(status.status, 'failed');
+      assert.match(status.error, /Local disk full.*cloud Sync now/);
+      assert.equal(existsSync(join(directory, 'sync/disk-space-blocked')), true);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it('keeps disk-full sync blocked when subsequent errors report missing listings', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'bisync-disk-block-'));
+    try {
+      mkdirSync(join(directory, 'sync'));
+      const log = join(directory, 'failure.log');
+      writeFileSync(log, 'preallocate: file too big for remaining disk space');
+      const code = `${extractFunction('update_sync_status')}\n${extractFunction('record_sync_disk_failure')}\n${extractFunction('establish_bisync_baseline')}\n` +
+        `record_sync_disk_failure '${log}'\nprintf 'cannot find prior Path1 or Path2 listings' > '${log}'\nrecord_sync_disk_failure '${log}'\n` +
+        'rclone() { echo unexpected-transfer; return 0; }\nestablish_bisync_baseline\n';
+      const result = spawnSync('bash', ['-c', code], { encoding: 'utf8', env: runtimeEnv({ CODEFLARE_RUNTIME_ROOT: directory }) });
+      assert.notEqual(result.status, 0);
+      assert.equal(existsSync(join(directory, 'sync/disk-space-blocked')), true);
+      assert.doesNotMatch(result.stdout, /unexpected-transfer/);
+      assert.match(result.stdout, /disk space/);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
   it('REQ-AGENT-206: restores a real locked installation and reports unrecoverable repair', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'pi-locked-repair-'));
     const tools = join(fixture, 'tools');

@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-07
+
+- **Bisync preserves fast listings and per-side timestamps** (REQ-STOR-003, REQ-STOR-017). The pinned rclone patch records completed destination metadata, rejects uncertain upload identity, and is gated by source/version compatibility plus real S3 regressions. Disk-full failures suppress automatic resync until explicit cloud Sync now recovery. Conflict copies are retained rather than blindly deleted.
+
 ## 2026-09-06
 
 - **Discovery and administration corrections:** Discover Profile uses one inline progress region and prioritizes assignments over candidate diagnostics (REQ-ENTERPRISE-034/035/041). Overview includes all applicable Environment sections and reads real usage state (REQ-SETUP-019, REQ-SUB-029). Analytics period selection immediately requests matching totals, explicitly identifies Monday 00:00 UTC weeks, and distinguishes collected history from older live quota usage. Existing accounting and no-backfill semantics remain unchanged.

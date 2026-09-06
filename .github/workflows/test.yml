@@ -1063,6 +1063,40 @@ jobs:
             pkg:npm/@openai/codex-win32-arm64@0.147.0-win32-arm64,
             pkg:npm/@openai/codex-win32-x64@0.147.0-win32-x64
 
+  rclone-bookkeeping:
+    name: Rclone bookkeeping and S3 regression
+    needs: changes
+    if: >-
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.host == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Build and test the pinned patched binary
+        run: |
+          docker build --target rclone-builder -t codeflare-rclone-ci .
+          container=$(docker create codeflare-rclone-ci)
+          trap 'docker rm "$container" >/dev/null' EXIT
+          mkdir -p rclone-artifact
+          docker cp "$container:/out/rclone" rclone-artifact/rclone
+          docker cp "$container:/out/rclone-unpatched" "$RUNNER_TEMP/rclone-unpatched"
+          chmod +x rclone-artifact/rclone "$RUNNER_TEMP/rclone-unpatched"
+          python3 scripts/ci/rclone-bisync-s3.py "$RUNNER_TEMP/rclone-unpatched" --expect-false-conflict
+          python3 scripts/ci/rclone-bisync-s3.py rclone-artifact/rclone
+          git rev-parse HEAD > rclone-artifact/COMMIT
+          (cd rclone-artifact && sha256sum rclone > SHA256SUMS)
+      - name: Retain exact-head binary for authorized runtime recovery
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rclone-bookkeeping-${{ github.event.pull_request.head.sha || github.sha }}
+          path: rclone-artifact/
+          retention-days: 7
+          if-no-files-found: error
+
   summary:
     # Check name "test" is the required branch-protection context on main —
     # renaming this job's `name` breaks the merge gate.
@@ -1082,6 +1116,7 @@ jobs:
       - host-tests
       - browser-ide
       - dependency-review
+      - rclone-bookkeeping
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

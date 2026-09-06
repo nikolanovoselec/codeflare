@@ -19,6 +19,27 @@ RUN npm run build
 # Remove devDependencies after build to keep runtime image lean
 RUN npm prune --omit=dev
 
+# ---- Pinned rclone with verified per-side bisync bookkeeping ----
+FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf AS rclone-builder
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://go.dev/dl/go1.27.1.linux-amd64.tar.gz -o /tmp/go.tar.gz \
+    && echo "63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445  /tmp/go.tar.gz" | sha256sum -c - \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz
+ENV PATH="/usr/local/go/bin:${PATH}" CGO_ENABLED=0 GOTOOLCHAIN=local
+WORKDIR /src/rclone
+RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.73.5 -o /tmp/rclone.tar.gz \
+    && echo "e52541bc238dd434a0335f467697d7d9575529698a74aab534ad39b8649f8a49  /tmp/rclone.tar.gz" | sha256sum -c - \
+    && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz
+COPY scripts/patch-rclone-bisync.py /tmp/patch-rclone-bisync.py
+COPY scripts/ci/rclone-bookkeeping_test.go /tmp/rclone-bookkeeping_test.go
+RUN mkdir -p /out \
+    && go build -trimpath -o /out/rclone-unpatched . \
+    && python3 /tmp/patch-rclone-bisync.py /src/rclone 1.73.5 \
+    && cp /tmp/rclone-bookkeeping_test.go cmd/bisync/codeflare_bookkeeping_test.go \
+    && gofmt -w cmd/bisync/codeflare_bookkeeping_test.go \
+    && go test ./cmd/bisync -run '^TestCodeflare' -count=1 \
+    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.73.5-codeflare-bisync1' -o /out/rclone .
+
 # ---- Codeflare native Pi Chat extension builder (OpenVSCode Node 22) ----
 FROM public.ecr.aws/docker/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-agent-sidebar-builder
 
@@ -141,11 +162,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     # Remove yarn shipped by Node base image (unused, 5MB)
     && rm -rf /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 
-# Install rclone (pinned version — unpinned install.sh broke bisync, see documentation/storage-and-sync.md)
-RUN curl -fsSL https://downloads.rclone.org/v1.73.5/rclone-v1.73.5-linux-amd64.deb -o /tmp/rclone.deb \
-    && echo "c4de165467dd9066a72931ea2bee616e43eccf36f6f1c06a34757d0f6f25c7f1  /tmp/rclone.deb" | sha256sum -c - \
-    && dpkg -i /tmp/rclone.deb \
-    && rm /tmp/rclone.deb
+# Keep fast server-modtime listings without copying source timestamps into remote state.
+COPY --from=rclone-builder /out/rclone /usr/bin/rclone
 
 # Install the official Herdr terminal runtime from one immutable stable release.
 # Codeflare owns updates through image review; runtime checks and self-update are disabled.

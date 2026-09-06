@@ -93,6 +93,15 @@ function buildHarness({
           echo "BISYNC_CALLED n=$BISYNC_CALL_COUNT args=$*" >> "${logFile}"
           return 0
         }`
+      : bisyncBehavior === 'disk-full-until-released'
+        ? `${readFileSync(ENTRYPOINT, 'utf8').match(/^record_sync_disk_failure\(\) \{[\s\S]*?^\}/m)[0]}
+           bisync_with_r2() {
+             echo "BISYNC_CALLED" >> "${logFile}"
+             if [ -f "${blockReleaseFile}" ]; then return 0; fi
+             printf 'preallocate: file too big for remaining disk space' > "$CODEFLARE_RUNTIME_ROOT/sync/error.log"
+             record_sync_disk_failure "$CODEFLARE_RUNTIME_ROOT/sync/error.log"
+             return 7
+           }`
       : bisyncBehavior === 'failure'
         ? `bisync_with_r2() {
             echo "BISYNC_CALLED args=$*" >> "${logFile}"
@@ -264,6 +273,50 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     } finally {
       killHarness(h.child, pid);
     }
+  });
+
+  it('disk-space recovery requires explicit Sync now, then resumes periodic sync', async () => {
+    const h = spawnHarness({ daemonBody, bisyncBehavior: 'success' });
+    const marker = join(h.dir, 'runtime/sync/disk-space-blocked');
+    writeFileSync(marker, 'blocked');
+    const pid = await readDaemonPid(h.child);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      process.kill(pid, 'SIGUSR1');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      assert.equal(existsSync(marker), true, 'automatic triggers must not clear the block');
+      assert.doesNotMatch(readFileSync(h.logFile, 'utf8'), /BISYNC_CALLED|RESYNC_CALLED/);
+      process.kill(pid, 'SIGUSR2');
+      const recovered = await waitFor(h.logFile, (s) => /BISYNC_CALLED/.test(s));
+      assert.match(recovered, /BISYNC_CALLED/);
+      assert.equal(existsSync(marker), false);
+      const resumed = await waitFor(h.logFile, (s) => (s.match(/BISYNC_CALLED/g) || []).length >= 2);
+      assert.ok((resumed.match(/BISYNC_CALLED/g) || []).length >= 2, 'periodic sync must resume');
+    } finally { killHarness(h.child, pid); }
+  });
+
+  it('failed manual recovery blocks again until a later successful explicit retry', async () => {
+    const releaseDir = mkdtempSync(join(tmpdir(), 'bisync-release-'));
+    const release = join(releaseDir, 'freed');
+    const h = spawnHarness({ daemonBody, bisyncBehavior: 'disk-full-until-released', blockReleaseFile: release });
+    const pid = await readDaemonPid(h.child);
+    const calls = (text) => (text.match(/BISYNC_CALLED/g) || []).length;
+    try {
+      const first = await waitFor(h.logFile, (s) => /Local disk full/.test(s));
+      assert.equal(calls(first), 1);
+      process.kill(pid, 'SIGUSR2');
+      const second = await waitFor(h.logFile, (s) => calls(s) === 2 && (s.match(/Local disk full/g) || []).length >= 2);
+      assert.equal(calls(second), 2);
+      process.kill(pid, 'SIGUSR1');
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      assert.equal(calls(readFileSync(h.logFile, 'utf8')), 2);
+      assert.doesNotMatch(readFileSync(h.logFile, 'utf8'), /RESYNC_CALLED/);
+      writeFileSync(release, 'space available');
+      process.kill(pid, 'SIGUSR2');
+      const successful = await waitFor(h.logFile, (s) => /STATUS status=success/.test(s));
+      assert.match(successful, /STATUS status=success/);
+      assert.equal(existsSync(join(h.dir, 'runtime/sync/disk-space-blocked')), false);
+    } finally { killHarness(h.child, pid); }
   });
 
   // REQ-MEM-004 AC4: SIGUSR1 trigger (Sync-now button).
