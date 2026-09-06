@@ -3678,14 +3678,14 @@ None.
 **Acceptance Criteria:**
 
 1. Standard and Advanced sessions expose `codeflare-capabilities` to every supported skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Capability discovery router --> <!-- @manual: Inspect the authoritative curation manifests and compiled release. -->
-2. Broad Codeflare capability or onboarding questions, tour requests, and numbered tutorial replies receive the installed Codeflare capability tutorial instead of a tool-discovery error or generic discovery response. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @manual: Ask Standard and Advanced Pi sessions for a broad tour and numbered follow-up. -->
+2. Broad Codeflare capability or onboarding questions (including “What can you do?”), tour requests, and numbered tutorial replies receive the installed Codeflare capability tutorial instead of a tool-discovery error or generic discovery response. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @manual: Ask Standard and Advanced Pi sessions for a broad tour and numbered follow-up. -->
 3. A capability question scoped to a repository, file, component, failure, or task remains contextual instead of opening the generic tour. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Capability discovery router --> <!-- @manual: Compare broad and repository-scoped capability questions in Pi. -->
 4. Managed curation and the image fallback expose matching capability files and mode membership. <!-- @manual: Compare the current managed release with the baked fallback and generated target inventory. -->
 5. Pi's default generated skill index includes `codeflare-capabilities`, so a model can discover and invoke the router from the always-loaded rule. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Capability discovery router --> <!-- @impl: scripts/agent-seed-core.mjs::parsePiSkillMetadata --> <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @test: host/__tests__/agent-seed-core.test.js (generates byte-identical image output through the shared core) -->
 
 **Constraints:**
 
-- The Pi routing rule remains at most 20 whitespace-delimited tokens.
+- The Pi routing rule directly names the installed router path, explicitly includes “What can you do?”, prohibits `capability`, and keeps task-scoped questions contextual.
 - Private curation owns managed source.
 - Delivery reuses the existing compiler and fallback path without a new runtime package, transform, or delivery path.
 
@@ -3713,6 +3713,8 @@ None.
 4. An active Plan suppresses non-active Goal history under `after-first-goal`. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC4/AC5 / REQ-AGENT-152/158: rejects malformed Plan policy and preserves active workflow ownership) -->
 5. An active Goal takes precedence over active Plan selection. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC4/AC5 / REQ-AGENT-152/158: rejects malformed Plan policy and preserves active workflow ownership) -->
 6. `goal_wait` remains unavailable through startup exposure, Goal or Plan restoration, capability search, and explicit capability activation. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::DISABLED_TOOL_NAMES --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC6: never discovers or activates goal_wait) -->
+
+7. The finalizer blocks `goal_wait` at `tool_call`, including when another extension reactivates it after exposure filtering, while leaving every other tool's execution unchanged. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: host/__tests__/pi-tool-exposure-finalizer.test.js (REQ-AGENT-191 AC7: blocks goal_wait execution including after reactivation) --> <!-- @test: host/__tests__/pi-tool-exposure-finalizer.test.js (REQ-AGENT-191 AC7: preserves execution of all other tools) -->
 
 **Constraints:** Goal and Plan remain mutually exclusive at activation; this requirement governs provider-visible controls for persisted state. `goal_wait` is deliberately disabled by managed policy even when the upstream package registers it.
 
