@@ -53,8 +53,10 @@ describe('Administrator route workspace', () => {
     const view = mount();
     await ready(view);
     await openRoute(view, 'development');
-    await fireEvent.click(view.getByRole('button', { name: 'Map Profile for development' }));
-    expect(await view.findByText('Mapping profiles for development…')).toBeVisible();
+    await fireEvent.click(view.getByRole('button', { name: 'Discover Profile for development' }));
+    expect(await view.findByRole('status')).toHaveTextContent('Discovering profiles for development…');
+    expect(view.getAllByRole('status')).toHaveLength(1);
+    expect(view.getByRole('status').closest('.admin-state-panel')).toBeNull();
     expect(view.getByRole('combobox', { name: 'development Pi compatibility profile' })).toBeDisabled();
     expect(view.queryByText('Wait for the current profile check to finish.')).toBeNull();
     finish({ outcome: 'inconclusive', classification: 'Inconclusive', assignable: false, diagnostics: [{ code: 'request_rejected', stage: 'reasoning', status: 429, levels: ['high'] }] });
@@ -111,15 +113,15 @@ describe('Administrator route workspace', () => {
   it('REQ-ENTERPRISE-041: starts with a compact route overview and expands only the selected route', async () => {
     const view = mount(); await ready(view);
     expect(view.getByRole('button', { name: 'Configure general_usage' })).toHaveAttribute('aria-expanded', 'false');
-    expect(view.queryByRole('button', { name: 'Map Profile for general_usage' })).toBeNull();
+    expect(view.queryByRole('button', { name: 'Discover Profile for general_usage' })).toBeNull();
     await openRoute(view, 'general_usage');
     expect(view.getByRole('button', { name: 'Configure general_usage' })).toHaveAttribute('aria-expanded', 'true');
-    expect(view.getByRole('button', { name: 'Map Profile for general_usage' })).toBeVisible();
+    expect(view.getByRole('button', { name: 'Discover Profile for general_usage' })).toBeVisible();
     expect(view.getByText('@cf/general_usage')).toBeVisible();
-    expect(view.queryByRole('button', { name: 'Map Profile for development' })).toBeNull();
+    expect(view.queryByRole('button', { name: 'Discover Profile for development' })).toBeNull();
     await fireEvent.click(view.getByRole('button', { name: 'Configure development' }));
-    expect(view.queryByRole('button', { name: 'Map Profile for general_usage' })).toBeNull();
-    expect(view.getByRole('button', { name: 'Map Profile for development' })).toBeVisible();
+    expect(view.queryByRole('button', { name: 'Discover Profile for general_usage' })).toBeNull();
+    expect(view.getByRole('button', { name: 'Discover Profile for development' })).toBeVisible();
     expect(api.discover).not.toHaveBeenCalled();
   });
   it('REQ-ENTERPRISE-041: switching route details preserves unsaved values', async () => {
@@ -135,7 +137,7 @@ describe('Administrator route workspace', () => {
     await fireEvent.input(view.getByLabelText('general_usage context window'), { target: { value: '200000' } });
     await section(view, 'Access & fallback');
     expect(view.getByRole('heading', { name: 'Group access' })).toBeVisible();
-    expect(view.queryByRole('button', { name: 'Map Profile for general_usage' })).toBeNull();
+    expect(view.queryByRole('button', { name: 'Discover Profile for general_usage' })).toBeNull();
     await section(view, 'Routes');
     expect(view.getByLabelText('general_usage context window')).toHaveValue('200000');
     expect(api.discover).not.toHaveBeenCalled();

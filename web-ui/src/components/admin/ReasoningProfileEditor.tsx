@@ -52,7 +52,7 @@ export function reasoningCheckSummary(result: ReasoningDiscoveryResult, fallback
   const diagnostics = [...(result.diagnostics ?? []), ...(result.candidateResults?.flatMap((candidate) => candidate.diagnostics ?? []) ?? [])];
   const fatal = diagnostics.find((diagnostic) => ['timeout', 'transport_error', 'malformed_response', 'response_too_large'].includes(diagnostic.code)
     || diagnostic.status === 401 || diagnostic.status === 403 || diagnostic.status === 429 || (diagnostic.status !== undefined && diagnostic.status >= 500));
-  if (fatal) return `${diagnosticMessage(fatal.code)} Compatibility check stopped during ${fatal.stage}${fatal.status ? ` (HTTP ${fatal.status})` : ''}. See technical details before retrying.`;
+  if (fatal) return `${diagnosticMessage(fatal.code)} Compatibility check stopped during ${fatal.stage}${fatal.status ? ` (HTTP ${fatal.status})` : ''}. Check AI Gateway before retrying.`;
   if (diagnostics.some((diagnostic) => diagnostic.code === 'completion_limit') || result.warnings?.includes('completion_limit')) {
     return diagnosticMessage('completion_limit');
   }
@@ -207,22 +207,20 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
       setError('');
       props.onSave({ ...normalized });
     } catch {
-      setError('The generated profile could not be prepared for assignment. Nothing was changed. Run Map Profile again.');
+      setError('The generated profile could not be prepared for assignment. Nothing was changed. Run Discover Profile again.');
     }
   };
 
   return <section class="admin-profile-editor admin-form-wide" aria-labelledby="custom-profile-heading" onKeyDown={(event) => { if (event.key === 'Enter' && event.target instanceof HTMLInputElement) event.preventDefault(); }}>
     <div class="admin-subsection-heading">
       <div>
-        <p class="admin-step-label">Compatibility check</p>
+        <p class="admin-step-label">Discover Profile</p>
         <h5 id="custom-profile-heading" tabIndex={-1} ref={heading}>Discover compatibility for {props.route}</h5>
-        <p>Find a Pi compatibility profile for tool calling and reasoning through AI Gateway. This check does not change the route, save a profile, or activate access.</p>
+        <p role={busy() ? 'status' : undefined} aria-live="polite">{busy() ? `Discovering profiles for ${props.route}… Checking reasoning, tool calls, and tool-result replay.` : 'Discovery does not save changes or enable access.'}</p>
       </div>
       <button type="button" class="admin-link-button" onClick={props.onCancel}>Cancel</button>
     </div>
     <Show when={error()}><div class="admin-inline-error" role="alert">{error()}</div></Show>
-
-    <Show when={busy()}><div class="admin-state-panel" role="status" aria-live="polite"><strong>Mapping profiles for {props.route}…</strong><p>Checking reasoning, tool calls, and tool-result replay. Results appear when the check finishes.</p></div></Show>
 
     <Show when={result()}>{(discovered) => <div aria-live="polite">
       <Show when={matchedProfiles().length > 0}>
@@ -253,7 +251,7 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
         </div>
       </Show>
       <Show when={matchedProfiles().length === 0 && !customDraft()}><div class="admin-inline-error" role="alert">{reasoningCheckSummary(discovered())}</div></Show>
-      <ReasoningCheckDetails result={discovered()} />
+      <p class="admin-status-text">Only the exercised route path and current backend configuration were checked. Accepted levels do not prove reasoning strength.</p>
     </div>}</Show>
   </section>;
 };

@@ -18,7 +18,9 @@ export async function verifyPiRuntime(packagePath) {
   if (manifest.name !== PI_PACKAGE) throw new Error('Expected the installed Pi package manifest');
   const require = createRequire(packagePath);
   for (const dependency of Object.keys(manifest.dependencies ?? {})) require.resolve(dependency);
-  const photon = require('@silvia-odwyer/photon-node');
+  const { loadPhoton } = await import(pathToFileURL(join(dirname(packagePath), 'dist/utils/photon.js')).href);
+  const photon = await loadPhoton();
+  if (!photon) throw new Error('Pi image dependency could not be loaded');
   const image = new photon.PhotonImage(new Uint8Array([255, 0, 0, 255]), 1, 1);
   let bytes;
   try { bytes = image.get_bytes(); } finally { image.free(); }

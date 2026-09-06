@@ -59,16 +59,16 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     expect(discoverMock).toHaveBeenCalledExactlyOnceWith({ route: 'mesh', ...context, maxCompletionTokens: 4096 });
     expect(onSave).not.toHaveBeenCalled();
   });
-  it('Map Profile starts exactly once and creates a canonical route draft without submitting Save', async () => {
+  it('Discover Profile starts exactly once and creates a canonical route draft without submitting Save', async () => {
     const submit = vi.fn((event: SubmitEvent) => event.preventDefault());
     const view = render(() => <form onSubmit={submit}><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} /></form>);
     await waitFor(() => expect((view.getByLabelText('mesh Pi compatibility profile') as HTMLSelectElement).options.length).toBe(2));
     await fireEvent.click(view.getByRole('button', { name: 'Configure mesh' }));
-    await fireEvent.click(view.getByRole('button', { name: 'Map Profile for mesh' }));
+    await fireEvent.click(view.getByRole('button', { name: 'Discover Profile for mesh' }));
     await view.findByText('Create a custom Pi profile');
     expect(discoverMock).toHaveBeenCalledExactlyOnceWith({ route: 'mesh', maxCompletionTokens: 4096 });
     await fireEvent.input(view.getByLabelText('mesh context window'), { target: { value: '131072' } });
-    expect(view.getByRole('button', { name: 'Map Profile for mesh' })).toBeDisabled();
+    expect(view.getByRole('button', { name: 'Discover Profile for mesh' })).toBeDisabled();
     await fireEvent.input(view.getByLabelText('Profile name'), { target: { value: 'Custom mesh' } });
     await fireEvent.keyDown(view.getByLabelText('Profile name'), { key: 'Enter' });
     expect(submit).not.toHaveBeenCalled();
@@ -99,14 +99,14 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     const view = standalone();
     expect(DISCOVERY_COMPLETION_TOKENS).toBe(4096);
     expect(discoverMock).toHaveBeenCalledExactlyOnceWith({ route: 'mesh', maxCompletionTokens: 4096 });
-    expect(view.getByRole('status')).toHaveTextContent('Mapping profile');
+    expect(view.getByRole('status')).toHaveTextContent('Discovering profiles');
     expect(view.queryByRole('spinbutton')).toBeNull();
     expect(view.queryByRole('button', { name: /check compatibility|checking/i })).toBeNull();
     expect(view.queryByText('Advanced mapping controls')).toBeNull();
     complete({ classification: 'Inconclusive', assignable: false, diagnostics: [{ levels: ['high'], stage: 'tool-replay', code: 'completion_limit' }] });
     expect(await view.findByRole('alert')).toHaveTextContent(/incomplete at the fixed 4096-token budget/i);
     expect(view.container).not.toHaveTextContent(/increase|edit.*ceiling/i);
-    expect(view.container.querySelectorAll('details')).toHaveLength(1);
+    expect(view.container.querySelectorAll('details')).toHaveLength(0);
     expect(view.queryByRole('spinbutton')).toBeNull();
     expect(view.queryByRole('button', { name: /check compatibility/i })).toBeNull();
     expect(discoverMock).toHaveBeenCalledTimes(1);
@@ -158,20 +158,13 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
   it('prioritizes fatal gateway failure over earlier budget exhaustion', () => {
     expect(reasoningCheckSummary({ classification: 'Inconclusive', diagnostics: [{ levels: ['high'], stage: 'tool-call', code: 'completion_limit' }, { levels: ['off'], stage: 'reasoning', code: 'request_rejected', status: 401 }] })).toMatch(/401/);
   });
-  it('groups candidate diagnostics, scope, and counters under one disclosure', async () => {
+  it('shows an actionable incomplete result without candidate diagnostics or counters', async () => {
     discoverMock.mockResolvedValueOnce({ route: 'mesh', classification: 'Unsupported', assignable: false, requestedCompletionCeiling: 4096, accounting: { logicalProbes: 3, httpAttempts: 5 }, candidateResults: [{ profileName: 'Kimi thinking', classification: 'Unsupported', assignable: false, verifiedLevels: ['medium'], diagnostics: [{ code: 'completion_limit', levels: ['high'], stage: 'tool-replay' }] }] });
     const view = standalone();
     expect(await view.findByRole('alert')).toHaveTextContent(/incomplete at the fixed 4096-token budget/i);
-    const details = view.getByText('Technical check details').closest('details')!;
-    expect(details.open).toBe(false);
-    expect(details).toHaveTextContent('Route: mesh');
-    expect(details).toHaveTextContent('Kimi thinking');
-    expect(details).toHaveTextContent('Pi tool lifecycle levels: medium');
-    expect(details).toHaveTextContent('Levels: high');
-    expect(details).toHaveTextContent('Stage: tool-replay');
-    expect(details).toHaveTextContent('Logical probes3');
-    expect(details).toHaveTextContent('HTTP attempts5');
-    expect(view.container.querySelectorAll('details')).toHaveLength(1);
+    expect(view.queryByText('Technical check details')).toBeNull();
+    expect(view.queryByText('Kimi thinking')).toBeNull();
+    expect(view.container).not.toHaveTextContent('Logical probes');
     expect(view.queryByLabelText('Profile name')).toBeNull();
   });
   it('reports empty supported levels and refuses an invalid canonical draft', async () => {
@@ -187,9 +180,9 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={{ ...current, dynamicRoutes: ['mesh', 'retired'] }} />);
     await waitFor(() => expect((view.getByLabelText('mesh Pi compatibility profile') as HTMLSelectElement).options.length).toBe(2));
     await fireEvent.click(view.getByRole('button', { name: 'Configure mesh' }));
-    expect(view.getByRole('button', { name: 'Map Profile for mesh' })).toBeEnabled();
+    expect(view.getByRole('button', { name: 'Discover Profile for mesh' })).toBeEnabled();
     await fireEvent.click(view.getByRole('button', { name: 'Configure retired' }));
-    expect(view.getByRole('button', { name: 'Map Profile for retired' })).toBeDisabled();
+    expect(view.getByRole('button', { name: 'Discover Profile for retired' })).toBeDisabled();
     expect(discoverMock).not.toHaveBeenCalled();
   });
   it('keeps failed-family notices non-assignable and outside the primary route scan path', async () => {
@@ -204,11 +197,8 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     const view = standalone();
     const assign = await view.findByRole('button', { name: 'Assign profile' });
     expect(assign).toHaveAccessibleDescription('GPT reasoning');
-    const details = view.getByText('Technical check details').closest('details')!;
-    await fireEvent.click(within(details).getByText('Technical check details'));
-    const items = within(details).getAllByRole('listitem');
-    expect(items).toHaveLength(1);
-    expect(items[0].closest('.admin-check-candidate')).toContainElement(within(details).getByText('Gemma reasoning'));
+    expect(view.queryByText('Gemma reasoning')).toBeNull();
+    expect(view.queryByText('Technical check details')).toBeNull();
     expect(assign.closest('.admin-profile-match')!.querySelector('.admin-check-pill')).toBeNull();
     expect(view.queryByRole('table', { name: 'Selected profile checks' })).toBeNull();
     expect(view.container.querySelector('.admin-check-pill')).toBeNull();

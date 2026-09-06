@@ -264,7 +264,7 @@ describe('Structured AI routing', () => {
     expect(view.getAllByRole('button', { name: /map profile for /i })).toHaveLength(1);
     expect(view.queryByRole('button', { name: /revalidate|start discovery|use evidence/i })).toBeNull();
     const before = draftConfiguration(view.container);
-    await fireEvent.click(view.getByRole('button', { name: 'Map Profile for development' }));
+    await fireEvent.click(view.getByRole('button', { name: 'Discover Profile for development' }));
     expect(await view.findByText(/compatibility could not be confirmed/i)).toBeVisible();
     expect(draftConfiguration(view.container)).toEqual(before);
     expect(formValues(view.container).dynamicRoutes).toEqual([]);
@@ -286,7 +286,7 @@ describe('Structured AI routing', () => {
     const snapshot = structuredClone(saved);
     const view = mount(saved); await ready(view, 'general_usage');
     const before = draftConfiguration(view.container);
-    await fireEvent.click(view.getByRole('button', { name: 'Map Profile for general_usage' }));
+    await fireEvent.click(view.getByRole('button', { name: 'Discover Profile for general_usage' }));
     const assign = await view.findByRole('button', { name: 'Assign profile' });
     expect(draftConfiguration(view.container)).toEqual(before);
     expect(view.queryByLabelText('Profile name')).toBeNull();
@@ -312,7 +312,7 @@ describe('Structured AI routing', () => {
     const verify = within(card).getByRole('button', { name: 'Verify Profile for development' });
     expect(verify).toBeEnabled();
     expect(verify.closest('details')).toBeNull();
-    expect(within(card).getByRole('button', { name: 'Map Profile for development' })).toBeVisible();
+    expect(within(card).getByRole('button', { name: 'Discover Profile for development' })).toBeVisible();
     expect(within(card).queryByRole('spinbutton', { name: /verification|completion|token/i })).toBeNull();
     expect(within(card).queryByRole('button', { name: /start|add compatibility record/i })).toBeNull();
     const before = draftConfiguration(view.container);
@@ -714,7 +714,7 @@ describe('Structured AI routing', () => {
 
   it('REQ-ENTERPRISE-034: keeps unconfigured and invalidated drafts out of active routing and new group defaults', async () => {
     const saved = checkedCurrent(); const view = mount(saved); await ready(view, 'research');
-    expect(view.getByRole('button', { name: 'Map Profile for research' })).toBeEnabled();
+    expect(view.getByRole('button', { name: 'Discover Profile for research' })).toBeEnabled();
     expect(formValues(view.container).dynamicRoutes).toEqual(current.dynamicRoutes);
     expect(formValues(view.container).routeContextWindows).toEqual(current.routeContextWindows);
     expect(draftConfiguration(view.container)).toEqual({ ...saved.reasoningConfiguration, fallbackRouting: { enabled: false } });
@@ -732,7 +732,7 @@ describe('Structured AI routing', () => {
     expect(formValues(view.container).routeContextWindows).toEqual(current.routeContextWindows);
     expect(formValues(view.container).groupRouting[2]).toEqual({ accessGroup: 'research-team', routes: [], defaultRoute: '', reasoning: 'off' });
     await openRoute(view, 'research');
-    expect(view.getByRole('button', { name: 'Map Profile for research' })).toBeEnabled();
+    expect(view.getByRole('button', { name: 'Discover Profile for research' })).toBeEnabled();
   });
 
   it('REQ-ENTERPRISE-034: retains emptied groups as deny policies until explicit removal', async () => {

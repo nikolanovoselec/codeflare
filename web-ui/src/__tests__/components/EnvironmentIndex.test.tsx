@@ -347,8 +347,8 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     api.discover.mockResolvedValueOnce(mapped());
     const view = mount();
     await openRoute('development');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Map Profile for development' })).toBeEnabled());
-    await fireEvent.click(screen.getByRole('button', { name: 'Map Profile for development' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Discover Profile for development' })).toBeEnabled());
+    await fireEvent.click(screen.getByRole('button', { name: 'Discover Profile for development' }));
     await screen.findByText('Create a custom Pi profile');
     await fireEvent.input(screen.getByLabelText('Profile name'), { target: { value: 'GLM 4.7 Flash' } });
     await fireEvent.keyDown(screen.getByLabelText('Profile name'), { key: 'Enter' });
@@ -411,8 +411,8 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     api.discover.mockResolvedValueOnce(mapped());
     mount();
     await openRoute('development');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Map Profile for development' })).toBeEnabled());
-    await fireEvent.click(screen.getByRole('button', { name: 'Map Profile for development' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Discover Profile for development' })).toBeEnabled());
+    await fireEvent.click(screen.getByRole('button', { name: 'Discover Profile for development' }));
     await screen.findByText('Create a custom Pi profile');
     await fireEvent.input(screen.getByLabelText('Profile name'), { target: { value: 'Development custom' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Create & Assign' }));
@@ -454,8 +454,8 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     });
     const view = mount();
     await openRoute('development');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Map Profile for development' })).toBeEnabled());
-    await fireEvent.click(screen.getByRole('button', { name: 'Map Profile for development' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Discover Profile for development' })).toBeEnabled());
+    await fireEvent.click(screen.getByRole('button', { name: 'Discover Profile for development' }));
     const assign = await screen.findByRole('button', { name: 'Assign profile' });
     expect(draft(view.container).routeAssignments.development.activeProfile).toEqual(ref);
     expect(screen.queryByRole('button', { name: 'Create & Assign' })).not.toBeInTheDocument();

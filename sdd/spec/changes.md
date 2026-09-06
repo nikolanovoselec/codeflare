@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-06
 
+- **Discovery and administration corrections:** Discover Profile uses one inline progress region and prioritizes assignments over candidate diagnostics (REQ-ENTERPRISE-034/035/041). Overview includes all applicable Environment sections and reads real usage state (REQ-SETUP-019, REQ-SUB-029). Analytics period selection immediately requests matching totals, explicitly identifies Monday 00:00 UTC weeks, and distinguishes collected history from older live quota usage. Existing accounting and no-backfill semantics remain unchanged.
+
 - **Pi runtime updates validate dependencies and isolate caches** ([REQ-AGENT-206](agents.md#req-agent-206-fast-start-off-runtime-updates)). Pi and its SDK pins advance together to 0.85.1 with CI-generated locks and seed. Fast Start Off checks required dependencies and image processing, attempts locked repair of an incomplete installation, and replaces only the runtime jiti cache. The baked cache remains intact, temporary downloads use runtime storage, and failures remain visible without stranding terminal readiness.
 
 - **Mapping preserves completed matches after throttling** ([REQ-ENTERPRISE-035](enterprise-mode.md#req-enterprise-035-enterprise-pi-protocol-match-selection), [REQ-ENTERPRISE-041](enterprise-mode.md#req-enterprise-041-enterprise-pi-administrator-workspace)). HTTP 429 stops further probes without discarding earlier complete catalog matches. No retry, custom draft, or activation follows automatically. Mapping errors no longer lock profile selection, and mapping/verification progress stays beside the route rather than repeating at the bottom.

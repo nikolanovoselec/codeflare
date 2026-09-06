@@ -303,7 +303,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   };
   const routeStatus = (route: RouteDraft): { label: string; state: 'passed' | 'failed' | 'unclear' } => {
     const check = verificationFor(route.name);
-    if (profileEditorRoute() === route.name && profileEditorBusy()) return { label: 'Mapping…', state: 'unclear' };
+    if (profileEditorRoute() === route.name && profileEditorBusy()) return { label: 'Discovering…', state: 'unclear' };
     if (check.busy) return { label: 'Verifying…', state: 'unclear' };
     if (check.error || check.result?.classification === 'Unsupported') return { label: 'Check failed · inactive', state: 'failed' };
     if (!route.assignment.activeProfile) return { label: 'Choose a profile', state: 'unclear' };
@@ -393,7 +393,7 @@ const AiRoutingFields: Component<Props> = (props) => {
               <strong>{profileDisplayName(selected())}</strong><Show when={profileValidationBasis(selected())}>{(basis) => <p>{basis()}</p>}</Show>
               <dl><div><dt>Reasoning options</dt><dd>{selected().supportedLevels.map(levelLabel).join(', ')}</dd></div><div><dt>Reasoning off</dt><dd>{selected().supportedLevels.includes('off') ? 'Supported' : 'Not supported'}</dd></div></dl>
             </div>}</Show>
-            <div class="admin-route-actions"><button type="button" class="admin-secondary-button" aria-label={`Map Profile for ${route.name}`} disabled={!connectionReady() || check().busy || Boolean(profileEditorRoute()) || !gatewayRoutes().includes(route.name)} onClick={() => setProfileEditorRoute(route.name)}>Map Profile</button>
+            <div class="admin-route-actions"><button type="button" class="admin-secondary-button" aria-label={`Discover Profile for ${route.name}`} disabled={!connectionReady() || check().busy || Boolean(profileEditorRoute()) || !gatewayRoutes().includes(route.name)} onClick={() => setProfileEditorRoute(route.name)}>Discover Profile</button>
               <button type="button" class="admin-primary-button" aria-label={`Verify Profile for ${route.name}`} disabled={!connectionReady() || !profile() || needsBackendDescription(route) || check().busy || route.inventoryBusy || profileEditorBusy() || !gatewayRoutes().includes(route.name)} onClick={() => { setProfileEditorRoute(undefined); void verifySelectedProfile(route.name); }}>{check().busy ? 'Verifying…' : 'Verify Profile'}</button>
             </div>
             <p class="admin-field-help">Map finds compatible profiles. If none fit, a successful mapping can offer custom Create &amp; Assign. Verify checks your selection. Checks may use provider credits; Save activates your settings.</p>

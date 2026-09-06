@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@solidjs/testing-library';
+import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { Route, Router } from '@solidjs/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -35,6 +35,16 @@ afterEach(() => {
 });
 
 describe('Analytics historical usage presentation', () => {
+  it('requests the selected period immediately rather than leaving day totals under a week selection', async () => {
+    render(() => <Router><Route path="*" component={AnalyticsPage} /></Router>);
+    await screen.findByRole('img', { name: /accounted runtime history/i });
+    await fireEvent.click(screen.getByRole('button', { name: 'week', exact: true }));
+    await waitFor(() => expect(getAdminUsageMock).toHaveBeenLastCalledWith(expect.objectContaining({ period: 'week' })));
+    const request = getAdminUsageMock.mock.calls.at(-1)![0];
+    expect(new Date(`${request.start}T00:00:00Z`).getUTCDay()).toBe(1);
+    expect(screen.getByText('Week start (Monday, 00:00 UTC)')).toBeVisible();
+  });
+
   it('charts actual period aggregates, shows snapshot freshness, and exposes a download', async () => {
     render(() => <Router><Route path="*" component={AnalyticsPage} /></Router>);
 
@@ -42,6 +52,7 @@ describe('Analytics historical usage presentation', () => {
     expect(screen.getByRole('img', { name: /accounted runtime history/i })).toBeInTheDocument();
     expect(screen.getByText('2h 0m')).toBeInTheDocument();
     expect(screen.getByText(/can lag live Timekeeper usage/i)).toBeInTheDocument();
+    expect(screen.getByText(/excludes usage before collection began/i)).toBeVisible();
     expect(screen.getByText('2026-09-03T11:54:17.007Z')).toBeInTheDocument();
     const request = getAdminUsageMock.mock.calls[0]?.[0] as { start: string } | undefined;
     if (!request) throw new Error('Expected the Analytics page to request usage data');
