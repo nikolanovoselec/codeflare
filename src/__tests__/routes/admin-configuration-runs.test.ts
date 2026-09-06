@@ -382,6 +382,28 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(browser.kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.BROWSER_RENDER_TOKEN, expect.anything(), expect.anything());
   });
 
+  it('REQ-ENTERPRISE-038: retains exact single-leg verification through confirmed Save and configuration GET', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'deployment-test-token' });
+    const ref = getBuiltInProfileRef('workers-ai-kimi-k-thinking');
+    const configuration = { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {
+      general_usage: { activeProfile: ref, routeVersion: 'route-v2', legs: [{
+        nodeId: 'primary', provider: 'workers-ai', declaredModel: '@cf/moonshotai/kimi-k2.5', profileRef: ref,
+        evidence: { current: true, toolReplay: true, ingress: 'ai-gateway-chat-completions', status: 'Verified' },
+      }] },
+    } };
+    const values = { gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/account/gateway', replacementToken: '',
+      dynamicRoutes: ['general_usage'], defaultRoute: { route: 'general_usage', reasoning: 'medium' },
+      routeContextWindows: { general_usage: 256000 }, groupRouting: [], reasoningConfiguration: configuration };
+    const response = await post(app, { section: 'aiRouting', baseRevision: 0, values, confirmedWarnings: ['reasoning_profile_unverified'] });
+    expect(response.status).toBe(200);
+    const events = snapshots(await response.text());
+    expect(events[events.length - 1].run).toMatchObject({ state: 'succeeded', resultingRevision: 1 });
+    expect(JSON.parse(await kv.get(SETUP_KEYS.REASONING_CONFIGURATION) as string)).toEqual(configuration);
+    const reload = await app.request('/admin/configuration');
+    expect(reload.status).toBe(200);
+    expect((await reload.json() as any).sections.aiRouting.reasoningConfiguration).toEqual(configuration);
+  });
+
   it('REQ-ENTERPRISE-031: persists named custom revisions and exact assignments through Save→GET and preserves the catalog when legacy saves omit it', async () => {
     const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
     const savedToken = JSON.stringify({ encrypted: 'saved-gateway-ciphertext' });

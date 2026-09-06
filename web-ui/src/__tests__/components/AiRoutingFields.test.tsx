@@ -51,18 +51,57 @@ const current = {
   ],
 };
 
+const routeInventory = (route: string) => ({
+  route,
+  routeVersion: `${route}-v2`,
+  legs: [
+    { nodeId: `${route}-primary`, provider: 'custom-enterprise', declaredModel: `${route}-alias` },
+    { nodeId: `${route}-fallback`, provider: 'workers-ai', declaredModel: `@cf/${route}-fallback` },
+  ],
+  commonLevels: [],
+  warnings: ['missing_leg_evidence'],
+});
+const singleInventory = (route: string) => ({
+  ...routeInventory(route),
+  legs: [{ nodeId: `${route}-only`, provider: 'workers-ai', declaredModel: `@cf/${route}-model` }],
+});
+const verifiedReport = () => ({
+  route: 'development', classification: 'Verified', assignable: true,
+  requestedCompletionCeiling: 4096, compatibleLevels: ['medium', 'high'],
+  piCompatibility: { status: 'verified', verifiedLevels: ['medium', 'high'], failedLevels: [] },
+  reasoningConfiguration: { off: 'unsupported-by-profile', routeHealthVerified: true },
+  diagnostics: [], stopDiscovery: false,
+  accounting: { logicalProbes: 2, httpAttempts: 3 },
+  evidence: { current: true, toolReplay: true, ingress: 'ai-gateway-chat-completions', status: 'Verified' },
+});
+const savedDevelopmentAssignment = () => ({
+  activeProfile: current.reasoningConfiguration.routeAssignments.development.activeProfile,
+  routeVersion: 'development-v2',
+  legs: [{
+    ...singleInventory('development').legs[0],
+    profileRef: current.reasoningConfiguration.routeAssignments.development.activeProfile,
+    evidence: verifiedReport().evidence,
+  }],
+});
+const draftConfiguration = (container: HTMLElement) => JSON.parse((container.querySelector('input[name="reasoningConfiguration"]') as HTMLInputElement).value);
+const formValues = (container: HTMLElement) => environmentValues('aiRouting', 'enterprise', new FormData(container.querySelector('form')!)) as Record<string, any>;
+const profileKey = (id: string, digit: string) => `${id}\u001f1\u001f${hash(digit)}`;
+async function ready(view: ReturnType<typeof render>) {
+  await waitFor(() => expect(view.getByLabelText('development reasoning profile')).toBeEnabled());
+}
+function describedText(element: HTMLElement) {
+  return (element.getAttribute('aria-describedby') ?? '').split(/\s+/).map((id) => {
+    const helper = document.getElementById(id);
+    expect(helper).toBeVisible();
+    return helper?.textContent ?? '';
+  }).join(' ');
+}
+
 beforeEach(() => {
-  api.catalog.mockResolvedValue(catalog);
-  api.inventory.mockResolvedValue({
-    route: 'development',
-    routeVersion: 'route-v2',
-    legs: [
-      { nodeId: 'primary', provider: 'custom-enterprise', declaredModel: 'development-alias', evidence: { status: 'stale' } },
-      { nodeId: 'fallback', provider: 'workers-ai', declaredModel: '@cf/zai-org/glm', evidence: { status: 'verified' } },
-    ],
-    commonMapping: { levels: { medium: { removePaths: [], writes: [] } }, digest: hash('c') },
-  });
-  api.discover.mockResolvedValue({ classification: 'Compatible, unverified', warnings: ['custom_provider_backend_requires_revalidation'], accounting: { logicalProbes: 2, httpAttempts: 3 } });
+  api.catalog.mockReset().mockResolvedValue(catalog);
+  // Every GET, including verification's before/after reads, receives its own route.
+  api.inventory.mockReset().mockImplementation(async (route: string) => routeInventory(route));
+  api.discover.mockReset().mockResolvedValue({ classification: 'Compatible, unverified', warnings: ['custom_provider_backend_requires_revalidation'], accounting: { logicalProbes: 2, httpAttempts: 3 } });
 });
 
 afterEach(() => {
@@ -123,33 +162,29 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     expect(new FormData(form).getAll('routeContextRoute')).toContain('research');
   });
 
-  it('keeps gateway inventory and compatibility records in collapsed advanced route details', async () => {
-    const { getByRole, getByLabelText, findByText, queryByRole } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    const profile = getByLabelText('development reasoning profile') as HTMLSelectElement;
-    await waitFor(() => expect(profile.options.length).toBe(7));
-    expect(api.catalog).toHaveBeenCalledTimes(1);
+  it('REQ-ENTERPRISE-034: loads every detected inventory read-only and exposes models outside route disclosures', async () => {
+    let hydrate!: (value: typeof catalog) => void;
+    api.catalog.mockReturnValueOnce(new Promise<typeof catalog>((resolve) => { hydrate = resolve; }));
+    const view = render(() => <form><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} /></form>);
+    expect(api.inventory).not.toHaveBeenCalled();
+    hydrate(catalog);
+    for (const route of catalog.routes) {
+      const card = view.getByRole('heading', { name: route }).closest('article')!;
+      const model = await within(card).findByText(`${route}-alias`);
+      expect(model).toBeVisible();
+      expect(model.closest('details')).toBeNull();
+      expect(within(card).getByText(`@cf/${route}-fallback`)).toBeVisible();
+      expect(within(card).queryByText('Advanced route details')).toBeNull();
+      expect(api.inventory).toHaveBeenCalledWith(route);
+    }
+    expect(formValues(view.container).reasoningConfiguration).toEqual(current.reasoningConfiguration);
+    expect(formValues(view.container).dynamicRoutes).toEqual(current.dynamicRoutes);
+    expect(api.discover).not.toHaveBeenCalled();
+    const profile = view.getByLabelText('development reasoning profile') as HTMLSelectElement;
     expect(Array.from(profile.options, (option) => option.textContent)).toEqual([
-      'Select reasoning profile',
-      ...catalog.profiles.map((item) => `${item.name} · revision ${item.revision}`),
+      'Select reasoning profile', ...catalog.profiles.map((item) => `${item.name} · revision ${item.revision}`),
     ]);
-    expect(queryByRole('option', { name: 'GPT-OSS tool replay' })).toBeNull();
-
-    const developmentCard = getByRole('heading', { name: 'development' }).closest('article')!;
-    const summary = within(developmentCard).getByText('Advanced route details', { selector: 'summary' });
-    const details = summary.closest('details');
-    expect(details?.open).toBe(false);
-
-    await fireEvent.click(summary);
-    await fireEvent.click(getByRole('button', { name: /refresh development gateway details/i }));
-    expect(await findByText('development-alias')).toBeTruthy();
-    expect(getByLabelText('primary custom provider backend')).toBeTruthy();
-    expect(getByLabelText('primary compatibility record')).toBeTruthy();
-    expect(within(developmentCard).getByText(/document observed behavior and never choose a backend/i)).toBeTruthy();
-    expect(await findByText((_content, element) => element?.tagName === 'P' && element.textContent?.includes('Shared supported levels: medium') === true)).toBeTruthy();
-    await fireEvent.click(getByRole('button', { name: /verify development selected profile/i }));
-    expect(await findByText((_content, element) => element?.tagName === 'STRONG' && element.textContent === 'Selected profile check: Compatible, unverified')).toBeTruthy();
-    expect(queryByRole('button', { name: /add compatibility record/i })).toBeNull();
-    expect(api.discover).toHaveBeenCalledWith(expect.objectContaining({ route: 'development', profileRef: current.reasoningConfiguration.routeAssignments.development.activeProfile, maxCompletionTokens: 4096 }));
+    expect(view.queryByRole('option', { name: 'GPT-OSS tool replay' })).toBeNull();
   });
 
   it('offers one primary route discovery action and runs route-only protocol discovery', async () => {
@@ -170,7 +205,8 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     const profileRef = { id: match.id, revision: match.revision, hash: match.hash };
     api.catalog.mockResolvedValueOnce({ ...catalog, profiles: [...catalog.profiles, match] });
     api.discover.mockResolvedValueOnce({
-      classification: 'Verified', assignable: true, outcome: 'existing-profile',
+      ...verifiedReport(), route: 'general_usage', outcome: 'existing-profile',
+      compatibleLevels: match.supportedLevels,
       matchedProfiles: [{ profileRef, name: match.name, supportedLevels: match.supportedLevels }],
     });
     const savedCurrent = { ...current, reasoningConfiguration: { ...current.reasoningConfiguration, customProfileRevisions: match.id.startsWith('custom-') ? [match] : [] } };
@@ -179,7 +215,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     const draft = () => JSON.parse((container.querySelector('input[name="reasoningConfiguration"]') as HTMLInputElement).value);
     const before = draft();
     await fireEvent.click(getByRole('button', { name: /map profile for general_usage/i }));
-    const useProfile = await findByRole('button', { name: `Assign ${match.name}` });
+    const useProfile = await findByRole('button', { name: 'Assign profile', exact: true });
     expect(draft()).toEqual(before);
     expect(queryByLabelText('Profile name')).toBeNull();
     await fireEvent.click(useProfile);
@@ -192,105 +228,322 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     expect(api.discover).toHaveBeenCalledExactlyOnceWith({ route: 'general_usage', maxCompletionTokens: 4096 });
   });
 
-  it.each([false, undefined])('sends the chosen verification ceiling and exposes budget diagnostics without retrying (assignable: %s)', async (assignable) => {
-    let complete!: (value: unknown) => void;
-    api.discover.mockReturnValueOnce(new Promise((resolve) => { complete = resolve; }));
-    const { getByLabelText, getByRole, findByText, container } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
-    const card = getByRole('heading', { name: 'development' }).closest('article')!;
-    await fireEvent.click(within(card).getByText('Advanced route details', { selector: 'summary' }));
-    const ceiling = getByRole('spinbutton', { name: 'development verification completion token ceiling' });
-    expect(ceiling).toHaveValue(4096);
-    expect(ceiling).toHaveAttribute('min', '32');
-    expect(ceiling).toHaveAttribute('max', '16384');
-    expect(ceiling).toHaveAttribute('step', '1');
-    expect(within(card).getByText(/may create provider usage/i)).toBeInTheDocument();
-    await fireEvent.input(ceiling, { target: { value: '1024' } });
-    const before = (container.querySelector('input[name="reasoningConfiguration"]') as HTMLInputElement).value;
-    await fireEvent.click(getByRole('button', { name: /verify development selected profile/i }));
-    expect(getByRole('spinbutton', { name: 'development verification completion token ceiling' })).toBeDisabled();
-    expect(getByRole('button', { name: /verify development selected profile/i })).toBeDisabled();
-    expect(getByLabelText('development reasoning profile')).toBeDisabled();
-    expect(api.discover).toHaveBeenCalledExactlyOnceWith({ route: 'development', profileRef: current.reasoningConfiguration.routeAssignments.development.activeProfile, maxCompletionTokens: 1024 });
-    complete({
-      classification: 'Unsupported', assignable, outcome: 'inconclusive', requestedCompletionCeiling: 1024,
-      diagnostics: [{ levels: ['high'], stage: 'tool-replay', code: 'completion_limit', body: 'PRIVATE PROVIDER BODY' }],
-      candidateResults: [{ profileId: 'workers-ai-kimi-k-thinking', profileName: 'Kimi thinking', classification: 'Inconclusive', assignable: false, verifiedLevels: ['medium'], diagnostics: [{ levels: ['high'], stage: 'tool-replay', code: 'incomplete_final_response' }] }],
+  it('REQ-ENTERPRISE-034: Verify Profile uses fixed 4096 beside Map Profile and attaches single-leg evidence only to the draft', async () => {
+    const events: string[] = [];
+    api.inventory.mockImplementation(async (route: string) => { events.push(`inventory:${route}`); return singleInventory(route); });
+    let complete!: (value: ReturnType<typeof verifiedReport>) => void;
+    api.discover.mockImplementationOnce(() => {
+      events.push('discover');
+      return new Promise((resolve) => { complete = resolve; });
     });
-    expect(await findByText(/selected profile check:.*incomplete at the chosen token budget/i)).toBeInTheDocument();
-    const details = within(getByRole('heading', { name: 'development' }).closest('article')!).getByText('Technical check details').closest('details')!;
-    await fireEvent.click(within(details).getByText('Technical check details'));
-    expect(details).toHaveTextContent('Kimi thinking');
-    expect(details).toHaveTextContent('Verified levels: medium');
-    expect(details).toHaveTextContent('Levels: high');
-    expect(details).toHaveTextContent('Stage: tool-replay');
-    expect(details).toHaveTextContent(/did not complete the final response after tool replay/i);
-    expect(container).not.toHaveTextContent('PRIVATE');
-    expect(getByRole('spinbutton', { name: 'development verification completion token ceiling' })).toBeEnabled();
-    expect(api.discover).toHaveBeenCalledTimes(1);
-    expect((container.querySelector('input[name="reasoningConfiguration"]') as HTMLInputElement).value).toBe(before);
+    const submit = vi.fn((event: SubmitEvent) => event.preventDefault());
+    const view = render(() => <form onSubmit={submit}><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} /></form>);
+    await ready(view);
+    await view.findByText('@cf/development-model');
+    const card = view.getByRole('heading', { name: 'development' }).closest('article')!;
+    const verify = within(card).getByRole('button', { name: 'Verify Profile for development' });
+    expect(verify).toBeEnabled();
+    expect(verify.closest('details')).toBeNull();
+    expect(within(card).getByRole('button', { name: 'Map Profile for development' })).toBeVisible();
+    expect(within(card).queryByRole('spinbutton', { name: /verification|completion|token/i })).toBeNull();
+    expect(within(card).queryByRole('button', { name: /start|add compatibility record/i })).toBeNull();
+    const before = draftConfiguration(view.container);
+    await waitFor(() => expect(api.inventory).toHaveBeenCalledWith('research'));
+    events.length = 0;
+    await fireEvent.click(verify);
+    await waitFor(() => expect(api.discover).toHaveBeenCalledWith({ route: 'development', profileRef: current.reasoningConfiguration.routeAssignments.development.activeProfile, maxCompletionTokens: 4096 }));
+    expect(events).toEqual(['inventory:development', 'discover']);
+    expect(verify).toBeDisabled();
+    expect(view.getByLabelText('development reasoning profile')).toBeDisabled();
+    expect(draftConfiguration(view.container)).toEqual(before);
+    complete(verifiedReport());
+    expect(await within(card).findByText('Profile verified', { exact: true })).toBeVisible();
+    expect(events).toEqual(['inventory:development', 'discover', 'inventory:development']);
+    expect(draftConfiguration(view.container)).toEqual({
+      ...before,
+      routeAssignments: { ...before.routeAssignments, development: savedDevelopmentAssignment() },
+    });
+    // FormData is the Save boundary owned by EnvironmentIndex; verification never submits it.
+    expect(formValues(view.container).reasoningConfiguration.routeAssignments.development).toEqual(savedDevelopmentAssignment());
+    expect(current.reasoningConfiguration.routeAssignments.development).toEqual({ activeProfile: { id: 'workers-ai-kimi-k-thinking', revision: 1, hash: hash('b') } });
+    expect(submit).not.toHaveBeenCalled();
+    expect(verify).toBeEnabled();
   });
 
-  it.each(['', '31', '16385', '32.5', 'not-a-number'])('blocks invalid selected-verification ceiling %j without a provider call', async (budget) => {
-    const { getByLabelText, getByRole, findByRole } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
-    const card = getByRole('heading', { name: 'development' }).closest('article')!;
-    await fireEvent.click(within(card).getByText('Advanced route details', { selector: 'summary' }));
-    await fireEvent.input(getByRole('spinbutton', { name: 'development verification completion token ceiling' }), { target: { value: budget } });
-    await fireEvent.click(getByRole('button', { name: /verify development selected profile/i }));
-    expect(await findByRole('alert')).toHaveTextContent(/whole number from 32 to 16384/i);
+  it('REQ-ENTERPRISE-033: multiple reachable legs show Observed path passed without fabricating a single-leg record', async () => {
+    api.discover.mockResolvedValueOnce(verifiedReport());
+    const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    await ready(view);
+    await view.findByText('development-alias');
+    const before = draftConfiguration(view.container);
+    await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
+    expect(await view.findByText('Observed path passed', { exact: true })).toBeVisible();
+    expect(view.queryByText('Profile verified', { exact: true })).toBeNull();
+    expect(draftConfiguration(view.container)).toEqual(before);
+    expect(view.queryByRole('button', { name: /add compatibility record/i })).toBeNull();
+  });
+
+  it.each([
+    ['route version', { routeVersion: 'development-v3' }],
+    ['provider', { legs: [{ ...singleInventory('development').legs[0], provider: 'openai' }] }],
+    ['model', { legs: [{ ...singleInventory('development').legs[0], declaredModel: '@cf/replaced-model' }] }],
+    ['node', { legs: [{ ...singleInventory('development').legs[0], nodeId: 'replacement' }] }],
+    ['backend description', { legs: [{ ...singleInventory('development').legs[0], customProviderBackend: 'changed' }] }],
+    ['reachable topology', { legs: routeInventory('development').legs }],
+  ])('REQ-ENTERPRISE-033: %s changing during verification prevents evidence attachment', async (_label, change) => {
+    let changed = false;
+    api.inventory.mockImplementation(async (route: string) => ({ ...singleInventory(route), ...(route === 'development' && changed ? change : {}) }));
+    let complete!: (value: ReturnType<typeof verifiedReport>) => void;
+    api.discover.mockReturnValueOnce(new Promise((resolve) => { complete = resolve; }));
+    const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    await ready(view);
+    await view.findByText('@cf/development-model');
+    const before = draftConfiguration(view.container);
+    await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
+    await waitFor(() => expect(api.discover).toHaveBeenCalled());
+    changed = true;
+    complete(verifiedReport());
+    await waitFor(() => expect(view.getByRole('button', { name: 'Verify Profile for development' })).toBeEnabled());
+    const card = view.getByRole('heading', { name: 'development' }).closest('article')!;
+    expect(within(card).getByText('Needs verification', { exact: true })).toBeVisible();
+    expect(within(card).queryByText('Profile verified', { exact: true })).toBeNull();
+    expect(draftConfiguration(view.container)).toEqual(before);
+  });
+
+  it.each([
+    ['not assignable', { assignable: false }],
+    ['missing assignability', { assignable: undefined }],
+    ['unverified classification', { classification: 'Compatible, unverified' }],
+    ['stale evidence', { evidence: { ...verifiedReport().evidence, current: false } }],
+    ['missing freshness', { evidence: { toolReplay: true, ingress: 'ai-gateway-chat-completions' } }],
+    ['missing replay', { evidence: { ...verifiedReport().evidence, toolReplay: false } }],
+    ['absent replay', { evidence: { current: true, ingress: 'ai-gateway-chat-completions' } }],
+    ['wrong ingress', { evidence: { ...verifiedReport().evidence, ingress: 'direct-provider' } }],
+    ['missing evidence', { evidence: undefined }],
+    ['incomplete diagnostic', { diagnostics: [{ levels: ['high'], stage: 'tool-replay', code: 'incomplete_final_response' }] }],
+    ['completion limit', { diagnostics: [{ levels: ['high'], stage: 'tool-call', code: 'completion_limit' }] }],
+    ['fatal diagnostic', { diagnostics: [{ levels: ['high'], stage: 'tool-replay', code: 'transport_error' }] }],
+    ['fatal status', { diagnostics: [{ levels: ['high'], stage: 'tool-call', code: 'request_rejected', status: 403 }] }],
+  ])('REQ-ENTERPRISE-033: %s cannot attach evidence or claim whole-route verification', async (_label, patch) => {
+    api.inventory.mockImplementation(async (route: string) => singleInventory(route));
+    api.discover.mockResolvedValueOnce({ ...verifiedReport(), ...patch });
+    const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    await ready(view);
+    await view.findByText('@cf/development-model');
+    const before = draftConfiguration(view.container);
+    await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
+    await waitFor(() => expect(api.discover).toHaveBeenCalled());
+    await waitFor(() => expect(view.getByRole('button', { name: 'Verify Profile for development' })).toBeEnabled());
+    expect(view.queryByText('Profile verified', { exact: true })).toBeNull();
+    expect(draftConfiguration(view.container)).toEqual(before);
+  });
+
+  it.each([
+    ['failed', { classification: 'Unsupported', assignable: false, outcome: 'unsupported' }, 'Verification failed'],
+    ['inconclusive', { classification: 'Inconclusive', assignable: false, outcome: 'inconclusive', diagnostics: [{ levels: ['high'], stage: 'tool-replay', code: 'completion_limit' }] }, 'Verification unclear'],
+  ])('REQ-ENTERPRISE-034: %s check has an explicit non-success result', async (_label, report, status) => {
+    api.inventory.mockImplementation(async (route: string) => singleInventory(route));
+    api.discover.mockResolvedValueOnce(report);
+    const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    await ready(view);
+    await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
+    expect(await view.findByText(status, { exact: true })).toBeVisible();
+    expect(view.queryByText('Profile verified', { exact: true })).toBeNull();
+    expect(draftConfiguration(view.container)).toEqual(current.reasoningConfiguration);
+  });
+
+  it('REQ-ENTERPRISE-034: failed verification hides provider bodies and restores the Verify action', async () => {
+    api.discover.mockRejectedValueOnce(new Error('PRIVATE PROVIDER BODY'));
+    const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    await ready(view);
+    await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
+    expect(await view.findByText('Verification failed', { exact: true })).toBeVisible();
+    expect(view.container).not.toHaveTextContent('PRIVATE');
+    expect(view.getByRole('button', { name: 'Verify Profile for development' })).toBeEnabled();
+    expect(draftConfiguration(view.container)).toEqual(current.reasoningConfiguration);
+  });
+
+  it('REQ-ENTERPRISE-034: profile changes clear the result and invalidate evidence even when switching back', async () => {
+    api.inventory.mockImplementation(async (route: string) => singleInventory(route));
+    api.discover.mockResolvedValueOnce(verifiedReport());
+    const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    await ready(view);
+    await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
+    await view.findByText('Profile verified', { exact: true });
+    for (const key of [profileKey('workers-ai-glm-thinking', 'a'), profileKey('workers-ai-kimi-k-thinking', 'b')]) {
+      await fireEvent.change(view.getByLabelText('development reasoning profile'), { target: { value: key } });
+      expect(view.queryByText('Profile verified', { exact: true })).toBeNull();
+      expect(view.queryByText('Observed path passed', { exact: true })).toBeNull();
+      const legs = draftConfiguration(view.container).routeAssignments.development.legs ?? [];
+      expect(legs.some((leg: any) => leg.evidence?.current === true)).toBe(false);
+    }
+  });
+
+  it('REQ-ENTERPRISE-033: saved exact single-leg evidence is green only after fresh matching inventory arrives', async () => {
+    let release!: (value: ReturnType<typeof singleInventory>) => void;
+    api.inventory.mockImplementation((route: string) => route === 'development'
+      ? new Promise((resolve) => { release = resolve; }) : Promise.resolve(singleInventory(route)));
+    const saved = { ...current, reasoningConfiguration: { ...current.reasoningConfiguration, routeAssignments: { ...current.reasoningConfiguration.routeAssignments, development: savedDevelopmentAssignment() } } };
+    const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={saved} />);
+    await ready(view);
+    await waitFor(() => expect(api.inventory).toHaveBeenCalledWith('development'));
+    expect(view.queryByText('Profile verified', { exact: true })).toBeNull();
+    release(singleInventory('development'));
+    expect(await view.findByText('Profile verified', { exact: true })).toBeVisible();
+    expect(draftConfiguration(view.container)).toEqual(saved.reasoningConfiguration);
     expect(api.discover).not.toHaveBeenCalled();
   });
 
-  it('does not expose provider response bodies from failed selected verification', async () => {
-    api.discover.mockRejectedValueOnce(new Error('PRIVATE PROVIDER BODY'));
-    const { getByRole, getByLabelText, findByRole, container } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
-    const card = getByRole('heading', { name: 'development' }).closest('article')!;
-    await fireEvent.click(within(card).getByText('Advanced route details', { selector: 'summary' }));
-    await fireEvent.click(getByRole('button', { name: /verify development selected profile/i }));
-    expect(await findByRole('alert')).toHaveTextContent(/profile verification failed.*saved AI Gateway connection/i);
-    expect(container).not.toHaveTextContent('PRIVATE');
-    expect(getByRole('button', { name: /verify development selected profile/i })).toBeEnabled();
+  it.each([
+    ['revision mismatch', { legs: [{ ...savedDevelopmentAssignment().legs[0], profileRef: { ...savedDevelopmentAssignment().activeProfile, revision: 2 } }] }],
+    ['hash mismatch', { legs: [{ ...savedDevelopmentAssignment().legs[0], profileRef: { ...savedDevelopmentAssignment().activeProfile, hash: hash('f') } }] }],
+    ['profile id mismatch', { legs: [{ ...savedDevelopmentAssignment().legs[0], profileRef: { ...savedDevelopmentAssignment().activeProfile, id: 'other-profile' } }] }],
+    ['old version', { routeVersion: 'development-v1' }],
+    ['changed provider', { legs: [{ ...savedDevelopmentAssignment().legs[0], provider: 'openai' }] }],
+    ['changed model', { legs: [{ ...savedDevelopmentAssignment().legs[0], declaredModel: 'old-model' }] }],
+    ['missing replay', { legs: [{ ...savedDevelopmentAssignment().legs[0], evidence: { ...verifiedReport().evidence, toolReplay: false } }] }],
+    ['stale evidence', { legs: [{ ...savedDevelopmentAssignment().legs[0], evidence: { ...verifiedReport().evidence, current: false } }] }],
+    ['wrong ingress', { legs: [{ ...savedDevelopmentAssignment().legs[0], evidence: { ...verifiedReport().evidence, ingress: 'direct-provider' } }] }],
+  ])('REQ-ENTERPRISE-033: saved %s cannot appear as Profile verified', async (_label, patch) => {
+    api.inventory.mockImplementation(async (route: string) => singleInventory(route));
+    const saved = { ...current, reasoningConfiguration: { ...current.reasoningConfiguration, routeAssignments: { ...current.reasoningConfiguration.routeAssignments, development: { ...savedDevelopmentAssignment(), ...patch } } } };
+    const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={saved} />);
+    await ready(view);
+    await view.findByText('@cf/development-model');
+    const card = view.getByRole('heading', { name: 'development' }).closest('article')!;
+    expect(within(card).queryByText('Profile verified', { exact: true })).toBeNull();
+    expect(within(card).getByText('Needs verification', { exact: true })).toBeVisible();
+    expect(draftConfiguration(view.container)).toEqual(saved.reasoningConfiguration);
   });
 
-  it('discards selected-profile verification when the profile draft changes', async () => {
-    api.discover.mockResolvedValueOnce({ classification: 'Verified', assignable: true, evidence: { current: true, toolReplay: true } });
-    const { getByLabelText, getByRole, findByText, queryByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
-    const card = getByRole('heading', { name: 'development' }).closest('article')!;
-    await fireEvent.click(within(card).getByText('Advanced route details', { selector: 'summary' }));
-    await fireEvent.click(getByRole('button', { name: /verify development selected profile/i }));
-    await findByText('Selected profile check: Verified');
-    await fireEvent.change(getByLabelText('development reasoning profile'), { target: { value: `workers-ai-glm-thinking\u001f1\u001f${hash('a')}` } });
-    expect(queryByText('Selected profile check: Verified')).toBeNull();
+  it('REQ-ENTERPRISE-033: saved evidence cannot certify a fresh multi-leg route', async () => {
+    const assignment = savedDevelopmentAssignment();
+    const saved = { ...current, reasoningConfiguration: { ...current.reasoningConfiguration, routeAssignments: { ...current.reasoningConfiguration.routeAssignments, development: {
+      ...assignment,
+      legs: routeInventory('development').legs.map((leg) => ({ ...leg, profileRef: assignment.activeProfile, evidence: verifiedReport().evidence })),
+    } } } };
+    const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={saved} />);
+    await ready(view);
+    await view.findByText('development-alias');
+    expect(view.queryByText('Profile verified', { exact: true })).toBeNull();
+    expect(view.getByRole('button', { name: 'Verify Profile for development' })).toBeEnabled();
+    expect(draftConfiguration(view.container)).toEqual(saved.reasoningConfiguration);
   });
 
-  it('attaches a verified compatibility record only after inventory confirms one reachable leg', async () => {
-    api.inventory.mockResolvedValueOnce({
-      route: 'development', routeVersion: 'route-v2',
-      legs: [{ nodeId: 'only', provider: 'workers-ai', declaredModel: '@cf/model' }],
-      commonLevels: [], warnings: ['missing_leg_evidence'],
+  it('REQ-ENTERPRISE-033: unavailable fresh inventory never reuses saved evidence as green', async () => {
+    api.inventory.mockImplementation(async (route: string) => {
+      if (route === 'development') throw new Error('Inventory unavailable');
+      return singleInventory(route);
     });
-    api.discover.mockResolvedValueOnce({
-      classification: 'Verified', assignable: true, accounting: { logicalProbes: 2, httpAttempts: 3 },
-      evidence: { current: true, toolReplay: true, ingress: 'ai-gateway-chat-completions' },
-    });
-    const { container, getByLabelText, getByRole, findByRole, findByText } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(7));
-    const developmentCard = getByRole('heading', { name: 'development' }).closest('article')!;
-    await fireEvent.click(within(developmentCard).getByText('Advanced route details', { selector: 'summary' }));
-    await fireEvent.click(getByRole('button', { name: /refresh development gateway details/i }));
-    await fireEvent.click(getByRole('button', { name: /verify development selected profile/i }));
-    await findByText(/selected profile check: verified/i);
-    await fireEvent.click(await findByRole('button', { name: /add compatibility record/i }));
+    const saved = { ...current, reasoningConfiguration: { ...current.reasoningConfiguration, routeAssignments: { ...current.reasoningConfiguration.routeAssignments, development: savedDevelopmentAssignment() } } };
+    const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={saved} />);
+    await ready(view);
+    const card = view.getByRole('heading', { name: 'development' }).closest('article')!;
+    expect(await within(card).findByRole('alert')).toHaveTextContent(/inventory|gateway/i);
+    expect(within(card).queryByText('Profile verified', { exact: true })).toBeNull();
+    expect(draftConfiguration(view.container)).toEqual(saved.reasoningConfiguration);
+  });
 
-    const form = document.createElement('form');
-    form.append(container.firstElementChild!);
-    const values = environmentValues('aiRouting', 'enterprise', new FormData(form)) as Record<string, any>;
-    expect(values.reasoningConfiguration.routeAssignments.development.legs[0].evidence).toEqual({
-      current: true, toolReplay: true, ingress: 'ai-gateway-chat-completions',
-    });
+  it('REQ-ENTERPRISE-034: a failed recheck invalidates earlier saved verification in the draft', async () => {
+    api.inventory.mockImplementation(async (route: string) => singleInventory(route));
+    api.discover.mockRejectedValueOnce(new Error('PRIVATE'));
+    const saved = { ...current, reasoningConfiguration: { ...current.reasoningConfiguration, routeAssignments: { ...current.reasoningConfiguration.routeAssignments, development: savedDevelopmentAssignment() } } };
+    const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={saved} />);
+    await view.findByText('Profile verified', { exact: true });
+    await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
+    await view.findByText('Verification failed', { exact: true });
+    expect(draftConfiguration(view.container).routeAssignments.development.legs[0].evidence.current).toBe(false);
+    expect(saved.reasoningConfiguration.routeAssignments.development.legs[0].evidence.current).toBe(true);
+  });
+
+  it('REQ-ENTERPRISE-033: editing custom provenance requires Save before verification and preserves the draft', async () => {
+    api.inventory.mockImplementation(async (route: string) => ({ ...singleInventory(route), legs: [{ ...singleInventory(route).legs[0], provider: 'custom-enterprise', customProviderBackend: 'Old backend' }] }));
+    const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    const input = await view.findByLabelText('development-only custom provider backend');
+    await fireEvent.input(input, { target: { value: 'New backend' } });
+    expect(view.getByRole('button', { name: 'Verify Profile for development' })).toBeDisabled();
+    const card = view.getByRole('heading', { name: 'development' }).closest('article')!;
+    expect(within(card).getByText('Save the backend description before verifying.')).toBeVisible();
+    expect(draftConfiguration(view.container).routeAssignments.development.legs[0].customProviderBackend).toBe('New backend');
+    expect(api.discover).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-036: an unsaved custom revision has a disabled Verify action with a save explanation', async () => {
+    const custom = { id: 'custom-new', revision: 1, hash: hash('f'), name: 'New custom', supportedLevels: ['medium'], classification: 'Compatible, unverified' };
+    const saved = { ...current, reasoningConfiguration: { ...current.reasoningConfiguration, customProfileRevisions: [custom], routeAssignments: { ...current.reasoningConfiguration.routeAssignments, development: { activeProfile: { id: custom.id, revision: 1, hash: custom.hash } } } } };
+    const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={saved} />);
+    await ready(view);
+    const verify = view.getByRole('button', { name: 'Verify Profile for development' });
+    expect(verify).toBeVisible();
+    expect(verify).toBeDisabled();
+    const card = view.getByRole('heading', { name: 'development' }).closest('article')!;
+    expect(within(card).getByText('Save this new profile before verifying.')).toBeVisible();
+    await fireEvent.click(verify);
+    expect(api.discover).not.toHaveBeenCalled();
+    expect(draftConfiguration(view.container)).toEqual(saved.reasoningConfiguration);
+  });
+
+  it('REQ-ENTERPRISE-034: supported levels and associated helpers explain profile-limited defaults', async () => {
+    const view = render(() => <form><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} /></form>);
+    await ready(view);
+    const global = view.getByLabelText('Global default reasoning') as HTMLSelectElement;
+    const group = view.getByLabelText('developers default reasoning') as HTMLSelectElement;
+    expect(Array.from(global.options, (option) => option.value)).toEqual(['off', 'medium', 'high']);
+    expect(Array.from(group.options, (option) => option.value)).toEqual(['medium', 'high']);
+    expect(describedText(global)).toMatch(/profile/i);
+    expect(describedText(group)).toMatch(/profile/i);
+    expect(global).toBeEnabled();
+    expect(group).toBeEnabled();
+    await fireEvent.change(global, { target: { value: 'high' } });
+    await fireEvent.change(view.getByLabelText('general_usage reasoning profile'), { target: { value: profileKey('openai-gpt-chat-tools-off', '2') } });
+    expect(global).toHaveValue('off');
+    expect(global).toBeDisabled();
+    expect(describedText(global)).toMatch(/only|one|single/i);
+    expect(view.container.querySelector('input[type="hidden"][name="reasoning"]')).toHaveValue('off');
+    expect(new FormData(view.container.querySelector('form')!).get('reasoning')).toBe('off');
+    expect(formValues(view.container).defaultRoute).toEqual({ route: 'general_usage', reasoning: 'off' });
+    await fireEvent.change(view.getByLabelText('developers default route'), { target: { value: 'general_usage' } });
+    expect(view.getByLabelText('developers default reasoning')).toHaveValue('off');
+    expect(view.getByLabelText('developers default reasoning')).toBeDisabled();
+    expect(describedText(view.getByLabelText('developers default reasoning'))).toMatch(/only|one|single/i);
+    expect(formValues(view.container).groupRouting[0].reasoning).toBe('off');
+    await fireEvent.change(view.getByLabelText('Global default route'), { target: { value: 'development' } });
+    expect(global).toHaveValue('medium');
+    expect(global).toBeEnabled();
+    expect(formValues(view.container).defaultRoute).toEqual({ route: 'development', reasoning: 'medium' });
+  });
+
+  it('REQ-ENTERPRISE-034: a single non-off mode stays disabled yet serializes its selected value', async () => {
+    const onlyHigh = { id: 'custom-high-only', revision: 1, hash: hash('f'), name: 'High only', supportedLevels: ['high'], classification: 'Verified' };
+    api.catalog.mockResolvedValueOnce({ ...catalog, profiles: [...catalog.profiles, onlyHigh] });
+    const view = render(() => <form><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} /></form>);
+    await ready(view);
+    await fireEvent.change(view.getByLabelText('general_usage reasoning profile'), { target: { value: profileKey('custom-high-only', 'f') } });
+    const reasoning = view.getByLabelText('Global default reasoning');
+    expect(reasoning).toHaveValue('high');
+    expect(reasoning).toBeDisabled();
+    expect(describedText(reasoning)).toMatch(/only|one|single/i);
+    expect(view.container.querySelector('input[type="hidden"][name="reasoning"]')).toHaveValue('high');
+    expect(new FormData(view.container.querySelector('form')!).getAll('reasoning')).toEqual(['high']);
+    expect(formValues(view.container).defaultRoute).toEqual({ route: 'general_usage', reasoning: 'high' });
+    expect(formValues(view.container).groupRouting[1].reasoning).toBe('high');
+    expect(view.getByLabelText('support default reasoning')).toHaveValue('high');
+    expect(view.getByLabelText('support default reasoning')).toBeDisabled();
+  });
+
+  it('REQ-ENTERPRISE-034: default reasoning helper distinguishes catalog loading from missing assignment', async () => {
+    let hydrate!: (value: typeof catalog) => void;
+    api.catalog.mockReturnValueOnce(new Promise<typeof catalog>((resolve) => { hydrate = resolve; }));
+    const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
+    expect(view.getByLabelText('Global default reasoning')).toBeDisabled();
+    expect(describedText(view.getByLabelText('Global default reasoning'))).toMatch(/loading/i);
+    hydrate(catalog);
+    await ready(view);
+    await fireEvent.change(view.getByLabelText('general_usage reasoning profile'), { target: { value: '' } });
+    const reasoning = view.getByLabelText('Global default reasoning');
+    expect(reasoning).toBeDisabled();
+    expect(describedText(reasoning)).toMatch(/assign|select.*profile/i);
+    expect(describedText(reasoning)).not.toMatch(/loading/i);
   });
 
   it('keeps unconfigured gateway rows visible without adding them to saved routing or new group defaults', async () => {

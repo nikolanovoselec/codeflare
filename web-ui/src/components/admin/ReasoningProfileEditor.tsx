@@ -1,12 +1,11 @@
 /* v8 ignore start -- user-validated administration UI */
-import { For, Show, createMemo, createSignal, onMount, type Component } from 'solid-js';
+import { For, Show, createMemo, createSignal, createUniqueId, onMount, type Component } from 'solid-js';
 import { discoverReasoningCompatibility } from '../../api/client';
 import { normalizeCustomProfile } from '../../../../src/lib/reasoning-profiles';
-import type { ProfileRevisionRef, ReasoningDiscoveryDiagnostic, ReasoningDiscoveryResult } from '../../types';
+import type { PiReasoningLevel, ProfileRevisionRef, ReasoningDiscoveryDiagnostic, ReasoningDiscoveryResult } from '../../types';
 
 interface Props {
   route: string;
-  startOnMount?: boolean;
   existingRevisions: Array<Record<string, unknown>>;
   onSave: (revision: Record<string, unknown>) => void;
   onSelectProfile: (ref: ProfileRevisionRef) => void;
@@ -24,13 +23,10 @@ function discoveredLevels(result: ReasoningDiscoveryResult): string {
   return Array.isArray(levels) && levels.length > 0 ? levels.map(String).join(', ') : 'Not reported';
 }
 
-export function completionTokenCeiling(value: string): number | undefined {
-  const ceiling = Number(value);
-  return Number.isInteger(ceiling) && ceiling >= 32 && ceiling <= 16384 ? ceiling : undefined;
-}
+export const DISCOVERY_COMPLETION_TOKENS = 4096;
 
 const DIAGNOSTIC_MESSAGES: Record<string, string> = {
-  completion_limit: 'The check was incomplete at the chosen token budget. Increase the completion token ceiling explicitly, then run the check again.',
+  completion_limit: 'The check was incomplete at the fixed 4096-token budget. Compatibility remains unconfirmed; nothing was changed.',
   no_tool_call: 'The provider did not return the required Pi tool call.',
   invalid_tool_call: 'The provider returned an invalid Pi tool call.',
   replay_rejected: 'The provider rejected the Pi tool-result replay.',
@@ -76,30 +72,88 @@ const DiagnosticList: Component<{ diagnostics?: ReasoningDiscoveryDiagnostic[] }
   </li>}</For></ul>
 </Show>;
 
-export const ReasoningCheckDetails: Component<{ result: ReasoningDiscoveryResult }> = (props) => <>
-  <details class="admin-technical-details admin-inline-technical-details">
-    <summary>Technical check details</summary>
-    <Show when={!props.result.candidateResults?.length}><DiagnosticList diagnostics={props.result.diagnostics} /></Show>
+type CheckState = 'passed' | 'failed' | 'unclear';
+const LEVEL_LABELS: Record<PiReasoningLevel, string> = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Xhigh', max: 'Max' };
+const checkStateLabel = (state: CheckState): string => state === 'passed' ? 'Passed' : state === 'failed' ? 'Failed' : 'Unclear';
+const CheckPill: Component<{ label: string; state: CheckState }> = (props) => <span class="admin-check-pill" data-state={props.state} aria-label={`${props.label}: ${checkStateLabel(props.state)}`}>
+  {checkStateLabel(props.state)}
+</span>;
+const CheckCell: Component<{ label: string; state: CheckState }> = (props) => <td aria-label={`${props.label}: ${checkStateLabel(props.state)}`}>
+  <CheckPill label={props.label} state={props.state} />
+</td>;
+
+function diagnosticState(diagnostics: ReasoningDiscoveryDiagnostic[]): CheckState | undefined {
+  if (!diagnostics.length) return undefined;
+  const failures = ['no_tool_call', 'invalid_tool_call', 'replay_rejected', 'off_not_disabled', 'unsupported_mapping', 'incomplete_final_response'];
+  return diagnostics.some((diagnostic) => !failures.includes(diagnostic.code)
+    || diagnostic.status === 401 || diagnostic.status === 403 || diagnostic.status === 429
+    || (diagnostic.status !== undefined && diagnostic.status >= 500)) ? 'unclear' : 'failed';
+}
+
+// REQ-ENTERPRISE-035: Pi lifecycle evidence is not evidence of graduated reasoning effort.
+export const ReasoningCheckOverview: Component<{ result: ReasoningDiscoveryResult; levels: PiReasoningLevel[] }> = (props) => {
+  const levelDiagnostics = (level: PiReasoningLevel) => (props.result.diagnostics ?? []).filter((diagnostic) => !diagnostic.levels.length || diagnostic.levels.includes(level));
+  const offState = (): CheckState => diagnosticState(levelDiagnostics('off').filter((diagnostic) => diagnostic.stage === 'reasoning'))
+    ?? (props.result.reasoningConfiguration?.off === 'verified-disabled' ? 'passed'
+      : props.result.reasoningConfiguration?.off === 'not-disabled' ? 'failed' : 'unclear');
+  const compatibilityState = (level: PiReasoningLevel): CheckState => {
+    const diagnostic = diagnosticState(levelDiagnostics(level));
+    if (diagnostic) return diagnostic;
+    if (props.result.compatibleLevels?.includes(level)) return 'passed';
+    if (props.result.piCompatibility?.verifiedLevels.includes(level)
+      && props.result.reasoningConfiguration?.routeHealthVerified === true
+      && (level !== 'off' || offState() === 'passed')) return 'passed';
+    return 'unclear';
+  };
+  const toolState = (level: PiReasoningLevel, stage: 'tool-call' | 'tool-replay'): CheckState => {
+    const diagnostics = levelDiagnostics(level).filter((diagnostic) => stage === 'tool-call'
+      ? diagnostic.stage === 'tool-call'
+      : ['tool-call', 'tool-replay', 'final-response'].includes(diagnostic.stage));
+    const diagnostic = diagnosticState(diagnostics);
+    if (diagnostic) return stage === 'tool-replay' && diagnostics.some((item) => item.stage === 'tool-call') ? 'unclear' : diagnostic;
+    return props.result.distinctMappings?.some((mapping) => mapping.levels.includes(level) && mapping.toolLifecycle?.passed === true)
+      || props.result.piCompatibility?.verifiedLevels.includes(level) ? 'passed' : 'unclear';
+  };
+  return <div class="admin-check-overview">
+    <table class="admin-check-table">
+      <caption>Selected profile checks</caption>
+      <thead><tr><th scope="col">Level</th><th scope="col">Compatibility</th><th scope="col">Tool call</th><th scope="col">Tool replay</th></tr></thead>
+      <tbody><For each={props.levels}>{(level) => <tr>
+        <th scope="row">{LEVEL_LABELS[level]}</th>
+        <CheckCell label={`${LEVEL_LABELS[level]} compatibility`} state={compatibilityState(level)} />
+        <CheckCell label={`${LEVEL_LABELS[level]} tool call`} state={toolState(level, 'tool-call')} />
+        <CheckCell label={`${LEVEL_LABELS[level]} tool replay`} state={toolState(level, 'tool-replay')} />
+      </tr>}</For></tbody>
+    </table>
+    <Show when={props.levels.includes('off')}><div>Off disabled: <CheckPill label="Off disabled" state={offState()} /></div></Show>
+  </div>;
+};
+
+export const ReasoningCheckDetails: Component<{ result: ReasoningDiscoveryResult }> = (props) => <details class="admin-technical-details admin-inline-technical-details">
+  <summary>Technical check details</summary>
+  <div class="admin-check-candidate">
+    <strong>Check scope</strong>
+    <p>Route: {props.result.route ?? 'Not reported'}</p>
+    <p>Only the exercised route path and current backend configuration were checked. Accepted level fields do not prove reasoning strength.</p>
+    <Show when={!props.result.candidateResults}><DiagnosticList diagnostics={props.result.diagnostics} /></Show>
     <For each={props.result.warnings?.filter((warning) => Object.prototype.hasOwnProperty.call(DIAGNOSTIC_MESSAGES, warning) && !props.result.diagnostics?.some((diagnostic) => diagnostic.code === warning))}>{(warning) => <p class="admin-status-text">{diagnosticMessage(warning)}</p>}</For>
-    <dl>
-      <div><dt>Logical probes</dt><dd>{props.result.accounting?.logicalProbes ?? 'Not reported'}</dd></div>
-      <div><dt>HTTP attempts</dt><dd>{props.result.accounting?.httpAttempts ?? 'Not reported'}</dd></div>
-    </dl>
-    <Show when={props.result.requestedCompletionCeiling !== undefined}><p>Completion token ceiling: {props.result.requestedCompletionCeiling}</p></Show>
-    <For each={props.result.candidateResults}>{(candidate) => <div class="admin-profile-summary">
-      <strong>{candidate.profileName ?? 'Protocol candidate'}</strong>
-      <span>Verified levels: {candidate.verifiedLevels?.join(', ') || 'None reported'}</span>
-      <DiagnosticList diagnostics={candidate.diagnostics} />
-    </div>}</For>
-  </details>
-</>;
+  </div>
+  <For each={props.result.candidateResults}>{(candidate) => <div class="admin-check-candidate">
+    <strong>{candidate.profileName ?? 'Protocol candidate'}</strong>
+    <p>Pi tool lifecycle levels: {candidate.verifiedLevels?.join(', ') || 'None reported'}</p>
+    <DiagnosticList diagnostics={candidate.diagnostics} />
+  </div>}</For>
+  <dl>
+    <div><dt>Logical probes</dt><dd>{props.result.accounting?.logicalProbes ?? 'Not reported'}</dd></div>
+    <div><dt>HTTP attempts</dt><dd>{props.result.accounting?.httpAttempts ?? 'Not reported'}</dd></div>
+  </dl>
+</details>;
 
 const ReasoningProfileEditor: Component<Props> = (props) => {
   let heading!: HTMLHeadingElement;
-  onMount(() => { heading.focus(); if (props.startOnMount) void discover(); });
+  onMount(() => { heading.focus(); void discover(); });
   const [result, setResult] = createSignal<ReasoningDiscoveryResult>();
   const [name, setName] = createSignal('');
-  const [ceiling, setCeiling] = createSignal('4096');
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal('');
 
@@ -117,16 +171,11 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
 
   const discover = async () => {
     if (busy()) return;
-    const maxCompletionTokens = completionTokenCeiling(ceiling());
-    if (maxCompletionTokens === undefined) {
-      setError('Completion token ceiling must be a whole number from 32 to 16384.');
-      return;
-    }
     setBusy(true);
     setError('');
     setResult(undefined);
     try {
-      setResult(await discoverReasoningCompatibility({ route: props.route, maxCompletionTokens }));
+      setResult(await discoverReasoningCompatibility({ route: props.route, maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS }));
     } catch {
       setError('Compatibility check failed. Check the saved AI Gateway connection and try again.');
     } finally {
@@ -165,30 +214,26 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
     <Show when={error()}><div class="admin-inline-error" role="alert">{error()}</div></Show>
 
     <Show when={busy()}><p class="admin-status-text" role="status">Mapping profile…</p></Show>
-    <details class="admin-technical-details"><summary>Advanced mapping controls</summary>
-    <label class="admin-form-field admin-profile-name"><span>Discovery completion token ceiling</span><input type="number" min="32" max="16384" step="1" value={ceiling()} disabled={busy()} onInput={(event) => setCeiling(event.currentTarget.value)} /></label>
-    <div class="admin-discovery-callout">
-      <div><strong>Ready to check</strong><span>This uses the saved AI Gateway connection and may create provider usage. Codeflare never retries at a higher ceiling automatically.</span></div>
-      <button type="button" class="admin-primary-button" disabled={busy()} onClick={() => void discover()}>{busy() ? 'Checking…' : 'Check compatibility'}</button>
-    </div>
-    </details>
 
-    <Show when={result()}>{(discovered) => <section class="admin-profile-section" aria-live="polite">
+    <Show when={result()}>{(discovered) => <div aria-live="polite">
       <Show when={matchedProfiles().length > 0}>
         <div class="admin-discovery-success">
           <strong>Compatible reasoning profiles found</strong>
           <p>These profiles fit the observed safe reasoning behavior. This does not identify the backend model.</p>
           <span>Assign a profile to this route draft, then Save. Nothing is saved or activated by this check.</span>
         </div>
-        <For each={matchedProfiles()}>{(profile) => <div class="admin-review-action">
-          <div><strong>{profile.name}</strong><span>Supported levels: {profile.supportedLevels.join(', ') || 'Not reported'}</span></div>
-          <button type="button" class="admin-primary-button" onClick={() => props.onSelectProfile(profile.profileRef)}>Assign {profile.name}</button>
-        </div>}</For>
+        <For each={matchedProfiles()}>{(profile) => {
+          const nameId = createUniqueId();
+          return <div class="admin-profile-match">
+            <div><strong id={nameId}>{profile.name}</strong><span>Supported levels: {profile.supportedLevels.join(', ') || 'Not reported'}</span></div>
+            <button type="button" class="admin-secondary-button" aria-describedby={nameId} onClick={() => props.onSelectProfile(profile.profileRef)}>Assign profile</button>
+          </div>;
+        }}</For>
       </Show>
       <Show when={customDraft()}>
         <div class="admin-discovery-success">
           <strong>Compatible reasoning behavior found</strong>
-          <p>The route completed bounded reasoning, Pi tool-call, and tool-result replay checks.</p>
+          <p>A profile draft is available for explicit assignment. Tool compatibility does not prove reasoning strength.</p>
           <span>Supported levels: {discoveredLevels(discovered())}</span>
         </div>
         <label class="admin-form-field admin-profile-name"><span>Profile name</span><input aria-label="Profile name" maxlength="128" placeholder={`For example, ${props.route} reasoning`} value={name()} onInput={(event) => setName(event.currentTarget.value)} /></label>
@@ -199,7 +244,7 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
       </Show>
       <Show when={matchedProfiles().length === 0 && !customDraft()}><div class="admin-inline-error" role="alert">{reasoningCheckSummary(discovered())}</div></Show>
       <ReasoningCheckDetails result={discovered()} />
-    </section>}</Show>
+    </div>}</Show>
   </section>;
 };
 

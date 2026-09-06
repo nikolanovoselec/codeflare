@@ -75,6 +75,7 @@ beforeEach(() => {
       toolCompatibility: { status: 'unverified', levels: [] }, validatedTransports: [], limitations: [], evidence: [],
     },
   });
+  api.inventory.mockImplementation(async (route: string) => ({ route, routeVersion: 'route-v2', legs: [{ nodeId: 'primary', provider: 'workers-ai', declaredModel: '@cf/model' }] }));
   api.start.mockResolvedValue(new Response(''));
 });
 
@@ -84,6 +85,34 @@ afterEach(() => {
 });
 
 describe('REQ-ENTERPRISE-031 warned activation', () => {
+  it('REQ-ENTERPRISE-038: saves automatic verification with the route and restores its indicator after reload', async () => {
+    const evidence = { current: true, toolReplay: true, ingress: 'ai-gateway-chat-completions', status: 'Verified' };
+    api.discover.mockResolvedValueOnce({ classification: 'Verified', assignable: true, compatibleLevels: ['off', 'medium', 'high'], evidence });
+    api.preview.mockResolvedValueOnce({ section: 'aiRouting', baseRevision: 7, currentRevision: 7, changes: [], tasks: [], warnings: [], exclusions: [] });
+    api.start.mockResolvedValueOnce(new Response(`${JSON.stringify({ type: 'snapshot', run: { runId: 'verified-route', section: 'aiRouting', state: 'succeeded', tasks: [], resultingRevision: 8 } })}\n`));
+    render(() => <Router><Route path="/admin" component={AdministrationLayout}><Route path="/environment/:section" component={EnvironmentAreaDetail} /></Route></Router>);
+    await screen.findByText('@cf/model');
+    await fireEvent.click(screen.getByRole('button', { name: 'Verify Profile for development' }));
+    await screen.findByText('Profile verified', { exact: true });
+    expect(api.start).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByRole('heading', { name: 'Confirm Save' });
+    expect(api.start).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Confirm Save' }));
+    await screen.findByRole('heading', { name: 'Execution succeeded' });
+    const saved = api.start.mock.calls[0][2];
+    expect(saved.reasoningConfiguration.routeAssignments.development).toEqual({
+      activeProfile: aiRouting.reasoningConfiguration.routeAssignments.development.activeProfile,
+      routeVersion: 'route-v2', legs: [{ nodeId: 'primary', provider: 'workers-ai', declaredModel: '@cf/model',
+        profileRef: aiRouting.reasoningConfiguration.routeAssignments.development.activeProfile, evidence }],
+    });
+    api.configuration.mockResolvedValueOnce({ mode: 'enterprise', revision: 8, applicableSections: ['aiRouting'], sections: { aiRouting: { ...aiRouting, ...saved } }, activeRunId: null, latest: {} });
+    cleanup();
+    render(() => <Router><Route path="/admin" component={AdministrationLayout}><Route path="/environment/:section" component={EnvironmentAreaDetail} /></Route></Router>);
+    expect(await screen.findByText('Profile verified', { exact: true })).toBeVisible();
+    expect(api.discover).toHaveBeenCalledTimes(1);
+  });
+
   it('saves a different manually selected revision without configuring unrelated gateway routes', async () => {
     const nextRef = { id: 'workers-ai-glm-thinking', revision: 2, hash: 'b'.repeat(64) };
     api.start.mockResolvedValueOnce(new Response(`${JSON.stringify({ type: 'snapshot', run: { runId: 'manual-routing', section: 'aiRouting', state: 'succeeded', tasks: [], resultingRevision: 8 } })}\n`));
@@ -231,7 +260,7 @@ describe('REQ-ENTERPRISE-031 warned activation', () => {
     await waitFor(() => expect((screen.getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(3));
     const draft = () => JSON.parse((container.querySelector('input[name="reasoningConfiguration"]') as HTMLInputElement).value);
     await fireEvent.click(screen.getByRole('button', { name: /map profile for development/i }));
-    const select = await screen.findByRole('button', { name: 'Assign Kimi thinking' });
+    const select = await screen.findByRole('button', { name: 'Assign profile', exact: true });
     expect(draft()).toEqual(aiRouting.reasoningConfiguration);
     expect(api.preview).not.toHaveBeenCalled();
     expect(api.start).not.toHaveBeenCalled();

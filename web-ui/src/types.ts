@@ -163,6 +163,13 @@ export interface ReasoningDiscoveryResult {
   diagnostics?: ReasoningDiscoveryDiagnostic[];
   requestedCompletionCeiling?: number;
   matchedCandidateProfileId?: string;
+  compatibleLevels?: PiReasoningLevel[];
+  piCompatibility?: { status: string; verifiedLevels: PiReasoningLevel[]; failedLevels: PiReasoningLevel[] };
+  reasoningConfiguration?: { off?: string; graduatedEffort?: string; routeHealthVerified?: boolean };
+  distinctMappings?: Array<{
+    levels: PiReasoningLevel[];
+    toolLifecycle?: { passed: boolean; stage: string };
+  }>;
   profileDraft?: Record<string, unknown>;
   candidateResults?: Array<{
     profileId: string;

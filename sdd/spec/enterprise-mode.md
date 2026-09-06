@@ -305,18 +305,18 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Acceptance Criteria:**
 
 1. Administration discovers gateway routes from supported management responses. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (accepts documented data.routes and returns the exact sanitized catalog schema) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (reuses the saved gateway credential and accepts the compatible result.routes envelope) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (returns exact active-version leg/path summaries and only administrator-owned custom-provider identity) -->
-2. Each route starts discovery through one Map Profile action beside typed context and profile controls. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (offers one primary route discovery action and runs route-only protocol discovery) -->
-3. Gateway inventory, selected-profile verification, leg compatibility records, and limitations remain available only through advanced disclosures. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (keeps gateway inventory and compatibility records in collapsed advanced route details) -->
+2. Each route starts discovery through one Map Profile action beside typed context and profile controls; selected-profile verification is a distinct visible action under [REQ-ENTERPRISE-038](#req-enterprise-038-enterprise-pi-selected-profile-verification). <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (offers one primary route discovery action and runs route-only protocol discovery) -->
+3. Detected models load automatically through read-only inventory and appear directly on each gateway route, outside advanced disclosures. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034: loads every detected inventory read-only and exposes models outside route disclosures) -->
 4. Group, default, preview, and Apply controls require neither editable JSON nor manual route duplication. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (adds a discovered gateway route to routing only after assignment and preserves group apply-to-all) -->
 5. Only explicit administrator selection places a recommended exact profile revision into the route draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (uses the exact matched $name catalog revision only in the route draft) -->
-6. Advanced mapping and selected-profile verification controls expose a completion-token ceiling from 32 to 16,384, defaulting to 4,096. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (uses explicit ceiling %s, locks controls, and never retries automatically) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (sends the chosen verification ceiling and exposes budget diagnostics without retrying (assignable: %s)) -->
+6. Map Profile starts once when its editor mounts, and Verify Profile starts once per explicit activation; both use a fixed 4,096-token budget without a user token control or secondary Check button. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (starts on mount with fixed 4096 and offers no second start or token input, including after incomplete results) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034: Verify Profile uses fixed 4096 beside Map Profile and attaches single-leg evidence only to the draft) -->
 7. An existing-profile assignment can be saved independently of unconfigured gateway routes. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (saves a different manually selected revision without configuring unrelated gateway routes) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (keeps unconfigured gateway rows visible without adding them to saved routing or new group defaults) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (does not block form Save for unconfigured context %s but rejects it after assignment) -->
 
 **Constraints:**
 
 - Gateway routes and backend legs remain gateway-owned and cannot be forced or inferred by this workflow.
 - Manual profile assignment does not require discovery.
-- Higher-ceiling checks require explicit initiation, never automatic escalation or retry.
+- UI checks never automatically retry or escalate. The discovery API retains its independent 32–16,384 range and 4,096 default.
 
 **Priority:** P1
 
@@ -336,18 +336,18 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. Discovery offers every compatible enabled catalog revision by name and exact reference, including different passing mappings. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (recommends the exact existing Kimi revision when non-off tools and replay pass but off still reasons) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (retains equivalent Gemma and GLM choices instead of mistaking deduplication order for identity) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (recommends a saved custom revision from matching bounded evidence without additional custom probes) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (retains equivalent Kimi and saved custom choices when alias representations differ) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (surfaces every named passing profile for explicit assignment without recommending an arbitrary first match) -->
+1. Discovery offers every compatible enabled catalog revision by name and exact reference, including different passing mappings. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (recommends the exact existing Kimi revision when non-off tools and replay pass but off still reasons) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (retains equivalent Gemma and GLM choices instead of mistaking deduplication order for identity) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (recommends a saved custom revision from matching bounded evidence without additional custom probes) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (retains equivalent Kimi and saved custom choices when alias representations differ) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (names each match row and describes identically named Assign profile buttons without changing immutable refs) -->
 2. For custom-draft construction, a maximal compatible mapping subsumes matching subsets only when their shared mutations match. <!-- @impl: src/routes/admin/reasoning.ts::selectUnambiguousCandidateMatch --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (prefers one compatible superset protocol over its matching off-only subset) -->
 3. Divergent passing existing profiles remain selectable without assigning a runtime profile automatically. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (REQ-ENTERPRISE-035 AC3: offers existing revisions without activation when compatible mappings diverge) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (offers every distinct complete built-in and enabled custom revision without choosing a runtime mapping) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (offers GPT full and off plus Kimi when worker and Mesh off modes still reason) -->
 4. Authentication, quota, server, transport, or malformed-stream failures terminate the whole scan without publishing recommendations or drafts. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (stops the whole candidate scan after HTTP %s) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (suppresses earlier matches when a later candidate encounters a fatal failure) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (stops all candidates after malformed SSE without retaining the malformed content) -->
 5. Token-exhausted tool calls or replays remain inconclusive rather than proving incompatibility. <!-- @impl: src/lib/reasoning-discovery.ts::mappingDiagnostics --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-035: reports completion limits at %s without retrying or claiming incompatibility) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (reports incomplete tool generation at the selected ceiling rather than unsupported reasoning) -->
-6. Discovery presents sanitized failure stages and per-candidate compatible levels. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningCheckDetails --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (surfaces candidate-only budget exhaustion as incomplete and discloses profile names, levels, and stages) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (sends the chosen verification ceiling and exposes budget diagnostics without retrying (assignable: %s)) -->
-7. Failed mapping explains incompatible Pi tool or replay behavior without exposing provider content. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::reasoningCheckSummary --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (reports concrete %s failure without inventing a draft or exposing raw data) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (reports incompatible %s with a clear diagnostic and no invented draft) -->
+6. Discovery presents sanitized failure stages and compatible levels scoped to each candidate, not another matched profile. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningCheckDetails --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (groups candidate diagnostics, scope, and counters under one disclosure) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (keeps Gemma Off failures scoped to Gemma instead of coloring the matched GPT profile) -->
+7. Failed mapping explains incompatible Pi tool or replay behavior without exposing provider content. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::reasoningCheckSummary --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (reports concrete %s failure without exposing raw data) --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (reports incompatible %s with a clear diagnostic and no invented draft) -->
 
 **Constraints:**
 
 - Matching remains deterministic, sanitized, non-assigning, and non-activating under [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence).
-- Results do not identify the backend model family.
+- Results do not identify the backend model family or prove increasing reasoning effort; compatibility and Pi tool/replay observations are not reasoning-strength measurements.
 - The finite built-in protocol bank bounds route-only probes.
 - Saved custom revisions reuse those observations without additional paid probes.
 - Unknown request properties are not inferred.
@@ -374,7 +374,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. Create & Assign adds a named immutable custom revision to the configuration draft. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (Map Profile starts exactly once, never persists on naming or creation, and assigns a canonical revision only to the mapped route) -->
+1. Create & Assign adds a named immutable custom revision to the configuration draft. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (Map Profile starts exactly once and creates a canonical route draft without submitting Save) -->
 2. Create & Assign selects that exact revision only for the mapped route's draft assignment. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (saves a mapped custom revision while preserving another configured route and its saved custom profile) -->
 3. Returning from Save confirmation to edit retains the revision and assignment draft. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (creates and assigns to the mapped route only, retaining the canonical draft until explicit Save) -->
 4. Save confirmation persists the named revision and route assignment atomically. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-ENTERPRISE-031: persists named custom revisions and exact assignments through Save→GET and preserves the catalog when legacy saves omit it) -->
@@ -416,6 +416,66 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection)
 
 **Verification:** Automated tests in the anchored Administration API and discovery suites above.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-038: Enterprise Pi Selected-Profile Verification
+
+**Intent:** Administrators can inspect selected-profile checks and save correctly scoped route evidence without confusing compatibility with reasoning strength.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Verify Profile requires a saved selected revision and saved backend description, explaining the Save-first condition when unavailable. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034: Verify Profile uses fixed 4096 beside Map Profile and attaches single-leg evidence only to the draft) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-036: an unsaved custom revision has a disabled Verify action with a save explanation) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-033: editing custom provenance requires Save before verification and preserves the draft) -->
+2. Selected-profile results show one row per supported level with Compatibility, Tool call, and Tool replay columns, using labeled green Passed, red Failed, and orange Unclear states derived from level/stage evidence rather than classification alone. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningCheckOverview --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (uses one row per level with associated headers and never passes classification alone) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (associates passed, failed, and incomplete checks with their exact level and stage) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (gives diagnostics priority and leaves unattempted replay unclear without an irrelevant Off control) -->
+3. Verification automatically attaches complete current Verified Chat Completions tool/replay evidence to the exact selected profile reference only when before/after inventories identify one unchanged model node, provider, model, backend description, and route version. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034: Verify Profile uses fixed 4096 beside Map Profile and attaches single-leg evidence only to the draft) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-033: %s changing during verification prevents evidence attachment) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-033: %s cannot attach evidence or claim whole-route verification) -->
+4. Multi-model route success shows orange Observed path passed, without inventing per-leg evidence or green whole-route verification. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-033: multiple reachable legs show Observed path passed without fabricating a single-leg record) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-033: saved evidence cannot certify a fresh multi-leg route) -->
+5. Profile changes, including switching back, and starting a recheck invalidate earlier draft evidence so a failed recheck cannot retain green verification. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034: profile changes clear the result and invalidate evidence even when switching back) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034: a failed recheck invalidates earlier saved verification in the draft) -->
+6. Explicit confirmed Save persists attached evidence through configuration GET. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-038: saves automatic verification with the route and restores its indicator after reload) --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (REQ-ENTERPRISE-038: retains exact single-leg verification through confirmed Save and configuration GET) -->
+7. Reloaded green status requires fresh single-model inventory matching the saved version, node, provider, model, backend description, exact profile reference, and complete current evidence. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-033: saved exact single-leg evidence is green only after fresh matching inventory arrives) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-033: saved %s cannot appear as Profile verified) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-033: unavailable fresh inventory never reuses saved evidence as green) -->
+
+**Constraints:**
+
+- Inventory reads never mutate assignments or start paid checks. Verification changes only the draft until Save confirmation.
+- Save retains server-recomputed warning confirmation and the same `baseRevision` boundary; backend KV/GET persistence machinery is unchanged.
+- Compatibility does not prove increasing reasoning effort. Off-disabled evidence remains separate from tool success; candidate diagnostics remain scoped to their candidate, never another matched profile. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningCheckOverview --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningCheckDetails --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (does not equate a Pi tool pass with verified Off or reasoning configuration) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (keeps Gemma Off failures scoped to Gemma instead of coloring the matched GPT profile) -->
+- No runtime translation, gateway routing, credential, or API-budget changes are introduced.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence), [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration), [REQ-ENTERPRISE-035](#req-enterprise-035-enterprise-pi-protocol-match-selection)
+
+**Verification:** Behavioral tests are anchored above; CI is pending. Browser and visual acceptance are not claimed.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-039: Enterprise Pi Default Reasoning Controls
+
+**Intent:** Administrators understand which default reasoning choices a route permits.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Each global or group default reasoning selector offers only levels supported by its default route's selected profile. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034: supported levels and associated helpers explain profile-limited defaults) -->
+2. Associated help explains loading, missing-assignment, and single-mode disabled states. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034: default reasoning helper distinguishes catalog loading from missing assignment) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034: supported levels and associated helpers explain profile-limited defaults) -->
+3. Disabling a single-mode selector preserves that mode in the Save payload. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034: a single non-off mode stays disabled yet serializes its selected value) -->
+
+**Constraints:**
+
+- Verification is not required to choose a default.
+- Catalog hydration preserves existing selections; changing the route or profile replaces an unsupported selection with a supported level.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration)
+
+**Verification:** Anchored behavior is exercised in CI; execution is pending.
 
 **Status:** Implemented
 
