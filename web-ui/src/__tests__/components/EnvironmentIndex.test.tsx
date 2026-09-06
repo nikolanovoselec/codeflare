@@ -111,7 +111,7 @@ function persisted(values: SubmittedRouting) {
   return { ...routing, tokenState: 'administration', availableAccessGroups: aiRouting().availableAccessGroups };
 }
 async function review() {
-  const save = screen.getByRole('button', { name: 'Save' });
+  const save = screen.getByRole('button', { name: 'Review changes' });
   await waitFor(() => expect(save).toBeEnabled());
   await fireEvent.click(save);
   expect(await screen.findByRole('heading', { name: 'Confirm Save' })).toBeVisible();
@@ -133,6 +133,60 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
+  it('REQ-ENTERPRISE-044: loading and normalization stay clean; edits and reverts control review', async () => {
+    api.catalog.mockResolvedValue({ ...catalog(), routes: ['development', 'unconfigured'] });
+    mount();
+    let action = await screen.findByRole('button', { name: 'Review changes' });
+    expect(action).toBeDisabled();
+    await openRoute('development');
+    await screen.findByText('@cf/development');
+    await waitFor(() => expect(api.inventory).toHaveBeenCalledWith('unconfigured'));
+    expect(action).toBeDisabled();
+    await fireEvent.submit(action.closest('form')!);
+    expect(api.preview).not.toHaveBeenCalled();
+    expect(screen.queryByText('Ready to save. Incomplete routes stay inactive and do not block these settings.')).not.toBeInTheDocument();
+    const context = screen.getByLabelText('development context window');
+    await fireEvent.input(context, { target: { value: '192000' } });
+    expect(action).toBeEnabled();
+    await review();
+    expect(api.start).not.toHaveBeenCalled();
+    await fireEvent.submit(action.closest('form')!);
+    expect(api.preview).toHaveBeenCalledTimes(1);
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to edit' }));
+    expect(screen.getByLabelText('development context window')).toHaveValue('192000');
+    action = screen.getByRole('button', { name: 'Review changes' });
+    await waitFor(() => expect(action).toBeEnabled());
+    await fireEvent.input(screen.getByLabelText('development context window'), { target: { value: '262144' } });
+    expect(action).toBeDisabled();
+    await fireEvent.submit(action.closest('form')!);
+    expect(api.preview).toHaveBeenCalledTimes(1);
+  });
+
+  it('REQ-ENTERPRISE-041: streams visible task progress outside technical details', async () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    api.start.mockResolvedValue(new Response(new ReadableStream<Uint8Array>({ start(value) { controller = value; } })));
+    mount();
+    await openRoute('development');
+    await screen.findByText('@cf/development');
+    await fireEvent.input(screen.getByLabelText('development context window'), { target: { value: '192000' } });
+    await review();
+    await fireEvent.click(screen.getByRole('button', { name: 'Confirm Save' }));
+    const snapshot = (state: string) => controller.enqueue(new TextEncoder().encode(`${JSON.stringify({ type: 'snapshot', run: {
+      runId: 'routing-progress', section: 'aiRouting', state, resultingRevision: state === 'succeeded' ? 8 : undefined,
+      tasks: [{ id: 'configure_ai_gateway', state: 'succeeded' }, { id: 'configure_model_routing', state }],
+    } })}\n`));
+    snapshot('running');
+    await screen.findByRole('heading', { name: 'Execution running' });
+    const task = screen.getByText('Update model routing', { exact: false }).closest('li')!;
+    expect(task.closest('details')).toBeNull();
+    expect(within(task).getByText('running')).toHaveClass('is-running');
+    snapshot('succeeded'); controller.close();
+    await screen.findByRole('heading', { name: 'Execution succeeded' });
+    const completed = screen.getByText('Update model routing', { exact: false }).closest('li')!;
+    expect(within(completed).getByText('succeeded')).toHaveClass('is-succeeded');
+    expect(completed.closest('details')).toBeNull();
+    expect(api.start).toHaveBeenCalledWith('aiRouting', 7, submitted(), []);
+  });
   it('REQ-ENTERPRISE-044: Save and direct submission wait for a checked route assigned to a group', async () => {
     const initial = aiRouting();
     initial.groupRouting = [];
@@ -146,7 +200,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     mount();
     await openRoute('development');
     await screen.findByText('@cf/development');
-    const save = screen.getByRole('button', { name: 'Save' });
+    const save = screen.getByRole('button', { name: 'Review changes' });
     expect(save).toBeDisabled();
     await fireEvent.submit(save.closest('form')!);
     expect(api.preview).not.toHaveBeenCalled();
@@ -186,7 +240,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
       await openRoute('development');
       await screen.findByText('@cf/development');
       expect(screen.getByRole('button', { name: 'Configure development' })).toHaveTextContent('Needs verification · inactive');
-      const save = screen.getByRole('button', { name: 'Save' });
+      const save = screen.getByRole('button', { name: 'Review changes' });
       expect(save).toBeDisabled();
       await fireEvent.submit(save.closest('form')!);
       expect(api.preview).not.toHaveBeenCalled();
@@ -205,7 +259,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     api.discover.mockResolvedValueOnce(verified());
     mount();
     await openRoute('development');
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
     await verifyRoute();
     expect(api.discover).toHaveBeenCalledWith({ route: 'development', profileRef: ref, maxCompletionTokens: 4096 });
     expect(api.start).not.toHaveBeenCalled();
@@ -220,7 +274,9 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     api.inventory.mockImplementation(async (route: string) => inventory(route, savedValues.reasoningConfiguration.routeAssignments[route]?.verification));
     cleanup();
     const reloaded = mount();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+    await openRoute('development');
+    await screen.findByText('@cf/development');
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
     expect(within(screen.getByRole('button', { name: 'Configure development' })).getByText('Verified')).toBeVisible();
     expect(draft(reloaded.container).routeAssignments.development).toEqual(savedValues.reasoningConfiguration.routeAssignments.development);
     // Restoring a persisted proof must use management reads, not another paid check.
@@ -237,7 +293,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(3));
     expect(select).toHaveValue(key(ref));
     await fireEvent.change(select, { target: { value: key(nextRef) } });
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
     expect(draft(view.container).routeAssignments.development.activeProfile).toEqual(nextRef);
     await verifyRoute();
     expect(api.discover).toHaveBeenCalledWith({ route: 'development', profileRef: nextRef, maxCompletionTokens: 4096 });
@@ -256,7 +312,8 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     api.inventory.mockImplementation(async (route: string) => inventory(route, route === 'development' ? proof('development', nextRef) : undefined));
     cleanup(); mount();
     await openRoute('development');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+    await screen.findByText('@cf/development');
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
     expect(screen.getByLabelText('development Pi compatibility profile')).toHaveValue(key(nextRef));
     await openRoute('unconfigured');
     expect(screen.getByLabelText('unconfigured Pi compatibility profile')).toHaveValue('');
@@ -278,7 +335,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     const selectedRef = customRef(expectedProfile);
     expect(draft(view.container).customProfileRevisions).toEqual([expectedProfile]);
     expect(screen.getByLabelText('development Pi compatibility profile')).toHaveValue(key(selectedRef));
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
     expect(api.start).not.toHaveBeenCalled();
     const selectedProof = proof('development', selectedRef, ['off', 'medium']);
     api.discover.mockResolvedValueOnce(verified(selectedProof, 'custom-draft-check'));
@@ -294,7 +351,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(api.start).not.toHaveBeenCalled();
     await fireEvent.click(screen.getByRole('button', { name: 'Back to edit' }));
     await openRoute('development');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled());
     expect(screen.getByLabelText('development Pi compatibility profile')).toHaveValue(key(selectedRef));
     expect(draft(view.container)).toEqual(firstPreview.reasoningConfiguration);
     await review();
@@ -308,7 +365,8 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     cleanup();
     const reloaded = mount();
     await openRoute('development');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+    await screen.findByText('@cf/development');
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
     expect(screen.getByLabelText('development Pi compatibility profile')).toHaveValue(key(selectedRef));
     expect(draft(reloaded.container)).toEqual(savedValues.reasoningConfiguration);
     expect(within(screen.getByRole('button', { name: 'Configure development' })).getByText('Verified')).toBeVisible();
@@ -383,7 +441,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(screen.getByLabelText('development Pi compatibility profile')).toHaveValue(key(kimiRef));
     expect(draft(view.container).routeAssignments.development).toEqual({ activeProfile: kimiRef });
     expect(draft(view.container).customProfileRevisions).toEqual([]);
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
     expect(api.start).not.toHaveBeenCalled();
     const selectedProof = proof('development', kimiRef, ['medium', 'high']);
     api.discover.mockResolvedValueOnce(verified(selectedProof, 'kimi-check'));
@@ -396,7 +454,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(api.start).not.toHaveBeenCalled();
     await fireEvent.click(screen.getByRole('button', { name: 'Back to edit' }));
     await openRoute('development');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled());
     expect(screen.getByLabelText('development Pi compatibility profile')).toHaveValue(key(kimiRef));
     expect(draft(view.container)).toEqual(firstPreview.reasoningConfiguration);
     await review();
@@ -416,7 +474,8 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     ] }));
     api.preview.mockImplementation(async (section, baseRevision, values) => ({ ...preview(section, baseRevision, values), warnings: [warning] }));
     mount();
-    await screen.findByRole('button', { name: 'Save' });
+    await openRoute('development');
+    await fireEvent.input(screen.getByLabelText('development context window'), { target: { value: '192000' } });
     await review();
     expect(screen.getByText(warning.message)).toBeVisible();
     const apply = screen.getByRole('button', { name: 'Confirm Save' });

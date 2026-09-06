@@ -103,6 +103,7 @@ export const EnvironmentAreaDetail: Component = () => {
   const [error, setError] = createSignal<string>();
   const [confirmedWarnings, setConfirmedWarnings] = createSignal<string[]>([]);
   const [aiRoutingReady, setAiRoutingReady] = createSignal(false);
+  const [aiRoutingDirty, setAiRoutingDirty] = createSignal(false);
 
   const editedCurrent = () => {
     const section = area()?.section;
@@ -117,7 +118,7 @@ export const EnvironmentAreaDetail: Component = () => {
   const review = async (event: SubmitEvent) => {
     event.preventDefault();
     const section = area()?.section;
-    if (!section || busy() || configuration.activeRunId || (section === 'aiRouting' && !aiRoutingReady())) return;
+    if (!section || preview() || busy() || configuration.activeRunId || (section === 'aiRouting' && (!aiRoutingReady() || !aiRoutingDirty()))) return;
     setBusy(true); setError(undefined);
     try {
       const values = environmentValues(section, configuration.mode, new FormData(event.currentTarget as HTMLFormElement));
@@ -172,11 +173,11 @@ export const EnvironmentAreaDetail: Component = () => {
       <header class="admin-page-header"><div><p class="admin-eyebrow">Environment area</p><h1>{resolved().label}</h1><p>{resolved().summary}</p></div><A href="/admin/environment">Back to Environment</A></header>
       <Show when={configuration.activeRunId && !run()}><div class="admin-state-panel admin-conflict-panel"><h2>Settings change active</h2><p>Reconnect to the persisted run before starting another change.</p><button type="button" class="admin-primary-button" disabled={busy()} onClick={() => void reconnect()}>Reconnect</button></div></Show>
       <Show when={error()}><div class="admin-inline-error" role="alert">{error()}</div></Show>
-      <Show when={!preview() && !run()}>
-        <form class="admin-panel admin-environment-form" onSubmit={(event) => void review(event)}>
+      <Show when={!run() && (resolved().section === 'aiRouting' || !preview())}>
+        <form style={{ display: preview() ? 'none' : undefined }} class="admin-panel admin-environment-form" onSubmit={(event) => void review(event)}>
           <div class="admin-panel-heading"><div><h2>Edit current settings</h2><p>Blank secret fields preserve their stored value.</p></div><span class="admin-revision">Revision <strong class="admin-mono">{configuration.revision}</strong></span></div>
           <div class="admin-editor-layout">
-            <EnvironmentAreaFields section={resolved().section} mode={configuration.mode} current={editedCurrent()} onReadyChange={setAiRoutingReady} />
+            <EnvironmentAreaFields section={resolved().section} mode={configuration.mode} current={editedCurrent()} onReadyChange={setAiRoutingReady} onDirtyChange={setAiRoutingDirty} />
             <aside class="admin-editor-context">
               <h3>Before you apply</h3>
               <dl>
@@ -186,7 +187,7 @@ export const EnvironmentAreaDetail: Component = () => {
               </dl>
             </aside>
           </div>
-          <div class="admin-form-actions"><button type="submit" class="admin-primary-button" disabled={busy() || Boolean(configuration.activeRunId) || (resolved().section === 'aiRouting' && !aiRoutingReady())}>{busy() ? 'Reviewing…' : resolved().section === 'aiRouting' ? 'Save' : 'Review changes'}</button></div>
+          <div class="admin-form-actions"><button type="submit" class="admin-primary-button" disabled={busy() || Boolean(configuration.activeRunId) || (resolved().section === 'aiRouting' && (!aiRoutingReady() || !aiRoutingDirty()))}>{busy() ? 'Reviewing…' : 'Review changes'}</button></div>
         </form>
       </Show>
       <Show when={!run() ? preview() : undefined}>{(reviewed) => <section class="admin-panel">
@@ -223,11 +224,10 @@ export const EnvironmentAreaDetail: Component = () => {
             </Show>
           </div>
         </Show>
-        <Show when={currentRun().section !== 'aiRouting'}><ol class="admin-task-plan"><For each={currentRun().tasks}>{(task) => <li><span class={`admin-run-state is-${task.state}`}>{task.state}</span> {operatorTaskLabel(task.id)}<Show when={task.error}><small>{task.error?.message}</small></Show></li>}</For></ol></Show>
+        <ol class="admin-task-plan"><For each={currentRun().tasks}>{(task) => <li><span class={`admin-run-state is-${task.state}`}>{task.state}</span> {operatorTaskLabel(task.id)}<Show when={task.error}><small>{task.error?.message}</small></Show></li>}</For></ol>
         <Show when={currentRun().error}><div class="admin-inline-error"><strong>{currentRun().error?.message}</strong><p>{currentRun().error?.operatorAction}</p></div></Show>
         <details class="admin-technical-details">
           <summary>Technical details</summary>
-          <Show when={currentRun().section === 'aiRouting'}><ol class="admin-task-plan"><For each={currentRun().tasks}>{(task) => <li><span class={`admin-run-state is-${task.state}`}>{task.state}</span> {operatorTaskLabel(task.id)}<Show when={task.error}><small>{task.error?.message}</small></Show></li>}</For></ol></Show>
           <dl>
             <div><dt>Run ID</dt><dd class="admin-mono">{currentRun().runId}</dd></div>
             <div><dt>Task IDs</dt><dd class="admin-mono">{currentRun().tasks.map((task) => task.id).join(', ')}</dd></div>

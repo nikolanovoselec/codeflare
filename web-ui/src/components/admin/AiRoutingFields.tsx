@@ -11,7 +11,7 @@ import ReasoningProfileEditor, { DISCOVERY_COMPLETION_TOKENS, ReasoningCheckDeta
 import { profileDisplayName, profileValidationBasis } from './pi-profile-presentation';
 import '../../styles/ai-routing-workspace.css';
 
-interface Props { current: unknown; onReadyChange?: (ready: boolean) => void }
+interface Props { current: unknown; onReadyChange?: (ready: boolean) => void; onDirtyChange?: (dirty: boolean) => void }
 interface GroupDraft { accessGroup: string; routes: string[]; defaultRoute: string; reasoning: PiReasoningLevel }
 interface AssignmentDraft extends Omit<ReasoningRouteAssignment, 'activeProfile'> { activeProfile?: ProfileRevisionRef }
 interface RouteDraft {
@@ -136,6 +136,16 @@ const AiRoutingFields: Component<Props> = (props) => {
   const verificationFor = (name: string): VerificationDraft => verifications()[name] ?? {};
   const updateVerification = (name: string, update: VerificationDraft) => setVerifications((items) => ({ ...items, [name]: update }));
   const checksBusy = () => profileEditorBusy() || Object.values(verifications()).some((value) => value.busy);
+  // REQ-ENTERPRISE-044: compare editable semantics, not inventory-driven policy normalization.
+  const draftKey = () => JSON.stringify({
+    gatewayUrl: gatewayUrl().trim(), replacementToken: replacementToken().trim(),
+    routes: routes().filter((route) => storedRoutes.includes(route.name) || route.assignment.activeProfile || route.contextWindow !== DEFAULT_CONTEXT_WINDOW)
+      .map((route) => ({ name: route.name, contextWindow: route.contextWindow, assignment: route.assignment })).sort((a, b) => a.name.localeCompare(b.name)),
+    groups: groups(), fallback: fallbackEnabled() ? { enabled: true, ...fallbackPolicy() } : { enabled: false },
+    customRevisions: customRevisions(),
+  });
+  const initialDraftKey = draftKey();
+  createEffect(() => props.onDirtyChange?.(draftKey() !== initialDraftKey));
   let disposed = false;
   onCleanup(() => { disposed = true; });
 
@@ -181,7 +191,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const policyInventoryPending = () => [...groups().flatMap((group) => group.routes), ...(fallbackEnabled() ? fallbackPolicy().routes : [])]
     .some((name) => gatewayRoutes().includes(name) && Boolean(routeByName(name)?.inventoryBusy));
   const canSave = () => connectionReady() && !policyInventoryPending() && !checksBusy() && activeGroups().length > 0 && (!fallbackEnabled() || normalizedFallback().routes.length > 0);
-  const saveHelp = () => !connectionReady() ? 'Check the AI Gateway connection before saving.' : policyInventoryPending() ? 'Wait for selected route models to finish loading.' : checksBusy() ? 'Wait for the current profile check to finish.' : !eligibleRoutes().length ? 'Verify at least one route before assigning access and saving.' : !activeGroups().length ? 'Assign a checked route to at least one group before saving.' : fallbackEnabled() && !normalizedFallback().routes.length ? 'Choose a checked route for fallback access, or turn fallback off.' : 'Ready to save. Incomplete routes stay inactive and do not block these settings.';
+  const saveHelp = () => !connectionReady() ? 'Check the AI Gateway connection before saving.' : policyInventoryPending() ? 'Wait for selected route models to finish loading.' : checksBusy() ? 'Wait for the current profile check to finish.' : !eligibleRoutes().length ? 'Verify at least one route before assigning access and saving.' : !activeGroups().length ? 'Assign a checked route to at least one group before saving.' : fallbackEnabled() && !normalizedFallback().routes.length ? 'Choose a checked route for fallback access, or turn fallback off.' : '';
   createEffect(() => props.onReadyChange?.(canSave()));
 
   const clearRouteVerification = (name: string) => {
@@ -428,7 +438,7 @@ const AiRoutingFields: Component<Props> = (props) => {
       </section>
     </section>
     <Show when={pendingProfileName()}><div class="admin-unsaved-banner" role="status"><strong>{pendingProfileName()} is a draft</strong><span>Verify it, assign a group, then confirm Save to keep the profile and assignment.</span></div></Show>
-    <p class="admin-routing-save-help" role="status" data-ready={canSave()}>{saveHelp()}</p>
+    <Show when={saveHelp()}><p class="admin-routing-save-help" role="status" data-ready={canSave()}>{saveHelp()}</p></Show>
     <For each={activeNames()}>{(name) => <input type="hidden" name="dynamicRoutes" value={name} />}</For>
     <For each={routes().filter((route) => route.assignment.activeProfile && validContext(route))}>{(route) => <><input type="hidden" name="routeContextRoute" value={route.name} /><input type="hidden" name="routeContextWindow" value={route.contextWindow} /></>}</For>
     <input type="hidden" name="defaultRoute" value={compatibilityDefault()?.defaultRoute ?? ''} /><input type="hidden" name="reasoning" value={compatibilityDefault()?.reasoning ?? 'off'} />

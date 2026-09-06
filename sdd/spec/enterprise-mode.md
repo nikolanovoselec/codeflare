@@ -618,7 +618,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 4. New default reasoning prefers Medium, then Off, then the first supported level. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-044: a single eligible route defaults to a supported preference %s) -->
 5. Unmatched users receive only the enabled fallback subset, or no routes when fallback is disabled. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (disabled fallback denies unmatched users and enabled fallback exposes only its allowed verified subset) -->
 6. The first matching configured group remains authoritative even when its eligible route set is empty. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (does not fall through from the first matching policy when its routes become ineligible) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (saves and retains an explicit empty deny-only first group alongside a working group) -->
-7. The UI blocks Save and direct form submission until minimum readiness is satisfied. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-044: Save and direct submission wait for a checked route assigned to a group) -->
+7. The UI rejects review submission unless minimum readiness and a semantic change from the saved editable draft are both present. <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-044: loading and normalization stay clean; edits and reverts control review) --> <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-044: Save and direct submission wait for a checked route assigned to a group) -->
 
 **Constraints:**
 
@@ -626,7 +626,10 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 - Inactive profile assignments remain editable drafts.
 - Only explicit policy removal deletes an empty configured group.
 - Fallback uses the same available-route and supported-default controls as groups.
-- Save and Confirm Save retain warning acknowledgements and baseRevision protection.
+- The primary action is labeled Review changes, matching other Environment areas; Confirm Save retains warning acknowledgements and baseRevision protection.
+- Connection/inventory loading and policy normalization alone are not edits; reverting edits disables review again.
+- Back to edit preserves the editor draft and verification receipts without treating that draft as a new clean baseline.
+- Actionable validation, loading, and error help remains visible; no redundant ready-to-save success message is shown.
 
 **Priority:** P1
 
@@ -682,6 +685,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 - Secret values never appear in summaries; technical identifiers remain in a disclosure.
 - Confirmation preserves the reviewed values, warning codes, and baseRevision.
+- Reviewed Environment execution keeps per-task running and succeeded statuses visible outside Technical details, using the existing configuration-run stream and status styling. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentAreaDetail --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-041: streams visible task progress outside technical details) -->
 
 **Priority:** P1
 
