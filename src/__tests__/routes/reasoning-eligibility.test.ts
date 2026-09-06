@@ -383,7 +383,10 @@ describe('REQ-ENTERPRISE-044 minimum routing and optional fallback', () => {
     f.kv._set(SETUP_KEYS.REASONING_CONFIGURATION, configuration);
     const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ reasoningConfiguration: configuration, routeChecks: { other: null } }));
     expect(result.fieldErrors).toBeUndefined();
-    expect((result.values?.reasoningConfiguration as any)?.routeAssignments?.other).toEqual({ activeProfile: profileRef });
+    const inactive = (result.values?.reasoningConfiguration as any)?.routeAssignments?.other;
+    expect(inactive).toEqual({ activeProfile: profileRef, routeVersion: receipt.verification.routeVersion });
+    expect(inactive).not.toHaveProperty('verification');
+    expect(result.values?.dynamicRoutes).toEqual(['working']);
     expect((result.values?.reasoningConfiguration as any)?.routeAssignments?.working?.verification).toEqual(receipt.verification);
   });
   it('stores gateway credentials before activating routing and requires an encryption key for replacement', async () => {

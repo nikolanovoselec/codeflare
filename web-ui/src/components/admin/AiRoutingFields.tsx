@@ -44,8 +44,8 @@ function routeAssignment(value: unknown): AssignmentDraft {
     ...(profileRef(candidate.activeProfile) && { activeProfile: profileRef(candidate.activeProfile) }),
     ...(text(candidate.routeVersion) && { routeVersion: text(candidate.routeVersion) }),
     ...(Array.isArray(candidate.legs) && { legs: JSON.parse(JSON.stringify(candidate.legs)) }),
-    ...(candidate.commonMapping && { commonMapping: JSON.parse(JSON.stringify(candidate.commonMapping)) }),
-    ...(candidate.verification && { verification: JSON.parse(JSON.stringify(candidate.verification)) }),
+    ...(Boolean(candidate.commonMapping) && { commonMapping: JSON.parse(JSON.stringify(candidate.commonMapping)) }),
+    ...(Boolean(candidate.verification) && { verification: JSON.parse(JSON.stringify(candidate.verification)) }),
   };
 }
 function groupDrafts(value: unknown): GroupDraft[] {
@@ -117,7 +117,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const [section, setSection] = createSignal<'connection' | 'routes' | 'access'>('routes');
   const [expandedRoute, setExpandedRoute] = createSignal<string>();
   const [groups, setGroups] = createSignal<GroupDraft[]>(groupDrafts(current.groupRouting));
-  const [expandedGroup, setExpandedGroup] = createSignal(groups()[0]?.accessGroup);
+  const [expandedGroup, setExpandedGroup] = createSignal<string | undefined>(groups()[0]?.accessGroup);
   const availableAccessGroups = stringList(current.availableAccessGroups);
   const unconfiguredGroups = createMemo(() => availableAccessGroups.filter((name) => !groups().some((group) => group.accessGroup === name)));
   const [groupToAdd, setGroupToAdd] = createSignal(unconfiguredGroups()[0] ?? '');

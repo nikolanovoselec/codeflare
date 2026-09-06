@@ -21,9 +21,9 @@ function parsedSchema<T>(parse: (value: unknown) => T) {
     }
   });
 }
-export const routeVerificationSchema = parsedSchema(parseRouteVerification);
+const routeVerificationSchema = parsedSchema(parseRouteVerification);
 export const fallbackRoutingSchema = parsedSchema(parseFallbackRouting);
-export const ROUTE_CHECK_TTL_SECONDS = 15 * 60;
+const ROUTE_CHECK_TTL_SECONDS = 15 * 60;
 const CHECK_PREFIX = 'admin:reasoning:check:';
 const receiptSchema = z.object({ route: dynamicRouteSchema, verification: routeVerificationSchema }).strict();
 export const routeCheckIdSchema = z.string().uuid();

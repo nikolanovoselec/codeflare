@@ -737,7 +737,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. On model-routable requests, catalog handles map to dynamic/<route>; absent, unknown, or pre-prefixed handles resolve to the eligible scope default. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (assigns the eligible scope default when a JSON inference body omits model) -->
+1. On model-routable requests, catalog handles, including allowed pre-prefixed dynamic/<route> handles, map to dynamic/<route>; absent or unknown handles resolve to the eligible scope default. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (assigns the eligible scope default when a JSON inference body omits model) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (retains an allowed pre-prefixed route distinct from the default on %s) -->
 2. Model-routable requests without an eligible catalog or valid JSON body are rejected before upstream I/O. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (denies an empty catalog without forwarding an agent model) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (rejects non-JSON inference bodies that cannot be assigned an eligible route) -->
 
 **Constraints:**
@@ -942,7 +942,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-013: Per-group dynamic routing
 
-**Intent:** An enterprise admin can scope the dynamic-route catalog per Cloudflare Access group — which routes a group's members may use, and the group's default route + reasoning — so different teams get different model access from one deployment, while a deployment with no per-group config behaves exactly as the global catalog does today.
+**Intent:** An enterprise admin can scope the dynamic-route catalog per Cloudflare Access group — which routes a group's members may use, and the group's default route + reasoning — so different teams get different model access from one deployment, while sessions without a matching configured group policy receive only the explicitly enabled fallback subset, or no routes when fallback is absent or disabled.
 
 **Applies To:** Admin
 

@@ -37,7 +37,7 @@ export async function resolveGatewayConnection(env: Env, draft?: GatewayDraft): 
   const saved = await getAigConfig(env);
   return { gatewayUrl: draft?.gatewayUrl ?? saved.gatewayUrl, token: draft?.replacementToken?.trim() || saved.token };
 }
-export class GatewayManagementError extends Error {
+class GatewayManagementError extends Error {
   constructor(public readonly status: number) { super('management_request_failed'); }
 }
 export function connectionStatus(error?: unknown, missing = false): ConnectionStatus {

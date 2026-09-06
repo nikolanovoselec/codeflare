@@ -1,5 +1,6 @@
 import type { AccessTier, AccessUser, BillingStatus, Env, SubscriptionTier, UserRole } from '../types';
 import { verifyAccessJWT } from './jwt';
+import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from './constants';
 import { verifySessionJWT, SESSION_JWT_AUD } from './session-jwt';
 import { AuthError, ForbiddenError } from './error-types';
 import { createLogger } from './logger';
@@ -51,8 +52,7 @@ function normalizeEmail(email: string): string {
 // independent second factor that proves client token knowledge - the Origin
 // allowlist (checkVaultOrigin) remains the primary CSRF defense. The token
 // layers on top and leaves room for a future client-echoed double-submit.
-export const CSRF_COOKIE_NAME = 'codeflare_vault_csrf';
-export const CSRF_HEADER_NAME = 'X-Vault-Csrf';
+export { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from './constants';
 
 /** Constant-time string equality for the double-submit token compare. */
 async function timingSafeEqualStrings(a: string, b: string): Promise<boolean> {

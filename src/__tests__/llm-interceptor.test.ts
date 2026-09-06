@@ -544,11 +544,11 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
     expect(JSON.parse(lastFetch?.body as string).model).toBe('text-embedding-3-small');
   });
 
-  it('tolerates a pre-prefixed dynamic/<handle> and re-resolves through the catalog', async () => {
-    await makeInterceptor(withCatalog(['development'], 'development')).fetch(
-      new Request('https://api.openai.com/v1/responses', { method: 'POST', body: JSON.stringify({ model: 'dynamic/development', input: 'x' }) }),
+  it.each(['/v1/chat/completions', '/v1/responses'])('retains an allowed pre-prefixed route distinct from the default on %s', async (path) => {
+    await makeInterceptor(withCatalog(['development', 'production'], 'development')).fetch(
+      new Request(`https://api.openai.com${path}`, { method: 'POST', body: JSON.stringify({ model: 'dynamic/production', ...(path.endsWith('/responses') ? { input: 'x' } : { messages: [{ role: 'user', content: 'x' }] }) }) }),
     );
-    expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/development');
+    expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/production');
   });
 
   // REQ-ENTERPRISE-013: the per-request mapping resolves through the SAME shared
