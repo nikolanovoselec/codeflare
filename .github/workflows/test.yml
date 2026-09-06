@@ -197,6 +197,7 @@ jobs:
               - 'scripts/ci/smoke-openvscode-sidebar-image.mjs'
             host:
               - *shared
+              - 'scripts/patch-rclone-bisync.py'
               # host/__tests__ asserts on the STRUCTURE of workflows other than
               # test.yml: deploy-requires-tests.test.js and
               # workflow-deploy-max-instances.test.js read deploy.yml,

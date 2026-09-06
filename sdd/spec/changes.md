@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-07
 
-- **Bisync preserves fast listings and per-side timestamps** (REQ-STOR-003, REQ-STOR-017). The pinned rclone patch records completed destination metadata, rejects uncertain upload identity, and is gated by source/version compatibility plus real S3 regressions. Disk-full failures suppress automatic resync until explicit cloud Sync now recovery. Conflict copies are retained rather than blindly deleted.
+- **Bisync preserves fast listings and per-side timestamps** (REQ-STOR-003, REQ-STOR-040, REQ-STOR-041, REQ-SESSION-011). The pinned rclone patch records completed destination metadata, rejects uncertain upload identity, and is gated by source/version compatibility plus real S3 regressions. Disk-full failures suppress automatic resync until explicit cloud Sync now recovery. Conflict copies are retained rather than blindly deleted.
 
 ## 2026-09-06
 

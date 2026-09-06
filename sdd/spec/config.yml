@@ -41,6 +41,8 @@ enforce_tdd: true
 # Codeflare-specific layout: tests live in src/__tests__, host/__tests__,
 # web-ui/src/__tests__, and landing/src/__tests__.
 test_globs:
+  - "scripts/ci/rclone-bookkeeping_test.go"
+  - "scripts/ci/rclone-bisync-s3.py"
   - "src/__tests__/**/*.test.{ts,js,tsx,jsx,mjs}"
   - "src/__tests__/**/*.spec.{ts,js,tsx,jsx,mjs}"
   - "host/__tests__/**/*.test.{js,mjs}"

@@ -276,6 +276,7 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
   });
 
   it('disk-space recovery requires explicit Sync now, then resumes periodic sync', async () => {
+    // REQ-STOR-041: disk-space recovery remains explicit and observable.
     const h = spawnHarness({ daemonBody, bisyncBehavior: 'success' });
     const marker = join(h.dir, 'runtime/sync/disk-space-blocked');
     writeFileSync(marker, 'blocked');
@@ -296,6 +297,7 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
   });
 
   it('failed manual recovery blocks again until a later successful explicit retry', async () => {
+    // REQ-STOR-041: disk-space recovery remains explicit and observable.
     const releaseDir = mkdtempSync(join(tmpdir(), 'bisync-release-'));
     const release = join(releaseDir, 'freed');
     const h = spawnHarness({ daemonBody, bisyncBehavior: 'disk-full-until-released', blockReleaseFile: release });

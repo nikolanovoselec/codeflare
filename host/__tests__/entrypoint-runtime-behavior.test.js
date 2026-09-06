@@ -246,13 +246,14 @@ describe('entrypoint production helpers', () => {
   });
 
   it('starts a reachable recovery daemon when baseline fails for disk space', () => {
+    // REQ-STOR-041: disk-space recovery remains explicit and observable.
     const directory = mkdtempSync(join(tmpdir(), 'bisync-startup-disk-'));
     try {
       const source = readFileSync(ENTRYPOINT, 'utf8');
-      const start = source.indexOf('            if establish_bisync_baseline; then');
-      const end = source.indexOf('            start_sync_daemon', start);
+      const start = source.indexOf('\n            if establish_bisync_baseline; then');
+      const end = source.indexOf('\n            start_sync_daemon', start);
       assert.ok(start >= 0 && end > start);
-      const startup = source.slice(start, end) + 'start_sync_daemon';
+      const startup = source.slice(start, end) + '\nstart_sync_daemon';
       const code = `${extractFunction('update_sync_status')}\n${extractFunction('record_sync_disk_failure')}\n${extractFunction('establish_bisync_baseline')}\n` +
         'timeout() { shift; "$@"; }\nrclone() { echo "preallocate: file too big for remaining disk space"; return 7; }\n' +
         'init_user_vault() { :; }\nstart_sync_daemon() { echo recovery-daemon-reachable; }\n' + startup;
@@ -266,7 +267,24 @@ describe('entrypoint production helpers', () => {
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
+  it('blocks recovery when the disk-failure marker cannot be written', () => {
+    // REQ-STOR-041: disk-space recovery remains explicit and observable.
+    const directory = mkdtempSync(join(tmpdir(), 'bisync-marker-failure-'));
+    try {
+      const log = join(directory, 'error.log');
+      writeFileSync(log, 'No space left on device');
+      const code = `${extractFunction('record_sync_disk_failure')}\n${extractFunction('establish_bisync_baseline')}\n` +
+        `touch() { return 1; }\nupdate_sync_status() { :; }\nrclone() { echo unexpected-transfer; }\nrecord_sync_disk_failure '${log}'\nestablish_bisync_baseline`;
+      const result = spawnSync('bash', ['-c', code], { encoding: 'utf8', env: runtimeEnv({ CODEFLARE_RUNTIME_ROOT: directory }) });
+      assert.equal(result.status, 1, result.stderr);
+      assert.equal(existsSync(join(directory, 'sync/disk-space-blocked')), false);
+      assert.doesNotMatch(result.stdout, /unexpected-transfer/);
+      assert.match(result.stdout, /disk space/);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
   it('keeps disk-full sync blocked when subsequent errors report missing listings', () => {
+    // REQ-STOR-041: disk-space recovery remains explicit and observable.
     const directory = mkdtempSync(join(tmpdir(), 'bisync-disk-block-'));
     try {
       mkdirSync(join(directory, 'sync'));

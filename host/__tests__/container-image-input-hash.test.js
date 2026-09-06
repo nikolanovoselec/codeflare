@@ -96,6 +96,8 @@ describe('deployment container image input hash', () => {
       'scripts/browser-ide-ui-state.py',
       'scripts/browser-ide-extensions.py',
       'scripts/materialize-agent-seed.mjs',
+      'scripts/patch-rclone-bisync.py',
+      'scripts/ci/rclone-bookkeeping_test.go',
       'scripts/patch-context-mode-bundles.mjs',
       'scripts/patch-pi-goal-review-control.mjs',
       'scripts/patch-pi-plan-mode-tool-policy.mjs',

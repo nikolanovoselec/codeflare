@@ -890,14 +890,15 @@ relay_managed_pi_extensions() {
 # Recovery: if a vanishing file causes failure, excludes it and retries (max 3 attempts)
 record_sync_disk_failure() {
     if grep -Eiq 'no space left on device|preallocate: file too big for remaining disk space' "$1"; then
-        touch "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked"
-        update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry."
+        BISYNC_DISK_BLOCKED=1
+        touch "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" || echo "[sync] Cannot persist disk-space block; retaining in-memory block" >&2
+        update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry." || echo "[sync] Cannot publish disk-space status; sync remains blocked" >&2
     fi
     return 0
 }
 
 establish_bisync_baseline() {
-    if [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
+    if [ "${BISYNC_DISK_BLOCKED:-0}" = "1" ] || [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
         echo "[sync] Recovery blocked by disk space; free space and explicitly clear the disk-space-blocked marker before resync"
         return 1
     fi
@@ -934,7 +935,7 @@ establish_bisync_baseline() {
         cat "$BASELINE_OUTPUT" >> $CODEFLARE_RUNTIME_ROOT/sync/sync.log
         cat "$BASELINE_OUTPUT" >&2
         record_sync_disk_failure "$BASELINE_OUTPUT"
-        if [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
+        if [ "${BISYNC_DISK_BLOCKED:-0}" = "1" ] || [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
             rm -f "$BASELINE_OUTPUT"
             return 1
         fi
@@ -1005,7 +1006,7 @@ release_agent_pty_after_cleanup() {
 # Regular bisync (after baseline is established)
 # Syncs config, credentials. Workspace included when SYNC_MODE=full; caches always excluded.
 bisync_with_r2() {
-    if [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
+    if [ "${BISYNC_DISK_BLOCKED:-0}" = "1" ] || [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
         echo "[sync] Sync blocked by disk space; explicit recovery is required"
         return 1
     fi
@@ -1146,10 +1147,11 @@ start_sync_daemon() {
         if [ "$BISYNC_RECOVERY_REQUESTED" = "1" ]; then
             # Only the authenticated, user-driven Sync now endpoint requests recovery.
             rm -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked"
+            BISYNC_DISK_BLOCKED=0
             BISYNC_RECOVERY_REQUESTED=0
         fi
-        if [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
-            update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry."
+        if [ "${BISYNC_DISK_BLOCKED:-0}" = "1" ] || [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
+            update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry." || echo "[sync] Cannot publish disk-space status; sync remains blocked" >&2
             BISYNC_IN_FLIGHT=
             continue
         fi
@@ -1177,8 +1179,8 @@ start_sync_daemon() {
             echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync completed successfully" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
             update_sync_status "success" "null"
         else
-            if [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
-                update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry."
+            if [ "${BISYNC_DISK_BLOCKED:-0}" = "1" ] || [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
+                update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry." || echo "[sync] Cannot publish disk-space status; sync remains blocked" >&2
                 BISYNC_IN_FLIGHT=
                 continue
             fi

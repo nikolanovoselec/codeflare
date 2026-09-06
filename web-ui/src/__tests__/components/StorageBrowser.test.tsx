@@ -1047,6 +1047,7 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
     });
 
     it('shows a recovery notice and leaves the cloud button usable after sync failure', () => {
+    // REQ-STOR-041: disk-space recovery remains explicit and observable.
       mockSessionSyncStatus = 'failed';
       render(() => <StorageBrowser />);
       expect(screen.getByText(/If local disk is full, free local space/)).toBeInTheDocument();

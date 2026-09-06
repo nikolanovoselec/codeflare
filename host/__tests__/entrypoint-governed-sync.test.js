@@ -455,6 +455,7 @@ function runRcloneFilterWiring() {
     'recover_vanished_files() { return 1; }',
     filterSetup,
     initialSync,
+    entrypoint.match(/^record_sync_disk_failure\(\) \{[\s\S]*?^\}/m)[0],
     baseline,
     steadyState,
     'initial_sync_from_r2',

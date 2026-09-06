@@ -9,6 +9,8 @@ VERSION = "1.73.5"
 def patch(root, version):
     if version != VERSION:
         raise ValueError(f"rclone {version} is not approved for the bisync bookkeeping patch; revalidate before bumping")
+    if (root / "VERSION").read_text().strip() != f"v{VERSION}":
+        raise ValueError("Unreviewed upstream version; revalidate the bookkeeping patch before bumping")
     changes = [
         ("backend/s3/s3.go", "\to.setMetaData(head)\n\n\t// Check multipart upload ETag if required", "\to.setMetaData(head)\n\n\tif o.fs.ci.UseServerModTime && (o.fs.opt.NoHead || gotETag == \"\" || head.ETag == nil || strings.Trim(*head.ETag, \"\\\"\") != strings.Trim(gotETag, \"\\\"\")) {\n\t\treturn fmt.Errorf(\"object identity changed after upload; refusing to acknowledge destination metadata\")\n\t}\n\n\t// Check multipart upload ETag if required"),
         ("fs/operations/logger.go", "\tLoggerFn      LoggerFn      // function to use for logging", "\tCopyCompleted func(context.Context, fs.Object, fs.Object) // successful transfer metadata for bisync\n\tLoggerFn      LoggerFn      // function to use for logging"),
