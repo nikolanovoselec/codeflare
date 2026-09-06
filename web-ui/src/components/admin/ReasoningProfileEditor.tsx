@@ -111,7 +111,9 @@ export const ReasoningCheckOverview: Component<{ result: ReasoningDiscoveryResul
       : ['tool-call', 'tool-replay', 'final-response'].includes(diagnostic.stage));
     const diagnostic = diagnosticState(diagnostics);
     if (diagnostic) return stage === 'tool-replay' && diagnostics.some((item) => item.stage === 'tool-call') ? 'unclear' : diagnostic;
-    return props.result.distinctMappings?.some((mapping) => mapping.levels.includes(level) && mapping.toolLifecycle?.passed === true)
+    return props.result.distinctMappings?.some((mapping) => mapping.levels.includes(level)
+      && (mapping.toolLifecycle?.passed === true || (stage === 'tool-call'
+        && ['tool-replay', 'final-response'].includes(mapping.toolLifecycle?.stage ?? ''))))
       || props.result.piCompatibility?.verifiedLevels.includes(level) ? 'passed' : 'unclear';
   };
   return <div class="admin-check-overview">

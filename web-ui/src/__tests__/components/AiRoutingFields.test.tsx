@@ -89,6 +89,11 @@ const profileKey = (id: string, digit: string) => `${id}\u001f1\u001f${hash(digi
 async function ready(view: ReturnType<typeof render>) {
   await waitFor(() => expect(view.getByLabelText('development reasoning profile')).toBeEnabled());
 }
+async function verifyProfile(view: ReturnType<typeof render>) {
+  const button = view.getByRole('button', { name: 'Verify Profile for development' });
+  await waitFor(() => expect(button).toBeEnabled());
+  await fireEvent.click(button);
+}
 function describedText(element: HTMLElement) {
   return (element.getAttribute('aria-describedby') ?? '').split(/\s+/).map((id) => {
     const helper = document.getElementById(id);
@@ -215,7 +220,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     const draft = () => JSON.parse((container.querySelector('input[name="reasoningConfiguration"]') as HTMLInputElement).value);
     const before = draft();
     await fireEvent.click(getByRole('button', { name: /map profile for general_usage/i }));
-    const useProfile = await findByRole('button', { name: 'Assign profile', exact: true });
+    const useProfile = await findByRole('button', { name: 'Assign profile' });
     expect(draft()).toEqual(before);
     expect(queryByLabelText('Profile name')).toBeNull();
     await fireEvent.click(useProfile);
@@ -276,7 +281,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     await ready(view);
     await view.findByText('development-alias');
     const before = draftConfiguration(view.container);
-    await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
+    await verifyProfile(view);
     expect(await view.findByText('Observed path passed', { exact: true })).toBeVisible();
     expect(view.queryByText('Profile verified', { exact: true })).toBeNull();
     expect(draftConfiguration(view.container)).toEqual(before);
@@ -299,7 +304,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     await ready(view);
     await view.findByText('@cf/development-model');
     const before = draftConfiguration(view.container);
-    await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
+    await verifyProfile(view);
     await waitFor(() => expect(api.discover).toHaveBeenCalled());
     changed = true;
     complete(verifiedReport());
@@ -331,7 +336,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     await ready(view);
     await view.findByText('@cf/development-model');
     const before = draftConfiguration(view.container);
-    await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
+    await verifyProfile(view);
     await waitFor(() => expect(api.discover).toHaveBeenCalled());
     await waitFor(() => expect(view.getByRole('button', { name: 'Verify Profile for development' })).toBeEnabled());
     expect(view.queryByText('Profile verified', { exact: true })).toBeNull();
@@ -346,7 +351,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     api.discover.mockResolvedValueOnce(report);
     const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
     await ready(view);
-    await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
+    await verifyProfile(view);
     expect(await view.findByText(status, { exact: true })).toBeVisible();
     expect(view.queryByText('Profile verified', { exact: true })).toBeNull();
     expect(draftConfiguration(view.container)).toEqual(current.reasoningConfiguration);
@@ -356,7 +361,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     api.discover.mockRejectedValueOnce(new Error('PRIVATE PROVIDER BODY'));
     const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
     await ready(view);
-    await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
+    await verifyProfile(view);
     expect(await view.findByText('Verification failed', { exact: true })).toBeVisible();
     expect(view.container).not.toHaveTextContent('PRIVATE');
     expect(view.getByRole('button', { name: 'Verify Profile for development' })).toBeEnabled();
@@ -368,7 +373,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     api.discover.mockResolvedValueOnce(verifiedReport());
     const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
     await ready(view);
-    await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
+    await verifyProfile(view);
     await view.findByText('Profile verified', { exact: true });
     for (const key of [profileKey('workers-ai-glm-thinking', 'a'), profileKey('workers-ai-kimi-k-thinking', 'b')]) {
       await fireEvent.change(view.getByLabelText('development reasoning profile'), { target: { value: key } });
@@ -450,7 +455,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     const saved = { ...current, reasoningConfiguration: { ...current.reasoningConfiguration, routeAssignments: { ...current.reasoningConfiguration.routeAssignments, development: savedDevelopmentAssignment() } } };
     const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={saved} />);
     await view.findByText('Profile verified', { exact: true });
-    await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
+    await verifyProfile(view);
     await view.findByText('Verification failed', { exact: true });
     expect(draftConfiguration(view.container).routeAssignments.development.legs[0].evidence.current).toBe(false);
     expect(saved.reasoningConfiguration.routeAssignments.development.legs[0].evidence.current).toBe(true);
@@ -466,6 +471,25 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     expect(within(card).getByText('Save the backend description before verifying.')).toBeVisible();
     expect(draftConfiguration(view.container).routeAssignments.development.legs[0].customProviderBackend).toBe('New backend');
     expect(api.discover).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-033: editing two custom backends preserves both draft descriptions in Save', async () => {
+    api.inventory.mockImplementation(async (route: string) => ({ ...routeInventory(route), legs: [
+      { nodeId: 'first', provider: 'custom-enterprise', declaredModel: 'first-model', customProviderBackend: 'Old first' },
+      { nodeId: 'second', provider: 'custom-enterprise', declaredModel: 'second-model', customProviderBackend: 'Old second' },
+    ] }));
+    const view = render(() => <form><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} /></form>);
+    const card = view.getByRole('heading', { name: 'development' }).closest('article')!;
+    const first = await within(card).findByLabelText('first custom provider backend');
+    const second = within(card).getByLabelText('second custom provider backend');
+    await fireEvent.input(first, { target: { value: 'New first' } });
+    await fireEvent.input(second, { target: { value: 'New second' } });
+    expect(first).toHaveValue('New first');
+    expect(second).toHaveValue('New second');
+    expect(formValues(view.container).reasoningConfiguration.routeAssignments.development.legs).toEqual([
+      expect.objectContaining({ nodeId: 'first', customProviderBackend: 'New first', evidence: { current: false, status: 'stale' } }),
+      expect.objectContaining({ nodeId: 'second', customProviderBackend: 'New second', evidence: { current: false, status: 'stale' } }),
+    ]);
   });
 
   it('REQ-ENTERPRISE-036: an unsaved custom revision has a disabled Verify action with a save explanation', async () => {

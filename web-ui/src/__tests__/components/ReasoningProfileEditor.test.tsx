@@ -84,7 +84,7 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     const matches = ['Kimi thinking', 'Mesh binary thinking', 'Saved custom reasoning'].map((name, i) => ({ name, profileRef: { id: `profile-${i}`, revision: i + 1, hash: String(i).repeat(64) }, supportedLevels: ['off', 'medium'] }));
     discoverMock.mockResolvedValueOnce({ classification: 'Verified', assignable: true, outcome: 'existing-profile', matchedProfiles: matches });
     const view = standalone();
-    const buttons = await view.findAllByRole('button', { name: 'Assign profile', exact: true });
+    const buttons = await view.findAllByRole('button', { name: 'Assign profile' });
     expect(buttons).toHaveLength(3);
     matches.forEach((match, index) => {
       const row = buttons[index].closest('.admin-profile-match')!;
@@ -226,6 +226,20 @@ describe('REQ-ENTERPRISE-035 evidence-backed check overview', () => {
     checkCell(table, 'Medium', 'tool replay', 'Unclear');
     expect(view.queryByLabelText('Off disabled: Unclear')).toBeNull();
   });
+  it.each([
+    ['tool-replay', 'replay_rejected', 'Failed'],
+    ['final-response', 'completion_limit', 'Unclear'],
+  ] as const)('retains successful tool-call evidence when %s does not complete', (stage, code, replayState) => {
+    const result: ReasoningDiscoveryResult = { classification: 'Unsupported', diagnostics: [{ levels: ['medium'], stage: 'tool-replay', code }],
+      distinctMappings: [{ levels: ['medium'], toolLifecycle: { passed: false, stage } }],
+      piCompatibility: { status: 'partial', verifiedLevels: [], failedLevels: ['medium'] } };
+    const view = render(() => <ReasoningCheckOverview result={result} levels={['medium']} />);
+    const table = view.getByRole('table', { name: 'Selected profile checks' });
+    checkCell(table, 'Medium', 'tool call', 'Passed');
+    checkCell(table, 'Medium', 'tool replay', replayState);
+    checkCell(table, 'Medium', 'compatibility', replayState);
+  });
+
   it('does not equate a Pi tool pass with verified Off or reasoning configuration', () => {
     const view = render(() => <ReasoningCheckOverview result={{ classification: 'Verified', piCompatibility: { status: 'verified', verifiedLevels: ['off', 'medium'], failedLevels: [] } }} levels={['off', 'medium']} />);
     const table = view.getByRole('table', { name: 'Selected profile checks' });

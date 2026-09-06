@@ -88,7 +88,11 @@ describe('REQ-ENTERPRISE-031 warned activation', () => {
   it('REQ-ENTERPRISE-038: saves automatic verification with the route and restores its indicator after reload', async () => {
     const evidence = { current: true, toolReplay: true, ingress: 'ai-gateway-chat-completions', status: 'Verified' };
     api.discover.mockResolvedValueOnce({ classification: 'Verified', assignable: true, compatibleLevels: ['off', 'medium', 'high'], evidence });
-    api.preview.mockResolvedValueOnce({ section: 'aiRouting', baseRevision: 7, currentRevision: 7, changes: [], tasks: [], warnings: [], exclusions: [] });
+    api.preview.mockImplementationOnce(async (section, baseRevision, values) => ({
+      section, baseRevision, currentRevision: baseRevision,
+      changes: [{ field: 'reasoningConfiguration', after: values.reasoningConfiguration }],
+      tasks: [{ id: 'configure_model_routing', dependsOn: [] }], warnings: [], exclusions: [],
+    }));
     api.start.mockResolvedValueOnce(new Response(`${JSON.stringify({ type: 'snapshot', run: { runId: 'verified-route', section: 'aiRouting', state: 'succeeded', tasks: [], resultingRevision: 8 } })}\n`));
     render(() => <Router><Route path="/admin" component={AdministrationLayout}><Route path="/environment/:section" component={EnvironmentAreaDetail} /></Route></Router>);
     await screen.findByText('@cf/model');
@@ -260,7 +264,7 @@ describe('REQ-ENTERPRISE-031 warned activation', () => {
     await waitFor(() => expect((screen.getByLabelText('development reasoning profile') as HTMLSelectElement).options.length).toBe(3));
     const draft = () => JSON.parse((container.querySelector('input[name="reasoningConfiguration"]') as HTMLInputElement).value);
     await fireEvent.click(screen.getByRole('button', { name: /map profile for development/i }));
-    const select = await screen.findByRole('button', { name: 'Assign profile', exact: true });
+    const select = await screen.findByRole('button', { name: 'Assign profile' });
     expect(draft()).toEqual(aiRouting.reasoningConfiguration);
     expect(api.preview).not.toHaveBeenCalled();
     expect(api.start).not.toHaveBeenCalled();

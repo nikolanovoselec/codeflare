@@ -1342,7 +1342,7 @@ a.admin-primary-button {
 .admin-routes-section,
 .admin-defaults-section,
 .admin-groups-section { padding: 0; border: 0; border-radius: 0; background: transparent; }
-.admin-route-card { min-width: 0; padding: var(--space-5) 0; border-top: 1px solid var(--color-border-default); }
+.admin-route-card { min-width: 0; padding: var(--space-6) 0; border-top: 1px solid var(--color-border-default); }
 .admin-route-card:first-child { padding-top: var(--space-3); }
 .admin-route-card .admin-route-actions { justify-content: flex-start; }
 .admin-route-models { margin-top: var(--space-3); }

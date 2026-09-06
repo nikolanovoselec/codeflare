@@ -82,7 +82,7 @@ function routeAssignment(value: unknown): AssignmentDraft {
       declaredModel: text(leg.declaredModel),
       ...(text(leg.customProviderBackend) && { customProviderBackend: text(leg.customProviderBackend) }),
       ...(profileRef(leg.profileRef) && { profileRef: profileRef(leg.profileRef) }),
-      ...(leg.evidence !== undefined && { evidence: record(leg.evidence) }),
+      ...(leg.evidence !== undefined && { evidence: JSON.parse(JSON.stringify(record(leg.evidence))) }),
     } satisfies ReasoningRouteLeg;
   }) : undefined;
   return {
@@ -375,13 +375,16 @@ const AiRoutingFields: Component<Props> = (props) => {
       ...route,
       assignment: {
         ...route.assignment, commonMapping: undefined,
-        legs: (route.inventory?.legs ?? route.assignment.legs ?? []).map((leg) => ({
-          nodeId: leg.nodeId, provider: leg.provider, declaredModel: leg.declaredModel,
-          ...(leg.customProviderBackend && { customProviderBackend: leg.customProviderBackend }),
-          profileRef: route.assignment.activeProfile,
-          ...(leg.nodeId === nodeId && { customProviderBackend: backend }),
-          evidence: { current: false, status: 'stale' },
-        })),
+        legs: (route.inventory?.legs ?? route.assignment.legs ?? []).map((leg) => {
+          const description = route.assignment.legs?.find((draft) => draft.nodeId === leg.nodeId)?.customProviderBackend ?? leg.customProviderBackend;
+          return {
+            nodeId: leg.nodeId, provider: leg.provider, declaredModel: leg.declaredModel,
+            ...(description !== undefined && { customProviderBackend: description }),
+            profileRef: route.assignment.activeProfile,
+            ...(leg.nodeId === nodeId && { customProviderBackend: backend }),
+            evidence: { current: false, status: 'stale' },
+          };
+        }),
       },
     }));
   };
