@@ -1,0 +1,38 @@
+name: Generate scoped Pi artifacts
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+      - name: Refresh only Pi pins and generated artifacts
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          for (const path of ['preseed/npm-tools/package.json', 'preseed/agents/pi/package.json']) {
+            const manifest = JSON.parse(readFileSync(path, 'utf8'));
+            manifest.dependencies['@earendil-works/pi-coding-agent'] = '0.85.1';
+            if (manifest.overrides?.['@earendil-works/pi-coding-agent']) manifest.overrides['@earendil-works/pi-coding-agent'] = '0.85.1';
+            for (const name of ['pi-agent-core', 'pi-ai', 'pi-tui']) manifest.devDependencies[`@earendil-works/${name}`] = '0.85.1';
+            writeFileSync(path, JSON.stringify(manifest, null, 2) + '\n');
+          }
+          JS
+          node scripts/regenerate-npm-package-lock.mjs preseed/npm-tools
+          node scripts/regenerate-npm-package-lock.mjs preseed/agents/pi
+          node scripts/generate-agent-seed.mjs
+          git diff --binary -- preseed/npm-tools/package.json preseed/npm-tools/package-lock.json preseed/agents/pi/package.json preseed/agents/pi/package-lock.json src/lib/agent-seed.generated.ts > /tmp/pi-artifacts.patch
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pi-0851-artifacts
+          path: /tmp/pi-artifacts.patch
+          if-no-files-found: error
+          retention-days: 3
