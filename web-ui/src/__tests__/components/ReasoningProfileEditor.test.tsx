@@ -113,7 +113,7 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     expect(view.container).not.toHaveTextContent('PRIVATE');
     expect(view.container.querySelector('textarea, pre')).toBeNull();
   });
-  it('keeps technical diagnostics collapsed and prioritizes fatal gateway failure over earlier budget exhaustion', () => {
+  it('prioritizes fatal gateway failure over earlier budget exhaustion', () => {
     expect(reasoningCheckSummary({ classification: 'Inconclusive', assignable: false, diagnostics: [{ levels: ['high'], stage: 'tool-call', code: 'completion_limit' }, { levels: ['off'], stage: 'reasoning', code: 'request_rejected', status: 401 }] })).toMatch(/401/);
   });
   it('surfaces candidate-only budget exhaustion as incomplete and discloses profile names, levels, and stages', async () => {

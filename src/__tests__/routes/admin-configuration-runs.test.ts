@@ -387,13 +387,13 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     const savedToken = JSON.stringify({ encrypted: 'saved-gateway-ciphertext' });
     await kv.put(SETUP_KEYS.AIG_TOKEN, savedToken);
     const old = normalizeCustomProfile({
-      schemaVersion: 1, id: 'custom-retained', name: 'Unrelated retained profile', revision: 1,
+      schemaVersion: 1, id: 'custom-retained', name: 'Unrelated retained profile', revision: 1, enabled: true,
       supportedLevels: ['low'], removePaths: ['reasoning_effort'],
       levels: { low: [{ path: 'reasoning_effort', value: 'low' }] },
       offSemantics: { status: 'unsupported' },
     });
     const named = normalizeCustomProfile({
-      schemaVersion: 1, id: 'custom-discovered', name: 'My discovered low mode', revision: 1,
+      schemaVersion: 1, id: 'custom-discovered', name: 'My discovered low mode', revision: 1, enabled: true,
       supportedLevels: ['low'], removePaths: ['reasoning_effort'],
       levels: { low: [{ path: 'reasoning_effort', value: 'low' }] },
       offSemantics: { status: 'unsupported' },
@@ -473,7 +473,7 @@ describe('configuration runs (REQ-SETUP-018)', () => {
   it('REQ-ENTERPRISE-031: retains an already assigned exact custom revision on ID-only saves without choosing a newer revision', async () => {
     const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'deployment-secret' });
     const draft = {
-      schemaVersion: 1, id: 'custom-low', name: 'Custom low',
+      schemaVersion: 1, id: 'custom-low', name: 'Custom low', enabled: true,
       supportedLevels: ['low'], removePaths: [], levels: { low: [{ path: 'reasoning_effort', value: 'low' }] },
       offSemantics: { status: 'unsupported' },
     };
@@ -517,7 +517,7 @@ describe('configuration runs (REQ-SETUP-018)', () => {
   it.each(['remove', 'disable'])('REQ-ENTERPRISE-031: preserves explicit full-config %s of an unreferenced custom revision', async (operation) => {
     const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'deployment-secret' });
     const draft = {
-      schemaVersion: 1, id: 'custom-unused', name: 'Unused profile', revision: 1,
+      schemaVersion: 1, id: 'custom-unused', name: 'Unused profile', revision: 1, enabled: true,
       supportedLevels: ['low'], removePaths: [], levels: { low: [{ path: 'reasoning_effort', value: 'low' }] },
       offSemantics: { status: 'unsupported' },
     };

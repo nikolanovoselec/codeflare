@@ -67,6 +67,7 @@ describe('Environment report fields', () => {
     form.append(container.firstElementChild!);
     const values = environmentValues('aiRouting', 'enterprise', new FormData(form)) as Record<string, any>;
     expect(values.dynamicRoutes).toEqual(['development']);
+    expect(values.defaultRoute).toEqual(current.defaultRoute);
     expect(values.groupRouting[0]).toMatchObject({ accessGroup: 'developers', routes: ['development'], defaultRoute: 'development', reasoning: 'medium' });
     expect(values.reasoningConfiguration.routeAssignments.development.activeProfile.id).toBe('workers-ai-kimi-k-thinking');
   });

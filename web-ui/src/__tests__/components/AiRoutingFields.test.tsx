@@ -85,6 +85,44 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
     expect(() => getByLabelText('research-team allowed routes')).toThrow();
   });
 
+  it('preserves selected revisions and medium defaults when the catalog hydrates', async () => {
+    let hydrate!: (value: typeof catalog) => void;
+    api.catalog.mockReturnValueOnce(new Promise<typeof catalog>((resolve) => { hydrate = resolve; }));
+    const saved = { ...current, defaultRoute: { route: 'general_usage', reasoning: 'medium' } };
+    const view = render(() => <form><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={saved} /></form>);
+    expect(view.getByLabelText('general_usage reasoning profile')).toBeDisabled();
+    hydrate(catalog);
+    await waitFor(() => expect(view.getByLabelText('general_usage reasoning profile')).toHaveValue(`workers-ai-glm-thinking\u001f1\u001f${hash('a')}`));
+    expect(view.getByLabelText('development reasoning profile')).toHaveValue(`workers-ai-kimi-k-thinking\u001f1\u001f${hash('b')}`);
+    expect(view.getByLabelText('Global default reasoning')).toHaveValue('medium');
+    expect(view.getByLabelText('developers default reasoning')).toHaveValue('medium');
+    const values = environmentValues('aiRouting', 'enterprise', new FormData(view.container.querySelector('form')!)) as Record<string, any>;
+    expect(values.defaultRoute).toEqual(saved.defaultRoute);
+    expect(values.reasoningConfiguration).toEqual(current.reasoningConfiguration);
+    expect(values.groupRouting).toEqual(current.groupRouting);
+  });
+
+  it.each(['0', '1.5'])('does not block form Save for unconfigured context %s but rejects it after assignment', async (invalid) => {
+    const view = render(() => <form><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} /></form>);
+    await waitFor(() => expect((view.getByLabelText('research reasoning profile') as HTMLSelectElement).options.length).toBe(7));
+    const form = view.container.querySelector('form')!;
+    const context = view.getByLabelText('research context window') as HTMLInputElement;
+    expect(context).toBeEnabled();
+    await fireEvent.input(context, { target: { value: invalid } });
+    expect(context.value).toBe(invalid);
+    expect(form.checkValidity()).toBe(true);
+    expect(new FormData(form).getAll('routeContextRoute')).not.toContain('research');
+    await fireEvent.change(view.getByLabelText('research reasoning profile'), { target: { value: `workers-ai-glm-thinking\u001f1\u001f${hash('a')}` } });
+    expect(view.getByLabelText('research context window')).toBe(context);
+    expect(context.value).toBe(invalid);
+    expect(form.checkValidity()).toBe(false);
+    await fireEvent.input(context, { target: { value: '' } });
+    expect(form.checkValidity()).toBe(false);
+    await fireEvent.input(context, { target: { value: '65536' } });
+    expect(form.checkValidity()).toBe(true);
+    expect(new FormData(form).getAll('routeContextRoute')).toContain('research');
+  });
+
   it('keeps gateway inventory and compatibility records in collapsed advanced route details', async () => {
     const { getByRole, getByLabelText, findByText, queryByRole } = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
     const profile = getByLabelText('development reasoning profile') as HTMLSelectElement;
@@ -277,7 +315,7 @@ describe('REQ-ENTERPRISE-031 structured AI routing', () => {
   it('uses the first assigned route as the initial default instead of an unrelated gateway row', async () => {
     const view = render(() => <form><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={{ ...current, dynamicRoutes: [], defaultRoute: null, reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} }, groupRouting: [] }} /></form>);
     await waitFor(() => expect((view.getByLabelText('research reasoning profile') as HTMLSelectElement).options.length).toBe(7));
-    expect(view.getByLabelText('Global default route')).toHaveValue('');
+    expect((view.getByLabelText('Global default route') as HTMLSelectElement).value).toBe('');
     await fireEvent.change(view.getByLabelText('research reasoning profile'), { target: { value: `workers-ai-glm-thinking\u001f1\u001f${hash('a')}` } });
     const values = environmentValues('aiRouting', 'enterprise', new FormData(view.container.querySelector('form')!)) as Record<string, any>;
     expect(values.dynamicRoutes).toEqual(['research']);

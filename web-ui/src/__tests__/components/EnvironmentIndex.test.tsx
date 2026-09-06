@@ -101,7 +101,7 @@ describe('REQ-ENTERPRISE-031 warned activation', () => {
     await screen.findByRole('heading', { name: 'Confirm Save' });
     await fireEvent.click(screen.getByRole('button', { name: 'Confirm Save' }));
     await waitFor(() => expect(api.start).toHaveBeenCalledWith('aiRouting', 7, expect.objectContaining({
-      dynamicRoutes: ['development'], routeContextWindows: { development: 262144 },
+      dynamicRoutes: ['development'], routeContextWindows: { development: 262144 }, defaultRoute: aiRouting.defaultRoute,
       reasoningConfiguration: { ...aiRouting.reasoningConfiguration, routeAssignments: { development: { activeProfile: nextRef } } },
     }), []));
     expect(api.discover).not.toHaveBeenCalled();
@@ -127,7 +127,8 @@ describe('REQ-ENTERPRISE-031 warned activation', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Create & Assign' }));
     expect(api.preview).not.toHaveBeenCalled();
     expect(api.start).not.toHaveBeenCalled();
-    expect(screen.getByLabelText('development reasoning profile')).toHaveValue(expect.stringContaining('custom-glm-4-7-flash'));
+    expect((screen.getByLabelText('development reasoning profile') as HTMLSelectElement).value).toContain('custom-glm-4-7-flash');
+    expect(screen.getByLabelText('Global default reasoning')).toHaveValue('medium');
     await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(api.preview).toHaveBeenCalledWith(
@@ -147,7 +148,7 @@ describe('REQ-ENTERPRISE-031 warned activation', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: /back to edit/i }));
     expect(await screen.findByText(/GLM 4\.7 Flash is ready to save/i)).toBeInTheDocument();
-    expect(screen.getByLabelText('development reasoning profile')).toHaveValue(expect.stringContaining('custom-glm-4-7-flash'));
+    expect((screen.getByLabelText('development reasoning profile') as HTMLSelectElement).value).toContain('custom-glm-4-7-flash');
     await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.preview).toHaveBeenCalledTimes(2));
     await fireEvent.click(screen.getByRole('checkbox', { name: /confirm warning/i }));
