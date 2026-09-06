@@ -31,12 +31,30 @@ function standalone() {
 }
 
 describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
+  it('REQ-ENTERPRISE-045: matched predefined profiles identify their tested provider without changing the selected ref', async () => {
+    const profileRef = { id: 'codeflare-inference-mesh-binary-thinking', revision: 1, hash: 'a'.repeat(64) };
+    discoverMock.mockResolvedValueOnce({ classification: 'Verified', assignable: true, outcome: 'existing-profile', matchedProfiles: [{ name: 'Mesh binary thinking', profileRef, supportedLevels: ['off', 'medium'] }] });
+    const view = standalone();
+    const assign = await view.findByRole('button', { name: 'Assign profile' });
+    expect(assign).toHaveAccessibleDescription('Codeflare Inference Mesh · Qwen / Ornith');
+    await fireEvent.click(assign);
+    expect(view.onSelectProfile).toHaveBeenCalledExactlyOnceWith(profileRef);
+  });
+  it('REQ-ENTERPRISE-042: mapping carries the transient connection and backend context without saving', async () => {
+    const context = { gateway: { gatewayUrl: current.gatewayUrl, replacementToken: 'draft-test-token' }, backendDescriptions: { primary: 'Mesh primary' } };
+    const onSave = vi.fn();
+    const view = render(() => <ReasoningProfileEditor route="mesh" context={context} existingRevisions={[]} onSave={onSave} onSelectProfile={vi.fn()} onCancel={vi.fn()} />);
+    await view.findByRole('button', { name: 'Create & Assign' });
+    expect(discoverMock).toHaveBeenCalledExactlyOnceWith({ route: 'mesh', ...context, maxCompletionTokens: 4096 });
+    expect(onSave).not.toHaveBeenCalled();
+  });
   it('Map Profile starts exactly once and creates a canonical route draft without submitting Save', async () => {
     const submit = vi.fn((event: SubmitEvent) => event.preventDefault());
     const view = render(() => <form onSubmit={submit}><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} /></form>);
-    await waitFor(() => expect((view.getByLabelText('mesh reasoning profile') as HTMLSelectElement).options.length).toBe(2));
+    await waitFor(() => expect((view.getByLabelText('mesh Pi compatibility profile') as HTMLSelectElement).options.length).toBe(2));
+    await fireEvent.click(view.getByRole('button', { name: 'Configure mesh' }));
     await fireEvent.click(view.getByRole('button', { name: 'Map Profile for mesh' }));
-    await view.findByText('Compatible reasoning behavior found');
+    await view.findByText('Create a custom Pi profile');
     expect(discoverMock).toHaveBeenCalledExactlyOnceWith({ route: 'mesh', maxCompletionTokens: 4096 });
     await fireEvent.input(view.getByLabelText('mesh context window'), { target: { value: '131072' } });
     expect(view.getByRole('button', { name: 'Map Profile for mesh' })).toBeDisabled();
@@ -50,8 +68,19 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     expect(draft.customProfileRevisions).toEqual([expect.objectContaining({ id: 'custom-mesh', name: 'Custom mesh', revision: 1, classification: 'Compatible, unverified', toolCompatibility: { status: 'unverified', levels: [] } })]);
     expect(draft.routeAssignments).toEqual({ mesh: { activeProfile: { id: 'custom-mesh', revision: 1, hash: draft.customProfileRevisions[0].hash } } });
     expect(parseReasoningConfiguration(draft)).toEqual(draft);
-    expect(view.getByLabelText('mesh reasoning profile')).toHaveValue(`custom-mesh\u001f1\u001f${draft.customProfileRevisions[0].hash}`);
+    expect(view.getByLabelText('mesh Pi compatibility profile')).toHaveValue(`custom-mesh\u001f1\u001f${draft.customProfileRevisions[0].hash}`);
     expect(view.queryByRole('heading', { name: /discover compatibility/i })).toBeNull();
+  });
+  it('REQ-ENTERPRISE-044: finishes the busy state without requiring the result panel to close', async () => {
+    let complete!: (result: ReasoningDiscoveryResult) => void;
+    discoverMock.mockReturnValueOnce(new Promise<ReasoningDiscoveryResult>((resolve) => { complete = resolve; }));
+    const busy = vi.fn();
+    const view = render(() => <ReasoningProfileEditor route="mesh" existingRevisions={[]} onBusyChange={busy} onSave={vi.fn()} onSelectProfile={vi.fn()} onCancel={vi.fn()} />);
+    expect(busy).toHaveBeenLastCalledWith(true);
+    complete({ classification: 'Unsupported', assignable: false });
+    await view.findByRole('alert');
+    expect(busy).toHaveBeenLastCalledWith(false);
+    expect(view.getByRole('heading', { name: 'Discover compatibility for mesh' })).toBeVisible();
   });
   it('starts on mount with fixed 4096 and offers no second start or token input, including after incomplete results', async () => {
     let complete!: (result: ReasoningDiscoveryResult) => void;
@@ -145,13 +174,16 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
   });
   it('does not expose discovery for a stored route missing from the gateway', async () => {
     const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={{ ...current, dynamicRoutes: ['mesh', 'retired'] }} />);
-    await waitFor(() => expect((view.getByLabelText('mesh reasoning profile') as HTMLSelectElement).options.length).toBe(2));
+    await waitFor(() => expect((view.getByLabelText('mesh Pi compatibility profile') as HTMLSelectElement).options.length).toBe(2));
+    await fireEvent.click(view.getByRole('button', { name: 'Configure mesh' }));
     expect(view.getByRole('button', { name: 'Map Profile for mesh' })).toBeEnabled();
-    expect(view.queryByRole('button', { name: 'Map Profile for retired' })).toBeNull();
+    await fireEvent.click(view.getByRole('button', { name: 'Configure retired' }));
+    expect(view.getByRole('button', { name: 'Map Profile for retired' })).toBeDisabled();
+    expect(discoverMock).not.toHaveBeenCalled();
   });
   it('keeps failed-family notices non-assignable and outside the primary route scan path', async () => {
     const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />);
-    await waitFor(() => expect((view.getByLabelText('mesh reasoning profile') as HTMLSelectElement).options.length).toBe(2));
+    await waitFor(() => expect((view.getByLabelText('mesh Pi compatibility profile') as HTMLSelectElement).options.length).toBe(2));
     expect(view.getByText('GPT-OSS tool replay').closest('details')?.open).toBe(false);
     expect(view.queryByRole('option', { name: 'GPT-OSS tool replay' })).toBeNull();
   });
@@ -181,7 +213,7 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
   it('does not expose provider response bodies from failed requests', async () => {
     discoverMock.mockRejectedValueOnce(new Error('PRIVATE PROVIDER BODY'));
     const view = standalone();
-    expect(await view.findByRole('alert')).toHaveTextContent(/compatibility check failed.*saved AI Gateway connection/i);
+    expect(await view.findByRole('alert')).toHaveTextContent(/compatibility check failed.*AI Gateway connection/i);
     expect(view.container).not.toHaveTextContent('PRIVATE');
   });
 });

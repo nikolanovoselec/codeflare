@@ -1,11 +1,14 @@
 /* v8 ignore start -- user-validated administration UI */
-import { For, Show, createMemo, createSignal, createUniqueId, onMount, type Component } from 'solid-js';
+import { For, Show, createMemo, createSignal, createUniqueId, onCleanup, onMount, type Component } from 'solid-js';
 import { discoverReasoningCompatibility } from '../../api/client';
 import { normalizeCustomProfile } from '../../../../src/lib/reasoning-profiles';
-import type { PiReasoningLevel, ProfileRevisionRef, ReasoningDiscoveryDiagnostic, ReasoningDiscoveryResult } from '../../types';
+import type { PiReasoningLevel, ProfileRevisionRef, ReasoningDiscoveryDiagnostic, ReasoningDiscoveryResult, ReasoningManagementContext } from '../../types';
+import { profileDisplayName } from './pi-profile-presentation';
 
 interface Props {
   route: string;
+  context?: ReasoningManagementContext;
+  onBusyChange?: (busy: boolean) => void;
   existingRevisions: Array<Record<string, unknown>>;
   onSave: (revision: Record<string, unknown>) => void;
   onSelectProfile: (ref: ProfileRevisionRef) => void;
@@ -153,6 +156,8 @@ export const ReasoningCheckDetails: Component<{ result: ReasoningDiscoveryResult
 
 const ReasoningProfileEditor: Component<Props> = (props) => {
   let heading!: HTMLHeadingElement;
+  let disposed = false;
+  onCleanup(() => { disposed = true; props.onBusyChange?.(false); });
   onMount(() => { heading.focus(); void discover(); });
   const [result, setResult] = createSignal<ReasoningDiscoveryResult>();
   const [name, setName] = createSignal('');
@@ -174,14 +179,16 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
   const discover = async () => {
     if (busy()) return;
     setBusy(true);
+    props.onBusyChange?.(true);
     setError('');
     setResult(undefined);
     try {
-      setResult(await discoverReasoningCompatibility({ route: props.route, maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS }));
+      const result = await discoverReasoningCompatibility({ route: props.route, ...props.context, maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS });
+      if (!disposed) setResult(result);
     } catch {
-      setError('Compatibility check failed. Check the saved AI Gateway connection and try again.');
+      if (!disposed) setError('Compatibility check failed. Check the AI Gateway connection and try again.');
     } finally {
-      setBusy(false);
+      if (!disposed) { setBusy(false); props.onBusyChange?.(false); }
     }
   };
 
@@ -209,7 +216,7 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
       <div>
         <p class="admin-step-label">Compatibility check</p>
         <h5 id="custom-profile-heading" tabIndex={-1} ref={heading}>Discover compatibility for {props.route}</h5>
-        <p>Codeflare checks which safe reasoning behavior this route supports. It does not change the route, assign a profile, or activate anything.</p>
+        <p>Find a Pi compatibility profile for tool calling and reasoning through AI Gateway. This check does not change the route, save a profile, or activate access.</p>
       </div>
       <button type="button" class="admin-link-button" onClick={props.onCancel}>Cancel</button>
     </div>
@@ -220,27 +227,27 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
     <Show when={result()}>{(discovered) => <div aria-live="polite">
       <Show when={matchedProfiles().length > 0}>
         <div class="admin-discovery-success">
-          <strong>Compatible reasoning profiles found</strong>
-          <p>These profiles fit the observed safe reasoning behavior. This does not identify the backend model.</p>
-          <span>Assign a profile to this route draft, then Save. Nothing is saved or activated by this check.</span>
+          <strong>Compatible Pi profiles found</strong>
+          <p>These translations fit the observed behavior. Provider labels describe original testing, not the model currently behind this route.</p>
+          <span>Assign a profile to the draft, Verify it, then Save. Mapping alone does not enable access.</span>
         </div>
         <For each={matchedProfiles()}>{(profile) => {
           const nameId = createUniqueId();
           return <div class="admin-profile-match">
-            <div><strong id={nameId}>{profile.name}</strong><span>Supported levels: {profile.supportedLevels.join(', ') || 'Not reported'}</span></div>
+            <div><strong id={nameId}>{profileDisplayName({ ...profile.profileRef, name: profile.name })}</strong><span>Supported levels: {profile.supportedLevels.join(', ') || 'Not reported'}</span></div>
             <button type="button" class="admin-secondary-button" aria-describedby={nameId} onClick={() => props.onSelectProfile(profile.profileRef)}>Assign profile</button>
           </div>;
         }}</For>
       </Show>
       <Show when={customDraft()}>
         <div class="admin-discovery-success">
-          <strong>Compatible reasoning behavior found</strong>
-          <p>A profile draft is available for explicit assignment. Tool compatibility does not prove reasoning strength.</p>
+          <strong>Create a custom Pi profile</strong>
+          <p>No existing profile fits this mapping. Name the new translation below. Tool compatibility does not prove reasoning strength.</p>
           <span>Supported levels: {discoveredLevels(discovered())}</span>
         </div>
-        <label class="admin-form-field admin-profile-name"><span>Profile name</span><input aria-label="Profile name" maxlength="128" placeholder={`For example, ${props.route} reasoning`} value={name()} onInput={(event) => setName(event.currentTarget.value)} /></label>
+        <label class="admin-form-field admin-profile-name"><span>Profile name</span><input aria-label="Profile name" maxlength="128" placeholder={`For example, ${props.route} Pi compatibility`} value={name()} onInput={(event) => setName(event.currentTarget.value)} /></label>
         <div class="admin-review-action">
-          <div><strong>Assign to {props.route}</strong><span>Create this named profile and assign it to the route draft. Nothing is stored until Save is confirmed.</span></div>
+          <div><strong>Assign to {props.route}</strong><span>Create and assign the draft, then Verify Profile before granting access. Nothing is stored until Save is confirmed.</span></div>
           <button type="button" class="admin-primary-button" onClick={save}>Create &amp; Assign</button>
         </div>
       </Show>

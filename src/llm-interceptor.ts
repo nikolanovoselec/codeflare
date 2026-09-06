@@ -49,6 +49,8 @@ import { resolveRouteCatalog } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
 import { isPiReasoningLevel, translateReasoningRequest } from './lib/reasoning-profiles';
 import { getRouteReasoningProfile, parseReasoningConfigurationWithLegacyFallback } from './lib/reasoning-configuration';
+import { preferredReasoningLevel, verificationMatches } from './lib/reasoning-verification';
+import { getAigConfig } from './lib/aig-config';
 
 /**
  * Hosts the DO must intercept for enterprise LLM routing. Only the OpenAI host
@@ -298,7 +300,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
     const aigToken = props?.token ?? this.env.AIG_TOKEN;
     const gw = parseGateway(props?.gatewayUrl ?? this.env.AIG_GATEWAY_URL);
-    if (!gw) {
+    if (!gw || !aigToken || (this.env.KV && !(await getAigConfig(this.env)).token)) {
       // Enterprise deploy with interception wired but no gateway configured:
       // fail closed rather than letting the request fall through anywhere.
       return new Response(JSON.stringify({ error: 'LLM gateway not configured', code: 'GATEWAY_UNAVAILABLE' }), {
@@ -397,7 +399,13 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
     const isModelRoutable = url.pathname.endsWith('/chat/completions') || url.pathname.endsWith('/responses');
     let outboundBody: BodyInit | null | undefined = hasBody ? request.body : undefined;
-    if (hasBody && isModelRoutable) {
+    const catalog = isModelRoutable ? await this.loadRouteCatalog(groups) : null;
+    if (catalog && catalog.routes.length === 0) {
+      return new Response(JSON.stringify({ error: 'No verified routes are available for this user', code: 'ROUTE_NOT_ELIGIBLE' }), {
+        status: 403, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (hasBody && isModelRoutable && catalog) {
       // Buffer the body ONCE as text so it can be REPLAYED across both transports
       // on fallback (a stream could only be consumed once). Reading the inbound
       // stream can itself fail (a broken agent->Worker connection); surface that
@@ -414,9 +422,8 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
       outboundBody = raw;
       // Map the agent-sent slash-free handle (e.g. "development") to the gateway
       // dynamic route `dynamic/<name>`, from the Setup catalog (KV). An unknown
-      // handle FAILS SAFE to the default route. A model-less / non-JSON body is
-      // non-fatal — forward the original bytes unchanged.
-      const catalog = await this.loadRouteCatalog(groups);
+      // handle uses the eligible default route. Missing models also use that
+      // default; malformed bodies cannot bypass route assignment.
       if (catalog.routes.length > 0) {
         let payload: Record<string, unknown> | null = null;
         try {
@@ -425,14 +432,22 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         } catch {
           /* not JSON: forward the original bytes unchanged */
         }
-        if (payload && typeof payload.model === 'string') {
-          const handle = payload.model.replace(/^dynamic\//, ''); // tolerate a pre-prefixed handle
+        if (!payload || (payload.model !== undefined && typeof payload.model !== 'string')) {
+          return new Response(JSON.stringify({ error: 'Invalid model request', code: 'BAD_REQUEST_BODY' }), {
+            status: 400, headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        {
+          const handle = typeof payload.model === 'string' ? payload.model.replace(/^dynamic\//, '') : catalog.defaultRoute;
           const route = catalog.routes.includes(handle) ? handle : catalog.defaultRoute;
           if (url.pathname.endsWith('/chat/completions')) {
             let profile;
             try {
               const configuration = await this.loadReasoningConfiguration();
               profile = getRouteReasoningProfile(configuration, route);
+              if (!verificationMatches(configuration.routeAssignments[route]?.verification, profile, {
+                gatewayUrl: props?.gatewayUrl ?? this.env.AIG_GATEWAY_URL, token: aigToken,
+              })) throw new Error('Reasoning profile check is no longer current');
             } catch (error) {
               const missing = error instanceof Error && error.message.includes('required for route');
               return new Response(JSON.stringify({
@@ -440,7 +455,8 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
                 code: missing ? 'REASONING_PROFILE_REQUIRED' : 'REASONING_CONFIGURATION_UNAVAILABLE',
               }), { status: 400, headers: { 'Content-Type': 'application/json' } });
             }
-            const canonicalLevel = payload.reasoning_effort ?? catalog.defaultReasoning;
+            const canonicalLevel = payload.reasoning_effort ?? (isPiReasoningLevel(catalog.defaultReasoning) && profile.supportedLevels.includes(catalog.defaultReasoning)
+              ? catalog.defaultReasoning : preferredReasoningLevel(profile.supportedLevels));
             if (!isPiReasoningLevel(canonicalLevel) || !profile.supportedLevels.includes(canonicalLevel)) {
               return new Response(JSON.stringify({ error: 'Unsupported reasoning level', code: 'UNSUPPORTED_REASONING_LEVEL' }), {
                 status: 400,
@@ -527,13 +543,16 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
    * session's user, honouring per-group routing (REQ-ENTERPRISE-013) via the shared
    * {@link resolveRouteCatalog} — the single source of truth also used by the
    * container env fan ({@link loadEnterpriseRouteConfig}), so the per-request mapping
-   * here can never drift from it. `groups` are the session's matched Access groups
-   * (interceptor prop); the first matched group with its own routes wins, else the
-   * global catalog. No KV ⇒ no catalog ⇒ no rewrite (agent handle forwarded verbatim).
+   * here can never drift from it. The first matched policy wins before filtering;
+   * unmatched users need explicit fallback. No eligible catalog denies inference.
    */
   private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string; defaultReasoning: string }> {
     if (!this.env.KV) return { routes: [], defaultRoute: '', defaultReasoning: 'off' };
-    const { routeCatalog, defaultRoute, defaultReasoning } = await resolveRouteCatalog(this.env.KV, groups);
+    const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
+    const { routeCatalog, defaultRoute, defaultReasoning } = await resolveRouteCatalog(this.env.KV, groups, {
+      gatewayUrl: props?.gatewayUrl ?? this.env.AIG_GATEWAY_URL,
+      token: props?.token ?? this.env.AIG_TOKEN,
+    });
     return { routes: routeCatalog, defaultRoute, defaultReasoning: defaultReasoning || 'off' };
   }
 

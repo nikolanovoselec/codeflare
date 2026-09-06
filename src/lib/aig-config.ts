@@ -31,23 +31,23 @@ interface AigConfig {
 }
 
 /**
- * Resolve the AI Gateway URL + token, KV-first with env fallback. A KV/crypto error at
- * the container-start seam must never fault wiring — it degrades to the env fallback. An
- * empty/absent value resolves to `undefined` so the caller can skip wiring or warn.
+ * Resolve the AI Gateway URL + token, KV-first with env fallback only when no
+ * saved credential exists. Unreadable saved credentials fail closed; substituting
+ * another token would change the connection identity that routing verified.
  */
 export async function getAigConfig(env: Env): Promise<AigConfig> {
-  let kvUrl: string | undefined;
-  let kvToken: string | undefined;
+  if (!env.KV) return { gatewayUrl: env.AIG_GATEWAY_URL || undefined, token: env.AIG_TOKEN || undefined };
+  let gatewayUrl: string | undefined;
   try {
-    kvUrl = (await env.KV?.get(SETUP_KEYS.AIG_GATEWAY_URL)) ?? undefined;
+    gatewayUrl = (await env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL)) || env.AIG_GATEWAY_URL || undefined;
+    const raw = await env.KV.get(SETUP_KEYS.AIG_TOKEN);
+    if (!raw) return { gatewayUrl, token: env.AIG_TOKEN || undefined };
     const cryptoKey = await getOrImportKey(env);
+    if (raw.startsWith('v1:') && !cryptoKey) return { gatewayUrl, token: undefined };
     const stored = await getAndDecrypt<StoredAigToken>(env.KV, SETUP_KEYS.AIG_TOKEN, cryptoKey);
-    kvToken = stored?.token ?? undefined;
+    const token = typeof stored?.token === 'string' && stored.token.length > 0 && !/[\u0000-\u001f\u007f]/.test(stored.token) ? stored.token : undefined;
+    return { gatewayUrl, token };
   } catch {
-    // Transient KV / crypto failure: fall back to the deploy-secret env values below.
+    return { gatewayUrl, token: undefined };
   }
-  return {
-    gatewayUrl: kvUrl || env.AIG_GATEWAY_URL || undefined,
-    token: kvToken || env.AIG_TOKEN || undefined,
-  };
 }

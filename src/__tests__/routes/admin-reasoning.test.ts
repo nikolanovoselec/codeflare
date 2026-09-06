@@ -201,7 +201,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     expect(response.status).toBe(200);
     const text = await response.text();
     const body = JSON.parse(text);
-    expect(Object.keys(body).sort()).toEqual(['notices', 'profiles', 'routeCatalogStatus', 'routes', 'schemaVersion', 'usage']);
+    expect(Object.keys(body).sort()).toEqual(['connection', 'notices', 'profiles', 'routeCatalogStatus', 'routes', 'schemaVersion', 'usage']);
     expect(body.schemaVersion).toBe(1);
     expect(body.profiles.map((profile: any) => profile.id)).toEqual(BUILTIN_IDS);
     expect(body.profiles).toHaveLength(6);
@@ -350,6 +350,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
       schemaVersion: 1,
       route: 'codeflare-mesh',
       routeVersion: 'route-v1',
+      inventoryDigest: PROFILE_HASH,
       legs: [
         {
           nodeId: 'mesh',
@@ -448,9 +449,11 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
 
   it('REQ-ENTERPRISE-033: returns sanitized discovery evidence for an upstream provider failure', async () => {
     const { app } = await createApp();
-    vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(Response.json({ data: { routes: [{ id: 'route-id', name: 'codeflare-mesh' }] } }))
-      .mockResolvedValueOnce(Response.json({ errors: [{ code: 'provider_unavailable', message: 'private-provider-detail' }] }, { status: 503 }));
+    const fetcher = mockSuccessfulProvider();
+    const management = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation((input, init) => init?.method === 'POST'
+      ? Promise.resolve(Response.json({ errors: [{ code: 'provider_unavailable', message: 'private-provider-detail' }] }, { status: 503 }))
+      : management(input, init));
 
     const result = await app.request('/admin/reasoning/discover', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(discoveryBody()),

@@ -1,7 +1,7 @@
 import type {
   Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences,
   AuthStatus, AuthProvider, AdminConfigurationResponse, ConfigurationSection, ReasoningCatalog,
-  ReasoningDiscoveryRequest, ReasoningDiscoveryResult, ReasoningRouteInventory,
+  ReasoningDiscoveryRequest, ReasoningDiscoveryResult, ReasoningRouteInventory, ReasoningGatewayDraft, ReasoningManagementContext,
 } from '../types';
 import { logger } from '../lib/logger';
 import { STARTUP_POLL_INTERVAL_MS, SESSION_ID_DISPLAY_LENGTH, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, SESSION_ID_RE } from '../lib/constants';
@@ -70,12 +70,12 @@ export async function getAdminConfiguration(): Promise<AdminConfigurationRespons
   return fetchApi('/admin/configuration', {}, AdminConfigurationResponseSchema);
 }
 
-export async function getReasoningCatalog(): Promise<ReasoningCatalog> {
-  return fetchApi('/admin/reasoning/catalog', {}, ReasoningCatalogSchema) as Promise<ReasoningCatalog>;
+export async function getReasoningCatalog(gateway?: ReasoningGatewayDraft): Promise<ReasoningCatalog> {
+  return fetchApi('/admin/reasoning/catalog', gateway ? { method: 'POST', body: JSON.stringify({ gateway }) } : {}, ReasoningCatalogSchema) as Promise<ReasoningCatalog>;
 }
 
-export async function getReasoningRouteInventory(route: string): Promise<ReasoningRouteInventory> {
-  return fetchApi(`/admin/reasoning/routes/${encodeURIComponent(route)}/inventory`, {}, ReasoningRouteInventorySchema) as Promise<ReasoningRouteInventory>;
+export async function getReasoningRouteInventory(route: string, context?: ReasoningManagementContext): Promise<ReasoningRouteInventory> {
+  return fetchApi(`/admin/reasoning/routes/${encodeURIComponent(route)}/inventory`, context ? { method: 'POST', body: JSON.stringify(context) } : {}, ReasoningRouteInventorySchema) as Promise<ReasoningRouteInventory>;
 }
 
 export async function discoverReasoningCompatibility(request: ReasoningDiscoveryRequest): Promise<ReasoningDiscoveryResult> {

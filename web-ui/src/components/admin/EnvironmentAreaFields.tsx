@@ -8,6 +8,7 @@ interface Props {
   section: ConfigurationSection;
   mode: AdministrationMode;
   current: unknown;
+  onReadyChange?: (ready: boolean) => void;
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -37,7 +38,7 @@ const EnvironmentAreaFields: Component<Props> = (props) => {
         : textarea('allowedUsers', 'Allowed user emails, one per line', lines(current().allowedUsers))}
     </Match>
     <Match when={props.section === 'domain'}>{field('customDomain', 'Custom domain')}</Match>
-    <Match when={props.section === 'aiRouting'}><AiRoutingFields current={props.current} /></Match>
+    <Match when={props.section === 'aiRouting'}><AiRoutingFields current={props.current} onReadyChange={props.onReadyChange} /></Match>
     <Match when={props.section === 'codingAgents'}>
       <div class="admin-form-wide"><span class="admin-field-label">Active agents</span><div class="admin-checkbox-list"><For each={list(current().configurableAgents)}>{(agent) => <label class="admin-toggle-field"><input type="checkbox" name="activeAgents" value={agent} checked={list(current().activeAgents).includes(agent)} /><span>{agent}</span></label>}</For></div></div>
     </Match>
@@ -88,6 +89,8 @@ export function environmentValues(section: ConfigurationSection, mode: Administr
       routeContextWindows: routeContextWindows(data),
       reasoningConfiguration: parsed(data, 'reasoningConfiguration', { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} }),
       groupRouting: parsed(data, 'groupRouting', []),
+      ...(data.has('fallbackRouting') && { fallbackRouting: parsed(data, 'fallbackRouting', { enabled: false }) }),
+      ...(data.has('routeChecks') && { routeChecks: parsed(data, 'routeChecks', {}) }),
     };
     case 'codingAgents': return { activeAgents: data.getAll('activeAgents').map(String) };
     case 'browserRendering': return { accountId: value(data, 'accountId'), replacementToken: value(data, 'replacementToken') };

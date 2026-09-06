@@ -68,6 +68,7 @@ export const ReasoningCatalogSchema = z.object({
   usage: z.array(z.object({ profileRef: ProfileRevisionRefSchema, routes: z.array(z.string()) })),
   routes: z.array(z.string()),
   routeCatalogStatus: z.enum(['ready', 'unavailable']),
+  connection: z.object({ status: z.enum(['ready', 'missing', 'permission-denied', 'unavailable']), message: z.string() }).optional(),
 });
 
 const ReasoningRouteLegSchema = z.object({
@@ -80,7 +81,21 @@ const ReasoningRouteLegSchema = z.object({
   paths: z.array(z.string()).optional(),
 }).passthrough();
 
+const ReasoningRouteVerificationSchema = z.object({
+  schemaVersion: z.literal(1),
+  profileRef: ProfileRevisionRefSchema,
+  routeVersion: z.string(),
+  inventoryDigest: z.string(),
+  connectionFingerprint: z.string(),
+  canaryVersion: z.string(),
+  supportedLevels: z.array(PiReasoningLevelSchema),
+  scope: z.enum(['single-model', 'observed-path']),
+  checkedAt: z.string(),
+});
+
 export const ReasoningRouteInventorySchema = z.object({
+  inventoryDigest: z.string().optional(),
+  verification: ReasoningRouteVerificationSchema.optional(),
   route: z.string().optional(),
   routeVersion: z.string().optional(),
   versionId: z.string().optional(),
@@ -95,6 +110,8 @@ export const ReasoningRouteInventorySchema = z.object({
 }).passthrough();
 
 export const ReasoningDiscoveryResultSchema = z.object({
+  checkId: z.string().optional(),
+  verification: ReasoningRouteVerificationSchema.optional(),
   classification: z.string(),
   warnings: z.array(z.string()).optional(),
   accounting: z.object({

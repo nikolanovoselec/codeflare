@@ -14,6 +14,7 @@ import {
   type ConfigurationRun,
 } from '../../api/client';
 import EnvironmentAreaFields, { environmentValues } from './EnvironmentAreaFields';
+import AiRoutingReview, { AiRoutingSummary } from './AiRoutingReview';
 import { environmentContext, executionOutcome, operatorTaskLabel } from './administration-presentation';
 
 function changeValue(field: string, value: unknown): string {
@@ -101,6 +102,7 @@ export const EnvironmentAreaDetail: Component = () => {
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string>();
   const [confirmedWarnings, setConfirmedWarnings] = createSignal<string[]>([]);
+  const [aiRoutingReady, setAiRoutingReady] = createSignal(false);
 
   const editedCurrent = () => {
     const section = area()?.section;
@@ -109,31 +111,10 @@ export const EnvironmentAreaDetail: Component = () => {
     return { ...(configuration.sections[section] as Record<string, unknown>), ...(submitted as Record<string, unknown>) };
   };
 
-  const pendingCustomProfiles = () => {
-    if (area()?.section !== 'aiRouting') return [];
-    const submitted = submittedValues();
-    if (!submitted || typeof submitted !== 'object') return [];
-    const reasoning = (submitted as Record<string, unknown>).reasoningConfiguration;
-    const revisions = reasoning && typeof reasoning === 'object' ? (reasoning as Record<string, unknown>).customProfileRevisions : undefined;
-    const currentSection = configuration.sections.aiRouting;
-    const currentReasoning = currentSection && typeof currentSection === 'object' ? (currentSection as Record<string, unknown>).reasoningConfiguration : undefined;
-    const configuredRevisions = currentReasoning && typeof currentReasoning === 'object' ? (currentReasoning as Record<string, unknown>).customProfileRevisions : undefined;
-    const currentRevisions = Array.isArray(configuredRevisions) ? configuredRevisions : [];
-    if (!Array.isArray(revisions)) return [];
-    return revisions.filter((revision): revision is Record<string, unknown> => Boolean(revision && typeof revision === 'object') && !currentRevisions.some((current) => current && typeof current === 'object' && (current as Record<string, unknown>).id === (revision as Record<string, unknown>).id && (current as Record<string, unknown>).revision === (revision as Record<string, unknown>).revision));
-  };
-
-  const pendingProfileRoutes = (profile: Record<string, unknown>): string[] => {
-    const submitted = submittedValues() as { reasoningConfiguration?: { routeAssignments?: Record<string, { activeProfile?: { id: string; revision: number } }> } } | undefined;
-    return Object.entries(submitted?.reasoningConfiguration?.routeAssignments ?? {})
-      .filter(([, assignment]) => assignment.activeProfile?.id === profile.id && assignment.activeProfile?.revision === profile.revision)
-      .map(([route]) => route);
-  };
-
   const review = async (event: SubmitEvent) => {
     event.preventDefault();
     const section = area()?.section;
-    if (!section || busy() || configuration.activeRunId) return;
+    if (!section || busy() || configuration.activeRunId || (section === 'aiRouting' && !aiRoutingReady())) return;
     setBusy(true); setError(undefined);
     try {
       const values = environmentValues(section, configuration.mode, new FormData(event.currentTarget as HTMLFormElement));
@@ -192,7 +173,7 @@ export const EnvironmentAreaDetail: Component = () => {
         <form class="admin-panel admin-environment-form" onSubmit={(event) => void review(event)}>
           <div class="admin-panel-heading"><div><h2>Edit current settings</h2><p>Blank secret fields preserve their stored value.</p></div><span class="admin-revision">Revision <strong class="admin-mono">{configuration.revision}</strong></span></div>
           <div class="admin-editor-layout">
-            <EnvironmentAreaFields section={resolved().section} mode={configuration.mode} current={editedCurrent()} />
+            <EnvironmentAreaFields section={resolved().section} mode={configuration.mode} current={editedCurrent()} onReadyChange={setAiRoutingReady} />
             <aside class="admin-editor-context">
               <h3>Before you apply</h3>
               <dl>
@@ -202,13 +183,18 @@ export const EnvironmentAreaDetail: Component = () => {
               </dl>
             </aside>
           </div>
-          <div class="admin-form-actions"><button type="submit" class="admin-primary-button" disabled={busy() || Boolean(configuration.activeRunId)}>{busy() ? 'Reviewing…' : resolved().section === 'aiRouting' ? 'Save' : 'Review changes'}</button></div>
+          <div class="admin-form-actions"><button type="submit" class="admin-primary-button" disabled={busy() || Boolean(configuration.activeRunId) || (resolved().section === 'aiRouting' && !aiRoutingReady())}>{busy() ? 'Reviewing…' : resolved().section === 'aiRouting' ? 'Save' : 'Review changes'}</button></div>
         </form>
       </Show>
       <Show when={!run() ? preview() : undefined}>{(reviewed) => <section class="admin-panel">
         <div class="admin-panel-heading"><div><h2>{resolved().section === 'aiRouting' ? 'Confirm Save' : 'Review changes'}</h2><p>{resolved().section === 'aiRouting' ? 'Save the route assignments and any new profiles together. Nothing is saved until you confirm below.' : 'Nothing is saved until Apply change. Only the tasks listed below will run.'}</p></div></div>
-        <Show when={pendingCustomProfiles().length > 0}><div class="admin-pending-profiles" aria-label="Profiles pending save"><For each={pendingCustomProfiles()}>{(profile) => <div><strong>{String(profile.name ?? profile.id ?? 'New profile')}</strong><span>Pending save · {pendingProfileRoutes(profile).length ? `Assigned to ${pendingProfileRoutes(profile).join(', ')}` : 'Unassigned'} · Inactive</span></div>}</For></div></Show>
-        <Show when={reviewed().changes.length > 0} fallback={<div class="admin-state-panel"><h3>No changes detected</h3><p>Return to edit before applying.</p></div>}>
+        <Show when={resolved().section === 'aiRouting'}>
+          <AiRoutingReview values={submittedValues()} current={configuration.sections.aiRouting} preview={reviewed()}
+            busy={busy()} confirmedWarnings={confirmedWarnings()}
+            onWarningChange={(code, checked) => setConfirmedWarnings((codes) => checked ? [...codes, code] : codes.filter((item) => item !== code))}
+            onBack={() => { setPreview(undefined); setConfirmedWarnings([]); }} onConfirm={() => void apply()} />
+        </Show>
+        <Show when={resolved().section !== 'aiRouting'}><Show when={reviewed().changes.length > 0} fallback={<div class="admin-state-panel"><h3>No changes detected</h3><p>Return to edit before applying.</p></div>}>
           <dl class="admin-change-list"><For each={reviewed().changes}>{(change) => <div><dt>{change.field}</dt><dd>{change.secret ? (change.secret.willReplace ? 'Replace saved secret' : 'Preserve saved secret') : changeValue(change.field, change.after)}</dd></div>}</For></dl>
           <h3>Execution plan</h3><ol class="admin-task-plan"><For each={reviewed().tasks}>{(task) => <li>{operatorTaskLabel(task.id)}</li>}</For></ol>
           <For each={reviewed().warnings}>{(warning) => <label class="admin-warning-confirmation"><input type="checkbox" checked={confirmedWarnings().includes(warning.code)} onChange={(event) => setConfirmedWarnings((codes) => event.currentTarget.checked ? [...codes, warning.code] : codes.filter((code) => code !== warning.code))} /><span><strong>Confirm warning</strong>{warning.message}</span></label>}</For>
@@ -220,20 +206,25 @@ export const EnvironmentAreaDetail: Component = () => {
             </dl>
           </details>
           <div class="admin-form-actions"><button type="button" class="admin-secondary-button" onClick={() => { setPreview(undefined); setConfirmedWarnings([]); }}>Back to edit</button><button type="button" class="admin-primary-button" disabled={busy() || reviewed().warnings.some((warning) => !confirmedWarnings().includes(warning.code))} onClick={() => void apply()}>{busy() ? 'Applying…' : resolved().section === 'aiRouting' ? 'Confirm Save' : 'Apply change'}</button></div>
-        </Show>
+        </Show></Show>
       </section>}</Show>
       <Show when={run()}>{(currentRun) => <section class="admin-panel">
         <div class="admin-panel-heading"><div><h2>Execution {currentRun().state}</h2><p>Only the reviewed Environment area was changed.</p></div><span class={`admin-run-state is-${currentRun().state}`}>{currentRun().state}</span></div>
         <Show when={currentRun().state === 'succeeded' && currentRun().resultingRevision !== undefined}>
           <div class="admin-execution-outcome">
             <strong>{executionOutcome(currentRun().section, currentRun().resultingRevision!)}</strong>
-            <Show when={preview()?.changes.length}><dl class="admin-change-list"><For each={preview()?.changes}>{(change) => <div><dt>{change.field}</dt><dd>{change.secret ? (change.secret.willReplace ? 'Saved secret replaced' : 'Saved secret preserved') : changeValue(change.field, change.after)}</dd></div>}</For></dl></Show>
+            <Show when={preview()?.changes.length}>
+              <Show when={currentRun().section === 'aiRouting'} fallback={<dl class="admin-change-list"><For each={preview()?.changes}>{(change) => <div><dt>{change.field}</dt><dd>{change.secret ? (change.secret.willReplace ? 'Saved secret replaced' : 'Saved secret preserved') : changeValue(change.field, change.after)}</dd></div>}</For></dl>}>
+                <AiRoutingSummary values={submittedValues()} current={configuration.sections.aiRouting} changes={preview()?.changes ?? []} saved />
+              </Show>
+            </Show>
           </div>
         </Show>
-        <ol class="admin-task-plan"><For each={currentRun().tasks}>{(task) => <li><span class={`admin-run-state is-${task.state}`}>{task.state}</span> {operatorTaskLabel(task.id)}<Show when={task.error}><small>{task.error?.message}</small></Show></li>}</For></ol>
+        <Show when={currentRun().section !== 'aiRouting'}><ol class="admin-task-plan"><For each={currentRun().tasks}>{(task) => <li><span class={`admin-run-state is-${task.state}`}>{task.state}</span> {operatorTaskLabel(task.id)}<Show when={task.error}><small>{task.error?.message}</small></Show></li>}</For></ol></Show>
         <Show when={currentRun().error}><div class="admin-inline-error"><strong>{currentRun().error?.message}</strong><p>{currentRun().error?.operatorAction}</p></div></Show>
         <details class="admin-technical-details">
           <summary>Technical details</summary>
+          <Show when={currentRun().section === 'aiRouting'}><ol class="admin-task-plan"><For each={currentRun().tasks}>{(task) => <li><span class={`admin-run-state is-${task.state}`}>{task.state}</span> {operatorTaskLabel(task.id)}<Show when={task.error}><small>{task.error?.message}</small></Show></li>}</For></ol></Show>
           <dl>
             <div><dt>Run ID</dt><dd class="admin-mono">{currentRun().runId}</dd></div>
             <div><dt>Task IDs</dt><dd class="admin-mono">{currentRun().tasks.map((task) => task.id).join(', ')}</dd></div>

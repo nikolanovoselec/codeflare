@@ -2,14 +2,18 @@ import { cleanup, render, waitFor } from '@solidjs/testing-library';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import EnvironmentAreaFields, { environmentValues } from '../../components/admin/EnvironmentAreaFields';
 
-const catalogMock = vi.hoisted(() => vi.fn());
+const { catalogMock, inventoryMock } = vi.hoisted(() => ({ catalogMock: vi.fn(), inventoryMock: vi.fn() }));
 vi.mock('../../api/client', () => ({
   getReasoningCatalog: (...args: unknown[]) => catalogMock(...args),
-  getReasoningRouteInventory: vi.fn(),
+  getReasoningRouteInventory: (...args: unknown[]) => inventoryMock(...args),
   discoverReasoningCompatibility: vi.fn(),
 }));
 
+const profileRef = { id: 'workers-ai-kimi-k-thinking', revision: 1, hash: 'a'.repeat(64) };
+const verification = { schemaVersion: 1, profileRef, routeVersion: 'v1', inventoryDigest: 'digest', connectionFingerprint: 'gateway', canaryVersion: 'canary', supportedLevels: ['medium', 'high'], scope: 'single-model', checkedAt: '2026-09-06T12:00:00Z' };
+
 beforeEach(() => {
+  inventoryMock.mockResolvedValue({ routeVersion: 'v1', inventoryDigest: 'digest', verification, legs: [{ nodeId: 'primary', provider: 'workers-ai', declaredModel: 'Kimi' }] });
   catalogMock.mockResolvedValue({
     schemaVersion: 1,
     profiles: [{ id: 'workers-ai-kimi-k-thinking', revision: 1, hash: 'a'.repeat(64), name: 'Kimi thinking', supportedLevels: ['medium', 'high'] }],
@@ -47,17 +51,18 @@ describe('Environment report fields', () => {
       dynamicRoutes: ['development'],
       defaultRoute: { route: 'development', reasoning: 'high' },
       routeContextWindows: { development: 262144 },
-      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: { development: { activeProfile: { id: 'workers-ai-kimi-k-thinking', revision: 1, hash: 'a'.repeat(64) } } } },
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: { development: { activeProfile: profileRef, verification } } },
       groupRouting: [{ accessGroup: 'developers', routes: ['development'], defaultRoute: 'development', reasoning: 'medium' }],
     };
     const { getByLabelText, queryByLabelText, queryByRole, container } = render(() => (
       <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />
     ));
-    await waitFor(() => expect((getByLabelText('development reasoning profile') as HTMLSelectElement).selectedOptions[0]?.textContent).toContain('Kimi thinking'));
+    await waitFor(() => expect((getByLabelText('development Pi compatibility profile') as HTMLSelectElement).selectedOptions[0]?.textContent).toContain('Workers AI · Kimi'));
 
+    await waitFor(() => expect(container.querySelectorAll('input[name=dynamicRoutes]')).toHaveLength(1));
     expect(queryByRole('button', { name: /add route/i })).toBeNull();
     expect((getByLabelText('development context window') as HTMLInputElement).value).toBe('262144');
-    expect((getByLabelText('development reasoning profile') as HTMLSelectElement).selectedOptions[0]?.textContent).toContain('Kimi thinking');
+    expect((getByLabelText('development Pi compatibility profile') as HTMLSelectElement).selectedOptions[0]?.textContent).toContain('Workers AI · Kimi');
     expect(getByLabelText('developers allowed routes')).toBeTruthy();
     expect(queryByLabelText(/route context windows.*json/i)).toBeNull();
     expect(queryByLabelText(/per-group routing.*json/i)).toBeNull();
@@ -67,7 +72,7 @@ describe('Environment report fields', () => {
     form.append(container.firstElementChild!);
     const values = environmentValues('aiRouting', 'enterprise', new FormData(form)) as Record<string, any>;
     expect(values.dynamicRoutes).toEqual(['development']);
-    expect(values.defaultRoute).toEqual(current.defaultRoute);
+    expect(values.defaultRoute).toEqual({ route: 'development', reasoning: 'medium' });
     expect(values.groupRouting[0]).toMatchObject({ accessGroup: 'developers', routes: ['development'], defaultRoute: 'development', reasoning: 'medium' });
     expect(values.reasoningConfiguration.routeAssignments.development.activeProfile.id).toBe('workers-ai-kimi-k-thinking');
   });

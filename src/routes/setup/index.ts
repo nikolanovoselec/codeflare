@@ -27,7 +27,7 @@ import {
 } from '../../lib/remote-curation';
 import { executeConfigurationTask, resolveAdministrationMode } from '../../lib/admin-configuration';
 import { reactivateUsageUser } from '../../lib/admin-usage';
-import { parseRouteSettings } from '../../lib/reasoning-profiles';
+import { canonicalJson, parseRouteSettings } from '../../lib/reasoning-profiles';
 import {
   createReasoningConfigurationFromProfileIds,
   getRouteReasoningProfile,
@@ -311,6 +311,21 @@ app.post('/configure', async (c) => {
             groups: groupRouting,
           });
       const currentReasoningConfiguration = await c.env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION);
+      const savedConfiguration = currentReasoningConfiguration ? parseReasoningConfiguration(currentReasoningConfiguration) : null;
+      submittedReasoningConfiguration = { ...submittedReasoningConfiguration, routeAssignments: Object.fromEntries(
+        Object.entries(submittedReasoningConfiguration.routeAssignments).map(([route, assignment]) => {
+          const { verification: submittedVerification, ...draft } = assignment;
+          const saved = savedConfiguration?.routeAssignments[route];
+          const { verification: savedVerification, ...savedDraft } = saved ?? {};
+          const unchanged = saved && canonicalJson(draft) === canonicalJson(savedDraft);
+          // Setup cannot mint eligibility by echoing a public discovery report.
+          // Only Administration's receipt-backed Save can activate a new check.
+          if (submittedVerification && (!unchanged || canonicalJson(submittedVerification) !== canonicalJson(savedVerification))) {
+            throw new Error('New route verification requires receipt-backed Administration Save');
+          }
+          return [route, { ...draft, ...(unchanged && savedVerification && { verification: savedVerification }) }];
+        }),
+      ) };
       if (currentReasoningConfiguration) {
         submittedReasoningConfiguration = validateReasoningConfigurationUpdate(
           currentReasoningConfiguration,

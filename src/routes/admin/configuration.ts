@@ -188,6 +188,7 @@ app.get('/', requireAdmin, async (c) => {
       routeContextWindows: routeSettings.contextWindows,
       routeReasoningProfiles: Object.fromEntries(Object.entries(reasoningConfiguration.routeAssignments).map(([route, assignment]) => [route, assignment.activeProfile.id])),
       reasoningConfiguration,
+      fallbackRouting: reasoningConfiguration.fallbackRouting ?? { enabled: false },
       ...(migration && { reasoningMigration: { persisted: false, errors: migration.errors } }),
       availableAccessGroups: parseAccessGroups(enterpriseAccessGroup),
       groupRouting: parsedGroupRouting,

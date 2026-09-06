@@ -13,7 +13,12 @@ import { handleCreateAccessApp } from '../routes/setup/access';
 import { handleConfigureCustomDomain } from '../routes/setup/custom-domain';
 import { getWorkerNameFromHostname } from '../routes/setup/shared';
 import { reactivateUsageUser } from './admin-usage';
-import { REASONING_PROFILE_IDS, getBuiltInProfile, getBuiltInProfileRef, parseRouteSettings, serializeRouteSettings } from './reasoning-profiles';
+import { REASONING_PROFILE_IDS, canonicalJson, getBuiltInProfile, getBuiltInProfileRef, parseRouteSettings, serializeRouteSettings } from './reasoning-profiles';
+import { dynamicRouteSchema, gatewayDraftSchema, resolveGatewayConnection } from './ai-gateway-management';
+import {
+  assignmentBackendDescriptions, fallbackRoutingSchema, loadCheckedRouteInventory, readRouteCheck,
+  routeCheckIdSchema, verificationMatches, type FallbackRouting,
+} from './reasoning-verification';
 import {
   getRouteReasoningProfile,
   migrateLegacyReasoningAssignments,
@@ -92,33 +97,40 @@ const accessSchema = z.object({
 }).strict();
 
 const aiRoutingSchema = z.object({
-  gatewayUrl: z.string().trim().url().max(512),
-  replacementToken: replacementSecret,
-  dynamicRoutes: z.array(name).min(1),
+  gatewayUrl: gatewayDraftSchema.shape.gatewayUrl,
+  replacementToken: gatewayDraftSchema.shape.replacementToken.default(''),
+  dynamicRoutes: z.array(dynamicRouteSchema).min(1),
   defaultRoute: z.object({ route: name, reasoning }).strict(),
-  routeContextWindows: z.record(name, z.number().int().positive()),
+  routeContextWindows: z.record(z.string(), z.unknown()),
   routeReasoningProfiles: z.record(name, z.string().max(64)).optional(),
   reasoningConfiguration: z.unknown().optional(),
+  routeChecks: z.record(dynamicRouteSchema, routeCheckIdSchema.nullable()).optional(),
+  fallbackRouting: fallbackRoutingSchema.optional().default({ enabled: false }),
   groupRouting: z.array(z.object({
     accessGroup: name,
-    routes: z.array(name).min(1),
-    defaultRoute: name,
+    routes: z.array(name),
+    defaultRoute: z.union([name, z.literal('')]),
     reasoning,
-  }).strict()),
+  }).strict()).min(1),
 }).strict().superRefine((value, context) => {
-  if (!value.dynamicRoutes.includes(value.defaultRoute.route)) {
+  const activeRoutes = [...new Set([...value.groupRouting.flatMap((group) => group.routes), ...(value.fallbackRouting.enabled ? value.fallbackRouting.routes : [])])];
+  if (!activeRoutes.includes(value.defaultRoute.route)) {
     context.addIssue({ code: 'custom', message: 'Default route must be in dynamicRoutes', path: ['defaultRoute', 'route'] });
   }
-  if (value.reasoningConfiguration === undefined && value.dynamicRoutes.some((route) => !value.routeReasoningProfiles?.[route])) {
+  if (value.reasoningConfiguration === undefined && activeRoutes.some((route) => !value.routeReasoningProfiles?.[route])) {
     context.addIssue({ code: 'custom', message: 'Every dynamic route requires a reasoning profile', path: ['routeReasoningProfiles'] });
   }
-  if (value.dynamicRoutes.some((route) => !value.routeContextWindows[route])) {
-    context.addIssue({ code: 'custom', message: 'Every dynamic route requires a context window', path: ['routeContextWindows'] });
+  if (activeRoutes.some((route) => !dynamicRouteSchema.safeParse(route).success || !z.number().int().positive().safeParse(value.routeContextWindows[route]).success)) {
+    context.addIssue({ code: 'custom', message: 'Every active dynamic route requires a valid handle and positive context window', path: ['routeContextWindows'] });
   }
-  if (value.routeReasoningProfiles && Object.keys(value.routeReasoningProfiles).some((route) => !value.dynamicRoutes.includes(route))) {
-    context.addIssue({ code: 'custom', message: 'Reasoning profiles must use the route catalog', path: ['routeReasoningProfiles'] });
+  if (!value.groupRouting.some((group) => group.routes.length > 0)) {
+    context.addIssue({ code: 'custom', message: 'At least one group requires a working route', path: ['groupRouting'] });
   }
   for (const [index, group] of value.groupRouting.entries()) {
+    if (group.routes.length === 0) {
+      if (group.defaultRoute !== '' || group.reasoning !== 'off') context.addIssue({ code: 'custom', message: 'Empty group policies must use an empty default and Off', path: ['groupRouting', index] });
+      continue;
+    }
     if (!group.routes.includes(group.defaultRoute) || group.routes.some((route) => !value.dynamicRoutes.includes(route))) {
       context.addIssue({ code: 'custom', message: 'Group routes must use the route catalog', path: ['groupRouting', index] });
     }
@@ -180,8 +192,8 @@ const TASKS: Record<ConfigurationSection, ConfigurationTask[]> = {
     { id: 'create_access_app', dependsOn: ['configure_custom_domain'] },
   ],
   aiRouting: [
-    { id: 'configure_model_routing', dependsOn: [] },
-    { id: 'configure_ai_gateway', dependsOn: ['configure_model_routing'] },
+    { id: 'configure_ai_gateway', dependsOn: [] },
+    { id: 'configure_model_routing', dependsOn: ['configure_ai_gateway'] },
   ],
   codingAgents: [{ id: 'configure_active_agents', dependsOn: [] }],
   browserRendering: [{ id: 'configure_browser_rendering', dependsOn: [] }],
@@ -240,10 +252,14 @@ function normalizeValues(section: ConfigurationSection, mode: AdministrationMode
     return { adminUsers: admins, allowedUsers: allowed };
   }
   if (section === 'aiRouting') {
+    const fallback = values.fallbackRouting as FallbackRouting;
+    const groups = values.groupRouting as Array<{ routes: string[] }>;
+    const activeRoutes = [...new Set([...groups.flatMap((group) => group.routes), ...(fallback.enabled ? fallback.routes : [])])];
     return {
       ...values,
-      dynamicRoutes: [...new Set(values.dynamicRoutes as string[])],
-      groupRouting: [...(values.groupRouting as unknown[])],
+      dynamicRoutes: activeRoutes,
+      routeContextWindows: parseRouteSettings(values.routeContextWindows).contextWindows,
+      groupRouting: [...groups],
     };
   }
   if (section === 'usageReports') {
@@ -295,34 +311,80 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
   const current = currentRaw ? parseReasoningConfiguration(currentRaw) : null;
   let configuration: ReasoningConfiguration;
   if (values.reasoningConfiguration !== undefined) {
-    configuration = parseReasoningConfiguration(values.reasoningConfiguration);
+    const input = values.reasoningConfiguration as Record<string, unknown>;
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid reasoning configuration');
+    const proposedProfiles = input.customProfileRevisions;
+    if (!Array.isArray(proposedProfiles)) throw new Error('Invalid custom profile revisions');
+    const preservedProfiles = (current?.customProfileRevisions ?? []).filter((prior) => !proposedProfiles.some((candidate) => candidate?.id === prior.id && candidate?.revision === prior.revision));
+    const submittedAssignments = input.routeAssignments;
+    if (!submittedAssignments || typeof submittedAssignments !== 'object' || Array.isArray(submittedAssignments)) throw new Error('Invalid route assignments');
+    const routeAssignments = Object.fromEntries(Object.entries(submittedAssignments).map(([route, value]) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid route assignment');
+      const { verification: _untrusted, ...assignment } = value as Record<string, unknown>;
+      return [route, assignment];
+    }));
+    configuration = parseReasoningConfiguration({ ...input, customProfileRevisions: [...proposedProfiles, ...preservedProfiles], routeAssignments });
   } else if (current) {
     // Legacy ID-only forms can change built-in assignments, but omission of the
     // atomic document must not collect saved revisions or discard unchanged evidence.
-    const routeAssignments = Object.fromEntries(Object.entries(values.routeReasoningProfiles as Record<string, string>).map(([route, id]) => {
+    const routeAssignments = { ...current.routeAssignments, ...Object.fromEntries(Object.entries(values.routeReasoningProfiles as Record<string, string>).map(([route, id]) => {
       const saved = current.routeAssignments[route];
       if (saved?.activeProfile.id === id) return [route, saved];
       const builtIn = getBuiltInProfile(id);
       if (!builtIn) throw new Error('Custom profile assignment requires an exact revision in reasoningConfiguration');
       return [route, { activeProfile: getBuiltInProfileRef(id as (typeof REASONING_PROFILE_IDS)[number]) }];
-    }));
+    })) };
     configuration = parseReasoningConfiguration({ ...current, routeAssignments });
   } else {
     configuration = configurationFromProfileIds(values.routeReasoningProfiles as Record<string, string>, defaultRoute, groupRouting);
   }
-  const assignmentRoutes = Object.keys(configuration.routeAssignments);
-  if (dynamicRoutes.some((route) => !configuration.routeAssignments[route]) || assignmentRoutes.some((route) => !dynamicRoutes.includes(route))) {
-    throw new Error('Reasoning assignments must match the dynamic route catalog');
-  }
+  if (dynamicRoutes.some((route) => !configuration.routeAssignments[route])) throw new Error('Every active route requires an exact profile assignment');
+  configuration = { ...configuration, fallbackRouting: values.fallbackRouting as FallbackRouting };
   const validateDefault = (scope: string, route: string, level: string): void => {
     const profile = getRouteReasoningProfile(configuration, route);
     if (!profile.supportedLevels.includes(level as never)) throw new Error(`${scope} default reasoning level is not mapped by its default route profile`);
   };
   validateDefault('Global', defaultRoute.route, defaultRoute.reasoning);
-  for (const group of groupRouting) validateDefault(`Group ${group.accessGroup}`, group.defaultRoute, group.reasoning);
+  for (const group of groupRouting) if (group.routes.length > 0) validateDefault(`Group ${group.accessGroup}`, group.defaultRoute, group.reasoning);
+  if (configuration.fallbackRouting?.enabled) validateDefault('Fallback', configuration.fallbackRouting.defaultRoute, configuration.fallbackRouting.reasoning);
 
   if (current) configuration = validateReasoningConfigurationUpdate(current, configuration);
-  return configuration;
+  const routeChecks = (values.routeChecks ?? {}) as Record<string, string | null>;
+  const identity = (assignment: ReasoningConfiguration['routeAssignments'][string]) => ({
+    activeProfile: assignment.activeProfile, routeVersion: assignment.routeVersion,
+    legs: assignment.legs?.map(({ evidence: _advisory, ...leg }) => leg),
+  });
+  const routeAssignments = Object.fromEntries(Object.entries(configuration.routeAssignments).map(([route, assignment]) => {
+    const { verification: _untrusted, ...draft } = assignment;
+    const saved = current?.routeAssignments[route];
+    const verification = routeChecks[route] !== null && saved && canonicalJson(identity(saved)) === canonicalJson(identity(draft)) ? saved.verification : undefined;
+    return [route, { ...draft, ...(verification && { verification }) }];
+  }));
+  const connection = await resolveGatewayConnection(env, { gatewayUrl: values.gatewayUrl as string, replacementToken: values.replacementToken as string });
+  if ((values.replacementToken as string).trim() && !(await getOrImportKey(env))) throw new Error('Encryption key unavailable; cannot safely replace AI Gateway credentials');
+  const checkedRoutes = [...new Set([...dynamicRoutes, ...Object.keys(routeChecks).filter((route) => typeof routeChecks[route] === 'string')])];
+  for (const route of checkedRoutes) {
+    const assignment = routeAssignments[route];
+    if (!assignment) throw new Error(`Route ${route} check requires an exact profile assignment`);
+    const profile = getRouteReasoningProfile(configuration, route);
+    let verification = assignment.verification;
+    const checkId = routeChecks[route];
+    if (typeof checkId === 'string') {
+      const receipt = await readRouteCheck(env.KV, checkId);
+      if (receipt.route !== route) throw new Error(`Route ${route} check receipt does not match its route`);
+      verification = receipt.verification;
+    }
+    if (!verificationMatches(verification, profile, connection)) throw new Error(`Route ${route} requires a successful check for its exact profile and gateway`);
+    const inventory = await loadCheckedRouteInventory(connection, route, assignmentBackendDescriptions(assignment));
+    if (!verificationMatches(verification, profile, connection, inventory)) throw new Error(`Route ${route} check is stale or does not match its inventory and provenance`);
+    if (assignment.routeVersion && assignment.routeVersion !== inventory.inventory.versionId) throw new Error(`Route ${route} inventory is stale`);
+    for (const leg of assignment.legs ?? []) {
+      const model = inventory.inventory.models.find((model) => model.nodeId === leg.nodeId);
+      if (!model || model.provider !== leg.provider || model.model !== leg.declaredModel) throw new Error(`Route ${route} backend identity is stale`);
+    }
+    routeAssignments[route] = { ...assignment, routeVersion: inventory.inventory.versionId, verification };
+  }
+  return parseReasoningConfiguration({ ...configuration, routeAssignments });
 }
 
 async function readCurrentConfigurationValues(
@@ -374,6 +436,7 @@ async function readCurrentConfigurationValues(
         routeContextWindows: routeSettings.contextWindows,
         routeReasoningProfiles: Object.fromEntries(Object.entries(reasoningConfiguration.routeAssignments).map(([route, assignment]) => [route, assignment.activeProfile.id])),
         reasoningConfiguration,
+        fallbackRouting: reasoningConfiguration.fallbackRouting ?? { enabled: false },
         ...(reasoningMigration !== undefined && { reasoningMigration }),
         groupRouting,
       };
@@ -447,7 +510,10 @@ export async function validateConfigurationValues(
   if (section === 'aiRouting') {
     try {
       const reasoningConfiguration = await normalizeAiReasoningConfiguration(env, values);
-      values = { ...values, reasoningConfiguration };
+      const storedWindows = parseRouteSettings(parseJson(await env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS), {})).contextWindows;
+      const windows = { ...storedWindows, ...(values.routeContextWindows as Record<string, number>) };
+      const routeContextWindows = Object.fromEntries(Object.keys(reasoningConfiguration.routeAssignments).flatMap((route) => windows[route] ? [[route, windows[route]]] : []));
+      values = { ...values, reasoningConfiguration, routeContextWindows };
       delete values.routeReasoningProfiles;
     } catch (error) {
       return { fieldErrors: { reasoningConfiguration: [error instanceof Error ? error.message : 'Invalid reasoning configuration'] } };
@@ -543,7 +609,7 @@ export async function buildConfigurationPreview(
         : TASKS.access
     : TASKS[section];
   const warnings = section === 'aiRouting'
-    ? reasoningConfigurationWarnings(values.reasoningConfiguration as ReasoningConfiguration)
+    ? reasoningConfigurationWarnings(values.reasoningConfiguration as ReasoningConfiguration, values.dynamicRoutes as string[])
     : [];
   return {
     section,
@@ -681,13 +747,13 @@ export async function executeConfigurationTask(
       return;
     }
     case 'configure_ai_gateway': {
-      await env.KV.put(SETUP_KEYS.AIG_GATEWAY_URL, values.gatewayUrl as string);
       const token = (values.replacementToken as string).trim();
       if (token) {
         const key = await getOrImportKey(env);
         if (!key) throw new Error('Encryption key unavailable');
         await encryptAndStore(env.KV, SETUP_KEYS.AIG_TOKEN, { token }, key);
       }
+      await env.KV.put(SETUP_KEYS.AIG_GATEWAY_URL, values.gatewayUrl as string);
       return;
     }
     case 'configure_active_agents': {

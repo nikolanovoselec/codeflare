@@ -14,6 +14,8 @@ import {
   type ScalarWrite,
 } from './reasoning-profiles';
 
+import { fallbackRoutingSchema, routeVerificationSchema, type FallbackRouting, type RouteVerification } from './reasoning-verification';
+
 const MAX_REASONING_CONFIGURATION_BYTES = 256 * 1024;
 const MAX_CUSTOM_PROFILE_IDS = 32;
 const MAX_CUSTOM_PROFILE_REVISIONS = 64;
@@ -33,8 +35,9 @@ interface RouteLegAssignment {
   evidence?: EvidenceRef;
 }
 
-interface RouteReasoningAssignment {
+export interface RouteReasoningAssignment {
   activeProfile: ProfileRevisionRef;
+  verification?: RouteVerification;
   routeVersion?: string;
   legs?: RouteLegAssignment[];
   commonMapping?: {
@@ -48,6 +51,7 @@ export interface ReasoningConfiguration {
   schemaVersion: 1;
   customProfileRevisions: NormalizedReasoningProfile[];
   routeAssignments: Record<string, RouteReasoningAssignment>;
+  fallbackRouting?: FallbackRouting;
 }
 
 function asRecord(value: unknown, label: string): Record<string, unknown> {
@@ -133,10 +137,11 @@ function resolveRef(ref: ProfileRevisionRef, customs: Map<string, NormalizedReas
 
 function parseAssignment(value: unknown, customs: Map<string, NormalizedReasoningProfile>, label: string): RouteReasoningAssignment {
   const record = asRecord(value, label);
-  assertOnly(record, ['activeProfile', 'routeVersion', 'legs', 'commonMapping', 'migration'], label);
+  assertOnly(record, ['activeProfile', 'routeVersion', 'legs', 'commonMapping', 'migration', 'verification'], label);
   const activeProfile = parseRef(record.activeProfile, `${label}.activeProfile`);
   resolveRef(activeProfile, customs, `${label}.activeProfile`);
   const result: RouteReasoningAssignment = { activeProfile };
+  if (record.verification !== undefined) result.verification = routeVerificationSchema.parse(record.verification);
   if (record.routeVersion !== undefined) result.routeVersion = bounded(record.routeVersion, `${label}.routeVersion`);
   if (record.legs !== undefined) {
     if (!Array.isArray(record.legs)) throw new Error(`${label}.legs must be an array`);
@@ -196,7 +201,7 @@ export function parseReasoningConfiguration(input: unknown): ReasoningConfigurat
   })() : input;
   if (byteLength(parsedInput) > MAX_REASONING_CONFIGURATION_BYTES) throw new Error('reasoning configuration exceeds the 256 KiB size limit');
   const record = asRecord(parsedInput, 'reasoning configuration');
-  assertOnly(record, ['schemaVersion', 'customProfileRevisions', 'routeAssignments'], 'reasoning configuration');
+  assertOnly(record, ['schemaVersion', 'customProfileRevisions', 'routeAssignments', 'fallbackRouting'], 'reasoning configuration');
   if (record.schemaVersion !== 1) throw new Error('reasoning configuration schemaVersion must be 1');
   if (!Array.isArray(record.customProfileRevisions) || record.customProfileRevisions.length > MAX_CUSTOM_PROFILE_REVISIONS) {
     throw new Error(`reasoning configuration supports at most ${MAX_CUSTOM_PROFILE_REVISIONS} custom revisions`);
@@ -218,7 +223,9 @@ export function parseReasoningConfiguration(input: unknown): ReasoningConfigurat
   for (const [route, assignment] of Object.entries(rawAssignments)) {
     routeAssignments[routeName(route)] = parseAssignment(assignment, customMap, `routeAssignments.${route}`);
   }
-  const result: ReasoningConfiguration = { schemaVersion: 1, customProfileRevisions, routeAssignments };
+  const result: ReasoningConfiguration = { schemaVersion: 1, customProfileRevisions, routeAssignments,
+    ...(record.fallbackRouting !== undefined && { fallbackRouting: fallbackRoutingSchema.parse(record.fallbackRouting) }),
+  };
   if (byteLength(result) > MAX_REASONING_CONFIGURATION_BYTES) throw new Error('reasoning configuration exceeds the 256 KiB size limit');
   return result;
 }
@@ -462,9 +469,14 @@ export function createReasoningConfigurationFromProfileIds(
   return parseReasoningConfiguration({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: assignments });
 }
 
-export function reasoningConfigurationWarnings(configuration: ReasoningConfiguration): Array<{ code: string; message: string }> {
+export function reasoningConfigurationWarnings(configuration: ReasoningConfiguration, activeRoutes = Object.keys(configuration.routeAssignments)): Array<{ code: string; message: string }> {
   const warnings: Array<{ code: string; message: string }> = [];
   for (const [route, assignment] of Object.entries(configuration.routeAssignments)) {
+    if (!activeRoutes.includes(route)) continue;
+    if (assignment.verification) {
+      if (assignment.verification.scope === 'observed-path') warnings.push({ code: 'observed_path_only', message: `Route ${route} passed its observed path check; not all conditional or fallback legs were verified.` });
+      continue;
+    }
     const profile = getProfileForRef(configuration, assignment.activeProfile);
     const legs = assignment.legs ?? [];
     const evidenceIncomplete = !assignment.routeVersion || legs.length === 0 || legs.some((leg) => (

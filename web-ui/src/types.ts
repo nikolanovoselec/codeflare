@@ -92,6 +92,7 @@ export interface ReasoningCatalog {
   usage: Array<{ profileRef: ProfileRevisionRef; routes: string[] }>;
   routes: string[];
   routeCatalogStatus: 'ready' | 'unavailable';
+  connection?: { status: 'ready' | 'missing' | 'permission-denied' | 'unavailable'; message: string };
 }
 
 export interface ReasoningEvidenceRef {
@@ -113,8 +114,34 @@ export interface ReasoningRouteLeg {
   paths?: string[];
 }
 
+export interface ReasoningRouteVerification {
+  schemaVersion: 1;
+  profileRef: ProfileRevisionRef;
+  routeVersion: string;
+  inventoryDigest: string;
+  connectionFingerprint: string;
+  canaryVersion: string;
+  supportedLevels: PiReasoningLevel[];
+  scope: 'single-model' | 'observed-path';
+  checkedAt: string;
+}
+
+export type FallbackRouting = { enabled: false } | {
+  enabled: true;
+  routes: string[];
+  defaultRoute: string;
+  reasoning: PiReasoningLevel;
+};
+
+export interface ReasoningGatewayDraft { gatewayUrl: string; replacementToken?: string }
+export interface ReasoningManagementContext {
+  gateway?: ReasoningGatewayDraft;
+  backendDescriptions?: Record<string, string>;
+}
+
 export interface ReasoningRouteAssignment {
   activeProfile: ProfileRevisionRef;
+  verification?: ReasoningRouteVerification;
   routeVersion?: string;
   legs?: ReasoningRouteLeg[];
   commonMapping?: {
@@ -127,9 +154,12 @@ export interface ReasoningConfiguration {
   schemaVersion: 1;
   customProfileRevisions: Array<Record<string, unknown>>;
   routeAssignments: Record<string, ReasoningRouteAssignment>;
+  fallbackRouting?: FallbackRouting;
 }
 
 export interface ReasoningRouteInventory {
+  inventoryDigest?: string;
+  verification?: ReasoningRouteVerification;
   route?: string;
   routeVersion?: string;
   versionId?: string;
@@ -140,9 +170,10 @@ export interface ReasoningRouteInventory {
   warnings?: string[];
 }
 
-export interface ReasoningDiscoveryRequest {
+export interface ReasoningDiscoveryRequest extends ReasoningManagementContext {
   route: string;
   profileRef?: ProfileRevisionRef;
+  profileDraft?: Record<string, unknown>;
   maxCompletionTokens: number;
 }
 
@@ -155,6 +186,8 @@ export interface ReasoningDiscoveryDiagnostic {
 }
 
 export interface ReasoningDiscoveryResult {
+  checkId?: string;
+  verification?: ReasoningRouteVerification;
   route?: string;
   classification: string;
   assignable?: boolean;

@@ -1,9 +1,8 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
 import { createRateLimiter } from '../../middleware/rate-limit';
-import { getAigConfig } from '../../lib/aig-config';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { createLogger } from '../../lib/logger';
 import { parseReasoningConfiguration } from '../../lib/reasoning-configuration';
@@ -13,29 +12,38 @@ import {
   canonicalHash,
   canonicalJson,
   isPiReasoningLevel,
+  normalizeCustomProfile,
+  type NormalizedReasoningProfile,
 } from '../../lib/reasoning-profiles';
-import { discoverPiCompatibility } from '../../lib/reasoning-discovery';
+import { discoverPiCompatibility, PI_WIRE_CANARY_VERSION } from '../../lib/reasoning-discovery';
+import {
+  backendDescriptionsSchema, connectionStatus, dynamicRouteSchema, gatewayDraftSchema,
+  listDynamicRoutes, parseGatewayUrl, resolveGatewayConnection, type GatewayDraft,
+} from '../../lib/ai-gateway-management';
+import {
+  assignmentBackendDescriptions, completedProfileCheck, connectionFingerprint, issueRouteCheck,
+  loadCheckedRouteInventory, profileRevisionRefSchema, verificationMatches,
+  type RouteVerification,
+} from '../../lib/reasoning-verification';
+import type { RouteReasoningAssignment } from '../../lib/reasoning-configuration';
 import {
   DynamicRouteInventoryError,
   deriveCommonMapping,
-  inventoryDynamicRoute,
   type DynamicRouteInventory,
   type LegMappingEvidence,
 } from '../../lib/dynamic-route-inventory';
 
-const MAX_MANAGEMENT_RESPONSE_BYTES = 1024 * 1024;
-const MANAGEMENT_REQUEST_TIMEOUT_MS = 10_000;
 const logger = createLogger('admin-reasoning');
-
-const routeSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/);
-const profileRefSchema = z.object({
-  id: z.string().min(1).max(64).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
-  revision: z.number().int().positive(),
-  hash: z.string().regex(/^[a-f0-9]{64}$/),
-}).strict();
+const routeSchema = dynamicRouteSchema;
+const profileRefSchema = profileRevisionRefSchema;
+const catalogSchema = z.object({ gateway: gatewayDraftSchema.optional() }).strict();
+const inventorySchema = catalogSchema.extend({ backendDescriptions: backendDescriptionsSchema.optional() }).strict();
 const discoverySchema = z.object({
   route: routeSchema,
   profileRef: profileRefSchema.optional(),
+  profileDraft: z.unknown().optional(),
+  backendDescriptions: backendDescriptionsSchema.optional(),
+  gateway: gatewayDraftSchema.optional(),
   maxCompletionTokens: z.number().int().min(32).max(16_384).default(4096),
 }).strict();
 
@@ -278,123 +286,6 @@ function assignmentUsage(configuration: ReasoningConfigurationView): Array<{ pro
   return [...grouped.values()].map((item) => ({ ...item, routes: item.routes.sort() }));
 }
 
-function parseGatewayUrl(raw: string | undefined): { accountId: string; gatewayId: string } | null {
-  if (!raw) return null;
-  let url: URL;
-  try { url = new URL(raw); } catch { return null; }
-  if (url.protocol !== 'https:' || url.hostname !== 'gateway.ai.cloudflare.com') return null;
-  const match = /^\/v1\/([a-f0-9]{32})\/([A-Za-z0-9][A-Za-z0-9_-]{0,63})(?:\/|$)/i.exec(url.pathname);
-  return match ? { accountId: match[1], gatewayId: match[2] } : null;
-}
-
-async function readBoundedJson(response: Response): Promise<unknown> {
-  if (!response.body) return null;
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let text = '';
-  let bytes = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    bytes += value.byteLength;
-    if (bytes > MAX_MANAGEMENT_RESPONSE_BYTES) {
-      await reader.cancel('management response too large');
-      throw new Error('management_response_too_large');
-    }
-    text += decoder.decode(value, { stream: true });
-  }
-  text += decoder.decode();
-  try { return JSON.parse(text); } catch { throw new Error('management_response_malformed'); }
-}
-
-function extractElements(value: Record<string, unknown>): unknown {
-  if (Array.isArray(value.data)) return value.data;
-  if (typeof value.data === 'string') {
-    try {
-      const parsed: unknown = JSON.parse(value.data);
-      if (Array.isArray(parsed)) return parsed;
-      if (isPlainObject(parsed) && Array.isArray(parsed.elements)) return parsed.elements;
-    } catch {
-      return undefined;
-    }
-  }
-  if (Array.isArray(value.elements)) return value.elements;
-  if (isPlainObject(value.configuration) && Array.isArray(value.configuration.elements)) return value.configuration.elements;
-  if (isPlainObject(value.config) && Array.isArray(value.config.elements)) return value.config.elements;
-  return undefined;
-}
-
-function extractVersion(value: unknown): { versionId: string; elements: unknown } | { versionId: string } | null {
-  if (!isPlainObject(value)) return null;
-  const result = isPlainObject(value.result) ? value.result : value;
-  const active = isPlainObject(result.version)
-    ? result.version
-    : isPlainObject(result.active_version)
-      ? result.active_version
-      : isPlainObject(result.activeVersion)
-        ? result.activeVersion
-        : result;
-  const versionId = [active.id, active.version_id, active.versionId, result.active_version_id, result.activeVersionId]
-    .find((candidate): candidate is string => safeString(candidate, 128));
-  if (!versionId) return null;
-  if (isPlainObject(result.version)) {
-    if (active.active !== true && active.active !== 'true') return null;
-    const deployedVersion = isPlainObject(result.deployment)
-      ? [result.deployment.version_id, result.deployment.versionId].find((candidate): candidate is string => safeString(candidate, 128))
-      : undefined;
-    if (deployedVersion && deployedVersion !== versionId) return null;
-  }
-  const elements = extractElements(active) ?? extractElements(result);
-  return elements === undefined ? { versionId } : { versionId, elements };
-}
-
-async function managementRequest(url: string, token: string): Promise<unknown> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort('management request timeout'), MANAGEMENT_REQUEST_TIMEOUT_MS);
-  try {
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: 'GET',
-        headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
-        redirect: 'manual',
-        signal: controller.signal,
-      });
-    } catch {
-      throw new Error('management_transport_failure');
-    }
-    const payload = await readBoundedJson(response);
-    if (!response.ok || (isPlainObject(payload) && payload.success === false)) throw new Error('management_request_failed');
-    return payload;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function listDynamicRoutes(accountId: string, gatewayId: string, token: string): Promise<Array<{ id: string; name: string }>> {
-  const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/routes`;
-  const payload = await managementRequest(base, token);
-  if (!isPlainObject(payload)) throw new Error('route_list_malformed');
-  const envelope = isPlainObject(payload.data) ? payload.data : isPlainObject(payload.result) ? payload.result : null;
-  if (!envelope || !Array.isArray(envelope.routes)) throw new Error('route_list_malformed');
-  return envelope.routes.map((candidate) => {
-    if (!isPlainObject(candidate) || !safeString(candidate.id, 128) || !routeSchema.safeParse(candidate.name).success) {
-      throw new Error('route_list_malformed');
-    }
-    return { id: candidate.id, name: candidate.name as string };
-  });
-}
-
-async function loadActiveRouteVersion(accountId: string, gatewayId: string, route: string, token: string): Promise<{ versionId: string; elements: unknown }> {
-  const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/routes`;
-  const listed = (await listDynamicRoutes(accountId, gatewayId, token)).find((candidate) => candidate.name === route);
-  if (!listed) throw new Error('route_not_found');
-  const routePayload = await managementRequest(`${base}/${encodeURIComponent(listed.id)}`, token);
-  const active = extractVersion(routePayload);
-  if (!active || !('elements' in active)) throw new Error('active_version_malformed');
-  return active;
-}
-
 function assignmentLegs(assignment: Record<string, unknown> | undefined): Record<string, unknown>[] {
   return assignment && Array.isArray(assignment.legs) ? assignment.legs.filter(isPlainObject) : [];
 }
@@ -471,20 +362,25 @@ function buildInventoryResponse(
 const reasoningRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 reasoningRoutes.use('*', authMiddleware);
 
-reasoningRoutes.get('/catalog', requireAdmin, async (c) => {
+type ReasoningContext = Context<{ Bindings: Env; Variables: AuthVariables }>;
+
+async function catalog(c: ReasoningContext, draft?: GatewayDraft) {
   let configuration: ReasoningConfigurationView;
   try { configuration = await readReasoningConfiguration(c.env.KV); } catch {
     return c.json({ error: 'Reasoning configuration unavailable', code: 'reasoning_configuration_unavailable' }, 503);
   }
   let routes: string[] = [];
   let routeCatalogStatus: 'ready' | 'unavailable' = 'unavailable';
-  const gateway = await getAigConfig(c.env);
+  const gateway = await resolveGatewayConnection(c.env, draft);
   const parsedGateway = parseGatewayUrl(gateway.gatewayUrl);
-  if (parsedGateway && gateway.token) {
+  let connection = connectionStatus(undefined, true);
+  if (parsedGateway && connectionFingerprint(gateway)) {
     try {
-      routes = (await listDynamicRoutes(parsedGateway.accountId, parsedGateway.gatewayId, gateway.token)).map((route) => route.name);
+      routes = (await listDynamicRoutes(parsedGateway.accountId, parsedGateway.gatewayId, gateway.token!)).map((route) => route.name);
       routeCatalogStatus = 'ready';
-    } catch {
+      connection = connectionStatus();
+    } catch (error) {
+      connection = connectionStatus(error);
       logger.warn('Dynamic route catalog discovery failed');
     }
   }
@@ -495,24 +391,41 @@ reasoningRoutes.get('/catalog', requireAdmin, async (c) => {
     usage: assignmentUsage(configuration),
     routes,
     routeCatalogStatus,
+    connection,
   });
+}
+reasoningRoutes.get('/catalog', requireAdmin, (c) => catalog(c));
+reasoningRoutes.post('/catalog', requireAdmin, async (c) => {
+  const request = catalogSchema.safeParse(await c.req.json().catch(() => null));
+  if (!request.success) return c.json({ error: 'Invalid catalog request', code: 'validation_error' }, 400);
+  return catalog(c, request.data.gateway);
 });
 
-reasoningRoutes.get('/routes/:route/inventory', requireAdmin, async (c) => {
+async function routeInventory(c: ReasoningContext, draft: z.infer<typeof inventorySchema> = {}) {
   const routeResult = routeSchema.safeParse(c.req.param('route'));
   if (!routeResult.success) return c.json({ error: 'Dynamic route not found', code: 'not_found' }, 404);
-  const gateway = await getAigConfig(c.env);
-  const parsedGateway = parseGatewayUrl(gateway.gatewayUrl);
-  if (!parsedGateway || !gateway.token) {
+  const gateway = await resolveGatewayConnection(c.env, draft.gateway);
+  if (!connectionFingerprint(gateway)) {
     return c.json({ error: 'AI Gateway credentials unavailable', code: 'gateway_unavailable' }, 503);
   }
   try {
-    const [activeVersion, configuration] = await Promise.all([
-      loadActiveRouteVersion(parsedGateway.accountId, parsedGateway.gatewayId, routeResult.data, gateway.token),
-      readReasoningConfiguration(c.env.KV),
-    ]);
-    const inventory = inventoryDynamicRoute(activeVersion);
-    return c.json(buildInventoryResponse(routeResult.data, inventory, configuration.routeAssignments[routeResult.data], configuration));
+    const configuration = await readReasoningConfiguration(c.env.KV);
+    const stored = configuration.routeAssignments[routeResult.data] as unknown as RouteReasoningAssignment | undefined;
+    const descriptions = draft.backendDescriptions ?? assignmentBackendDescriptions(stored);
+    const current = await loadCheckedRouteInventory(gateway, routeResult.data, descriptions);
+    const assignment = stored && { ...stored, legs: stored.legs?.map((leg) => ({ ...leg, customProviderBackend: Object.hasOwn(descriptions, leg.nodeId) ? descriptions[leg.nodeId] : undefined })) };
+    const body = buildInventoryResponse(routeResult.data, current.inventory, assignment as unknown as Record<string, unknown>, configuration);
+    // Draft provenance may refer to an as-yet unassigned leg.
+    for (const leg of body.legs as Array<Record<string, unknown>>) {
+      if (Object.hasOwn(current.backendDescriptions, String(leg.nodeId))) {
+        leg.customProviderBackend = current.backendDescriptions[String(leg.nodeId)];
+        leg.provenance = 'administrator-declared';
+      }
+    }
+    const profile = stored ? resolveProfile(configuration, stored.activeProfile) : null;
+    const verification = profile && verificationMatches(stored?.verification, profile as unknown as NormalizedReasoningProfile, gateway, current)
+      ? stored?.verification : undefined;
+    return c.json({ ...body, inventoryDigest: current.inventoryDigest, ...(verification && { verification }) });
   } catch (error) {
     if (error instanceof Error && error.message === 'route_not_found') {
       return c.json({ error: 'Dynamic route not found', code: 'not_found' }, 404);
@@ -523,6 +436,12 @@ reasoningRoutes.get('/routes/:route/inventory', requireAdmin, async (c) => {
     });
     return c.json({ error: 'Dynamic route inventory unavailable', code: 'inventory_unavailable' }, 502);
   }
+}
+reasoningRoutes.get('/routes/:route/inventory', requireAdmin, (c) => routeInventory(c));
+reasoningRoutes.post('/routes/:route/inventory', requireAdmin, async (c) => {
+  const request = inventorySchema.safeParse(await c.req.json().catch(() => null));
+  if (!request.success) return c.json({ error: 'Invalid inventory request', code: 'validation_error' }, 400);
+  return routeInventory(c, request.data);
 });
 
 reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) => {
@@ -536,21 +455,35 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
   try { configuration = await readReasoningConfiguration(c.env.KV); } catch {
     return c.json({ error: 'Reasoning configuration unavailable', code: 'reasoning_configuration_unavailable' }, 503);
   }
-  const profile = request.data.profileRef ? resolveProfile(configuration, request.data.profileRef) : null;
+  let profile = request.data.profileRef ? resolveProfile(configuration, request.data.profileRef) : null;
+  if (request.data.profileDraft !== undefined) {
+    try {
+      if (!request.data.profileRef) throw new Error('Exact profile reference required');
+      const draft = normalizeCustomProfile(request.data.profileDraft);
+      if (!draft.enabled || !sameProfileRef(draft, request.data.profileRef)) throw new Error('Canonical enabled draft required');
+      const prior = allProfiles(configuration).find((candidate) => candidate.id === draft.id && candidate.revision === draft.revision);
+      if (prior && (prior.enabled === false || prior.hash !== draft.hash)) throw new Error('Existing revision is immutable');
+      profile = draft as unknown as Record<string, unknown>;
+    } catch {
+      return c.json({ error: 'Invalid or immutable profile draft', code: 'validation_error' }, 400);
+    }
+  }
   if (request.data.profileRef && !profile) return c.json({ error: 'Reasoning profile revision not found', code: 'not_found' }, 404);
 
-  const gateway = await getAigConfig(c.env);
+  const gateway = await resolveGatewayConnection(c.env, request.data.gateway);
   const parsedGateway = parseGatewayUrl(gateway.gatewayUrl);
-  if (!parsedGateway || !gateway.token) {
+  if (!parsedGateway || !gateway.token || !connectionFingerprint(gateway)) {
     return c.json({ error: 'AI Gateway credentials unavailable', code: 'gateway_unavailable' }, 503);
   }
 
   try {
-    const routes = await listDynamicRoutes(parsedGateway.accountId, parsedGateway.gatewayId, gateway.token);
-    if (!routes.some((route) => route.name === request.data.route)) {
-      return c.json({ error: 'Dynamic route not found', code: 'not_found' }, 404);
-    }
     if (profile && request.data.profileRef) {
+      const stored = configuration.routeAssignments[request.data.route] as unknown as RouteReasoningAssignment | undefined;
+      const descriptions = request.data.backendDescriptions ?? assignmentBackendDescriptions(stored);
+      const before = await loadCheckedRouteInventory(gateway, request.data.route, descriptions);
+      if (!before.provenanceComplete || before.inventory.models.length === 0) {
+        return c.json({ error: 'Custom provider backend provenance is required before verification', code: 'validation_error' }, 400);
+      }
       const report = await discoverPiCompatibility({
         accountId: parsedGateway.accountId,
         gatewayId: parsedGateway.gatewayId,
@@ -567,9 +500,23 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
         logicalProbes: report.accounting.logicalProbes,
         httpAttempts: report.accounting.httpAttempts,
       });
+      if (completedProfileCheck(report, profile as unknown as NormalizedReasoningProfile)) {
+        const after = await loadCheckedRouteInventory(gateway, request.data.route, descriptions);
+        if (before.inventoryDigest !== after.inventoryDigest) return c.json({ ...report, warnings: ['route_inventory_changed'] });
+        const verification: RouteVerification = {
+          schemaVersion: 1, profileRef: request.data.profileRef, routeVersion: after.inventory.versionId,
+          inventoryDigest: after.inventoryDigest, connectionFingerprint: connectionFingerprint(gateway)!,
+          canaryVersion: PI_WIRE_CANARY_VERSION, supportedLevels: [...(profile as unknown as NormalizedReasoningProfile).supportedLevels],
+          scope: after.scope, checkedAt: new Date().toISOString(),
+        };
+        const checkId = await issueRouteCheck(c.env.KV, request.data.route, verification);
+        return c.json({ ...report, checkId, verification, ...(verification.scope === 'observed-path' && { warnings: ['observed_path_only'] }) });
+      }
       return c.json(report);
     }
 
+    const routes = await listDynamicRoutes(parsedGateway.accountId, parsedGateway.gatewayId, gateway.token);
+    if (!routes.some((route) => route.name === request.data.route)) return c.json({ error: 'Dynamic route not found', code: 'not_found' }, 404);
     const reports: DiscoveryCandidateReport[] = [];
     for (const candidate of distinctDiscoveryCandidates()) {
       const report = await discoverPiCompatibility({
@@ -647,7 +594,8 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
       httpAttempts: accounting.httpAttempts,
     });
     return c.json(result);
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === 'route_not_found') return c.json({ error: 'Dynamic route not found', code: 'not_found' }, 404);
     logger.warn('Reasoning discovery failed', {
       route: request.data.route,
       profileId: request.data.profileRef?.id ?? 'auto-discovery',

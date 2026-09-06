@@ -7,6 +7,12 @@ import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS } from '../../lib/kv-keys';
 import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
+import { routingGatewayUrl, routingInventoryFixtures, verifiedRoutingConfiguration } from '../helpers/verified-routing';
+
+vi.mock('../../lib/ai-gateway-management', async (original) => ({
+  ...await original<typeof import('../../lib/ai-gateway-management')>(),
+  loadActiveRouteVersion: vi.fn(async (_account: string, _gateway: string, route: string) => routingInventoryFixtures.get(route)),
+}));
 
 let mockRole = 'admin';
 let mockAuthReject = false;
@@ -29,6 +35,9 @@ import configurationPreviewRoutes from '../../routes/admin/configuration-preview
 function createApp(envOverrides: Partial<Env> = {}) {
   const kv = createMockKV();
   const env = { KV: kv as unknown as KVNamespace, ...envOverrides } as Env;
+  if (env.ENTERPRISE_MODE === 'active' && env.AIG_TOKEN) kv._set(SETUP_KEYS.REASONING_CONFIGURATION, verifiedRoutingConfiguration({
+    schemaVersion: 1, customProfileRevisions: [], routeAssignments: { claude: { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') } },
+  }, { gatewayUrl: routingGatewayUrl, token: env.AIG_TOKEN }));
   const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
   app.use('*', async (c, next) => {
     c.env = env;
@@ -51,13 +60,13 @@ function post(app: ReturnType<typeof createApp>['app'], body: unknown): Promise<
 }
 
 const enterpriseAiValues = {
-  gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/account/gateway',
+  gatewayUrl: routingGatewayUrl,
   replacementToken: '',
   dynamicRoutes: ['claude'],
   defaultRoute: { route: 'claude', reasoning: 'medium' },
   routeContextWindows: { claude: 200000 },
   routeReasoningProfiles: { claude: 'workers-ai-glm-thinking' },
-  groupRouting: [],
+  groupRouting: [{ accessGroup: 'engineering', routes: ['claude'], defaultRoute: 'claude', reasoning: 'medium' }],
 };
 
 describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
@@ -218,7 +227,7 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     expect(kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, expect.anything());
   });
 
-  it('REQ-ENTERPRISE-031 AC3/AC10: accepts an exact enabled profile for explicit testing and returns an evidence warning without writes', async () => {
+  it('REQ-ENTERPRISE-043: rejects an unchecked assignment at Save preview despite an exact enabled profile', async () => {
     const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'deployment-token' });
     const values = {
       ...enterpriseAiValues,
@@ -240,9 +249,8 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
       },
     };
     const response = await post(app, { section: 'aiRouting', baseRevision: 0, values });
-    expect(response.status).toBe(200);
-    const body = await response.json() as any;
-    expect(body.warnings.map((warning: any) => warning.code)).toContain('reasoning_profile_unverified');
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'validation_error' });
     expect(kv.put).not.toHaveBeenCalledWith('setup:reasoning_configuration', expect.anything());
   });
 
@@ -258,7 +266,10 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
       ENTERPRISE_MODE: 'active',
       AIG_GATEWAY_URL: enterpriseAiValues.gatewayUrl,
     });
-    await administrationToken.kv.put(SETUP_KEYS.AIG_TOKEN, JSON.stringify({ encrypted: 'administration-token' }));
+    await administrationToken.kv.put(SETUP_KEYS.AIG_TOKEN, JSON.stringify({ token: 'administration-token' }));
+    administrationToken.kv._set(SETUP_KEYS.REASONING_CONFIGURATION, verifiedRoutingConfiguration({
+      schemaVersion: 1, customProfileRevisions: [], routeAssignments: { claude: { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') } },
+    }, { gatewayUrl: routingGatewayUrl, token: 'administration-token' }));
     vi.mocked(administrationToken.kv.put).mockClear();
     expect((await post(administrationToken.app, {
       section: 'aiRouting', baseRevision: 0, values: enterpriseAiValues,
