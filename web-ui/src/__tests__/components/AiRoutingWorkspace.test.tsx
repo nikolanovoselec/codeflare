@@ -57,7 +57,7 @@ describe('Administrator route workspace', () => {
     expect(await view.findByText('Mapping profiles for development…')).toBeVisible();
     expect(view.getByRole('combobox', { name: 'development Pi compatibility profile' })).toBeDisabled();
     expect(view.queryByText('Wait for the current profile check to finish.')).toBeNull();
-    finish({ outcome: 'inconclusive', classification: 'Inconclusive', assignable: false, diagnostics: [{ code: 'request_rejected', stage: 'reasoning', status: 429 }] });
+    finish({ outcome: 'inconclusive', classification: 'Inconclusive', assignable: false, diagnostics: [{ code: 'request_rejected', stage: 'reasoning', status: 429, levels: ['high'] }] });
     await waitFor(() => expect(view.getByRole('combobox', { name: 'development Pi compatibility profile' })).toBeEnabled());
     await fireEvent.change(view.getByRole('combobox', { name: 'development Pi compatibility profile' }), { target: { value: `${offRef.id}\u001f${offRef.revision}\u001f${offRef.hash}` } });
     expect(view.queryByRole('heading', { name: 'Discover compatibility for development' })).toBeNull();
