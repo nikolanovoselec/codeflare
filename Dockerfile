@@ -32,8 +32,13 @@ RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.73.
     && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz
 COPY scripts/patch-rclone-bisync.py /tmp/patch-rclone-bisync.py
 COPY scripts/ci/rclone-bookkeeping_test.go /tmp/rclone-bookkeeping_test.go
+# Only the CI server binary receives S3-compatible lexical pagination.
+# Restore upstream server code before building the shipped client.
 RUN mkdir -p /out \
+    && cp cmd/serve/s3/pager.go /tmp/rclone-pager.go \
+    && python3 -c 'from pathlib import Path; p=Path("cmd/serve/s3/pager.go"); s=p.read_text(); old="list.Contents[i].LastModified.Before(list.Contents[j].LastModified.Time)"; assert s.count(old)==1, "Unreviewed S3 fixture pager"; p.write_text(s.replace(old, "list.Contents[i].Key < list.Contents[j].Key"))' \
     && go build -trimpath -o /out/rclone-unpatched . \
+    && cp /tmp/rclone-pager.go cmd/serve/s3/pager.go \
     && python3 /tmp/patch-rclone-bisync.py /src/rclone 1.73.5 \
     && cp /tmp/rclone-bookkeeping_test.go cmd/bisync/codeflare_bookkeeping_test.go \
     && gofmt -w cmd/bisync/codeflare_bookkeeping_test.go \

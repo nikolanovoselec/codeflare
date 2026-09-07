@@ -11,9 +11,11 @@ import sys
 import tempfile
 import threading
 import time
+import xml.etree.ElementTree as ET
 from urllib.parse import parse_qs, urlsplit
 
 binary = str(Path(sys.argv[1]).resolve())
+server_binary = str(Path(os.environ["RCLONE_S3_FIXTURE_BINARY"]).resolve())
 counts = collections.Counter()
 metadata_evidence = collections.deque(maxlen=8)
 race_file = None
@@ -91,13 +93,14 @@ def test_server_modtime_sync():
         local.mkdir()
         server_root = root / "server"
         (server_root / "bucket").mkdir(parents=True)
+        (server_root / "ordering").mkdir()
         proxy = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Proxy)
         thread = threading.Thread(target=proxy.serve_forever, daemon=True)
         thread.start()
         config = root / "rclone.conf"
         config.write_text(f"[fixture]\ntype = s3\nprovider = Other\naccess_key_id = fixture\nsecret_access_key = fixture\nendpoint = http://127.0.0.1:{proxy.server_port}\nforce_path_style = true\nno_check_bucket = true\nuse_multipart_etag = false\n")
         server_log = (root / "server.log").open("wb")
-        server = subprocess.Popen([binary, "serve", "s3", str(server_root), "--addr", f"127.0.0.1:{backend_port}"], stdout=server_log, stderr=subprocess.STDOUT)
+        server = subprocess.Popen([server_binary, "serve", "s3", str(server_root), "--addr", f"127.0.0.1:{backend_port}"], stdout=server_log, stderr=subprocess.STDOUT)
 
         def run(*args, data=None):
             result = subprocess.run([binary, "--config", str(config), "--retries", "1", "--low-level-retries", "1", *args], input=data, capture_output=True, timeout=90)
@@ -124,6 +127,19 @@ def test_server_modtime_sync():
                     time.sleep(0.1)
             else:
                 raise RuntimeError("S3 fixture did not become ready")
+            # S3 lists lexicographically, even when a longer prefix-match is older.
+            run("rcat", "fixture:ordering/key-long", data=b"older\n")
+            time.sleep(0.05)
+            run("rcat", "fixture:ordering/key", data=b"newer\n")
+            connection = http.client.HTTPConnection("127.0.0.1", proxy.server_port, timeout=30)
+            try:
+                connection.request("GET", "/ordering?list-type=2&prefix=key&max-keys=1")
+                response = connection.getresponse()
+                listing = ET.fromstring(response.read())
+                assert response.status == 200
+                assert listing.findtext("{*}Contents/{*}Key") == "key", "S3 fixture must paginate by key, not modification time"
+            finally:
+                connection.close()
             transcript = local / "session.jsonl"
             transcript.write_bytes(b"original\n")
             os.utime(transcript, (time.time() - 600, time.time() - 600))

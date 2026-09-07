@@ -1086,6 +1086,7 @@ jobs:
           docker cp "$container:/out/rclone" rclone-artifact/rclone
           docker cp "$container:/out/rclone-unpatched" "$RUNNER_TEMP/rclone-unpatched"
           chmod +x rclone-artifact/rclone "$RUNNER_TEMP/rclone-unpatched"
+          export RCLONE_S3_FIXTURE_BINARY="$RUNNER_TEMP/rclone-unpatched"
           python3 scripts/ci/rclone-bisync-s3.py "$RUNNER_TEMP/rclone-unpatched" --expect-false-conflict
           python3 scripts/ci/rclone-bisync-s3.py rclone-artifact/rclone
           git rev-parse HEAD > rclone-artifact/COMMIT
