@@ -63,9 +63,34 @@ class Proxy(http.server.BaseHTTPRequestHandler):
             headers = {name: value for name, value in self.headers.items()
                        if name.lower() not in ("x-amz-meta-mtime", "authorization")}
             headers["Connection"] = "close"
+            # gofakes3 v0.0.4 has no UploadPartCopy handler. Supply actual source
+            # bytes through its existing multipart store, not a canned success.
+            part_copy = self.command == "PUT" and "partNumber" in query and self.headers.get("x-amz-copy-source")
+            if part_copy:
+                source = http.client.HTTPConnection("127.0.0.1", backend_port, timeout=30)
+                try:
+                    source_headers = {"Range": self.headers["x-amz-copy-source-range"]}
+                    if self.headers.get("x-amz-copy-source-if-match"):
+                        source_headers["If-Match"] = self.headers["x-amz-copy-source-if-match"]
+                    source.request("GET", "/" + part_copy.lstrip("/"), headers=source_headers)
+                    source_response = source.getresponse()
+                    data = source_response.read(8 * 1024 * 1024 + 1)
+                    assert source_response.status == 206, "Fixture copy source range failed"
+                    assert len(data) <= 8 * 1024 * 1024, "Fixture copy part exceeds bounded size"
+                finally:
+                    source.close()
+                headers = {name: value for name, value in headers.items()
+                           if not name.lower().startswith("x-amz-copy-") and name.lower() not in ("content-length", "content-md5", "x-amz-content-sha256")}
+                headers["Content-Length"] = str(len(data))
             connection.request(self.command, self.path, data, headers)
             response = connection.getresponse()
             body = response.read()
+            if part_copy and response.status == 200:
+                assert response.getheader("ETag"), "Fixture upload part omitted its ETag"
+                result = ET.Element("CopyPartResult")
+                ET.SubElement(result, "LastModified").text = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                ET.SubElement(result, "ETag").text = response.getheader("ETag")
+                body = ET.tostring(result, encoding="utf-8")
             if self.command == "HEAD" and self.path.split("?")[0] == "/bucket/session.jsonl":
                 metadata_evidence.append({"method": "HEAD", "modified": response.getheader("Last-Modified"), "etag": response.getheader("ETag")})
             elif self.command == "GET" and ("list-type=" in self.path or "delimiter=" in self.path):
@@ -74,8 +99,11 @@ class Proxy(http.server.BaseHTTPRequestHandler):
                 race_armed = True
             self.send_response(response.status)
             for name, value in response.getheaders():
-                if name.lower() not in ("connection", "transfer-encoding"):
+                if name.lower() not in ("connection", "transfer-encoding") and not (part_copy and name.lower() in ("content-length", "content-type")):
                     self.send_header(name, value)
+            if part_copy:
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Type", "application/xml")
             self.end_headers()
             self.wfile.write(body)
         finally:
@@ -203,6 +231,9 @@ def test_server_modtime_sync():
                 destination = f"fixture:bucket/large-{streams}.bin"
                 run("copyto", str(large), destination, "--use-server-modtime", "--s3-upload-cutoff", "5Mi", "--s3-chunk-size", "5Mi", "--multi-thread-cutoff", "1Mi", "--multi-thread-streams", streams)
                 assert run("cat", destination) == large.read_bytes(), "Large transfer changed content"
+            # Prove multipart server-copy assembly before injecting a competing writer.
+            run("copyto", "fixture:bucket/large-0.bin", "fixture:bucket/copied-large.bin", "--use-server-modtime", "--s3-copy-cutoff", "5Mi")
+            assert run("cat", "fixture:bucket/copied-large.bin") == large.read_bytes(), "Multipart server copy changed content"
             # Another writer between PUT and HEAD cannot be accepted as our upload.
             racing_source = root / "racing.jsonl"
             racing_source.write_bytes(b"our upload--\n")
