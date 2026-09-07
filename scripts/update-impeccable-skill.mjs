@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync, statSync, cpSync } from 'node:fs';
+import { managedImpeccableLauncher } from './impeccable-launcher.mjs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,14 +60,34 @@ function replaceOverlayAnchor(source, search, replacement, label, allowAlreadyAp
 }
 
 export function applyCodeflareImpeccableOverlay(source, { allowAlreadyApplied = false } = {}) {
-  const transformed = CODEFLARE_IMPECCABLE_OVERLAY.map(([relativePath, replacements]) => {
+  const native = /^version:\s*4\.2\.2\s*$/m.test(readFileSync(join(source, 'SKILL.md'), 'utf8'));
+  if (native && readFileSync(join(source, 'scripts/VERSION'), 'utf8').trim() !== '0.1.3') {
+    throw new Error('Unsupported Impeccable engine version; expected image-owned 0.1.3');
+  }
+  const overlays = native
+    ? CODEFLARE_IMPECCABLE_OVERLAY.filter(([path]) => path !== 'scripts/serve-question.mjs')
+    : CODEFLARE_IMPECCABLE_OVERLAY;
+  const transformed = overlays.map(([relativePath, replacements]) => {
     const file = join(source, relativePath);
     let text = readFileSync(file, 'utf8');
     for (const [search, replacement] of replacements) {
       text = replaceOverlayAnchor(text, search, replacement, relativePath, allowAlreadyApplied);
     }
+    if (native && relativePath === 'SKILL.md') {
+      text = replaceOverlayAnchor(text,
+        'The launcher runs a self-contained binary that ships next to it or is downloaded once on first run; no Node or other runtime is required.',
+        'The launcher uses the reviewed native engine installed in the Codeflare image; it never downloads or updates the runtime. If that engine is missing, a newer Codeflare image is required.',
+        relativePath, allowAlreadyApplied);
+    }
     return [file, text];
   });
+  if (native) {
+    // Require the reviewed launcher layout before replacing runtime downloads.
+    readFileSync(join(source, 'scripts/impeccable'), 'utf8');
+    readFileSync(join(source, 'scripts/impeccable.cmd'), 'utf8');
+    transformed.push([join(source, 'scripts/impeccable'), managedImpeccableLauncher()]);
+    transformed.push([join(source, 'scripts/impeccable.cmd'), '@echo off\necho Impeccable requires the Codeflare Linux image runtime. 1>&2\nexit /b 1\n']);
+  }
   for (const [file, text] of transformed) writeFileSync(file, text);
 }
 
@@ -137,15 +158,15 @@ export function applyCodeflareRoutingBoundary(text) {
     throw new Error('downloaded Impeccable skill must have exactly one frontmatter description');
   }
   const mutablePackagePermissions = match[1].match(/^[ \t]*- Bash\(npx impeccable \*\)[ \t]*$/gm) ?? [];
-  if (mutablePackagePermissions.length !== 1) {
-    throw new Error('downloaded Impeccable skill must have exactly one mutable package permission');
+  const native = /^version:\s*4\.2\.2\s*$/m.test(match[1]);
+  if (native ? /^allowed-tools:/m.test(match[1]) : mutablePackagePermissions.length !== 1) {
+    throw new Error('downloaded Impeccable skill must have exactly one mutable package permission in legacy layout, and no allowed-tools block in native layout');
   }
-  const frontmatter = match[1]
-    .replace(
-      /^description:.*$/m,
-      `description: ${CODEFLARE_IMPECCABLE_DESCRIPTION}`,
-    )
-    .replace(mutablePackagePermissions[0], '');
+  let frontmatter = match[1].replace(
+    /^description:.*$/m,
+    `description: ${CODEFLARE_IMPECCABLE_DESCRIPTION}`,
+  );
+  if (!native) frontmatter = frontmatter.replace(mutablePackagePermissions[0], '');
   const body = text.slice(match[0].length);
   return `---\n${frontmatter}\n---\n\n${CODEFLARE_IMPECCABLE_BOUNDARY}\n${body}`;
 }

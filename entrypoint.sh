@@ -779,6 +779,10 @@ initial_sync_from_r2() {
 repair_hook_exec_bits() {
     find "$USER_CLAUDE_DIR/hooks" -maxdepth 2 \
         \( -name '*.mjs' -o -name '*.sh' \) -type f -exec chmod 0755 {} + 2>/dev/null || true
+    # R2 also drops the executable bit on the extensionless native skill launcher.
+    find "$USER_CLAUDE_DIR/skills/impeccable/scripts/impeccable" \
+        "${USER_CLAUDE_DIR%/.claude}/.pi/agent/skills/impeccable/scripts/impeccable" \
+        -maxdepth 0 -type f -exec chmod 0755 {} + 2>/dev/null || true
 }
 
 # REQ-STOR-017 / AD90: lay down the image-baked agent seed for the session's mode into

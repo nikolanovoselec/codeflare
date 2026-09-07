@@ -1,0 +1,29 @@
+// The managed skill dispatches only to the versioned, image-owned engine.
+export function managedImpeccableLauncher(engineRoot = '/opt/codeflare/impeccable') {
+  const quotedRoot = `'${engineRoot.replaceAll("'", "'\\''")}'`;
+  return `#!/bin/sh
+set -eu
+command="\${1:-}"
+if [ "$command" = skills ]; then command="\${2:-}"; fi
+case "$command" in
+  install|update|uninstall|link)
+    echo "Impeccable is image-owned; runtime updates require Codeflare image review." >&2
+    exit 1 ;;
+esac
+dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+version=$(tr -d '[:space:]' < "$dir/VERSION")
+case "$version" in
+  0.1.3) ;;
+  *) echo "Unsupported Impeccable engine version: $version" >&2; exit 1 ;;
+esac
+engine_root=${quotedRoot}
+engine="$engine_root/$version/impeccable"
+if [ ! -x "$engine" ]; then
+  echo "Impeccable engine $version is missing from this Codeflare image; update the image." >&2
+  exit 127
+fi
+export IMPECCABLE_SKILL_DIR=$(CDPATH= cd -- "$dir/.." && pwd)
+export IMPECCABLE_SELF="$0"
+exec "$engine" "$@"
+`;
+}

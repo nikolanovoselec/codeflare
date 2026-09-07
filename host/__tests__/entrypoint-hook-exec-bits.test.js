@@ -123,6 +123,23 @@ describe('entrypoint repair_hook_exec_bits', () => {
     assert.equal(modeOf(join(hooks, 'notes.md')), '644');
   });
 
+  it('REQ-AGENT-181: native Impeccable launchers remain executable after boot and bisync', () => {
+    for (const repair of [runBootRepair, runSuccessfulBisync]) {
+      const home = mkdtempSync(join(tmpdir(), 'impeccable-exec-'));
+      const launchers = ['.claude', '.pi/agent'].map((agent) => join(home, agent, 'skills/impeccable/scripts/impeccable'));
+      for (const launcher of launchers) {
+        mkdirSync(dirname(launcher), { recursive: true });
+        writeFileSync(launcher, '#!/bin/sh\nexit 0\n', { mode: 0o644 });
+      }
+      const result = repair(home);
+      assert.equal(result.status, 0, result.stderr);
+      for (const launcher of launchers) {
+        assert.equal(modeOf(launcher), '755');
+        assert.equal(spawnSync(launcher).status, 0);
+      }
+    }
+  });
+
   it('is a no-op when the hooks directory does not exist', () => {
     // Runs on every boot and after every sync, including default-mode sessions
     // that never create the directory; a failure here would abort the caller.

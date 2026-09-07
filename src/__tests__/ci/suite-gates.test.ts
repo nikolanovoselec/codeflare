@@ -205,6 +205,17 @@ function runCompleteness(lanes: Record<string, string>, cwd: string, artifactRoo
 }
 
 describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
+  it('REQ-OPS-003: native engine and compatibility transforms select host verification', () => {
+    const { testWorkflow } = readCacheWorkflowContract();
+    const filterSource = testWorkflow.jobs.changes.steps?.find((step) => step.id === 'filter')?.with?.filters;
+    const filters = parseYaml(filterSource as string) as Record<string, unknown[]>;
+    const patterns = flattenPatterns(filters.host);
+    for (const path of ['image/impeccable-engine.json', 'scripts/patch-impeccable-engine.py', 'scripts/impeccable-launcher.mjs', 'scripts/update-impeccable-skill.mjs', 'scripts/patch-pi-goal-review-control.mjs', 'scripts/patch-pi-plan-mode-tool-policy.mjs']) {
+      expect(matchesAny(path, patterns), path).toBe(true);
+    }
+    expect(testWorkflow.jobs.summary.needs).toContain('impeccable-engine');
+  });
+
   it('routes owned Browser IDE paths through the workflow classifier while leaving docs-only changes inert', () => {
     const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
       jobs: { changes: { steps: Array<{ id?: string; with?: { filters?: string } }> } };

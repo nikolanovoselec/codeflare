@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-07
 
+- **Shadow-pin compatibility and native Impeccable** (REQ-AGENT-111, REQ-AGENT-163, REQ-AGENT-178, REQ-AGENT-181). Reviewed Goal 0.54.4 and Plan Mode 0.56.0 candidates preserve workflow ownership and parsed command boundaries. Impeccable 4.2.2 uses a checksum-pinned, source-built image engine with the existing idle-grace correction; launchers refuse runtime downloads and self-updates and regain executable permissions after sync.
+
 - **Administrator confirmation survives browser validation** (REQ-ENTERPRISE-043). Discovery and inventory response decoding retain the administrator method instead of silently reverting confirmed profiles to unverified. Desktop progress aligns vertically with right-hand profile actions; mobile controls stack (REQ-ENTERPRISE-041).
 
 - **Live profile checks are optional** (REQ-ENTERPRISE-038, REQ-ENTERPRISE-041–044). Administrators may explicitly Mark as verified without paid model probes. Server-bound administrator confirmation stays distinct from live evidence and uses the existing receipt, policy, review, and Confirm Save flow. Custom backend descriptions no longer gate verification; absent provenance limits live results to the observed path. The route editor removes advanced metadata and uses compact progress. This supersedes the earlier mandatory live-check activation policy.

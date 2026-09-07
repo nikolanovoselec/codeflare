@@ -45,6 +45,36 @@ RUN mkdir -p /out \
     && go test ./cmd/bisync -run '^TestCodeflare' -count=1 \
     && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.73.5-codeflare-bisync1' -o /out/rclone .
 
+# ---- Image-owned Impeccable engine with configured question idle grace ----
+FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf AS impeccable-builder
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils build-essential pkg-config libssl-dev python3 && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://static.rust-lang.org/dist/2026-09-03/rust-1.98.1-x86_64-unknown-linux-gnu.tar.xz -o /tmp/rust.tar.xz \
+    && echo "5326b36c53de11d148c8f8dab6553a3d1006c2cfd32123683073fad3c302605b  /tmp/rust.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/rust.tar.xz -C /tmp \
+    && /tmp/rust-1.98.1-x86_64-unknown-linux-gnu/install.sh --prefix=/usr/local --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu --disable-ldconfig \
+    && rm -rf /tmp/rust.tar.xz /tmp/rust-1.98.1-x86_64-unknown-linux-gnu
+COPY image/impeccable-engine.json /tmp/impeccable-engine.json
+COPY scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py /tmp/
+WORKDIR /src/impeccable
+RUN <<'IMPECCABLE'
+set -eu
+node -e 'const p=require("/tmp/impeccable-engine.json"); if(p.version!=="0.1.3" || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256)) throw new Error("Invalid Impeccable engine pin")'
+COMMIT=$(node -p 'require("/tmp/impeccable-engine.json").commit')
+SHA256=$(node -p 'require("/tmp/impeccable-engine.json").sha256')
+curl -fsSL "https://codeload.github.com/pbakaus/impeccable/tar.gz/$COMMIT" -o /tmp/impeccable.tar.gz
+echo "$SHA256  /tmp/impeccable.tar.gz" | sha256sum -c -
+tar --strip-components=1 -xzf /tmp/impeccable.tar.gz
+rm /tmp/impeccable.tar.gz
+cargo build --locked --release -p impeccable
+python3 /tmp/impeccable-engine.py /src/impeccable/target/release/impeccable --expect-idle-bug
+python3 /tmp/patch-impeccable-engine.py /src/impeccable
+cargo build --locked --release -p impeccable
+python3 /tmp/impeccable-engine.py /src/impeccable/target/release/impeccable
+mkdir -p /out
+cp target/release/impeccable /out/impeccable
+cp LICENSE /out/LICENSE
+IMPECCABLE
+
 # ---- Codeflare native Pi Chat extension builder (OpenVSCode Node 22) ----
 FROM public.ecr.aws/docker/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-agent-sidebar-builder
 
@@ -169,6 +199,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 
 # Keep fast server-modtime listings without copying source timestamps into remote state.
 COPY --from=rclone-builder /out/rclone /usr/bin/rclone
+COPY --from=impeccable-builder /out/ /opt/codeflare/impeccable/0.1.3/
 
 # Install the official Herdr terminal runtime from one immutable stable release.
 # Codeflare owns updates through image review; runtime checks and self-update are disabled.

@@ -14,6 +14,7 @@ import {
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const skillRoot = join(repoRoot, 'preseed/agents/claude/skills/impeccable');
 
+
 function withTempDir(run) {
   const root = mkdtempSync(join(tmpdir(), 'codeflare-impeccable-'));
   try {
@@ -24,40 +25,58 @@ function withTempDir(run) {
 }
 
 describe('Impeccable managed runtime policy', () => {
-  it('REQ-AGENT-163: wait honors configured idle grace', () => withTempDir((cwd) => {
-    const questions = join(cwd, '.impeccable', 'questions');
-    mkdirSync(questions, { recursive: true });
-    writeFileSync(join(questions, 'question.state.json'), JSON.stringify({
-      pid: process.pid,
-      lastBeat: Date.now() - 20_000,
-    }));
-
-    const result = spawnSync(process.execPath, [
-      join(skillRoot, 'scripts/serve-question.mjs'),
-      '--wait', '--key', 'question', '--poll', '0.2', '--idle-grace', '60',
-    ], { cwd, encoding: 'utf8' });
-
-    assert.equal(result.status, 3);
-    assert.match(result.stdout, /^WAITING:/);
-    assert.doesNotMatch(result.stdout, /PAGE CLOSED/);
+  it('REQ-AGENT-181: native bundle refresh preserves policy without a retired JavaScript server', () => withTempDir((root) => {
+    const source = join(root, 'source');
+    cpSync(join(repoRoot, 'host/__fixtures__/impeccable-4.2.2'), source, { recursive: true });
+    applyCodeflareImpeccableOverlay(source);
+    const target = join(root, 'target');
+    replaceImpeccableTargets(source, readFileSync(join(source, 'SKILL.md'), 'utf8'), [{
+      agent: 'pi', root: target, runtimePath: '~/.pi/agent/skills/impeccable',
+    }]);
+    const skill = readFileSync(join(target, 'SKILL.md'), 'utf8');
+    assert.match(skill, /Codeflare routing boundary/);
+    assert.doesNotMatch(skill, /Bash\(npx impeccable/);
+    assert.match(readFileSync(join(target, 'reference/audit.md'), 'utf8'), /otherwise report `N\/A`/);
+    const launcher = join(target, 'scripts/impeccable');
+    const result = spawnSync('sh', [launcher, 'update'], { encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /owned by Codeflare image review/);
   }));
 
-  it('REQ-AGENT-163: wait reports closure after configured idle grace', () => withTempDir((cwd) => {
-    const questions = join(cwd, '.impeccable', 'questions');
-    mkdirSync(questions, { recursive: true });
-    writeFileSync(join(questions, 'question.state.json'), JSON.stringify({
-      pid: process.pid,
-      lastBeat: Date.now() - 70_000,
-    }));
-
-    const result = spawnSync(process.execPath, [
-      join(skillRoot, 'scripts/serve-question.mjs'),
-      '--wait', '--key', 'question', '--poll', '0.2', '--idle-grace', '60',
-    ], { cwd, encoding: 'utf8' });
-
-    assert.equal(result.status, 4);
-    assert.match(result.stdout, /^PAGE CLOSED:/);
+  it('REQ-AGENT-181: unreviewed native engine fails before source mutation', () => withTempDir((source) => {
+    cpSync(join(repoRoot, 'host/__fixtures__/impeccable-4.2.2'), source, { recursive: true });
+    const before = readFileSync(join(source, 'SKILL.md'), 'utf8');
+    writeFileSync(join(source, 'scripts/VERSION'), '0.1.4\n');
+    assert.throws(() => applyCodeflareImpeccableOverlay(source), /engine version/);
+    assert.equal(readFileSync(join(source, 'SKILL.md'), 'utf8'), before);
   }));
+
+  it('REQ-AGENT-181: native launcher uses only the image engine and refuses runtime updates', async () => {
+    const { managedImpeccableLauncher } = await import('../../scripts/impeccable-launcher.mjs');
+    withTempDir((root) => {
+      const scripts = join(root, 'skill', 'scripts');
+      const engine = join(root, 'engine', '0.1.3');
+      mkdirSync(scripts, { recursive: true });
+      mkdirSync(engine, { recursive: true });
+      const launcher = join(scripts, 'impeccable');
+      writeFileSync(launcher, managedImpeccableLauncher(join(root, 'engine')), { mode: 0o755 });
+      writeFileSync(join(scripts, 'VERSION'), '0.1.3\n');
+      writeFileSync(join(engine, 'impeccable'), '#!/bin/sh\nprintf "%s\\n" "$IMPECCABLE_SKILL_DIR" "$IMPECCABLE_SELF" "$@"\n', { mode: 0o755 });
+      const result = spawnSync(launcher, ['context', '--target', 'a file.ts'], { encoding: 'utf8', env: { ...process.env, IMPECCABLE_BIN: '/does/not/exist' } });
+      assert.equal(result.status, 0);
+      assert.deepEqual(result.stdout.trim().split('\n'), [join(root, 'skill'), launcher, 'context', '--target', 'a file.ts']);
+      for (const args of [['install'], ['update'], ['uninstall'], ['link'], ['skills', 'install'], ['skills', 'update'], ['skills', 'link']]) {
+        const denied = spawnSync(launcher, args, { encoding: 'utf8' });
+        assert.equal(denied.status, 1, args.join(' '));
+        assert.equal(denied.stdout, '');
+        assert.match(denied.stderr, /image-owned/);
+      }
+      rmSync(join(engine, 'impeccable'));
+      const missing = spawnSync(launcher, ['context'], { encoding: 'utf8' });
+      assert.equal(missing.status, 127);
+      assert.match(missing.stderr, /missing from this Codeflare image/);
+    });
+  });
 
   it('REQ-AGENT-181: updater overlay fails before mutating a partial source', () => withTempDir((source) => {
     cpSync(skillRoot, source, { recursive: true });
