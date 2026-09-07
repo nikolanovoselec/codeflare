@@ -103,6 +103,7 @@ describe('Usage package preseed (REQ-AGENT-131)', () => {
     assert.deepEqual(usage.peerDependencies, {
       '@earendil-works/pi-ai': '*',
       '@earendil-works/pi-coding-agent': '*',
+      '@earendil-works/pi-tui': '*',
     });
   });
 });
@@ -151,10 +152,10 @@ describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
     assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.8.0');
-    assert.equal(lock.packages['node_modules/@juicesharp/rpiv-todo'].version, '2.7.1');
+    assert.equal(lock.packages['node_modules/@juicesharp/rpiv-todo'].version, '2.8.0');
     assert.equal(
       lock.packages['node_modules/@juicesharp/rpiv-todo'].integrity,
-      'sha512-5SCPe1Z2ofgiK805fYm5dGott6XA8zlDMeQHADq50S2UFjH1EuXpTnSmx+X8JUPMIzyRnBY3gVltz525oWH52Q==',
+      'sha512-WEl9OayDrJ4G2r99FNUB1WIWKoOPphfGRuFRPpzETfwuYsaYFmpsmab5W7uieOXRMWSj9jpnrHS039vtrsOXOQ==',
     );
     assert.equal(pkg.scripts?.postinstall, undefined);
     assert.ok(!existsSync(resolve(__dirname, '../../preseed/agents/pi/npm/rpiv-todo-session-isolation')));
