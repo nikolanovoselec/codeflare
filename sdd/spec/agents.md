@@ -3626,6 +3626,8 @@ None.
 
 **Constraints:**
 
+- The router instructs the agent to read the complete overview, continuing truncated reads, and reproduce it verbatim without omissions, restructuring, or added framing. This is a model instruction, not a deterministic rendering guarantee. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Routing --> <!-- @manual: Compare the complete response to the overview for “what can you do?” including a truncated initial read; verify no added introduction or options. -->
+
 - Capability statements name the agent in direct first-person active voice; factual boundaries may name the owning product or system.
 - Product labels use exact names, including Cloudflare Access, Cloudflare Gateway, and Cloudflare AI Gateway.
 - Claims trace internally to active requirements, implementation, or operator documentation.
