@@ -1046,6 +1046,17 @@ describe('StorageBrowser / REQ-STOR-016 AC1/AC2 (file browser drawer/bottom-shee
       expect(screen.getByTestId('storage-sync-now-btn')).toBeDisabled();
     });
 
+    it('shows a recovery notice and leaves the cloud button usable after sync failure', () => {
+    // REQ-STOR-041: disk-space recovery remains explicit and observable.
+      mockSessionSyncStatus = 'failed';
+      render(() => <StorageBrowser />);
+      expect(screen.getByText(/If local disk is full, free local space/)).toBeInTheDocument();
+      const button = screen.getByTestId('storage-sync-now-btn');
+      expect(button).not.toBeDisabled();
+      fireEvent.click(button);
+      expect(mockSyncNow).toHaveBeenCalledTimes(1);
+    });
+
     it('shows the breathing animation class while syncing', () => {
       mockSyncing = true;
       render(() => <StorageBrowser />);

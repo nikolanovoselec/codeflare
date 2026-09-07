@@ -64,7 +64,9 @@ const AnalyticsPage: Component = () => {
   const apply = () => setQuery({ ...query(), period: draftPeriod(), start: draftStart(), cursor: undefined });
   const changePeriod = (period: AdminUsageQuery['period']) => {
     setDraftPeriod(period);
-    setDraftStart(currentStart(period));
+    const start = currentStart(period);
+    setDraftStart(start);
+    setQuery({ ...query(), period, start, cursor: undefined });
   };
   const sort = (field: NonNullable<AdminUsageQuery['sort']>) => {
     const current = query();
@@ -88,6 +90,7 @@ const AnalyticsPage: Component = () => {
           <p class="admin-eyebrow">Organization usage</p>
           <h1>Analytics</h1>
           <p>Accounted runtime and distinct positive-runtime sessions in UTC.</p>
+          <p>History excludes usage before collection began; live quota totals can include earlier usage.</p>
         </div>
       </header>
 
@@ -98,7 +101,7 @@ const AnalyticsPage: Component = () => {
           )}</For>
         </div>
         <label>
-          <span>UTC period start</span>
+          <span>{draftPeriod() === 'week' ? 'Week start (Monday, 00:00 UTC)' : 'UTC period start'}</span>
           <input value={draftStart()} onInput={(event) => setDraftStart(event.currentTarget.value)} />
         </label>
         <button type="submit" class="admin-primary-button">Apply filters</button>

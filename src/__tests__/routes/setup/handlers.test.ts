@@ -236,6 +236,29 @@ describe('Setup Handlers / REQ-SETUP-005 (admin-only auth gate on POST setup end
       expect(body.defaultRoute).toBeNull();
     });
 
+    it('GET /prefill surfaces a safe migration error for malformed legacy routing without writing over it', async () => {
+      mockKV._store.set('setup:route_context_windows', '{not-json');
+      const app = createApp({ ENTERPRISE_MODE: 'active' } as Partial<Env>);
+
+      const res = await app.request('/setup/prefill');
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as {
+        routeContextWindows?: Record<string, number>;
+        reasoningConfiguration?: { routeAssignments: Record<string, unknown> };
+        reasoningMigration?: { persisted: boolean; errors: Array<{ code: string }> };
+      };
+      expect(body.routeContextWindows).toEqual({});
+      expect(body.reasoningConfiguration?.routeAssignments).toEqual({});
+      expect(body.reasoningMigration).toEqual({
+        persisted: false,
+        errors: [expect.objectContaining({ code: 'legacy_configuration_malformed' })],
+      });
+      expect(mockKV.put).not.toHaveBeenCalledWith('setup:reasoning_configuration', expect.anything());
+      expect(mockKV.delete).not.toHaveBeenCalledWith('setup:route_context_windows');
+      expect(mockKV._store.get('setup:route_context_windows')).toBe('{not-json');
+    });
+
     it('GET /prefill degrades to empty defaults when stored route JSON is malformed', async () => {
       // Real Cloudflare KV.get(key, 'json') THROWS on malformed stored JSON. This
       // read runs before the handler's CF-API try block, so without a guard a bad

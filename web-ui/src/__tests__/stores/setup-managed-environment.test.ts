@@ -30,6 +30,7 @@ function state(): SetupState {
     defaultRouteName: '',
     defaultRouteReasoning: 'off',
     routeContextWindows: {},
+    routeReasoningProfiles: {},
     cloudflareBrowserToken: '',
     cloudflareBrowserTokenSet: false,
     cloudflareBrowserAccountId: '',

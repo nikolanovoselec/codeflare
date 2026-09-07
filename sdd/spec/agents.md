@@ -1032,11 +1032,16 @@ Multi-agent support, preseed system, and session modes.
 2. The Pi update path reconciles configured packages before updating the runtime. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012/REQ-AGENT-206: Fast Start controls suppression and updates Pi and Codex) -->
 3. Startup logs each installed runtime's before and after versions or visible failure evidence. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: Fast Start OFF surfaces Pi package and agent runtime update failures) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: version-read failures do not suppress either runtime update) -->
 4. An update failure does not prevent the terminal readiness signal. <!-- @impl: entrypoint.sh::release_agent_pty_after_fast_start_updates --> <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (REQ-AGENT-206: executes the update before readiness and continues after failure) -->
+5. Pi runtime validation rejects missing required dependencies or failed image processing. <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyPiRuntime --> <!-- @test: host/__tests__/pi-lockstep.test.js (rejects an installed Pi package whose required image dependency is missing) --> <!-- @test: host/__tests__/pi-lockstep.test.js (accepts import-only dependency exports and rejects failed image processing) -->
+6. An incomplete Pi installation receives one lockfile-based dependency repair attempt. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: repairs incomplete dependencies from the lock and isolates the updated cache) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: restores a real locked installation and reports unrecoverable repair) -->
+7. Updated Pi processes use a cleared runtime-owned transpile cache without changing the baked image cache. <!-- @impl: scripts/verify-pi-lockstep.mjs::resetRuntimeJitiCache --> <!-- @test: host/__tests__/pi-lockstep.test.js (replaces the runtime jiti link without clearing the image cache) -->
 
 **Constraints:**
 
 - Runtimes omitted from the selected image remain omitted.
 - Restored user-added Pi packages outside the image cache may require Fast Start Off once.
+- Temporary update downloads use the Codeflare runtime filesystem and are removed after the attempt.
+- Dependency-repair failure stays visible; it is not reported as a successful runtime update.
 
 **Priority:** P1
 
@@ -3678,14 +3683,14 @@ None.
 **Acceptance Criteria:**
 
 1. Standard and Advanced sessions expose `codeflare-capabilities` to every supported skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Capability discovery router --> <!-- @manual: Inspect the authoritative curation manifests and compiled release. -->
-2. Broad Codeflare capability or onboarding questions, tour requests, and numbered tutorial replies receive the installed Codeflare capability tutorial instead of a tool-discovery error or generic discovery response. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @manual: Ask Standard and Advanced Pi sessions for a broad tour and numbered follow-up. -->
+2. Broad Codeflare capability or onboarding questions (including “What can you do?”), tour requests, and numbered tutorial replies receive the installed Codeflare capability tutorial instead of a tool-discovery error or generic discovery response. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @manual: Ask Standard and Advanced Pi sessions for a broad tour and numbered follow-up. -->
 3. A capability question scoped to a repository, file, component, failure, or task remains contextual instead of opening the generic tour. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Capability discovery router --> <!-- @manual: Compare broad and repository-scoped capability questions in Pi. -->
 4. Managed curation and the image fallback expose matching capability files and mode membership. <!-- @manual: Compare the current managed release with the baked fallback and generated target inventory. -->
 5. Pi's default generated skill index includes `codeflare-capabilities`, so a model can discover and invoke the router from the always-loaded rule. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Capability discovery router --> <!-- @impl: scripts/agent-seed-core.mjs::parsePiSkillMetadata --> <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @test: host/__tests__/agent-seed-core.test.js (generates byte-identical image output through the shared core) -->
 
 **Constraints:**
 
-- The Pi routing rule remains at most 20 whitespace-delimited tokens.
+- The Pi routing rule directly names the installed router path, explicitly includes “What can you do?”, prohibits `capability`, and keeps task-scoped questions contextual.
 - Private curation owns managed source.
 - Delivery reuses the existing compiler and fallback path without a new runtime package, transform, or delivery path.
 
@@ -3714,7 +3719,9 @@ None.
 5. An active Goal takes precedence over active Plan selection. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC4/AC5 / REQ-AGENT-152/158: rejects malformed Plan policy and preserves active workflow ownership) -->
 6. `goal_wait` remains unavailable through startup exposure, Goal or Plan restoration, capability search, and explicit capability activation. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::DISABLED_TOOL_NAMES --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC6: never discovers or activates goal_wait) -->
 
-**Constraints:** Goal and Plan remain mutually exclusive at activation; this requirement governs provider-visible controls for persisted state. `goal_wait` is deliberately disabled by managed policy even when the upstream package registers it.
+7. Pi rejects `goal_wait` execution, including after another extension reactivates it. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: host/__tests__/pi-tool-exposure-finalizer.test.js (REQ-AGENT-191 AC7: blocks goal_wait execution including after reactivation) -->
+
+**Constraints:** Goal and Plan remain mutually exclusive at activation; this requirement governs provider-visible controls for persisted state. `goal_wait` is deliberately disabled by managed policy even when the upstream package registers it. Blocking `goal_wait` leaves every other tool's execution unchanged. <!-- @test: host/__tests__/pi-tool-exposure-finalizer.test.js (REQ-AGENT-191 AC7: preserves execution of all other tools) -->
 
 **Priority:** P1
 

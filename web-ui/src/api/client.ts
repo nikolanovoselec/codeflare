@@ -1,4 +1,8 @@
-import type { Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, AuthStatus, AuthProvider, AdminConfigurationResponse, ConfigurationSection } from '../types';
+import type {
+  Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences,
+  AuthStatus, AuthProvider, AdminConfigurationResponse, ConfigurationSection, ReasoningCatalog,
+  ReasoningDiscoveryRequest, ReasoningDiscoveryResult, ReasoningRouteInventory, ReasoningGatewayDraft, ReasoningManagementContext,
+} from '../types';
 import { logger } from '../lib/logger';
 import { STARTUP_POLL_INTERVAL_MS, SESSION_ID_DISPLAY_LENGTH, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, SESSION_ID_RE } from '../lib/constants';
 import { z } from 'zod';
@@ -21,6 +25,9 @@ import {
   AuthProvidersResponseSchema,
   AccessTierSchema,
   SubscriptionTierSchema,
+  ReasoningCatalogSchema,
+  ReasoningDiscoveryResultSchema,
+  ReasoningRouteInventorySchema,
 } from '../lib/schemas';
 import { mapStartupDetailsToProgress } from '../lib/status-mapper';
 import { ApiError, baseFetch } from './fetch-helper';
@@ -61,6 +68,21 @@ const AdminConfigurationResponseSchema: z.ZodType<AdminConfigurationResponse> = 
 
 export async function getAdminConfiguration(): Promise<AdminConfigurationResponse> {
   return fetchApi('/admin/configuration', {}, AdminConfigurationResponseSchema);
+}
+
+export async function getReasoningCatalog(gateway?: ReasoningGatewayDraft): Promise<ReasoningCatalog> {
+  return fetchApi('/admin/reasoning/catalog', gateway ? { method: 'POST', body: JSON.stringify({ gateway }) } : {}, ReasoningCatalogSchema) as Promise<ReasoningCatalog>;
+}
+
+export async function getReasoningRouteInventory(route: string, context?: ReasoningManagementContext): Promise<ReasoningRouteInventory> {
+  return fetchApi(`/admin/reasoning/routes/${encodeURIComponent(route)}/inventory`, context ? { method: 'POST', body: JSON.stringify(context) } : {}, ReasoningRouteInventorySchema) as Promise<ReasoningRouteInventory>;
+}
+
+export async function discoverReasoningCompatibility(request: ReasoningDiscoveryRequest): Promise<ReasoningDiscoveryResult> {
+  return fetchApi('/admin/reasoning/discover', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  }, ReasoningDiscoveryResultSchema) as Promise<ReasoningDiscoveryResult>;
 }
 
 const AdminUsageUserSchema = z.object({
@@ -157,11 +179,16 @@ export async function previewConfiguration(section: ConfigurationSection, baseRe
   }, ConfigurationPreviewSchema);
 }
 
-export async function startConfigurationRun(section: ConfigurationSection, baseRevision: number, values: unknown): Promise<Response> {
+export async function startConfigurationRun(
+  section: ConfigurationSection,
+  baseRevision: number,
+  values: unknown,
+  confirmedWarnings: string[] = [],
+): Promise<Response> {
   const response = await fetch('/api/admin/configuration-runs', {
     method: 'POST', credentials: 'same-origin', redirect: 'manual',
     headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-    body: JSON.stringify({ section, baseRevision, values }),
+    body: JSON.stringify({ section, baseRevision, values, ...(confirmedWarnings.length > 0 && { confirmedWarnings }) }),
   });
   if (!response.ok) {
     let body: Record<string, unknown> = {};

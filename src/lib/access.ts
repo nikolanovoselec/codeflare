@@ -1,5 +1,6 @@
 import type { AccessTier, AccessUser, BillingStatus, Env, SubscriptionTier, UserRole } from '../types';
 import { verifyAccessJWT } from './jwt';
+import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from './constants';
 import { verifySessionJWT, SESSION_JWT_AUD } from './session-jwt';
 import { AuthError, ForbiddenError } from './error-types';
 import { createLogger } from './logger';
@@ -8,6 +9,11 @@ import { isEnterpriseMode } from './subscription';
 import { parseUserRecord } from './user-record';
 import { listAllKvKeys, SETUP_KEYS } from './kv-keys';
 import { reactivateUsageUser } from './admin-usage';
+import { parseRouteSettings, type PiReasoningLevel } from './reasoning-profiles';
+import { getRouteReasoningProfile, parseReasoningConfiguration } from './reasoning-configuration';
+import { getAigConfig } from './aig-config';
+import type { GatewayConnection } from './ai-gateway-management';
+import { preferredReasoningLevel, verificationMatches } from './reasoning-verification';
 
 const logger = createLogger('access');
 
@@ -46,8 +52,6 @@ function normalizeEmail(email: string): string {
 // independent second factor that proves client token knowledge - the Origin
 // allowlist (checkVaultOrigin) remains the primary CSRF defense. The token
 // layers on top and leaves room for a future client-echoed double-submit.
-export const CSRF_COOKIE_NAME = 'codeflare_vault_csrf';
-export const CSRF_HEADER_NAME = 'X-Vault-Csrf';
 
 /** Constant-time string equality for the double-submit token compare. */
 async function timingSafeEqualStrings(a: string, b: string): Promise<boolean> {
@@ -708,44 +712,48 @@ export async function resolveAdminAccessGroup(request: Request, env: Env): Promi
  * defaultThinkingLevel). Read ONCE at session start (buildEnvVars is synchronous
  * and cannot await KV) and threaded into the DO alongside userGroups.
  *
- * Setup persists SETUP_KEYS.DYNAMIC_ROUTES (JSON string[]) and
- * SETUP_KEYS.DEFAULT_ROUTE (JSON { route, reasoning }). The default-route rule is
- * kept IDENTICAL to the interceptor's loadRouteCatalog: explicit default if it is
- * in the catalog; else the first configured route; else '' (empty catalog).
+ * Both startup and interception use the same server-verified catalog. Legacy
+ * evidence alone grants no routes. Unmatched users need explicitly enabled
+ * fallback routing in the atomic reasoning document; a stale group policy never
+ * falls through to another group. Default drift prefers Medium, then Off, then
+ * the first supported level of the first eligible route.
  * Returns empty fields when not enterprise so a non-enterprise body is unchanged.
  * REQ-ENTERPRISE-005 (revised: the route name + reasoning grade ARE fanned now).
  */
 export async function loadEnterpriseRouteConfig(
   env: Env,
   groups?: string[],
-): Promise<{ routeCatalog: string[]; defaultRoute: string; defaultReasoning: string; routeContextWindows: Record<string, number> }> {
-  if (!isEnterpriseMode(env)) return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {} };
-  const resolved = await resolveRouteCatalog(env.KV, groups);
-  return { ...resolved, routeContextWindows: await loadRouteContextWindows(env.KV) };
-}
-
-/**
- * REQ-ENTERPRISE-012: the global per-route context-window map (route name -> tokens),
- * persisted under SETUP_KEYS.ROUTE_CONTEXT_WINDOWS. Keyed by route name (not group), so
- * it applies to whatever catalog a session resolves. Validated at the boundary: only
- * positive-integer values survive; a malformed/absent value degrades to an empty map
- * (entrypoint then falls back to DEFAULT_ROUTE_CONTEXT_WINDOW for every route).
- */
-async function loadRouteContextWindows(kv: KVNamespace): Promise<Record<string, number>> {
-  try {
-    const raw = await kv.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS);
-    const parsed = raw ? JSON.parse(raw) : null;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      const out: Record<string, number> = {};
-      for (const [route, win] of Object.entries(parsed)) {
-        if (typeof win === 'number' && Number.isInteger(win) && win > 0) out[route] = win;
-      }
-      return out;
-    }
-  } catch {
-    /* malformed -> empty, entrypoint applies the per-route default */
+): Promise<{
+  routeCatalog: string[];
+  defaultRoute: string;
+  defaultReasoning: string;
+  routeContextWindows: Record<string, number>;
+  routeReasoningLevels: Record<string, PiReasoningLevel[]>;
+}> {
+  if (!isEnterpriseMode(env)) {
+    return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {} };
   }
-  return {};
+  const resolved = await resolveRouteCatalog(env.KV, groups, await getAigConfig(env));
+  if (resolved.routeCatalog.length === 0) return { ...resolved, routeContextWindows: {}, routeReasoningLevels: {} };
+  const [rawConfiguration, rawLegacyRouteSettings] = await Promise.all([
+    env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION),
+    env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS),
+  ]);
+  const configuration = parseReasoningConfiguration(rawConfiguration);
+  const routeReasoningLevels: Record<string, PiReasoningLevel[]> = {};
+  for (const route of resolved.routeCatalog) {
+    const assignment = configuration.routeAssignments[route];
+    if (assignment) routeReasoningLevels[route] = [...getRouteReasoningProfile(configuration, route).supportedLevels];
+  }
+  const routeContextWindows = (() => {
+    try {
+      const windows = parseRouteSettings(rawLegacyRouteSettings ? JSON.parse(rawLegacyRouteSettings) : null).contextWindows;
+      return Object.fromEntries(resolved.routeCatalog.flatMap((route) => windows[route] ? [[route, windows[route]]] : []));
+    } catch {
+      return {};
+    }
+  })();
+  return { ...resolved, routeContextWindows, routeReasoningLevels };
 }
 
 /** Per-group routing entry persisted under SETUP_KEYS.GROUP_ROUTING (REQ-ENTERPRISE-013). */
@@ -758,8 +766,8 @@ interface GroupRoutingEntry {
 /**
  * Apply the locked default-route rule to a (catalog, configuredDefault, reasoning)
  * triple: the explicit default when it is in the catalog (keeping its reasoning grade);
- * else the first catalog route with reasoning OFF (a drifted/unset default never
- * inherits the discarded route's reasoning); else '' for an empty catalog.
+ * else the first catalog route with no inherited level (the caller chooses its
+ * supported preference); else '' for an empty catalog.
  */
 function applyDefaultDrift(
   routeCatalog: string[],
@@ -778,54 +786,51 @@ function applyDefaultDrift(
  * per-request mapping ({@link LlmInterceptor} `loadRouteCatalog`), so the two can
  * never drift. NOT enterprise-gated (callers gate); reads KV directly.
  *
- * REQ-ENTERPRISE-013: when SETUP_KEYS.GROUP_ROUTING is configured and the user matches
- * a configured group (groups arrive in configured-list order from
- * {@link resolveUserAccessGroup}), the FIRST matched group with a non-empty route set
- * overrides the global catalog/default for that user. No groups / no match ⇒ the global
- * SETUP_KEYS.DYNAMIC_ROUTES + DEFAULT_ROUTE, byte-identical to pre-feature behavior.
+ * REQ-ENTERPRISE-013/-043/-044: the first matching policy is selected before
+ * eligibility filtering. Only server-verified routes matching the effective
+ * connection can be returned. Topology is revalidated by admin Verify/Save, not
+ * runtime management requests. No matching group uses
+ * explicitly enabled fallback, never the historical global default mirror.
  */
 export async function resolveRouteCatalog(
   kv: KVNamespace,
   groups?: string[],
+  effectiveGateway?: GatewayConnection,
 ): Promise<{ routeCatalog: string[]; defaultRoute: string; defaultReasoning: string }> {
-  if (groups && groups.length > 0) {
-    let groupRouting: Record<string, GroupRoutingEntry> | null = null;
-    try {
-      const raw = await kv.get(SETUP_KEYS.GROUP_ROUTING);
-      const parsed = raw ? JSON.parse(raw) : null;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        groupRouting = parsed as Record<string, GroupRoutingEntry>;
-      }
-    } catch { /* malformed → no per-group override */ }
-    if (groupRouting) {
-      for (const g of groups) {
-        const entry = groupRouting[g];
-        if (entry && Array.isArray(entry.routes) && entry.routes.length > 0) {
-          const routes = entry.routes.filter((r): r is string => typeof r === 'string');
-          const def = typeof entry.defaultRoute === 'string' ? entry.defaultRoute : null;
-          const reasoning = typeof entry.reasoning === 'string' ? entry.reasoning : '';
-          return applyDefaultDrift(routes, def, reasoning);
-        }
-      }
-    }
-  }
-
-  let routeCatalog: string[] = [];
+  const empty = { routeCatalog: [] as string[], defaultRoute: '', defaultReasoning: '' };
   try {
-    const p = JSON.parse((await kv.get(SETUP_KEYS.DYNAMIC_ROUTES)) ?? '[]');
-    if (Array.isArray(p)) routeCatalog = p.filter((r): r is string => typeof r === 'string');
-  } catch { /* malformed → empty */ }
-  let configuredDefault: string | null = null;
-  let defaultReasoning = '';
-  try {
-    const d = JSON.parse((await kv.get(SETUP_KEYS.DEFAULT_ROUTE)) ?? 'null');
-    if (d && typeof d === 'object') {
-      const rec = d as { route?: unknown; reasoning?: unknown };
-      if (typeof rec.route === 'string') configuredDefault = rec.route;
-      if (typeof rec.reasoning === 'string') defaultReasoning = rec.reasoning;
+    const [rawConfiguration, rawGroups, rawCatalog] = await Promise.all([
+      kv.get(SETUP_KEYS.REASONING_CONFIGURATION), kv.get(SETUP_KEYS.GROUP_ROUTING), kv.get(SETUP_KEYS.DYNAMIC_ROUTES),
+    ]);
+    // Legacy evidence is advisory, never an implicit eligibility migration.
+    if (!rawConfiguration) return empty;
+    const configuration = parseReasoningConfiguration(rawConfiguration);
+    const policies = JSON.parse(rawGroups ?? '{}') as Record<string, GroupRoutingEntry>;
+    const activeRoutes: unknown = JSON.parse(rawCatalog ?? '[]');
+    if (!policies || typeof policies !== 'object' || Array.isArray(policies) || !Array.isArray(activeRoutes)) return empty;
+    const first = groups?.find((group) => Object.hasOwn(policies, group));
+    const fallback = configuration.fallbackRouting;
+    // Select the policy BEFORE filtering. Empty, malformed or ineligible first
+    // matches deny; they cannot grant a later group's or unmatched user's routes.
+    const policy = first !== undefined ? policies[first] : fallback?.enabled ? fallback : undefined;
+    if (!policy || !Array.isArray(policy.routes)) return empty;
+    const connection = effectiveGateway ?? await getAigConfig({ KV: kv } as Env);
+    const eligible: string[] = [];
+    for (const route of new Set(policy.routes)) {
+      if (typeof route !== 'string' || !activeRoutes.includes(route)) continue;
+      const assignment = configuration.routeAssignments[route];
+      if (!assignment?.verification) continue;
+      try {
+        const profile = getRouteReasoningProfile(configuration, route);
+        if (!verificationMatches(assignment.verification, profile, connection)) continue;
+        eligible.push(route);
+      } catch { /* Invalid or unverified saved assignments never activate. */ }
     }
-  } catch { /* malformed → none */ }
-  return applyDefaultDrift(routeCatalog, configuredDefault, defaultReasoning);
+    const resolved = applyDefaultDrift(eligible, typeof policy.defaultRoute === 'string' ? policy.defaultRoute : null, typeof policy.reasoning === 'string' ? policy.reasoning : '');
+    if (!resolved.defaultRoute) return empty;
+    const levels = getRouteReasoningProfile(configuration, resolved.defaultRoute).supportedLevels;
+    return { ...resolved, defaultReasoning: levels.includes(resolved.defaultReasoning as PiReasoningLevel) ? resolved.defaultReasoning : preferredReasoningLevel(levels) ?? '' };
+  } catch { return empty; }
 }
 
 /**

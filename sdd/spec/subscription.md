@@ -833,7 +833,10 @@ Tiers, billing, usage tracking, and quotas.
 1. Organization usage returns a chronological series of existing aggregates bounded to 14 days, 12 weeks, 12 months, or five years. <!-- @impl: src/lib/admin-usage.ts::queryAdminUsageSeries --> <!-- @impl: src/routes/admin/usage.ts::default --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (returns chronological existing history aggregates and deterministic user rows) --> <!-- @test: src/__tests__/routes/admin-usage.test.ts (bounds every history series to its configured period limit) -->
 2. Analytics renders returned history when the selected period has no aggregate row and shows the empty state only when no historical series exists. <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::UsageChart --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (charts earlier history when the selected period has no aggregate row) -->
 
-**Constraints:** History uses existing D1 period rows without synthetic points, a second aggregate table, or a cache.
+3. Selecting a period immediately requests that period’s totals rather than retaining the previous selection’s data. <!-- @impl: web-ui/src/components/admin/AnalyticsPage.tsx::AnalyticsPage --> <!-- @test: web-ui/src/__tests__/components/AnalyticsPage.test.tsx (requests the selected period immediately rather than leaving day totals under a week selection) -->
+4. Overview derives its usage state from the historical usage response, not a static empty-history message. <!-- @impl: web-ui/src/components/admin/AdministrationOverview.tsx::AdministrationOverview --> <!-- @test: web-ui/src/__tests__/components/AdministrationOverview.test.tsx (renders returned history instead of claiming history is empty) -->
+
+**Constraints:** History uses existing D1 period rows without synthetic points, a second aggregate table, or a cache. Weeks start Monday at 00:00 UTC; they are not relabelled as local-time aggregates.
 
 **Priority:** P1
 

@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+"""CI-only real bisync/S3 regression, using isolated files and dummy credentials."""
+import collections
+import http.client
+import http.server
+import os
+from pathlib import Path
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import xml.etree.ElementTree as ET
+from urllib.parse import parse_qs, urlsplit
+
+binary = str(Path(sys.argv[1]).resolve())
+server_binary = str(Path(os.environ["RCLONE_S3_FIXTURE_BINARY"]).resolve())
+counts = collections.Counter()
+metadata_evidence = collections.deque(maxlen=8)
+race_file = None
+race_armed = False
+race_at_list = False
+
+
+def free_port():
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+backend_port = free_port()
+
+
+class Proxy(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *_args):
+        pass
+
+    def forward(self):
+        global race_armed
+        counts[self.command] += 1
+        if self.command == "GET" and ("list-type=" in self.path or "delimiter=" in self.path):
+            counts["LIST"] += 1
+            query = parse_qs(urlsplit(self.path).query)
+            if query.get("max-keys") == ["1"] and query.get("prefix", [""])[0]:
+                counts["COMPLETION_LIST"] += 1
+        query = parse_qs(urlsplit(self.path).query)
+        race_boundary = (self.command == "HEAD" and not race_at_list and self.path.split("?")[0] == "/bucket/racing.jsonl") or (race_at_list and self.command == "GET" and query.get("prefix") == ["racing.jsonl"] and query.get("max-keys") == ["1"])
+        if race_armed and race_boundary:
+            rival = http.client.HTTPConnection("127.0.0.1", backend_port, timeout=30)
+            rival.request("PUT", "/bucket/racing.jsonl", b"other writer\n")
+            response = rival.getresponse()
+            response.read()
+            assert response.status < 300
+            rival.close()
+            race_armed = False
+        data = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        connection = http.client.HTTPConnection("127.0.0.1", backend_port, timeout=30)
+        try:
+            # serve s3 otherwise maps the mtime metadata onto the local file's
+            # LastModified. Real S3 does not: emulate its server-time semantics.
+            # The isolated loopback fixture permits anonymous requests only here.
+            headers = {name: value for name, value in self.headers.items()
+                       if name.lower() not in ("x-amz-meta-mtime", "authorization")}
+            headers["Connection"] = "close"
+            # gofakes3 v0.0.4 has no UploadPartCopy handler. Supply actual source
+            # bytes through its existing multipart store, not a canned success.
+            part_copy = self.command == "PUT" and "partNumber" in query and self.headers.get("x-amz-copy-source")
+            if part_copy:
+                source = http.client.HTTPConnection("127.0.0.1", backend_port, timeout=30)
+                try:
+                    source_headers = {"Range": self.headers["x-amz-copy-source-range"]}
+                    if self.headers.get("x-amz-copy-source-if-match"):
+                        source_headers["If-Match"] = self.headers["x-amz-copy-source-if-match"]
+                    source.request("GET", "/" + part_copy.lstrip("/"), headers=source_headers)
+                    source_response = source.getresponse()
+                    data = source_response.read(8 * 1024 * 1024 + 1)
+                    # gofakes3 emits Content-Range and ranged bytes but leaves
+                    # the status at 200. Require the exact requested range either way.
+                    assert source_response.status in (200, 206), f"Fixture copy source failed: {source_response.status}"
+                    requested = source_headers["Range"].removeprefix("bytes=")
+                    start, end = (int(value) for value in requested.split("-"))
+                    returned = source_response.getheader("Content-Range", "")
+                    assert returned.startswith(f"bytes {start}-{end}/"), f"Fixture returned wrong range: {returned}"
+                    assert len(data) == end - start + 1, "Fixture copy source range was incomplete"
+                    if source_headers.get("If-Match"):
+                        assert source_response.getheader("ETag") == source_headers["If-Match"], "Fixture copy source identity changed"
+                    assert len(data) <= 8 * 1024 * 1024, "Fixture copy part exceeds bounded size"
+                finally:
+                    source.close()
+                headers = {name: value for name, value in headers.items()
+                           if not name.lower().startswith("x-amz-copy-") and name.lower() not in ("content-length", "content-md5", "x-amz-content-sha256")}
+                headers["Content-Length"] = str(len(data))
+            connection.request(self.command, self.path, data, headers)
+            response = connection.getresponse()
+            body = response.read()
+            if part_copy and response.status == 200:
+                assert response.getheader("ETag"), "Fixture upload part omitted its ETag"
+                result = ET.Element("CopyPartResult")
+                ET.SubElement(result, "LastModified").text = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                ET.SubElement(result, "ETag").text = response.getheader("ETag")
+                body = ET.tostring(result, encoding="utf-8")
+            if self.command == "HEAD" and self.path.split("?")[0] == "/bucket/session.jsonl":
+                metadata_evidence.append({"method": "HEAD", "modified": response.getheader("Last-Modified"), "etag": response.getheader("ETag")})
+            elif self.command == "GET" and ("list-type=" in self.path or "delimiter=" in self.path):
+                metadata_evidence.append({"method": "LIST", "body": body[:6000].decode(errors="replace")})
+            if (self.command == "PUT" and "partNumber=" not in self.path or self.command == "POST" and "uploadId=" in self.path) and race_file is not None and self.path.split("?")[0] == "/bucket/racing.jsonl" and response.status < 300:
+                race_armed = True
+            self.send_response(response.status)
+            for name, value in response.getheaders():
+                if name.lower() not in ("connection", "transfer-encoding") and not (part_copy and name.lower() in ("content-length", "content-type")):
+                    self.send_header(name, value)
+            if part_copy:
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Type", "application/xml")
+            self.end_headers()
+            self.wfile.write(body)
+        finally:
+            connection.close()
+
+    do_GET = do_HEAD = do_PUT = do_POST = do_DELETE = forward
+
+
+def test_server_modtime_sync():
+    """REQ-STOR-003 / REQ-STOR-042 / REQ-STOR-043: real per-side bookkeeping, conflict preservation and request bounds."""
+    global race_file, race_at_list
+    with tempfile.TemporaryDirectory(prefix="rclone-bisync-ci-") as directory:
+        root = Path(directory)
+        local = root / "local"
+        local.mkdir()
+        server_root = root / "server"
+        (server_root / "bucket").mkdir(parents=True)
+        (server_root / "ordering").mkdir()
+        proxy = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Proxy)
+        thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+        thread.start()
+        config = root / "rclone.conf"
+        config.write_text(f"[fixture]\ntype = s3\nprovider = Other\naccess_key_id = fixture\nsecret_access_key = fixture\nendpoint = http://127.0.0.1:{proxy.server_port}\nforce_path_style = true\nno_check_bucket = true\nuse_multipart_etag = false\n")
+        server_log = (root / "server.log").open("wb")
+        server = subprocess.Popen([server_binary, "serve", "s3", str(server_root), "--addr", f"127.0.0.1:{backend_port}"], stdout=server_log, stderr=subprocess.STDOUT)
+
+        def run(*args, data=None):
+            result = subprocess.run([binary, "--config", str(config), "--retries", "1", "--low-level-retries", "1", *args], input=data, capture_output=True, timeout=90)
+            if result.returncode:
+                raise RuntimeError(f"rclone {args} failed:\n{result.stderr.decode()}")
+            return result.stdout
+
+        def sync(*args):
+            return run("bisync", str(local), "fixture:bucket", "--workdir", str(root / "state"), "--use-server-modtime", "--fast-list", "--check-sync=false", "--ignore-checksum", "--conflict-resolve", "newer", "--log-level", "DEBUG", "--log-file", str(root / "bisync.log"), *args)
+
+        def listing_snapshot():
+            return {path.name: path.read_text() for path in (root / "state").glob("*.lst")}
+
+        baseline = {}
+
+        try:
+            for _ in range(100):
+                if server.poll() is not None:
+                    raise RuntimeError("S3 fixture exited: " + (root / "server.log").read_text())
+                try:
+                    with socket.create_connection(("127.0.0.1", backend_port), timeout=0.1):
+                        break
+                except OSError:
+                    time.sleep(0.1)
+            else:
+                raise RuntimeError("S3 fixture did not become ready")
+            # S3 lists lexicographically, even when a longer prefix-match is older.
+            run("rcat", "fixture:ordering/key-long", data=b"older\n")
+            time.sleep(0.05)
+            run("rcat", "fixture:ordering/key", data=b"newer\n")
+            connection = http.client.HTTPConnection("127.0.0.1", proxy.server_port, timeout=30)
+            try:
+                connection.request("GET", "/ordering?list-type=2&prefix=key&max-keys=1")
+                response = connection.getresponse()
+                listing = ET.fromstring(response.read())
+                assert response.status == 200
+                assert listing.findtext("{*}Contents/{*}Key") == "key", "S3 fixture must paginate by key, not modification time"
+            finally:
+                connection.close()
+            transcript = local / "session.jsonl"
+            transcript.write_bytes(b"original\n")
+            os.utime(transcript, (time.time() - 600, time.time() - 600))
+            for index in range(12):
+                (local / f"unchanged-{index}").write_text("unchanged\n")
+            # One remote-origin file stays unchanged even with the unpatched bug,
+            # so the all-files-changed guard does not mask the intended reproduction.
+            run("rcat", "fixture:bucket/sentinel", data=b"unchanged remote anchor\n")
+            sync("--resync")
+            baseline = listing_snapshot()
+            time.sleep(1.1)
+            transcript.write_bytes(b"original\nappend\n")
+            before = counts.copy()
+            sync()
+            changed = counts - before
+            conflicts = bool(list(local.glob("*.conflict*"))) or b"conflict" in run("lsf", "fixture:bucket")
+            if "--expect-false-conflict" in sys.argv:
+                assert conflicts, "Unpatched rclone no longer reproduces the bug; review/remove the patch"
+                print("RED: unpatched rclone reproduced an own-upload false conflict")
+                return
+            assert not conflicts, "Own upload caused false conflict copies"
+            assert changed["COMPLETION_LIST"] == 1, f"Expected one exact-destination lookup: {changed}"
+            assert changed["HEAD"] <= 4, f"One upload introduced unrelated HEAD requests: {changed}"
+            assert run("cat", "fixture:bucket/session.jsonl") == transcript.read_bytes()
+            before = counts.copy()
+            sync()
+            idle = counts - before
+            assert idle["COMPLETION_LIST"] == 0, f"Unchanged cycle performed completion lookups: {idle}"
+            assert idle["HEAD"] <= 1, f"Unchanged cycle introduced metadata HEAD scan: {idle}"
+            # Same-size remote edits must still be detected by server modification time.
+            time.sleep(1.1)
+            remote = b"remote--\nchange\n"
+            assert len(remote) == transcript.stat().st_size
+            run("rcat", "fixture:bucket/session.jsonl", data=remote)
+            sync()
+            assert transcript.read_bytes() == remote, "Same-size remote edit was lost"
+            before = counts.copy()
+            sync()
+            remote_idle = counts - before
+            assert remote_idle["PUT"] == 0 and remote_idle["COMPLETION_LIST"] == 0, f"Remote-only edit was recopied: {remote_idle}"
+            assert not list(local.glob("*.conflict*")), "Remote-only edit created conflicts"
+            # Simultaneous divergence must preserve both versions, including the loser.
+            time.sleep(1.1)
+            ours, theirs = b"local divergent\n", b"other divergent\n"
+            transcript.write_bytes(ours)
+            os.utime(transcript, (time.time() - 120, time.time() - 120))
+            run("rcat", "fixture:bucket/session.jsonl", data=theirs)
+            sync()
+            assert transcript.read_bytes() == theirs, "Newer remote version did not win"
+            versions = {path.read_bytes() for path in local.glob("session*")}
+            assert {ours, theirs}.issubset(versions), "Genuine divergent content was discarded"
+            names = set(path.name for path in local.glob("session*"))
+            for _ in range(2):
+                sync()
+                assert set(path.name for path in local.glob("session*")) == names, "Conflict copies multiplied on an unchanged cycle"
+                assert {ours, theirs}.issubset({path.read_bytes() for path in local.glob("session*")})
+            # Exercise both native multipart and generic OpenChunkWriter, at bounded sizes.
+            large = root / "large.bin"
+            large.write_bytes(b"0123456789abcdef" * (6 * 1024 * 1024 // 16))
+            for streams in ("0", "2"):
+                destination = f"fixture:bucket/large-{streams}.bin"
+                run("copyto", str(large), destination, "--use-server-modtime", "--s3-upload-cutoff", "5Mi", "--s3-chunk-size", "5Mi", "--multi-thread-cutoff", "1Mi", "--multi-thread-streams", streams)
+                assert run("cat", destination) == large.read_bytes(), "Large transfer changed content"
+            # Prove multipart server-copy assembly before injecting a competing writer.
+            run("copyto", "fixture:bucket/large-0.bin", "fixture:bucket/copied-large.bin", "--use-server-modtime", "--s3-copy-cutoff", "5Mi")
+            assert run("cat", "fixture:bucket/copied-large.bin") == large.read_bytes(), "Multipart server copy changed content"
+            # Another writer between PUT and HEAD cannot be accepted as our upload.
+            racing_source = root / "racing.jsonl"
+            racing_source.write_bytes(b"our upload--\n")
+            race_file = server_root / "bucket/racing.jsonl"
+            for mode in ("single", "multipart", "multithread", "server-copy", "multipart-server-copy", "after-head"):
+                race_at_list = mode == "after-head"
+                extra = ["--use-server-modtime"]
+                source = str(racing_source)
+                if mode in ("multipart", "multithread"):
+                    source = str(large)
+                    extra += ["--s3-upload-cutoff", "5Mi", "--s3-chunk-size", "5Mi", "--multi-thread-cutoff", "1Mi", "--multi-thread-streams", "0" if mode == "multipart" else "2"]
+                elif mode in ("server-copy", "multipart-server-copy"):
+                    source = "fixture:bucket/large-0.bin"
+                    if mode == "multipart-server-copy":
+                        extra += ["--s3-copy-cutoff", "5Mi"]
+                try:
+                    run("copyto", source, "fixture:bucket/racing.jsonl", *extra)
+                except RuntimeError as error:
+                    assert "object identity changed after upload" in str(error), str(error)
+                else:
+                    raise AssertionError(f"Post-upload writer was silently acknowledged: {mode}")
+                assert race_file.read_bytes() == b"other writer\n", "Concurrent writer was deleted"
+            print(f"PASS: resync, own-upload append, same-size remote edit, divergence, PUT/HEAD race; idle={dict(idle)}, upload={dict(changed)}")
+        except Exception:
+            print(f"Observed S3 metadata: {list(metadata_evidence)}", file=sys.stderr)
+            print(f"Baseline listings: {baseline}", file=sys.stderr)
+            print(f"Current listings: {listing_snapshot()}", file=sys.stderr)
+            log = root / "bisync.log"
+            if log.exists():
+                print(log.read_text()[-100000:], file=sys.stderr)
+            raise
+        finally:
+            server.terminate()
+            server.wait(timeout=10)
+            server_log.close()
+            proxy.shutdown()
+            proxy.server_close()
+
+
+if __name__ == "__main__":
+    test_server_modtime_sync()

@@ -182,6 +182,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   _defaultRoute: string | null = null;
   _defaultReasoning: string | null = null;
   _routeContextWindows: Record<string, number> = {};
+  _routeReasoningLevels: Record<string, string[]> = {};
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null = null;
   /** REQ-GITHUB-004: clone directive (repo owner/name + optional ref) for a
@@ -243,6 +244,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       this._defaultRoute = await this.ctx.storage.get<string>('defaultRoute') || null;
       this._defaultReasoning = await this.ctx.storage.get<string>('defaultReasoning') || null;
       this._routeContextWindows = await this.ctx.storage.get<Record<string, number>>('routeContextWindows') || {};
+      this._routeReasoningLevels = await this.ctx.storage.get<Record<string, string[]>>('routeReasoningLevels') || {};
       // REQ-MEM-001 AC4: restore the user's IANA timezone so the capture
       // pipeline's TZ resolution produces wall-clock filenames after a
       // DO wake (matches the pattern for sessionId / userEmail above).

@@ -1,11 +1,17 @@
 import { A } from '@solidjs/router';
-import { Component, For } from 'solid-js';
+import { Component, For, Show, createResource } from 'solid-js';
+import { getAdminUsage } from '../../api/client';
 import { useAdministration } from './AdministrationLayout';
 import { environmentAreas } from './environment-areas';
 
 const AdministrationOverview: Component = () => {
   const configuration = useAdministration();
   const areas = environmentAreas(configuration);
+  const [usage, { refetch }] = createResource(() => getAdminUsage({ period: 'day', start: new Date().toISOString().slice(0, 10), limit: 1 }));
+  const runtime = () => {
+    const seconds = usage()?.summary.runtimeSeconds ?? 0;
+    return `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m`;
+  };
   const domain = configuration.sections.domain as { customDomain?: string } | undefined;
 
   return (
@@ -39,7 +45,7 @@ const AdministrationOverview: Component = () => {
       <div class="admin-overview-grid">
         <section class="admin-panel">
           <div class="admin-area-list admin-area-list-compact">
-            <For each={areas.slice(0, 6)}>{(area) => (
+            <For each={areas}>{(area) => (
               <A class="admin-area-row admin-area-link" href={`/admin/environment/${area.section}`}>
                 <div>
                   <strong>{area.label}</strong>
@@ -55,12 +61,19 @@ const AdministrationOverview: Component = () => {
           <div class="admin-panel-heading">
             <div>
               <h2>Organization usage</h2>
-              <p>Historical collection starts after D1 rollout.</p>
+              <p>Today’s collected runtime (UTC). Historical snapshots can lag live usage.</p>
             </div>
           </div>
           <div class="admin-empty-compact">
-            <strong>No historical data yet</strong>
-            <p>Current personal usage and quota enforcement continue unchanged.</p>
+            <Show when={!usage.loading} fallback={<p role="status">Loading usage…</p>}>
+              <Show when={!usage.error && usage()} fallback={<><strong>Usage unavailable</strong><button type="button" class="admin-link-button" onClick={() => void refetch()}>Retry</button></>}>
+                <Show when={usage()?.historyUpdatedAt} fallback={<><strong>No collected history yet</strong><p>Live quota usage is tracked separately.</p></>}>
+                  <strong>{runtime()}</strong>
+                  <p>{usage()?.summary.activeUsers} active users · {usage()?.summary.sessionCount} sessions</p>
+                  <p>History updated: {usage()?.historyUpdatedAt}</p>
+                </Show>
+              </Show>
+            </Show>
             <A href="/admin/analytics">Open Analytics</A>
           </div>
         </section>

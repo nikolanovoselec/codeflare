@@ -2,11 +2,14 @@
 import { For, Match, Switch, type Component } from 'solid-js';
 import type { AdministrationMode, ConfigurationSection } from '../../types';
 import { ianaTimezoneOptions } from '../../lib/iana-timezones';
+import AiRoutingFields from './AiRoutingFields';
 
 interface Props {
   section: ConfigurationSection;
   mode: AdministrationMode;
   current: unknown;
+  onReadyChange?: (ready: boolean) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -15,11 +18,6 @@ function record(value: unknown): Record<string, unknown> {
 function text(value: unknown): string { return typeof value === 'string' ? value : ''; }
 function list(value: unknown): string[] { return Array.isArray(value) ? value.map(String) : []; }
 function lines(value: unknown): string { return list(value).join('\n'); }
-function json(value: unknown, fallback: unknown): string { return JSON.stringify(value ?? fallback, null, 2); }
-function groupRouting(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value;
-  return Object.entries(record(value)).map(([accessGroup, routing]) => ({ accessGroup, ...record(routing) }));
-}
 
 const EnvironmentAreaFields: Component<Props> = (props) => {
   const current = () => record(props.current);
@@ -41,14 +39,7 @@ const EnvironmentAreaFields: Component<Props> = (props) => {
         : textarea('allowedUsers', 'Allowed user emails, one per line', lines(current().allowedUsers))}
     </Match>
     <Match when={props.section === 'domain'}>{field('customDomain', 'Custom domain')}</Match>
-    <Match when={props.section === 'aiRouting'}>
-      {field('gatewayUrl', 'AI Gateway URL')}{field('replacementToken', 'Replacement API token', 'password', '')}
-      {textarea('dynamicRoutes', 'Route catalog, one route per line', lines(current().dynamicRoutes))}
-      {field('defaultRoute', 'Default route', 'text', record(current().defaultRoute).route)}
-      <label class="admin-form-field"><span>Default reasoning</span><select name="reasoning" value={text(record(current().defaultRoute).reasoning) || 'off'}><For each={['off','minimal','low','medium','high','xhigh','max']}>{(item) => <option value={item}>{item}</option>}</For></select></label>
-      {textarea('routeContextWindows', 'Route context windows (JSON object)', json(current().routeContextWindows, {}))}
-      {textarea('groupRouting', 'Per-group routing (JSON array)', json(groupRouting(current().groupRouting), []))}
-    </Match>
+    <Match when={props.section === 'aiRouting'}><AiRoutingFields current={props.current} onReadyChange={props.onReadyChange} onDirtyChange={props.onDirtyChange} /></Match>
     <Match when={props.section === 'codingAgents'}>
       <div class="admin-form-wide"><span class="admin-field-label">Active agents</span><div class="admin-checkbox-list"><For each={list(current().configurableAgents)}>{(agent) => <label class="admin-toggle-field"><input type="checkbox" name="activeAgents" value={agent} checked={list(current().activeAgents).includes(agent)} /><span>{agent}</span></label>}</For></div></div>
     </Match>
@@ -75,6 +66,15 @@ function split(value: FormDataEntryValue | null): string[] {
 }
 function value(data: FormData, key: string): string { return String(data.get(key) ?? '').trim(); }
 function checked(data: FormData, key: string): boolean { return data.has(key); }
+function parsed(data: FormData, key: string, fallback: unknown): unknown {
+  const raw = value(data, key);
+  return raw ? JSON.parse(raw) : fallback;
+}
+function routeContextWindows(data: FormData): Record<string, number> {
+  const routes = data.getAll('routeContextRoute').map(String);
+  const windows = data.getAll('routeContextWindow').map((item) => Number(item));
+  return Object.fromEntries(routes.map((route, index) => [route, windows[index]]));
+}
 
 export function environmentValues(section: ConfigurationSection, mode: AdministrationMode, data: FormData): unknown {
   switch (section) {
@@ -82,7 +82,17 @@ export function environmentValues(section: ConfigurationSection, mode: Administr
       ? { adminUsers: split(data.get('adminUsers')), userAccessGroups: split(data.get('userAccessGroups')), adminAccessGroups: split(data.get('adminAccessGroups')) }
       : { adminUsers: split(data.get('adminUsers')), allowedUsers: split(data.get('allowedUsers')) };
     case 'domain': return { customDomain: value(data, 'customDomain') };
-    case 'aiRouting': return { gatewayUrl: value(data, 'gatewayUrl'), replacementToken: value(data, 'replacementToken'), dynamicRoutes: split(data.get('dynamicRoutes')), defaultRoute: { route: value(data, 'defaultRoute'), reasoning: value(data, 'reasoning') }, routeContextWindows: JSON.parse(value(data, 'routeContextWindows')), groupRouting: JSON.parse(value(data, 'groupRouting')) };
+    case 'aiRouting': return {
+      gatewayUrl: value(data, 'gatewayUrl'),
+      replacementToken: value(data, 'replacementToken'),
+      dynamicRoutes: data.getAll('dynamicRoutes').map(String),
+      defaultRoute: { route: value(data, 'defaultRoute'), reasoning: value(data, 'reasoning') },
+      routeContextWindows: routeContextWindows(data),
+      reasoningConfiguration: parsed(data, 'reasoningConfiguration', { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} }),
+      groupRouting: parsed(data, 'groupRouting', []),
+      ...(data.has('fallbackRouting') && { fallbackRouting: parsed(data, 'fallbackRouting', { enabled: false }) }),
+      ...(data.has('routeChecks') && { routeChecks: parsed(data, 'routeChecks', {}) }),
+    };
     case 'codingAgents': return { activeAgents: data.getAll('activeAgents').map(String) };
     case 'browserRendering': return { accountId: value(data, 'accountId'), replacementToken: value(data, 'replacementToken') };
     case 'securityEgress': return { strictGatewayEgress: checked(data, 'strictGatewayEgress') };

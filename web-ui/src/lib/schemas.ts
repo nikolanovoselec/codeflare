@@ -3,6 +3,126 @@ import { z } from 'zod';
 // Agent type enum
 export const AgentTypeSchema = z.enum(['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash']);
 
+export const PiReasoningLevelSchema = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+export const ReasoningScalarSchema = z.union([z.string(), z.number().finite(), z.boolean(), z.null()]);
+export const ProfileRevisionRefSchema = z.object({
+  id: z.string().min(1),
+  revision: z.number().int().positive(),
+  hash: z.string().regex(/^[0-9a-f]{64}$/),
+});
+
+const ReasoningMappingSchema = z.object({
+  removePaths: z.array(z.string()),
+  writes: z.array(z.object({ path: z.string(), value: ReasoningScalarSchema })),
+});
+
+const ReasoningEvidenceSchema = z.object({
+  id: z.string().optional(),
+  status: z.string().optional(),
+  current: z.boolean().optional(),
+  toolReplay: z.boolean().optional(),
+  observedAt: z.string().optional(),
+}).passthrough();
+
+const ReasoningProfileCatalogEntrySchema = ProfileRevisionRefSchema.extend({
+  name: z.string().optional(),
+  description: z.string().optional(),
+  family: z.string().optional(),
+  enabled: z.boolean().optional(),
+  assignable: z.boolean().optional(),
+  classification: z.string().optional(),
+  ingressContract: z.string().optional(),
+  supportedLevels: z.array(PiReasoningLevelSchema),
+  unsupportedLevels: z.array(PiReasoningLevelSchema).optional(),
+  levels: z.partialRecord(PiReasoningLevelSchema, z.array(z.object({ path: z.string(), value: ReasoningScalarSchema }))).optional(),
+  aliases: z.partialRecord(PiReasoningLevelSchema, PiReasoningLevelSchema).optional(),
+  removePaths: z.array(z.string()).optional(),
+  offSemantics: z.union([
+    z.string(),
+    z.object({ status: z.string().optional(), path: z.string().optional(), value: ReasoningScalarSchema.optional() }),
+  ]).optional(),
+  limitations: z.array(z.string()).optional(),
+  validatedTransports: z.array(z.string()).optional(),
+  toolCompatibility: z.object({
+    status: z.string().optional(),
+    levels: z.array(PiReasoningLevelSchema).optional(),
+  }).passthrough().optional(),
+  originallyCreatedAgainst: z.record(z.string(), z.unknown()).optional(),
+  validatedAgainst: z.array(z.record(z.string(), z.unknown())).optional(),
+}).passthrough().transform((profile) => ({ ...profile, name: profile.name ?? profile.id }));
+
+const ReasoningCompatibilityNoticeSchema = z.object({
+  id: z.string(),
+  name: z.string().optional(),
+  title: z.string().optional(),
+  assignable: z.literal(false),
+  summary: z.string().optional(),
+  classification: z.string().optional(),
+  limitations: z.array(z.string()).optional(),
+}).passthrough().transform((notice) => ({ ...notice, name: notice.name ?? notice.title ?? notice.id }));
+
+export const ReasoningCatalogSchema = z.object({
+  schemaVersion: z.literal(1),
+  profiles: z.array(ReasoningProfileCatalogEntrySchema),
+  notices: z.array(ReasoningCompatibilityNoticeSchema),
+  usage: z.array(z.object({ profileRef: ProfileRevisionRefSchema, routes: z.array(z.string()) })),
+  routes: z.array(z.string()),
+  routeCatalogStatus: z.enum(['ready', 'unavailable']),
+  connection: z.object({ status: z.enum(['ready', 'missing', 'permission-denied', 'unavailable']), message: z.string() }).optional(),
+});
+
+const ReasoningRouteLegSchema = z.object({
+  nodeId: z.string(),
+  provider: z.string(),
+  declaredModel: z.string(),
+  customProviderBackend: z.string().optional(),
+  profileRef: ProfileRevisionRefSchema.optional(),
+  evidence: ReasoningEvidenceSchema.optional(),
+  paths: z.array(z.string()).optional(),
+}).passthrough();
+
+const ReasoningRouteVerificationSchema = z.object({
+  schemaVersion: z.literal(1),
+  profileRef: ProfileRevisionRefSchema,
+  routeVersion: z.string(),
+  inventoryDigest: z.string(),
+  connectionFingerprint: z.string(),
+  canaryVersion: z.string(),
+  supportedLevels: z.array(PiReasoningLevelSchema),
+  scope: z.enum(['single-model', 'observed-path']),
+  checkedAt: z.string(),
+});
+
+export const ReasoningRouteInventorySchema = z.object({
+  inventoryDigest: z.string().optional(),
+  verification: ReasoningRouteVerificationSchema.optional(),
+  route: z.string().optional(),
+  routeVersion: z.string().optional(),
+  versionId: z.string().optional(),
+  legs: z.array(ReasoningRouteLegSchema),
+  paths: z.array(z.record(z.string(), z.unknown())).optional(),
+  commonMapping: z.object({
+    levels: z.partialRecord(PiReasoningLevelSchema, ReasoningMappingSchema),
+    digest: z.string(),
+  }).optional(),
+  commonLevels: z.array(PiReasoningLevelSchema).optional(),
+  warnings: z.array(z.string()).optional(),
+}).passthrough();
+
+export const ReasoningDiscoveryResultSchema = z.object({
+  checkId: z.string().optional(),
+  verification: ReasoningRouteVerificationSchema.optional(),
+  classification: z.string(),
+  warnings: z.array(z.string()).optional(),
+  accounting: z.object({
+    logicalProbes: z.number().int().nonnegative().optional(),
+    httpAttempts: z.number().int().nonnegative().optional(),
+  }).passthrough().optional(),
+  supportedLevels: z.array(PiReasoningLevelSchema).optional(),
+  evidence: ReasoningEvidenceSchema.optional(),
+  normalizedDraft: z.record(z.string(), z.unknown()).optional(),
+}).passthrough();
+
 // Canonical TabConfigSchema definition (single source of truth, CF-018).
 // The worker copy (src/lib/schemas.ts) re-exports this exact object so both
 // build targets share one definition. This module stays pure Zod (no DOM/Solid
@@ -227,6 +347,7 @@ export const SetupPrefillResponseSchema = z.object({
   defaultRoute: z.object({ route: z.string(), reasoning: RouteReasoningSchema }).nullable().default(null),
   // REQ-ENTERPRISE-012: per-route context window map (route name -> tokens).
   routeContextWindows: z.record(z.string(), z.number()).default({}),
+  routeReasoningProfiles: z.record(z.string(), z.enum(['workers-ai-gpt-oss', 'workers-ai-glm-5.3', 'workers-ai-kimi-k2.6'])).default({}),
   // REQ-BROWSER-007: admin Browser Rendering token state (masked — the server returns
   // only whether it is set, never the token) + the non-secret account id.
   browserRenderTokenSet: z.boolean().default(false),

@@ -6,6 +6,8 @@ import type { AuthVariables } from '../../middleware/auth';
 import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 import { SETUP_KEYS } from '../../lib/kv-keys';
+import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
+import { serializeReasoningConfiguration } from '../../lib/reasoning-configuration';
 
 let mockRole = 'admin';
 let mockAuthReject = false;
@@ -125,6 +127,51 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     expect(body.activeRunId).toBe('run-1');
     expect(JSON.stringify(body)).not.toContain('deployment-secret-must-not-leak');
     expect(body.sections.cloudflareConnection).toBeUndefined();
+  });
+
+  it('round-trips the canonical reasoning configuration stored by Administration', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
+    const activeProfile = getBuiltInProfileRef('workers-ai-glm-thinking');
+    const reasoningConfiguration = {
+      schemaVersion: 1 as const,
+      customProfileRevisions: [],
+      routeAssignments: {
+        development: {
+          activeProfile,
+          routeVersion: 'route-v2',
+          legs: [{ nodeId: 'primary', provider: 'workers-ai', declaredModel: 'glm', profileRef: activeProfile }],
+        },
+      },
+    };
+    await kv.put(SETUP_KEYS.REASONING_CONFIGURATION, serializeReasoningConfiguration(reasoningConfiguration));
+    await kv.put(SETUP_KEYS.DYNAMIC_ROUTES, JSON.stringify(['development']));
+    await kv.put(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, JSON.stringify({ development: 262144 }));
+
+    const response = await app.request('/admin/configuration');
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.sections.aiRouting.reasoningConfiguration).toEqual(reasoningConfiguration);
+    expect(body.sections.aiRouting.routeReasoningProfiles).toEqual({ development: 'workers-ai-glm-thinking' });
+  });
+
+  it('surfaces malformed legacy reasoning storage as a non-persisted migration error', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
+    await kv.put(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, '{not-json');
+    vi.mocked(kv.put).mockClear();
+
+    const response = await app.request('/admin/configuration');
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.sections.aiRouting.reasoningConfiguration.routeAssignments).toEqual({});
+    expect(body.sections.aiRouting.reasoningMigration).toEqual({
+      persisted: false,
+      errors: [expect.objectContaining({ code: 'legacy_configuration_malformed' })],
+    });
+    expect(kv.put).not.toHaveBeenCalled();
+    expect(kv.delete).not.toHaveBeenCalled();
+    expect(await kv.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS)).toBe('{not-json');
   });
 
   it('prefers Administration secret state and reads direct latest summaries without listing Activity', async () => {

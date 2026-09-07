@@ -45,8 +45,9 @@ export function buildConfigurePayload(state: SetupState): Record<string, unknown
       defaultRoute: state.defaultRouteName || state.dynamicRoutes[0]
         ? { route: state.defaultRouteName || state.dynamicRoutes[0], reasoning: state.defaultRouteName ? state.defaultRouteReasoning : 'off' }
         : null,
-      // REQ-ENTERPRISE-012: per-route context windows (route name -> tokens).
+      // REQ-ENTERPRISE-012 / REQ-ENTERPRISE-031: per-route context and reasoning protocol.
       routeContextWindows: state.routeContextWindows,
+      routeReasoningProfiles: state.routeReasoningProfiles,
       // REQ-BROWSER-007: a blank token => backend keeps the existing one (no clobber).
       browserRenderToken: state.cloudflareBrowserToken,
       browserRenderAccountId: state.cloudflareBrowserAccountId,

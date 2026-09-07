@@ -888,7 +888,20 @@ relay_managed_pi_extensions() {
 # Step 2: Establish bisync baseline (after data is restored)
 # IMPORTANT: Uses timeout to prevent infinite hangs
 # Recovery: if a vanishing file causes failure, excludes it and retries (max 3 attempts)
+record_sync_disk_failure() {
+    if grep -Eiq 'no space left on device|preallocate: file too big for remaining disk space' "$1"; then
+        BISYNC_DISK_BLOCKED=1
+        touch "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" || echo "[sync] Cannot persist disk-space block; retaining in-memory block" >&2
+        update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry." || echo "[sync] Cannot publish disk-space status; sync remains blocked" >&2
+    fi
+    return 0
+}
+
 establish_bisync_baseline() {
+    if [ "${BISYNC_DISK_BLOCKED:-0}" = "1" ] || [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
+        echo "[sync] Recovery blocked by disk space; free space and explicitly clear the disk-space-blocked marker before resync"
+        return 1
+    fi
     local BISYNC_TIMEOUT=600  # 10 minutes max for baseline (large buckets with many files)
     local MAX_RECOVERY=3
 
@@ -921,6 +934,11 @@ establish_bisync_baseline() {
         fi
         cat "$BASELINE_OUTPUT" >> $CODEFLARE_RUNTIME_ROOT/sync/sync.log
         cat "$BASELINE_OUTPUT" >&2
+        record_sync_disk_failure "$BASELINE_OUTPUT"
+        if [ "${BISYNC_DISK_BLOCKED:-0}" = "1" ] || [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
+            rm -f "$BASELINE_OUTPUT"
+            return 1
+        fi
 
         if [ $SYNC_RESULT -eq 0 ]; then
             rm -f "$BASELINE_OUTPUT"
@@ -988,6 +1006,10 @@ release_agent_pty_after_cleanup() {
 # Regular bisync (after baseline is established)
 # Syncs config, credentials. Workspace included when SYNC_MODE=full; caches always excluded.
 bisync_with_r2() {
+    if [ "${BISYNC_DISK_BLOCKED:-0}" = "1" ] || [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
+        echo "[sync] Sync blocked by disk space; explicit recovery is required"
+        return 1
+    fi
     local verbose_flag="${1:--v}"  # Default to -v (verbose); pass "" for quiet
     local verbose_args=()
     if [ -n "$verbose_flag" ]; then
@@ -1045,9 +1067,9 @@ bisync_with_r2() {
     # Note: SYNC_OUTPUT ($CODEFLARE_RUNTIME_ROOT/sync/last-bisync-output.txt) is NOT deleted here.
     # The daemon reads it for vanishing-file recovery. It's overwritten each invocation.
 
-    # Auto-clean conflict artifacts after successful bisync
+    record_sync_disk_failure "$SYNC_OUTPUT"
+    # Conflict copies may contain unique user content; never delete them blindly.
     if [ $RESULT -eq 0 ]; then
-        find /home/user -name "*.conflict*" -type f -delete 2>/dev/null || true
         # A sync that rewrote a hook from R2 dropped its exec bit; restore it here so
         # the window is seconds rather than the rest of the daemon cycle.
         repair_hook_exec_bits
@@ -1088,6 +1110,8 @@ start_sync_daemon() {
             BISYNC_IN_FLIGHT=
             # shellcheck disable=SC2064
             trap 'if [ -n "$BISYNC_IN_FLIGHT" ]; then BISYNC_RERUN_REQUESTED=1; else BISYNC_REQUESTED=1; fi' USR1
+            BISYNC_RECOVERY_REQUESTED=0
+            trap 'BISYNC_RECOVERY_REQUESTED=1; if [ -n "$BISYNC_IN_FLIGHT" ]; then BISYNC_RERUN_REQUESTED=1; else BISYNC_REQUESTED=1; fi' USR2
             CONSECUTIVE_FAILURES=0
             TRAP_INSTALLED=1
         fi
@@ -1120,6 +1144,18 @@ start_sync_daemon() {
 
         BISYNC_IN_FLIGHT=1
 
+        if [ "$BISYNC_RECOVERY_REQUESTED" = "1" ]; then
+            # Only the authenticated, user-driven Sync now endpoint requests recovery.
+            rm -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked"
+            BISYNC_DISK_BLOCKED=0
+            BISYNC_RECOVERY_REQUESTED=0
+        fi
+        if [ "${BISYNC_DISK_BLOCKED:-0}" = "1" ] || [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
+            update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry." || echo "[sync] Cannot publish disk-space status; sync remains blocked" >&2
+            BISYNC_IN_FLIGHT=
+            continue
+        fi
+
         # Rotate sync log if too large (keep last 256KB when exceeding 512KB)
         if [ -f $CODEFLARE_RUNTIME_ROOT/sync/sync.log ] && [ "$(stat -c%s $CODEFLARE_RUNTIME_ROOT/sync/sync.log 2>/dev/null || echo 0)" -gt 524288 ]; then
             tail -c 262144 $CODEFLARE_RUNTIME_ROOT/sync/sync.log > $CODEFLARE_RUNTIME_ROOT/sync/sync.log.tmp && mv $CODEFLARE_RUNTIME_ROOT/sync/sync.log.tmp $CODEFLARE_RUNTIME_ROOT/sync/sync.log
@@ -1143,6 +1179,11 @@ start_sync_daemon() {
             echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync completed successfully" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
             update_sync_status "success" "null"
         else
+            if [ "${BISYNC_DISK_BLOCKED:-0}" = "1" ] || [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
+                update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry." || echo "[sync] Cannot publish disk-space status; sync remains blocked" >&2
+                BISYNC_IN_FLIGHT=
+                continue
+            fi
             # Try vanishing-file recovery before counting as failure
             if recover_vanished_files "$(cat $CODEFLARE_RUNTIME_ROOT/sync/last-bisync-output.txt 2>/dev/null)"; then
                 echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Vanished file recovered, retrying immediately..." | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
@@ -2715,6 +2756,8 @@ update_pi_and_codex_when_fast_start_disabled() {
     fi
 
     local npm_tools_dir before_pi before_codex after_pi after_codex update_failed=0
+    local update_cache
+    update_cache="$(mktemp -d "${CODEFLARE_RUNTIME_ROOT:-${TMPDIR:-/tmp}}/npm-update.XXXXXX")" || return 1
     local pi_installed=false codex_installed=false runtime_update_succeeded=false
     local specs=()
     npm_tools_dir="${CODEFLARE_NPM_TOOLS_DIR:-/opt/codeflare/npm-tools}"
@@ -2728,7 +2771,7 @@ update_pi_and_codex_when_fast_start_disabled() {
             echo "[entrypoint] ERROR: Could not read Pi version before update"
             update_failed=1
         fi
-        if ! PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi update --extensions; then
+        if ! npm_config_cache="$update_cache" PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi update --extensions; then
             echo "[entrypoint] ERROR: Pi package update failed"
             update_failed=1
         fi
@@ -2750,7 +2793,8 @@ update_pi_and_codex_when_fast_start_disabled() {
     fi
 
     if [ "${#specs[@]}" -gt 0 ]; then
-        if npm install --prefix "$npm_tools_dir" --omit=dev --save-exact --ignore-scripts --no-audit --no-fund "${specs[@]}"; then
+        if node /opt/codeflare/scripts/coding-agent-selection.mjs select-manifest "${CODEFLARE_CODING_AGENTS:-}" "$npm_tools_dir/package.json" && \
+           npm_config_cache="$update_cache" npm install --prefix "$npm_tools_dir" --omit=dev --save-exact --ignore-scripts --no-audit --no-fund "${specs[@]}"; then
             runtime_update_succeeded=true
             hash -r
         else
@@ -2759,6 +2803,27 @@ update_pi_and_codex_when_fast_start_disabled() {
             update_failed=1
         fi
     fi
+
+    if [ "$pi_installed" = true ]; then
+        if ! node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-runtime "$npm_tools_dir/node_modules/@earendil-works/pi-coding-agent/package.json"; then
+            echo "[entrypoint] Incomplete runtime; repairing Pi dependencies from the lockfile"
+            if npm_config_cache="$update_cache" npm install --package-lock-only --prefix "$npm_tools_dir" --omit=dev --ignore-scripts --no-audit --no-fund && \
+               npm_config_cache="$update_cache" npm ci --prefix "$npm_tools_dir" --omit=dev --ignore-scripts --no-audit --no-fund && \
+               node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-runtime "$npm_tools_dir/node_modules/@earendil-works/pi-coding-agent/package.json"; then
+                runtime_update_succeeded=true
+                hash -r
+            else
+                echo "[entrypoint] ERROR: Pi dependency repair failed; the runtime is incomplete"
+                runtime_update_succeeded=false
+                update_failed=1
+            fi
+        fi
+        if ! node /opt/codeflare/scripts/verify-pi-lockstep.mjs --reset-runtime-jiti "$CODEFLARE_RUNTIME_ROOT"; then
+            echo "[entrypoint] ERROR: Could not isolate the updated Pi jiti cache"
+            update_failed=1
+        fi
+    fi
+    rm -rf -- "$update_cache"
 
     if [ "$runtime_update_succeeded" = true ] && [ "$pi_installed" = true ]; then
         if after_pi="$(PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi --version 2>&1)"; then
@@ -3204,12 +3269,33 @@ COPILOT_BYOK_EOF
     # for the unset case, where the default `{` + the stray `}` happened to form `{}`.
     ENTERPRISE_ROUTE_CONTEXT_WINDOWS="${ENTERPRISE_ROUTE_CONTEXT_WINDOWS:-}"
     [ -n "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" ] || ENTERPRISE_ROUTE_CONTEXT_WINDOWS='{}'
+    ENTERPRISE_ROUTE_REASONING_LEVELS="${ENTERPRISE_ROUTE_REASONING_LEVELS:-}"
+    [ -n "$ENTERPRISE_ROUTE_REASONING_LEVELS" ] || ENTERPRISE_ROUTE_REASONING_LEVELS='{}'
     PI_MODELS_ARRAY="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -c \
         --arg defroute "$ENTERPRISE_DEFAULT_ROUTE" \
+        --arg defaultreasoning "$ENTERPRISE_DEFAULT_REASONING" \
         --argjson cw "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" \
+        --argjson routelevels "$ENTERPRISE_ROUTE_REASONING_LEVELS" \
         --argjson dflt 256000 '
+        def canonical_levels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
         (if type=="array" and length>0 then . else [$defroute] end)
-        | map({ id: ., reasoning: true, input: ["text", "image"], contextWindow: ($cw[.] // $dflt) })' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
+        | if ($defaultreasoning != "") and ((($routelevels[$defroute] // []) | index($defaultreasoning)) == null)
+          then error("default reasoning is not supported by the default route")
+          else .
+          end
+        | map(. as $route | {
+            id: $route,
+            reasoning: true,
+            thinkingLevelMap: (($routelevels[$route]) as $levels
+                | if (($levels | type) != "array") or (($levels | length) == 0)
+                    or ($levels | any(. as $level | (canonical_levels | index($level)) == null))
+                    or (($levels | unique | length) != ($levels | length))
+                  then error("missing or invalid route reasoning levels for \($route)")
+                  else ($levels | map({key: ., value: .}) | from_entries)
+                  end),
+            input: ["text", "image"],
+            contextWindow: ($cw[$route] // $dflt)
+        })' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
     PI_PROVIDER_CONFIG=""
     if [ "$PI_GATEWAY_CONFIG_OK" = "1" ]; then
         PI_PROVIDER_CONFIG="$(jq -n \
@@ -3222,7 +3308,7 @@ COPILOT_BYOK_EOF
                     api: "openai-completions",
                     apiKey: $apiKey,
                     authHeader: true,
-                    compat: { supportsDeveloperRole: false },
+                    compat: { supportsDeveloperRole: false, supportsReasoningEffort: true },
                     models: $models
                 }
             }

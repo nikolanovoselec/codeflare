@@ -307,6 +307,12 @@ const StorageBrowser: Component = () => {
         />
       </div>
 
+      <Show when={sessionStore.sessions.some((session) => session.status === 'running' && sessionStore.getMetricsForSession(session.id)?.syncStatus === 'failed')}>
+        <div class="storage-sync-notice storage-sync-notice--error" role="status" aria-live="polite">
+          Sync failed. If local disk is full, free local space, then click the cloud Sync now button to retry. Deleting only from R2 does not immediately free local disk space.
+        </div>
+      </Show>
+
       {/* REQ-STOR-015: ephemeral notice for sync results that the user
           should see beyond a tooltip-on-hover. Only renders for the
           two non-trivial outcomes: no running sessions (the trigger

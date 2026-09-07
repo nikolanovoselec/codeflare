@@ -21,6 +21,9 @@ import {
   getAdminConfiguration,
   getAdminUsage,
   getAdminUsageUser,
+  getReasoningCatalog,
+  getReasoningRouteInventory,
+  discoverReasoningCompatibility,
   getConfigurationRun,
   getConfigurationRuns,
   getUsageReportDeliveries,
@@ -1357,6 +1360,35 @@ describe('API Client', () => {
       expect(mockFetch.mock.calls.every(([, options]) => options.credentials === 'same-origin')).toBe(true);
     });
 
+    it('validates exact reasoning catalog, inventory, and discovery contracts', async () => {
+      const hash = 'a'.repeat(64);
+      mockFetch
+        .mockResolvedValueOnce(response({
+          schemaVersion: 1,
+          profiles: [{ id: 'workers-ai-glm-thinking', name: 'GLM thinking', revision: 1, hash, supportedLevels: ['off', 'medium'] }],
+          notices: [{ id: 'gpt-oss-tool-replay', title: 'GPT-OSS tool replay unsupported', assignable: false }],
+          usage: [{ profileRef: { id: 'workers-ai-glm-thinking', revision: 1, hash }, routes: ['development'] }],
+          routes: ['development'],
+          routeCatalogStatus: 'ready',
+        }))
+        .mockResolvedValueOnce(response({ schemaVersion: 1, route: 'development', routeVersion: 'route-v1', legs: [{ nodeId: 'primary', provider: 'workers-ai', declaredModel: '@cf/zai-org/glm' }], paths: [], warnings: [] }))
+        .mockResolvedValueOnce(response({ classification: 'Verified', accounting: { logicalProbes: 2, httpAttempts: 3 }, normalizedDraft: { schemaVersion: 1 } }))
+        .mockResolvedValueOnce(response({ route: 'development', classification: 'Verified', assignable: true, matchedCandidateProfileId: 'workers-ai-glm-thinking', profileDraft: { schemaVersion: 1 } }));
+
+      const catalog = await getReasoningCatalog();
+      await getReasoningRouteInventory('development');
+      await discoverReasoningCompatibility({ route: 'development', profileRef: { id: 'workers-ai-glm-thinking', revision: 1, hash }, maxCompletionTokens: 32 });
+      const generated = await discoverReasoningCompatibility({ route: 'development', maxCompletionTokens: 512 });
+
+      expect(catalog.notices[0].name).toBe('GPT-OSS tool replay unsupported');
+      expect(catalog.routes).toEqual(['development']);
+      expect(mockFetch).toHaveBeenNthCalledWith(1, '/api/admin/reasoning/catalog', expect.objectContaining({ credentials: 'same-origin' }));
+      expect(mockFetch).toHaveBeenNthCalledWith(2, '/api/admin/reasoning/routes/development/inventory', expect.objectContaining({ credentials: 'same-origin' }));
+      expect(mockFetch).toHaveBeenNthCalledWith(3, '/api/admin/reasoning/discover', expect.objectContaining({ method: 'POST', body: JSON.stringify({ route: 'development', profileRef: { id: 'workers-ai-glm-thinking', revision: 1, hash }, maxCompletionTokens: 32 }) }));
+      expect(mockFetch).toHaveBeenNthCalledWith(4, '/api/admin/reasoning/discover', expect.objectContaining({ method: 'POST', body: JSON.stringify({ route: 'development', maxCompletionTokens: 512 }) }));
+      expect(generated.profileDraft).toEqual({ schemaVersion: 1 });
+    });
+
     it('submits exact preview, run, and report-test contracts', async () => {
       mockFetch
         .mockResolvedValueOnce(response({ section: 'domain', baseRevision: 1, currentRevision: 1, changes: [], tasks: [], warnings: [], exclusions: [] }))
@@ -1372,6 +1404,16 @@ describe('API Client', () => {
       expect(mockFetch).toHaveBeenNthCalledWith(1, '/api/admin/configuration-previews', expect.objectContaining({ method: 'POST', body }));
       expect(mockFetch).toHaveBeenNthCalledWith(2, '/api/admin/configuration-runs', expect.objectContaining({ method: 'POST', body, credentials: 'same-origin' }));
       expect(mockFetch).toHaveBeenNthCalledWith(3, '/api/admin/usage-report-tests', expect.objectContaining({ method: 'POST' }));
+    });
+
+    it('submits explicit warning confirmations with the reviewed revision', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, status: 202 });
+      const values = { dynamicRoutes: ['development'] };
+      await startConfigurationRun('aiRouting', 7, values, ['reasoning_profile_unverified']);
+      expect(mockFetch).toHaveBeenCalledWith('/api/admin/configuration-runs', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ section: 'aiRouting', baseRevision: 7, values, confirmedWarnings: ['reasoning_profile_unverified'] }),
+      }));
     });
 
     it('returns a typed configuration conflict from a failed run request', async () => {
