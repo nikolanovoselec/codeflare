@@ -150,7 +150,7 @@ describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
   it('pins the reviewed upstream release and retains no source-override machinery', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
-    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.7.1');
+    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.8.0');
     assert.equal(lock.packages['node_modules/@juicesharp/rpiv-todo'].version, '2.7.1');
     assert.equal(
       lock.packages['node_modules/@juicesharp/rpiv-todo'].integrity,
