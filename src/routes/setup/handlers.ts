@@ -12,6 +12,8 @@ import { isEnterpriseMode } from '../../lib/subscription';
 import { isOnboardingLandingPageActive } from '../../lib/onboarding';
 import { readActiveAgents, installedAgents, CONFIGURABLE_ENTERPRISE_AGENTS } from '../../lib/agent-allowlist';
 import { getManagedEnvironmentPrefill } from '../../lib/remote-curation';
+import { parseRouteSettings } from '../../lib/reasoning-profiles';
+import { migrateLegacyReasoningAssignments, parseReasoningConfiguration } from '../../lib/reasoning-configuration';
 
 const statusRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 30, keyPrefix: 'setup-status' });
 const detectTokenRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 10, keyPrefix: 'setup-detect-token' });
@@ -176,8 +178,31 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     // prefills each route's field (the wizard fills DEFAULT_ROUTE_CONTEXT_WINDOW for any
     // route absent from this map).
     let routeContextWindows: Record<string, number> = {};
+    let routeReasoningProfiles: Record<string, string> = {};
+    let reasoningConfiguration: unknown = { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} };
+    let reasoningMigration: unknown;
     try {
-      routeContextWindows = (await c.env.KV.get<Record<string, number>>(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, 'json')) ?? {};
+      const storedRouteSettings = await c.env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS);
+      let rawSettings: unknown = {};
+      if (storedRouteSettings) {
+        try { rawSettings = JSON.parse(storedRouteSettings) as unknown; }
+        catch { rawSettings = storedRouteSettings; }
+      }
+      const settings = parseRouteSettings(rawSettings);
+      routeContextWindows = settings.contextWindows;
+      const storedReasoning = await c.env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION);
+      if (storedReasoning) {
+        reasoningConfiguration = parseReasoningConfiguration(storedReasoning);
+      } else {
+        const migration = migrateLegacyReasoningAssignments({
+          routeSettings: rawSettings,
+          defaults: { global: defaultRoute, groups: groupRouting },
+        });
+        reasoningConfiguration = migration.proposed;
+        reasoningMigration = { persisted: false, errors: migration.errors };
+      }
+      routeReasoningProfiles = Object.fromEntries(Object.entries((reasoningConfiguration as { routeAssignments: Record<string, { activeProfile: { id: string } }> }).routeAssignments)
+        .map(([route, assignment]) => [route, assignment.activeProfile.id]));
     } catch { /* malformed stored JSON → wizard starts from empty */ }
     // REQ-ENTERPRISE-016: surface the strict gateway egress toggle (default OFF on absent).
     const strictGatewayEgress = (await c.env.KV.get(SETUP_KEYS.STRICT_EGRESS)) === 'active';
@@ -195,7 +220,8 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     const activeAgents = installedActiveAgents.length > 0 ? installedActiveAgents : configurableAgents;
     enterpriseExtras = {
       ...enterpriseExtras,
-      enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, browserRenderTokenSet, browserRenderAccountId,
+      enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, routeReasoningProfiles, reasoningConfiguration,
+      ...(reasoningMigration !== undefined && { reasoningMigration }), browserRenderTokenSet, browserRenderAccountId,
       aigGatewayUrl, aigTokenSet, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled,
       activeAgents, configurableAgents,
     };

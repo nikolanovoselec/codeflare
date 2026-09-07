@@ -47,7 +47,8 @@ export interface SyncSessionResult {
  */
 export async function fanOutBisyncTrigger(
   env: Pick<Env, 'KV' | 'CONTAINER'>,
-  bucketName: string
+  bucketName: string,
+  trigger: 'automatic' | 'manual' = 'automatic'
 ): Promise<SyncSessionResult[]> {
   // REQ-ENTERPRISE-020: never trigger bisync while the bucket's regime is migrating — a
   // container's rclone daemon would push its local FS in the pre-flip regime. Containers are
@@ -71,7 +72,10 @@ export async function fanOutBisyncTrigger(
           // /internal/bisync-trigger handler sends SIGUSR1 to the
           // bisync daemon.
           const res = await container.fetch(
-            new Request('http://container/internal/bisync-trigger', { method: 'POST' })
+            new Request('http://container/internal/bisync-trigger', {
+              method: 'POST',
+              headers: trigger === 'manual' ? { 'X-Codeflare-Sync-Recovery': 'retry' } : {},
+            })
           );
           if (res.status === 202) {
             return { sessionId, status: 'triggered' };

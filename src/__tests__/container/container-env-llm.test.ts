@@ -54,6 +54,7 @@ function baseState(): ContainerEnvState {
     _defaultRoute: null,
     _defaultReasoning: null,
     _routeContextWindows: {},
+    _routeReasoningLevels: {},
     _userTimezone: null,
     // Cast covers ContainerEnvState fields this enterprise-LLM fixture does not
     // exercise (e.g. _gitCloneRepo/_gitCloneRef), matching the sibling fixtures
@@ -110,6 +111,13 @@ describe('REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)', () => {
     expect('ENTERPRISE_ROUTE_CATALOG' in vars).toBe(false);
     expect('ENTERPRISE_DEFAULT_ROUTE' in vars).toBe(false);
     expect('ENTERPRISE_DEFAULT_REASONING' in vars).toBe(false);
+  });
+
+  it('fans the per-route supported-level map only in enterprise mode', () => {
+    const state = { ...baseState(), _routeReasoningLevels: { development: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] } };
+    expect(buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env).ENTERPRISE_ROUTE_REASONING_LEVELS)
+      .toBe(JSON.stringify(state._routeReasoningLevels));
+    expect('ENTERPRISE_ROUTE_REASONING_LEVELS' in buildEnvVars(state, {} as Env)).toBe(false);
   });
 
   it('fans the per-route context-window map when enterprise + present, omits it when empty or non-enterprise', () => {

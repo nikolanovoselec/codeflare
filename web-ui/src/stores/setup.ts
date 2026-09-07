@@ -8,7 +8,7 @@ let configLoadPromise: Promise<boolean> | null = null;
 
 const TOTAL_STEPS = 3;
 
-import type { SetupState, ReasoningLevel, GroupRouting } from './setup-types';
+import type { SetupState, ReasoningLevel, ReasoningProfileId, GroupRouting } from './setup-types';
 import { DEFAULT_ROUTE_CONTEXT_WINDOW } from './setup-types';
 import { buildConfigurePayload } from './setup-payload';
 import { applyEnterprisePrefill, applyReconfigPrefill, applyInitialPrefill } from './setup-prefill';
@@ -16,7 +16,7 @@ import { applyEnterprisePrefill, applyReconfigPrefill, applyInitialPrefill } fro
 // Re-exported for existing importers of the pre-split setup store surface;
 // the definitions live in setup-types.ts.
 export { DEFAULT_ROUTE_CONTEXT_WINDOW } from './setup-types';
-export type { ReasoningLevel } from './setup-types';
+export type { ReasoningLevel, ReasoningProfileId } from './setup-types';
 
 const initialState: SetupState = {
   step: 1,
@@ -43,6 +43,7 @@ const initialState: SetupState = {
   defaultRouteName: '',
   defaultRouteReasoning: 'off',
   routeContextWindows: {},
+  routeReasoningProfiles: {},
   cloudflareBrowserToken: '',
   cloudflareBrowserTokenSet: false,
   cloudflareBrowserAccountId: '',
@@ -304,6 +305,7 @@ function addDynamicRoute(name: string): void {
       if (!s.defaultRouteName) s.defaultRouteName = name;
       // Seed the new route's context window with the default (REQ-ENTERPRISE-012).
       if (s.routeContextWindows[name] === undefined) s.routeContextWindows[name] = DEFAULT_ROUTE_CONTEXT_WINDOW;
+      if (s.routeReasoningProfiles[name] === undefined) s.routeReasoningProfiles[name] = '';
     }));
   }
 }
@@ -313,6 +315,7 @@ function removeDynamicRoute(name: string): void {
     if (i !== -1) s.dynamicRoutes.splice(i, 1);
     // Drop the removed route's context-window entry (REQ-ENTERPRISE-012).
     delete s.routeContextWindows[name];
+    delete s.routeReasoningProfiles[name];
     // If the removed route was the default, fall back to the new first route (or
     // clear when the catalog is now empty). The reasoning grade belonged to the
     // removed route, so reset it to off for the fallback (matching the resolver's
@@ -336,6 +339,9 @@ function setRouteContextWindow(name: string, tokens: number): void {
 }
 function resetRouteContextWindow(name: string): void {
   setState(produce((s) => { s.routeContextWindows[name] = DEFAULT_ROUTE_CONTEXT_WINDOW; }));
+}
+function setRouteReasoningProfile(name: string, profile: ReasoningProfileId | ''): void {
+  setState(produce((s) => { s.routeReasoningProfiles[name] = profile; }));
 }
 
 function setCloudflareBrowserToken(token: string): void {
@@ -640,6 +646,7 @@ export const setupStore = {
   get defaultRouteName() { return state.defaultRouteName; },
   get defaultRouteReasoning() { return state.defaultRouteReasoning; },
   get routeContextWindows() { return state.routeContextWindows; },
+  get routeReasoningProfiles() { return state.routeReasoningProfiles; },
   get cloudflareBrowserToken() { return state.cloudflareBrowserToken; },
   get cloudflareBrowserTokenSet() { return state.cloudflareBrowserTokenSet; },
   get cloudflareBrowserAccountId() { return state.cloudflareBrowserAccountId; },
@@ -698,6 +705,7 @@ export const setupStore = {
   setDefaultRouteReasoning,
   setRouteContextWindow,
   resetRouteContextWindow,
+  setRouteReasoningProfile,
   setCloudflareBrowserToken,
   setCloudflareBrowserAccountId,
   setAigGatewayUrl,

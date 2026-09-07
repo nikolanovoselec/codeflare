@@ -657,10 +657,44 @@ CVE-2026-56859
 CVE-2026-56860
 CVE-2026-56862
 
-# CVE-2026-56852 is deliberately NOT listed in this global ignore file. gh
-# v2.97.0 and lazygit v0.64.0 no longer emit the finding; lazygit now embeds
-# patched x/text v0.40.0. scripts/ci/validate-trivy-result.mjs rejects any
-# recurrence as an unexpected HIGH/CRITICAL finding.
+# REQ-SEC-011: user-authorized rclone exceptions, 2026-09-07.
+# Deployment 34071602561 at 21c182c2 reported these 17 fixable findings in
+# usr/bin/rclone, rebuilt from the pinned v1.73.5 source for the bisync patch.
+# The official .deb embeds the same affected module versions; the standalone
+# binary exposes Go dependencies absent from the prior Debian-package SBOM.
+# Keep the tested rclone pin for this recovery; this acceptance does NOT fix
+# the vulnerable modules or establish that their vulnerable paths are unreachable.
+# rclone handles user-selected files and remote responses inside the user's
+# session container. Hostile input can still affect that session and its data.
+# This flat ignore file suppresses these IDs image-wide, not only in rclone.
+# Review by 2026-10-07; remove when the replacement binary's scan is clean.
+#
+# go.opentelemetry.io/otel v1.39.0 -> 1.41.0
+CVE-2026-29181
+# golang.org/x/crypto v0.48.0 -> 0.55.0
+CVE-2026-56854
+# golang.org/x/crypto v0.48.0 -> 0.52.0
+CVE-2026-39828
+CVE-2026-39829
+CVE-2026-39830
+CVE-2026-39831
+CVE-2026-39832
+CVE-2026-39835
+CVE-2026-42508
+CVE-2026-46595
+CVE-2026-46597
+# golang.org/x/image v0.38.0 -> 0.43.0 / 0.45.0, respectively
+CVE-2026-46602
+CVE-2026-46603
+# golang.org/x/net v0.51.0 -> 0.55.0
+CVE-2026-25681
+CVE-2026-27136
+# golang.org/x/text v0.35.0 -> 0.39.0. Previously retired for gh/lazygit;
+# accepted here for rclone, so the global scan no longer detects recurrence
+# of this ID in other binaries. The bounded validator itself is unchanged.
+CVE-2026-56852
+# google.golang.org/grpc v1.79.3 -> 1.83.1
+CVE-2026-84304
 
 # Browser IDE migration note (AD119): the OpenVSCode-specific vulnerability
 # acceptance was removed with that runtime. Fixable code-server findings must

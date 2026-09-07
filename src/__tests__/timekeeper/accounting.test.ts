@@ -48,6 +48,16 @@ describe('AccountingStateV2 (REQ-SUB-025)', () => {
     });
   });
 
+  it('keeps Monday UTC boundaries across Central European daylight-saving changes', () => {
+    for (const [before, after, priorMonday, monday] of [
+      ['2026-03-30T01:59:59+02:00', '2026-03-30T02:00:00+02:00', '2026-03-23', '2026-03-30'],
+      ['2026-10-26T00:59:59+01:00', '2026-10-26T01:00:00+01:00', '2026-10-19', '2026-10-26'],
+    ]) {
+      expect(periodStarts(new Date(before)).week).toBe(priorMonday);
+      expect(periodStarts(new Date(after)).week).toBe(monday);
+    }
+  });
+
   it('hashes session identity without retaining the submitted ID', async () => {
     const digest = await hashSessionId('private-session-id');
     expect(digest).toMatch(/^[0-9a-f]{64}$/);

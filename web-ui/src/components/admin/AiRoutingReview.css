@@ -1,0 +1,263 @@
+.ai-routing-review,
+.ai-routing-review-summary {
+  min-width: 0;
+  color: var(--color-text-primary);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+}
+
+.ai-routing-review-summary {
+  padding: 0 var(--space-4);
+}
+
+.ai-routing-review-section {
+  min-width: 0;
+  padding: var(--space-6) 0;
+}
+
+.ai-routing-review-section + .ai-routing-review-section {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.ai-routing-review-section h3,
+.ai-routing-review-warnings h3 {
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-primary);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+}
+
+.ai-routing-review-section h4 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  overflow-wrap: anywhere;
+}
+
+.ai-routing-review-section p,
+.ai-routing-review-warnings > p {
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-secondary);
+}
+
+.ai-routing-review-values {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.ai-routing-review-values > div {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.3fr) minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.ai-routing-review-values dt {
+  color: var(--color-text-secondary);
+}
+
+.ai-routing-review-values dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ai-routing-review-routes {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  text-align: left;
+}
+
+.ai-routing-review-routes th,
+.ai-routing-review-routes td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.ai-routing-review-routes thead th {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+.ai-routing-review-routes tbody th {
+  font-weight: var(--font-semibold);
+}
+
+.ai-routing-review-routes th:nth-child(2) { width: 42%; }
+.ai-routing-review-routes th:nth-child(3) { width: 28%; }
+.ai-routing-review-mobile-label { display: none; }
+
+.ai-routing-review-pending {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-warning);
+  font-size: var(--text-sm);
+}
+
+.ai-routing-review-groups {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ai-routing-review-groups article {
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.ai-routing-review-route-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-routing-review-route-list li {
+  max-width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.ai-routing-review-unassigned {
+  margin-top: var(--space-4);
+}
+
+.ai-routing-review-unassigned ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-routing-review-unassigned li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  overflow-wrap: anywhere;
+}
+
+.ai-routing-review-unassigned li span {
+  color: var(--color-text-secondary);
+}
+
+.ai-routing-review-warnings {
+  margin: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-muted);
+}
+
+.ai-routing-review-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-height: 44px;
+  padding: var(--space-3) 0;
+  cursor: pointer;
+}
+
+.ai-routing-review-warning + .ai-routing-review-warning {
+  border-top: 1px solid var(--color-border-default);
+}
+
+.ai-routing-review-warning input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: var(--space-1) 0 0;
+  accent-color: var(--color-info);
+}
+
+.ai-routing-review-warning > span {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ai-routing-review-warning:has(input:focus-visible),
+.ai-routing-review-technical summary:focus-visible {
+  outline: 2px solid var(--color-info);
+  outline-offset: 2px;
+}
+
+.ai-routing-review-technical {
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.ai-routing-review-technical h3 {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--text-base);
+}
+
+.ai-routing-review-technical .admin-task-plan {
+  margin: var(--space-3) 0;
+}
+
+.ai-routing-review-hash { display: block; }
+
+@media (max-width: 767px) {
+  .ai-routing-review-values > div {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+
+  .ai-routing-review-routes,
+  .ai-routing-review-routes tbody,
+  .ai-routing-review-routes tr {
+    display: block;
+    width: 100%;
+  }
+
+  .ai-routing-review-routes thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .ai-routing-review-routes tbody tr {
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .ai-routing-review-routes tbody th,
+  .ai-routing-review-routes td {
+    display: block;
+    width: auto;
+    padding: var(--space-1) 0;
+    border: 0;
+  }
+
+  .ai-routing-review-routes td {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr);
+    gap: var(--space-3);
+  }
+
+  .ai-routing-review-mobile-label {
+    display: block;
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+  }
+
+  .ai-routing-review-technical dl div {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+}

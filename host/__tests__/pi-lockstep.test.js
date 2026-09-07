@@ -27,6 +27,57 @@ function readArgs(path) {
   return readFileSync(path, 'utf8').trim().split('\n');
 }
 
+describe('REQ-AGENT-206: updated runtime dependencies and cache ownership', () => {
+  it('rejects an installed Pi package whose required image dependency is missing', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'pi-health-'));
+    try {
+      const manifest = join(directory, 'package.json');
+      writeJson(manifest, { name: '@earendil-works/pi-coding-agent', version: '0.85.1', dependencies: { '@silvia-odwyer/photon-node': '0.3.4' } });
+      const result = spawnSync(process.execPath, [script, '--verify-runtime', manifest], { encoding: 'utf8' });
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /photon-node/);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it('accepts import-only dependency exports and rejects failed image processing', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'pi-image-health-'));
+    try {
+      writeJson(join(directory, 'package.json'), { name: '@earendil-works/pi-coding-agent', type: 'module', dependencies: { 'image-fixture': '1.0.0' } });
+      mkdirSync(join(directory, 'node_modules/image-fixture'), { recursive: true });
+      writeJson(join(directory, 'node_modules/image-fixture/package.json'), { type: 'module', exports: { import: './index.js' } });
+      writeFileSync(join(directory, 'node_modules/image-fixture/index.js'), 'export default true;');
+      mkdirSync(join(directory, 'dist/utils'), { recursive: true });
+      writeFileSync(join(directory, 'dist/utils/photon.js'), 'export async function loadPhoton() { return { PhotonImage: class { get_bytes() { return new Uint8Array([1]); } free() {} } }; }');
+      const processor = join(directory, 'dist/utils/image-process.js');
+      const check = () => spawnSync(process.execPath, [script, '--verify-runtime', join(directory, 'package.json')], { encoding: 'utf8' });
+      writeFileSync(processor, 'export async function processImage() { return { ok: true }; }');
+      const healthy = check(); assert.equal(healthy.status, 0, healthy.stderr);
+      writeFileSync(processor, 'export async function processImage() { return { ok: false, message: "fixture decode failure" }; }');
+      const failed = check(); assert.notEqual(failed.status, 0);
+      assert.match(failed.stderr, /Pi image processing failed: fixture decode failure/);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it('replaces the runtime jiti link without clearing the image cache', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'pi-cache-reset-'));
+    try {
+      const imageCache = join(directory, 'image-cache');
+      const runtime = join(directory, 'runtime');
+      mkdirSync(imageCache); mkdirSync(join(runtime, 'pi-tmp'), { recursive: true });
+      writeFileSync(join(imageCache, 'baked.mjs'), 'baked');
+      symlinkSync(imageCache, join(runtime, 'pi-tmp/jiti'));
+      const reset = () => spawnSync(process.execPath, [script, '--reset-runtime-jiti', runtime], { encoding: 'utf8' });
+      const first = reset(); assert.equal(first.status, 0, first.stderr);
+      assert.equal(readFileSync(join(imageCache, 'baked.mjs'), 'utf8'), 'baked');
+      assert.equal(realpathSync(join(runtime, 'pi-tmp/jiti')), join(runtime, 'pi-tmp/jiti'));
+      writeFileSync(join(runtime, 'pi-tmp/jiti/stale.mjs'), 'stale');
+      const second = reset(); assert.equal(second.status, 0, second.stderr);
+      assert.throws(() => readFileSync(join(runtime, 'pi-tmp/jiti/stale.mjs')));
+      assert.equal(readFileSync(join(imageCache, 'baked.mjs'), 'utf8'), 'baked');
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+});
+
 describe('REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification', () => {
   it('rejects a missing @narumitw/pi-goal entrypoint artifact and accepts the expected artifact', () => {
     const directory = mkdtempSync(join(tmpdir(), 'codeflare-goal-cache-'));

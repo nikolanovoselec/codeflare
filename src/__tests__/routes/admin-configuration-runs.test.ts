@@ -6,6 +6,14 @@ import type { AuthVariables } from '../../middleware/auth';
 import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS } from '../../lib/kv-keys';
+import { getBuiltInProfileRef, normalizeCustomProfile } from '../../lib/reasoning-profiles';
+import { routingGatewayUrl, routingInventoryFixtures, verifiedRoutingConfiguration } from '../helpers/verified-routing';
+import { issueRouteCheck } from '../../lib/reasoning-verification';
+
+vi.mock('../../lib/ai-gateway-management', async (original) => ({
+  ...await original<typeof import('../../lib/ai-gateway-management')>(),
+  loadActiveRouteVersion: vi.fn(async (_account: string, _gateway: string, route: string) => routingInventoryFixtures.get(route)),
+}));
 
 let mockRole = 'admin';
 let mockAuthReject = false;
@@ -37,6 +45,7 @@ vi.mock('../../middleware/auth', () => ({
 }));
 
 import configurationRunRoutes from '../../routes/admin/configuration-runs';
+import adminConfigurationRoutes from '../../routes/admin/configuration';
 
 function createApp(envOverrides: Partial<Env> = {}) {
   const kv = createMockKV();
@@ -47,6 +56,7 @@ function createApp(envOverrides: Partial<Env> = {}) {
     return next();
   });
   app.route('/admin/configuration-runs', configurationRunRoutes);
+  app.route('/admin/configuration', adminConfigurationRoutes);
   app.onError((err, c) => {
     if (err instanceof AppError) return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
     return c.json({ error: String(err) }, 500);
@@ -341,22 +351,29 @@ describe('configuration runs (REQ-SETUP-018)', () => {
       AIG_TOKEN: 'deployment-token',
       ENCRYPTION_KEY: Buffer.alloc(32, 5).toString('base64'),
     });
+    ai.kv._set(SETUP_KEYS.REASONING_CONFIGURATION, verifiedRoutingConfiguration({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: { claude: { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') } } }, { gatewayUrl: routingGatewayUrl, token: 'deployment-token' }));
     const aiResponse = await post(ai.app, {
       section: 'aiRouting',
       baseRevision: 0,
       values: {
-        gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/account/gateway',
+        gatewayUrl: routingGatewayUrl,
         replacementToken: '',
         dynamicRoutes: ['claude'],
         defaultRoute: { route: 'claude', reasoning: 'medium' },
         routeContextWindows: { claude: 200000 },
-        groupRouting: [],
+        routeReasoningProfiles: { claude: 'workers-ai-glm-thinking' },
+        groupRouting: [{ accessGroup: 'engineering', routes: ['claude'], defaultRoute: 'claude', reasoning: 'medium' }],
       },
+      confirmedWarnings: ['reasoning_profile_unverified'],
     });
     expect(aiResponse.status).toBe(200);
     expect(snapshots(await aiResponse.text()).at(-1).run.state).toBe('succeeded');
-    expect(await ai.kv.get(SETUP_KEYS.AIG_GATEWAY_URL)).toBe('https://gateway.ai.cloudflare.com/v1/account/gateway');
+    expect(await ai.kv.get(SETUP_KEYS.AIG_GATEWAY_URL)).toBe(routingGatewayUrl);
     expect(await ai.kv.get(SETUP_KEYS.DYNAMIC_ROUTES)).toBe(JSON.stringify(['claude']));
+    expect(JSON.parse(await ai.kv.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS) as string)).toEqual({ claude: 200000 });
+    expect(JSON.parse(await ai.kv.get(SETUP_KEYS.REASONING_CONFIGURATION) as string)).toMatchObject({
+      routeAssignments: { claude: { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') } },
+    });
     expect(ai.kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.AIG_TOKEN, expect.anything(), expect.anything());
 
     const browser = createApp({ ENTERPRISE_MODE: 'active' });
@@ -371,6 +388,195 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(snapshots(await browserResponse.text()).at(-1).run.state).toBe('succeeded');
     expect(await browser.kv.get(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID)).toBe('browser-account');
     expect(browser.kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.BROWSER_RENDER_TOKEN, expect.anything(), expect.anything());
+  });
+
+  it('REQ-ENTERPRISE-038: retains exact single-leg verification through confirmed Save and configuration GET', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'deployment-test-token' });
+    const ref = getBuiltInProfileRef('workers-ai-kimi-k-thinking');
+    const configuration = verifiedRoutingConfiguration({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {
+      general_usage: { activeProfile: ref, routeVersion: 'route-v2', legs: [{
+        nodeId: 'primary', provider: 'workers-ai', declaredModel: '@cf/moonshotai/kimi-k2.5', profileRef: ref,
+        evidence: { current: true, toolReplay: true, ingress: 'ai-gateway-chat-completions', status: 'Verified' },
+      }] },
+    } }, { gatewayUrl: routingGatewayUrl, token: 'deployment-test-token' });
+    const checkId = await issueRouteCheck(kv as unknown as KVNamespace, 'general_usage', configuration.routeAssignments.general_usage.verification!);
+    const values = { gatewayUrl: routingGatewayUrl, replacementToken: '',
+      dynamicRoutes: ['general_usage'], defaultRoute: { route: 'general_usage', reasoning: 'medium' },
+      routeContextWindows: { general_usage: 256000 }, groupRouting: [{ accessGroup: 'engineering', routes: ['general_usage'], defaultRoute: 'general_usage', reasoning: 'medium' }], reasoningConfiguration: configuration, routeChecks: { general_usage: checkId } };
+    const response = await post(app, { section: 'aiRouting', baseRevision: 0, values, confirmedWarnings: ['reasoning_profile_unverified'] });
+    expect(response.status).toBe(200);
+    const events = snapshots(await response.text());
+    expect(events[events.length - 1].run).toMatchObject({ state: 'succeeded', resultingRevision: 1 });
+    expect(JSON.parse(await kv.get(SETUP_KEYS.REASONING_CONFIGURATION) as string)).toEqual(configuration);
+    const reload = await app.request('/admin/configuration');
+    expect(reload.status).toBe(200);
+    expect((await reload.json() as any).sections.aiRouting.reasoningConfiguration).toEqual(configuration);
+  });
+
+  it('REQ-ENTERPRISE-031: persists named custom revisions and exact assignments through Save→GET and preserves the catalog when legacy saves omit it', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
+    const savedToken = JSON.stringify({ token: 'saved-gateway-ciphertext' });
+    await kv.put(SETUP_KEYS.AIG_TOKEN, savedToken);
+    const old = normalizeCustomProfile({
+      schemaVersion: 1, id: 'custom-retained', name: 'Unrelated retained profile', revision: 1, enabled: true,
+      supportedLevels: ['low'], removePaths: ['reasoning_effort'],
+      levels: { low: [{ path: 'reasoning_effort', value: 'low' }] },
+      offSemantics: { status: 'unsupported' },
+    });
+    const named = normalizeCustomProfile({
+      schemaVersion: 1, id: 'custom-discovered', name: 'My discovered low mode', revision: 1, enabled: true,
+      supportedLevels: ['low'], removePaths: ['reasoning_effort'],
+      levels: { low: [{ path: 'reasoning_effort', value: 'low' }] },
+      offSemantics: { status: 'unsupported' },
+    });
+    const exactRef = { id: named.id, revision: named.revision, hash: named.hash };
+    const initialRef = getBuiltInProfileRef('openai-gpt-chat-tools-reasoning');
+    const otherRoute = {
+      activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking'), routeVersion: 'other-route-v1',
+      legs: [{ nodeId: 'primary', provider: 'workers-ai', declaredModel: 'opaque-backend',
+        profileRef: getBuiltInProfileRef('workers-ai-glm-thinking') }],
+    };
+    await kv.put(SETUP_KEYS.REASONING_CONFIGURATION, JSON.stringify({
+      schemaVersion: 1, customProfileRevisions: [old],
+      routeAssignments: { mapped: { activeProfile: initialRef }, other: otherRoute },
+    }));
+    const values = {
+      gatewayUrl: routingGatewayUrl, replacementToken: '',
+      dynamicRoutes: ['mapped', 'other'], defaultRoute: { route: 'mapped', reasoning: 'low' },
+      routeContextWindows: { mapped: 32768, other: 32768 }, groupRouting: [{ accessGroup: 'engineering', routes: ['mapped', 'other'], defaultRoute: 'mapped', reasoning: 'low' }],
+    };
+    const configuration = {
+      schemaVersion: 1, customProfileRevisions: [old, named],
+      routeAssignments: { mapped: { activeProfile: exactRef }, other: otherRoute },
+    };
+    const save = async (baseRevision: number, submitted: Record<string, unknown>) => {
+      const input = submitted.reasoningConfiguration ?? { ...configuration, routeAssignments: Object.fromEntries(Object.entries(submitted.routeReasoningProfiles as Record<string, string>).map(([route, id]) => [route, route === 'other' ? otherRoute : { activeProfile: getBuiltInProfileRef(id as Parameters<typeof getBuiltInProfileRef>[0]) }])) };
+      const checked = verifiedRoutingConfiguration(input, { gatewayUrl: routingGatewayUrl, token: 'saved-gateway-ciphertext' });
+      const routeChecks = Object.fromEntries(await Promise.all(Object.entries(checked.routeAssignments).map(async ([route, assignment]) => [route, await issueRouteCheck(kv as unknown as KVNamespace, route, assignment.verification!)])));
+      const response = await post(app, {
+        section: 'aiRouting', baseRevision, values: { ...values, ...submitted, routeChecks },
+        confirmedWarnings: ['reasoning_profile_unverified'],
+      });
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(snapshots(text).at(-1).run).toMatchObject({
+        state: 'succeeded', resultingRevision: baseRevision + 1,
+        tasks: expect.arrayContaining([{ id: 'configure_model_routing', state: 'succeeded',
+          startedAt: expect.any(String), completedAt: expect.any(String) }]),
+      });
+      expect(text).not.toContain('saved-gateway-ciphertext');
+    };
+    const reload = async (revision: number, expected: unknown) => {
+      const response = await app.request('/admin/configuration');
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      const body = JSON.parse(text);
+      expect(body.revision).toBe(revision);
+      const checked = verifiedRoutingConfiguration(expected, { gatewayUrl: routingGatewayUrl, token: 'saved-gateway-ciphertext' });
+      expect(body.sections.aiRouting.reasoningConfiguration).toMatchObject({ ...checked, routeAssignments: Object.fromEntries(Object.entries(checked.routeAssignments).map(([route, assignment]) => [route, { ...assignment, verification: { ...assignment.verification, checkedAt: expect.any(String) } }])) });
+      expect(JSON.parse(await kv.get(SETUP_KEYS.REASONING_CONFIGURATION) as string)).toEqual(body.sections.aiRouting.reasoningConfiguration);
+      expect(body.sections.aiRouting.tokenState).toBe('administration');
+      expect(text).not.toContain('saved-gateway-ciphertext');
+      expect(await kv.get(SETUP_KEYS.AIG_TOKEN)).toBe(savedToken);
+    };
+
+    const unconfirmed = await post(app, { section: 'aiRouting', baseRevision: 0,
+      values: { ...values, reasoningConfiguration: configuration } });
+    expect(unconfirmed.status).toBe(400);
+    expect(await unconfirmed.json()).toMatchObject({ code: 'validation_error' });
+    await save(0, { reasoningConfiguration: configuration });
+    await reload(1, configuration);
+
+    const manual = { ...configuration, routeAssignments: {
+      mapped: { activeProfile: initialRef }, other: otherRoute,
+    } };
+    await save(1, { reasoningConfiguration: manual });
+    await reload(2, manual);
+
+    // An older form can submit only IDs. Omission is not permission to collect
+    // the now-unassigned discovered revision or unrelated catalog entries.
+    const chosen = getBuiltInProfileRef('workers-ai-kimi-k-thinking');
+    const legacy = { routeReasoningProfiles: { mapped: chosen.id, other: otherRoute.activeProfile.id } };
+    const legacyUpdated = { ...manual, routeAssignments: { mapped: { activeProfile: chosen }, other: otherRoute } };
+    await save(2, legacy);
+    await reload(3, legacyUpdated);
+    const stale = await post(app, { section: 'aiRouting', baseRevision: 2, values: { ...values, ...legacy } });
+    expect(stale.status).toBe(409);
+    await reload(3, legacyUpdated);
+  });
+
+  it('REQ-ENTERPRISE-031: retains an already assigned exact custom revision on ID-only saves without choosing a newer revision', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'deployment-secret' });
+    const draft = {
+      schemaVersion: 1, id: 'custom-low', name: 'Custom low', enabled: true,
+      supportedLevels: ['low'], removePaths: [], levels: { low: [{ path: 'reasoning_effort', value: 'low' }] },
+      offSemantics: { status: 'unsupported' },
+    };
+    const first = normalizeCustomProfile({ ...draft, revision: 1 });
+    const newer = normalizeCustomProfile({ ...draft, revision: 2 });
+    const configuration = verifiedRoutingConfiguration({
+      schemaVersion: 1, customProfileRevisions: [first, newer],
+      routeAssignments: { mapped: { activeProfile: { id: first.id, revision: first.revision, hash: first.hash } } },
+    }, { gatewayUrl: routingGatewayUrl, token: 'deployment-secret' });
+    await kv.put(SETUP_KEYS.REASONING_CONFIGURATION, JSON.stringify(configuration));
+    const response = await post(app, {
+      section: 'aiRouting', baseRevision: 0, confirmedWarnings: ['reasoning_profile_unverified'],
+      values: {
+        gatewayUrl: routingGatewayUrl, replacementToken: '',
+        dynamicRoutes: ['mapped'], defaultRoute: { route: 'mapped', reasoning: 'low' },
+        routeContextWindows: { mapped: 32768 }, groupRouting: [{ accessGroup: 'engineering', routes: ['mapped'], defaultRoute: 'mapped', reasoning: 'low' }], routeReasoningProfiles: { mapped: first.id },
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(snapshots(await response.text()).at(-1).run.state).toBe('succeeded');
+    const reloaded = await app.request('/admin/configuration');
+    expect(reloaded.status).toBe(200);
+    expect((await reloaded.json() as any).sections.aiRouting.reasoningConfiguration).toEqual(configuration);
+
+    const missingExactRef = await post(app, {
+      section: 'aiRouting', baseRevision: 1, confirmedWarnings: ['reasoning_profile_unverified'],
+      values: {
+        gatewayUrl: routingGatewayUrl, replacementToken: '',
+        dynamicRoutes: ['new-route'], defaultRoute: { route: 'new-route', reasoning: 'low' },
+        routeContextWindows: { 'new-route': 32768 }, groupRouting: [{ accessGroup: 'engineering', routes: ['new-route'], defaultRoute: 'new-route', reasoning: 'low' }], routeReasoningProfiles: { 'new-route': first.id },
+      },
+    });
+    expect(missingExactRef.status).toBe(400);
+    expect(await missingExactRef.json()).toMatchObject({ code: 'validation_error', fields: {
+      reasoningConfiguration: ['Custom profile assignment requires an exact revision in reasoningConfiguration'],
+    } });
+    expect(JSON.parse(await kv.get(SETUP_KEYS.REASONING_CONFIGURATION) as string)).toEqual(configuration);
+    expect(await kv.get(ADMIN_CONFIGURATION_KEYS.REVISION)).toBe('1');
+  });
+
+  it.each(['remove', 'disable'])('REQ-ENTERPRISE-043: preserves unrelated canonical custom revisions across %s drafts', async (operation) => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'deployment-secret' });
+    const draft = {
+      schemaVersion: 1, id: 'custom-unused', name: 'Unused profile', revision: 1, enabled: true,
+      supportedLevels: ['low'], removePaths: [], levels: { low: [{ path: 'reasoning_effort', value: 'low' }] },
+      offSemantics: { status: 'unsupported' },
+    };
+    const custom = normalizeCustomProfile(draft);
+    const routeAssignments = verifiedRoutingConfiguration({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: { mapped: { activeProfile: getBuiltInProfileRef('openai-gpt-chat-tools-reasoning') } } }, { gatewayUrl: routingGatewayUrl, token: 'deployment-secret' }).routeAssignments;
+    await kv.put(SETUP_KEYS.REASONING_CONFIGURATION, JSON.stringify({
+      schemaVersion: 1, customProfileRevisions: [custom], routeAssignments,
+    }));
+    const proposed = { schemaVersion: 1, routeAssignments,
+      customProfileRevisions: operation === 'remove' ? [] : [normalizeCustomProfile({ ...draft, revision: 2, enabled: false })],
+    };
+    const response = await post(app, {
+      section: 'aiRouting', baseRevision: 0, confirmedWarnings: ['reasoning_profile_unverified'],
+      values: {
+        gatewayUrl: routingGatewayUrl, replacementToken: '',
+        dynamicRoutes: ['mapped'], defaultRoute: { route: 'mapped', reasoning: 'low' },
+        routeContextWindows: { mapped: 32768 }, groupRouting: [{ accessGroup: 'engineering', routes: ['mapped'], defaultRoute: 'mapped', reasoning: 'low' }], reasoningConfiguration: proposed,
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(snapshots(await response.text()).at(-1).run.state).toBe('succeeded');
+    const reloaded = await app.request('/admin/configuration');
+    expect(reloaded.status).toBe(200);
+    expect((await reloaded.json() as any).sections.aiRouting.reasoningConfiguration).toEqual({ ...proposed, customProfileRevisions: [...proposed.customProfileRevisions, custom], fallbackRouting: { enabled: false } });
   });
 
   it('marks a stale prior run interrupted before admitting new work', async () => {
@@ -397,6 +603,27 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     const recovered = JSON.parse(await kv.get(`${ADMIN_CONFIGURATION_KEYS.RUN_PREFIX}${prior.runId}`) as string);
     expect(recovered).toMatchObject({ state: 'interrupted', error: { code: 'configuration_run_interrupted', retryable: true } });
     expect(recovered.tasks[0].state).toBe('failed');
+  });
+
+  it('REQ-ENTERPRISE-043: recomputes observed-path warnings and requires explicit codes at the same base revision', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_GATEWAY_URL: routingGatewayUrl, AIG_TOKEN: 'deployment-token' });
+    const ref = getBuiltInProfileRef('codeflare-inference-mesh-binary-thinking');
+    const configuration = verifiedRoutingConfiguration({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {
+      mesh: { activeProfile: ref, legs: ['primary', 'fallback'].map((nodeId) => ({ nodeId, provider: 'workers-ai', declaredModel: 'fixture-model', profileRef: ref })) },
+    } }, { gatewayUrl: routingGatewayUrl, token: 'deployment-token' });
+    const checkId = await issueRouteCheck(kv as unknown as KVNamespace, 'mesh', configuration.routeAssignments.mesh.verification!);
+    const values = {
+      gatewayUrl: routingGatewayUrl, replacementToken: '', dynamicRoutes: ['mesh'], defaultRoute: { route: 'mesh', reasoning: 'medium' },
+      routeContextWindows: { mesh: 262144 }, groupRouting: [{ accessGroup: 'engineering', routes: ['mesh'], defaultRoute: 'mesh', reasoning: 'medium' }],
+      reasoningConfiguration: configuration, routeChecks: { mesh: checkId },
+    };
+    const unconfirmed = await post(app, { section: 'aiRouting', baseRevision: 0, values, confirmedWarnings: ['reasoning_profile_unverified'] });
+    expect(unconfirmed.status).toBe(400);
+    expect(await unconfirmed.json()).toMatchObject({ code: 'configuration_warning_confirmation_required', warnings: [{ code: 'observed_path_only' }] });
+    expect(await kv.get(SETUP_KEYS.REASONING_CONFIGURATION)).toBeNull();
+    const confirmed = await post(app, { section: 'aiRouting', baseRevision: 0, values, confirmedWarnings: ['observed_path_only'] });
+    expect(confirmed.status).toBe(200);
+    expect(snapshots(await confirmed.text()).at(-1).run).toMatchObject({ state: 'succeeded', resultingRevision: 1 });
   });
 
   it('persists failure, skips remaining tasks, leaves revision unchanged, and releases admission', async () => {

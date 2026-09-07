@@ -89,6 +89,7 @@ function runSuccessfulBisync(home) {
     'rclone() { return 0; }',
     'find() { if [ "${1:-}" = "/home/user" ]; then return 0; fi; command find "$@"; }',
     extractFunction('repair_hook_exec_bits'),
+    extractFunction('record_sync_disk_failure'),
     extractFunction('bisync_with_r2'),
     'bisync_with_r2 ""',
   ].join('\n');

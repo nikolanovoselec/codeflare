@@ -27,6 +27,7 @@ const requestSchema = z.object({
   section: z.enum(CONFIGURATION_SECTIONS),
   baseRevision: z.number().int().nonnegative(),
   values: z.unknown(),
+  confirmedWarnings: z.array(z.string().min(1).max(128)).max(20).optional().default([]),
 }).strict();
 
 const querySchema = z.object({
@@ -194,7 +195,7 @@ app.post('/', requireAdmin, async (c) => {
     return c.json({ error: 'Invalid configuration run request', code: 'validation_error', fields: parsedRequest.error.flatten().fieldErrors }, 400);
   }
 
-  const { section, baseRevision, values: rawValues } = parsedRequest.data;
+  const { section, baseRevision, values: rawValues, confirmedWarnings } = parsedRequest.data;
   const mode = resolveAdministrationMode(c.env);
   if (!applicableConfigurationSections(mode).includes(section)) {
     return c.json({ error: 'Environment area does not apply to this deployment mode', code: 'configuration_section_not_applicable', section, mode }, 400);
@@ -225,6 +226,14 @@ app.post('/', requireAdmin, async (c) => {
 
   const values = validation.values;
   const preview = await buildConfigurationPreview(c.env, section, mode, baseRevision, currentRevision, values);
+  const requiredWarningCodes = preview.warnings.map((warning) => warning.code);
+  if (requiredWarningCodes.some((code) => !confirmedWarnings.includes(code))) {
+    return c.json({
+      error: 'Configuration warnings require explicit confirmation',
+      code: 'configuration_warning_confirmation_required',
+      warnings: preview.warnings,
+    }, 400);
+  }
   const createdAt = new Date().toISOString();
   let run: ConfigurationRun = {
     version: 1,
