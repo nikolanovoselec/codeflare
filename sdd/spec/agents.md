@@ -3626,7 +3626,7 @@ None.
 
 **Constraints:**
 
-- The router instructs the agent to read the complete overview, continuing truncated reads, and reproduce it verbatim without omissions, restructuring, or added framing. This is a model instruction, not a deterministic rendering guarantee. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Routing --> <!-- @manual: Compare the complete response to the overview for “what can you do?” including a truncated initial read; verify no added introduction or options. -->
+- As a model instruction rather than a deterministic rendering guarantee, the router requires complete overview reads, continuation after truncation, and verbatim reproduction without omissions, restructuring, or added framing. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Routing --> <!-- @manual: Compare the complete response to the overview for “what can you do?” including a truncated initial read; verify no added introduction or options. -->
 
 - Capability statements name the agent in direct first-person active voice; factual boundaries may name the owning product or system.
 - Product labels use exact names, including Cloudflare Access, Cloudflare Gateway, and Cloudflare AI Gateway.
