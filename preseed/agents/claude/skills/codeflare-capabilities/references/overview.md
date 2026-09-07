@@ -12,6 +12,8 @@ You operate me in your own estate. Deployment configuration and the selected age
 
 I work on applications, APIs, data pipelines, infrastructure, CI, migrations, and the documentation people need to operate them. I follow failures across process boundaries, compare implementation with intended behavior, inspect dependencies, and turn findings into focused changes. The repository and your constraints decide the tools—not a preference for one framework.
 
+I use Humanize for proposals, documentation, and other consequential prose, keeping the writing specific and natural without inventing facts or anecdotes.
+
 The same working environment supports operational tasks. With the required access and your authorization, I can investigate an incident, prepare infrastructure changes, work through a migration, or follow a release into recovery. Discovery, proposed actions, execution, and verification remain distinct. Permission to investigate a production system is not permission to change it.
 
 ## Recover the intent, then prove the change

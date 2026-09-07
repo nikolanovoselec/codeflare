@@ -2481,7 +2481,7 @@ None.
 3. Humanize applies to first drafts and rewrites of stylistically consequential prose rather than unrelated technical execution. <!-- @manual: Compare activation on a proposal-writing request and a source-only debugging request. -->
 4. The workflow requires no detector, external service, script, or scoring run during use. <!-- @impl: preseed/agents/claude/skills/humanize/SKILL.md::Humanize --> <!-- @manual: Run the skill in a network-isolated session and inspect tool use. -->
 5. Humanize never fabricates facts, events, attributions, or anecdotes to create a stronger voice. <!-- @impl: preseed/agents/claude/skills/humanize/SKILL.md::Honesty constraint --> <!-- @manual: Rewrite source material with missing specifics and inspect the result for invented evidence. -->
-6. Broad Codeflare capability guidance includes Humanize without claiming deterministic detector evasion. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/references/overview.md::I work on the actual system --> <!-- @manual: Request the broad capability tour and inspect its writing guidance. -->
+6. Broad Codeflare capability guidance includes Humanize without claiming deterministic detector evasion. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/references/overview.md::Bring the system, not just a coding question --> <!-- @manual: Request the broad capability tour and inspect its writing guidance. -->
 
 **Constraints:** Subjective prose quality remains manually reviewed and is never pinned through wording, snapshot, detector-score, or editorial-content tests.
 
