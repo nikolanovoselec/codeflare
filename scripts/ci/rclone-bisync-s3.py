@@ -75,7 +75,16 @@ class Proxy(http.server.BaseHTTPRequestHandler):
                     source.request("GET", "/" + part_copy.lstrip("/"), headers=source_headers)
                     source_response = source.getresponse()
                     data = source_response.read(8 * 1024 * 1024 + 1)
-                    assert source_response.status == 206, "Fixture copy source range failed"
+                    # gofakes3 emits Content-Range and ranged bytes but leaves
+                    # the status at 200. Require the exact requested range either way.
+                    assert source_response.status in (200, 206), f"Fixture copy source failed: {source_response.status}"
+                    requested = source_headers["Range"].removeprefix("bytes=")
+                    start, end = (int(value) for value in requested.split("-"))
+                    returned = source_response.getheader("Content-Range", "")
+                    assert returned.startswith(f"bytes {start}-{end}/"), f"Fixture returned wrong range: {returned}"
+                    assert len(data) == end - start + 1, "Fixture copy source range was incomplete"
+                    if source_headers.get("If-Match"):
+                        assert source_response.getheader("ETag") == source_headers["If-Match"], "Fixture copy source identity changed"
                     assert len(data) <= 8 * 1024 * 1024, "Fixture copy part exceeds bounded size"
                 finally:
                     source.close()
