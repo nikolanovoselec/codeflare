@@ -216,6 +216,109 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
     expect(JSON.stringify(report)).not.toContain('private transport failure');
   });
 
+  it.each([
+    { stage: 'reasoning', status: 200, stallAt: 1 },
+    { stage: 'reasoning-error', status: 503, stallAt: 1 },
+    { stage: 'rest-404', status: 404, stallAt: 1 },
+    { stage: 'compat', status: 200, stallAt: 2 },
+    { stage: 'tool-call', status: 200, stallAt: 2 },
+    { stage: 'tool-call-error', status: 503, stallAt: 2 },
+    { stage: 'tool-replay', status: 200, stallAt: 3 },
+    { stage: 'tool-replay-error', status: 503, stallAt: 3 },
+  ])('REQ-ENTERPRISE-033: cancels a stalled $stage body at the attempt deadline without retrying', async ({ stage, status, stallAt }) => {
+    vi.useFakeTimers();
+    try {
+      let started!: () => void;
+      const bodyStarted = new Promise<void>((resolve) => { started = resolve; });
+      // Cancellation must not wait for an unresponsive provider's cleanup.
+      const cancel = vi.fn(() => new Promise<void>(() => {}));
+      let signal: AbortSignal | null | undefined;
+      const success = successfulFetcher([]);
+      const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        if (fetcher.mock.calls.length === stallAt) {
+          signal = init?.signal;
+          if (stage === 'reasoning') await new Promise<void>((resolve) => setTimeout(resolve, 6));
+          const response = new Response(new ReadableStream<Uint8Array>({
+            start(controller) { controller.enqueue(new TextEncoder().encode('private-stalled-body')); },
+            pull() { started(); },
+            cancel,
+          }), { status });
+          return response;
+        }
+        if (stage === 'compat') return new Response('not found', { status: 404 });
+        return success(input, init);
+      });
+      const pending = discoverPiCompatibility({
+        endpoint: { rest: 'https://example.invalid/rest', compat: 'https://example.invalid/compat' },
+        apiToken: 'secret-token', route: 'dynamic/test',
+        profile: { id: 'off-only', supportedLevels: ['off'], levels: { off: {} } },
+        maxCompletionTokens: 32, timeoutMs: 10, fetcher,
+      });
+      if (stage === 'reasoning') await vi.advanceTimersByTimeAsync(6);
+      await bodyStarted;
+      await vi.advanceTimersByTimeAsync(stage === 'reasoning' ? 4 : 10);
+      const report = await pending;
+      expect(report).toMatchObject({ classification: 'Inconclusive', assignable: false, accounting: { httpAttempts: stallAt } });
+      expect(JSON.stringify(report)).toContain('"code":"timeout"');
+      expect(JSON.stringify(report)).not.toContain('private-stalled-body');
+      expect(fetcher).toHaveBeenCalledTimes(stallAt);
+      expect(signal?.aborted).toBe(true);
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    { label: 'empty', body: '' },
+    { label: 'non-SSE', body: '<html>private-upstream-error</html>' },
+    { label: 'error-only', body: 'data: {"error":{"message":"private-upstream-error"}}\n\n' },
+    { label: 'DONE-only', body: 'data: [DONE]\n\n' },
+    { label: 'usage-only', body: 'data: {"choices":[],"usage":{"total_tokens":1}}\n\n' },
+    { label: 'empty completion', body: 'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n' },
+    { label: 'error after content', body: 'data: {"choices":[{"delta":{"content":"private-answer"}}]}\n\ndata: {"error":{"message":"private-upstream-error"}}\n\n' },
+    { label: 'another tool call', body: 'data: {"choices":[{"delta":{"content":"private-answer","tool_calls":[{"index":0}]},"finish_reason":"stop"}]}\n\n' },
+  ])('REQ-ENTERPRISE-033: refuses verification for a $label replay', async ({ body }) => {
+    const success = successfulFetcher([]);
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body));
+      return request.messages.some((message: { role?: string }) => message.role === 'tool')
+        ? new Response(body, { headers: { 'content-type': 'text/event-stream' } })
+        : success(input, init);
+    });
+    const report = await discoverPiCompatibility({
+      endpoint: { rest: 'https://example.invalid/rest', compat: 'https://example.invalid/compat' },
+      apiToken: 'secret-token', route: 'dynamic/test',
+      profile: { id: 'off-only', supportedLevels: ['off'], levels: { off: {} } },
+      maxCompletionTokens: 32, fetcher,
+    });
+    expect(report).toMatchObject({ assignable: false, compatibleLevels: [], distinctMappings: [{ toolLifecycle: { passed: false } }] });
+    expect(report.classification).not.toBe('Verified');
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(JSON.stringify(report)).not.toMatch(/private-upstream-error|private-answer/);
+  });
+
+  it('REQ-ENTERPRISE-033: repairs missing replay terminators only with a final assistant answer', async () => {
+    const success = successfulFetcher([]);
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body));
+      return request.messages.some((message: { role?: string }) => message.role === 'tool')
+        ? sse([{ choices: [{ delta: { content: 'A valid final answer, not a literal canary phrase.' } }] }])
+        : success(input, init);
+    });
+    const report = await discoverPiCompatibility({
+      endpoint: { rest: 'https://example.invalid/rest', compat: 'https://example.invalid/compat' },
+      apiToken: 'secret-token', route: 'dynamic/test',
+      profile: { id: 'off-only', supportedLevels: ['off'], levels: { off: {} } },
+      maxCompletionTokens: 32, fetcher,
+    });
+    expect(report).toMatchObject({
+      assignable: true, classification: 'Verified',
+      distinctMappings: [{ toolLifecycle: { passed: true, replay: { finishReasonRepaired: true, doneRepaired: true } } }],
+    });
+  });
+
   it('rejects excessive ceilings and reasoning-probe budgets before provider I/O', async () => {
     const fetcher = vi.fn();
     await expect(discoverPiCompatibility({ route: 'dynamic/test', profile: PROFILE, maxCompletionTokens: 16_385, fetcher }))
@@ -253,6 +356,30 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
     })).rejects.toThrow(/profile mapping path/i);
     expect(fetcher).not.toHaveBeenCalled();
     expect(Object.prototype).not.toHaveProperty('polluted');
+  });
+
+  it.each(['__proto__.polluted', 'constructor.prototype.polluted', 'thinking.__proto__.polluted', 'thinking.constructor.polluted', 'thinking.prototype', 'model', 'messages', 'tools', 'stream', 'headers.authorization'])('REQ-ENTERPRISE-031: rejects unsafe write and removal path %s without mutating the request', (path) => {
+    const original = { thinking: { enabled: true }, messages: [] };
+    for (const profile of [
+      { id: 'unsafe', supportedLevels: ['off'], levels: { off: [{ path, value: true }] } },
+      { id: 'unsafe', supportedLevels: ['off'], removePaths: [path], levels: { off: [] } },
+    ]) {
+      expect(() => applyProfileMapping(original, profile, 'off')).toThrow();
+      expect(original).toEqual({ thinking: { enabled: true }, messages: [] });
+      expect(Object.prototype).not.toHaveProperty('polluted');
+    }
+  });
+
+  it('REQ-ENTERPRISE-033: retains narrow standalone candidate mappings without rejecting canonical selected profiles', async () => {
+    const fetcher = vi.fn();
+    await expect(discoverPiCompatibility({
+      endpoint: { rest: 'https://example.invalid/rest', compat: 'https://example.invalid/compat' },
+      apiToken: 'secret-token', route: 'dynamic/test',
+      profile: { id: 'custom', supportedLevels: ['medium'], levels: { medium: [{ path: 'thinking_mode', value: 'enabled' }] } },
+      offCandidateMapping: [{ path: 'thinking_mode', value: 'disabled' }],
+      maxCompletionTokens: 32, fetcher,
+    })).rejects.toThrow(/Unsafe profile mapping root/);
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it('returns sanitized non-activating evidence with no credentials, generated text, response IDs, or error bodies', async () => {

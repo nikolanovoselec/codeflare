@@ -185,7 +185,7 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     expect(kv.put).not.toHaveBeenCalled();
   });
 
-  it('REQ-ENTERPRISE-031 AC4: requires one supported reasoning profile for every route', async () => {
+  it('REQ-ENTERPRISE-031: requires one supported reasoning profile for every route', async () => {
     const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'deployment-token' });
 
     const missing = await post(app, {

@@ -3721,7 +3721,11 @@ None.
 
 7. Pi rejects `goal_wait` execution, including after another extension reactivates it. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: host/__tests__/pi-tool-exposure-finalizer.test.js (REQ-AGENT-191 AC7: blocks goal_wait execution including after reactivation) -->
 
-**Constraints:** Goal and Plan remain mutually exclusive at activation; this requirement governs provider-visible controls for persisted state. `goal_wait` is deliberately disabled by managed policy even when the upstream package registers it. Blocking `goal_wait` leaves every other tool's execution unchanged. <!-- @test: host/__tests__/pi-tool-exposure-finalizer.test.js (REQ-AGENT-191 AC7: preserves execution of all other tools) -->
+**Constraints:**
+
+- Goal and Plan remain mutually exclusive at activation; this requirement governs provider-visible controls for persisted state.
+- `goal_wait` is deliberately disabled by managed policy even when the upstream package registers it.
+- Blocking `goal_wait` leaves every other tool's execution unchanged. <!-- @test: host/__tests__/pi-tool-exposure-finalizer.test.js (REQ-AGENT-191 AC7: preserves execution of all other tools) -->
 
 **Priority:** P1
 

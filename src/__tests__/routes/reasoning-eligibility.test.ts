@@ -27,7 +27,7 @@ const model = { id: 'model', type: 'model', properties: { provider: 'openai', mo
 const topology = [{ id: 'start', type: 'start', outputs: { next: { elementId: 'model' } } }, model];
 let version: string;
 let elements: unknown[];
-let providerMode: 'ok' | 'partial' | 'failed' | 'off-reasons';
+let providerMode: 'ok' | 'partial' | 'failed' | 'off-reasons' | 'empty-replay' | 'non-sse-replay' | 'error-replay';
 let managementStatus: number;
 let providerCalls: number;
 let driftDuringCheck: boolean;
@@ -84,7 +84,12 @@ beforeEach(() => {
     const body = JSON.parse(input instanceof Request ? await input.text() : String(init?.body));
     if (!body.tools) return stream({ content: '2399', ...(providerMode === 'off-reasons' ? { reasoning_content: 'thinking' } : {}) });
     if (providerMode === 'partial') return stream({ content: 'unfinished' }, 'length');
-    if (body.messages.some((message: any) => message.role === 'tool')) return stream({ content: 'DONE' });
+    if (body.messages.some((message: any) => message.role === 'tool')) {
+      if (providerMode === 'empty-replay') return new Response('');
+      if (providerMode === 'non-sse-replay') return new Response('<html>private provider failure</html>');
+      if (providerMode === 'error-replay') return new Response('data: {"error":{"message":"private provider failure"}}\n\n');
+      return stream({ content: 'DONE' });
+    }
     return stream({ tool_calls: [{ index: 0, id: 'call', type: 'function', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' } }] }, 'tool_calls');
   });
 });
@@ -148,12 +153,32 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
     expect(f.kv._store.has(SETUP_KEYS.AIG_TOKEN)).toBe(false);
     expect(JSON.stringify(body)).not.toContain('draft-token');
   });
+  it('REQ-ENTERPRISE-031: verifies canonical custom scalar paths beyond discovery candidate roots', async () => {
+    const f = setup();
+    const draft = normalizeCustomProfile({
+      schemaVersion: 1, id: 'custom-thinking-mode', name: 'Custom thinking mode', revision: 1, enabled: true,
+      supportedLevels: ['off'], removePaths: ['thinking_mode', 'vendor_options.reasoning.enabled'],
+      levels: { off: [{ path: 'thinking_mode', value: 'disabled' }, { path: 'vendor_options.reasoning.enabled', value: false }] },
+      offSemantics: { status: 'explicit-value', path: 'thinking_mode', value: 'disabled' },
+    });
+    const ref = { id: draft.id, revision: draft.revision, hash: draft.hash };
+    const response = await f.check({ profileRef: ref, profileDraft: draft });
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.checkId).toEqual(expect.any(String));
+    expect(body.verification).toMatchObject({ profileRef: ref, supportedLevels: ['off'] });
+    expect(providerCalls).toBe(3);
+    for (const [, init] of vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === 'POST')) {
+      expect(JSON.parse(String(init?.body))).toMatchObject({ thinking_mode: 'disabled', vendor_options: { reasoning: { enabled: false } } });
+    }
+    expect(f.kv._store.has(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
+  });
   it('returns not_found without paid checks for a missing selected route', async () => {
     const f = setup(); const response = await f.check({ route: 'missing' });
     expect(response.status).toBe(404); expect(await response.json()).toMatchObject({ code: 'not_found' });
     expect(providerCalls).toBe(0);
   });
-  it.each(['failed', 'partial', 'off-reasons'] as const)('issues no receipt for %s checks', async (mode) => {
+  it.each(['failed', 'partial', 'off-reasons', 'empty-replay', 'non-sse-replay', 'error-replay'] as const)('issues no receipt for %s checks', async (mode) => {
     const f = setup(); providerMode = mode;
     const body = await (await f.check()).json() as any;
     expect(body).not.toHaveProperty('checkId'); expect(body).not.toHaveProperty('verification');

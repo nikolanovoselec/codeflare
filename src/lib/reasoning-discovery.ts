@@ -3,6 +3,8 @@
 // SHA-256 f0f68dbb8415d5aaccf2d3b03002153be2dbbdb61bde3c209384d687dc5a2985
 // Its validation fixture is SHA-256 a5ccaea163d5920eb2ece172b8b7048751a383467272ad704c39bdabc0a0405b.
 
+import { validateRequestPath } from './reasoning-profiles';
+
 export const PI_WIRE_CANARY_VERSION = 'pi-openai-completions-0.84.4-canary-v1';
 
 const LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
@@ -134,10 +136,13 @@ function setPath(target: PlainObject, path: string, value: JsonScalar): void {
   let cursor = target;
   for (let index = 0; index < parts.length - 1; index += 1) {
     const part = parts[index];
-    if (!isPlainObject(cursor[part])) cursor[part] = {};
+    if (part === '__proto__' || part === 'prototype' || part === 'constructor') throw new TypeError('Invalid profile mapping path');
+    if (!Object.hasOwn(cursor, part) || !isPlainObject(cursor[part])) cursor[part] = {};
     cursor = cursor[part] as PlainObject;
   }
-  cursor[parts[parts.length - 1]] = value;
+  const last = parts[parts.length - 1];
+  if (last === '__proto__' || last === 'prototype' || last === 'constructor') throw new TypeError('Invalid profile mapping path');
+  cursor[last] = value;
 }
 
 function mergeData(target: PlainObject, source: PlainObject): PlainObject {
@@ -192,10 +197,10 @@ function mappingFromWrites(writes: unknown): PlainObject {
   const mapping: PlainObject = {};
   for (const write of writes) {
     if (!isPlainObject(write) || !isScalar(write.value)) throw new TypeError('Profile writes require bounded scalar values');
-    validatePath(write.path);
-    setPath(mapping, write.path, write.value);
+    let path: string;
+    try { path = validateRequestPath(write.path); } catch { throw new TypeError('Invalid profile mapping path'); }
+    setPath(mapping, path, write.value);
   }
-  validateMapping(mapping);
   return mapping;
 }
 
@@ -212,8 +217,7 @@ function normalizeLevelMapping(raw: unknown, profileRemovePaths: string[]): Sema
 function normalizeRemovePaths(raw: unknown): string[] {
   if (!Array.isArray(raw)) throw new TypeError('removePaths must be an array');
   return raw.map((path) => {
-    validatePath(path);
-    return path;
+    try { return validateRequestPath(path); } catch { throw new TypeError('Invalid profile mapping path'); }
   });
 }
 
@@ -239,7 +243,12 @@ function normalizeProfile(raw: unknown): DiscoveryProfile {
 }
 
 function normalizeStandaloneMapping(raw: unknown): SemanticMapping {
-  return normalizeLevelMapping(raw, []);
+  const semantic = normalizeLevelMapping(raw, []);
+  // Candidate discovery stays bounded to its known forms; selected canonical
+  // profile writes use the same protected-path rules as Save and runtime.
+  validateMapping(semantic.mapping);
+  semantic.removePaths.forEach(validatePath);
+  return semantic;
 }
 
 function validateInput(input: DiscoveryInput): { profile: DiscoveryProfile; offCandidate?: SemanticMapping } {
@@ -362,7 +371,7 @@ function consumeSseData(payload: string, state: ParsedPiSse): void {
     state.malformedEvents += 1;
     return;
   }
-  if (!isPlainObject(event)) {
+  if (!isPlainObject(event) || 'error' in event || 'errors' in event) {
     state.malformedEvents += 1;
     return;
   }
@@ -529,13 +538,59 @@ class DiscoveryAttemptError extends Error {
 
 async function fetchWithTimeout(fetcher: typeof fetch, url: string, init: RequestInit, timeoutMs: number, attempt: number): Promise<Response> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort('discovery timeout'), timeoutMs);
+  let expireBody: (() => void) | undefined;
+  const timeout = setTimeout(() => {
+    controller.abort('discovery timeout');
+    expireBody?.();
+  }, timeoutMs);
   try {
-    return await fetcher(url, { ...init, signal: controller.signal, redirect: 'manual' });
+    const response = await fetcher(url, { ...init, signal: controller.signal, redirect: 'manual' });
+    if (controller.signal.aborted) throw new DiscoveryAttemptError('timeout', attempt);
+    if (!response.body) {
+      clearTimeout(timeout);
+      return response;
+    }
+    const reader = response.body.getReader();
+    let settled = false;
+    const settle = () => { settled = true; clearTimeout(timeout); };
+    // Keep the original attempt deadline until EOF or cancellation, including
+    // error/404 bodies. Error the consumer even if upstream ignores abort.
+    const body = new ReadableStream<Uint8Array>({
+      start(streamController) {
+        expireBody = () => {
+          if (settled) return;
+          settle();
+          streamController.error(new DiscoveryAttemptError('timeout', attempt));
+          void reader.cancel('discovery timeout').catch(() => {});
+        };
+      },
+      async pull(streamController) {
+        try {
+          const { done, value } = await reader.read();
+          if (settled) return;
+          if (done) {
+            settle();
+            reader.releaseLock();
+            streamController.close();
+          } else {
+            streamController.enqueue(value);
+          }
+        } catch (error) {
+          if (settled) return;
+          settle();
+          streamController.error(error);
+        }
+      },
+      cancel(reason) {
+        settle();
+        controller.abort(reason);
+        void reader.cancel(reason).catch(() => {});
+      },
+    }, { highWaterMark: 0 });
+    return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
   } catch {
-    throw new DiscoveryAttemptError(controller.signal.aborted ? 'timeout' : 'transport_error', attempt);
-  } finally {
     clearTimeout(timeout);
+    throw new DiscoveryAttemptError(controller.signal.aborted ? 'timeout' : 'transport_error', attempt);
   }
 }
 
@@ -567,8 +622,8 @@ async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInp
 
   try {
     await readBoundedText(response, maxResponseBytes);
-  } catch {
-    throw new DiscoveryAttemptError('response_too_large', 1);
+  } catch (error) {
+    throw error instanceof DiscoveryAttemptError ? error : new DiscoveryAttemptError('response_too_large', 1);
   }
   const compatBody = clone(input.body);
   delete compatBody.store;
@@ -665,7 +720,7 @@ async function executeReasoningProbe(common: CommonRequest, request: PlainObject
   }
   if (attempt.response.status !== 200) {
     let text = '';
-    try { text = await readBoundedText(attempt.response, common.maxResponseBytes); } catch { return transportFailure(new DiscoveryAttemptError('response_too_large', attempt.attempts)); }
+    try { text = await readBoundedText(attempt.response, common.maxResponseBytes); } catch (error) { return transportFailure(error instanceof DiscoveryAttemptError ? error : new DiscoveryAttemptError('response_too_large', attempt.attempts)); }
     return {
       ...sanitizedError(attempt.response.status, text),
       transport: attempt.transport,
@@ -674,7 +729,8 @@ async function executeReasoningProbe(common: CommonRequest, request: PlainObject
     } as ProbeResult;
   }
   let parsed: ParsedPiSse;
-  try { parsed = await parsePiSseStream(attempt.response.body, common.maxResponseBytes); } catch {
+  try { parsed = await parsePiSseStream(attempt.response.body, common.maxResponseBytes); } catch (error) {
+    if (error instanceof DiscoveryAttemptError) return transportFailure(error);
     return {
       ...sanitizedError(200, '', 'malformed_response'),
       transport: attempt.transport,
@@ -717,7 +773,7 @@ async function executeToolLifecycle(common: CommonRequest, initialRequest: Plain
   }
   if (firstAttempt.response.status !== 200) {
     let text = '';
-    try { text = await readBoundedText(firstAttempt.response, common.maxResponseBytes); } catch { return { passed: false, stage: 'tool-call', first: publicProbe(transportFailure(new DiscoveryAttemptError('response_too_large', firstAttempt.attempts))), replay: null, stop: true }; }
+    try { text = await readBoundedText(firstAttempt.response, common.maxResponseBytes); } catch (error) { return { passed: false, stage: 'tool-call', first: publicProbe(transportFailure(error instanceof DiscoveryAttemptError ? error : new DiscoveryAttemptError('response_too_large', firstAttempt.attempts))), replay: null, stop: true }; }
     return {
       passed: false,
       stage: 'tool-call',
@@ -728,7 +784,8 @@ async function executeToolLifecycle(common: CommonRequest, initialRequest: Plain
   }
 
   let firstParsed: ParsedPiSse;
-  try { firstParsed = await parsePiSseStream(firstAttempt.response.body, common.maxResponseBytes); } catch {
+  try { firstParsed = await parsePiSseStream(firstAttempt.response.body, common.maxResponseBytes); } catch (error) {
+    if (error instanceof DiscoveryAttemptError) return { passed: false, stage: 'tool-call', first: publicProbe(transportFailure(error)), replay: null, stop: true };
     return {
       passed: false,
       stage: 'tool-call-validation',
@@ -750,7 +807,7 @@ async function executeToolLifecycle(common: CommonRequest, initialRequest: Plain
     }
     if (replayAttempt.response.status !== 200) {
       let text = '';
-      try { text = await readBoundedText(replayAttempt.response, common.maxResponseBytes); } catch { return { passed: false, stage: 'tool-replay', first, replay: publicProbe(transportFailure(new DiscoveryAttemptError('response_too_large', replayAttempt.attempts))), stop: true }; }
+      try { text = await readBoundedText(replayAttempt.response, common.maxResponseBytes); } catch (error) { return { passed: false, stage: 'tool-replay', first, replay: publicProbe(transportFailure(error instanceof DiscoveryAttemptError ? error : new DiscoveryAttemptError('response_too_large', replayAttempt.attempts))), stop: true }; }
       return {
         passed: false,
         stage: 'tool-replay',
@@ -760,7 +817,8 @@ async function executeToolLifecycle(common: CommonRequest, initialRequest: Plain
       };
     }
     let replayParsed: ParsedPiSse;
-    try { replayParsed = await parsePiSseStream(replayAttempt.response.body, common.maxResponseBytes); } catch {
+    try { replayParsed = await parsePiSseStream(replayAttempt.response.body, common.maxResponseBytes); } catch (error) {
+      if (error instanceof DiscoveryAttemptError) return { passed: false, stage: 'tool-replay', first, replay: publicProbe(transportFailure(error)), stop: true };
       return {
         passed: false,
         stage: 'tool-replay',
@@ -770,7 +828,10 @@ async function executeToolLifecycle(common: CommonRequest, initialRequest: Plain
       };
     }
     const replay = await summarizeParsedSse(replayParsed, replayAttempt.transport, replayAttempt.attempts);
-    const passed = replayParsed.malformedEvents === 0 && replayParsed.effectiveFinishReason === 'stop';
+    const passed = replayParsed.malformedEvents === 0
+      && replayParsed.effectiveFinishReason === 'stop'
+      && replayParsed.content.trim().length > 0
+      && replayParsed.toolCalls.length === 0;
     return { passed, stage: passed ? 'complete' : 'final-response', first, replay, stop: replayParsed.malformedEvents > 0 };
   } catch {
     return {
