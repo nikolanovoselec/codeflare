@@ -239,6 +239,8 @@ const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'usage', package: '@narumitw/pi-usage', entrypoint: 'src/index.ts' },
   { variable: 'evaluate', package: 'pi-evaluate', entrypoint: 'extensions/evaluate.ts' },
   { variable: 'plan', package: '@narumitw/pi-plan-mode', entrypoint: 'dist/index.ts' },
+  { variable: 'subagents', package: '@gotgenes/pi-subagents', entrypoint: 'src/index.ts' },
+  { variable: 'mcp', package: 'pi-mcp-adapter', entrypoint: 'index.ts' },
 ];
 
 describe('REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152: image build warms and verifies every managed npm entrypoint', () => {
