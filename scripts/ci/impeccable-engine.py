@@ -52,7 +52,7 @@ def verify_scan(binary, expect_symlink_bug=False):
         for explicit in [
             str(target / "escape"), str(target / "escape") + "/",
             str(target / "escape") + "/.", str(target / "escape" / "private.png"),
-            str(target / "escape") + "/../target",
+            str(target / "escape") + "/..",
         ]:
             result = scan(explicit)
             assert result.returncode == 1, result
