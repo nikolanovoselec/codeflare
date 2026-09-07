@@ -14,7 +14,37 @@ import {
   type ConfigurationRun,
 } from '../../api/client';
 import EnvironmentAreaFields, { environmentValues } from './EnvironmentAreaFields';
+import AiRoutingReview, { AiRoutingSummary } from './AiRoutingReview';
 import { environmentContext, executionOutcome, operatorTaskLabel } from './administration-presentation';
+
+function changeValue(field: string, value: unknown): string {
+  if (value === null || value === undefined) return 'Not configured';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    if (field === 'groupRouting') return value.map((item) => {
+      const group = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+      const routes = Array.isArray(group.routes) ? group.routes.join(', ') : 'none';
+      return `${String(group.accessGroup ?? 'Group')}: ${routes}; default ${String(group.defaultRoute ?? 'none')} (${String(group.reasoning ?? 'off')})`;
+    }).join(' · ');
+    return value.map(String).join(', ');
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (field === 'routeContextWindows') return entries.map(([route, tokens]) => `${route}: ${String(tokens)} tokens`).join(' · ');
+    if (field === 'reasoningConfiguration') {
+      const assignments = (value as Record<string, unknown>).routeAssignments;
+      if (assignments && typeof assignments === 'object' && !Array.isArray(assignments)) {
+        return Object.entries(assignments as Record<string, unknown>).map(([route, assignment]) => {
+          const activeProfile = assignment && typeof assignment === 'object' ? (assignment as Record<string, unknown>).activeProfile : undefined;
+          const ref = activeProfile && typeof activeProfile === 'object' ? activeProfile as Record<string, unknown> : {};
+          return `${route}: ${String(ref.id ?? 'unassigned')} revision ${String(ref.revision ?? 'unknown')}`;
+        }).join(' · ');
+      }
+    }
+    return entries.map(([key, item]) => `${key}: ${typeof item === 'object' ? 'updated' : String(item)}`).join(' · ');
+  }
+  return String(value);
+}
 
 const EnvironmentIndex: Component = () => {
   const configuration = useAdministration();
@@ -71,15 +101,29 @@ export const EnvironmentAreaDetail: Component = () => {
   const [run, setRun] = createSignal<ConfigurationRun>();
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string>();
+  const [confirmedWarnings, setConfirmedWarnings] = createSignal<string[]>([]);
+  const [aiRoutingReady, setAiRoutingReady] = createSignal(false);
+  const [aiRoutingDirty, setAiRoutingDirty] = createSignal(false);
+
+  const editedCurrent = () => {
+    const section = area()?.section;
+    const submitted = submittedValues();
+    if (section !== 'aiRouting' || !submitted || typeof submitted !== 'object') return section ? configuration.sections[section] : undefined;
+    // REQ-ENTERPRISE-041: back-to-edit-gateway-baseline stays durable when the displayed URL is a draft.
+    return { ...(configuration.sections[section] as Record<string, unknown>), ...(submitted as Record<string, unknown>),
+      savedGatewayUrl: (configuration.sections[section] as Record<string, unknown>).gatewayUrl,
+    };
+  };
 
   const review = async (event: SubmitEvent) => {
     event.preventDefault();
     const section = area()?.section;
-    if (!section) return;
+    if (!section || preview() || busy() || configuration.activeRunId || (section === 'aiRouting' && (!aiRoutingReady() || !aiRoutingDirty()))) return;
     setBusy(true); setError(undefined);
     try {
       const values = environmentValues(section, configuration.mode, new FormData(event.currentTarget as HTMLFormElement));
       setSubmittedValues(values);
+      setConfirmedWarnings([]);
       setPreview(await previewConfiguration(section, configuration.revision, values));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Environment values are invalid.');
@@ -88,10 +132,11 @@ export const EnvironmentAreaDetail: Component = () => {
 
   const apply = async () => {
     const section = area()?.section;
-    if (!section || !submittedValues()) return;
+    const reviewed = preview();
+    if (!section || !submittedValues() || !reviewed || busy() || configuration.activeRunId || reviewed.warnings.some((warning) => !confirmedWarnings().includes(warning.code))) return;
     setBusy(true); setError(undefined);
     try {
-      const response = await startConfigurationRun(section, configuration.revision, submittedValues());
+      const response = await startConfigurationRun(section, configuration.revision, submittedValues(), confirmedWarnings());
       const reader = response.body?.getReader();
       if (!reader) throw new Error('Configuration stream was unavailable');
       const decoder = new TextDecoder();
@@ -128,11 +173,11 @@ export const EnvironmentAreaDetail: Component = () => {
       <header class="admin-page-header"><div><p class="admin-eyebrow">Environment area</p><h1>{resolved().label}</h1><p>{resolved().summary}</p></div><A href="/admin/environment">Back to Environment</A></header>
       <Show when={configuration.activeRunId && !run()}><div class="admin-state-panel admin-conflict-panel"><h2>Settings change active</h2><p>Reconnect to the persisted run before starting another change.</p><button type="button" class="admin-primary-button" disabled={busy()} onClick={() => void reconnect()}>Reconnect</button></div></Show>
       <Show when={error()}><div class="admin-inline-error" role="alert">{error()}</div></Show>
-      <Show when={!preview() && !run()}>
-        <form class="admin-panel admin-environment-form" onSubmit={(event) => void review(event)}>
+      <Show when={!run() && (resolved().section === 'aiRouting' || !preview())}>
+        <form style={{ display: preview() ? 'none' : undefined }} class="admin-panel admin-environment-form" onSubmit={(event) => void review(event)}>
           <div class="admin-panel-heading"><div><h2>Edit current settings</h2><p>Blank secret fields preserve their stored value.</p></div><span class="admin-revision">Revision <strong class="admin-mono">{configuration.revision}</strong></span></div>
           <div class="admin-editor-layout">
-            <EnvironmentAreaFields section={resolved().section} mode={configuration.mode} current={configuration.sections[resolved().section]} />
+            <EnvironmentAreaFields section={resolved().section} mode={configuration.mode} current={editedCurrent()} onReadyChange={setAiRoutingReady} onDirtyChange={setAiRoutingDirty} />
             <aside class="admin-editor-context">
               <h3>Before you apply</h3>
               <dl>
@@ -142,15 +187,21 @@ export const EnvironmentAreaDetail: Component = () => {
               </dl>
             </aside>
           </div>
-          <div class="admin-form-actions"><button type="submit" class="admin-primary-button" disabled={busy() || Boolean(configuration.activeRunId)}>{busy() ? 'Reviewing…' : 'Review changes'}</button></div>
+          <div class="admin-form-actions"><button type="submit" class="admin-primary-button" disabled={busy() || Boolean(configuration.activeRunId) || (resolved().section === 'aiRouting' && (!aiRoutingReady() || !aiRoutingDirty()))}>{busy() ? 'Reviewing…' : 'Review changes'}</button></div>
         </form>
       </Show>
       <Show when={!run() ? preview() : undefined}>{(reviewed) => <section class="admin-panel">
-        <div class="admin-panel-heading"><div><h2>Review changes</h2><p>Only tasks listed below will run.</p></div></div>
-        <Show when={reviewed().changes.length > 0} fallback={<div class="admin-state-panel"><h3>No changes detected</h3><p>Return to edit before applying.</p></div>}>
-          <dl class="admin-change-list"><For each={reviewed().changes}>{(change) => <div><dt>{change.field}</dt><dd>{change.secret ? (change.secret.willReplace ? 'Replace saved secret' : 'Preserve saved secret') : JSON.stringify(change.after)}</dd></div>}</For></dl>
+        <div class="admin-panel-heading"><div><h2>{resolved().section === 'aiRouting' ? 'Confirm Save' : 'Review changes'}</h2><p>{resolved().section === 'aiRouting' ? 'Save the route assignments and any new profiles together. Nothing is saved until you confirm below.' : 'Nothing is saved until Apply change. Only the tasks listed below will run.'}</p></div></div>
+        <Show when={resolved().section === 'aiRouting'}>
+          <AiRoutingReview values={submittedValues()} current={configuration.sections.aiRouting} preview={reviewed()}
+            busy={busy()} confirmedWarnings={confirmedWarnings()}
+            onWarningChange={(code, checked) => setConfirmedWarnings((codes) => checked ? [...codes, code] : codes.filter((item) => item !== code))}
+            onBack={() => { setPreview(undefined); setConfirmedWarnings([]); }} onConfirm={() => void apply()} />
+        </Show>
+        <Show when={resolved().section !== 'aiRouting'}><Show when={reviewed().changes.length > 0} fallback={<div class="admin-state-panel"><h3>No changes detected</h3><p>Return to edit before applying.</p></div>}>
+          <dl class="admin-change-list"><For each={reviewed().changes}>{(change) => <div><dt>{change.field}</dt><dd>{change.secret ? (change.secret.willReplace ? 'Replace saved secret' : 'Preserve saved secret') : changeValue(change.field, change.after)}</dd></div>}</For></dl>
           <h3>Execution plan</h3><ol class="admin-task-plan"><For each={reviewed().tasks}>{(task) => <li>{operatorTaskLabel(task.id)}</li>}</For></ol>
-          <For each={reviewed().warnings}>{(warning) => <div class="admin-inline-error">{warning.message}</div>}</For>
+          <For each={reviewed().warnings}>{(warning) => <label class="admin-warning-confirmation"><input type="checkbox" checked={confirmedWarnings().includes(warning.code)} onChange={(event) => setConfirmedWarnings((codes) => event.currentTarget.checked ? [...codes, warning.code] : codes.filter((code) => code !== warning.code))} /><span><strong>Confirm warning</strong>{warning.message}</span></label>}</For>
           <details class="admin-technical-details">
             <summary>Technical details</summary>
             <dl>
@@ -158,15 +209,19 @@ export const EnvironmentAreaDetail: Component = () => {
               <div><dt>Excluded setup work</dt><dd class="admin-mono">{reviewed().exclusions.join(', ') || 'None'}</dd></div>
             </dl>
           </details>
-          <div class="admin-form-actions"><button type="button" class="admin-secondary-button" onClick={() => setPreview(undefined)}>Back to edit</button><button type="button" class="admin-primary-button" disabled={busy()} onClick={() => void apply()}>{busy() ? 'Applying…' : 'Apply change'}</button></div>
-        </Show>
+          <div class="admin-form-actions"><button type="button" class="admin-secondary-button" onClick={() => { setPreview(undefined); setConfirmedWarnings([]); }}>Back to edit</button><button type="button" class="admin-primary-button" disabled={busy() || reviewed().warnings.some((warning) => !confirmedWarnings().includes(warning.code))} onClick={() => void apply()}>{busy() ? 'Applying…' : resolved().section === 'aiRouting' ? 'Confirm Save' : 'Apply change'}</button></div>
+        </Show></Show>
       </section>}</Show>
       <Show when={run()}>{(currentRun) => <section class="admin-panel">
         <div class="admin-panel-heading"><div><h2>Execution {currentRun().state}</h2><p>Only the reviewed Environment area was changed.</p></div><span class={`admin-run-state is-${currentRun().state}`}>{currentRun().state}</span></div>
         <Show when={currentRun().state === 'succeeded' && currentRun().resultingRevision !== undefined}>
           <div class="admin-execution-outcome">
             <strong>{executionOutcome(currentRun().section, currentRun().resultingRevision!)}</strong>
-            <Show when={preview()?.changes.length}><dl class="admin-change-list"><For each={preview()?.changes}>{(change) => <div><dt>{change.field}</dt><dd>{change.secret ? (change.secret.willReplace ? 'Saved secret replaced' : 'Saved secret preserved') : JSON.stringify(change.after)}</dd></div>}</For></dl></Show>
+            <Show when={preview()?.changes.length}>
+              <Show when={currentRun().section === 'aiRouting'} fallback={<dl class="admin-change-list"><For each={preview()?.changes}>{(change) => <div><dt>{change.field}</dt><dd>{change.secret ? (change.secret.willReplace ? 'Saved secret replaced' : 'Saved secret preserved') : changeValue(change.field, change.after)}</dd></div>}</For></dl>}>
+                <AiRoutingSummary values={submittedValues()} current={configuration.sections.aiRouting} changes={preview()?.changes ?? []} saved />
+              </Show>
+            </Show>
           </div>
         </Show>
         <ol class="admin-task-plan"><For each={currentRun().tasks}>{(task) => <li><span class={`admin-run-state is-${task.state}`}>{task.state}</span> {operatorTaskLabel(task.id)}<Show when={task.error}><small>{task.error?.message}</small></Show></li>}</For></ol>

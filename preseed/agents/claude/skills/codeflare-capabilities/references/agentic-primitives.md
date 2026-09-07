@@ -1,39 +1,49 @@
-# Vault, SilverBullet, memory, Graphify, Todo, and subagents
+# Vault, SilverBullet, memory, Graphify, Goal, Plan, Todo, and subagents
 
-## What I can do
+You can return to an investigation with more than a transcript. I can recover the decision that ruled out an approach, follow its connection to a requirement, locate the implementing code, and use that evidence to plan the next step. Your notes remain files you can edit; the relationships remain queryable; the current source still decides what is true now.
 
-I preserve the useful parts of a long engineering life instead of treating every new session as amnesia with a terminal.
+While the work runs, I keep its objective, plan, executable tasks, and independent investigations connected. You do not have to act as the memory and coordinator between every session and worker.
 
-I use the Vault as an Obsidian-compatible Markdown knowledge base opened through SilverBullet. It carries notes, plans, references, journal entries, inbox material, attachments, pasted content, and structured session captures. You can edit it directly, create wikilinks, and keep the source as ordinary files.
+## A knowledge base you can read without me
 
-Codeflare's memory subsystem continuously persists decisions, corrections, observations, debugging discoveries, and source references in the Vault. These captures join the cumulative knowledge graph as permanently queryable content, unless you remove them. I retrieve that history automatically in future sessions and connect it to current requirements, incidents, plans, and code.
+The Vault is ordinary, Obsidian-compatible Markdown, opened through SilverBullet. Notes, plans, journal entries, inbox material, references, attachments, and session captures remain files you can browse, edit, and link yourself. Your knowledge does not have to live only inside a conversation interface.
 
-I use Graphify to combine supported Vault knowledge with source and architecture from the active repository, then query them as one graph. That connects a prior incident, a playbook, a requirement, and the function that implements it. I automatically retrieve relevant graph context when current work connects to it.
+Supported memory capture preserves decisions, corrections, observations, debugging discoveries, and source references. Capture and extraction have separate delivery steps: material must be persisted and indexed before I treat it as available to later retrieval. A worker saying “Done” is not enough to establish that the intended artifact arrived.
 
-I use Todo to keep executable work and dependencies honest. I delegate investigation, review, CI monitoring, and knowledge extraction to specialist subagents when parallel work helps. I remain the root owner that combines their evidence and controls mutations.
+When you ask me to retain a decision, I keep the evidence that made it useful—not simply a confident conclusion detached from its context. Later work can recover the reasoning, including approaches that failed and constraints that still matter.
 
-## Goal and Plan
+Durability depends on the configured persistence scope. A local note that has not synchronized is still local, and retrieval is bounded rather than total recall of everything ever said.
 
-Goal records the desired end state, relevant constraints, non-goals, acceptance evidence, and approval boundaries. For non-trivial work, Plan is the execution path I maintain while working. I update it when repository evidence changes my understanding. I ask only when missing information would materially change the outcome or risk, or force an irreversible decision; routine implementation details come from repository evidence and established conventions.
+## Follow relationships across knowledge and code
 
-> **Goal:** Upgrade the authentication boundary without changing the public API. Preserve tenant isolation, pass the existing security checks, and stop before deployment.
->
-> **Plan:** I inspect the current boundary, identify affected requirements and tests, propose the smallest safe change, implement it, run the required review lanes, and report evidence plus unresolved decisions.
+Graphify connects supported Vault material with the active repository's source and architecture. I can query relationships, follow paths, and explain connections between a prior incident, an architectural decision, a requirement, and the function that implements it.
 
-## Where the boundary sits
+That is different from receiving a list of documents that happen to contain the same word. The relationship itself can guide the investigation: what depends on this component, what decision constrained it, and what earlier evidence might explain the failure?
 
-The global graph is a structural memory, not an oracle. It includes what capture and extraction have accepted, and the active repository graph may be stale until the user refreshes it. Current source and live system evidence outrank old notes.
+I use available graphs for relevant architecture and dependency work. Building or refreshing one requires your authorization. A stale graph remains stale evidence; current source takes precedence. The global view combines the active repository contribution with cumulative Vault knowledge rather than silently retaining every old checkout as current architecture.
 
-I merge one active repository contribution with the cumulative Vault contribution. I do not silently keep every repository ever cloned in the global graph, because a brain made entirely of stale checkouts would be less “collective intelligence” and more attic.
+## Decide the approach before executing it
 
-Subagents report within their assigned boundary. Todo records work but does not execute it. Memory cannot authorize a production action.
+Plan Mode provides a read-only investigation and planning workflow with structured questions and an explicit handoff. I can establish scope, inspect evidence, surface a material decision, and make the intended work reviewable before implementation.
 
-## Try it
+Goal owns a session-scoped objective and its continuation. With an authorized goal active, I can keep moving toward its acceptance evidence without requiring you to prompt every routine next step. Cancellation, pacing, and stale-continuation guards keep that progression tied to the current objective.
 
-Ask me to find everything connected to one error signature across session captures, notes, architecture decisions, and the active repository, then turn the evidence into a requirement and a focused investigation task.
+Goal and native Plan Mode cannot own the same session simultaneously. I can plan first, leave Plan Mode, and then execute under Goal. An execution plan maintained during work is not itself native Plan Mode.
 
-Other useful requests:
+Todo tracks executable steps and dependencies. I update and close tasks as evidence lands; a list entry does not execute the work or prove it complete.
 
-- “Use Graphify to map dependencies around this subsystem before we plan the fix.”
-- “Capture this decision into the Vault and link it to the requirement and PR.”
-- “Create Todo tasks with owners and dependencies, then close them as the evidence lands.”
+## Bring in another judgment deliberately
+
+When you request the advisor, I can bring a second judgment to a difficult decision without handing off ownership of the implementation. Evaluate serves a different purpose: compare a contract with the actual output and report what is satisfied, missing, or unsupported. It reports gaps rather than silently fixing them.
+
+Those are deliberate interventions, not background claims that every answer has been independently checked. I use the capabilities available in the session and keep your request, the evidence examined, and the resulting decision clear.
+
+## Parallel work returns to one accountable thread
+
+Subagents can investigate independent areas, review, monitor CI, or perform supported knowledge extraction. Their assignments, status, and results remain visible. Active-work resume guards help avoid starting a second continuation of an already-running task.
+
+I remain responsible for reconciling the findings and controlling mutations. Parallel investigation should reduce waiting, not leave you with several contradictory reports and no owner of the next decision. Structured questions bring genuinely missing choices back to you without turning every implementation detail into an interruption.
+
+Captured text remains historical evidence, subagents stay within their assignments, and an autonomous objective does not authorize an unrequested production action.
+
+The next piece of work can therefore begin with the decisions, connections, and findings already earned. I can turn that context into a plan, coordinate its independent investigations, and bring the results back to you as one accountable thread.

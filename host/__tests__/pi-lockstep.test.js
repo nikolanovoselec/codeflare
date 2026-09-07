@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createHash, getFips } from 'node:crypto';
 import { describe, it } from 'node:test';
@@ -26,6 +26,57 @@ function resolveCachePath(sourcePath, cacheDirectory) {
 function readArgs(path) {
   return readFileSync(path, 'utf8').trim().split('\n');
 }
+
+describe('REQ-AGENT-206: updated runtime dependencies and cache ownership', () => {
+  it('rejects an installed Pi package whose required image dependency is missing', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'pi-health-'));
+    try {
+      const manifest = join(directory, 'package.json');
+      writeJson(manifest, { name: '@earendil-works/pi-coding-agent', version: '0.85.1', dependencies: { '@silvia-odwyer/photon-node': '0.3.4' } });
+      const result = spawnSync(process.execPath, [script, '--verify-runtime', manifest], { encoding: 'utf8' });
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /photon-node/);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it('accepts import-only dependency exports and rejects failed image processing', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'pi-image-health-'));
+    try {
+      writeJson(join(directory, 'package.json'), { name: '@earendil-works/pi-coding-agent', type: 'module', dependencies: { 'image-fixture': '1.0.0' } });
+      mkdirSync(join(directory, 'node_modules/image-fixture'), { recursive: true });
+      writeJson(join(directory, 'node_modules/image-fixture/package.json'), { type: 'module', exports: { import: './index.js' } });
+      writeFileSync(join(directory, 'node_modules/image-fixture/index.js'), 'export default true;');
+      mkdirSync(join(directory, 'dist/utils'), { recursive: true });
+      writeFileSync(join(directory, 'dist/utils/photon.js'), 'export async function loadPhoton() { return { PhotonImage: class { get_bytes() { return new Uint8Array([1]); } free() {} } }; }');
+      const processor = join(directory, 'dist/utils/image-process.js');
+      const check = () => spawnSync(process.execPath, [script, '--verify-runtime', join(directory, 'package.json')], { encoding: 'utf8' });
+      writeFileSync(processor, 'export async function processImage() { return { ok: true }; }');
+      const healthy = check(); assert.equal(healthy.status, 0, healthy.stderr);
+      writeFileSync(processor, 'export async function processImage() { return { ok: false, message: "fixture decode failure" }; }');
+      const failed = check(); assert.notEqual(failed.status, 0);
+      assert.match(failed.stderr, /Pi image processing failed: fixture decode failure/);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it('replaces the runtime jiti link without clearing the image cache', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'pi-cache-reset-'));
+    try {
+      const imageCache = join(directory, 'image-cache');
+      const runtime = join(directory, 'runtime');
+      mkdirSync(imageCache); mkdirSync(join(runtime, 'pi-tmp'), { recursive: true });
+      writeFileSync(join(imageCache, 'baked.mjs'), 'baked');
+      symlinkSync(imageCache, join(runtime, 'pi-tmp/jiti'));
+      const reset = () => spawnSync(process.execPath, [script, '--reset-runtime-jiti', runtime], { encoding: 'utf8' });
+      const first = reset(); assert.equal(first.status, 0, first.stderr);
+      assert.equal(readFileSync(join(imageCache, 'baked.mjs'), 'utf8'), 'baked');
+      assert.equal(realpathSync(join(runtime, 'pi-tmp/jiti')), join(runtime, 'pi-tmp/jiti'));
+      writeFileSync(join(runtime, 'pi-tmp/jiti/stale.mjs'), 'stale');
+      const second = reset(); assert.equal(second.status, 0, second.stderr);
+      assert.throws(() => readFileSync(join(runtime, 'pi-tmp/jiti/stale.mjs')));
+      assert.equal(readFileSync(join(imageCache, 'baked.mjs'), 'utf8'), 'baked');
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+});
 
 describe('REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification', () => {
   it('rejects a missing @narumitw/pi-goal entrypoint artifact and accepts the expected artifact', () => {
@@ -173,11 +224,7 @@ done
   });
 });
 
-// The warm/verify helpers above are package-agnostic: they warm whatever paths the
-// build hands them. What decides whether a managed package is actually baked is the
-// Dockerfile wiring, so that wiring is asserted here. Each entrypoint has to be
-// declared, passed to the warm call, AND re-verified afterwards; dropping any one of
-// the three silently returns that package to cold-transpiling every session.
+// Execute the image-owned shell sequence with isolated fixture entrypoints.
 const dockerfile = readFileSync(fileURLToPath(new URL('../../Dockerfile', import.meta.url)), 'utf8');
 const piPackage = JSON.parse(
   readFileSync(fileURLToPath(new URL('../../preseed/agents/pi/package.json', import.meta.url)), 'utf8'),
@@ -188,33 +235,89 @@ const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'usage', package: '@narumitw/pi-usage', entrypoint: 'src/index.ts' },
   { variable: 'evaluate', package: 'pi-evaluate', entrypoint: 'extensions/evaluate.ts' },
   { variable: 'plan', package: '@narumitw/pi-plan-mode', entrypoint: 'dist/index.ts' },
+  { variable: 'subagents', package: '@gotgenes/pi-subagents', entrypoint: 'src/index.ts' },
+  { variable: 'mcp', package: 'pi-mcp-adapter', entrypoint: 'index.ts' },
 ];
 
-describe('REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152: image build warms and verifies every managed npm entrypoint', () => {
-  it('declares, warms, and re-verifies each locked package entrypoint', () => {
+function runImageWarmFixture(omitPackage = '') {
+  const directory = mkdtempSync(join(tmpdir(), 'codeflare-image-warm-'));
+  try {
+    const imageRoot = join(directory, 'image');
+    const home = join(directory, 'home');
+    const npmRoot = join(imageRoot, 'pi-agent/npm');
+    const localSource = join(imageRoot, 'pi-agent/extensions/local.ts');
+    mkdirSync(dirname(localSource), { recursive: true });
+    writeFileSync(localSource, 'export const name: string = "local";\n');
+    mkdirSync(join(imageRoot, 'scripts'), { recursive: true });
+    symlinkSync(script, join(imageRoot, 'scripts/verify-pi-lockstep.mjs'));
+    const sources = WARMED_NPM_ENTRYPOINTS.map(({ package: name, entrypoint }) => {
+      assert.ok(piPackage.dependencies[name], `${name} must be locked`);
+      const source = `${NPM_ROOT}/${name}/${entrypoint}`.replace('/opt/codeflare', imageRoot);
+      mkdirSync(dirname(source), { recursive: true });
+      writeFileSync(source, `export const name: string = ${JSON.stringify(name)};\n`);
+      return { source, name };
+    });
+    writeJson(join(npmRoot, 'package.json'), piPackage);
+    mkdirSync(join(npmRoot, 'node_modules/.bin'), { recursive: true });
+    const pi = join(npmRoot, 'fixture-pi.mjs');
+    symlinkSync(pi, join(npmRoot, 'node_modules/.bin/pi'));
+    // Compile actual fixture TypeScript rather than manufacturing marker files.
+    // Real Pi/JITI loading remains covered by the deployment image build.
+    writeFileSync(pi, `#!/usr/bin/env node
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { stripTypeScriptTypes } from 'node:module';
+import { execFileSync } from 'node:child_process';
+const args = process.argv.slice(2);
+const sources = args.includes('--list-models')
+  ? args.flatMap((arg, i) => arg === '--extension' ? [args[i + 1]] : [])
+  : [process.env.FIXTURE_LOCAL_SOURCE];
+for (const source of sources) {
+  if (process.env.OMIT_PACKAGE && source.includes('/node_modules/' + process.env.OMIT_PACKAGE + '/')) continue;
+  const artifact = execFileSync(process.execPath, [${JSON.stringify(script)}, '--jiti-cache-path', source, join(process.env.TMPDIR, 'jiti')], { encoding: 'utf8' }).trim();
+  mkdirSync(dirname(artifact), { recursive: true });
+  writeFileSync(artifact, stripTypeScriptTypes(readFileSync(source, 'utf8')));
+}
+`);
+    chmodSync(pi, 0o755);
     const start = dockerfile.indexOf('RUN mkdir -p /opt/codeflare/jiti-warm-tmp');
-    assert.notEqual(start, -1, 'jiti warm RUN block not found');
+    assert.notEqual(start, -1, 'image warm sequence missing');
     const end = dockerfile.indexOf('\n\n', start);
-    const warmBlock = dockerfile.slice(start, end === -1 ? undefined : end);
-    // Bounded at the invocation's own `&&`: reaching to the end of the block would
-    // let the later --verify-jiti-cache lines satisfy the warm assertion, so dropping
-    // an entrypoint from the warm call alone would pass.
-    const warmCallStart = warmBlock.indexOf('--warm-jiti-entrypoints');
-    assert.notEqual(warmCallStart, -1, 'jiti warm invocation not found');
-    const warmCallEnd = warmBlock.indexOf('&&', warmCallStart);
-    assert.notEqual(warmCallEnd, -1, 'jiti warm invocation is not chained');
-    const warmCall = warmBlock.slice(warmCallStart, warmCallEnd);
+    const command = dockerfile.slice(start + 4, end === -1 ? undefined : end)
+      .replaceAll('/opt/codeflare', imageRoot).replaceAll('/home/user', home);
+    const result = spawnSync('bash', ['-e', '-c', command], {
+      encoding: 'utf8', timeout: 30_000,
+      env: { ...process.env, FIXTURE_LOCAL_SOURCE: localSource, OMIT_PACKAGE: omitPackage },
+    });
+    return { directory, imageRoot, result, sources: [...sources, { source: localSource, name: 'local' }] };
+  } catch (error) {
+    rmSync(directory, { recursive: true, force: true });
+    throw error;
+  }
+}
 
-    for (const { variable, package: name, entrypoint } of WARMED_NPM_ENTRYPOINTS) {
-      const source = `${NPM_ROOT}/${name}/${entrypoint}`;
-      assert.ok(piPackage.dependencies[name], `${name} must be a locked preseed dependency`);
-      assert.ok(warmBlock.includes(`${variable}_source="${source}"`), `build must declare ${source}`);
-      assert.ok(warmCall.includes(`"$${variable}_source"`), `warm call must transpile $${variable}_source`);
-      assert.match(
-        warmBlock,
-        new RegExp(`${variable}_hit="\\$\\(node \\S+verify-pi-lockstep\\.mjs --verify-jiti-cache "\\$${variable}_source" /opt/codeflare/jiti-cache\\)"`),
-        `build must fail closed on a missing ${name} artifact`,
-      );
+describe('REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210: image-owned extension warming', () => {
+  it('declares, warms, and re-verifies each locked package entrypoint', async () => {
+    const fixture = runImageWarmFixture();
+    try {
+      assert.equal(fixture.result.status, 0, fixture.result.stderr);
+      for (const { source, name } of fixture.sources) {
+        const artifact = resolveCachePath(source, join(fixture.imageRoot, 'jiti-cache'));
+        const compiled = await import(pathToFileURL(artifact).href);
+        assert.equal(compiled.name, name);
+      }
+    } finally { rmSync(fixture.directory, { recursive: true, force: true }); }
+  });
+
+  it('REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches', () => {
+    for (const name of ['@gotgenes/pi-subagents', 'pi-mcp-adapter', '@narumitw/pi-plan-mode']) {
+      const fixture = runImageWarmFixture(name);
+      try {
+        assert.notEqual(fixture.result.status, 0);
+        const { source } = fixture.sources.find((entry) => entry.name === name);
+        const artifact = resolveCachePath(source, join(fixture.imageRoot, 'jiti-warm-tmp/jiti'));
+        assert.ok(fixture.result.stderr.includes(`jiti cache artifact is missing at ${artifact}`), fixture.result.stderr);
+      } finally { rmSync(fixture.directory, { recursive: true, force: true }); }
     }
   });
 });

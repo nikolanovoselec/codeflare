@@ -96,6 +96,10 @@ describe('deployment container image input hash', () => {
       'scripts/browser-ide-ui-state.py',
       'scripts/browser-ide-extensions.py',
       'scripts/materialize-agent-seed.mjs',
+      'scripts/patch-impeccable-engine.py',
+      'scripts/ci/impeccable-engine.py',
+      'scripts/patch-rclone-bisync.py',
+      'scripts/ci/rclone-bookkeeping_test.go',
       'scripts/patch-context-mode-bundles.mjs',
       'scripts/patch-pi-goal-review-control.mjs',
       'scripts/patch-pi-plan-mode-tool-policy.mjs',
@@ -165,6 +169,13 @@ describe('deployment container image input hash', () => {
     write('.github/workflows/container-image.yml', 'deployment smoke change\n');
     commit('deployment workflow change');
     assert.notEqual(imageHashResult().tag, pruningTag);
+
+    for (const path of ['scripts/patch-impeccable-engine.py', 'scripts/ci/impeccable-engine.py']) {
+      const before = imageHashResult().tag;
+      write(path, 'native engine input change\n');
+      commit(`change ${path}`);
+      assert.notEqual(imageHashResult().tag, before, path);
+    }
 
     write('Dockerfile', `${readFileSync(join(root, 'Dockerfile'), 'utf8')}COPY host/__tests__/ /tmp/tests/\n`);
     commit('uncovered copy source');

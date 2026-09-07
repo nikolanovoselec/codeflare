@@ -769,20 +769,59 @@ function createExtensionHarness() {
 }
 
 describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
+  it('REQ-AGENT-178: unreviewed Plan command layout fails without partial writes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-plan-policy-drift-'));
+    extractPackage(join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.56.0.tgz'),
+      'sha512-sxbIODVaV6Ct+eD+lDN+tEn0mKtU9PG7rkkVhF6EC1d7t6YLHi1ixFhrKwMrJmsAPfkCnBKKImJcXx/bMFateg==', root);
+    const paths = ['src/plan-mode.ts', 'dist/index.ts', 'src/tool-policy.ts', 'dist/chunks/chunk-57OBPS7P.js'];
+    const chunk = join(root, paths[3]);
+    writeFileSync(chunk, readFileSync(chunk, 'utf8').replace('if (matchesConfiguredSafeSubcommand(command, safeSubcommands)) return void 0;', 'return void 0;'));
+    const before = paths.map((path) => readFileSync(join(root, path), 'utf8'));
+    assert.throws(() => patchPiPlanModeDirectory('0.56.0', root), /command policy anchors/);
+    assert.deepEqual(paths.map((path) => readFileSync(join(root, path), 'utf8')), before);
+    assert.throws(() => patchPiPlanModeDirectory('0.56.1', root), /Unsupported Plan Mode version/);
+    assert.deepEqual(paths.map((path) => readFileSync(join(root, path), 'utf8')), before);
+  });
+  for (const versions of [
+    { goal: EXPECTED_PI_GOAL_VERSION, plan: EXPECTED_PI_PLAN_MODE_VERSION,
+      goalArchive: PINNED_PACKAGE_ARCHIVE, goalIntegrity: PINNED_PACKAGE_INTEGRITY,
+      planArchive: PINNED_PLAN_ARCHIVE, planIntegrity: PINNED_PLAN_INTEGRITY },
+    { goal: '0.54.4', plan: '0.56.0',
+      goalArchive: join(FIXTURES_DIRECTORY, 'pi-goal-0.54.4.tgz'),
+      goalIntegrity: 'sha512-WqGGYnX5YBaEUlkC2Lh3sFHizJ6/hiGBijybOBv/7RRDZvpMdfygORIl5OHhzqSPekC9+z0ROxiCzPE6hS17jQ==',
+      planArchive: join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.56.0.tgz'),
+      planIntegrity: 'sha512-sxbIODVaV6Ct+eD+lDN+tEn0mKtU9PG7rkkVhF6EC1d7t6YLHi1ixFhrKwMrJmsAPfkCnBKKImJcXx/bMFateg==' },
+  ]) {
+  describe(`Goal ${versions.goal}, Plan ${versions.plan}`, () => {
   it('REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership', async () => {
     const goalRoot = mkdtempSync(join(tmpdir(), 'pi-goal-integration-'));
     const planRoot = mkdtempSync(join(tmpdir(), 'pi-plan-integration-'));
-    extractPinnedFixturePackage(goalRoot);
-    extractPackage(PINNED_PLAN_ARCHIVE, PINNED_PLAN_INTEGRITY, planRoot);
-    patchPiGoalDirectory(EXPECTED_PI_GOAL_VERSION, goalRoot);
-    patchPiPlanModeDirectory(EXPECTED_PI_PLAN_MODE_VERSION, planRoot);
+    extractPackage(versions.goalArchive, versions.goalIntegrity, goalRoot);
+    extractPackage(versions.planArchive, versions.planIntegrity, planRoot);
+    patchPiGoalDirectory(versions.goal, goalRoot);
+    patchPiPlanModeDirectory(versions.plan, planRoot);
     const patchedPlan = readFileSync(join(planRoot, 'dist/index.ts'), 'utf8');
-    patchPiPlanModeDirectory(EXPECTED_PI_PLAN_MODE_VERSION, planRoot);
+    patchPiPlanModeDirectory(versions.plan, planRoot);
     assert.equal(readFileSync(join(planRoot, 'dist/index.ts'), 'utf8'), patchedPlan);
     assert.throws(
       () => patchPiPlanModeDirectory('0.55.2', planRoot),
       /Unsupported Plan Mode version/,
     );
+    const goalAfter = readFixturePackage(goalRoot);
+    patchPiGoalDirectory(versions.goal, goalRoot);
+    assert.deepEqual(readFixturePackage(goalRoot), goalAfter);
+    if (versions.plan === '0.56.0') {
+      const configured = { git: ['status'], gh: ['pr view'] };
+      for (const [index, file] of ['src/tool-policy.ts', 'dist/chunks/chunk-57OBPS7P.js'].entries()) {
+        const policy = await bundleFixture(join(planRoot, file), join(planRoot, `policy-${index}.mjs`), 'namespace');
+        for (const check of [policy.findBlockedCommandSegment, policy.findBlockedPowerShellCommandSegment]) {
+          assert.equal(check('git status', configured), undefined);
+          for (const command of ['git status; touch sentinel', 'git status && rm sentinel', 'git status > sentinel', 'git status $(touch sentinel)', 'git status | sh']) {
+            assert.notEqual(check(command, configured), undefined, command);
+          }
+        }
+      }
+    }
     const goalManifest = JSON.parse(readFileSync(join(goalRoot, 'package.json'), 'utf8'));
     assert.deepEqual(goalManifest.pi?.extensions, ['./src/index.ts']);
     const goalExtension = await bundleFixture(join(goalRoot, goalManifest.pi.extensions[0]), join(goalRoot, 'goal.mjs'));
@@ -842,6 +881,9 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(response?.status, 'active');
     assert.notEqual(response?.goalId, pausedGoalId);
   });
+
+  });
+  }
 
   it('REQ-AGENT-111: emits compact Goal prompts without blocked or wait tool coaching', async () => {
     const goalRoot = mkdtempSync(join(tmpdir(), 'pi-goal-prompt-'));

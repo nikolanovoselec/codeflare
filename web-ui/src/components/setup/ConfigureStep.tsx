@@ -1,5 +1,5 @@
 import { Component, For, Show, createMemo, createSignal, onMount } from 'solid-js';
-import { setupStore, DEFAULT_ROUTE_CONTEXT_WINDOW, type ReasoningLevel } from '../../stores/setup';
+import { setupStore, DEFAULT_ROUTE_CONTEXT_WINDOW, type ReasoningLevel, type ReasoningProfileId } from '../../stores/setup';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import ChipListField from '../ui/ChipListField';
@@ -13,6 +13,13 @@ import SetupSection from './SetupSection';
 import ManagedEnvironmentSection from './ManagedEnvironmentSection';
 import SetupJourneyNav, { type SetupJourneyPage } from './SetupJourneyNav';
 import '../../styles/configure-step.css';
+
+const REASONING_PROFILE_OPTIONS = [
+  { value: '', label: 'Select reasoning profile' },
+  { value: 'workers-ai-gpt-oss', label: 'Workers AI · GPT-OSS' },
+  { value: 'workers-ai-glm-5.3', label: 'Workers AI · GLM 5.3' },
+  { value: 'workers-ai-kimi-k2.6', label: 'Workers AI · Kimi K2.6' },
+];
 
 const REASONING_OPTIONS = [
   { value: 'off', label: 'reasoning: off' },
@@ -111,7 +118,10 @@ const ConfigureStep: Component = () => {
   const canContinue = createMemo(() => {
     if (page() === 'access') return Boolean(setupStore.customDomain) && setupStore.adminUsers.length > 0;
     if (page() === 'ai') {
-      return setupStore.dynamicRoutes.length > 0 && Boolean(setupStore.aigGatewayUrl.trim()) && (setupStore.aigTokenSet || Boolean(setupStore.aigToken.trim()));
+      return setupStore.dynamicRoutes.length > 0
+        && setupStore.dynamicRoutes.every((route) => setupStore.routeReasoningProfiles[route])
+        && Boolean(setupStore.aigGatewayUrl.trim())
+        && (setupStore.aigTokenSet || Boolean(setupStore.aigToken.trim()));
     }
     if (page() === 'platform') return setupStore.activeAgents.length > 0;
     if (page() === 'managed') return managedEnvironmentValid();
@@ -242,7 +252,7 @@ const ConfigureStep: Component = () => {
           <div class="setup-field">
             <label class="setup-field-label">AI Gateway Token</label>
             <p class="setup-field-description">
-              A Cloudflare API token with Workers AI + AI Gateway Run scopes; stored encrypted.
+              A Cloudflare API token with Workers AI, AI Gateway Run, and AI Gateway Read scopes; stored encrypted.
               <Show when={setupStore.aigTokenSet}> A token is already saved — leave blank to keep it, or enter a new one to replace it.</Show>
             </p>
             <Input
@@ -264,24 +274,31 @@ const ConfigureStep: Component = () => {
             onRemove={(name) => setupStore.removeDynamicRoute(name)}
           />
 
-          {/* REQ-ENTERPRISE-012: per-route context window (tokens). A route's underlying
-              model is not introspectable, so the admin sets the window that matches it.
-              Defaults to DEFAULT_ROUTE_CONTEXT_WINDOW; editable and resettable. */}
+          {/* REQ-ENTERPRISE-012 / REQ-ENTERPRISE-031: administrators declare the
+              context window and audited reasoning protocol for each route. */}
           <Show when={setupStore.dynamicRoutes.length > 0}>
             <div class="setup-field">
-              <label class="setup-field-label">Context Window (per route)</label>
+              <label class="setup-field-label">Route model configuration</label>
               <p class="setup-field-description">
-                Tokens each route's model can hold. Defaults to {DEFAULT_ROUTE_CONTEXT_WINDOW.toLocaleString()}; raise it for a large-context model (e.g. a 1M-context model) or reset to the default.
+                Match each route to its model family and context window. Every branch or fallback in a route must use the selected family; split incompatible models into separate routes.
               </p>
               <For each={setupStore.dynamicRoutes}>
                 {(name) => (
                   <div class="route-cw-row" data-testid={`route-cw-${name}`}>
                     <span class="route-cw-name">{name}</span>
+                    <Select
+                      class="route-profile-select"
+                      value={setupStore.routeReasoningProfiles[name] ?? ''}
+                      options={REASONING_PROFILE_OPTIONS}
+                      onChange={(value) => setupStore.setRouteReasoningProfile(name, value as ReasoningProfileId | '')}
+                      ariaLabel={`${name} reasoning profile`}
+                    />
                     <input
                       class="route-cw-input"
                       type="number"
                       min="1"
                       step="1"
+                      aria-label={`${name} context window`}
                       data-testid={`route-cw-input-${name}`}
                       value={setupStore.routeContextWindows[name] ?? DEFAULT_ROUTE_CONTEXT_WINDOW}
                       onInput={(e) => {

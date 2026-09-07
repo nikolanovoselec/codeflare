@@ -58,6 +58,8 @@ export interface ContainerEnvState {
   _defaultReasoning: string | null;
   /** REQ-ENTERPRISE-012: per-route context window (route name -> tokens) for Pi models.json. */
   _routeContextWindows: Record<string, number>;
+  /** Active profile-supported canonical levels for each allowed route. */
+  _routeReasoningLevels: Record<string, string[]>;
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null;
   /** REQ-GITHUB-004: GitHub repo (owner/name) to clone at container start. */
@@ -75,6 +77,7 @@ interface RestartPrefsInput {
   defaultRoute?: string;
   defaultReasoning?: string;
   routeContextWindows?: Record<string, number>;
+  routeReasoningLevels?: Record<string, string[]>;
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   tabConfig?: TabConfig[];
@@ -156,8 +159,9 @@ export function validateBucketNameInput(input: {
   sessionMode?: unknown;
   sessionWorkspace?: unknown;
   terminalMode?: unknown;
+  routeReasoningLevels?: unknown;
 }): string | null {
-  const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode } = input;
+  const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels } = input;
 
   if (typeof bucketName !== 'string' || bucketName.trim() === '') {
     return 'bucketName must be a non-empty string';
@@ -197,6 +201,16 @@ export function validateBucketNameInput(input: {
       new URL(r2Endpoint);
     } catch {
       return 'r2Endpoint must be a valid URL';
+    }
+  }
+  if (routeReasoningLevels !== undefined) {
+    if (!routeReasoningLevels || typeof routeReasoningLevels !== 'object' || Array.isArray(routeReasoningLevels)) return 'routeReasoningLevels must be an object';
+    const canonical = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+    for (const [route, levels] of Object.entries(routeReasoningLevels as Record<string, unknown>)) {
+      if (!route || route.length > 256 || route.includes('/') || !Array.isArray(levels) || levels.length === 0 || levels.length > canonical.size
+        || levels.some((level) => typeof level !== 'string' || !canonical.has(level)) || new Set(levels).size !== levels.length) {
+        return 'routeReasoningLevels contains an invalid route or level';
+      }
     }
   }
   return null;
@@ -400,6 +414,7 @@ export function buildEnvVars(
     // it (falling back to DEFAULT_ROUTE_CONTEXT_WINDOW per route). Emitted only when
     // enterprise AND configured, so a non-enterprise/unconfigured env is byte-identical.
     ...(isEnterpriseMode(env) && Object.keys(state._routeContextWindows).length > 0 && { ENTERPRISE_ROUTE_CONTEXT_WINDOWS: JSON.stringify(state._routeContextWindows) }),
+    ...(isEnterpriseMode(env) && Object.keys(state._routeReasoningLevels ?? {}).length > 0 && { ENTERPRISE_ROUTE_REASONING_LEVELS: JSON.stringify(state._routeReasoningLevels) }),
   };
 }
 
@@ -735,6 +750,12 @@ export async function applyPrefsOnRestart(
     await storage.put('routeContextWindows', input.routeContextWindows);
     changed = true;
     logger.info('Updated routeContextWindows on restart', { routeContextWindows: input.routeContextWindows });
+  }
+  if (input.routeReasoningLevels && JSON.stringify(input.routeReasoningLevels) !== JSON.stringify(state._routeReasoningLevels)) {
+    state._routeReasoningLevels = input.routeReasoningLevels;
+    await storage.put('routeReasoningLevels', input.routeReasoningLevels);
+    changed = true;
+    logger.info('Updated routeReasoningLevels on restart', { routes: Object.keys(input.routeReasoningLevels) });
   }
 
   return changed;

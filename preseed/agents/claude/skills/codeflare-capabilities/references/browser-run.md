@@ -1,29 +1,39 @@
 # Browser research and authorized deployed verification
 
-## What I can do
+A page's source does not tell you whether its controls are clipped, its JavaScript finished, its redirect reached the intended screen, or its error state is usable. I can inspect the rendered application as well as the code that produces it.
 
-I can start with ordinary web retrieval for public static material. When the page depends on JavaScript, browser state, redirects, or interaction, I can use an isolated Chromium session through Browser Run.
+Browser Run connects remote Chromium and economical one-shot reads to the engineering workspace. You do not have to install a local browser automation stack to give me access to rendered evidence.
 
-I use that browser to navigate, click, fill forms, inspect the rendered accessibility tree, measure DOM and computed layout, capture screenshots, test responsive viewports, and follow network or console evidence. I use it for public research and explicitly authorized application flows.
+## Read cheaply; interact when the question needs it
 
-For deployed verification, I can compare what the browser renders with the acceptance criteria. I can check mobile overflow, exercise a non-destructive workflow, confirm a redirect, or gather one screenshot with exact viewport and URL evidence.
+For public static documentation, ordinary web retrieval is often enough. Browser Run also provides one-shot content, Markdown, and scrape operations without requiring a long interactive session.
 
-## Where the boundary sits
+When the page depends on JavaScript, browser state, or interaction, I use remote Chromium. I can navigate, click, fill fields within the authorized scope, inspect accessibility structure, examine the DOM and computed layout, capture screenshots, adjust the viewport, and follow console or network evidence.
 
-Browser access is not automatic permission to test a live application. “Verify the deployment” means start with workflow, commit, release, and deployment evidence. I ask before authenticating, sending an email, entering a one-time code, changing production data, or exercising a live workflow.
+I choose between those surfaces according to the question. Looking up a reference should not automatically launch a full interactive browser. Diagnosing a rendered layout should not stop at downloading HTML.
 
-A screenshot proves one rendered moment. It does not prove persistence, accessibility, performance, every device, or a successful backend mutation. I gather the evidence the criterion actually needs and stop there.
+## Connect research to the implementation
 
-Browser Run also does not bypass authorization. Login walls remain login walls, which is preferable to a browser tool that treats security controls as a puzzle.
+I can read an upstream application's rendered documentation, extract the relevant behavior, and compare it with your integration. A JavaScript-heavy reference site becomes usable source material rather than a blank response that ends the investigation.
 
-## Try it
+For your own deployed application, I can connect browser observations to acceptance criteria and code. A screenshot shows appearance. DOM and computed layout measurements explain geometry. Accessibility structure reveals how controls are exposed. Console and network evidence can identify why a rendered state differs from the expected one.
 
-Ask me:
+These observations serve different purposes. I collect the evidence needed for the question instead of treating a screenshot as proof of persistence, accessibility, performance, or backend success.
 
-> At 390 by 844 and 768 by 1024, inspect this deployed page for horizontal overflow and clipped controls. Do not sign in or mutate data.
+## Inspect the states users actually encounter
 
-Other useful requests:
+Responsive verification includes clipped controls, horizontal overflow, viewport changes, navigation, validation, loading, and recovery states. A successful desktop view says little about what happens when the mobile keyboard opens or a request fails.
 
-- “Open this public JavaScript-heavy page and capture the rendered accessibility tree.”
-- “Verify this redirect chain and screenshot the final URL, without logging in.”
-- “Check the deployed smoke path against the release commit and stop before any write action.”
+I can exercise an explicitly authorized, non-destructive flow and compare it with the release's acceptance criteria. For a form, that may mean checking labels and validation while stopping before submission. For a redirect, it may mean recording the final URL and rendered state. Where backend persistence matters, the criterion needs matching backend evidence too.
+
+This complements scripted CI. Browser judgment can investigate a particular deployed result; a repeatable automated suite supplies its own regression coverage. Neither automatically replaces the other.
+
+## Browser access keeps its own authorization boundary
+
+The available tools depend on the configured account, credentials, and supported runtime. I handle the appropriate API and browser-control transports; supported intercepted paths add authorization outside the container.
+
+The browser does not bypass the target application's login or grant access to private network services. I do not treat localhost in the development container as a publicly reachable browser target.
+
+Opening a live application, authenticating, entering a one-time code, sending email, submitting a purchase, or changing data requires the relevant explicit scope. A request to verify a deployment starts with workflow, commit, and release evidence—not an unannounced login to production.
+
+I can connect a failing control to its rendered state, network request, and owning code, then carry that finding into a focused correction. The URL, viewport, and actions keep the evidence reproducible.

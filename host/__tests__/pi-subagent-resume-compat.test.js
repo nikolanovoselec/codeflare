@@ -9,9 +9,11 @@ const root = resolve(__dirname, '../..');
 const pkg = JSON.parse(readFileSync(resolve(root, 'preseed/agents/pi/package.json'), 'utf8'));
 const lock = JSON.parse(readFileSync(resolve(root, 'preseed/agents/pi/package-lock.json'), 'utf8'));
 
-// 19.3.5 still requires Codeflare's active-resume guard; dependency review
-// found no reason to remove the fail-closed session-ready boundary.
-const REVIEWED_GUARDED_VERSION = '19.3.5';
+// 21.1.0 still checks session readiness, not queued/running status, before
+// manager.resume invokes agent.resume and resets its state. Retain the guard.
+// Reviewed source: https://github.com/gotgenes/pi-packages/blob/c43dd2c238a70c365d5e8940d578320999eb3f12/packages/pi-subagents/src/lifecycle/subagent-manager.ts#L290-L298
+// Behavioral coverage: src/__tests__/lib/pi-subagent-resume-guard.test.ts
+const REVIEWED_GUARDED_VERSION = '21.1.0';
 const REVIEW_MESSAGE = [
   '@gotgenes/pi-subagents changed. Re-run active-resume compatibility review.',
   'If upstream now rejects queued/running resume before manager/session invocation,',

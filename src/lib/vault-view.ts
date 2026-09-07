@@ -18,10 +18,9 @@
  * are pure functions with no Worker-runtime dependencies (only the
  * SESSION_ID_PATTERN constant), which is what makes the extraction safe.
  */
-import { SESSION_ID_PATTERN } from './constants';
+import { SESSION_ID_PATTERN, CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from './constants';
 import { VAULT_BUCKET_TOKEN_PATTERN } from './vault-bucket-token';
 import { toErrorMessage } from './error-types';
-import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from './access';
 import {
   VAULT_COMPLETE_BOOTSTRAP_SOURCE,
   VAULT_CONTROLLED_RELOAD_SOURCE,

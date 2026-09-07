@@ -60,6 +60,28 @@ Multi-agent support, preseed system, and session modes.
 
 ---
 
+### REQ-AGENT-210: Managed Extension Startup Preparation
+
+**Intent:** Managed Subagents and MCP extensions must be prepared for startup before an image can be published.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Image construction prepares both managed extensions for startup and fails when either required startup cache is absent. <!-- @impl: Dockerfile::subagents_source --> <!-- @impl: Dockerfile::mcp_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) -->
+
+**Constraints:** None.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
+
+**Verification:** Executable image-warming fixture tests and deployment image build
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-111: Native Goal Workflow in Pi Sessions
 
 **Intent:** Pi sessions must provide session-scoped autonomous goal completion without adding cold-start transpilation work.
@@ -100,7 +122,11 @@ Multi-agent support, preseed system, and session modes.
 1. Goal and Plan Mode each refuse activation while the other owns the same Pi session. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
 2. Ending either workflow releases its session ownership so the other can activate. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
 
-**Constraints:** Goal and Plan Mode remain exact-pinned upstream dependencies and must pass normal package review, lock regeneration, and deployment-image verification. <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-goal --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-plan-mode -->
+**Constraints:**
+
+- Goal and Plan Mode remain exact-pinned upstream dependencies and must pass normal package review, lock regeneration, and deployment-image verification. <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-goal --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-plan-mode -->
+
+- Configured Plan Mode command prefixes still pass shell parsing and read-only argument validation. <!-- @impl: scripts/patch-pi-plan-mode-tool-policy.mjs::patchParsedCommandPolicy --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
 
 **Priority:** P1
 
@@ -130,7 +156,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Constraints:**
 
-- Goal remains the exact-pinned upstream 0.54.3 dependency; Codeflare carries no vendored fork, companion extension, or settings-UI patch.
+- Goal remains the exact-pinned upstream 0.54.4 dependency; Codeflare carries no vendored fork, companion extension, or settings-UI patch.
 - Goal upgrades require exact-version review; the weekly shadow-pin preflights the transform before opening a PR. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-AGENT-111: pi-goal shadow bumps preflight the locked review-control patch) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/REQ-OPS-020: patches the exact latest pi-goal layout without double registration) -->
 - Version, declared-entrypoint, or source-layout drift fails before any package file is written. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111: version or source drift fails before any package file is written) -->
 
@@ -239,8 +265,8 @@ Multi-agent support, preseed system, and session modes.
 
 1. Startup makes one exact-pinned `@narumitw/pi-plan-mode` package available in Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly) -->
 2. The preseed integrity-locks the reviewed Plan Mode release. <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/@narumitw/pi-plan-mode --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Plan mode package preseed (REQ-AGENT-152)) -->
-3. A new image loads Plan Mode from its prewarmed path-correct cache. <!-- @impl: Dockerfile::plan_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152: image build warms and verifies every managed npm entrypoint) -->
-4. Image construction fails when Plan Mode's expected cache artifact is absent. <!-- @impl: Dockerfile::plan_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152: image build warms and verifies every managed npm entrypoint) -->
+3. A new image loads Plan Mode from its prewarmed path-correct cache. <!-- @impl: Dockerfile::plan_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
+4. Image construction fails when Plan Mode's expected cache artifact is absent. <!-- @impl: Dockerfile::plan_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) -->
 5. Every container start atomically replaces Plan Mode configuration with inherited thinking, retained implementation-plan context, and the exact Codeflare discovery-tool profile. <!-- @impl: entrypoint.sh::configure_pi_plan_mode --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-152 AC5/AC6: overwrites Plan Mode settings with the Codeflare policy on every start) -->
 6. The managed profile excludes general questionnaires, arbitrary command execution, delegation, task mutation, MCP routing, advisor calls, export defaults, and keyboard shortcuts. <!-- @impl: entrypoint.sh::configure_pi_plan_mode --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-152 AC5/AC6: overwrites Plan Mode settings with the Codeflare policy on every start) -->
 7. A live `/plan` workflow supports read-only discovery, structured questions, explicit completion, and implementation handoff. <!-- @manual: Reload Pi, enter and exit `/plan`, complete a plan, and confirm implementation restores the prior tool set. -->
@@ -1032,11 +1058,16 @@ Multi-agent support, preseed system, and session modes.
 2. The Pi update path reconciles configured packages before updating the runtime. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012/REQ-AGENT-206: Fast Start controls suppression and updates Pi and Codex) -->
 3. Startup logs each installed runtime's before and after versions or visible failure evidence. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: Fast Start OFF surfaces Pi package and agent runtime update failures) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: version-read failures do not suppress either runtime update) -->
 4. An update failure does not prevent the terminal readiness signal. <!-- @impl: entrypoint.sh::release_agent_pty_after_fast_start_updates --> <!-- @test: host/__tests__/entrypoint-pi-warmup-guard.test.js (REQ-AGENT-206: executes the update before readiness and continues after failure) -->
+5. Pi runtime validation rejects missing required dependencies or failed image processing. <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyPiRuntime --> <!-- @test: host/__tests__/pi-lockstep.test.js (rejects an installed Pi package whose required image dependency is missing) --> <!-- @test: host/__tests__/pi-lockstep.test.js (accepts import-only dependency exports and rejects failed image processing) -->
+6. An incomplete Pi installation receives one lockfile-based dependency repair attempt. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: repairs incomplete dependencies from the lock and isolates the updated cache) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-206: restores a real locked installation and reports unrecoverable repair) -->
+7. Updated Pi processes use a cleared runtime-owned transpile cache without changing the baked image cache. <!-- @impl: scripts/verify-pi-lockstep.mjs::resetRuntimeJitiCache --> <!-- @test: host/__tests__/pi-lockstep.test.js (replaces the runtime jiti link without clearing the image cache) -->
 
 **Constraints:**
 
 - Runtimes omitted from the selected image remain omitted.
 - Restored user-added Pi packages outside the image cache may require Fast Start Off once.
+- Temporary update downloads use the Codeflare runtime filesystem and are removed after the attempt.
+- Dependency-repair failure stays visible; it is not reported as a successful runtime update.
 
 **Priority:** P1
 
@@ -2450,7 +2481,7 @@ None.
 3. Humanize applies to first drafts and rewrites of stylistically consequential prose rather than unrelated technical execution. <!-- @manual: Compare activation on a proposal-writing request and a source-only debugging request. -->
 4. The workflow requires no detector, external service, script, or scoring run during use. <!-- @impl: preseed/agents/claude/skills/humanize/SKILL.md::Humanize --> <!-- @manual: Run the skill in a network-isolated session and inspect tool use. -->
 5. Humanize never fabricates facts, events, attributions, or anecdotes to create a stronger voice. <!-- @impl: preseed/agents/claude/skills/humanize/SKILL.md::Honesty constraint --> <!-- @manual: Rewrite source material with missing specifics and inspect the result for invented evidence. -->
-6. Broad Codeflare capability guidance includes Humanize without claiming deterministic detector evasion. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::I can work on the actual system, whatever it is built with --> <!-- @manual: Request the broad capability tour and inspect its writing guidance. -->
+6. Broad Codeflare capability guidance includes Humanize without claiming deterministic detector evasion. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/references/overview.md::Bring the system, not just a coding question --> <!-- @manual: Request the broad capability tour and inspect its writing guidance. -->
 
 **Constraints:** Subjective prose quality remains manually reviewed and is never pinned through wording, snapshot, detector-score, or editorial-content tests.
 
@@ -3407,6 +3438,9 @@ None.
 
 **Constraints:**
 
+- The native Impeccable launcher uses only the reviewed image engine and refuses runtime installation or self-update. <!-- @impl: scripts/impeccable-launcher.mjs::managedImpeccableLauncher --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: native launcher uses only the image engine and refuses runtime updates) -->
+- Boot and successful sync restore executable permissions only for the known Claude and Pi Impeccable launchers. <!-- @impl: entrypoint.sh::repair_hook_exec_bits --> <!-- @test: host/__tests__/entrypoint-hook-exec-bits.test.js (REQ-AGENT-181: native Impeccable launchers remain executable after boot and bisync) -->
+- Native bundle updates reject unreviewed engine versions before mutation. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: unreviewed native engine fails before source mutation) -->
 - Explicit specialist invocations retain their documented behavior.
 - Missing optional specialists do not block the selected owner.
 
@@ -3614,12 +3648,14 @@ None.
 
 **Acceptance Criteria:**
 
-1. Only a broad capability or onboarding request starts a guided, cumulative first-person catalog connecting end-to-end engineering ownership, proof, specialist coordination, browser workspaces, persistence boundaries, design, and configured Enterprise controls. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Ask a fresh Standard and Advanced session what Codeflare can do and review response order and substance. -->
-2. The overview preserves availability truth through hard boundaries, operator configuration, explicit permissions, and unproven-capability limits without product-tier or session-mode labels. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Compare configured, unconfigured, and permission-gated capability answers. -->
-3. The response ends with a stable numbered list for SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Cloudflare Gateway, MCP portals, Cloudflare AI Gateway, Browser Run, agentic primitives, and design systems as independent deep dives. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Review the 1 through 14 mapping and request each subsystem independently. -->
-4. A broad response loads no subsystem reference. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::First response --> <!-- @manual: Inspect loaded files for one broad capability question. -->
+1. Only a broad capability or onboarding request starts a guided, cumulative first-person catalog connecting end-to-end engineering ownership, proof, specialist coordination, browser workspaces, persistence boundaries, design, and configured Enterprise controls. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Routing --> <!-- @manual: Ask a fresh Standard and Advanced session what Codeflare can do and review response order and substance. -->
+2. The overview preserves availability truth through hard boundaries, operator configuration, explicit permissions, and unproven-capability limits without product-tier or session-mode labels. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Routing --> <!-- @manual: Compare configured, unconfigured, and permission-gated capability answers. -->
+3. The response ends with a stable numbered list for SDD, PR-boundary reviews, curation, durable data and ephemeral compute, terminals, Browser IDE, Zero Trust, interceptors, Cloudflare Gateway, MCP portals, Cloudflare AI Gateway, Browser Run, agentic primitives, and design systems as independent deep dives. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Routing --> <!-- @manual: Review the 1 through 14 mapping and request each subsystem independently. -->
+4. A broad response loads no subsystem reference. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Routing --> <!-- @manual: Inspect loaded files for one broad capability question. -->
 
 **Constraints:**
+
+- As a model instruction rather than a deterministic rendering guarantee, the router requires complete overview reads, continuation after truncation, and verbatim reproduction without omissions, restructuring, or added framing. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Routing --> <!-- @manual: Compare the complete response to the overview for “what can you do?” including a truncated initial read; verify no added introduction or options. -->
 
 - Capability statements name the agent in direct first-person active voice; factual boundaries may name the owning product or system.
 - Product labels use exact names, including Cloudflare Access, Cloudflare Gateway, and Cloudflare AI Gateway.
@@ -3645,10 +3681,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. A number-only, comma-separated, or named follow-up reads only the reference or references selected by the user. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Deep dives --> <!-- @manual: Reply with one number and then request one multi-subsystem selection; inspect loaded files. -->
-2. A deep dive qualifies capability claims with applicable permission, operator-configuration, external-system, and unproven-capability boundaries. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review configured, unconfigured, permission-gated, and external-system deep dives. -->
-3. A deep dive gives a concrete example the user or operator can try. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review each applicable user- or administrator-operated example. -->
-4. User-facing tutorials use Codeflare to advance the user's work and omit Codeflare's own source paths, requirement IDs, implementation anchors, and maintainer navigation. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer contract --> <!-- @manual: Review every deep-dive reference for internal repository navigation. -->
+1. A number-only, comma-separated, or named follow-up reads only the reference or references selected by the user. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Routing --> <!-- @manual: In capability navigation, send 5 then 1 and verify terminals then SDD are returned verbatim, not a terminals example; send 5,1 and check the same top-level order; verify a number in an unrelated task stays task-scoped. -->
+2. A deep dive states supported capabilities directly while retaining applicable permission, operator-configuration, external-system, and unproven-capability boundaries. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer boundary --> <!-- @manual: Review configured, unconfigured, permission-gated, and external-system deep dives. -->
+3. A deep dive gives a concrete example the user or operator can try. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer boundary --> <!-- @manual: Review each applicable user- or administrator-operated example. -->
+4. User-facing tutorials use Codeflare to advance the user's work and omit Codeflare's own source paths, requirement IDs, implementation anchors, and maintainer navigation. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer boundary --> <!-- @manual: Review every deep-dive reference for internal repository navigation. -->
 5. Getting Started directs a newly opened session to the broad capability tour before offering focused deep dives or a bounded project objective. <!-- @impl: preseed/tutorials/Getting Started.md::First session --> <!-- @manual: Open the seeded Getting Started tutorial and follow its first-session sequence. -->
 
 **Constraints:**
@@ -3677,15 +3713,15 @@ None.
 
 **Acceptance Criteria:**
 
-1. Standard and Advanced sessions expose `codeflare-capabilities` to every supported skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Capability discovery router --> <!-- @manual: Inspect the authoritative curation manifests and compiled release. -->
-2. Broad Codeflare capability or onboarding questions, tour requests, and numbered tutorial replies receive the installed Codeflare capability tutorial instead of a tool-discovery error or generic discovery response. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @manual: Ask Standard and Advanced Pi sessions for a broad tour and numbered follow-up. -->
-3. A capability question scoped to a repository, file, component, failure, or task remains contextual instead of opening the generic tour. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Capability discovery router --> <!-- @manual: Compare broad and repository-scoped capability questions in Pi. -->
+1. Standard and Advanced sessions expose `codeflare-capabilities` to every supported skill-capable runtime. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Codeflare capability router --> <!-- @manual: Inspect the authoritative curation manifests and compiled release. -->
+2. Broad Codeflare capability or onboarding questions (including “What can you do?”), tour requests, and numbered tutorial replies receive the installed Codeflare capability tutorial instead of a tool-discovery error or generic discovery response. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @manual: Ask Standard and Advanced Pi sessions for a broad tour and numbered follow-up. -->
+3. A capability question scoped to a repository, file, component, failure, or task remains contextual instead of opening the generic tour. <!-- @impl: preseed/agents/pi/rules/codeflare-capabilities.md::Capability route --> <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Codeflare capability router --> <!-- @manual: Compare broad and repository-scoped capability questions in Pi. -->
 4. Managed curation and the image fallback expose matching capability files and mode membership. <!-- @manual: Compare the current managed release with the baked fallback and generated target inventory. -->
-5. Pi's default generated skill index includes `codeflare-capabilities`, so a model can discover and invoke the router from the always-loaded rule. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Capability discovery router --> <!-- @impl: scripts/agent-seed-core.mjs::parsePiSkillMetadata --> <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @test: host/__tests__/agent-seed-core.test.js (generates byte-identical image output through the shared core) -->
+5. Pi's default generated skill index includes `codeflare-capabilities`, so a model can discover and invoke the router from the always-loaded rule. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Codeflare capability router --> <!-- @impl: scripts/agent-seed-core.mjs::parsePiSkillMetadata --> <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @test: host/__tests__/agent-seed-core.test.js (generates byte-identical image output through the shared core) -->
 
 **Constraints:**
 
-- The Pi routing rule remains at most 20 whitespace-delimited tokens.
+- The Pi routing rule directly names the installed router path, explicitly includes “What can you do?”, prohibits `capability`, and keeps task-scoped questions contextual.
 - Private curation owns managed source.
 - Delivery reuses the existing compiler and fallback path without a new runtime package, transform, or delivery path.
 
@@ -3714,7 +3750,13 @@ None.
 5. An active Goal takes precedence over active Plan selection. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC4/AC5 / REQ-AGENT-152/158: rejects malformed Plan policy and preserves active workflow ownership) -->
 6. `goal_wait` remains unavailable through startup exposure, Goal or Plan restoration, capability search, and explicit capability activation. <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::DISABLED_TOOL_NAMES --> <!-- @test: src/__tests__/lib/pi-capabilities.test.ts (REQ-AGENT-191 AC6: never discovers or activates goal_wait) -->
 
-**Constraints:** Goal and Plan remain mutually exclusive at activation; this requirement governs provider-visible controls for persisted state. `goal_wait` is deliberately disabled by managed policy even when the upstream package registers it.
+7. Pi rejects `goal_wait` execution, including after another extension reactivates it. <!-- @impl: preseed/agents/pi/extensions/zz-tool-exposure-finalizer.ts::finalizeToolExposure --> <!-- @test: host/__tests__/pi-tool-exposure-finalizer.test.js (REQ-AGENT-191 AC7: blocks goal_wait execution including after reactivation) -->
+
+**Constraints:**
+
+- Goal and Plan remain mutually exclusive at activation; this requirement governs provider-visible controls for persisted state.
+- `goal_wait` is deliberately disabled by managed policy even when the upstream package registers it.
+- Blocking `goal_wait` leaves every other tool's execution unchanged. <!-- @test: host/__tests__/pi-tool-exposure-finalizer.test.js (REQ-AGENT-191 AC7: preserves execution of all other tools) -->
 
 **Priority:** P1
 
@@ -5065,14 +5107,14 @@ None.
 
 ### REQ-AGENT-163: Impeccable browser-question idle lifecycle
 
-**Intent:** The vendored Impeccable decision page preserves an unanswered user choice across brief page suspension without mistaking the wait for abandonment.
+**Intent:** The image-owned Impeccable decision runtime preserves an unanswered user choice across brief page suspension without mistaking the wait for abandonment.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. A wait client treats a live question page as open throughout the configured positive idle grace and reports the still-unanswered wait without inventing a choice. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::idleGraceMs --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::idleGraceMs --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-163: wait honors configured idle grace) -->
-2. A wait client reports page closure only after the configured idle grace expires. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::idleGraceMs --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::idleGraceMs --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-163: wait reports closure after configured idle grace) -->
+1. A wait client treats a live question page as open throughout the configured positive idle grace and reports the still-unanswered wait without inventing a choice. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) -->
+2. A wait client reports page closure only after the configured idle grace expires. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) -->
 
 **Constraints:** Waiting, page closure, and server failure remain distinct outcomes; none is treated as a user decision.
 
@@ -5094,12 +5136,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. A next-hand update rejects a payload without a non-empty options array before creating pending delivery state. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::payload needs an options array --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::payload needs an options array --> <!-- @manual -->
-2. A valid next hand reaches its live retained question session. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::next round delivered --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::next round delivered --> <!-- @manual -->
-3. A fresh delivery file suppresses closed-page detection during the bounded claim window. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::NEXT_CLAIM_GRACE_MS --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::NEXT_CLAIM_GRACE_MS --> <!-- @manual -->
-4. An expired delivery file no longer suppresses closed-page detection. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::NEXT_CLAIM_GRACE_MS --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::NEXT_CLAIM_GRACE_MS --> <!-- @manual -->
-5. A fresh page-claim timestamp preserves closed-page suppression after the delivery file is claimed. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::claimedAt --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::claimedAt --> <!-- @manual -->
-6. An expired page-claim timestamp cannot renew closed-page suppression. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::claimedAt --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::claimedAt --> <!-- @manual -->
+1. A next-hand update rejects a payload without a non-empty options array before creating pending delivery state. <!-- @manual -->
+2. A valid next hand reaches its live retained question session. <!-- @manual -->
+3. A fresh delivery file suppresses closed-page detection during the bounded claim window. <!-- @manual -->
+4. An expired delivery file no longer suppresses closed-page detection. <!-- @manual -->
+5. A fresh page-claim timestamp preserves closed-page suppression after the delivery file is claimed. <!-- @manual -->
+6. An expired page-claim timestamp cannot renew closed-page suppression. <!-- @manual -->
 
 **Constraints:** Claude and Pi carry byte-identical question-server behavior.
 
@@ -5107,7 +5149,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-163](#req-agent-163-impeccable-browser-question-idle-lifecycle)
 
-**Verification:** Manual review
+**Verification:** Manual review ([pinned native source](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/serve_question.rs))
 
 **Status:** Implemented
 
@@ -5121,10 +5163,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::walk --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::walk --> <!-- @manual -->
-2. Scan mode excludes nested hidden directories and installed dependency directories. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::node_modules --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::node_modules --> <!-- @manual -->
-3. Scan mode never follows a nested symbolic link, including broken and cyclic links. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::isSymbolicLink --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::isSymbolicLink --> <!-- @manual -->
-4. An explicit symbolic-link target is rejected instead of producing an unaudited clean result. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::scan target cannot be a symbolic link --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::scan target cannot be a symbolic link --> <!-- @manual -->
+1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. [Native traversal and raster selection](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L184). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
+2. Scan mode excludes nested hidden directories and installed dependency directories. [Native directory exclusions](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L179). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
+3. Scan mode never follows a nested symbolic link, including broken and cyclic links. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
+4. An explicit symbolic-link target is rejected instead of producing an unaudited clean result. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
 
 **Constraints:** Scan mode never follows a symbolic link.
 
@@ -5132,7 +5174,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Manual review
+**Verification:** Automated behavioral test; manual review of the linked pinned upstream implementation for AC1–AC2.
 
 **Status:** Implemented
 
@@ -5146,8 +5188,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. Supported embedded PNG or JPEG prompt metadata prevents that raster from being reported as missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @manual -->
-2. A valid adjacent JSON sidecar prompt prevents its raster from being reported as missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @manual -->
+1. Supported embedded PNG or JPEG prompt metadata prevents that raster from being reported as missing. <!-- @manual -->
+2. A valid adjacent JSON sidecar prompt prevents its raster from being reported as missing. <!-- @manual -->
 
 **Constraints:** Prompt recovery is read-only during scan mode.
 
@@ -5155,7 +5197,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal)
 
-**Verification:** Manual check
+**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs))
 
 **Status:** Implemented
 
@@ -5169,8 +5211,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. Scan mode reports each raster without recoverable prompt metadata and exits with status 3 when any are missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::MISSING --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::MISSING --> <!-- @manual -->
-2. An invalid target fails explicitly with status 1. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::no such path --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::no such path --> <!-- @manual -->
+1. Scan mode reports each raster without recoverable prompt metadata and exits with status 3 when any are missing. <!-- @manual -->
+2. An invalid target fails explicitly with status 1. <!-- @manual -->
 
 **Constraints:** Claude and Pi carry byte-identical prompt-metadata audit behavior.
 
@@ -5178,7 +5220,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-166](#req-agent-166-impeccable-raster-prompt-recovery)
 
-**Verification:** Manual check
+**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs))
 
 **Status:** Implemented
 

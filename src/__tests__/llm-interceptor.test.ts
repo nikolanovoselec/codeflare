@@ -30,18 +30,40 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
 import { LlmInterceptor } from '../llm-interceptor';
+import { getBuiltInProfileRef } from '../lib/reasoning-profiles';
+import { routingInventoryFixtures, verifiedRoutingConfiguration } from './helpers/verified-routing';
 
-const GATEWAY = 'https://gateway.ai.cloudflare.com/v1/acct/gw';
-const REST_BASE = 'https://api.cloudflare.com/client/v4/accounts/acct/ai';
+vi.mock('../lib/ai-gateway-management', async (original) => ({
+  ...await original<typeof import('../lib/ai-gateway-management')>(),
+  loadActiveRouteVersion: vi.fn(async (_account: string, _gateway: string, route: string) => routingInventoryFixtures.get(route)),
+}));
+const GATEWAY = 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/gw';
+const REST_BASE = 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai';
 const AIG_TOKEN = 'aig-secret-token';
 const SESSION_USER = 'nikola@novoselec.ch'; // per-session attribution: the user's email (REQ-ENTERPRISE-004 AC4)
 
 /** Construct an interceptor with the given env + per-session props. */
-function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; groups?: string[] } = { user: SESSION_USER }) {
+function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; groups?: string[]; gatewayUrl?: string; token?: string } = { user: SESSION_USER }) {
   // The interceptor now reads the route catalog from KV; tests pass a __kv map
   // of key -> JSON string via envOverrides, which backs a minimal KV.get stub.
-  const kvStore: Record<string, string> = (envOverrides as { __kv?: Record<string, string> }).__kv ?? {};
-  const env = { AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN, KV: { get: async (k: string) => kvStore[k] ?? null }, ...envOverrides } as unknown as Env;
+  const kvStore: Record<string, string> = { ...((envOverrides as { __kv?: Record<string, string> }).__kv ?? {
+    'setup:dynamic_routes': JSON.stringify(['codeflare-enterprise']),
+    'setup:default_route': JSON.stringify({ route: 'codeflare-enterprise', reasoning: 'off' }),
+    'setup:reasoning_configuration': JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: { 'codeflare-enterprise': { activeProfile: getBuiltInProfileRef('openai-gpt-chat-tools-off') } } }),
+  }) };
+  if (kvStore['setup:reasoning_configuration']) {
+    try {
+      const configuration = verifiedRoutingConfiguration(JSON.parse(kvStore['setup:reasoning_configuration']), { gatewayUrl: props.gatewayUrl ?? envOverrides.AIG_GATEWAY_URL ?? GATEWAY, token: props.token ?? envOverrides.AIG_TOKEN ?? AIG_TOKEN });
+      const routes = JSON.parse(kvStore['setup:dynamic_routes'] ?? '[]') as string[];
+      const selected = JSON.parse(kvStore['setup:default_route'] ?? 'null');
+      configuration.fallbackRouting = routes.length ? { enabled: true, routes, defaultRoute: routes.includes(selected?.route) ? selected.route : routes[0], reasoning: selected?.reasoning ?? 'off' } : { enabled: false };
+      kvStore['setup:reasoning_configuration'] = JSON.stringify(configuration);
+    } catch { /* malformed fixture stays malformed */ }
+  }
+  const env = { AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN, KV: { get: async (k: string, type?: string) => {
+    const raw = kvStore[k];
+    return raw !== undefined && type === 'json' ? JSON.parse(raw) : raw ?? null;
+  } }, ...envOverrides } as unknown as Env;
   // The DO instantiates this via ctx.exports.LlmInterceptor({ props }); props
   // land on ctx.props. A minimal ctx stub mirrors that shape for the unit test.
   const ctx = { props } as unknown as ExecutionContext;
@@ -109,12 +131,11 @@ describe('REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) 
   // The DO resolves the gateway URL+token (wizard KV first, deploy-secret env fallback —
   // getAigConfig) and passes them via props; the interceptor must PREFER the props and
   // fall back to its own env only when a prop is absent.
-  const PROPS_GATEWAY = 'https://gateway.ai.cloudflare.com/v1/wizacct/wizgw';
-  const PROPS_REST_BASE = 'https://api.cloudflare.com/client/v4/accounts/wizacct/ai';
+  const PROPS_GATEWAY = 'https://gateway.ai.cloudflare.com/v1/abcdef0123456789abcdef0123456789/wizgw';
+  const PROPS_REST_BASE = 'https://api.cloudflare.com/client/v4/accounts/abcdef0123456789abcdef0123456789/ai';
 
   function interceptorWith(props: { user: string; gatewayUrl?: string; token?: string }, envOverrides: Partial<Env> = {}) {
-    const env = { AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN, KV: { get: async () => null }, ...envOverrides } as unknown as Env;
-    return new LlmInterceptor({ props } as unknown as ExecutionContext, env);
+    return makeInterceptor(envOverrides, props);
   }
 
   it('routes to the props gateway URL + token, overriding the env', async () => {
@@ -155,8 +176,7 @@ describe('REQ-ENTERPRISE-004: gateway authorization + per-user metadata', () => 
   });
 
   it('AC4: falls back to user="unknown" when props are absent', async () => {
-    const env = { AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN } as unknown as Env;
-    const interceptor = new LlmInterceptor({} as unknown as ExecutionContext, env);
+    const interceptor = makeInterceptor({}, { user: undefined as unknown as string });
     await interceptor.fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }));
     const parsed = JSON.parse(lastFetch?.headers.get('cf-aig-metadata') as string);
     expect(parsed.user).toBe('unknown');
@@ -237,6 +257,115 @@ describe('REQ-ENTERPRISE-004: placeholder-auth stripping', () => {
     // so a container-supplied value must be stripped — otherwise it would ride the
     // REST leg unmodified (the REST leg authenticates via Authorization: Bearer).
     expect(lastFetch?.headers.get('cf-aig-authorization')).toBeNull();
+  });
+});
+
+describe('REQ-ENTERPRISE-032: selected-route capability translation', () => {
+  const configuredRoutes = () => ({
+    __kv: {
+      'setup:dynamic_routes': JSON.stringify(['general_usage', 'development']),
+      'setup:default_route': JSON.stringify({ route: 'general_usage', reasoning: 'off' }),
+      'setup:route_context_windows': JSON.stringify({ general_usage: 262144, development: 262144 }),
+      'setup:reasoning_configuration': JSON.stringify({
+        schemaVersion: 1,
+        customProfileRevisions: [],
+        routeAssignments: {
+          general_usage: { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') },
+          development: { activeProfile: getBuiltInProfileRef('workers-ai-kimi-k-thinking') },
+        },
+      }),
+    },
+  } as unknown as Partial<Env>);
+
+  const send = async (model: string, effort?: unknown) => {
+    const response = await makeInterceptor(configuredRoutes()).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: 'hello' }],
+          ...(effort !== undefined && { reasoning_effort: effort }),
+          reasoning: { effort: 'high' },
+          chat_template_kwargs: { unrelated: 'preserved', enable_thinking: false },
+        }),
+      }),
+    );
+    return { response, payload: lastFetch ? JSON.parse(lastFetch.body) as Record<string, any> : null };
+  };
+
+  it('AC2: loads the profile for the route selected through Pi /model', async () => {
+    const glm = await send('general_usage', 'off');
+    expect(glm.response.status).toBe(200);
+    expect(glm.payload!.model).toBe('dynamic/general_usage');
+    expect(glm.payload!.chat_template_kwargs.enable_thinking).toBe(false);
+
+    const kimi = await send('development', 'medium');
+    expect(kimi.response.status).toBe(200);
+    expect(kimi.payload!.model).toBe('dynamic/development');
+    expect(kimi.payload!.chat_template_kwargs.enable_thinking).toBe(true);
+  });
+
+  it('AC2: unknown or disallowed handles preserve the existing safe fallback to the scope default', async () => {
+    const { response, payload } = await send('not-allowed');
+    expect(response.status).toBe(200);
+    expect(payload!.model).toBe('dynamic/general_usage');
+    expect(payload!.chat_template_kwargs.enable_thinking).toBe(false);
+  });
+
+  it('AC2: uses the scope default only when Pi sends no canonical level', async () => {
+    const { payload } = await send('general_usage');
+    expect(payload!.chat_template_kwargs.enable_thinking).toBe(false);
+  });
+
+  it('prefers Medium on a selected route when the scope default Off is not supported and no level was requested', async () => {
+    const { response, payload } = await send('development');
+    expect(response.status).toBe(200);
+    expect(payload!.reasoning_effort).toBe('medium');
+  });
+
+  it('AC3: fails closed before provider I/O when the selected route profile does not map the level', async () => {
+    lastFetch = null;
+    const { response } = await send('development', 'off');
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'UNSUPPORTED_REASONING_LEVEL' });
+    expect(lastFetch).toBeNull();
+  });
+
+  it('denies legacy assignments without server verification when the atomic configuration is absent', async () => {
+    const env = configuredRoutes() as any;
+    delete env.__kv['setup:reasoning_configuration'];
+    env.__kv['setup:route_context_windows'] = JSON.stringify({
+      general_usage: { contextWindow: 262144, reasoningProfile: 'workers-ai-glm-5.3' },
+      development: { contextWindow: 262144, reasoningProfile: 'workers-ai-kimi-k2.6' },
+    });
+    const response = await makeInterceptor(env).fetch(new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', body: JSON.stringify({ model: 'development', messages: [], reasoning_effort: 'low' }),
+    }));
+    expect(response.status).toBe(403);
+    expect(lastFetch).toBeNull();
+  });
+
+  it('AC3: fails closed when atomic data is unreadable or legacy data is malformed, ambiguous, or GPT-OSS', async () => {
+    const fixtures: Array<{ atomic?: string; legacy: string | Record<string, unknown> }> = [
+      { atomic: '{not-json', legacy: { development: { contextWindow: 262144, reasoningProfile: 'workers-ai-kimi-k2.6' } } },
+      { legacy: '{not-json' },
+      { legacy: { development: { contextWindow: 262144, reasoningProfile: 'workers-ai-gpt-oss' } } },
+      { legacy: { development: 262144 } },
+    ];
+    for (const fixture of fixtures) {
+      lastFetch = null;
+      const env = configuredRoutes() as any;
+      if (fixture.atomic === undefined) delete env.__kv['setup:reasoning_configuration'];
+      else env.__kv['setup:reasoning_configuration'] = fixture.atomic;
+      env.__kv['setup:route_context_windows'] = typeof fixture.legacy === 'string'
+        ? fixture.legacy
+        : JSON.stringify(fixture.legacy);
+      const response = await makeInterceptor(env).fetch(new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST', body: JSON.stringify({ model: 'development', messages: [], reasoning_effort: 'low' }),
+      }));
+      expect(response.status).toBe(403);
+      expect(lastFetch).toBeNull();
+    }
   });
 });
 
@@ -369,6 +498,12 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
     ({
       __kv: {
         'setup:dynamic_routes': JSON.stringify(routes),
+        'setup:route_context_windows': JSON.stringify(Object.fromEntries(routes.map((route) => [route, 262144]))),
+        'setup:reasoning_configuration': JSON.stringify({
+          schemaVersion: 1,
+          customProfileRevisions: [],
+          routeAssignments: Object.fromEntries(routes.map((route) => [route, { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') }])),
+        }),
         ...(def !== undefined && { 'setup:default_route': JSON.stringify({ route: def, reasoning: 'off' }) }),
       },
     } as unknown as Partial<Env>);
@@ -394,11 +529,12 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
     expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/alpha');
   });
 
-  it('does NOT rewrite when the catalog is empty (forwards the agent model verbatim)', async () => {
-    await makeInterceptor().fetch( // no __kv → empty catalog
+  it('denies an empty catalog without forwarding an agent model', async () => {
+    const response = await makeInterceptor({ __kv: {} } as unknown as Partial<Env>).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'codeflare' }) }),
     );
-    expect(JSON.parse(lastFetch?.body as string).model).toBe('codeflare');
+    expect(response.status).toBe(403);
+    expect(lastFetch).toBeNull();
   });
 
   it('does NOT rewrite a non-model-routable path (e.g. /v1/embeddings)', async () => {
@@ -408,11 +544,11 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
     expect(JSON.parse(lastFetch?.body as string).model).toBe('text-embedding-3-small');
   });
 
-  it('tolerates a pre-prefixed dynamic/<handle> and re-resolves through the catalog', async () => {
-    await makeInterceptor(withCatalog(['development'], 'development')).fetch(
-      new Request('https://api.openai.com/v1/responses', { method: 'POST', body: JSON.stringify({ model: 'dynamic/development', input: 'x' }) }),
+  it.each(['/v1/chat/completions', '/v1/responses'])('retains an allowed pre-prefixed route distinct from the default on %s', async (path) => {
+    await makeInterceptor(withCatalog(['development', 'production'], 'development')).fetch(
+      new Request(`https://api.openai.com${path}`, { method: 'POST', body: JSON.stringify({ model: 'dynamic/production', ...(path.endsWith('/responses') ? { input: 'x' } : { messages: [{ role: 'user', content: 'x' }] }) }) }),
     );
-    expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/development');
+    expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/production');
   });
 
   // REQ-ENTERPRISE-013: the per-request mapping resolves through the SAME shared
@@ -422,6 +558,11 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
       __kv: {
         'setup:dynamic_routes': JSON.stringify(['general_usage', 'development', 'code_review']),
         'setup:default_route': JSON.stringify({ route: 'general_usage', reasoning: 'off' }),
+        'setup:route_context_windows': JSON.stringify(Object.fromEntries(['general_usage', 'development', 'code_review'].map((route) => [route, 262144]))),
+        'setup:reasoning_configuration': JSON.stringify({
+          schemaVersion: 1, customProfileRevisions: [],
+          routeAssignments: Object.fromEntries(['general_usage', 'development', 'code_review'].map((route) => [route, { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') }])),
+        }),
         'setup:group_routing': JSON.stringify({
           developers: { routes: ['code_review', 'development'], defaultRoute: 'code_review', reasoning: 'high' },
         }),
@@ -434,11 +575,16 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
     expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/code_review');
   });
 
-  it('a user whose groups have no per-group config falls back to the global default', async () => {
+  it('a user whose groups have no policy uses the explicitly enabled fallback default', async () => {
     const env = {
       __kv: {
         'setup:dynamic_routes': JSON.stringify(['general_usage', 'development']),
         'setup:default_route': JSON.stringify({ route: 'general_usage', reasoning: 'off' }),
+        'setup:route_context_windows': JSON.stringify(Object.fromEntries(['general_usage', 'development'].map((route) => [route, 262144]))),
+        'setup:reasoning_configuration': JSON.stringify({
+          schemaVersion: 1, customProfileRevisions: [],
+          routeAssignments: Object.fromEntries(['general_usage', 'development'].map((route) => [route, { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') }])),
+        }),
         'setup:group_routing': JSON.stringify({
           developers: { routes: ['development'], defaultRoute: 'development', reasoning: 'high' },
         }),
@@ -450,19 +596,20 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
     expect(JSON.parse(lastFetch?.body as string).model).toBe('dynamic/general_usage');
   });
 
-  it('forwards a non-JSON body unchanged (no crash) on a routable path with a catalog', async () => {
-    await makeInterceptor(withCatalog(['development'], 'development')).fetch(
+  it('rejects non-JSON inference bodies that cannot be assigned an eligible route', async () => {
+    const response = await makeInterceptor(withCatalog(['development'], 'development')).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: 'not-json' }),
     );
-    expect(lastFetch?.body).toBe('not-json');
+    expect(response.status).toBe(400);
+    expect(lastFetch).toBeNull();
   });
 
-  it('forwards JSON without a model field unchanged (no model injected)', async () => {
+  it('assigns the eligible scope default when a JSON inference body omits model', async () => {
     await makeInterceptor(withCatalog(['development'], 'development')).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ messages: [] }) }),
     );
     const sent = JSON.parse(lastFetch?.body as string);
-    expect(sent.model).toBeUndefined();
+    expect(sent.model).toBe('dynamic/development');
     expect(sent.messages).toEqual([]);
   });
 
@@ -480,7 +627,7 @@ describe('Feature C: catalog-driven dynamic-route mapping (replaces AIG_LANGUAGE
 });
 
 describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD74 amendment)', () => {
-  const COMPAT_BASE = 'https://gateway.ai.cloudflare.com/v1/acct/gw/compat';
+  const COMPAT_BASE = `${GATEWAY}/compat`;
 
   /**
    * Replace the default mock with a two-leg recorder: the REST API returns
@@ -533,7 +680,15 @@ describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD
   it('replays the SAME buffered (catalog-mapped) body on the compat leg', async () => {
     const calls = mockRestThenCompat();
     const env = {
-      __kv: { 'setup:dynamic_routes': JSON.stringify(['codeflare']), 'setup:default_route': JSON.stringify({ route: 'codeflare', reasoning: 'off' }) },
+      __kv: {
+        'setup:dynamic_routes': JSON.stringify(['codeflare']),
+        'setup:default_route': JSON.stringify({ route: 'codeflare', reasoning: 'off' }),
+        'setup:route_context_windows': JSON.stringify({ codeflare: 262144 }),
+        'setup:reasoning_configuration': JSON.stringify({
+          schemaVersion: 1, customProfileRevisions: [],
+          routeAssignments: { codeflare: { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') } },
+        }),
+      },
     } as unknown as Partial<Env>;
     await makeInterceptor(env).fetch(
       new Request('https://api.openai.com/v1/chat/completions', {
@@ -592,7 +747,7 @@ describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD
     expect(compatBody.store).toBeUndefined();
     expect(compatBody.prompt_cache_key).toBeUndefined();
     // the rest of the payload survives on the compat leg
-    expect(compatBody.model).toBe('google-ai-studio/gemini-2.5-flash');
+    expect(compatBody.model).toBe('dynamic/codeflare-enterprise');
     expect(compatBody.messages).toEqual([]);
   });
 

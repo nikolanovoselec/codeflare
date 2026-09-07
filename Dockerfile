@@ -19,6 +19,62 @@ RUN npm run build
 # Remove devDependencies after build to keep runtime image lean
 RUN npm prune --omit=dev
 
+# ---- Pinned rclone with verified per-side bisync bookkeeping ----
+FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf AS rclone-builder
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://go.dev/dl/go1.27.1.linux-amd64.tar.gz -o /tmp/go.tar.gz \
+    && echo "63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445  /tmp/go.tar.gz" | sha256sum -c - \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz
+ENV PATH="/usr/local/go/bin:${PATH}" CGO_ENABLED=0 GOTOOLCHAIN=local
+WORKDIR /src/rclone
+RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.73.5 -o /tmp/rclone.tar.gz \
+    && echo "e52541bc238dd434a0335f467697d7d9575529698a74aab534ad39b8649f8a49  /tmp/rclone.tar.gz" | sha256sum -c - \
+    && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz
+COPY scripts/patch-rclone-bisync.py /tmp/patch-rclone-bisync.py
+COPY scripts/ci/rclone-bookkeeping_test.go /tmp/rclone-bookkeeping_test.go
+# Only the CI server binary receives S3-compatible lexical pagination.
+# Restore upstream server code before building the shipped client.
+RUN mkdir -p /out \
+    && cp cmd/serve/s3/pager.go /tmp/rclone-pager.go \
+    && python3 -c 'from pathlib import Path; p=Path("cmd/serve/s3/pager.go"); s=p.read_text(); old="list.Contents[i].LastModified.Before(list.Contents[j].LastModified.Time)"; assert s.count(old)==1, "Unreviewed S3 fixture pager"; p.write_text(s.replace(old, "list.Contents[i].Key < list.Contents[j].Key"))' \
+    && go build -trimpath -o /out/rclone-unpatched . \
+    && cp /tmp/rclone-pager.go cmd/serve/s3/pager.go \
+    && python3 /tmp/patch-rclone-bisync.py /src/rclone 1.73.5 \
+    && cp /tmp/rclone-bookkeeping_test.go cmd/bisync/codeflare_bookkeeping_test.go \
+    && gofmt -w cmd/bisync/codeflare_bookkeeping_test.go \
+    && go test ./cmd/bisync -run '^TestCodeflare' -count=1 \
+    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.73.5-codeflare-bisync1' -o /out/rclone .
+
+# ---- Image-owned Impeccable engine with configured question idle grace ----
+FROM public.ecr.aws/docker/library/node:24-bookworm-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf AS impeccable-builder
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils build-essential pkg-config libssl-dev python3 && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://static.rust-lang.org/dist/2026-09-03/rust-1.98.1-x86_64-unknown-linux-gnu.tar.xz -o /tmp/rust.tar.xz \
+    && echo "5326b36c53de11d148c8f8dab6553a3d1006c2cfd32123683073fad3c302605b  /tmp/rust.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/rust.tar.xz -C /tmp \
+    && /tmp/rust-1.98.1-x86_64-unknown-linux-gnu/install.sh --prefix=/usr/local --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu --disable-ldconfig \
+    && rm -rf /tmp/rust.tar.xz /tmp/rust-1.98.1-x86_64-unknown-linux-gnu
+COPY image/impeccable-engine.json /tmp/impeccable-engine.json
+COPY scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py /tmp/
+WORKDIR /src/impeccable
+RUN <<'IMPECCABLE'
+set -eu
+node -e 'const p=require("/tmp/impeccable-engine.json"); if(p.version!=="0.1.3" || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256)) throw new Error("Invalid Impeccable engine pin")'
+COMMIT=$(node -p 'require("/tmp/impeccable-engine.json").commit')
+SHA256=$(node -p 'require("/tmp/impeccable-engine.json").sha256')
+curl -fsSL "https://codeload.github.com/pbakaus/impeccable/tar.gz/$COMMIT" -o /tmp/impeccable.tar.gz
+echo "$SHA256  /tmp/impeccable.tar.gz" | sha256sum -c -
+tar --strip-components=1 -xzf /tmp/impeccable.tar.gz
+rm /tmp/impeccable.tar.gz
+cargo build --locked --release -p impeccable
+python3 /tmp/impeccable-engine.py /src/impeccable/target/release/impeccable --expect-idle-bug
+python3 /tmp/patch-impeccable-engine.py /src/impeccable
+cargo build --locked --release -p impeccable
+python3 /tmp/impeccable-engine.py /src/impeccable/target/release/impeccable
+mkdir -p /out
+cp target/release/impeccable /out/impeccable
+cp LICENSE /out/LICENSE
+IMPECCABLE
+
 # ---- Codeflare native Pi Chat extension builder (OpenVSCode Node 22) ----
 FROM public.ecr.aws/docker/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-agent-sidebar-builder
 
@@ -130,6 +186,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     unzip \
     # Sandbox for OpenAI Codex
     bubblewrap \
+    # REQ-SEC-011: require Debian's CVE-2026-58050 fix and invalidate the stale apt layer.
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libssh2-1)" ge '1.10.0-3+deb12u1' \
     && rm -rf /var/lib/apt/lists/* \
     # Symlinks for Debian-renamed binaries
     && ln -s "$(which fdfind)" /usr/local/bin/fd \
@@ -139,11 +197,9 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     # Remove yarn shipped by Node base image (unused, 5MB)
     && rm -rf /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 
-# Install rclone (pinned version — unpinned install.sh broke bisync, see documentation/storage-and-sync.md)
-RUN curl -fsSL https://downloads.rclone.org/v1.73.5/rclone-v1.73.5-linux-amd64.deb -o /tmp/rclone.deb \
-    && echo "c4de165467dd9066a72931ea2bee616e43eccf36f6f1c06a34757d0f6f25c7f1  /tmp/rclone.deb" | sha256sum -c - \
-    && dpkg -i /tmp/rclone.deb \
-    && rm /tmp/rclone.deb
+# Keep fast server-modtime listings without copying source timestamps into remote state.
+COPY --from=rclone-builder /out/rclone /usr/bin/rclone
+COPY --from=impeccable-builder /out/ /opt/codeflare/impeccable/0.1.3/
 
 # Install the official Herdr terminal runtime from one immutable stable release.
 # Codeflare owns updates through image review; runtime checks and self-update are disabled.
@@ -182,8 +238,8 @@ RUN YAZI_VERSION="26.9.1" && \
     mv /tmp/yazi/yazi-x86_64-unknown-linux-musl/yazi /usr/local/bin/yazi && \
     chmod +x /usr/local/bin/yazi && \
     rm -rf /tmp/yazi /tmp/yazi.zip
-RUN LAZYGIT_VERSION="0.64.1" && \
-    LAZYGIT_SHA256="f8ea237c41f194cd799b48505518bfdaae4edf5a2ad6bd3d898e939785ee4532" && \
+RUN LAZYGIT_VERSION="0.65.0" && \
+    LAZYGIT_SHA256="44d8e7dd1484b4a66e191bd4ab25a71e8b4b3a65ab122f838e65677ef58c5506" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz" -o /tmp/lazygit.tar.gz && \
     echo "${LAZYGIT_SHA256}  /tmp/lazygit.tar.gz" | sha256sum -c - && \
     tar xzf /tmp/lazygit.tar.gz -C /usr/local/bin lazygit && \
@@ -430,6 +486,12 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     node /opt/codeflare/scripts/verify-pi-lockstep.mjs \
       /opt/codeflare/npm-tools/package.json ./package.json \
       ./node_modules/@earendil-works/pi-coding-agent/package.json && \
+    if [ -f /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/package.json ]; then \
+      node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-runtime \
+        /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/package.json; \
+    fi && \
+    node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-runtime \
+      /opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/package.json && \
     apt-get purge -y make gcc g++ && \
     apt-get autoremove -y && \
     npm cache clean --force && \
@@ -513,8 +575,8 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # License posture (Apache-2.0): we install from the public PyPI registry at
 # build time. No redistribution. Friendlier license than context-mode's ELv2.
 # ---------------------------------------------------------------------------
-ARG UV_VERSION=0.12.6
-ARG UV_X86_64_LINUX_SHA256=8681d8921e7d520fb368991dcf5f9c1905b80f5bf2a265a0ed085c8d8e342477
+ARG UV_VERSION=0.12.7
+ARG UV_X86_64_LINUX_SHA256=788f18abea7c5f55d6216e4f5613fd89d4d59b631efeec117b2b07fe72f1da21
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e
@@ -660,10 +722,12 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     plan_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-plan-mode/dist/index.ts" && \
     usage_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-usage/src/index.ts" && \
     evaluate_source="/opt/codeflare/pi-agent/npm/node_modules/pi-evaluate/extensions/evaluate.ts" && \
+    subagents_source="/opt/codeflare/pi-agent/npm/node_modules/@gotgenes/pi-subagents/src/index.ts" && \
+    mcp_source="/opt/codeflare/pi-agent/npm/node_modules/pi-mcp-adapter/index.ts" && \
     (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 /opt/codeflare/pi-agent/npm/node_modules/.bin/pi -p "warm" || true) && \
     TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --warm-jiti-entrypoints \
-      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$plan_source" "$usage_source" "$evaluate_source" && \
+      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$plan_source" "$usage_source" "$evaluate_source" "$subagents_source" "$mcp_source" && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
     rm -rf /opt/codeflare/jiti-warm-tmp /home/user/.pi && \
     test -n "$(ls -A /opt/codeflare/jiti-cache)" && \
@@ -678,7 +742,9 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     plan_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$plan_source" /opt/codeflare/jiti-cache)" && \
     usage_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$usage_source" /opt/codeflare/jiti-cache)" && \
     evaluate_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$evaluate_source" /opt/codeflare/jiti-cache)" && \
-    echo "[Dockerfile] jiti warm cache verified: local extensions, Goal, Plan Mode, Usage, and Evaluate are baked"
+    subagents_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$subagents_source" /opt/codeflare/jiti-cache)" && \
+    mcp_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$mcp_source" /opt/codeflare/jiti-cache)" && \
+    echo "[Dockerfile] jiti warm cache verified: local extensions, Goal, Plan Mode, Usage, Evaluate, Subagents, and MCP are baked"
 
 # Pre-initialize OpenCode's SQLite database to skip Goose migrations on first launch.
 # OpenCode stores its DB at ~/.local/share/opencode/opencode.db (XDG data dir) and runs

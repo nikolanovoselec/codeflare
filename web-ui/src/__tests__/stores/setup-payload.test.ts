@@ -34,6 +34,7 @@ function baseState(overrides: Partial<SetupState> = {}): SetupState {
     defaultRouteName: '',
     defaultRouteReasoning: 'high',
     routeContextWindows: { 'route-a': 128000 },
+    routeReasoningProfiles: { 'route-a': 'workers-ai-gpt-oss' },
     cloudflareBrowserToken: '',
     cloudflareBrowserTokenSet: false,
     cloudflareBrowserAccountId: '',
@@ -123,7 +124,7 @@ describe('buildConfigurePayload (setup store split)', () => {
   it('omits every enterprise-only key outside enterprise mode (byte-identical body guarantee)', () => {
     const payload = buildConfigurePayload(baseState({ enterpriseMode: false }));
     for (const key of ['enterpriseAccessGroup', 'adminAccessGroup', 'dynamicRoutes', 'defaultRoute',
-      'routeContextWindows', 'browserRenderToken', 'aigGatewayUrl', 'groupRouting',
+      'routeContextWindows', 'routeReasoningProfiles', 'browserRenderToken', 'aigGatewayUrl', 'groupRouting',
       'strictGatewayEgress', 'r2SseDisabled', 'downloadsDisabled', 'activeAgents']) {
       expect(payload).not.toHaveProperty(key);
     }

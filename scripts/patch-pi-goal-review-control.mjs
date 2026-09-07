@@ -12,6 +12,7 @@ import { pathToFileURL } from 'node:url';
 export const EXPECTED_PI_GOAL_VERSION = '0.54.3';
 export const SUPPORTED_PI_GOAL_VERSIONS = Object.freeze([
   EXPECTED_PI_GOAL_VERSION,
+  '0.54.4',
 ]);
 export const PATCH_MARKER = 'CODEFLARE_GOAL_CONTROL_CHANNEL';
 export const GOAL_ENTRYPOINT_PATCH_MARKER = 'CODEFLARE_GOAL_LIFECYCLE_COMMANDS';

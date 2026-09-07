@@ -204,6 +204,7 @@ describe('entrypoint production helpers', () => {
       `pi() { if [ "$1" = "--version" ]; then echo 'pi 0.84.4'; else printf 'pi:%s offline=%s skip=%s\\n' "$*" "\${PI_OFFLINE:-}" "\${PI_SKIP_VERSION_CHECK:-}" >> "$CALLS"; fi; }\n` +
       `codex() { echo 'codex-cli 0.151.0'; }\n` +
       `npm() { printf 'npm:%s\\n' "$*" >> "$CALLS"; }\n` +
+      'node() { return 0; }\n' +
       'FAST_CLI_START=true\nconfigure_fast_start_environment\nupdate_pi_and_codex_when_fast_start_disabled\n' +
       'printf "on:%s:%s:%s:%s:%s\\n" "$DISABLE_AUTOUPDATER" "$OPENCODE_DISABLE_AUTOUPDATE" "$COPILOT_AUTO_UPDATE" "$PI_OFFLINE" "$PI_SKIP_VERSION_CHECK"\n' +
       'FAST_CLI_START=false PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 DISABLE_AUTOUPDATER=1 OPENCODE_DISABLE_AUTOUPDATE=1 DISABLE_INSTALLATION_CHECKS=1 COPILOT_AUTO_UPDATE=false\n' +
@@ -225,11 +226,128 @@ describe('entrypoint production helpers', () => {
     ]);
   });
 
+  it('REQ-AGENT-206: repairs incomplete dependencies from the lock and isolates the updated cache', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-update-repair-'));
+    const calls = join(fixture, 'calls');
+    const healthy = join(fixture, 'healthy');
+    const script = `${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +
+      `pi() { [ "$1" != "--version" ] || echo 'pi 0.85.1'; }\n` +
+      'codex() { echo codex; }\n' +
+      `npm() { echo "$1" >> '${calls}'; [ "$1" != ci ] || touch '${healthy}'; }\n` +
+      `node() { if [ "$2" = --verify-runtime ]; then [ -f '${healthy}' ]; elif [ "$2" = --reset-runtime-jiti ]; then echo cache-reset >> '${calls}'; fi; }\n` +
+      'FAST_CLI_START=false\nupdate_pi_and_codex_when_fast_start_disabled\n';
+    try {
+      const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: runtimeEnv() });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(readFileSync(calls, 'utf8').trim().split('\n'), ['install', 'install', 'ci', 'cache-reset']);
+      assert.equal(existsSync(healthy), true);
+      assert.match(result.stdout, /repairing Pi dependencies from the lockfile/);
+    } finally { rmSync(fixture, { recursive: true, force: true }); }
+  });
+
+  it('starts a reachable recovery daemon when baseline fails for disk space', () => {
+    // REQ-STOR-041: disk-space recovery remains explicit and observable.
+    const directory = mkdtempSync(join(tmpdir(), 'bisync-startup-disk-'));
+    try {
+      const source = readFileSync(ENTRYPOINT, 'utf8');
+      const start = source.indexOf('\n            if establish_bisync_baseline; then');
+      const end = source.indexOf('\n            start_sync_daemon', start);
+      assert.ok(start >= 0 && end > start);
+      const startup = source.slice(start, end) + '\nstart_sync_daemon';
+      const code = `${extractFunction('update_sync_status')}\n${extractFunction('record_sync_disk_failure')}\n${extractFunction('establish_bisync_baseline')}\n` +
+        'timeout() { shift; "$@"; }\nrclone() { echo "preallocate: file too big for remaining disk space"; return 7; }\n' +
+        'init_user_vault() { :; }\nstart_sync_daemon() { echo recovery-daemon-reachable; }\n' + startup;
+      const result = spawnSync('bash', ['-c', code], { encoding: 'utf8', env: runtimeEnv({ CODEFLARE_RUNTIME_ROOT: directory }) });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /recovery-daemon-reachable/);
+      const status = JSON.parse(readFileSync(join(directory, 'sync/sync-status.json'), 'utf8'));
+      assert.equal(status.status, 'failed');
+      assert.match(status.error, /Local disk full.*cloud Sync now/);
+      assert.equal(existsSync(join(directory, 'sync/disk-space-blocked')), true);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it('blocks recovery when the disk-failure marker cannot be written', () => {
+    // REQ-STOR-041: disk-space recovery remains explicit and observable.
+    const directory = mkdtempSync(join(tmpdir(), 'bisync-marker-failure-'));
+    try {
+      const log = join(directory, 'error.log');
+      writeFileSync(log, 'No space left on device');
+      const code = `${extractFunction('record_sync_disk_failure')}\n${extractFunction('establish_bisync_baseline')}\n` +
+        `touch() { return 1; }\nupdate_sync_status() { :; }\nrclone() { echo unexpected-transfer; }\nrecord_sync_disk_failure '${log}'\nestablish_bisync_baseline`;
+      const result = spawnSync('bash', ['-c', code], { encoding: 'utf8', env: runtimeEnv({ CODEFLARE_RUNTIME_ROOT: directory }) });
+      assert.equal(result.status, 1, result.stderr);
+      assert.equal(existsSync(join(directory, 'sync/disk-space-blocked')), false);
+      assert.doesNotMatch(result.stdout, /unexpected-transfer/);
+      assert.match(result.stdout, /disk space/);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it('keeps disk-full sync blocked when subsequent errors report missing listings', () => {
+    // REQ-STOR-041: disk-space recovery remains explicit and observable.
+    const directory = mkdtempSync(join(tmpdir(), 'bisync-disk-block-'));
+    try {
+      mkdirSync(join(directory, 'sync'));
+      const log = join(directory, 'failure.log');
+      writeFileSync(log, 'preallocate: file too big for remaining disk space');
+      const code = `${extractFunction('update_sync_status')}\n${extractFunction('record_sync_disk_failure')}\n${extractFunction('establish_bisync_baseline')}\n` +
+        `record_sync_disk_failure '${log}'\nprintf 'cannot find prior Path1 or Path2 listings' > '${log}'\nrecord_sync_disk_failure '${log}'\n` +
+        'rclone() { echo unexpected-transfer; return 0; }\nestablish_bisync_baseline\n';
+      const result = spawnSync('bash', ['-c', code], { encoding: 'utf8', env: runtimeEnv({ CODEFLARE_RUNTIME_ROOT: directory }) });
+      assert.notEqual(result.status, 0);
+      assert.equal(existsSync(join(directory, 'sync/disk-space-blocked')), true);
+      assert.doesNotMatch(result.stdout, /unexpected-transfer/);
+      assert.match(result.stdout, /disk space/);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it('REQ-AGENT-206: restores a real locked installation and reports unrecoverable repair', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'pi-locked-repair-'));
+    const tools = join(fixture, 'tools');
+    const source = join(fixture, 'package');
+    const scripts = resolve(__dirname, '../../scripts');
+    const env = runtimeEnv({ CODEFLARE_RUNTIME_ROOT: fixture, CODEFLARE_NPM_TOOLS_DIR: tools, CODEFLARE_CODING_AGENTS: 'pi', npm_config_cache: join(fixture, 'cache') });
+    const npm = (args, cwd) => {
+      const result = spawnSync('npm', args, { cwd, env, encoding: 'utf8', timeout: 60_000 });
+      assert.equal(result.status, 0, result.stderr);
+      return result;
+    };
+    try {
+      mkdirSync(join(source, 'dist/utils'), { recursive: true }); mkdirSync(tools);
+      writeFileSync(join(source, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-coding-agent', version: '1.0.0', type: 'module' }));
+      writeFileSync(join(source, 'dist/utils/photon.js'), 'export async function loadPhoton() { return { PhotonImage: class { get_bytes() { return new Uint8Array([1]); } free() {} } }; }');
+      writeFileSync(join(source, 'dist/utils/image-process.js'), 'export async function processImage() { return { ok: true }; }');
+      const packed = JSON.parse(npm(['pack', '--json', '--ignore-scripts', '--offline'], source).stdout)[0].filename;
+      const tarball = join(source, packed);
+      writeFileSync(join(tools, 'package.json'), JSON.stringify({ private: true, dependencies: { '@earendil-works/pi-coding-agent': `file:${tarball}` } }));
+      npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'], tools);
+      const installed = join(tools, 'node_modules/@earendil-works/pi-coding-agent');
+      const processor = join(installed, 'dist/utils/image-process.js');
+      const verify = () => spawnSync(process.execPath, [join(scripts, 'verify-pi-lockstep.mjs'), '--verify-runtime', join(installed, 'package.json')], { encoding: 'utf8' });
+      const body = extractFunction('update_pi_and_codex_when_fast_start_disabled')
+        .replaceAll('/opt/codeflare/scripts/coding-agent-selection.mjs', join(scripts, 'ci/coding-agent-selection.mjs'))
+        .replaceAll('/opt/codeflare/scripts', scripts);
+      // Suppress latest-version network updates; execute the production repair commands with real npm.
+      const run = () => spawnSync('bash', ['-c', `${body}\npi() { echo fixture-pi; }\ncodex() { echo fixture-codex; }\nnpm() { if [[ " $* " == *" --save-exact "* ]]; then return 0; fi; command npm "$@" --offline; }\nFAST_CLI_START=false\nupdate_pi_and_codex_when_fast_start_disabled`], { env, encoding: 'utf8', timeout: 120_000 });
+      rmSync(processor);
+      assert.notEqual(verify().status, 0);
+      const repaired = run(); assert.equal(repaired.status, 0, repaired.stdout + repaired.stderr);
+      assert.equal(readFileSync(processor, 'utf8'), readFileSync(join(source, 'dist/utils/image-process.js'), 'utf8'));
+      const healthy = verify(); assert.equal(healthy.status, 0, healthy.stderr);
+      assert.match(repaired.stdout, /repairing Pi dependencies from the lockfile/);
+      rmSync(processor); rmSync(tarball);
+      const failed = run(); assert.notEqual(failed.status, 0);
+      assert.match(failed.stdout, /Pi dependency repair failed; the runtime is incomplete/);
+      assert.doesNotMatch(failed.stdout, /Pi version after update/);
+    } finally { rmSync(fixture, { recursive: true, force: true }); }
+  });
+
   it('REQ-AGENT-206: Fast Start OFF surfaces Pi package and agent runtime update failures', () => {
     const script = `${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +
       `pi() { [ "$1" = "--version" ] && { echo 'pi 0.84.4'; return 0; }; return 7; }\n` +
       `codex() { echo 'codex-cli 0.150.1'; }\n` +
       `npm() { return 9; }\n` +
+      'node() { return 0; }\n' +
       'FAST_CLI_START=false\n' +
       'update_pi_and_codex_when_fast_start_disabled || echo update-failed\n';
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
@@ -246,6 +364,7 @@ describe('entrypoint production helpers', () => {
       `pi() { [ "$1" = "update" ] && return 0; return 7; }\n` +
       `codex() { return 8; }\n` +
       `npm() { printf 'runtime-update %s\\n' "$*"; }\n` +
+      'node() { return 0; }\n' +
       'FAST_CLI_START=false\n' +
       'update_pi_and_codex_when_fast_start_disabled || echo update-failed\n';
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });

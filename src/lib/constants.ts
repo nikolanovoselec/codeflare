@@ -8,6 +8,10 @@ export const TERMINAL_SERVER_PORT = 8080;
 // grants zero access. The pattern validates format only, not entropy.
 export const SESSION_ID_PATTERN = /^[a-z0-9]{8,24}$/;
 
+/** Shared Vault double-submit CSRF cookie and header names. */
+export const CSRF_COOKIE_NAME = 'codeflare_vault_csrf';
+export const CSRF_HEADER_NAME = 'X-Vault-Csrf';
+
 // Default allowed origin patterns for CORS
 // These are used if ALLOWED_ORIGINS environment variable is not set
 export const DEFAULT_ALLOWED_ORIGINS = ['.workers.dev'];

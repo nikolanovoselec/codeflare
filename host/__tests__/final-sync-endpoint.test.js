@@ -150,6 +150,33 @@ function postFinalSync(port) {
   });
 }
 
+it('reports a disk-space blocker promptly without signaling or clearing it', async () => {
+  const oldToken = process.env.CONTAINER_AUTH_TOKEN;
+  process.env.CONTAINER_AUTH_TOKEN = 'final-sync-test-token';
+  const marker = `${runtimeFixture}/sync/disk-space-blocked`;
+  writeFileSync(marker, 'blocked');
+  let signaled = false;
+  try {
+    await withRouter({ finalSync: {
+      now: () => TRIGGER,
+      readStatus: () => ({ status: 'failed' }),
+      signalDaemon: () => { signaled = true; },
+      poll: async () => { throw new Error('must not wait for a known blocker'); },
+    } }, async (port) => {
+      const response = await postFinalSync(port);
+      assert.equal(response.status, 409);
+      assert.equal(response.body.reason, 'disk-space-blocked');
+      assert.equal(response.body.synced, false);
+    });
+    assert.equal(signaled, false);
+    assert.equal(readFileSync(marker, 'utf8'), 'blocked');
+  } finally {
+    rmSync(marker, { force: true });
+    if (oldToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
+    else process.env.CONTAINER_AUTH_TOKEN = oldToken;
+  }
+});
+
 function finalSyncHarness(statuses, pollAdvanceMs = 1, signalError = false) {
   let now = TRIGGER;
   let readIndex = 0;
@@ -365,4 +392,46 @@ describe('REQ-SESSION-011 AC3: entrypoint completion status (real shell behavior
     assert.match(result.stdout, /^\d+:\d+\n$/);
     cleanupSyncFixtures();
   });
+});
+
+it('REQ-STOR-015: authenticated manual recovery uses SIGUSR2; ordinary triggers use SIGUSR1', async () => {
+  const previousToken = process.env.CONTAINER_AUTH_TOKEN;
+  process.env.CONTAINER_AUTH_TOKEN = 'final-sync-test-token';
+  const child = spawn(process.execPath, ['-e', `
+    process.on('SIGUSR1', () => console.log('AUTOMATIC'));
+    process.on('SIGUSR2', () => console.log('RECOVERY'));
+    console.log('READY');
+    setInterval(() => {}, 1000);
+  `], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '';
+  child.stdout.on('data', (chunk) => { output += chunk; });
+  const waitOutput = async (text) => {
+    for (let i = 0; i < 100 && !output.includes(text); i++) await new Promise((r) => setTimeout(r, 20));
+    assert.ok(output.includes(text), `missing ${text}: ${output}`);
+  };
+  try {
+    await waitOutput('READY');
+    writeFileSync(PID_FILE, String(child.pid));
+    await withRouter({}, async (port) => {
+      const request = (headers) => new Promise((resolveResponse, reject) => {
+        const req = http.request({ host: '127.0.0.1', port, path: '/internal/bisync-trigger', method: 'POST', headers }, (res) => {
+          res.resume();
+          res.on('end', () => resolveResponse(res.statusCode));
+        });
+        req.on('error', reject);
+        req.end();
+      });
+      assert.equal(await request({ authorization: 'Bearer wrong', 'x-codeflare-sync-recovery': 'retry' }), 401);
+      assert.doesNotMatch(output, /RECOVERY/);
+      assert.equal(await request({ authorization: 'Bearer final-sync-test-token' }), 202);
+      await waitOutput('AUTOMATIC');
+      assert.equal(await request({ authorization: 'Bearer final-sync-test-token', 'x-codeflare-sync-recovery': 'retry' }), 202);
+      await waitOutput('RECOVERY');
+    });
+  } finally {
+    await stopStatusDaemon(child);
+    rmSync(PID_FILE, { force: true });
+    if (previousToken === undefined) delete process.env.CONTAINER_AUTH_TOKEN;
+    else process.env.CONTAINER_AUTH_TOKEN = previousToken;
+  }
 });

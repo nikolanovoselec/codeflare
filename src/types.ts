@@ -466,6 +466,8 @@ export interface ContainerConfigPayload {
   defaultReasoning?: string;
   /** REQ-ENTERPRISE-012: per-route context window (route name -> tokens) for Pi models.json. */
   routeContextWindows?: Record<string, number>;
+  /** Canonical reasoning levels supported by each allowed route's active profile. */
+  routeReasoningLevels?: Record<string, string[]>;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded to the container. */
   userTimezone?: string;
   /** REQ-GITHUB-004: one-shot GitHub clone directive forwarded to the container. */

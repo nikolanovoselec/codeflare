@@ -198,6 +198,7 @@ jobs:
           # dependency integrity pins before rebuilding the embedded seed.
           node scripts/regenerate-npm-package-lock.mjs preseed/agents/pi
           node scripts/regenerate-npm-package-lock.mjs preseed/npm-tools
+          node scripts/generate-agent-seed.mjs
           npm ci --no-audit --no-fund --silent
           npm run generate:agent-seed
 
@@ -1230,7 +1231,8 @@ jobs:
           node scripts/update-npm-tool-manifests.mjs \
             preseed/npm-tools/package.json bun "$CUR" "$LAT"
           node scripts/regenerate-npm-package-lock.mjs preseed/npm-tools
-          git add preseed/npm-tools/package.json preseed/npm-tools/package-lock.json
+          node scripts/generate-agent-seed.mjs
+          git add preseed/npm-tools/package.json preseed/npm-tools/package-lock.json src/lib/agent-seed.generated.ts
           if git diff --cached --quiet; then
             echo "Nothing changed - aborting."
             exit 1
@@ -1652,8 +1654,9 @@ jobs:
           node scripts/update-npm-tool-manifests.mjs \
             preseed/npm-tools/package.json consult-llm-mcp "$CUR" "$LAT"
           node scripts/regenerate-npm-package-lock.mjs preseed/npm-tools
+          node scripts/generate-agent-seed.mjs
 
-          git add preseed/npm-tools/package.json preseed/npm-tools/package-lock.json
+          git add preseed/npm-tools/package.json preseed/npm-tools/package-lock.json src/lib/agent-seed.generated.ts
           if git diff --cached --quiet; then
             echo "Nothing changed (replacement found nothing) - aborting."
             exit 1
@@ -1771,8 +1774,9 @@ jobs:
           node scripts/update-npm-tool-manifests.mjs \
             preseed/npm-tools/package.json chrome-devtools-mcp "$CUR" "$LAT"
           node scripts/regenerate-npm-package-lock.mjs preseed/npm-tools
+          node scripts/generate-agent-seed.mjs
 
-          git add preseed/npm-tools/package.json preseed/npm-tools/package-lock.json
+          git add preseed/npm-tools/package.json preseed/npm-tools/package-lock.json src/lib/agent-seed.generated.ts
           if git diff --cached --quiet; then
             echo "Nothing changed (replacement found nothing) - aborting."
             exit 1
@@ -1892,8 +1896,9 @@ jobs:
             preseed/agents/claude/browser-run-mcp/package.json \
             @modelcontextprotocol/sdk "$CUR" "$LAT"
           node scripts/regenerate-npm-package-lock.mjs preseed/agents/claude/browser-run-mcp
+          node scripts/generate-agent-seed.mjs
 
-          git add preseed/agents/claude/browser-run-mcp/package.json preseed/agents/claude/browser-run-mcp/package-lock.json
+          git add preseed/agents/claude/browser-run-mcp/package.json preseed/agents/claude/browser-run-mcp/package-lock.json src/lib/agent-seed.generated.ts
           if git diff --cached --quiet; then
             echo "Nothing changed (replacement found nothing) - aborting."
             exit 1
@@ -2164,9 +2169,10 @@ jobs:
             node scripts/update-npm-tool-manifests.mjs \
               preseed/npm-tools/package.json "$PKG" "$CUR" "$LAT"
             node scripts/regenerate-npm-package-lock.mjs preseed/npm-tools
+            node scripts/generate-agent-seed.mjs
           fi
 
-          git add preseed/npm-tools/package.json preseed/npm-tools/package-lock.json
+          git add preseed/npm-tools/package.json preseed/npm-tools/package-lock.json src/lib/agent-seed.generated.ts
           if [ "$PKG" = '@earendil-works/pi-coding-agent' ]; then
             git add preseed/agents/pi/package.json preseed/agents/pi/package-lock.json src/lib/agent-seed.generated.ts
           fi

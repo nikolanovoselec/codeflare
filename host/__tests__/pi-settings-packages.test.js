@@ -71,6 +71,7 @@ const REVIEWED_GOAL_RELEASES = Object.freeze({
   '0.53.0': 'sha512-cmWowqAzlkgRLKYp2hFnUZvEEs6G6aGjEOazBWNW88T7LB9cd/AzOFOGYvA1QxxsGtIdOuFRZJVhfAJDGsAcjw==',
   '0.54.2': 'sha512-RbrArj7OoP/6FGMZ+yBtKiRyz1r1PjTFdPJv+23MhoGxsyNB6suJk8VDni9jOk6lS5lwsJhaj/S1s1AT8urtnw==',
   '0.54.3': 'sha512-UgPF7uKm6B9XITmOji3uRJGeeQiBeFODwiiyFe3V3dUPWbCSXUUhvF0RuorkxNnsp1uPN46tELNxK9riBTNMZg==',
+  '0.54.4': 'sha512-WqGGYnX5YBaEUlkC2Lh3sFHizJ6/hiGBijybOBv/7RRDZvpMdfygORIl5OHhzqSPekC9+z0ROxiCzPE6hS17jQ==',
 });
 
 describe('Goal package preseed (REQ-AGENT-111)', () => {
@@ -79,7 +80,7 @@ describe('Goal package preseed (REQ-AGENT-111)', () => {
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
     const version = pkg.dependencies['@narumitw/pi-goal'];
     const expectedIntegrity = REVIEWED_GOAL_RELEASES[version];
-    assert.equal(version, '0.54.3');
+    assert.equal(version, '0.54.4');
     assert.ok(expectedIntegrity, `unreviewed pi-goal release: ${String(version)}`);
     assert.equal(pkg.dependencies['pi-goal-list-loop-audit'], undefined);
     const goal = lock.packages['node_modules/@narumitw/pi-goal'];
@@ -103,6 +104,7 @@ describe('Usage package preseed (REQ-AGENT-131)', () => {
     assert.deepEqual(usage.peerDependencies, {
       '@earendil-works/pi-ai': '*',
       '@earendil-works/pi-coding-agent': '*',
+      '@earendil-works/pi-tui': '*',
     });
   });
 });
@@ -128,7 +130,7 @@ describe('Plan mode package preseed (REQ-AGENT-152)', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
     const version = pkg.dependencies['@narumitw/pi-plan-mode'];
-    assert.equal(version, '0.55.3');
+    assert.equal(version, '0.56.0');
     const planMode = lock.packages['node_modules/@narumitw/pi-plan-mode'];
     assert.equal(planMode.version, version);
     assert.equal(
@@ -137,7 +139,7 @@ describe('Plan mode package preseed (REQ-AGENT-152)', () => {
     );
     assert.equal(
       planMode.integrity,
-      'sha512-pBLJdDWsANbMmRkTtTUcEJO95WY3tRmbWbS57uKIHsbQ5dc5sStD20R4qpcGXSl/r5tyPVR2Gru/YqwCqpmJ3Q==',
+      'sha512-sxbIODVaV6Ct+eD+lDN+tEn0mKtU9PG7rkkVhF6EC1d7t6YLHi1ixFhrKwMrJmsAPfkCnBKKImJcXx/bMFateg==',
     );
     assert.deepEqual(planMode.peerDependencies, {
       '@earendil-works/pi-coding-agent': '*',
@@ -150,11 +152,11 @@ describe('rpiv-todo upstream session isolation (REQ-AGENT-081)', () => {
   it('pins the reviewed upstream release and retains no source-override machinery', () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf-8'));
     const lock = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package-lock.json'), 'utf-8'));
-    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.7.1');
-    assert.equal(lock.packages['node_modules/@juicesharp/rpiv-todo'].version, '2.7.1');
+    assert.equal(pkg.dependencies['@juicesharp/rpiv-todo'], '2.8.0');
+    assert.equal(lock.packages['node_modules/@juicesharp/rpiv-todo'].version, '2.8.0');
     assert.equal(
       lock.packages['node_modules/@juicesharp/rpiv-todo'].integrity,
-      'sha512-5SCPe1Z2ofgiK805fYm5dGott6XA8zlDMeQHADq50S2UFjH1EuXpTnSmx+X8JUPMIzyRnBY3gVltz525oWH52Q==',
+      'sha512-WEl9OayDrJ4G2r99FNUB1WIWKoOPphfGRuFRPpzETfwuYsaYFmpsmab5W7uieOXRMWSj9jpnrHS039vtrsOXOQ==',
     );
     assert.equal(pkg.scripts?.postinstall, undefined);
     assert.ok(!existsSync(resolve(__dirname, '../../preseed/agents/pi/npm/rpiv-todo-session-isolation')));

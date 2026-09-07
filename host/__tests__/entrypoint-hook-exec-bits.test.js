@@ -89,6 +89,7 @@ function runSuccessfulBisync(home) {
     'rclone() { return 0; }',
     'find() { if [ "${1:-}" = "/home/user" ]; then return 0; fi; command find "$@"; }',
     extractFunction('repair_hook_exec_bits'),
+    extractFunction('record_sync_disk_failure'),
     extractFunction('bisync_with_r2'),
     'bisync_with_r2 ""',
   ].join('\n');
@@ -120,6 +121,23 @@ describe('entrypoint repair_hook_exec_bits', () => {
     assert.equal(modeOf(join(hooks, 'nested/deep.mjs')), '755');
     // A non-executable payload is not silently made executable.
     assert.equal(modeOf(join(hooks, 'notes.md')), '644');
+  });
+
+  it('REQ-AGENT-181: native Impeccable launchers remain executable after boot and bisync', () => {
+    for (const repair of [runBootRepair, runSuccessfulBisync]) {
+      const home = mkdtempSync(join(tmpdir(), 'impeccable-exec-'));
+      const launchers = ['.claude', '.pi/agent'].map((agent) => join(home, agent, 'skills/impeccable/scripts/impeccable'));
+      for (const launcher of launchers) {
+        mkdirSync(dirname(launcher), { recursive: true });
+        writeFileSync(launcher, '#!/bin/sh\nexit 0\n', { mode: 0o644 });
+      }
+      const result = repair(home);
+      assert.equal(result.status, 0, result.stderr);
+      for (const launcher of launchers) {
+        assert.equal(modeOf(launcher), '755');
+        assert.equal(spawnSync(launcher).status, 0);
+      }
+    }
   });
 
   it('is a no-op when the hooks directory does not exist', () => {

@@ -4,6 +4,7 @@
  * (setup-prefill.ts) can type against the state without importing the store.
  */
 export type ReasoningLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type ReasoningProfileId = 'workers-ai-gpt-oss' | 'workers-ai-glm-5.3' | 'workers-ai-kimi-k2.6';
 export type ManagedEnvironmentFreshness = 'unconfigured' | 'disabled' | 'fresh' | 'stale' | 'degraded';
 export type ManagedEnvironmentPatExpiryState = 'unknown' | 'valid' | 'expiring' | 'expired';
 
@@ -52,6 +53,8 @@ export interface SetupState {
   // REQ-ENTERPRISE-012: per-route context window (route name -> tokens). Each route
   // defaults to DEFAULT_ROUTE_CONTEXT_WINDOW; the admin can raise or reset it.
   routeContextWindows: Record<string, number>;
+  // REQ-ENTERPRISE-031: audited backend reasoning protocol per dynamic route.
+  routeReasoningProfiles: Record<string, ReasoningProfileId | ''>;
   // REQ-BROWSER-007: admin-global Cloudflare Browser Rendering token + account id.
   // cloudflareBrowserToken holds only a freshly-typed value (the stored token is
   // never returned); cloudflareBrowserTokenSet reflects whether one is already saved.

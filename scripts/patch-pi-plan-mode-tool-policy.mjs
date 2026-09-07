@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Applies Codeflare's reviewed compatibility patch to Plan Mode 0.55.3.
+// Applies Codeflare's reviewed compatibility patch to Plan Mode 0.55.3 and 0.56.0.
 // Upstream 0.55 resolves policy from active tools and requires helper tools to
 // already be active before /plan starts. Codeflare exposes only five bootstrap
 // tools to ordinary provider turns, so the image patch resolves Plan policy from
@@ -10,6 +10,8 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const EXPECTED_PI_PLAN_MODE_VERSION = '0.55.3';
+const SUPPORTED_VERSIONS = [EXPECTED_PI_PLAN_MODE_VERSION, '0.56.0'];
+const PARSED_POLICY_MARKER = 'CODEFLARE_PLAN_PARSED_COMMAND_POLICY';
 export const REGISTERED_HELPERS_MARKER = 'CODEFLARE_PLAN_REGISTERED_HELPERS';
 export const REGISTERED_POLICY_MARKER = 'CODEFLARE_PLAN_REGISTERED_POLICY';
 
@@ -53,9 +55,20 @@ export function patchPiPlanModeSource(source, kind) {
   return source.replaceAll(ACTIVE_HELPERS, REGISTERED_HELPERS).replace(activePolicy, registeredPolicy);
 }
 
+function patchParsedCommandPolicy(source, returned = 'undefined') {
+  const anchor = `if (matchesConfiguredSafeSubcommand(command, safeSubcommands)) return ${returned};`;
+  if (count(source, PARSED_POLICY_MARKER) === 2 && count(source, anchor) === 0) return source;
+  if (count(source, anchor) !== 2 || count(source, PARSED_POLICY_MARKER) !== 0) {
+    throw new Error('Plan Mode command policy anchors are missing or ambiguous');
+  }
+  // Keep configured Git/GitHub reads behind the existing shell parser and
+  // argument validators; a prefix must not authorize a chained mutation.
+  return source.replaceAll(anchor, `// ${PARSED_POLICY_MARKER}`);
+}
+
 export function patchPiPlanModeDirectory(version, root) {
-  if (version !== EXPECTED_PI_PLAN_MODE_VERSION) {
-    throw new Error(`Unsupported Plan Mode version ${version}; expected ${EXPECTED_PI_PLAN_MODE_VERSION}`);
+  if (!SUPPORTED_VERSIONS.includes(version)) {
+    throw new Error(`Unsupported Plan Mode version ${version}; expected ${SUPPORTED_VERSIONS.join(' or ')}`);
   }
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   if (manifest.version !== version) throw new Error('Plan Mode package version does not match requested patch version');
@@ -64,10 +77,16 @@ export function patchPiPlanModeDirectory(version, root) {
     { path: join(root, 'src', 'plan-mode.ts'), kind: 'source' },
     { path: join(root, 'dist', 'index.ts'), kind: 'dist' },
   ];
-  const patched = paths.map(({ path, kind }) => ({
-    path,
-    source: patchPiPlanModeSource(readFileSync(path, 'utf8'), kind),
-  }));
+  const patched = paths.map(({ path, kind }) => {
+    const source = patchPiPlanModeSource(readFileSync(path, 'utf8'), kind);
+    return { path, source };
+  });
+  if (version === '0.56.0') {
+    const path = join(root, 'src', 'tool-policy.ts');
+    patched.push({ path, source: patchParsedCommandPolicy(readFileSync(path, 'utf8')) });
+    const chunk = join(root, 'dist', 'chunks', 'chunk-57OBPS7P.js');
+    patched.push({ path: chunk, source: patchParsedCommandPolicy(readFileSync(chunk, 'utf8'), 'void 0') });
+  }
   for (const file of patched) writeFileSync(file.path, file.source);
 }
 
