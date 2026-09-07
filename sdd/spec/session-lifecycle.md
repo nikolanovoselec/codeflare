@@ -332,7 +332,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Acceptance Criteria:**
 
 1. Before signalling the container to stop, every deliberate stop path runs a live bidirectional R2 sync to completion while the container is still fully running including a delete where the platform reports `running:false` transiently. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-lifecycle.ts::recordFinalSyncAudit --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
-2. The final-sync endpoint reports an existing disk blocker immediately; otherwise it starts and awaits its own sync, distinguishing success, failure and timeout. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: final-sync HTTP boundary (behavioral)) --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (reports a disk-space blocker promptly without signaling or clearing it) -->
+2. For runnable sync, the final-sync endpoint starts and awaits its own run, distinguishing success, failure and timeout. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: final-sync HTTP boundary (behavioral)) -->
 3. The sync-status record carries a monotonic timestamp and a `syncing`->`success`/`failed` transition, and the endpoint accepts a terminal status only after observing its own run's `syncing` (stamped strictly after the trigger), never a bare `success`. <!-- @impl: host/src/final-sync.ts::FinalSyncEval --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behavioral)) -->
 4. The Durable Object waits up to a bounded sync budget (120s) for the live sync to report completion; a failed or timed-out sync still proceeds to stop rather than blocking teardown. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (destroy) -->
 5. Total teardown is hard-capped from `destroy()` entry: every awaited teardown stage consumes the same 135s deadline, so storage, sync, stop, or provider stalls cannot extend the operation. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
@@ -344,7 +344,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 - The authoritative sync runs while the container is alive; post-SIGTERM grace is not its completion mechanism.
 - The final-sync endpoint timeout exceeds the DO's 120-second drain budget.
 - Successful completion requires this run's `syncing` state before its terminal state.
-- A [disk blocker](storage.md#req-stor-041-disk-space-recovery) is a failure without starting a new run.
+- A [persisted disk blocker](storage.md#req-stor-044-disk-space-failure-visibility) is reported without starting a new run; an in-memory-only block may time out.
 - The container image retains a trappable stop signal.
 
 **Priority:** P0

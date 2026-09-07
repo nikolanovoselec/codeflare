@@ -57,6 +57,7 @@ function captureRcloneArgs(functionName) {
     'recover_vanished_files() { return 1; }',
     'pgrep() { return 1; }',
     'find() { :; }',
+    extractFunction('record_sync_disk_failure'),
     extractFunction(functionName),
     functionName,
   ].join('\n');

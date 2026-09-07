@@ -1134,7 +1134,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ---
 
-### REQ-STOR-040: Per-Side Sync Change Tracking
+### REQ-STOR-042: Per-Side Sync Change Tracking
 
 **Intent:** Sync distinguishes its own completed transfers from later edits without slowing unchanged-file scans.
 
@@ -1145,10 +1145,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. A local append after an upload does not create a false conflict. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
 2. Same-size remote edits remain detectable. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
 3. Completed transfers retain independent source and destination timestamps. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @test: scripts/ci/rclone-bookkeeping_test.go (TestCodeflareCompletedCopyKeepsIndependentMetadata) -->
-4. Failed transfers and dry runs do not advance completion bookkeeping. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @test: scripts/ci/rclone-bookkeeping_test.go (TestCodeflareCompletedCopyKeepsIndependentMetadata) -->
-5. Destination metadata inconsistent with the completed transfer is not acknowledged. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
-6. Genuine conflicting versions survive subsequent unchanged sync cycles without multiplying copies. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
-7. Change detection avoids an all-object metadata-request scan. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
+4. Genuine conflicting contents are retained. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
+5. Unchanged sync cycles do not multiply conflict copies. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
+6. Change detection avoids an all-object metadata-request scan. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
 
 **Constraints:** Server-modtime listing semantics remain enabled.
 
@@ -1157,34 +1156,79 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-017](#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake)
 
 **Verification:** Automated completed-transfer and isolated S3 tests.
-
 **Status:** Implemented
 
 ---
 
 ### REQ-STOR-041: Disk-Space Recovery
 
-**Intent:** Disk exhaustion remains visible and recoverable without an automatic resync loop.
+**Intent:** Disk exhaustion cannot cause an automatic resync loop.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Missing listings do not lift a disk-space block. <!-- @impl: entrypoint.sh::record_sync_disk_failure --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (keeps disk-full sync blocked when subsequent errors report missing listings) -->
+2. Failure to persist a disk-space marker does not lift the block. <!-- @impl: entrypoint.sh::record_sync_disk_failure --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (blocks recovery when the disk-failure marker cannot be written) -->
+3. Only authenticated manual Sync now authorizes a recovery attempt. <!-- @impl: src/lib/sync-fanout.ts::fanOutBisyncTrigger --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: src/__tests__/lib/sync-fanout.test.ts (marks only explicit Sync now as an authorized disk-space retry) --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-STOR-015: authenticated manual recovery uses SIGUSR2; ordinary triggers use SIGUSR1) -->
+4. Another disk-space failure blocks subsequent automatic attempts. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (failed manual recovery blocks again until a later successful explicit retry) -->
+5. Successful recovery resumes periodic sync. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (disk-space recovery requires explicit Sync now, then resumes periodic sync) -->
+6. Baseline disk exhaustion does not prevent the recovery daemon from starting. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (starts a reachable recovery daemon when baseline fails for disk space) -->
+
+**Constraints:** Recovery requires local disk space, not merely remote deletion.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-015](#req-stor-015-explicit-sync-trigger-from-ui)
+
+**Verification:** Automated daemon, startup and authenticated HTTP tests.
+**Status:** Implemented
+
+---
+
+### REQ-STOR-043: Completed Transfer Acknowledgment
+
+**Intent:** Only verified completed transfers advance sync bookkeeping.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Failed transfers do not advance completion bookkeeping. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @test: scripts/ci/rclone-bookkeeping_test.go (TestCodeflareCompletedCopyKeepsIndependentMetadata) -->
+2. Dry runs do not advance completion bookkeeping. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @test: scripts/ci/rclone-bookkeeping_test.go (TestCodeflareCompletedCopyKeepsIndependentMetadata) -->
+3. Destination metadata inconsistent with the completed transfer is not acknowledged. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
+
+**Constraints:** No uncertain destination metadata is acknowledged.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-042](#req-stor-042-per-side-sync-change-tracking)
+
+**Verification:** Automated completed-transfer and isolated S3 tests.
+**Status:** Implemented
+
+---
+
+### REQ-STOR-044: Disk-Space Failure Visibility
+
+**Intent:** Users can recognize disk exhaustion and request recovery.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. Disk exhaustion immediately publishes failed sync status. <!-- @impl: entrypoint.sh::record_sync_disk_failure --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (starts a reachable recovery daemon when baseline fails for disk space) -->
-2. Automatic recovery stays blocked despite missing listings or a failed marker write. <!-- @impl: entrypoint.sh::record_sync_disk_failure --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (keeps disk-full sync blocked when subsequent errors report missing listings) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (blocks recovery when the disk-failure marker cannot be written) -->
-3. Only authenticated manual Sync now authorizes a recovery attempt. <!-- @impl: src/lib/sync-fanout.ts::fanOutBisyncTrigger --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: src/__tests__/lib/sync-fanout.test.ts (marks only explicit Sync now as an authorized disk-space retry) --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-STOR-015: authenticated manual recovery uses SIGUSR2; ordinary triggers use SIGUSR1) -->
-4. Another disk-space failure blocks subsequent automatic attempts. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (failed manual recovery blocks again until a later successful explicit retry) -->
-5. Successful recovery resumes periodic sync. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (disk-space recovery requires explicit Sync now, then resumes periodic sync) -->
-6. Baseline disk exhaustion does not prevent the recovery daemon from starting. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (starts a reachable recovery daemon when baseline fails for disk space) -->
-7. Failed sessions display recovery guidance beside the usable cloud retry control. <!-- @impl: web-ui/src/components/StorageBrowser.tsx::StorageBrowser --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (shows a recovery notice and leaves the cloud button usable after sync failure) -->
+2. Failed sessions display disk-space recovery guidance. <!-- @impl: web-ui/src/components/StorageBrowser.tsx::StorageBrowser --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (shows a recovery notice and leaves the cloud button usable after sync failure) -->
+3. The cloud retry control remains usable after sync failure. <!-- @impl: web-ui/src/components/StorageBrowser.tsx::StorageBrowser --> <!-- @test: web-ui/src/__tests__/components/StorageBrowser.test.tsx (shows a recovery notice and leaves the cloud button usable after sync failure) -->
+4. Final sync reports a persisted disk-space blocker immediately without signaling the daemon. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (reports a disk-space blocker promptly without signaling or clearing it) -->
 
-**Constraints:** Deleting remote files alone does not immediately free local disk space.
+**Constraints:** An in-memory-only block prevents transfers but may leave final drain waiting for its timeout.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-015](#req-stor-015-explicit-sync-trigger-from-ui)
+**Dependencies:** [REQ-STOR-041](#req-stor-041-disk-space-recovery)
 
-**Verification:** Automated daemon, startup, authenticated HTTP and UI tests.
+**Verification:** Automated startup, UI and final-sync HTTP tests.
 
 **Status:** Implemented
 

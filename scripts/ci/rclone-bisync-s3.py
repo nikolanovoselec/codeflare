@@ -14,6 +14,7 @@ import time
 
 binary = str(Path(sys.argv[1]).resolve())
 counts = collections.Counter()
+metadata_evidence = collections.deque(maxlen=8)
 race_file = None
 race_armed = False
 
@@ -56,6 +57,10 @@ class Proxy(http.server.BaseHTTPRequestHandler):
             connection.request(self.command, self.path, data, headers)
             response = connection.getresponse()
             body = response.read()
+            if self.command == "HEAD" and self.path.split("?")[0] == "/bucket/session.jsonl":
+                metadata_evidence.append({"method": "HEAD", "modified": response.getheader("Last-Modified"), "etag": response.getheader("ETag")})
+            elif self.command == "GET" and ("list-type=" in self.path or "delimiter=" in self.path):
+                metadata_evidence.append({"method": "LIST", "body": body[:6000].decode(errors="replace")})
             if (self.command == "PUT" and "partNumber=" not in self.path or self.command == "POST" and "uploadId=" in self.path) and race_file is not None and self.path.split("?")[0] == "/bucket/racing.jsonl" and response.status < 300:
                 race_armed = True
             self.send_response(response.status)
@@ -71,7 +76,7 @@ class Proxy(http.server.BaseHTTPRequestHandler):
 
 
 def test_server_modtime_sync():
-    """REQ-STOR-003 / REQ-STOR-040: real per-side bookkeeping, conflict preservation and request bounds."""
+    """REQ-STOR-003 / REQ-STOR-042 / REQ-STOR-043: real per-side bookkeeping, conflict preservation and request bounds."""
     global race_file
     with tempfile.TemporaryDirectory(prefix="rclone-bisync-ci-") as directory:
         root = Path(directory)
@@ -94,7 +99,12 @@ def test_server_modtime_sync():
             return result.stdout
 
         def sync(*args):
-            return run("bisync", str(local), "fixture:bucket", "--workdir", str(root / "state"), "--use-server-modtime", "--fast-list", "--check-sync=false", "--ignore-checksum", "--conflict-resolve", "newer", *args)
+            return run("bisync", str(local), "fixture:bucket", "--workdir", str(root / "state"), "--use-server-modtime", "--fast-list", "--check-sync=false", "--ignore-checksum", "--conflict-resolve", "newer", "--log-level", "DEBUG", "--log-file", str(root / "bisync.log"), *args)
+
+        def listing_snapshot():
+            return {path.name: path.read_text() for path in (root / "state").glob("*.lst")}
+
+        baseline = {}
 
         try:
             for _ in range(100):
@@ -116,6 +126,7 @@ def test_server_modtime_sync():
             # so the all-files-changed guard does not mask the intended reproduction.
             run("rcat", "fixture:bucket/sentinel", data=b"unchanged remote anchor\n")
             sync("--resync")
+            baseline = listing_snapshot()
             time.sleep(1.1)
             transcript.write_bytes(b"original\nappend\n")
             before = counts.copy()
@@ -184,6 +195,14 @@ def test_server_modtime_sync():
                     raise AssertionError(f"Post-upload writer was silently acknowledged: {mode}")
                 assert race_file.read_bytes() == b"other writer\n", "Concurrent writer was deleted"
             print(f"PASS: resync, own-upload append, same-size remote edit, divergence, PUT/HEAD race; idle={dict(idle)}, upload={dict(changed)}")
+        except Exception:
+            print(f"Observed S3 metadata: {list(metadata_evidence)}", file=sys.stderr)
+            print(f"Baseline listings: {baseline}", file=sys.stderr)
+            print(f"Current listings: {listing_snapshot()}", file=sys.stderr)
+            log = root / "bisync.log"
+            if log.exists():
+                print(log.read_text()[-100000:], file=sys.stderr)
+            raise
         finally:
             server.terminate()
             server.wait(timeout=10)

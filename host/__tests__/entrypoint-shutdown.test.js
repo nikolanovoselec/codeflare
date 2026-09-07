@@ -56,6 +56,7 @@ function runBaselineTimeout() {
     'RCLONE_FILTERS=()',
     'timeout() { return 124; }',
     'recover_vanished_files() { return 1; }',
+    extractFunction('record_sync_disk_failure'),
     extractFunction('establish_bisync_baseline'),
     'establish_bisync_baseline',
   ].join('\n');

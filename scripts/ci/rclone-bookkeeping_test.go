@@ -28,7 +28,7 @@ func (f *serverTimeFs) Put(ctx context.Context, in io.Reader, src fs.ObjectInfo,
 }
 
 func TestCodeflareCompletedCopyKeepsIndependentMetadata(t *testing.T) {
- // REQ-STOR-040: independent timestamps and successful-transfer-only bookkeeping.
+ // REQ-STOR-042 / REQ-STOR-043: independent timestamps and successful-transfer-only bookkeeping.
  ctx, ci := fs.AddConfig(context.Background())
  ci.UseServerModTime = true
  ci.LowLevelRetries = 1
