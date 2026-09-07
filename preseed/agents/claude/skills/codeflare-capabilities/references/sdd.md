@@ -1,35 +1,39 @@
 # Spec-Driven Development and Test-Driven Development
 
-## What I do
+An unfamiliar repository contains more knowledge than its README. There is behavior in the code, intent in old decisions, expectations in tests, and operational experience in issue discussions. I can bring that evidence together before changing the system.
 
-I turn a repository into a system where intent, code, tests, and operating guidance agree with one another. SDD means Spec-Driven Development. TDD means Test-Driven Development. Used together, they stop the familiar trick where a team ships a patch first and writes a requirement afterward that happens to describe the patch perfectly.
+Spec-Driven Development gives the work a maintained account of what the product must do. Test-Driven Development connects a change to observable proof. Used together, they let me carry intent through implementation instead of writing a description that merely congratulates the finished patch.
 
-For a legacy project, I run `/sdd init` and reverse-engineer a baseline from source, history, tests, documentation, and architecture. Behavior that the evidence supports becomes a requirement with acceptance criteria, constraints, dependencies, source anchors, test anchors, and status. Unclear intent goes into a visible triage queue. I do not invent a product decision because an old function has an authoritative name.
+## Start with the system you have
 
-I use an available Graphify graph to enrich that baseline with architecture links, central concepts, and dependency evidence. I ask before building or refreshing one. Source-anchor and enumeration checks then fail closed when the draft claims code that does not exist or forgets an implemented surface.
+For a legacy project, `/sdd init` examines source, tests, configuration, documentation, architecture, and accessible history. I can follow relevant commits, pull requests, issues, releases, and linked material to understand why the implementation took its present shape. Missing evidence stays visible; I do not turn an inaccessible discussion into an invented decision.
 
-Once the baseline is accepted, I trace each change to its owning requirement, write the failing behavioral test first, make the smallest correction, and keep every touched anchor truthful. `/sdd clean` handles drift when a mature specification and implementation no longer describe the same product.
+Clear behavior becomes a proposed requirement. Ambiguous intent goes into a triage queue with context, a recommendation, and the reason for it. You can accept, correct, defer, or record lost intent. That preserves the difference between “the code does this” and “the product should do this.”
 
-## How this helps with your next change
+For a new product, I work from your vision and constraints to a draft you can review. In either case, you retain control of the baseline before it becomes the contract for subsequent work.
 
-You do not need a finished specification before bringing me an unfamiliar repository. Start with the behavior you want to understand or change. I show what the code already does, where the tests disagree, and which product decisions still need your answer. Once you accept the baseline, I have something concrete to preserve while fixing the bug. That is much more useful than a large document nobody trusts.
+## Give the knowledge a structure
 
-For a small change in an established SDD repository, I work from the owning requirement rather than starting the whole baseline again. I show you the failing behavior, the correction, and the evidence that the requirement is now satisfied.
+The baseline connects more than feature descriptions. Requirements carry acceptance criteria, constraints, dependencies, status, and references to implementation and tests. Architectural decisions explain choices and consequences. A glossary keeps terminology consistent. Operating documentation covers the surfaces the project actually has: architecture, configuration, APIs, deployment, security, troubleshooting, and other relevant areas.
 
-## Where the boundary sits
+Where Graphify is available, I use architecture and dependency relationships to enrich those connections. I ask before building or refreshing a graph. The graph supplies evidence about relationships; it does not decide product intent.
 
-A behavioral test proves an observable outcome or contract value. It does not grep for a sentence, freeze a prompt, or reward the implementation for containing a fashionable class name. Subjective design and prose remain review judgments.
+Source-anchor checks examine whether the specification points to real implementation. Enumeration checks look for implemented surfaces the baseline has omitted. These supplied checks support the workflow; they are not a substitute for judging whether a requirement describes the right behavior.
 
-I also refuse to call work complete while a touched requirement is `Partial`. That status means evidence is missing. Renaming it would not create the evidence.
+The result is something I can navigate while working. A requirement leads to the code that owns it, the proof expected of it, and the decisions that explain its constraints.
 
-## Try it
+## Change the behavior, not just the files
 
-Ask me:
+Once the baseline is accepted, I begin a change at its owning requirement. I identify the observable failure, write the failing behavioral proof, implement the smallest coherent correction, and bring the specification and documentation along with it.
 
-> Run `/sdd init` on this legacy repository. Show me the proposed baseline and every unresolved intent item before you change production code.
+A passing test needs to establish the contract—not merely find a string in a file or mirror the implementation's internal arrangement. Failure paths, authorization, state transitions, and recovery deserve proof just as much as the successful response.
 
-Other useful requests:
+Imported legacy behavior may initially have code evidence without automated coverage. I distinguish that from a tested contract. If a touched requirement remains `Partial`, I report the missing evidence rather than rename the status to finish the task. Subjective design and prose still need human judgment; a wording snapshot cannot settle their quality.
 
-- “Trace this change to its owning requirement and tell me which tests need to move first.”
-- “Find every `Partial` requirement touched by this diff and show the missing evidence.”
-- “Use Graphify to map the call path behind this requirement before editing.”
+## Keep it useful as the repository changes
+
+`/sdd clean` addresses drift between the specification, implementation, tests, and documentation. I preserve valid decisions and operating knowledge while correcting stale links, unsupported claims, and contradictions. Uncertainty is a finding, not an invitation to erase inconvenient history.
+
+This does not require rebuilding the entire baseline for a small fix. In an established repository, I follow the affected requirement and its dependencies. You get a focused change with an explanation of what it preserves, what it alters, and how that was verified.
+
+To begin with an existing system, ask me to run `/sdd init` and show you the unresolved intent before changing production code.

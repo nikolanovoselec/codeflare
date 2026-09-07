@@ -1,33 +1,39 @@
 # PR reviews, CI, release, and production evidence
 
-## What I do
+A pull request can have green checks, several reviewer reports, and no clear answer to a basic question: did they all examine the version you are about to ship?
 
-I carry protected pull requests through exact-head review, CI, joint triage, accepted fixes, and approved release evidence instead of collecting opinions from different commits.
+I keep review, automated evidence, corrections, and authorized delivery attached to the actual revision. You do not have to coordinate a conversation between every reviewer, CI job, agent, and deployment workflow to reconstruct that answer.
 
-For an eligible protected pull request, I follow the review boundary and launch only when its workflow or your explicit review-launch instruction authorizes it. The boundary classifies the changed scope so I start the smallest required set of report-only code, specification, and documentation review lanes together, then start independent exact-head GitHub Actions monitoring. When every required lane settles, I publish one joint triage table before touching the repository. I verify each finding, judge the diagnosis separately from the proposed fix, reject unsupported cleanup, and apply only the smallest accepted corrections.
+## Independent questions about the same change
 
-A replacement commit starts a new boundary for the changed range. I do not treat yesterday's green CI as evidence for today's head. Once the final head is clean, I prepare the merge message, follow post-merge checks, monitor an approved deployment, and verify release identity, commit, workflow outcome, and rollback evidence.
+Code review examines behavior and implementation. Specification review checks whether the contract and its implementation references remain true. Documentation review checks the guidance somebody will use to understand or operate the result. CI executes the automated contracts. These are different kinds of evidence; agreement from three reviewers does not replace a missing test result.
 
-## What you get back
+For an eligible protected pull request, I identify the applicable review lanes from the changed scope. I launch them only when the workflow or your explicit review instruction authorizes it. Report-only reviewers start together, and independent monitoring follows CI for the exact head.
 
-I give you a decision-ready account of the pull request: which findings are real, which proposed fixes are too broad, and what the exact commit's CI actually proved. You can ask me to stop after triage if you want to make the fix decisions yourself. I keep the evidence attached to the commit so you do not have to reconstruct which green check belonged to which version.
+The scope matters. A documentation change should not manufacture a system-wide redesign exercise. A source change can also invalidate a requirement or an operating instruction, so I account for those directly affected surfaces rather than looking only at filenames.
 
-When you authorize a release, I follow its workflow and report the deployed commit and release identity. If the workflow fails or evidence is missing, I say so. A deployment link on its own is not a successful release.
+## Findings are proposals, not marching orders
 
-## Where the boundary sits
+When all required results have arrived, I publish joint triage before changing the reviewed work. I check the evidence behind each finding and judge the diagnosis separately from its suggested correction.
 
-Reviewers report. The root agent mutates. CI proves automated contracts. GitHub owns protected history. That division is deliberately boring because the exciting alternative is two agents racing to repair the same file while a third reviews neither result.
+That distinction saves real work. A genuine bug may need a narrow guard rather than a new abstraction. Two reports may describe the same defect. A proposed cleanup may be unrelated. I retain the useful diagnosis, reject unsupported expansion, and choose the smallest accepted correction.
 
-Deployment verification starts with workflow and release evidence. Opening a live application, authenticating, sending email, or exercising production behavior requires an explicit live-test instruction. The word “verify” is not a blank cheque.
+Reviewers report; the root agent owns mutations. I do not let several agents race to fix the same files while another reviewer is still examining an earlier version. You can ask me to stop after triage and leave the decisions with you.
 
-## Try it
+## A replacement commit needs its own evidence
 
-Ask me:
+Once accepted fixes change the head, the earlier results remain evidence for the earlier head. I follow the applicable boundary for the replacement revision instead of carrying a green badge forward by assumption.
 
-> Review PR #123 against code, specification, documentation, and exact-head CI. Publish triage before changing anything, then apply only accepted fixes after review closes.
+The workflow keeps reviewer results, CI identity, and completion ownership correlated. Interrupted work does not quietly become a completed review. A current-head acknowledgment is also distinguishable from an independently executed reviewer round; I report what actually happened.
 
-Other useful requests:
+Automatic PR boundaries apply to eligible SDD repositories and protected targets. They do not mean every repository action triggers every reviewer. Explicit broader review is a separate request. Your existing CI, branch protections, and repository rules remain in place.
 
-- “Open review for this PR, launch code/spec/doc lanes once, then wait for exact-head CI.”
-- “Triage these reviewer findings and reject anything unsupported or oversized.”
-- “Apply only accepted fixes from the previous triage turn.”
+## Follow an approved release beyond the push
+
+When you authorize delivery, I carry the repository's workflow through the next stage: merge preparation where requested, post-merge checks, deployment monitoring, and release evidence. I identify the source revision, workflow outcome, and deployed release or Worker identity. Where the pipeline provides image digests and provenance, I keep those distinct from a fresh build or an independently checked live image.
+
+A workflow failure, missing receipt, or superseded head is something to resolve—not an inconvenient detail to omit from the handoff. I also preserve the relevant rollback or recovery information rather than treating deployment as the end of operational responsibility.
+
+Opening the live application is a separate step. Deployment evidence does not authorize login, email, purchases, production mutations, or browser testing. I perform those only within an explicit live-test scope.
+
+What you get back is a decision about a known revision, with the evidence and remaining decisions attached. Not a pile of opinions that you have to reconcile yourself.

@@ -1,33 +1,45 @@
 # Credential interception and secret boundaries
 
-## What I do
+A Git client needs permission to access a repository. It does not necessarily need the reusable token sitting in its environment. For supported intercepted connections, I separate those two things: the client performs the work, while authorization is attached outside the container.
 
-I work with your connected GitHub repositories, use available model routes, and make supported browser calls without asking you to paste reusable service credentials into a terminal. Where the relevant credential interceptor is configured and the connection is authorized, I use ordinary supported clients. You can spend the session on the repository rather than token plumbing.
+You can use familiar clients and workflows without distributing the underlying service credential to every process in a root-capable session.
 
-For GitHub, I inspect an issue, read a pull request, or prepare a change using the signed-in user's connected access. With GitHub interception enabled, the reusable GitHub token stays outside the container: a Worker-side interceptor recognizes an exact allowlisted destination, validates the bound session identity, removes the non-secret placeholder, and adds authorization at the boundary. The placeholder is not a credential you need to look up or copy.
+## What happens to a supported request
 
-I use the same separation for supported model traffic through Cloudflare AI Gateway and for Browser Rendering calls whose account authorization is added outside the shell. With strict web egress, storage requests pass through a controller that checks the bound storage identity and re-signs them for your exact bucket. I process your synchronized files without gaining access to another user's bucket.
+The container uses a non-secret placeholder where the client expects authorization. At my Worker boundary, the interceptor recognizes the exact supported destination, resolves the identity already bound to the session, removes the placeholder, and supplies the appropriate credential.
 
-## When a connection needs attention
+A lookalike hostname does not qualify. A caller-provided user ID cannot select whose token to use. The request does not gain authority by claiming to belong to another bucket or account.
 
-I distinguish a missing connection from a repository permission problem. Connecting GitHub does not grant access to every repository, and selecting an available model route does not make you its administrator. If access is missing, I explain the supported connection step or what to ask your administrator to enable. I do not ask you to print a token so I diagnose it.
+The service receives an authorized request; the workload still does not receive the reusable secret. Upstream permissions remain in force, including repository access and protected operations.
 
-An administrator configures the shared gateway and browser-service boundaries; you authorize your own supported user connections. Named interceptors cover named services, not every secret an arbitrary script might use. Deployments without GitHub interception can pass the token into the container; I do not promise Worker-side containment on that path. If a project asks for an unrelated secret in an environment variable, I point out that processes allowed to read that variable inside the container can see it.
+That arrangement matters precisely because the session is useful: its tools can inspect files, run processes, and examine their own environment. Keeping a token outside that environment is a technical separation, rather than a reminder to avoid printing it.
 
-## Where the boundary sits
+## Different services need different handling
 
-A similar-looking hostname is not an approved destination, and a user ID sent by the container cannot choose the session identity. The Worker owns those checks. I cannot turn an unconnected client into an authorized one by changing a proxy variable.
+With GitHub interception configured, I support the relevant repository, web, and API traffic under the connected user's access. Missing repository permission stays a permission problem; it is not solved by substituting an administrator's token.
 
-With Strict Gateway Egress enabled, direct-internet HTTP, HTTPS, and WebSocket traffic passes through Cloudflare Gateway, raw TCP and UDP internet egress is denied, and configured DLP policy detects or blocks matching transfers of sensitive data. That is useful protection, not a reason to paste secrets into chat. Own-account control-plane exceptions have separate authorization and audit boundaries; actual protection depends on the configured path and policy.
+Model interception routes supported inference traffic through Cloudflare AI Gateway, keeping gateway authorization and route resolution at the trusted boundary. A model route still has to be allowed for the user and compatible with the agent's protocol.
 
-## Try it
+Browser Rendering needs both ordinary API calls and interactive browser-control connections. Its interceptor handles the supported account-scoped authorization, including the WebSocket path used for browser control.
 
-After connecting your GitHub identity through the supported connection flow, ask me:
+Supported Cloudflare OAuth connections also require refresh handling. I obtain current authorization at the boundary for supported requests instead of letting a long-running session depend on a reusable access token copied into its shell at startup.
 
-> Read this repository's open issue and the linked pull request. Explain what remains to be fixed, without changing either one or printing credentials.
+With strict storage interception, I validate the bound storage identity and sign requests for the exact user's bucket. A storage request cannot fall back to an account-wide management credential when its scoped authorization is missing.
 
-Other useful requests:
+These paths preserve the client's transport needs—authorization formats, streams, and supported WebSockets—while keeping credential selection under trusted ownership.
 
-- “Prepare a pull request description from my local changes. Stop before publishing it.”
-- “Process this file from my synchronized storage and put the result in a durable folder.”
-- “This project asks me to put a service secret in the shell. Explain whether a supported connection can keep it outside the container instead.”
+## Connect once through the supported flow
+
+You authorize your user connections through the appropriate connection surface. Administrators configure shared gateway and browser-service connections. I can then work with the access supplied by those connections without asking you to retrieve and paste their tokens.
+
+If a call fails, I distinguish an absent connection, expired authorization, insufficient service permission, an unsupported destination, and a network policy decision. I use the error and configuration evidence without exposing credentials. A valid workspace login does not automatically provide all of these connections.
+
+## Containment is specific
+
+Interception covers named services and configured paths. Deployments without GitHub interception can pass a real token into the container; an unrelated project secret placed in an environment variable is visible to processes allowed to read it. I do not describe those paths as Worker-side containment.
+
+Network enforcement is another layer. With Strict Gateway Egress enabled, supported direct-internet web traffic follows customer Gateway policy, while raw TCP and UDP internet egress is denied. Scoped platform exceptions keep their own authorization checks.
+
+A permitted API request may publish, delete, deploy, or spend money, so protected actions still need your explicit scope. Credential containment and permission to act remain separate.
+
+Within that scope, you can use familiar repository, model, browser, and storage workflows while their supported reusable credentials stay outside the workload. The client does its job; my trusted boundary supplies the authorization it is entitled to use.

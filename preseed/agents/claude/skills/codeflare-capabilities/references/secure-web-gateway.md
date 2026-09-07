@@ -1,28 +1,41 @@
 # Cloudflare Gateway, inspection, malware, and DLP
 
-## What I do
+An engineering session reaches outward constantly: documentation, package registries, source hosts, APIs, model services, and browser connections. A policy that exists only in a proxy environment variable leaves each process in a position to ignore it.
 
-I research documentation and work with a project's web dependencies under your organization's outbound policy. You do not need to configure a proxy for every task. If a dependency download is blocked, I help identify the destination the project needs and explain the next step instead of trying to evade the block.
+With Strict Gateway Egress enabled, I place the supported direct-internet web path under your organization's Cloudflare Gateway policy outside the root-capable container. You can use a real toolchain while the trusted network path retains the decision about where its requests may go.
 
-With Strict Gateway Egress enabled, I route direct-internet HTTP, HTTPS, and WebSocket traffic through Cloudflare Gateway, which enforces the customer's configured allow, block, isolation, malware-inspection, and DLP rules. The transport starts before agent work, fails closed if Cloudflare Gateway is unavailable, and denies raw TCP and UDP internet egress.
+## One governed web path, several kinds of traffic
 
-Destination-specific credential interceptors keep their exact routes. Remaining web traffic uses the catch-all controller and inherits the customer's policy decision.
+I handle HTTP, HTTPS, and WebSocket traffic through the configured Gateway transport. Streaming responses and interactive connections need that same treatment; governing a simple download while leaving another web transport unrestricted would miss part of the workload.
 
-Your administrator owns the Cloudflare Gateway rules for allowed destinations, inspection, malware, and data-loss prevention. Configured blocking rules reject web requests that match their destination or sensitive-data criteria. I work under the policy that is actually configured; enabling the transport does not automatically create all those protections.
+Destination-specific interceptors keep their own exact service routes and credential checks. Remaining web traffic takes the catch-all controller. Strict routing denies raw TCP and UDP internet egress rather than treating another protocol as an unrestricted alternative.
 
-## Where the boundary sits
+You do not need to configure a separate proxy convention for every library or command-line tool. The transport is prepared before agent work. Once strict routing is active, unavailable bound egress fails the governed request rather than silently falling back to direct internet access.
 
-Codeflare's own-account control-plane and bounded storage paths are scoped direct exceptions with separate authorization and audit boundaries. The customer owns Cloudflare Gateway policy; Codeflare neither creates it nor infers a DLP or malware decision from a successful request. I verify those decisions against the matching event, action, and rule when that evidence is available.
+Strict Gateway Egress is optional and requires deployment configuration. I do not claim that every workspace starts with it enabled.
 
-## Try it
+## Your rules decide what passes
 
-Ask me:
+Cloudflare Gateway supplies the policy enforcement. Your administrator configures the applicable destination rules, inspection, malware protection, isolation, and data-loss prevention. I connect the workload to that policy; enabling the transport does not invent a complete policy for your organization.
 
-> This dependency download was blocked. Use the existing error and project configuration to explain what destination is needed and draft a narrow request for my administrator. Do not retry the download or bypass the policy.
+This gives different questions a concrete owner. May the project reach this package host? Does a response match a malware rule? Does an outgoing transfer match configured sensitive-data criteria? The relevant Gateway rule and event provide the answer—not the agent's intention or a successful HTTP status alone.
 
-For a new project, I also prepare its destination list before anyone tries to install it. I separate HTTP, HTTPS, and WebSocket calls from raw TCP or UDP requirements, so a database client that needs a direct TCP connection does not become a surprise halfway through setup.
+I work within the resulting decisions. For a blocked dependency, I identify the destination and why the project needs it, then help prepare a narrow request for the administrator. I do not change clients, protocols, or proxy settings to evade the block.
 
-Other useful requests:
+## Platform traffic retains its own controls
 
-- “Review this project's documented network requirements before I start using it here.”
-- “Explain whether this workflow sends sensitive files to an external service, using its configuration without running it.”
+Some own-account control-plane and bounded storage paths are deliberate direct exceptions. They are not a blanket exemption for any URL that resembles a Cloudflare service.
+
+Exact destination, account, path, and ownership checks determine the supported exception. Storage signing remains bound to the user's bucket. Other-account destinations do not inherit own-account authority. AI Gateway and Browser Rendering have their designated platform paths and authorization mechanisms.
+
+That is why I keep their evidence separate from Gateway policy events. I can explain which boundary governs a request without claiming every byte crosses the same inspection service.
+
+## Assess the network requirements before execution
+
+I can inspect a project's documented endpoints and configuration before attempting a new workflow. Web APIs, WebSockets, direct database connections, private services, and arbitrary raw TCP are different requirements; I do not assume a working HTTPS request proves all of them are supported.
+
+The same applies to data movement. A formatter that runs locally, a hosted analysis service, and a browser-based upload have different consequences for the files you provide. I help identify those consequences before execution and respect the configured policy and your authorization.
+
+Credential interception, service permission, and Gateway policy retain separate decisions: an allowed destination does not grant credentials, and a valid token does not bypass the network rule. Sensitive material still belongs only in approved flows.
+
+You can then research, work with dependencies, and use supported web services under centrally managed rules, without turning each engineer or agent into the administrator of its own outbound security policy. The tools remain useful; the configured network boundary remains outside their control.

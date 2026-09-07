@@ -1,33 +1,39 @@
 # Managed skills, policy, and curation
 
-## What I do
+A hard-won lesson from an incident can become part of how the next session works. A release procedure can arrive with the agent. Your review standards, design methods, and operating conventions can follow users into their workspaces without somebody rebuilding the configuration each morning.
 
-I use your organization's reviewed skills, rules, specialists, hooks, and extensions without making you assemble a new agent setup for every session. Teams teach me their review standard or incident workflow once and distribute that guidance through managed content. You still give me the real task and its constraints; the shared guidance keeps routine expectations from becoming a long preamble you paste every morning.
+I maintain and distribute that shared guidance across compatible sessions.
 
-I help you understand an available skill, apply it to your repository, or draft an improvement when a recurring task needs clearer guidance. For example, I turn a release checklist into a focused workflow that asks for the right evidence and stops before deployment. A skill should save you work, not merely add more instructions to read.
+I distribute that working environment as maintained content. Skills, rules, commands, hooks, specialist definitions, scripts, and supported extensions have owners and release identities. The organization can improve them without asking each user to assemble a new agent installation.
 
-## How a team changes shared guidance
+## Shared methods, native execution
 
-If you maintain the organization's curation, I help update the authoritative source, keep portable content portable, and prepare the change for review and CI. One compiler projects the managed source into the supported Claude, Pi, Codex, OpenCode, and Antigravity layouts and supported rule surfaces. I do not pretend every runtime has identical APIs or that every target supports skill directories.
+Different agent runtimes consume instructions differently. Some have native commands and hooks; others use different tool names, configuration layouts, or extension APIs. My compiler projects managed source into the supported runtime surfaces, preserving the native mechanisms instead of copying one agent's configuration into every other agent.
 
-With authorization to publish, I follow reviewed content through the signed immutable release process. CI compiles every supported target, builds the bundle twice, compares the bytes, and signs the exact payload. Each image selects the newest verified release compatible with its runtime dependency hash. Ordinary users receive compatible managed guidance without rebuilding a workstation image themselves.
+I use the resulting methods in the repository's context. Engineering discipline remains available without loading every specialist manual into the opening prompt. Skills load when the work calls for them; specialized tools can be discovered and activated when needed. That leaves conversation space for the system being investigated.
 
-I keep this distinction clear: asking me to use a skill is an ordinary work request; changing shared policy or publishing it is a maintainer action. “The prompt changed somewhere” is not release management.
+The available projections are deliberately runtime-aware. Shared standards do not imply identical features in every agent, and a skill describing a service does not create its credentials or connectivity.
 
-## Where the boundary sits
+## A release has to be both authentic and usable
 
-A content-only update ships through curation when the installed compiler and runtime already understand it. A new package, native binary, compiler transform, seed ABI, or image-owned path needs the owning Codeflare change first. A signature proves identity and integrity, not compatibility by magic.
+Managed publication produces an immutable bundle from an exact compiler revision. CI checks the supported projections and deterministic output, then signs the payload with Ed25519. The signing key stays outside user workspaces.
 
-The managed source is authoritative for managed sessions. Codeflare's separately versioned baked fallback may lag; I do not create a duplicate skill or an image change merely to edit managed guidance. I follow the repository's ownership rules for the content actually being changed.
+I check more than the signature before accepting a release. Release identity, sequence, document paths, asset integrity, and runtime compatibility must agree. A correctly signed bundle cannot introduce an unsupported runtime dependency simply by declaring itself trustworthy. Extension artifacts have their own identity and integrity checks.
 
-## Try it
+I can then select a verified release compatible with the installed runtime. Discovery, validation, and application are separate stages; an update does not become active merely because a repository contains a newer file. Compatible content can be delivered without rebuilding the container image, while new npm packages, native binaries, or compiler behavior still require the owning runtime change.
 
-Ask me:
+## Updates meet a workspace that already contains work
 
-> Use the available engineering guidance to plan this bug fix. Explain the evidence I should expect and which decisions remain mine.
+Users may have personal files, extension choices, and active sessions. Managed reconciliation accounts for that state rather than treating every home directory as an empty installation target. Automatic updates and an explicit full Recreate have different purposes and overwrite behavior. Application is coordinated around safe lifecycle conditions; publication does not instantly replace every running session.
 
-Other useful requests:
+Where protected managed-resource policies are configured, I enforce their persistence rules at the storage boundary. The container's own filters are not the authority deciding whether a protected write is permitted. This protects the governed resource surface; it does not turn a signed extension into harmless code or prevent every possible local change.
 
-- “Help me draft a reusable review checklist from the mistakes we keep finding, without publishing it.”
-- “Explain which available specialist workflow fits this migration.”
-- “I maintain our curation. Prepare this skill improvement for review and managed-seed CI, and stop before publication.”
+## Turn experience into the next session's starting point
+
+I can help identify a recurring failure in a workflow, improve the relevant guidance, and prepare it for review and managed-seed CI. A useful change might clarify acceptance evidence, preserve a subtle security boundary, or remove an outdated instruction that sends every new session down the same dead end.
+
+Using a skill is ordinary task work. Changing shared policy or publishing a release affects other sessions and requires the appropriate authorization. I keep that distinction explicit.
+
+Managed content is authoritative for managed sessions; the image-baked fallback is separately versioned. I follow the owning release path and distinguish publication from verified application.
+
+That gives organizational learning a delivery mechanism. You can turn a better way of investigating, reviewing, or shipping into the starting point for future work—complete with provenance and runtime compatibility, rather than another document people must remember to find.

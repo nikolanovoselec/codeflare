@@ -1,31 +1,39 @@
 # Cloudflare MCP Server Portals, Code Mode, and identity
 
-## What I do
+The repository rarely contains the whole problem. Acceptance criteria may live in an issue tracker, an incident in an operational system, and an API contract in connected documentation. Through approved MCP servers, I can bring that material into the same investigation as the code.
 
-I bring information from your connected work systems into the engineering task: read a linked incident, compare its symptoms with the repository, or gather the documentation needed for a fix. You can ask for the result you need without learning each service's tool names.
+You ask for the work you need. I discover the relevant operations, gather their evidence, and connect it to the repository. You do not have to paste every record into chat or learn the tool names of every connected service.
 
-I connect through Cloudflare MCP Server Portals, which extend Cloudflare Access to MCP clients. Each Portal is a Cloudflare Access application that gathers the MCP servers and tools approved for the signed-in user or agent. For ordinary interactive use, you sign in through managed OAuth with your Cloudflare Access identity. An administrator configures the Portal and its approved upstream servers. Autonomous agents use an authorized Access service token; ordinary users do not need to obtain one to ask me for help.
+## A governed entrance to the tool catalogue
 
-With Portal Code Mode enabled, I see only `portal_codemode_search` and `portal_codemode_execute`, regardless of how many upstream servers and tools are registered. I search for the definitions needed for the task, then execute and compose only those operations inside an isolated Dynamic Worker. The initial tool surface stays at two tools instead of loading every upstream schema into model context, sharply reducing token consumption as the Portal grows.
+A configured Cloudflare MCP Server Portal gathers approved MCP servers behind a Cloudflare Access application. For interactive use, you authenticate through the Portal's managed OAuth flow with your Access identity. The administrator owns the Portal configuration and the approved upstream servers.
 
-I combine the focused result with repository work: inspect an incident, trace its code path, implement the tested correction, and, with your authorization, link the outcome back to its owning system. Searching only for relevant operations leaves more room for the actual incident and code instead of hauling the full integration catalog through every turn.
+Access policy determines which configured servers the user or service identity may reach. Each upstream retains its own authorization: it may require your separate OAuth grant or use an administrator-managed credential where configured.
 
-## Where the boundary sits
+That division lets a catalogue grow without treating admission to it as universal permission. A connected incident system exists because somebody configured and authorized it, not because MCP automatically opens every organizational application.
 
-Cloudflare Access authorizes entry to the Portal and filters which configured servers a user or service identity may reach. Each upstream server still owns its authorization: it may require the user's separate OAuth grant or use an administrator credential when configured. An Access service token represents a machine, not an end user, and cannot supply per-user OAuth.
+## Find the operations before loading their machinery
 
-Code Mode reduces context, not authority. Generated code reaches external systems only through Portal-provided tools, and every operation remains subject to Portal, upstream, and credential permissions. Consequential writes still require explicit user scope. Protect an upstream server separately if its direct URL must not bypass Portal policy.
+With Portal Code Mode enabled, the initial interface stays at two tools: `portal_codemode_search` and `portal_codemode_execute`.
 
-## Try it
+I search for the definitions relevant to the task, then compose and execute those operations in an isolated Dynamic Worker. Hundreds of unrelated schemas do not need to occupy the conversation before I know which operation matters. More context remains for your code, the incident evidence, and the reasoning needed to connect them.
 
-Ask me:
+Composition also changes how I approach a task. I can retrieve a record, use its identifiers to obtain related information, and return the focused result rather than carrying an entire catalogue through a chain of prompts. External calls remain limited to Portal-provided tools and their permissions.
 
-> Read this incident through my connected work system, compare it with the error path in this repository, and propose a fix plan. Do not update the incident or change code yet.
+Code Mode reduces tool-schema overhead. It does not expand authority or make generated code trustworthy by default.
 
-I discover the relevant approved operations and bring back the evidence the plan needs. If the upstream service needs your own OAuth grant, I explain that connection step rather than asking you to paste a token.
+## Bring the result back into engineering
 
-Other useful requests:
+I can compare connected acceptance criteria with an implementation, relate an incident to a call path, or use an approved documentation source to assess an integration. The external record and the repository become evidence for one task.
 
-- “Find the connected documentation for this API and use it to review our integration.”
-- “Compare the linked issue's acceptance criteria with this pull request.”
-- “Draft an incident update from our findings. Show it to me before posting.”
+If the work needs a follow-up in the originating system, I can prepare it from the actual findings. Posting a comment, changing a ticket, or performing another consequential write still needs your scope. Reading an incident is not implicit permission to update it.
+
+When an upstream needs your OAuth grant, I explain that connection step. I do not ask you to paste a token or substitute another identity simply because the Portal itself admitted the request.
+
+## Human and machine identities stay distinct
+
+An authorized Access service token can admit an autonomous agent to the Portal. It represents a machine, not an end user, and cannot supply a user's separate OAuth grant. The upstream credential model must support the intended operation.
+
+The Portal also does not automatically protect an upstream server's direct URL. If that URL must not bypass Portal policy, it needs its own protection. I keep that boundary explicit rather than assuming the front door secured every other entrance.
+
+With the connections in place, I can work across approved systems while preserving their separate permissions. You get the relevant context in the engineering conversation without flattening the organization's access model into one shared integration credential.

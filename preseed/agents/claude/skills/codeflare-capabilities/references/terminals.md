@@ -1,35 +1,39 @@
 # Any-device terminals, Herdr, continuity, and notifications
 
-## What I do
+Your investigation can stay open while you leave the desk. I keep the engineering environment in the backend and let you reach it from a desktop, tablet, or phone. The device needs a browser—not another checkout, agent installation, or development toolchain.
 
-I run the same engineering session through a browser on a desktop, tablet, or phone. I do not require a local agent toolchain. When you reconnect, the browser attaches me to the existing PTY while its container remains alive, so the device can change without pretending the process moved into the phone.
+These are real terminals connected to real PTYs. You can run a shell, follow an agent, inspect logs, arrange parallel work, and intervene directly. I handle authenticated transport, attachment, resizing, reconnection, and display recovery around that work.
 
-I use Classic for up to six outer terminal tabs with labels, ordering, tiling, and saved layout. I use Herdr for workspaces, tabs, panes, splits, shells, and tracked agents inside one outer terminal. With MultiView, I place several backend sessions in one browser workspace on larger screens.
+## Arrange the work at the right scale
 
-I use the mobile terminal for touch, virtual-keyboard geometry, orientation changes, sticky control sequences, and voice input where the browser supports it. It is a real terminal adapted to glass, not a desktop screenshot shrunk until the text loses the will to live.
+**Classic** gives you up to six outer terminal tabs within a session, with labels, ordering, tiling, and saved layout. A shell can sit beside an agent conversation without starting another backend environment.
 
-When a structured question needs attention, I use Codeflare's immediate input-required signal. I do not promise Web Push delivery; in-session prompts remain the reliable way to see a question. I use Herdr to watch agent state across panes and delay completion until tracked work has actually become ready.
+**Herdr** owns the organization inside one outer terminal: workspaces, tabs, panes, splits, shells, and tracked agents. It is useful when you want several ongoing workstreams in view. In a live Herdr workspace, I can help arrange panes, inspect supported agent state, steer work within your scope, and collect results while preserving your focus.
 
-## How I use the workspace with you
+**MultiView** puts separate backend sessions into one larger-screen view. It changes how you see them; it does not merge their files, identity, or runtime ownership. Desktop and tablet layouts support it; a phone uses its own terminal experience.
 
-For a focused bug fix, one terminal may be enough. For a longer investigation, I help arrange a shell beside the agent conversation in Herdr, or keep separate backend sessions visible in MultiView on a larger screen. You can follow the work without repeatedly swapping away from the error you are trying to understand.
+Classic and Herdr are session choices, not two competing managers of the same topology. I keep those ownership boundaries explicit so a split, a tab, and a new session mean what you expect.
 
-If you leave your desk, reconnect from your phone to the live session and answer the question that is holding up the task. I keep the engineering work in the backend; the phone is a way to reach it, not a machine that needs its own checkout and toolchain. Browser and notification support determine which attention signals you receive, so I do not tell you to rely on a push that may not arrive.
+## The phone gets terminal controls, not a scaled-down desktop
 
-## Where the boundary sits
+Touch input, sticky control sequences, virtual-keyboard geometry, orientation changes, and supported voice input address the parts of terminal work that are awkward on glass. I account for the keyboard and visible viewport rather than leaving the prompt hidden behind them.
 
-A blocked or unknown Herdr pane prevents a false completion notification. It does not automatically promise a separate push for every blocked state. Completion timing and input-required signaling are different contracts.
+You can return to a live session from another device and answer a structured question or inspect the current state. The work has not moved into the phone. Authentication and session ownership still govern the connection, and the backend must remain alive for its processes to continue.
 
-A reconnect recovers bounded output from a live PTY. After container replacement, synchronized agent session transcripts remain durable: Classic restores supported conversation history through `/resume`, while Herdr restores supported agent sessions automatically from persisted references. Arbitrary shell output, process memory, running shells, and the old process tree are not restored.
+On a larger screen, visible panes own their connections and resize behavior. Reconnection and recovery have explicit lifecycles, so an old browser view should not become the authority over a newer attachment.
 
-## Try it
+## Know when your attention is needed
 
-Paste this request:
+I distinguish a question that needs an answer from work that appears to have finished. Supported structured questions produce an immediate input-required signal. Herdr tracks supported agent readiness across panes before producing its delayed completion signal; a working, blocked, or unknown state must not be mistaken for completion.
 
-> Give me a device-handoff checklist for this session. Distinguish live PTY reconnection, Classic `/resume`, Herdr automatic transcript restoration, and state that will not survive container replacement.
+Away notifications depend on device permission, enrollment, and the configured Web Push service. Herdr's completion producer is different from Classic terminal behavior, and accepted push delivery is not a guarantee that a device displayed it. In-session prompts remain the dependable place to see what is waiting for you.
 
-Other useful requests:
+This lets you step away without pretending that silence means success—or that every line of output deserves an interruption.
 
-- “Set up Herdr panes for three agents and wait until each is really ready.”
-- “Ask me a structured question that I answer from my phone.”
-- “Recover this browser session and tell me what state did not survive.”
+## Reconnect and restore are different operations
+
+While the container and PTY remain alive, I can reconnect the browser and restore bounded terminal output. After container replacement, the process itself is gone.
+
+Supported synchronized agent transcripts can survive that replacement. Classic restores conversation history through `/resume`; Herdr restores supported agent sessions from persisted references. That is conversation continuity, not resurrection of arbitrary shell output, process memory, or the old process tree.
+
+I help you choose the right arrangement and preserve the right state. You remain able to see the work, interrupt it, and take over a shell instead of surrendering the whole environment to an opaque background task.

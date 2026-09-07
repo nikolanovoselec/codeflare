@@ -1,33 +1,35 @@
 # Browser VS Code, native agent workflows, and extensions
 
-## What I do
+Open the repository and stay close to the work. I give you a full browser-hosted VS Code workbench backed by code-server and Code OSS: Explorer, search, editors, source control, diffs, diagnostics, settings, and integrated terminals. You can watch files change, inspect the result, and edit directly.
 
-I work in a full browser-hosted VS Code experience backed by code-server and Code OSS. You get the Explorer, search, source control, diffs, editors, settings, integrated terminals, themes, keyboard layouts, and extension host you already know.
+The workbench uses the session's actual filesystem and toolchain. There is no separate copy of the project to keep aligned with the agent, and no remote IDE server for you to configure before you can participate.
 
-In supported Pi-selected sessions, I continue our conversation through Codeflare Chat. The Inline Chat integration is designed to use the invoking editor, selection, diagnostics, explicit references, unsaved content, and bounded recent history, then return native text edits to the correct document. Its deployed editor-selection and acceptance flow still needs verification; I do not promise those actions work in every session. In Review with Codeflare, I attach a workspace file from the Explorer or editor. I use the integrated terminal with the session's root access and complete engineering toolchain.
+## Read the change while it is being made
 
-I use Codeflare's skills and specialist workflows through the agent. The platform restores user-selected Open VSX extensions through a bounded, versioned manifest, while the packaged agent inventory stays immutable and verified. I start from a clean fixed workspace whose editor suppresses account setup and trust prompts that would otherwise block an isolated session.
+An agent conversation can explain a proposed correction; the editor lets you examine it. Open related files, follow references, inspect the diff, compare diagnostics, or run an approved command in the integrated terminal. You can keep the relevant code on screen while the investigation continues.
 
-## Start from the code you are looking at
+I bring the supported native agent experience into that workbench. Pi-selected sessions can use Codeflare Chat and editor-context workflows; selected Claude sessions use their supported official extension integration. The selected supported integration determines which native actions are available. Your repository determines how the project is built, tested, and operated.
 
-Where Inline Chat is available, select the function or diagnostic that needs attention and ask me about it. I use that editor context, including unsaved content, rather than making you copy a large file into a separate conversation. Review with Codeflare is useful when you want me to inspect a whole workspace file instead. For a change spanning several files, I keep the investigation in Codeflare Chat and use the native diffs to make the edits reviewable.
+## Ask about the code in front of you
 
-Native Inline Chat proposals use the editor's acceptance flow; I edit files directly from panel and terminal work within your approved scope. I help you compare the diff with the intended behavior and carry the result into the repository's verification workflow. An editor suggestion is a starting point, not proof that a fix works.
+Where native Inline Chat is available, the invoking editor can supply the document, selection, diagnostics, explicit references, and unsaved content. You do not have to copy a function into a separate conversation and hope it remains aligned with the file.
 
-## Where the boundary sits
+Inline proposals belong to the editor's acceptance flow. Document identity, range, and version matter: an answer for one selection must not be applied to a different document or a newer edit. Broader panel and terminal work can change files directly within your approved scope; it is not the same transaction as accepting an inline proposal.
 
-The Browser IDE belongs to one backend session. It is not a permanent workstation shared by every container. Its continuity layer preserves theme, web keyboard layout, Explorer expansion, open files, and the bounded extension selection where supported.
+Review with Codeflare attaches a workspace file from the Explorer or editor. For a multi-file change, I keep the wider investigation in the appropriate conversation and make the resulting diffs inspectable.
 
-Credentials, authentication, SecretStorage, extension runtime databases, chat history, logs, and arbitrary User settings remain temporary. Root access is confined to the isolated session, but it is still root. A trusted terminal command can change the filesystem, and a trusted extension can execute code. Hiding the menu item would not change that fact.
+## Your workbench preferences can return
 
-## Try it
+Themes, web keyboard layout, Explorer expansion, open-file resources, and supported extension choices have bounded continuity. I restore user-selected Open VSX extensions through a versioned manifest, rather than copying a live extension runtime wholesale between sessions. Managed company extensions can be reconciled alongside that user intent.
 
-After selecting the failing function in Browser VS Code, paste this request:
+This preserves a familiar working surface without treating credentials, SecretStorage, extension databases, chat history, logs, package bytes, or arbitrary settings as durable personal files. Those have different ownership and security implications.
 
-> Use Inline Chat to propose the smallest tested correction for this selection. Show me the native diff before saving, then guide me through exact-head CI in the integrated terminal.
+A selected extension can execute code. I make that trust decision explicit rather than suggesting that a browser-hosted editor makes extensions inert.
 
-Other useful requests:
+## A session-owned editor
 
-- “Open the selected file in Browser VS Code and explain the failing path using editor references.”
-- “Use Inline Chat on this selection, then show me the native diff before saving.”
-- “Restore my preferred Open VSX extension set without persisting extension secrets.”
+I handle the editor process, readiness, authenticated HTTP and WebSocket proxying, and recovery around one backend session. The public workspace is fixed; browser-supplied folder selectors cannot choose an arbitrary location or another session's files. Ownership checks sit outside ordinary editor commands.
+
+Inside the isolated environment, the terminal and trusted extensions remain powerful. Root access lets you and the agent use a real engineering toolchain. It does not make the editor a sandbox that can undo every action.
+
+You can move between conversation, source, diagnostics, and shell while retaining a direct view of what is happening. The work stays inspectable at the speed it is being performed.
