@@ -2696,7 +2696,7 @@ const required = [
   'npm:pi-mcp-adapter@2.31.0',
   'npm:pi-evaluate@0.1.5',
   'npm:@narumitw/pi-goal@0.54.3',
-  'npm:@narumitw/pi-plan-mode@0.55.3',
+  'npm:@narumitw/pi-plan-mode@0.56.0',
   'npm:@narumitw/pi-usage@0.59.0',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable its extension and skills on every
