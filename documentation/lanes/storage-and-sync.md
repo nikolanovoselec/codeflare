@@ -320,7 +320,7 @@ Six startup costs and stale-state risks are controlled (REQ-STOR-017):
 
     Both `rclone bisync` invocations in `entrypoint.sh` (the retrying `--resync` baseline and steady-state cycle) pass `--use-server-modtime` and `--checkers 64`. `--use-server-modtime` compares the `LastModified` already returned by the bulk `--fast-list` instead of issuing one mtime HEAD per object, eliminating the per-cycle HEAD storm (the dominant steady-state cost).
 
-    The pinned `scripts/patch-rclone-bisync.py` patch records each completed transfer's actual destination timestamp rather than copying the winning source timestamp into both baselines. It reuses upload metadata and rejects an S3 upload/HEAD identity mismatch; `--s3-no-head` is incompatible with this verified bookkeeping. No all-object HEAD scan or post-sync bulk rebaseline is added.
+    The pinned `scripts/patch-rclone-bisync.py` patch records each completed transfer's actual destination timestamp rather than copying the winning source timestamp into both baselines. It verifies upload metadata against HEAD, then reads at most one exact-key LIST result for that completed destination to retain R2’s fractional timestamp. A key, ETag or size mismatch fails closed; `--s3-no-head` is incompatible with this bookkeeping. No all-object HEAD scan or post-sync bulk rebaseline is added.
 
     The required Rclone bookkeeping CI lane reproduces the original bug, exercises isolated S3 transfers, same-size edits and conflicts, and measures LIST/HEAD requests. A version or source-anchor mismatch fails closed: future rclone bumps require explicit patch revalidation. See [REQ-STOR-042](../../sdd/spec/storage.md#req-stor-042-per-side-sync-change-tracking).
 - **Governed Mode delta initial sync (AD90, Governed Mode only).**

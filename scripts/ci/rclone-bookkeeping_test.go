@@ -11,6 +11,7 @@ import (
  "time"
 
  _ "github.com/rclone/rclone/backend/local"
+ "github.com/rclone/rclone/cmd/bisync/bilib"
  "github.com/rclone/rclone/fs"
  "github.com/rclone/rclone/fs/operations"
 )
@@ -54,6 +55,30 @@ func TestCodeflareCompletedCopyKeepsIndependentMetadata(t *testing.T) {
  if err := os.WriteFile(filepath.Join(sourceDir, name), []byte("original\nappend\n"), 0600); err != nil { t.Fatal(err) }
  current, err := srcFs.NewObject(ctx, name); if err != nil { t.Fatal(err) }
  if records[0].Size == current.Size() { t.Fatal("later append was acknowledged prematurely") }
+ // Verify persisted listings, including an older-in-the-same-second completion.
+ for _, completionFirst := range []bool{false, true} {
+  b.opt = &Options{IgnoreListingChecksum: true, Compare: CompareOpt{Modtime: true, Size: true}}
+  b.listing1, b.listing2 = filepath.Join(t.TempDir(), "path1.lst"), filepath.Join(t.TempDir(), "path2.lst")
+  actual := destinationTime.Truncate(time.Second).Add(100 * time.Millisecond)
+  speculative := actual.Add(400 * time.Millisecond)
+  for _, path := range []string{b.listing1, b.listing2} {
+   initial := newFileList(); initial.put(name, 9, speculative, "", "-", "-")
+   if err := initial.save(path); err != nil { t.Fatal(err) }
+  }
+  completed := append([]Results(nil), records...)
+  completed[1].Modtime = actual
+  predicted := completed[0]; predicted.Origin = "sync"; predicted.IsWinner = true
+  predicted.Modtime = speculative; predicted.Winner.Side = "src"
+  ordered := append([]Results{predicted}, completed...)
+  if completionFirst { ordered = append(completed, predicted) }
+  q := queues{copy1to2: bilib.Names{name: nil}, skippedDirs1: newFileList(), skippedDirs2: newFileList()}
+  if err := b.modifyListing(ctx, srcFs, dstFs, ordered, q, true); err != nil { t.Fatal(err) }
+  left, err := b.loadListing(b.listing1); if err != nil { t.Fatal(err) }
+  right, err := b.loadListing(b.listing2); if err != nil { t.Fatal(err) }
+  if !left.get(name).time.Equal(sourceTime) || !right.get(name).time.Equal(actual) {
+   t.Fatalf("completionFirst=%v: persisted timestamps differ: %v / %v", completionFirst, left.get(name).time, right.get(name).time)
+  }
+ }
  // An interrupted transfer must not emit successful baseline records.
  results.Reset(); dst.fail = true
  if _, err := operations.Copy(ctx, dst, nil, "failed.jsonl", src); err == nil { t.Fatal("expected upload failure") }

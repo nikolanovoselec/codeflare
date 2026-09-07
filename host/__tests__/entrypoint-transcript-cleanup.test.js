@@ -178,6 +178,7 @@ ${extractShellFunction('cleanup_agent_transcripts')}
 ${extractShellFunction('cleanup_old_transcripts')}
 ${extractShellFunction('cleanup_old_pi_transcripts')}
 ${extractShellFunction('cleanup_main_transcripts')}
+${extractShellFunction('record_sync_disk_failure')}
 ${extractShellFunction('bisync_with_r2')}
 bisync_with_r2 '' || true
 `;
@@ -243,6 +244,7 @@ pgrep() { return 1; }
 find() { return 0; }
 rclone() { printf '%s\\n' rclone >> "$EVENTS"; return 0; }
 ${extractShellFunction('cleanup_main_transcripts')}
+${extractShellFunction('record_sync_disk_failure')}
 ${extractShellFunction('bisync_with_r2')}
 bisync_with_r2 ''
 `;

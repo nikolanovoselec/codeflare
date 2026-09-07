@@ -131,6 +131,47 @@ func (b *bisyncRun) WriteCompletedCopy(ctx context.Context, src, dst fs.Object) 
           '\tif err != nil {\n'
           '\t\treturn nil, fmt.Errorf("multi-thread copy: failed to find object after copy: %w", err)')]
     )
+    changes.extend([
+        ("backend/s3/s3.go", "\n\t// Check multipart upload ETag if required", "\n\tif err := o.completedListingTime(ctx, gotETag); err != nil {\n\t\treturn err\n\t}\n\n\t// Check multipart upload ETag if required"),
+        ("backend/s3/s3.go", "\to.setMetaData(head)\n\treturn o, nil\n", "\to.setMetaData(head)\n\tif err := o.completedListingTime(ctx, etag); err != nil {\n\t\treturn nil, err\n\t}\n\treturn o, nil\n"),
+        ("backend/s3/s3.go", "func (o *Object) completedObject(", r'''// completedListingTime obtains LIST precision for this completed object only.
+// HEAD HTTP dates lose the fractional seconds returned by R2 LIST.
+func (o *Object) completedListingTime(ctx context.Context, etag string) error {
+ if !o.fs.ci.UseServerModTime { return nil }
+ bucket, key := o.split()
+ var listed *s3.ListObjectsV2Output
+ err := o.fs.pacer.Call(func() (bool, error) {
+  var err error
+  listed, err = o.fs.c.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: &bucket, Prefix: &key, MaxKeys: aws.Int32(1)})
+  return o.fs.shouldRetry(ctx, err)
+ })
+ if err != nil { return err }
+ if listed == nil || len(listed.Contents) != 1 { return fmt.Errorf("completed destination missing from exact-key listing") }
+ item := listed.Contents[0]
+ if item.Key == nil || *item.Key != key || item.ETag == nil || etag == "" || strings.Trim(*item.ETag, "\"") != strings.Trim(etag, "\"") || item.Size == nil || *item.Size != o.Size() || item.LastModified == nil {
+  return fmt.Errorf("object identity changed after upload; refusing to acknowledge destination metadata")
+ }
+ o.lastModified = *item.LastModified
+ return nil
+}
+
+func (o *Object) completedObject('''),
+        ("cmd/bisync/listing.go", "\tci := fs.GetConfig(ctx)\n\tupdateLists :=", ''' // Verified completions override speculative records regardless of logger order.
+ completedSrc, completedDst := newFileList(), newFileList()
+ for _, result := range results {
+  if result.Origin != "copy-completed" || result.Err != nil || result.Winner.Err != nil { continue }
+  winners, completed := dstWinners, completedDst
+  if result.IsSrc { winners, completed = srcWinners, completedSrc }
+  winners.put(result.Name, result.Size, result.Modtime, result.Hash, "-", result.Flags)
+  winners.get(result.Name).time = result.Modtime
+  completed.put(result.Name, result.Size, result.Modtime, result.Hash, "-", result.Flags)
+ }
+	ci := fs.GetConfig(ctx)
+	updateLists :='''),
+        ("cmd/bisync/listing.go", "\t\t\t\tnew := winners.get(queueFile)\n", "\t\t\t\tnew := winners.get(queueFile)\n\t\t\t\tverified := completedSrc.has(queueFile)\n\t\t\t\tif side == \"dst\" { verified = completedDst.has(queueFile) }\n"),
+        ("cmd/bisync/listing.go", "\t\t\t\tlist.put(queueFile, new.size, new.time, new.hash, new.id, new.flags)\n", "\t\t\t\tlist.put(queueFile, new.size, new.time, new.hash, new.id, new.flags)\n\t\t\t\tif verified { list.get(queueFile).time = new.time }\n"),
+        ("cmd/bisync/listing.go", "\t\t\t\tdstList.put(srcNewName, completed.size, completed.time, completed.hash, completed.id, completed.flags)", "\t\t\t\tdstList.put(srcNewName, completed.size, completed.time, completed.hash, completed.id, completed.flags)\n\t\t\t\tif completedDst.has(srcNewName) { dstList.get(srcNewName).time = completed.time }"),
+    ])
     originals = {}
     planned = {}
     for name, old, new in changes:

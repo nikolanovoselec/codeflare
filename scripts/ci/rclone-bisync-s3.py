@@ -11,12 +11,14 @@ import sys
 import tempfile
 import threading
 import time
+from urllib.parse import parse_qs, urlsplit
 
 binary = str(Path(sys.argv[1]).resolve())
 counts = collections.Counter()
 metadata_evidence = collections.deque(maxlen=8)
 race_file = None
 race_armed = False
+race_at_list = False
 
 
 def free_port():
@@ -37,7 +39,12 @@ class Proxy(http.server.BaseHTTPRequestHandler):
         counts[self.command] += 1
         if self.command == "GET" and ("list-type=" in self.path or "delimiter=" in self.path):
             counts["LIST"] += 1
-        if self.command == "HEAD" and race_armed and self.path.split("?")[0] == "/bucket/racing.jsonl":
+            query = parse_qs(urlsplit(self.path).query)
+            if query.get("max-keys") == ["1"] and query.get("prefix", [""])[0]:
+                counts["COMPLETION_LIST"] += 1
+        query = parse_qs(urlsplit(self.path).query)
+        race_boundary = (self.command == "HEAD" and not race_at_list and self.path.split("?")[0] == "/bucket/racing.jsonl") or (race_at_list and self.command == "GET" and query.get("prefix") == ["racing.jsonl"] and query.get("max-keys") == ["1"])
+        if race_armed and race_boundary:
             rival = http.client.HTTPConnection("127.0.0.1", backend_port, timeout=30)
             rival.request("PUT", "/bucket/racing.jsonl", b"other writer\n")
             response = rival.getresponse()
@@ -77,7 +84,7 @@ class Proxy(http.server.BaseHTTPRequestHandler):
 
 def test_server_modtime_sync():
     """REQ-STOR-003 / REQ-STOR-042 / REQ-STOR-043: real per-side bookkeeping, conflict preservation and request bounds."""
-    global race_file
+    global race_file, race_at_list
     with tempfile.TemporaryDirectory(prefix="rclone-bisync-ci-") as directory:
         root = Path(directory)
         local = root / "local"
@@ -138,11 +145,13 @@ def test_server_modtime_sync():
                 print("RED: unpatched rclone reproduced an own-upload false conflict")
                 return
             assert not conflicts, "Own upload caused false conflict copies"
+            assert changed["COMPLETION_LIST"] == 1, f"Expected one exact-destination lookup: {changed}"
             assert changed["HEAD"] <= 4, f"One upload introduced unrelated HEAD requests: {changed}"
             assert run("cat", "fixture:bucket/session.jsonl") == transcript.read_bytes()
             before = counts.copy()
             sync()
             idle = counts - before
+            assert idle["COMPLETION_LIST"] == 0, f"Unchanged cycle performed completion lookups: {idle}"
             assert idle["HEAD"] <= 1, f"Unchanged cycle introduced metadata HEAD scan: {idle}"
             # Same-size remote edits must still be detected by server modification time.
             time.sleep(1.1)
@@ -151,6 +160,11 @@ def test_server_modtime_sync():
             run("rcat", "fixture:bucket/session.jsonl", data=remote)
             sync()
             assert transcript.read_bytes() == remote, "Same-size remote edit was lost"
+            before = counts.copy()
+            sync()
+            remote_idle = counts - before
+            assert remote_idle["PUT"] == 0 and remote_idle["COMPLETION_LIST"] == 0, f"Remote-only edit was recopied: {remote_idle}"
+            assert not list(local.glob("*.conflict*")), "Remote-only edit created conflicts"
             # Simultaneous divergence must preserve both versions, including the loser.
             time.sleep(1.1)
             ours, theirs = b"local divergent\n", b"other divergent\n"
@@ -177,7 +191,8 @@ def test_server_modtime_sync():
             racing_source = root / "racing.jsonl"
             racing_source.write_bytes(b"our upload--\n")
             race_file = server_root / "bucket/racing.jsonl"
-            for mode in ("single", "multipart", "multithread", "server-copy", "multipart-server-copy"):
+            for mode in ("single", "multipart", "multithread", "server-copy", "multipart-server-copy", "after-head"):
+                race_at_list = mode == "after-head"
                 extra = ["--use-server-modtime"]
                 source = str(racing_source)
                 if mode in ("multipart", "multithread"):

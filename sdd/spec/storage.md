@@ -1156,6 +1156,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-017](#req-stor-017-faster-startup-sync--bisync-head-storm-fix--governed-mode-preseed-bake)
 
 **Verification:** Automated completed-transfer and isolated S3 tests.
+
 **Status:** Implemented
 
 ---
@@ -1182,6 +1183,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-015](#req-stor-015-explicit-sync-trigger-from-ui)
 
 **Verification:** Automated daemon, startup and authenticated HTTP tests.
+
 **Status:** Implemented
 
 ---
@@ -1205,6 +1207,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** [REQ-STOR-042](#req-stor-042-per-side-sync-change-tracking)
 
 **Verification:** Automated completed-transfer and isolated S3 tests.
+
 **Status:** Implemented
 
 ---
