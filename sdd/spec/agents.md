@@ -45,8 +45,6 @@ Multi-agent support, preseed system, and session modes.
 6. The image build fails if either committed pre-warmed Pi SDK dependency/override pin differs from the lock-backed runtime-agent pin or installed version. <!-- @impl: Dockerfile::verify-pi-lockstep --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyPiLockstep --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-001 AC6: Pi image lockstep fails closed) -->
 7. When Claude Code is selected, the image build verifies that its shared CLI can start; official Claude IDE inventory verification remains unconditional. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::main --> <!-- @manual: Build an image with and without Claude Code and inspect the packaged-image evidence. -->
 
-8. Image construction warms the installed Subagents and MCP Adapter entrypoints and fails if either path-correct JITI artifact is missing. <!-- @impl: Dockerfile::subagents_source --> <!-- @impl: Dockerfile::mcp_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (warms every requested entrypoint and fails when a managed extension produces no cache artifact) -->
-
 **Constraints:**
 
 - Agent CLI versions move only through reviewed lockfile bump PRs after the configured cooldown.
@@ -57,6 +55,26 @@ Multi-agent support, preseed system, and session modes.
 **Dependencies:** None.
 
 **Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-210: Managed Extension Startup Preparation
+
+**Intent:** Managed Subagents and MCP extensions must be prepared for startup before an image can be published.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Image construction prepares both managed extensions for startup and fails when either required startup cache is absent. <!-- @impl: Dockerfile::subagents_source --> <!-- @impl: Dockerfile::mcp_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-210: rejects either missing managed startup cache) -->
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
+
+**Verification:** Executable image-warming fixture tests and deployment image build
 
 **Status:** Implemented
 
