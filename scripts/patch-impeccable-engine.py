@@ -17,6 +17,16 @@ def patch_engine(root):
         ("embed_prompt.rs",
          '    let md = std::fs::metadata(p).map_err(|e| e.to_string())?;',
          '''    // CODEFLARE_SCAN_BOUNDARY: never traverse a nested link or accept a linked target.
+    if is_root {
+        let mut prefix = std::path::PathBuf::new();
+        for component in std::path::Path::new(p).components() {
+            prefix.push(component.as_os_str());
+            let metadata = std::fs::symlink_metadata(&prefix).map_err(|e| e.to_string())?;
+            if metadata.file_type().is_symlink() {
+                return Err("scan target cannot be a symbolic link".into());
+            }
+        }
+    }
     let trimmed = p.trim_end_matches('/');
     let checked_path = if trimmed.is_empty() { p } else { trimmed };
     let md = std::fs::symlink_metadata(checked_path).map_err(|e| e.to_string())?;

@@ -5141,8 +5141,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
-2. Scan mode excludes nested hidden directories and installed dependency directories. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
+1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. [Native traversal and raster selection](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L184). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
+2. Scan mode excludes nested hidden directories and installed dependency directories. [Native directory exclusions](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L179). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
 3. Scan mode never follows a nested symbolic link, including broken and cyclic links. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
 4. An explicit symbolic-link target is rejected instead of producing an unaudited clean result. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
 
@@ -5152,7 +5152,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Automated behavioral test
+**Verification:** Automated behavioral test; manual review of the linked pinned upstream implementation for AC1–AC2.
 
 **Status:** Implemented
 

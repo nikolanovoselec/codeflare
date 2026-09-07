@@ -49,7 +49,11 @@ def verify_scan(binary, expect_symlink_bug=False):
             print("Upstream symlink traversal regression reproduced")
             return
         assert result.returncode == 0 and "private.png" not in result.stdout, result
-        for explicit in [target / "escape", str(target / "escape") + "/"]:
+        for explicit in [
+            str(target / "escape"), str(target / "escape") + "/",
+            str(target / "escape") + "/.", str(target / "escape" / "private.png"),
+            str(target / "escape") + "/../target",
+        ]:
             result = scan(explicit)
             assert result.returncode == 1, result
             assert "symbolic link" in result.stderr, result.stderr
