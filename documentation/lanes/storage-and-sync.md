@@ -111,7 +111,8 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | `~/.codeflare/review-state/v1/**` | Yes | Immutable exact-head review completion markers follow the user across clones, worktrees, sessions, replacement containers, and devices sharing the bucket. Ten markers per repository and branch remain for 30 days ([REQ-STOR-027](../../sdd/spec/storage.md#req-stor-027-review-completion-marker-sync)). <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> |
 | `~/.gitconfig` | Yes | Git configuration |
 | `~/workspace/` | Depends on `SYNC_MODE` | Excluded by default (`none`). Synced when `full` or partially with `metadata`. |
-| `~/.npm/`, `~/.bun/`, `~/.cache/**` | **NO** | Package manager caches, regenerated |
+| `~/.npm/`, `~/.bun/` | **NO** | Package manager caches, regenerated |
+| `~/.cache/**` | **NO** | Home-root cache exclusion precedes positive rules, including for flat S3 listings. Manually preserved `~/.cache/codeflare-recovery/**` archives stay outside restore and bisync; they are not disposable regenerated cache. |
 | `~/.wrangler/`, `~/.config/**` | **NO** | Wrangler state (root location) + all XDG tool configs (configstore, fish, opencode, uv, rclone, wrangler-XDG) - all regenerable on first use. No codeflare-managed state lives under `~/.config/`. |
 | `~/.local/share/claude/**` | **NO** | Native installer version binaries (leftover data, removed from build) |
 | `~/.local/share/uv/**`, `~/.local/bin/uv`, `~/.local/bin/uvx` | **NO** | uv tool venvs and binaries (graphifyy venv ~275MB lives at `/root/.local/share/uv` baked into the image; the user-side mirror is duplicate cruft, regenerable). |
@@ -134,6 +135,8 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | `Vault/graphify-out/vault-graph.json`, `Vault/graphify-out/vault-extract-manifest.json` (advanced mode) | Yes | Cumulative graph source and committed extraction high-water mark persist despite the blanket graphify exclude. |
 | `Vault/graphify-out/vault-extract-manifest.*.pending.json`, `.graphify_chunk_*.json` | **NO** | Pi request-specific staging/chunks are ephemeral; only hash-validated success promotes the canonical manifest. |
 | `Vault/graphify-out/graph.html` | **NO** | Derived visualization; the served durable copy is `Vault/Raw/Graphs/vault-graph.html`. |
+
+The home-root `- /.cache/**` rule precedes all positive rules in the common filter array ([REQ-STOR-011 AC4](../../sdd/spec/storage.md#req-stor-011-sync-mode-controls-workspace-scope)). Without that precedence, unanchored `.codeflare` allow-rules also match nested keys inside `.cache/codeflare-recovery/**` during flat S3 listing. Recovery archives must remain outside initial restore, baseline and periodic bisync in every mode. Exclusion is not deletion: existing remote archives remain available for explicit preservation-first recovery or cleanup. The later unanchored cache exclusion retains the existing policy for nested caches. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 
 Both Browser IDE manifests are atomic mode-`0600` regular files. The 1 MiB UI snapshot contains only allowlisted theme values, string-valued `keyboard.layout`, and key-specific canonical Explorer/open-file resources captured after code-server is reaped. The separate 64 KiB extension manifest contains lowercase IDs, exact versions, optional audit metadata, a warning acknowledgement, and bounded contributed global settings. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture -->
 

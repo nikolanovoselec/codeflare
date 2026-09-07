@@ -121,6 +121,59 @@ class Proxy(http.server.BaseHTTPRequestHandler):
     do_GET = do_HEAD = do_PUT = do_POST = do_DELETE = forward
 
 
+def test_recovery_archive_filters(run, root, server_root):
+    """REQ-STOR-011 AC4: flat S3 listings cannot admit home-cache archives."""
+    entrypoint = (Path(__file__).resolve().parents[2] / "entrypoint.sh").read_text()
+    start = entrypoint.index('if [ "${SESSION_MODE:-default}" = "advanced" ]; then')
+    common = entrypoint.index("RCLONE_FILTERS_COMMON=(", start)
+    end = entrypoint.index("\nfi\n", common) + len("\nfi\n")
+    filter_source = entrypoint[start:end]
+    live = {
+        ".codeflare/review-state/v1/repo/branch/review.json": b"live review\n",
+        ".codeflare/herdr/sessions/cf-filter-test/session.json": b"live structure\n",
+        ".codeflare/ide-ui-state.json": b"live IDE state\n",
+        ".pi/agent/sessions/session.jsonl": b"live transcript\n",
+        "Vault/note.md": b"live vault\n",
+        "Uploads/upload.txt": b"live upload\n",
+        "Temporary/draft.txt": b"live draft\n",
+    }
+    archive_prefix = ".cache/codeflare-recovery/baseline/"
+    archives = {archive_prefix + name: b"preserved remote " + content for name, content in live.items()}
+    bucket = server_root / "filters"
+    for name, content in {**live, **archives}.items():
+        path = bucket / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+
+    for session_mode in ("default", "advanced"):
+        for sync_mode in ("none", "metadata", "full"):
+            script = (f"SESSION_MODE={session_mode}\nSYNC_MODE={sync_mode}\nSESSION_ID=filter-test\n"
+                      + filter_source + '\nprintf "%s\\0" "${RCLONE_FILTERS[@]}"')
+            output = subprocess.check_output(["bash", "-eu", "-c", script], timeout=10)
+            filters = output.decode().rstrip("\0").split("\0")
+            expected = {name for name in live if session_mode == "advanced" or not name.startswith("Vault/")}
+            listed = set(run("lsf", "fixture:filters", "-R", "--files-only", "--fast-list", *filters).decode().splitlines())
+            assert listed == expected, f"Archive escaped filters in {session_mode}/{sync_mode}: {listed ^ expected}"
+            local = root / f"filter-local-{session_mode}-{sync_mode}"
+            local_archive = local / (archive_prefix + ".codeflare/ide-ui-state.json")
+            local_archive.parent.mkdir(parents=True)
+            local_archive.write_bytes(b"preserved local archive\n")
+            run("sync", "fixture:filters", str(local), "--fast-list", *filters)
+            for name in expected:
+                assert (local / name).read_bytes() == live[name], f"Live restore failed: {name}"
+            sync_args = ("bisync", str(local), "fixture:filters", "--workdir", str(root / f"filter-state-{session_mode}-{sync_mode}"),
+                         "--use-server-modtime", "--fast-list", "--check-sync=false", "--ignore-checksum", *filters)
+            run(*sync_args, "--resync")
+            run(*sync_args)
+            assert local_archive.read_bytes() == b"preserved local archive\n", "Restore/bisync overwrote local archive"
+            assert {str(path.relative_to(local)) for path in (local / ".cache").rglob("*") if path.is_file()} == {
+                str(local_archive.relative_to(local))
+            }, "Restore/bisync downloaded remote archives"
+            for name, content in archives.items():
+                assert (bucket / name).read_bytes() == content, f"Bisync changed/deleted remote archive: {name}"
+    print("PASS: home-cache archives stay outside flat S3 listings, restore and bisync in all six mode combinations")
+
+
 def test_server_modtime_sync():
     """REQ-STOR-003 / REQ-STOR-042 / REQ-STOR-043: real per-side bookkeeping, conflict preservation and request bounds."""
     global race_file, race_at_list
@@ -164,6 +217,8 @@ def test_server_modtime_sync():
                     time.sleep(0.1)
             else:
                 raise RuntimeError("S3 fixture did not become ready")
+            if "--expect-false-conflict" not in sys.argv:
+                test_recovery_archive_filters(run, root, server_root)
             # S3 lists lexicographically, even when a longer prefix-match is older.
             run("rcat", "fixture:ordering/key-long", data=b"older\n")
             time.sleep(0.05)
