@@ -165,6 +165,9 @@ jobs:
             webui:
               - *shared
               - 'web-ui/**'
+              - 'preseed/agents/claude/skills/impeccable/scripts/live-browser.js'
+              - 'preseed/agents/pi/skills/impeccable/scripts/live-browser.js'
+              - 'scripts/update-impeccable-skill.mjs'
             landing:
               - *shared
               - 'landing/**'

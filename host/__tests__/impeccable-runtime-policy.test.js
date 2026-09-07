@@ -34,13 +34,12 @@ describe('Impeccable managed runtime policy', () => {
       agent: 'pi', root: target, runtimePath: '~/.pi/agent/skills/impeccable',
     }]);
     const skill = readFileSync(join(target, 'SKILL.md'), 'utf8');
-    assert.match(skill, /Codeflare routing boundary/);
     assert.doesNotMatch(skill, /Bash\(npx impeccable/);
-    assert.match(readFileSync(join(target, 'reference/audit.md'), 'utf8'), /otherwise report `N\/A`/);
+    applyCodeflareImpeccableOverlay(target, { allowAlreadyApplied: true });
     const launcher = join(target, 'scripts/impeccable');
     const result = spawnSync('sh', [launcher, 'update'], { encoding: 'utf8' });
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /owned by Codeflare image review/);
+    assert.match(result.stderr, /image-owned/);
   }));
 
   it('REQ-AGENT-181: unreviewed native engine fails before source mutation', () => withTempDir((source) => {

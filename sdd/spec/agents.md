@@ -5091,8 +5091,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. A wait client treats a live question page as open throughout the configured positive idle grace and reports the still-unanswered wait without inventing a choice. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py::verify_engine -->
-2. A wait client reports page closure only after the configured idle grace expires. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py::verify_engine -->
+1. A wait client treats a live question page as open throughout the configured positive idle grace and reports the still-unanswered wait without inventing a choice. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) -->
+2. A wait client reports page closure only after the configured idle grace expires. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) -->
 
 **Constraints:** Waiting, page closure, and server failure remain distinct outcomes; none is treated as a user decision.
 
@@ -5114,12 +5114,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. A next-hand update rejects a payload without a non-empty options array before creating pending delivery state. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::payload needs an options array --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::payload needs an options array --> <!-- @manual -->
-2. A valid next hand reaches its live retained question session. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::next round delivered --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::next round delivered --> <!-- @manual -->
-3. A fresh delivery file suppresses closed-page detection during the bounded claim window. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::NEXT_CLAIM_GRACE_MS --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::NEXT_CLAIM_GRACE_MS --> <!-- @manual -->
-4. An expired delivery file no longer suppresses closed-page detection. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::NEXT_CLAIM_GRACE_MS --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::NEXT_CLAIM_GRACE_MS --> <!-- @manual -->
-5. A fresh page-claim timestamp preserves closed-page suppression after the delivery file is claimed. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::claimedAt --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::claimedAt --> <!-- @manual -->
-6. An expired page-claim timestamp cannot renew closed-page suppression. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/serve-question.mjs::claimedAt --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/serve-question.mjs::claimedAt --> <!-- @manual -->
+1. A next-hand update rejects a payload without a non-empty options array before creating pending delivery state. <!-- @manual -->
+2. A valid next hand reaches its live retained question session. <!-- @manual -->
+3. A fresh delivery file suppresses closed-page detection during the bounded claim window. <!-- @manual -->
+4. An expired delivery file no longer suppresses closed-page detection. <!-- @manual -->
+5. A fresh page-claim timestamp preserves closed-page suppression after the delivery file is claimed. <!-- @manual -->
+6. An expired page-claim timestamp cannot renew closed-page suppression. <!-- @manual -->
 
 **Constraints:** Claude and Pi carry byte-identical question-server behavior.
 
@@ -5127,7 +5127,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-163](#req-agent-163-impeccable-browser-question-idle-lifecycle)
 
-**Verification:** Manual review
+**Verification:** Manual review ([pinned native source](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/serve_question.rs))
 
 **Status:** Implemented
 
@@ -5141,10 +5141,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::walk --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::walk --> <!-- @manual -->
-2. Scan mode excludes nested hidden directories and installed dependency directories. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::node_modules --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::node_modules --> <!-- @manual -->
-3. Scan mode never follows a nested symbolic link, including broken and cyclic links. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::isSymbolicLink --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::isSymbolicLink --> <!-- @manual -->
-4. An explicit symbolic-link target is rejected instead of producing an unaudited clean result. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::scan target cannot be a symbolic link --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::scan target cannot be a symbolic link --> <!-- @manual -->
+1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
+2. Scan mode excludes nested hidden directories and installed dependency directories. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
+3. Scan mode never follows a nested symbolic link, including broken and cyclic links. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
+4. An explicit symbolic-link target is rejected instead of producing an unaudited clean result. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
 
 **Constraints:** Scan mode never follows a symbolic link.
 
@@ -5152,7 +5152,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-134](#req-agent-134-managed-design-skill-suite)
 
-**Verification:** Manual review
+**Verification:** Automated behavioral test
 
 **Status:** Implemented
 
@@ -5166,8 +5166,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. Supported embedded PNG or JPEG prompt metadata prevents that raster from being reported as missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @manual -->
-2. A valid adjacent JSON sidecar prompt prevents its raster from being reported as missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::readPrompt --> <!-- @manual -->
+1. Supported embedded PNG or JPEG prompt metadata prevents that raster from being reported as missing. <!-- @manual -->
+2. A valid adjacent JSON sidecar prompt prevents its raster from being reported as missing. <!-- @manual -->
 
 **Constraints:** Prompt recovery is read-only during scan mode.
 
@@ -5175,7 +5175,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal)
 
-**Verification:** Manual check
+**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs))
 
 **Status:** Implemented
 
@@ -5189,8 +5189,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. Scan mode reports each raster without recoverable prompt metadata and exits with status 3 when any are missing. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::MISSING --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::MISSING --> <!-- @manual -->
-2. An invalid target fails explicitly with status 1. <!-- @impl: preseed/agents/pi/skills/impeccable/scripts/embed-prompt.mjs::no such path --> <!-- @impl: preseed/agents/claude/skills/impeccable/scripts/embed-prompt.mjs::no such path --> <!-- @manual -->
+1. Scan mode reports each raster without recoverable prompt metadata and exits with status 3 when any are missing. <!-- @manual -->
+2. An invalid target fails explicitly with status 1. <!-- @manual -->
 
 **Constraints:** Claude and Pi carry byte-identical prompt-metadata audit behavior.
 
@@ -5198,7 +5198,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-166](#req-agent-166-impeccable-raster-prompt-recovery)
 
-**Verification:** Manual check
+**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs))
 
 **Status:** Implemented
 

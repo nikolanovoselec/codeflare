@@ -85,6 +85,16 @@ export function applyCodeflareImpeccableOverlay(source, { allowAlreadyApplied = 
     // Require the reviewed launcher layout before replacing runtime downloads.
     readFileSync(join(source, 'scripts/impeccable'), 'utf8');
     readFileSync(join(source, 'scripts/impeccable.cmd'), 'utf8');
+    const browserPath = join(source, 'scripts/live-browser.js');
+    let browser = readFileSync(browserPath, 'utf8');
+    for (const verb of ['restart', 'run', 'Run']) {
+      const installedCount = ['~/.claude', '~/.pi/agent'].reduce((count, root) =>
+        count + browser.split(`${verb} ${root}/skills/impeccable/scripts/impeccable live-poll`).length - 1, 0);
+      if (allowAlreadyApplied && !browser.includes(`${verb} live-poll.mjs`) && installedCount === 1) continue;
+      browser = replaceOverlayAnchor(browser, `${verb} live-poll.mjs`,
+        `${verb} .claude/skills/impeccable/scripts/impeccable live-poll`, browserPath, allowAlreadyApplied);
+    }
+    transformed.push([browserPath, browser]);
     transformed.push([join(source, 'scripts/impeccable'), managedImpeccableLauncher()]);
     transformed.push([join(source, 'scripts/impeccable.cmd'), '@echo off\necho Impeccable requires the Codeflare Linux image runtime. 1>&2\nexit /b 1\n']);
   }

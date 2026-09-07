@@ -29,5 +29,51 @@ def verify_engine(binary, expect_idle_bug=False):
     print("Upstream idle-grace regression reproduced" if expect_idle_bug else "Impeccable native engine: identity and idle-grace behavior passed")
 
 
+def verify_scan(binary, expect_symlink_bug=False):
+    with tempfile.TemporaryDirectory(prefix="impeccable-scan-") as directory:
+        root = Path(directory)
+        target = root / "target"
+        target.mkdir()
+        outside = root / "outside"
+        outside.mkdir()
+        (outside / "private.png").write_bytes(b"unannotated raster")
+        (target / "escape").symlink_to(outside, target_is_directory=True)
+
+        def scan(path):
+            return subprocess.run([binary, "embed-prompt", "--scan", str(path)],
+                                  capture_output=True, text=True, timeout=10)
+
+        result = scan(target)
+        if expect_symlink_bug:
+            assert result.returncode == 3 and "private.png" in result.stdout, result
+            print("Upstream symlink traversal regression reproduced")
+            return
+        assert result.returncode == 0 and "private.png" not in result.stdout, result
+        for explicit in [target / "escape", str(target / "escape") + "/"]:
+            result = scan(explicit)
+            assert result.returncode == 1, result
+            assert "symbolic link" in result.stderr, result.stderr
+        (target / "broken").symlink_to(root / "absent")
+        (target / "cycle").symlink_to(target, target_is_directory=True)
+        result = scan(target)
+        assert result.returncode == 0, result
+        nested = target / "nested"
+        nested.mkdir()
+        for extension in ["png", "jpg", "webp"]:
+            (nested / f"plain.{extension}").write_bytes(b"unannotated raster")
+        for excluded in [".hidden", "node_modules"]:
+            folder = target / excluded
+            folder.mkdir()
+            (folder / "excluded.png").write_bytes(b"unannotated raster")
+        result = scan(target)
+        assert result.returncode == 3, result
+        assert "SCAN: 3 rasters, 3 missing" in result.stdout, result.stdout
+        assert "private.png" not in result.stdout and "excluded.png" not in result.stdout, result.stdout
+    print("Native raster scan boundary passed")
+
+
 if __name__ == "__main__":
-    verify_engine(str(Path(sys.argv[1]).resolve()), "--expect-idle-bug" in sys.argv[2:])
+    binary = str(Path(sys.argv[1]).resolve())
+    upstream = "--expect-idle-bug" in sys.argv[2:]
+    verify_engine(binary, upstream)
+    verify_scan(binary, upstream)

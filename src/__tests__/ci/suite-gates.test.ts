@@ -213,6 +213,9 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     for (const path of ['image/impeccable-engine.json', 'scripts/patch-impeccable-engine.py', 'scripts/impeccable-launcher.mjs', 'scripts/update-impeccable-skill.mjs', 'scripts/patch-pi-goal-review-control.mjs', 'scripts/patch-pi-plan-mode-tool-policy.mjs']) {
       expect(matchesAny(path, patterns), path).toBe(true);
     }
+    for (const path of ['preseed/agents/claude/skills/impeccable/scripts/live-browser.js', 'preseed/agents/pi/skills/impeccable/scripts/live-browser.js', 'scripts/update-impeccable-skill.mjs']) {
+      expect(matchesAny(path, flattenPatterns(filters.webui)), path).toBe(true);
+    }
     expect(testWorkflow.jobs.summary.needs).toContain('impeccable-engine');
   });
 
