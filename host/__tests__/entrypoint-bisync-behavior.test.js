@@ -448,8 +448,8 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     }
   });
 
-  it('three consecutive failures trigger --resync fallback (REQ-STOR-003 AC6 / REQ-STOR-002 AC1: resync re-establishes baseline so next sync can persist files)', async () => {
-    // REQ-STOR-003 AC6: after 3 consecutive unrecoverable failures, daemon falls back to --resync
+  it('REQ-STOR-045 AC1+AC3 / REQ-STOR-002 AC1: three consecutive failures trigger resync fallback', async () => {
+    // REQ-STOR-045 AC1: after 3 consecutive unrecoverable failures, daemon falls back to --resync
     // bisync always fails (return 7), recover_vanished_files returns 1
     // (no recovery), so CONSECUTIVE_FAILURES accumulates and the resync
     // fallback fires on the third iteration.
@@ -474,7 +474,7 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     }
   });
 
-  it('uses protected workdir listings before forcing immediate resync', async () => {
+  it('REQ-STOR-045 AC2: uses protected workdir listings before forcing immediate resync', async () => {
     const h = spawnHarness({
       daemonBody,
       bisyncBehavior: 'failure',
@@ -493,7 +493,7 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     }
   });
 
-  it('forces immediate resync when protected workdir listings are absent', async () => {
+  it('REQ-STOR-045 AC2: forces immediate resync when protected workdir listings are absent', async () => {
     const h = spawnHarness({
       daemonBody,
       bisyncBehavior: 'failure',

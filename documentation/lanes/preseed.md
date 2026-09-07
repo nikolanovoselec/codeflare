@@ -553,14 +553,15 @@ All preseed content is deployed via the manifest pipeline:
    `rules/`, `agents/`, `commands/`, `skills/`, `plugins/`
 2. `preseed/agents/claude/manifest.json` maps each file to modes
    (`default`, `advanced`, or both)
-3. The side-effect-free `scripts/agent-seed-core.mjs` reads manifest + files
-   (manifest-driven, ignores non-manifest files like `plugins/cache/`) and applies
-   every agent transform. `scripts/generate-agent-seed.mjs` is the image-build CLI
-   wrapper; it generates `src/lib/agent-seed.generated.ts` with the
-   `AGENTS_SEEDED_CONFIGS` array and `PRESEED_CONTENT_HASH` (deterministic SHA-256
-   over all documents sorted by key, truncated to 16 hex chars). The shared core
-   also exposes the combined managed npm lock identity that binds managed
-   releases to the runtime dependency ABI. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
+3. The side-effect-free `scripts/agent-seed-core.mjs` reads manifested files,
+   ignores non-manifest content, and applies every agent transform.
+
+   `scripts/generate-agent-seed.mjs` is the image-build CLI wrapper. It writes
+   `src/lib/agent-seed.generated.ts` with `AGENTS_SEEDED_CONFIGS` and a
+   deterministic 16-character `PRESEED_CONTENT_HASH`.
+
+   The shared core also exposes the combined managed npm lock identity that binds
+   managed releases to the runtime dependency ABI. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
 4. On first bucket creation:
    `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })`
    writes mode-appropriate files to R2

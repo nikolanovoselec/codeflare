@@ -432,7 +432,7 @@ Replaces previous shared credential model. Token lifecycle:
 
 **Status:** Superseded by [AD125](#ad125-bounded-automatic-resync-after-exhausted-recovery) (2026-08-14)
 
-**Context:** This decision recorded the deletion-safety reason to avoid routine baseline resets. It did not match the daemon's already-existing fallback path and was later contradicted explicitly by [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) AC6.
+**Context:** This decision recorded the deletion-safety reason to avoid routine baseline resets. It did not match the daemon's already-existing fallback path and was later contradicted explicitly by [REQ-STOR-045](../../sdd/spec/storage.md#req-stor-045-bisync-baseline-recovery).
 
 **Historical decision:** Prefer resilient/recover semantics over automatic baseline reset because `--resync` can resurrect a deletion that has not propagated. Startup baseline establishment remains safe after the one-way restore.
 
@@ -3640,7 +3640,9 @@ Pi meets the same requirement without a block. Its request is durable, `extracti
 
 **Decision:** Retire the hard block and adopt bounded re-delivery. The arming hook writes a durable request and re-emits it once per prompt up to six times, then latches and stays silent until fifteen further prompts allow a replacement. Two related properties move with it. The capture filename and timestamp are fixed when the request is armed rather than derived by the subagent, which makes success checkable from an artifact instead of self-report. The counter advances only inside `publish-memory-capture.sh`, after the merge and global publication succeed and only if the named capture file exists, and it never moves backwards.
 
-**Consequences:** No hook can wedge a session on behalf of memory capture. A capture that fails is retried instead of being recorded as done: the old arming hook advanced the counter immediately, so a failed capture silently discarded its window forever, which was a data-loss bug independent of the deadlock. The agent definition drops its `model:` pin in favour of `CODEFLARE_MEMORY_MODEL`, and carries a six-turn budget, raised from four after a large window exhausted the smaller budget on every attempt — a deterministic failure that re-delivery cannot clear, so all six deliveries burned on one window; [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)'s fidelity reasoning still holds and is now expressed as a default rather than a hard pin. Pi's own four-turn extraction budget ([AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)) is unchanged.
+**Consequences:** No hook can wedge a session on behalf of memory capture. A capture that fails is retried instead of being recorded as done: the old arming hook advanced the counter immediately, so a failed capture silently discarded its window forever, which was a data-loss bug independent of the deadlock.
+
+The agent definition drops its `model:` pin in favour of `CODEFLARE_MEMORY_MODEL`, and carries a six-turn budget, raised from four after a large window exhausted the smaller budget on every attempt. That deterministic failure cannot be cleared by re-delivery, so all six deliveries burned on one window; [AD58](#ad58-sonnet-for-memory-capture-with-prefilter-and-scratchpad)'s fidelity reasoning remains the default rather than a hard pin. Pi's four-turn extraction budget ([AD103](#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)) is unchanged.
 
 The cost is that a capture can be skipped six times and then dropped, where the block made it eventually mandatory. That is deliberate: an ignored capture costs one window of memory, and a wedged session costs the whole turn. Anyone tempted to reintroduce a blocking enforcement hook must first show it cannot refuse the spawn some other gate requires.
 
@@ -3650,7 +3652,7 @@ The cost is that a capture can be skipped six times and then dropped, where the 
 
 **Status:** Accepted (2026-08-14); supersedes [AD14](#ad14-never-auto---resync-on-bisync-failure)
 
-**Context:** Steady-state bisync can lose the listing state required for another ordinary recovery attempt, or remain unrecoverable after its internal retries and vanished-file repair. Leaving the daemon in that state preserves deletion tracking in theory and stops persistence in practice. The runtime already resolved this by rebuilding the baseline after a bounded failure budget, and [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) AC6 makes that observable behavior explicit. <!-- @impl: entrypoint.sh::start_sync_daemon -->
+**Context:** Steady-state bisync can lose the listing state required for another ordinary recovery attempt, or remain unrecoverable after its internal retries and vanished-file repair. Leaving the daemon in that state preserves deletion tracking in theory and stops persistence in practice. The runtime already resolved this by rebuilding the baseline after a bounded failure budget, and [REQ-STOR-045](../../sdd/spec/storage.md#req-stor-045-bisync-baseline-recovery) makes that observable behavior explicit. <!-- @impl: entrypoint.sh::start_sync_daemon -->
 
 **Decision:** Use resilient/recover semantics and vanished-file repair first. If three consecutive cycles remain unrecoverable after their internal retries, call `establish_bisync_baseline()` to rebuild the baseline. When exit code 7 coincides with missing prior listings, rebuild immediately because two more attempts cannot operate without that state. A failed rebuild remains visible and is retried only after another failed cycle; it does not terminate the daemon.
 

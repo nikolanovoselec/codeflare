@@ -736,19 +736,43 @@ Multi-agent support, preseed system, and session modes.
 5. Outside timeout fallback, readiness follows a fixed 1.5-second settlement after mode-specific readiness conditions are met. <!-- @impl: host/src/server.ts::PREWARM_SETTLE_MS --> <!-- @impl: host/src/server.ts::server.listen --> <!-- @manual: In integration, confirm normal-path readiness waits for fixed settlement in both modes. -->
 6. At the 20-second timeout, Herdr becomes ready only after bootstrap completes, even if first output or settlement is incomplete. <!-- @impl: host/src/server.ts::server.listen --> <!-- @test: host/__tests__/terminal-mode.test.js (REQ-AGENT-003 AC6 / REQ-TERM-035 AC2: Herdr timeout readiness requires bootstrap) -->
 7. At the 20-second timeout, classic becomes ready even without first output or settlement. <!-- @impl: host/src/server.ts::server.listen --> <!-- @test: host/__tests__/terminal-mode.test.js (REQ-AGENT-003 AC7: classic timeout readiness is unconditional) -->
-8. A new classic session with Pi or Claude starts one empty native conversation under a newly generated UUID; after that same Codeflare session is stopped and restored, tab 1 starts the immutable agent with that exact UUID so its synced transcript resumes, while a different Codeflare session starts with a different UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (AC8: binds fresh and restored Pi and Claude launches to the Codeflare session) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (persists only the current classic agent-session binding) -->
 
 **Constraints:**
 
-- The classic binding is scoped only by the immutable Codeflare session ID; it does not follow a user into another native conversation selected from inside the agent CLI.
-- Historical classic sessions without a binding start a new empty native conversation rather than guessing from the newest transcript.
 - Auto-update checks for agent CLIs are suppressed at session start to keep startup latency low.
 - Each agent has its own mechanism for suppressing auto-updates.
 - The autostart command must complete after the initial R2 sync but before bisync baseline to avoid hash mismatches.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-TERM-035](terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace)
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-TERM-035](terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-211: Classic Agent Transcript Resume
+
+**Intent:** A stopped Classic session must resume the exact native Pi or Claude conversation it started, without selecting an unrelated transcript.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A new Classic session starts one empty native conversation under a newly generated UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC2: binds fresh and restored Pi and Claude launches to the Codeflare session) -->
+2. Restoring that Codeflare session starts its immutable tab-1 agent with the same UUID and resumes its synced transcript. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC2: binds fresh and restored Pi and Claude launches to the Codeflare session) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-AGENT-211 AC2: persists only the current classic agent-session binding) -->
+3. A different Codeflare session receives a different native conversation UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC3: a different Codeflare session starts empty under a different native ID) -->
+
+**Constraints:**
+
+- The binding is scoped only by the immutable Codeflare session ID; selecting another conversation inside the agent does not replace it.
+- Historical Classic sessions without a binding start empty rather than guessing from the newest transcript.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-AGENT-003](#req-agent-003-agent-cli-auto-started-in-tab-1), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
 **Verification:** Automated test
 

@@ -134,7 +134,7 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
     assert.match(bashrc, /^# terminal-autostart$/m);
   });
 
-  it('AC8: binds fresh and restored Pi and Claude launches to the Codeflare session', () => {
+  it('REQ-AGENT-211 AC1+AC2: binds fresh and restored Pi and Claude launches to the Codeflare session', () => {
     for (const command of ['pi', 'claude']) {
       const sessionId = command === 'pi' ? 'piabc123' : 'claude12';
       const dir = mkdtempSync(join(tmpdir(), `classic-${command}-resume-`));
@@ -179,7 +179,7 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
     }
   });
 
-  it('AC8: a different Codeflare session starts empty under a different native ID', () => {
+  it('REQ-AGENT-211 AC3: a different Codeflare session starts empty under a different native ID', () => {
     const dir = mkdtempSync(join(tmpdir(), 'classic-session-isolation-'));
     mkdirSync(join(dir, 'workspace'), { recursive: true });
     const tabConfig = JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]);

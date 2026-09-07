@@ -254,7 +254,7 @@ The recovery filter file starts empty on every container start and is never sync
 
 Initial `establish_bisync_baseline()` uses `--resync`. During steady state, exit code 7 without a prior listing triggers immediate baseline re-establishment because an ordinary retry cannot use absent state.
 
-When listing state exists, resilient/recover handling and vanished-file repair run first. The daemon uses resync only after three consecutive unrecoverable failures. See [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) AC6 and [AD125](../decisions/README.md#ad125-bounded-automatic-resync-after-exhausted-recovery).
+When listing state exists, resilient/recover handling and vanished-file repair run first. The daemon uses resync only after three consecutive unrecoverable failures. See [REQ-STOR-045](../../sdd/spec/storage.md#req-stor-045-bisync-baseline-recovery) AC1-AC2 and [AD125](../decisions/README.md#ad125-bounded-automatic-resync-after-exhausted-recovery).
 
 - **`lstat: no such file or directory` bisync failure**
 

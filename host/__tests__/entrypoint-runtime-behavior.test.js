@@ -247,7 +247,7 @@ describe('entrypoint production helpers', () => {
     } finally { rmSync(fixture, { recursive: true, force: true }); }
   });
 
-  it('REQ-STOR-003 AC6: recovery baseline uses the real workdir and newest-side convergence', () => {
+  it('REQ-STOR-045 AC2: recovery baseline uses the real workdir and newest-side convergence', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'bisync-newest-baseline-'));
     const calls = join(fixture, 'calls');
     const runtimeRoot = join(fixture, 'runtime');

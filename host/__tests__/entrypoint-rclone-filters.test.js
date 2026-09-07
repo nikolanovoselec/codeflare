@@ -267,7 +267,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     assert.equal(v['.codeflare/herdr/sessions/cf-other123/session.json'], 'EXCLUDED');
   });
 
-  it('persists only the current classic agent-session binding', () => {
+  it('REQ-AGENT-211 AC2: persists only the current classic agent-session binding', () => {
     const v = verdictUnder({ sessionMode: 'default' });
     assert.equal(v['.codeflare/classic/sessions/cf-abc12345/agent-session-id'], 'INCLUDED');
     assert.equal(v['.codeflare/classic/sessions/cf-abc12345/private.json'], 'EXCLUDED');

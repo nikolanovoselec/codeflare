@@ -99,11 +99,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. Conflict resolution is newest-file-wins. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
 4. The daemon retries on transient failure and continues the periodic cycle. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (daemon retries after transient failure and continues the cycle (REQ-STOR-003 AC4)) -->
 5. On bisync failure, the daemon attempts vanishing-file recovery (parse the error output, exclude transient files, clear stale locks, retry) before counting the failure against the failure budget. <!-- @impl: entrypoint.sh::recover_vanished_files --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (failure + vanishing-file recovery retries bisync and clears CONSECUTIVE_FAILURES (REQ-STOR-003 AC5)) -->
-6. Except while disk-space recovery is blocked, the default fallback remains three consecutive unrecoverable failures (each with internal retries exhausted). When exit code 7 coincides with a missing prior listing in the configured work directory, the daemon immediately re-establishes a newest-side-wins resync baseline because two more attempts cannot use absent state; successful recovery publishes success. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (three consecutive failures trigger --resync fallback (REQ-STOR-003 AC6 / REQ-STOR-002 AC1: resync re-establishes baseline so next sync can persist files)) --> <!-- @manual: Remove the listing, force exit 7, and confirm the first failed cycle enters baseline re-establishment. -->
 
 **Constraints:**
 
-- Disk-exhausted sync waits for [explicit recovery](#req-stor-041-disk-space-recovery).
+- Disk-exhausted sync recovery follows [REQ-STOR-045](#req-stor-045-bisync-baseline-recovery).
 - Bisync invocations must tolerate files changing mid-transfer (no false hash-mismatch aborts).
 - Bulk deletions in the workspace must propagate (no conservative delete cap that strands removals locally).
 - Post-sync listing validation must not abort the cycle when R2 changes during the sync window.
@@ -114,6 +113,32 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket), [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start)
 
 **Verification:** Automated test ([entrypoint-bisync-behavior](../../host/__tests__/entrypoint-bisync-behavior.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-045: Bisync Baseline Recovery
+
+**Intent:** Failed bisync state must recover promptly without overwriting newer data or leaving stale status visible.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Except while disk-space recovery is blocked, three consecutive unrecoverable failures trigger baseline re-establishment. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (REQ-STOR-045 AC1+AC3 / REQ-STOR-002 AC1: three consecutive failures trigger resync fallback) -->
+2. Exit code 7 with no prior listing in the configured work directory immediately establishes a newest-side-wins baseline. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-STOR-045 AC2: recovery baseline uses the real workdir and newest-side convergence) --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (REQ-STOR-045 AC2: forces immediate resync when protected workdir listings are absent) -->
+3. Successful baseline recovery publishes successful sync status. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (REQ-STOR-045 AC1+AC3 / REQ-STOR-002 AC1: three consecutive failures trigger resync fallback) -->
+
+**Constraints:**
+
+- Disk-exhausted sync waits for [explicit recovery](#req-stor-041-disk-space-recovery).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-041](#req-stor-041-disk-space-recovery)
+
+**Verification:** Automated test ([entrypoint-bisync-behavior](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-runtime-behavior](../../host/__tests__/entrypoint-runtime-behavior.test.js))
 
 **Status:** Implemented
 

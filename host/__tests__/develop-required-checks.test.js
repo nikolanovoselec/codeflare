@@ -50,7 +50,7 @@ describe('REQ-OPS-018/019: protected branch required-check triggers', () => {
     assert.deepEqual(worker.paths, ['src/**', 'scripts/**', 'stress/**', '*.mjs', '*.ts']);
     assert.deepEqual(containerUi.paths, ['host/**', 'web-ui/**', 'landing/**', 'openvscode/**', 'preseed/**']);
     assert.ok(
-      containerUi['paths-ignore'].includes('host/__fixtures__/**'),
+      containerUi['paths-ignore'].includes('host/__fixtures__/impeccable-*/scripts/**'),
       'vendored upstream fixtures must not be analyzed as shipped container code',
     );
   });
