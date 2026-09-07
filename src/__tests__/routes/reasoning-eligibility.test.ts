@@ -138,6 +138,50 @@ describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
 });
 
 describe('REQ-ENTERPRISE-043 server-issued verification', () => {
+  it('confirms an administrator-selected profile without paid probes and preserves authority through Save and runtime loading', async () => {
+    const f = setup();
+    elements = [{ id: 'start', type: 'start', outputs: { next: { elementId: 'model' } } },
+      { ...model, properties: { provider: 'custom-mesh', model: 'mesh' }, outputs: { success: { elementId: 'end' }, fallback: { elementId: 'second' } } },
+      { ...model, id: 'second', outputs: { success: { elementId: 'end' }, fallback: { elementId: 'third' } } }, { ...model, id: 'third' }];
+    const response = await f.check({ administratorConfirmed: true });
+    expect(response.status).toBe(200);
+    const receipt = await response.json() as any;
+    expect(receipt).toMatchObject({ classification: 'Administrator-confirmed', assignable: true, verification: { method: 'administrator', profileRef, scope: 'observed-path' } });
+    expect(receipt).not.toHaveProperty('piCompatibility');
+    expect(providerCalls).toBe(0);
+    expect(f.kv._store.has(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
+    const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ routeChecks: { working: receipt.checkId } }));
+    expect(result.fieldErrors).toBeUndefined();
+    const preview = await buildConfigurationPreview(f.env, 'aiRouting', 'enterprise', 0, 0, result.values!);
+    expect(preview.warnings).toContainEqual(expect.objectContaining({ code: 'administrator_confirmed' }));
+    expect(preview.warnings).not.toContainEqual(expect.objectContaining({ code: 'observed_path_only' }));
+    const context = { mode: 'enterprise' as const, requestUrl: 'https://codeflare.example.com', resultingRevision: 1 };
+    await executeConfigurationTask(f.env, 'configure_ai_gateway', result.values!, context);
+    await executeConfigurationTask(f.env, 'configure_model_routing', result.values!, context);
+    expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toEqual(['working']);
+    expect((await loadEnterpriseRouteConfig(f.env, ['unknown'])).routeCatalog).toEqual([]);
+    const stored = JSON.parse(f.kv._store.get(SETUP_KEYS.REASONING_CONFIGURATION)!);
+    expect(stored.routeAssignments.working.verification.method).toBe('administrator');
+    expect(providerCalls).toBe(0);
+    version = 'version-2';
+    const stale = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ routeChecks: { working: receipt.checkId } }));
+    expect(stale.fieldErrors).toBeDefined();
+  });
+  it('requires a canonical selected profile for administrator confirmation before external I/O', async () => {
+    const f = setup();
+    const response = await f.post('discover', { route: 'working', administratorConfirmed: true });
+    expect(response.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('does not accept browser-fabricated administrator confirmation as saved authority', async () => {
+    const f = setup();
+    const receipt = await (await f.check({ administratorConfirmed: true })).json() as any;
+    const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ reasoningConfiguration: {
+      schemaVersion: 1, customProfileRevisions: [], routeAssignments: { working: { activeProfile: profileRef, verification: receipt.verification } },
+    } }));
+    expect(result.fieldErrors).toBeDefined();
+    expect(providerCalls).toBe(0);
+  });
   it('verifies an unsaved canonical custom profile and draft gateway without activation', async () => {
     const f = setup();
     const base = getBuiltInProfile(profileRef.id)!;
@@ -210,11 +254,14 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
       expect(puts).toHaveLength(1); expect(puts[0][2]).toEqual({ expirationTtl: 15 * 60 });
     }
   });
-  it('does not treat inherited object properties as custom backend provenance', async () => {
+  it('verifies an undescribed custom backend without inventing inherited provenance', async () => {
     const f = setup();
     elements = [{ id: 'start', type: 'start', outputs: { next: { elementId: 'toString' } } }, { ...model, id: 'toString', properties: { provider: 'custom-enterprise', model: 'alias' } }];
     const response = await f.check();
-    expect(response.status).toBe(400); expect(providerCalls).toBe(0);
+    expect(response.status).toBe(200); expect(providerCalls).toBe(3);
+    const body = await response.json() as any;
+    expect(body.verification.scope).toBe('observed-path');
+    expect(body.verification).not.toHaveProperty('method');
   });
   it('inventory digests exclude legacy evidence and warnings but bind declared custom backend provenance', async () => {
     const f = setup();
@@ -271,8 +318,10 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
     const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ routeChecks: { working: checked.checkId } }));
     expect(JSON.stringify(result.fieldErrors)).toMatch(/retry.*without.*check/i); expect(providerCalls).toBe(calls);
   });
-  it.each(['route', 'gateway', 'profile', 'inventory', 'provenance'])('rejects a receipt after %s identity changes', async (identity) => {
-    const f = setup(); const checked = await (await f.check()).json() as any;
+  it.each(['route', 'gateway', 'profile', 'inventory', 'provenance'].flatMap((identity) => [
+    { identity, administratorConfirmed: false }, { identity, administratorConfirmed: true },
+  ]))('rejects a receipt after $identity identity changes (administrator: $administratorConfirmed)', async ({ identity, administratorConfirmed }) => {
+    const f = setup(); const checked = await (await f.check(administratorConfirmed ? { administratorConfirmed: true } : {})).json() as any;
     const proposed = values({ routeChecks: { working: checked.checkId } });
     if (identity === 'gateway') {
       proposed.replacementToken = 'different-token';

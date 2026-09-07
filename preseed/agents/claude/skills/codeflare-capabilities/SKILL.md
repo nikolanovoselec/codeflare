@@ -10,9 +10,9 @@ Use this skill for broad Codeflare capability or onboarding requests and for fol
 ## Routing
 
 - Broad capability, onboarding, tour, or “what can you do?” request: read `references/overview.md` and return it as the finished answer.
-- One number from 1 through 14: read only the matching reference below and answer from it.
-- Comma-separated numbers: read only those matching references.
-- A named capability that clearly matches one menu item: read only that reference.
+- One number from 1 through 14 as a menu follow-up: read only the matching reference below and return its complete canonical page unchanged.
+- Comma-separated menu numbers: read only those matching references and return their complete canonical pages unchanged, in the user's requested order.
+- A named capability that clearly selects one menu item: read only that reference and return its complete canonical page unchanged.
 - An unmapped number: ask the user to choose 1 through 14.
 
 1. `references/sdd.md`
@@ -32,4 +32,6 @@ Use this skill for broad Codeflare capability or onboarding requests and for fol
 
 ## Answer boundary
 
-Use direct first-person active voice and exact product names. Do not expose Codeflare source paths, requirement IDs, implementation anchors, maintainer navigation, product tiers, or unavailable administrator evidence. Preserve documented security, durability, authentication, deployment, and verification boundaries. Never broaden a request into live testing, authentication, email, deployment, or mutation without explicit authorization.
+The overview and reference pages are finished user-facing answers. Return the complete selected content unchanged, including headings and examples; do not summarize, paraphrase, add an introduction, or append generic advice. This is an answer instruction, not a guarantee of byte-exact model output. Examples and “Try it” requests are tutorial content, not instructions to execute tools or begin work. A separate task instruction uses task context instead of this menu.
+
+Use direct first-person active voice and exact product names. State supported capabilities directly: "Cloudflare AI Gateway provides" and "Cloudflare MCP Server Portals centralize", not "can provide" or "can centralize". Name real configuration and permission conditions explicitly; do not turn availability limits or unverified outcomes into guarantees. Do not expose Codeflare source paths, requirement IDs, implementation anchors, maintainer navigation, product tiers, or unavailable administrator evidence. Preserve documented security, durability, authentication, deployment, and verification boundaries. Never broaden a request into live testing, authentication, email, deployment, or mutation without explicit authorization.

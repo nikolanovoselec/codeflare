@@ -34,7 +34,7 @@ Running processes, sockets, browser tabs, in-memory state, and files outside syn
 
 ## What the agent handles
 
-The agent works across implementation, debugging, Spec-Driven Development, Test-Driven Development, design, documentation, pull requests, CI, and approved releases. It can coordinate specialist reviewers and monitor long-running work without turning every task into a committee meeting.
+The agent works across implementation, debugging, Spec-Driven Development, Test-Driven Development, design, documentation, pull requests, CI, and approved releases. It coordinates specialist reviewers under the active review workflow or your explicit authorization, and monitors long-running work without turning every task into a committee meeting.
 
 Graphify connects supported repository structure with durable Vault knowledge. Todo tracks executable work and dependencies. Browser Run handles public research and explicitly authorized rendered verification. Browser VS Code gives you the normal editor, source control, diffs, search, extensions, and integrated terminals when a terminal-only workflow becomes needlessly painful.
 

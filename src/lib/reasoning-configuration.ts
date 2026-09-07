@@ -16,6 +16,7 @@ import {
 
 export interface RouteVerification {
   schemaVersion: 1;
+  method?: 'administrator';
   profileRef: ProfileRevisionRef;
   routeVersion: string;
   inventoryDigest: string;
@@ -121,7 +122,8 @@ function parseRef(value: unknown, label: string): ProfileRevisionRef {
 export function parseRouteVerification(value: unknown): RouteVerification {
   const label = 'route verification';
   const record = asRecord(value, label);
-  assertOnly(record, ['schemaVersion', 'profileRef', 'routeVersion', 'inventoryDigest', 'connectionFingerprint', 'canaryVersion', 'supportedLevels', 'scope', 'checkedAt'], label);
+  assertOnly(record, ['schemaVersion', 'profileRef', 'routeVersion', 'inventoryDigest', 'connectionFingerprint', 'canaryVersion', 'supportedLevels', 'scope', 'checkedAt', 'method'], label);
+  if (record.method !== undefined && record.method !== 'administrator') throw new Error(`${label}.method is invalid`);
   if (record.schemaVersion !== 1) throw new Error(`${label}.schemaVersion must be 1`);
   const profileRef = parseRef(record.profileRef, `${label}.profileRef`);
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(profileRef.id)) throw new Error(`${label}.profileRef.id is invalid`);
@@ -142,6 +144,7 @@ export function parseRouteVerification(value: unknown): RouteVerification {
     || !Number.isFinite(Date.parse(checkedAt)) || new Date(checkedAt).toISOString().slice(0, 10) !== checkedAt.slice(0, 10)) throw new Error(`${label}.checkedAt is invalid`);
   return {
     schemaVersion: 1, profileRef, routeVersion,
+    ...(record.method === 'administrator' && { method: 'administrator' as const }),
     inventoryDigest: hash(record.inventoryDigest, 'inventoryDigest'),
     connectionFingerprint: hash(record.connectionFingerprint, 'connectionFingerprint'),
     canaryVersion: record.canaryVersion,
@@ -217,9 +220,6 @@ function parseAssignment(value: unknown, customs: Map<string, NormalizedReasonin
       const profileRef = parseRef(leg.profileRef, `${label}.legs[${index}].profileRef`);
       resolveRef(profileRef, customs, `${label}.legs[${index}].profileRef`);
       const provider = bounded(leg.provider, `${label}.legs[${index}].provider`);
-      if (provider.toLowerCase().startsWith('custom') && leg.customProviderBackend === undefined) {
-        throw new Error(`${label}.legs[${index}] requires administrator-declared custom provider backend provenance`);
-      }
       return {
         nodeId,
         provider,
@@ -536,7 +536,8 @@ export function reasoningConfigurationWarnings(configuration: ReasoningConfigura
   for (const [route, assignment] of Object.entries(configuration.routeAssignments)) {
     if (!activeRoutes.includes(route)) continue;
     if (assignment.verification) {
-      if (assignment.verification.scope === 'observed-path') warnings.push({ code: 'observed_path_only', message: `Route ${route} passed its observed path check; not all conditional or fallback legs were verified.` });
+      if (assignment.verification.method === 'administrator') warnings.push({ code: 'administrator_confirmed', message: `Route ${route} was confirmed by an administrator without a live compatibility check.` });
+      else if (assignment.verification.scope === 'observed-path') warnings.push({ code: 'observed_path_only', message: `Route ${route} passed its observed path check; not all conditional or fallback legs were verified.` });
       continue;
     }
     const profile = getProfileForRef(configuration, assignment.activeProfile);

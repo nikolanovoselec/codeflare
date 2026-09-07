@@ -22,7 +22,7 @@ interface RouteDraft {
   inventoryBusy?: boolean;
   inventoryError?: string;
 }
-interface VerificationDraft { busy?: boolean; result?: ReasoningDiscoveryResult; error?: string; routeChanged?: boolean }
+interface VerificationDraft { busy?: boolean; administratorConfirmed?: boolean; result?: ReasoningDiscoveryResult; error?: string; routeChanged?: boolean }
 const LEVELS: PiReasoningLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const DEFAULT_CONTEXT_WINDOW = 256000;
 const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -56,7 +56,7 @@ function groupDrafts(value: unknown): GroupDraft[] {
   }).filter((group) => group.accessGroup);
 }
 function completeVerification(result: ReasoningDiscoveryResult): boolean {
-  return result.assignable === true && result.classification === 'Verified' && Boolean(result.checkId && result.verification)
+  return result.assignable === true && (result.classification === 'Verified' || (result.classification === 'Administrator-confirmed' && result.verification?.method === 'administrator')) && Boolean(result.checkId && result.verification)
     && !result.diagnostics?.length && !result.candidateResults?.some((candidate) => candidate.diagnostics?.length);
 }
 
@@ -72,12 +72,12 @@ interface PolicyFieldsProps {
 const PolicyFields: Component<PolicyFieldsProps> = (props) => <div class="admin-policy-fields">
   <fieldset class="admin-fieldset" aria-label={`${props.label} allowed routes`}>
     <legend>Available routes</legend>
-    <p class="admin-field-help">Only routes with a successful current check can be assigned.</p>
-    <Show when={props.options.length} fallback={<p class="admin-status-text">Verify a route in Routes before assigning access.</p>}>
+    <p class="admin-field-help">Live-verified and administrator-confirmed routes are available here.</p>
+    <Show when={props.options.length} fallback={<p class="admin-status-text">Verify or confirm a profile in Routes before assigning access.</p>}>
       <div class="admin-policy-routes"><For each={props.options}>{(route) => <label>
         <input type="checkbox" aria-label={`${props.label} ${route.name} route`} checked={props.policy.routes.includes(route.name)} onChange={() => props.onToggle(route.name)} />
         <span>{route.name}</span>
-        <Show when={route.assignment.verification?.scope === 'observed-path'}><small>Backup untested</small></Show>
+        <Show when={route.assignment.verification?.method !== 'administrator' && route.assignment.verification?.scope === 'observed-path'}><small>Backup untested</small></Show>
       </label>}</For></div>
     </Show>
   </fieldset>
@@ -192,7 +192,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const policyInventoryPending = () => [...groups().flatMap((group) => group.routes), ...(fallbackEnabled() ? fallbackPolicy().routes : [])]
     .some((name) => gatewayRoutes().includes(name) && Boolean(routeByName(name)?.inventoryBusy));
   const canSave = () => connectionReady() && !policyInventoryPending() && !checksBusy() && activeGroups().length > 0 && (!fallbackEnabled() || normalizedFallback().routes.length > 0);
-  const saveHelp = () => !connectionReady() ? 'Check the AI Gateway connection before saving.' : policyInventoryPending() ? 'Wait for selected route models to finish loading.' : checksBusy() ? 'Wait for the current profile check to finish.' : !eligibleRoutes().length ? 'Verify at least one route before assigning access and saving.' : !activeGroups().length ? 'Assign a checked route to at least one group before saving.' : fallbackEnabled() && !normalizedFallback().routes.length ? 'Choose a checked route for fallback access, or turn fallback off.' : '';
+  const saveHelp = () => !connectionReady() ? 'Check the AI Gateway connection before saving.' : policyInventoryPending() ? 'Wait for selected route models to finish loading.' : checksBusy() ? 'Wait for the current profile check to finish.' : !eligibleRoutes().length ? 'Verify or confirm at least one profile before assigning access and saving.' : !activeGroups().length ? 'Assign an available route to at least one group before saving.' : fallbackEnabled() && !normalizedFallback().routes.length ? 'Choose an available route for fallback access, or turn fallback off.' : '';
   createEffect(() => props.onReadyChange?.(canSave()));
 
   const clearRouteVerification = (name: string) => {
@@ -254,18 +254,17 @@ const AiRoutingFields: Component<Props> = (props) => {
       ...(route.assignment.legs && { legs: route.assignment.legs.map((leg) => ({ ...leg, ...(selected && { profileRef: profileRefFromEntry(selected) }) })) }),
     } }));
   };
-  const needsBackendDescription = (route: RouteDraft) => (route.inventory?.legs ?? []).some((leg) => leg.provider.toLowerCase().startsWith('custom') && !(route.assignment.legs?.find((draft) => draft.nodeId === leg.nodeId)?.customProviderBackend ?? leg.customProviderBackend ?? '').trim());
-  const verifySelectedProfile = async (name: string) => {
+  const verifySelectedProfile = async (name: string, administratorConfirmed = false) => {
     const route = routeByName(name);
-    if (!route?.assignment.activeProfile || !findProfile(route.assignment.activeProfile) || !connectionReady() || needsBackendDescription(route) || verificationFor(name).busy) return;
+    if (!route?.assignment.activeProfile || !findProfile(route.assignment.activeProfile) || !connectionReady() || verificationFor(name).busy) return;
     const selectedRef = { ...route.assignment.activeProfile };
     const profileDraft = customRevisions().find((profile) => refKey(profileRef(profile)) === refKey(selectedRef) && !catalog().profiles.some((saved) => refKey(saved) === refKey(selectedRef)));
     const connection = connectionKey();
-    clearRouteVerification(name); updateVerification(name, { busy: true });
+    clearRouteVerification(name); updateVerification(name, { busy: true, administratorConfirmed });
     try {
       const before = await inspect(name);
       if (!before?.inventoryDigest) throw new Error('inventory_unavailable');
-      const result = await discoverReasoningCompatibility({ route: name, profileRef: selectedRef, ...(profileDraft && { profileDraft }), ...managementContext(name), maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS });
+      const result = await discoverReasoningCompatibility({ route: name, profileRef: selectedRef, ...(administratorConfirmed && { administratorConfirmed: true as const }), ...(profileDraft && { profileDraft }), ...managementContext(name), maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS });
       if (disposed) return;
       const after = await inspect(name);
       const currentRoute = routeByName(name);
@@ -288,27 +287,17 @@ const AiRoutingFields: Component<Props> = (props) => {
         } }));
       }
     } catch {
-      if (!disposed) updateVerification(name, { error: 'Verification failed. Check the connection and try again. This route cannot be activated.' });
+      if (!disposed) updateVerification(name, { error: administratorConfirmed ? 'Confirmation failed. Check the connection and try again.' : 'Verification failed. Check the connection and try again.' });
     }
-  };
-  const setLegBackend = (name: string, nodeId: string, backend: string) => {
-    clearRouteVerification(name);
-    updateRoute(name, (route) => ({ ...route, assignment: { ...route.assignment,
-      legs: (route.inventory?.legs ?? route.assignment.legs ?? []).map((leg) => ({
-        ...route.assignment.legs?.find((draft) => draft.nodeId === leg.nodeId),
-        nodeId: leg.nodeId, provider: leg.provider, declaredModel: leg.declaredModel, profileRef: route.assignment.activeProfile,
-        ...(leg.provider.toLowerCase().startsWith('custom') && { customProviderBackend: leg.nodeId === nodeId ? backend : route.assignment.legs?.find((draft) => draft.nodeId === leg.nodeId)?.customProviderBackend ?? leg.customProviderBackend ?? '' }),
-      })),
-    } }));
   };
   const routeStatus = (route: RouteDraft): { label: string; state: 'passed' | 'failed' | 'unclear' } => {
     const check = verificationFor(route.name);
     if (profileEditorRoute() === route.name && profileEditorBusy()) return { label: 'Discovering…', state: 'unclear' };
-    if (check.busy) return { label: 'Verifying…', state: 'unclear' };
+    if (check.busy) return { label: check.administratorConfirmed ? 'Confirming…' : 'Verifying…', state: 'unclear' };
     if (check.error || check.result?.classification === 'Unsupported') return { label: 'Check failed · inactive', state: 'failed' };
     if (!route.assignment.activeProfile) return { label: 'Choose a profile', state: 'unclear' };
-    if (verifiedAssignment(route)) return !validContext(route) ? { label: 'Set context window', state: 'unclear' } : route.assignment.verification?.scope === 'observed-path' ? { label: 'Compatible · backup untested', state: 'unclear' } : { label: 'Verified', state: 'passed' };
-    return { label: 'Needs verification · inactive', state: 'unclear' };
+    if (verifiedAssignment(route)) return !validContext(route) ? { label: 'Set context window', state: 'unclear' } : route.assignment.verification?.method === 'administrator' ? { label: 'Administrator-confirmed', state: 'passed' } : route.assignment.verification?.scope === 'observed-path' ? { label: 'Compatible · backup untested', state: 'unclear' } : { label: 'Verified', state: 'passed' };
+    return { label: 'Needs confirmation · inactive', state: 'unclear' };
   };
   const togglePolicyRoute = <T extends Pick<GroupDraft, 'routes' | 'defaultRoute' | 'reasoning'>>(policy: T, name: string): T => {
     if (!eligibleNames().includes(name)) return policy;
@@ -337,13 +326,12 @@ const AiRoutingFields: Component<Props> = (props) => {
   };
   const serializedConfiguration = createMemo<ReasoningConfiguration>(() => ({ schemaVersion: 1, customProfileRevisions: customRevisions(), fallbackRouting: fallbackRouting(),
     routeAssignments: Object.fromEntries(routes().flatMap((route) => route.assignment.activeProfile ? [[route.name, { ...route.assignment, activeProfile: route.assignment.activeProfile,
-      ...(route.assignment.legs && { legs: route.assignment.legs.filter((leg) => !leg.provider.toLowerCase().startsWith('custom') || Boolean(leg.customProviderBackend)) }),
     } satisfies ReasoningRouteAssignment]] : [])),
   }));
   const compatibilityDefault = () => fallbackEnabled() && normalizedFallback().routes.length ? normalizedFallback() : activeGroups()[0];
 
   return <div class="admin-ai-routing admin-form-wide admin-routing-workspace">
-    <div class="admin-routing-intro"><h3>Connect, verify, then grant access</h3><p>Only checked routes can be activated. Unfinished routes stay inactive while you save the working ones.</p></div>
+    <div class="admin-routing-intro"><h3>Choose profiles, then grant access</h3><p>Verify a profile or confirm it yourself before assigning access. Save activates your changes.</p></div>
     <section class="admin-connection-status" aria-label="AI Gateway connection status" data-state={connectionReady() ? 'passed' : catalogBusy() ? 'unclear' : 'failed'}>
       <div><strong>AI Gateway</strong><span role="status">{catalogBusy() ? 'Checking connection…' : connectionReady() ? `Connected · ${gatewayRoutes().length} routes readable` : checkedConnection() !== connectionKey() && catalog().routeCatalogStatus === 'ready' ? 'Connection changed · check required' : 'Connection needs attention'}</span></div>
       <Show when={!connectionReady() && !catalogBusy()}><p role="alert">{catalogError() || (catalog().routeCatalogStatus === 'ready' ? 'Check the edited connection before verifying routes.' : catalog().connection?.message) || 'Routes could not be read. Check the gateway URL, token, and AI Gateway Read permission.'}</p></Show>
@@ -394,25 +382,20 @@ const AiRoutingFields: Component<Props> = (props) => {
               <dl><div><dt>Reasoning options</dt><dd>{selected().supportedLevels.map(levelLabel).join(', ')}</dd></div><div><dt>Reasoning off</dt><dd>{selected().supportedLevels.includes('off') ? 'Supported' : 'Not supported'}</dd></div></dl>
             </div>}</Show>
             <div class="admin-route-actions"><button type="button" class="admin-secondary-button" aria-label={`Discover Profile for ${route.name}`} disabled={!connectionReady() || check().busy || Boolean(profileEditorRoute()) || !gatewayRoutes().includes(route.name)} onClick={() => setProfileEditorRoute(route.name)}>Discover Profile</button>
-              <button type="button" class="admin-primary-button" aria-label={`Verify Profile for ${route.name}`} disabled={!connectionReady() || !profile() || needsBackendDescription(route) || check().busy || route.inventoryBusy || profileEditorBusy() || !gatewayRoutes().includes(route.name)} onClick={() => { setProfileEditorRoute(undefined); void verifySelectedProfile(route.name); }}>{check().busy ? 'Verifying…' : 'Verify Profile'}</button>
+              <button type="button" class="admin-secondary-button" aria-label={`Verify Profile for ${route.name}`} disabled={!connectionReady() || !profile() || check().busy || route.inventoryBusy || profileEditorBusy() || !gatewayRoutes().includes(route.name)} onClick={() => { setProfileEditorRoute(undefined); void verifySelectedProfile(route.name); }}>{check().busy && !check().administratorConfirmed ? 'Verifying…' : 'Verify Profile'}</button>
+              <button type="button" class="admin-primary-button" aria-label={`Mark ${route.name} as verified`} disabled={!connectionReady() || !profile() || check().busy || route.inventoryBusy || profileEditorBusy() || !gatewayRoutes().includes(route.name)} onClick={() => { setProfileEditorRoute(undefined); void verifySelectedProfile(route.name, true); }}>Mark as verified</button>
             </div>
-            <p class="admin-field-help">Map finds compatible profiles. If none fit, a successful mapping can offer custom Create &amp; Assign. Verify checks your selection. Checks may use provider credits; Save activates your settings.</p>
+            <Show when={!checksBusy()}><p class="admin-field-help">Verify runs a live check and may use provider credits. Mark as verified confirms your own assessment without a live check.</p></Show>
             <Show when={check().error}><p role="alert" class="admin-inline-error">{check().error}</p></Show>
             <Show when={check().routeChanged}><p role="alert" class="admin-inline-error">The route changed during verification. Check it again before assigning access.</p></Show>
-            <Show when={verifiedAssignment(route) && route.assignment.verification?.scope === 'observed-path'}><p class="admin-route-scope-warning" role="status">The tested path passed. Other backends remain untested. This route can be assigned with that warning.</p></Show>
-            <Show when={check().result}>{(result) => <section class="admin-route-verification" aria-label={`${route.name} profile verification`}>
+            <Show when={verifiedAssignment(route) && route.assignment.verification?.method !== 'administrator' && route.assignment.verification?.scope === 'observed-path'}><p class="admin-route-scope-warning" role="status">The tested path passed. Other backends remain untested. This route can be assigned with that warning.</p></Show>
+            <Show when={check().result && check().result?.verification?.method !== 'administrator' ? check().result : undefined}>{(result) => <section class="admin-route-verification" aria-label={`${route.name} profile verification`}>
               <ReasoningCheckOverview result={result()} levels={profile()?.supportedLevels ?? []} />
               <Show when={!completeVerification(result())}><p class="admin-status-text">{reasoningCheckSummary(result())}</p></Show>
               <Show when={verifiedAssignment(route)}><p class="admin-status-text">Check passed. Assign access and confirm Save to activate this draft.</p></Show><ReasoningCheckDetails result={result()} />
             </section>}</Show>
-            <Show when={check().busy}><div class="admin-state-panel" role="status" aria-live="polite"><strong>Verifying profile for {route.name}…</strong><p>Checking reasoning, tool calls, and tool-result replay. Results appear when the check finishes.</p></div></Show>
+            <Show when={check().busy}><div class="admin-inline-progress" role="status"><progress aria-label={check().administratorConfirmed ? "Confirming profile" : "Verifying profile"} /><span>{check().administratorConfirmed ? `Confirming profile for ${route.name}…` : `Verifying profile for ${route.name}…`}</span></div></Show>
             <Show when={profileEditorRoute() === route.name}><ReasoningProfileEditor route={route.name} context={managementContext(route.name)} onBusyChange={setProfileEditorBusy} existingRevisions={customRevisions()} onCancel={() => setProfileEditorRoute(undefined)} onSelectProfile={(ref) => { setProfileEditorRoute(undefined); setRouteProfile(route.name, refKey(ref)); }} onSave={(revision) => { setProfileEditorRoute(undefined); setCustomRevisions((items) => [...items, revision]); setRouteProfile(route.name, refKey(profileRef(revision))); setPendingProfileName(String(revision.name ?? 'New profile')); }} /></Show>
-            <Show when={needsBackendDescription(route)}><p class="admin-field-help">Describe each custom-provider backend below before Verify. This does not require Save first.</p></Show>
-            <details class="admin-route-reference" open={needsBackendDescription(route)}><summary>Advanced profile and gateway details</summary>
-              <Show when={profile()}>{(selected) => <><dl><div><dt>Profile revision</dt><dd>{selected().revision}</dd></div><div><dt>Profile reference</dt><dd class="admin-mono">{selected().id}</dd></div></dl><Show when={selected().limitations?.length}><strong>Original validation notes</strong><p class="admin-field-help">These describe the profile's test history, not the current route.</p><ul><For each={selected().limitations ?? []}>{(note) => <li>{note}</li>}</For></ul></Show></>}</Show>
-              <p>Gateway route version: <span class="admin-mono">{inventoryVersion(route.inventory) ?? 'Unavailable'}</span></p>
-              <For each={legs().filter((leg) => leg.provider.toLowerCase().startsWith('custom'))}>{(leg) => <label class="admin-form-field"><span>Backend description · {leg.nodeId}</span><input aria-label={`${leg.nodeId} custom provider backend`} value={route.assignment.legs?.find((item) => item.nodeId === leg.nodeId)?.customProviderBackend ?? leg.customProviderBackend ?? ''} disabled={!profile() || check().busy} onInput={(event) => setLegBackend(route.name, leg.nodeId, event.currentTarget.value)} /><small>Required administrator reference for this custom provider, not model detection. Changing it requires another check.</small></label>}</For>
-            </details>
             <Show when={!gatewayRoutes().includes(route.name)}><button type="button" class="admin-link-button admin-danger-link" aria-label={`Remove ${route.name} stale route`} onClick={() => setPendingRemoval(route.name)}>Remove stale route</button></Show>
             <Show when={pendingRemoval() === route.name}><div class="admin-confirmation" role="alert"><strong>Remove this stale route?</strong><p>It will also be removed from draft access policies.</p><button type="button" class="admin-secondary-button" onClick={() => setPendingRemoval(undefined)}>Keep route</button><button type="button" class="admin-primary-button" aria-label={`Confirm remove ${route.name}`} onClick={() => confirmRemove(route.name)}>Confirm removal</button></div></Show>
           </div>
@@ -422,13 +405,13 @@ const AiRoutingFields: Component<Props> = (props) => {
     </section>
 
     <section hidden={section() !== 'access'} class="admin-routing-pane" aria-labelledby="groups-heading">
-      <div class="admin-subsection-heading"><div><h3 id="groups-heading">Group access</h3><p>Choose which checked routes each Access group can use. The first matching configured policy wins.</p></div></div>
+      <div class="admin-subsection-heading"><div><h3 id="groups-heading">Group access</h3><p>Choose which available routes each Access group can use. The first matching configured policy wins.</p></div></div>
       <Show when={unconfiguredGroups().length}><div class="admin-add-row"><label class="admin-form-field"><span>Access group</span><select aria-label="Unconfigured access group" value={groupToAdd()} onChange={(event) => setGroupToAdd(event.currentTarget.value)}><For each={unconfiguredGroups()}>{(group) => <option value={group} selected={group === groupToAdd()}>{group}</option>}</For></select></label><button type="button" class="admin-secondary-button" onClick={addGroupPolicy}>Add group policy</button></div></Show>
       <Show when={!availableAccessGroups.length}><p class="admin-status-text">Configure an Access group in Environment → Access before assigning a route.</p></Show>
       <For each={groups()}>{(group) => <section class="admin-access-policy">
         <div class="admin-policy-heading"><button type="button" class="admin-policy-toggle" aria-label={`${group.accessGroup} policy`} aria-expanded={expandedGroup() === group.accessGroup} onClick={() => setExpandedGroup(expandedGroup() === group.accessGroup ? undefined : group.accessGroup)}><strong>{group.accessGroup}</strong><span>{normalizedPolicy(group).routes.length} available routes</span></button><button type="button" class="admin-link-button admin-danger-link" aria-label={`Remove ${group.accessGroup} policy`} onClick={() => setGroups((items) => items.filter((item) => item.accessGroup !== group.accessGroup))}>Remove policy</button></div>
         <div hidden={expandedGroup() !== group.accessGroup}>
-          <Show when={group.routes.some((name) => !eligibleNames().includes(name))}><p class="admin-route-scope-warning">Unchecked or unavailable routes are inactive and will not be included when you Save.</p></Show>
+          <Show when={group.routes.some((name) => !eligibleNames().includes(name))}><p class="admin-route-scope-warning">Unconfirmed or unavailable routes are inactive and will not be included when you Save.</p></Show>
           <PolicyFields label={group.accessGroup} options={eligibleRoutes()} policy={normalizedPolicy(group)} levels={supportedLevels(normalizedPolicy(group).defaultRoute)} onToggle={(name) => setGroups((items) => items.map((item) => item.accessGroup === group.accessGroup ? togglePolicyRoute(item, name) : item))} onDefault={(name) => setGroups((items) => items.map((item) => item.accessGroup === group.accessGroup ? { ...normalizedPolicy(item), defaultRoute: name, reasoning: preferredLevel(name) } : item))} onReasoning={(level) => setGroups((items) => items.map((item) => item.accessGroup === group.accessGroup ? { ...normalizedPolicy(item), reasoning: level } : item))} />
         </div>
       </section>}</For>
@@ -439,7 +422,7 @@ const AiRoutingFields: Component<Props> = (props) => {
         <Show when={fallbackEnabled()} fallback={<p class="admin-status-text">No fallback access</p>}><PolicyFields label="Fallback" options={eligibleRoutes()} policy={normalizedFallback()} levels={supportedLevels(normalizedFallback().defaultRoute)} onToggle={(name) => setFallbackPolicy((policy) => togglePolicyRoute(policy, name))} onDefault={(name) => setFallbackPolicy((policy) => ({ ...normalizedPolicy(policy), defaultRoute: name, reasoning: preferredLevel(name) }))} onReasoning={(level) => setFallbackPolicy((policy) => ({ ...normalizedPolicy(policy), reasoning: level }))} /></Show>
       </section>
     </section>
-    <Show when={pendingProfileName()}><div class="admin-unsaved-banner" role="status"><strong>{pendingProfileName()} is a draft</strong><span>Verify it, assign a group, then confirm Save to keep the profile and assignment.</span></div></Show>
+    <Show when={pendingProfileName()}><div class="admin-unsaved-banner" role="status"><strong>{pendingProfileName()} is a draft</strong><span>Verify or confirm it, assign a group, then confirm Save to keep the profile and assignment.</span></div></Show>
     <Show when={!checksBusy() && saveHelp()}><p class="admin-routing-save-help" role="status" data-ready={canSave()}>{saveHelp()}</p></Show>
     <For each={activeNames()}>{(name) => <input type="hidden" name="dynamicRoutes" value={name} />}</For>
     <For each={routes().filter((route) => route.assignment.activeProfile && validContext(route))}>{(route) => <><input type="hidden" name="routeContextRoute" value={route.name} /><input type="hidden" name="routeContextWindow" value={route.contextWindow} /></>}</For>

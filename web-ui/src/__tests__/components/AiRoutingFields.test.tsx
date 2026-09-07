@@ -371,7 +371,7 @@ describe('Structured AI routing', () => {
     await waitFor(() => expect(api.discover).toHaveBeenCalled());
     changed = true; complete(verifiedReport());
     expect(await view.findByRole('alert')).toHaveTextContent('The route changed during verification.');
-    expect(within(view.getByRole('article', { name: 'development route' })).getByText('Needs verification · inactive', { exact: true })).toBeVisible();
+    expect(within(view.getByRole('article', { name: 'development route' })).getByText('Needs confirmation · inactive', { exact: true })).toBeVisible();
     expect(draftConfiguration(view.container)).toEqual(before);
     expect(formValues(view.container).routeChecks.development).toBeNull();
     await expectDevelopmentInactive(view);
@@ -567,55 +567,21 @@ describe('Structured AI routing', () => {
     await expectDevelopmentInactive(view);
   });
 
-  it('REQ-ENTERPRISE-038: editing custom provenance verifies transient backend descriptions without a Save-first deadlock', async () => {
-    api.inventory.mockImplementation(async (route: string, context?: ReasoningManagementContext) => ({
-      ...singleInventory(route), inventoryDigest: context?.backendDescriptions ? `${route}-edited-digest` : `${route}-digest`,
-      legs: [{ ...singleInventory(route).legs[0], provider: 'custom-enterprise', customProviderBackend: context?.backendDescriptions?.[`${route}-only`] ?? 'Old backend' }],
-    }));
-    api.discover.mockResolvedValueOnce({ ...verifiedReport(), verification: { ...proof(), inventoryDigest: 'development-edited-digest' } });
-    const view = mount(); await ready(view);
-    const card = view.getByRole('article', { name: 'development route' });
-    await fireEvent.click(within(card).getByText('Advanced profile and gateway details'));
-    const input = await view.findByLabelText('development-only custom provider backend');
-    await fireEvent.input(input, { target: { value: 'New backend' } });
-    expect(view.getByRole('button', { name: 'Verify Profile for development' })).toBeEnabled();
-    expect(formValues(view.container).routeChecks.development).toBeNull();
-    expect(draftConfiguration(view.container).routeAssignments.development.legs![0].customProviderBackend).toBe('New backend');
+  it.each([1, 2])('REQ-ENTERPRISE-038: retains %s saved custom backend descriptions without a metadata editor', async (count) => {
+    const legs = Array.from({ length: count }, (_, index) => ({ nodeId: `custom-${index}`, provider: 'custom-enterprise', declaredModel: `model-${index}`, customProviderBackend: `Saved backend ${index}`, profileRef: kimiRef }));
+    const descriptions = Object.fromEntries(legs.map((leg) => [leg.nodeId, leg.customProviderBackend]));
+    api.inventory.mockImplementation(async (route: string) => ({ ...singleInventory(route), legs }));
+    api.discover.mockResolvedValueOnce(verifiedReport('development', kimiRef, count === 1 ? 'single-model' : 'observed-path'));
+    const saved = withDevelopment({ activeProfile: kimiRef, legs });
+    const snapshot = structuredClone(saved);
+    const view = mount(saved); await ready(view);
+    expect(view.queryByLabelText('custom-0 custom provider backend')).toBeNull();
     await verifyProfile(view);
-    expect(await view.findByText('Verified', { exact: true })).toBeVisible();
-    expect(api.discover).toHaveBeenCalledWith({ route: 'development', profileRef: kimiRef, backendDescriptions: { 'development-only': 'New backend' }, maxCompletionTokens: 4096 });
-    expect(api.inventory).toHaveBeenLastCalledWith('development', { backendDescriptions: { 'development-only': 'New backend' } });
-    expect(formValues(view.container).reasoningConfiguration.routeAssignments.development.legs[0].customProviderBackend).toBe('New backend');
-    expect(formValues(view.container).routeChecks.development).toBe('development-check');
-    expect(current.reasoningConfiguration.routeAssignments.development).toEqual({ activeProfile: kimiRef });
+    await waitFor(() => expect(formValues(view.container).routeChecks.development).toBe('development-check'));
+    expect(api.discover).toHaveBeenCalledWith({ route: 'development', profileRef: kimiRef, backendDescriptions: descriptions, maxCompletionTokens: 4096 });
+    expect(formValues(view.container).reasoningConfiguration.routeAssignments.development.legs).toEqual(legs);
+    expect(saved).toEqual(snapshot);
     expect(view.submit).not.toHaveBeenCalled();
-  });
-
-  it('REQ-ENTERPRISE-040: editing two custom backends preserves both draft descriptions in Save and verification', async () => {
-    api.inventory.mockImplementation(async (route: string, context?: ReasoningManagementContext) => ({ ...routeInventory(route),
-      inventoryDigest: context?.backendDescriptions ? `${route}-edited-digest` : `${route}-digest`,
-      legs: [
-        { nodeId: 'first', provider: 'custom-enterprise', declaredModel: 'first-model', customProviderBackend: context?.backendDescriptions?.first ?? 'Old first' },
-        { nodeId: 'second', provider: 'custom-enterprise', declaredModel: 'second-model', customProviderBackend: context?.backendDescriptions?.second ?? 'Old second' },
-      ],
-    }));
-    api.discover.mockResolvedValueOnce({ ...verifiedReport('development', kimiRef, 'observed-path'), verification: { ...proof('development', kimiRef, 'observed-path'), inventoryDigest: 'development-edited-digest' } });
-    const view = mount(); await ready(view);
-    const card = view.getByRole('article', { name: 'development route' });
-    await fireEvent.click(within(card).getByText('Advanced profile and gateway details'));
-    const first = await within(card).findByLabelText('first custom provider backend');
-    const second = within(card).getByLabelText('second custom provider backend');
-    await fireEvent.input(first, { target: { value: 'New first' } });
-    await fireEvent.input(second, { target: { value: 'New second' } });
-    expect(first).toHaveValue('New first'); expect(second).toHaveValue('New second');
-    expect(formValues(view.container).reasoningConfiguration.routeAssignments.development.legs).toEqual([
-      { nodeId: 'first', provider: 'custom-enterprise', declaredModel: 'first-model', profileRef: kimiRef, customProviderBackend: 'New first' },
-      { nodeId: 'second', provider: 'custom-enterprise', declaredModel: 'second-model', profileRef: kimiRef, customProviderBackend: 'New second' },
-    ]);
-    await verifyProfile(view);
-    expect(await view.findByText(/Other backends remain untested/)).toBeVisible();
-    expect(api.discover).toHaveBeenCalledWith({ route: 'development', profileRef: kimiRef, backendDescriptions: { first: 'New first', second: 'New second' }, maxCompletionTokens: 4096 });
-    expect(formValues(view.container).reasoningConfiguration.routeAssignments.development.legs.map((leg: any) => leg.customProviderBackend)).toEqual(['New first', 'New second']);
   });
 
   it('REQ-ENTERPRISE-036: an unsaved custom revision verifies its exact profileDraft before Save', async () => {

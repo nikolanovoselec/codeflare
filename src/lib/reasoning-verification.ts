@@ -52,7 +52,8 @@ export function checkedRouteInventory(active: DynamicRouteVersionInput, descript
   // include mutable evidence/warnings in the digest. Element ordering is immaterial.
   const topology = [...(active.elements as Array<Record<string, unknown>>)].sort((a, b) => String(a.id).localeCompare(String(b.id)))
     .map((node) => ({ id: node.id, type: node.type, properties: node.properties ?? {}, outputs: node.outputs }));
-  const observedPath = inventory.models.length !== 1 || inventory.paths.length !== 1
+  const observedPath = customModels.some((model) => !Object.prototype.hasOwnProperty.call(backendDescriptions, model.nodeId))
+    || inventory.models.length !== 1 || inventory.paths.length !== 1
     || inventory.paths.some((path) => path.branches.length > 0)
     || topology.some((node) => !['start', 'model', 'end'].includes(String(node.type).toLowerCase()));
   return {
@@ -80,7 +81,7 @@ export function verificationMatches(
     || canonicalJson(verification.profileRef) !== canonicalJson({ id: profile.id, revision: profile.revision, hash: profile.hash })
     || canonicalJson(verification.supportedLevels) !== canonicalJson(profile.supportedLevels)
     || verification.connectionFingerprint !== connectionFingerprint(connection)) return false;
-  return !current || (current.provenanceComplete && current.inventory.models.length > 0
+  return !current || (current.inventory.models.length > 0
     && verification.routeVersion === current.inventory.versionId
     && verification.inventoryDigest === current.inventoryDigest && verification.scope === current.scope);
 }

@@ -116,6 +116,7 @@ export interface ReasoningRouteLeg {
 
 export interface ReasoningRouteVerification {
   schemaVersion: 1;
+  method?: 'administrator';
   profileRef: ProfileRevisionRef;
   routeVersion: string;
   inventoryDigest: string;
@@ -172,6 +173,7 @@ export interface ReasoningRouteInventory {
 
 export interface ReasoningDiscoveryRequest extends ReasoningManagementContext {
   route: string;
+  administratorConfirmed?: true;
   profileRef?: ProfileRevisionRef;
   profileDraft?: Record<string, unknown>;
   maxCompletionTokens: number;

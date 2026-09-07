@@ -1,41 +1,33 @@
 # Credential interception and secret boundaries
 
-## What I can do
+## What I do
 
-I can use ordinary command-line clients while selected credentials stay outside the container. Worker-side interceptors recognize exact owned destinations, validate the bound session identity, remove non-secret placeholders, and add the real authorization only at the egress boundary.
+I work with your connected GitHub repositories, use available model routes, and make supported browser calls without asking you to paste reusable service credentials into a terminal. Where the relevant credential interceptor is configured and the connection is authorized, I use ordinary supported clients. You can spend the session on the repository rather than token plumbing.
 
-I use the signed-in user's encrypted token for GitHub traffic to allowlisted GitHub hosts. I route supported model traffic through the configured Cloudflare AI Gateway. I use Browser Rendering calls whose account authorization is added at the boundary without placing the long-lived token in the shell environment.
+For GitHub, I inspect an issue, read a pull request, or prepare a change using the signed-in user's connected access. With GitHub interception enabled, the reusable GitHub token stays outside the container: a Worker-side interceptor recognizes an exact allowlisted destination, validates the bound session identity, removes the non-secret placeholder, and adds authorization at the boundary. The placeholder is not a credential you need to look up or copy.
 
-For strict web egress, I send storage requests through the catch-all controller. It checks the bound storage identity and re-signs S3-compatible requests for the user's exact bucket, so I can work with the storage service without gaining a reusable credential for somebody else's bucket.
+I use the same separation for supported model traffic through Cloudflare AI Gateway and for Browser Rendering calls whose account authorization is added outside the shell. With strict web egress, storage requests pass through a controller that checks the bound storage identity and re-signs them for your exact bucket. I process your synchronized files without gaining access to another user's bucket.
+
+## When a connection needs attention
+
+I distinguish a missing connection from a repository permission problem. Connecting GitHub does not grant access to every repository, and selecting an available model route does not make you its administrator. If access is missing, I explain the supported connection step or what to ask your administrator to enable. I do not ask you to print a token so I diagnose it.
+
+An administrator configures the shared gateway and browser-service boundaries; you authorize your own supported user connections. Named interceptors cover named services, not every secret an arbitrary script might use. Deployments without GitHub interception can pass the token into the container; I do not promise Worker-side containment on that path. If a project asks for an unrelated secret in an environment variable, I point out that processes allowed to read that variable inside the container can see it.
 
 ## Where the boundary sits
 
-A hostname that looks similar is not an approved destination. A user ID supplied by the container is not session identity. A proxy variable is not a security boundary. The Worker owns all three decisions.
+A similar-looking hostname is not an approved destination, and a user ID sent by the container cannot choose the session identity. The Worker owns those checks. I cannot turn an unconnected client into an authorized one by changing a proxy variable.
 
-Named interceptors cover named services; they are not a universal secret manager. A secret placed in an environment variable is exposed to processes allowed to read it inside the container, but container visibility is not the same as unrestricted escape. With Enterprise Strict Gateway Egress enabled, direct-internet HTTP, HTTPS, and WebSocket traffic must pass through Cloudflare Gateway, raw TCP and UDP internet egress is denied, and configured DLP policies can detect or block exfiltration. I still inspect the actual path before claiming a secret cannot leave: own-account control-plane exceptions use separate scoped authorization and audit boundaries, and DLP protection is only as strong as the customer's active Cloudflare Gateway policy.
+With Strict Gateway Egress enabled, direct-internet HTTP, HTTPS, and WebSocket traffic passes through Cloudflare Gateway, raw TCP and UDP internet egress is denied, and configured DLP policy detects or blocks matching transfers of sensitive data. That is useful protection, not a reason to paste secrets into chat. Own-account control-plane exceptions have separate authorization and audit boundaries; actual protection depends on the configured path and policy.
 
 ## Try it
 
-In an Enterprise deployment, connect your GitHub identity, open a new Bash terminal tab, and run:
+After connecting your GitHub identity through the supported connection flow, ask me:
 
-```bash
-if [ "${GH_TOKEN-}" = "codeflare-enterprise" ]; then
-  printf 'GH_TOKEN=%s\n' "$GH_TOKEN"
-else
-  printf '%s\n' 'Enterprise GitHub placeholder is unavailable. No value printed.'
-fi
-```
-
-A connected Enterprise session prints `GH_TOKEN=codeflare-enterprise`. That value is a non-secret placeholder, not your GitHub token. Only after you see that placeholder, test Worker-side authorization:
-
-```bash
-gh api user --jq '{login, id}'
-```
-
-If GitHub returns your identity, the request authenticated after leaving the container while the reusable token stayed outside it.
+> Read this repository's open issue and the linked pull request. Explain what remains to be fixed, without changing either one or printing credentials.
 
 Other useful requests:
 
-- “Check whether this GitHub request uses a placeholder without exposing a reusable token.”
-- “Use my S3-compatible storage and confirm the request can reach only my assigned bucket.”
-- “Tell me whether credentials for this outbound call enter the shell before I run it.”
+- “Prepare a pull request description from my local changes. Stop before publishing it.”
+- “Process this file from my synchronized storage and put the result in a durable folder.”
+- “This project asks me to put a service secret in the shell. Explain whether a supported connection can keep it outside the container instead.”

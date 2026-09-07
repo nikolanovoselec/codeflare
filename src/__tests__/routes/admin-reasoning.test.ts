@@ -192,6 +192,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     expect(await (await app.request('/admin/reasoning/catalog')).json()).toEqual({ error: 'Access denied', code: 'FORBIDDEN' });
     expect((await app.request('/admin/reasoning/routes/codeflare-mesh/inventory')).status).toBe(403);
     expect((await app.request('/admin/reasoning/discover', { method: 'POST' })).status).toBe(403);
+    expect((await app.request('/admin/reasoning/discover', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...discoveryBody(), administratorConfirmed: true }) })).status).toBe(403);
   });
 
   it('accepts documented data.routes and returns the exact sanitized catalog schema', async () => {

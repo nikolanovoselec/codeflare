@@ -191,17 +191,36 @@ describe('Administrator route workspace', () => {
     expect(values(view.container).groupRouting[0].routes).toEqual(['general_usage', 'development']);
     expect(values(view.container).routeChecks.development).toBe('observed-check');
   });
-  it('REQ-ENTERPRISE-042: custom backend provenance is editable before Verify without requiring Save', async () => {
-    api.inventory.mockImplementation(async (route: string) => route === 'development' ? { ...inventory(route, false), legs: [{ nodeId: 'custom-node', provider: 'custom-mesh', declaredModel: 'mesh' }] } : inventory(route));
+  it('REQ-ENTERPRISE-042: verifies a three-model route without requiring a custom backend description', async () => {
+    api.inventory.mockImplementation(async (route: string) => route === 'development' ? { ...inventory(route, false), legs: [
+      { nodeId: 'custom-node', provider: 'custom-mesh', declaredModel: 'mesh' },
+      { nodeId: 'kimi', provider: 'workers-ai', declaredModel: 'kimi' },
+      { nodeId: 'glm', provider: 'workers-ai', declaredModel: 'glm' },
+    ] } : inventory(route));
     const view = mount(); await ready(view); await openRoute(view, 'development');
     const verify = view.getByRole('button', { name: 'Verify Profile for development' });
-    expect(verify).toBeDisabled();
-    const description = await view.findByLabelText('custom-node custom provider backend');
-    expect(description).toBeVisible();
-    await fireEvent.input(description, { target: { value: 'Qwen primary' } });
-    await waitFor(() => expect(verify).toBeEnabled());
+    expect(verify).toBeEnabled();
+    expect(view.queryByLabelText('custom-node custom provider backend')).toBeNull();
     await fireEvent.click(verify);
-    await waitFor(() => expect(api.discover).toHaveBeenCalledWith(expect.objectContaining({ backendDescriptions: { 'custom-node': 'Qwen primary' } })));
+    await waitFor(() => expect(api.discover).toHaveBeenCalledWith(expect.objectContaining({ route: 'development', profileRef: ref })));
+    expect(api.discover.mock.calls[0][0]).not.toHaveProperty('backendDescriptions');
+  });
+  it('REQ-ENTERPRISE-043: explicit administrator confirmation enables access without claiming live-check results', async () => {
+    api.discover.mockResolvedValueOnce({ classification: 'Administrator-confirmed', assignable: true,
+      checkId: 'admin-confirmation', verification: { ...proof('development'), method: 'administrator' } });
+    const view = mount(); await ready(view); await openRoute(view, 'development');
+    expect(values(view.container).dynamicRoutes).not.toContain('development');
+    await fireEvent.click(view.getByRole('button', { name: 'Mark development as verified' }));
+    await waitFor(() => expect(api.discover).toHaveBeenCalledWith(expect.objectContaining({ route: 'development', profileRef: ref, administratorConfirmed: true })));
+    expect(await view.findByText('Administrator-confirmed')).toBeVisible();
+    expect(view.queryByRole('table', { name: 'Selected profile checks' })).toBeNull();
+    await section(view, 'Access & fallback');
+    await fireEvent.click(view.getByRole('checkbox', { name: 'developers development route' }));
+    expect(values(view.container).dynamicRoutes).toContain('development');
+    expect(values(view.container).routeChecks.development).toBe('admin-confirmation');
+    await section(view, 'Routes');
+    await fireEvent.change(view.getByLabelText('development Pi compatibility profile'), { target: { value: `${offRef.id}\u001f${offRef.revision}\u001f${offRef.hash}` } });
+    expect(values(view.container).dynamicRoutes).not.toContain('development');
   });
   it('REQ-ENTERPRISE-043: changing a profile removes eligibility even when changing back', async () => {
     const view = mount(); await ready(view); await openRoute(view, 'general_usage');

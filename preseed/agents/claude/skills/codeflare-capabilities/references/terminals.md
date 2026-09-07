@@ -1,6 +1,6 @@
 # Any-device terminals, Herdr, continuity, and notifications
 
-## What I can do
+## What I do
 
 I run the same engineering session through a browser on a desktop, tablet, or phone. I do not require a local agent toolchain. When you reconnect, the browser attaches me to the existing PTY while its container remains alive, so the device can change without pretending the process moved into the phone.
 
@@ -8,7 +8,13 @@ I use Classic for up to six outer terminal tabs with labels, ordering, tiling, a
 
 I use the mobile terminal for touch, virtual-keyboard geometry, orientation changes, sticky control sequences, and voice input where the browser supports it. It is a real terminal adapted to glass, not a desktop screenshot shrunk until the text loses the will to live.
 
-When a structured question needs attention, I use Codeflare's immediate input-required signal. Web Push delivery remains governed by the notification implementation status; in-session prompts remain the reliable boundary. I use Herdr to watch agent state across panes and delay completion until tracked work has actually become ready.
+When a structured question needs attention, I use Codeflare's immediate input-required signal. I do not promise Web Push delivery; in-session prompts remain the reliable way to see a question. I use Herdr to watch agent state across panes and delay completion until tracked work has actually become ready.
+
+## How I use the workspace with you
+
+For a focused bug fix, one terminal may be enough. For a longer investigation, I help arrange a shell beside the agent conversation in Herdr, or keep separate backend sessions visible in MultiView on a larger screen. You can follow the work without repeatedly swapping away from the error you are trying to understand.
+
+If you leave your desk, reconnect from your phone to the live session and answer the question that is holding up the task. I keep the engineering work in the backend; the phone is a way to reach it, not a machine that needs its own checkout and toolchain. Browser and notification support determine which attention signals you receive, so I do not tell you to rely on a push that may not arrive.
 
 ## Where the boundary sits
 
@@ -25,5 +31,5 @@ Paste this request:
 Other useful requests:
 
 - “Set up Herdr panes for three agents and wait until each is really ready.”
-- “Ask me a structured question that I can answer from my phone.”
+- “Ask me a structured question that I answer from my phone.”
 - “Recover this browser session and tell me what state did not survive.”

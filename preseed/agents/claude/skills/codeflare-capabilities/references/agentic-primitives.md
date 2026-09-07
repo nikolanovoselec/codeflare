@@ -1,24 +1,30 @@
-# Vault, SilverBullet, memory, Graphify, Todo, and subagents
+# Vault, SilverBullet, memory, Graphify, Goal, Plan, Todo, and subagents
 
-## What I can do
+## What I do
 
 I preserve the useful parts of a long engineering life instead of treating every new session as amnesia with a terminal.
 
 I use the Vault as an Obsidian-compatible Markdown knowledge base opened through SilverBullet. It carries notes, plans, references, journal entries, inbox material, attachments, pasted content, and structured session captures. You can edit it directly, create wikilinks, and keep the source as ordinary files.
 
-Codeflare's memory subsystem continuously persists decisions, corrections, observations, debugging discoveries, and source references in the Vault. These captures join the cumulative knowledge graph as permanently queryable content, unless you remove them. I retrieve that history automatically in future sessions and connect it to current requirements, incidents, plans, and code.
+Codeflare's memory subsystem persists decisions, corrections, observations, debugging discoveries, and source references in the Vault. Supported captures that complete indexing join the cumulative knowledge graph and remain queryable unless you remove them. I retrieve that history in future sessions and connect it to current requirements, incidents, plans, and code. I do not treat a capture that has not persisted or indexed as already available.
 
-I use Graphify to combine supported Vault knowledge with source and architecture from the active repository, then query them as one graph. That connects a prior incident, a playbook, a requirement, and the function that implements it. I automatically retrieve relevant graph context when current work connects to it.
+I use Graphify to combine supported Vault knowledge with source and architecture from the active repository, then query them as one graph. That connects a prior incident, a playbook, a requirement, and the function that implements it. I retrieve relevant graph context when current work connects to it and the graph tools are available. I ask before building or refreshing a repository graph.
 
 I use Todo to keep executable work and dependencies honest. I delegate investigation, review, CI monitoring, and knowledge extraction to specialist subagents when parallel work helps. I remain the root owner that combines their evidence and controls mutations.
 
 ## Goal and Plan
 
-Goal records the desired end state, relevant constraints, non-goals, acceptance evidence, and approval boundaries. For non-trivial work, Plan is the execution path I maintain while working. I update it when repository evidence changes my understanding. I ask only when missing information would materially change the outcome or risk, or force an irreversible decision; routine implementation details come from repository evidence and established conventions.
+Goal records the desired end state, relevant constraints, non-goals, acceptance evidence, and approval boundaries. For non-trivial work, an execution plan is the path I maintain while working. That plan is not the same as Pi's native Plan Mode: Goal and native Plan Mode cannot own the same session at the same time. I plan first, leave Plan Mode, and then execute under Goal. I update it when repository evidence changes my understanding. I ask only when missing information would materially change the outcome or risk, or force an irreversible decision; routine implementation details come from repository evidence and established conventions.
 
 > **Goal:** Upgrade the authentication boundary without changing the public API. Preserve tenant isolation, pass the existing security checks, and stop before deployment.
 >
 > **Plan:** I inspect the current boundary, identify affected requirements and tests, propose the smallest safe change, implement it, run the required review lanes, and report evidence plus unresolved decisions.
+
+## Put it to work across sessions
+
+After a difficult debugging session, ask me to capture the decision and the evidence that changed our minds. You can open that note in SilverBullet, edit it as Markdown, and link it to your own notes. In a later session, I use the captured history to avoid repeating a dead-end investigation, while checking that the current code still agrees.
+
+For larger work, I use Goal to keep the outcome clear, an execution plan to maintain the approach, and Todo to track executable steps and dependencies. I delegate independent investigations to subagents and bring their findings back into one plan. You get one accountable thread, not a pile of agent reports to reconcile yourself.
 
 ## Where the boundary sits
 

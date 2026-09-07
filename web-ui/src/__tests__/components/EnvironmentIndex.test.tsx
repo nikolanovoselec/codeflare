@@ -262,7 +262,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
       const view = mount();
       await openRoute('development');
       await screen.findByText('@cf/development');
-      expect(screen.getByRole('button', { name: 'Configure development' })).toHaveTextContent('Needs verification · inactive');
+      expect(screen.getByRole('button', { name: 'Configure development' })).toHaveTextContent('Needs confirmation · inactive');
       const save = screen.getByRole('button', { name: 'Review changes' });
       expect(save).toBeDisabled();
       await fireEvent.submit(save.closest('form')!);
@@ -274,25 +274,41 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     },
   );
 
-  it('REQ-ENTERPRISE-038: saves automatic verification with the route and restores its indicator after reload', async () => {
+  it.each([undefined, 'administrator'] as const)('REQ-ENTERPRISE-038: saves %s verification through Review, Back, confirmation and reload', async (method) => {
     const initial = aiRouting();
     initial.reasoningConfiguration.routeAssignments.development = { activeProfile: ref };
     api.configuration.mockResolvedValueOnce(configuration(initial));
     api.inventory.mockImplementation(async (route: string) => inventory(route));
-    api.discover.mockResolvedValueOnce(verified());
+    const verification = { ...proof(), ...(method && { method }) };
+    const confirmationWarning = { code: 'administrator_confirmed', message: 'Administrator confirmation does not include live checks.' };
+    api.discover.mockResolvedValueOnce(method ? { classification: 'Administrator-confirmed', assignable: true, checkId: 'development-check', verification } : verified());
+    if (method) api.preview.mockImplementation(async (section, baseRevision, values) => ({ ...preview(section, baseRevision, values), warnings: [confirmationWarning] }));
     mount();
     await openRoute('development');
     expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
-    await verifyRoute();
-    expect(api.discover).toHaveBeenCalledWith({ route: 'development', profileRef: ref, maxCompletionTokens: 4096 });
+    if (method) {
+      const action = screen.getByRole('button', { name: 'Mark development as verified' });
+      await waitFor(() => expect(action).toBeEnabled());
+      await fireEvent.click(action);
+      expect(await screen.findByText('Administrator-confirmed')).toBeVisible();
+      expect(screen.queryByRole('table', { name: 'Selected profile checks' })).toBeNull();
+    } else await verifyRoute();
+    expect(api.discover).toHaveBeenCalledWith({ route: 'development', profileRef: ref, ...(method && { administratorConfirmed: true }), maxCompletionTokens: 4096 });
     expect(api.start).not.toHaveBeenCalled();
     await review();
     expect(api.start).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to edit' }));
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled();
+    await review();
+    if (method) {
+      expect(screen.getByRole('button', { name: 'Confirm Save' })).toBeDisabled();
+      await fireEvent.click(screen.getByRole('checkbox', { name: /confirm warning/i }));
+    }
     await confirm();
     const savedValues = saved();
-    expect(savedValues.reasoningConfiguration.routeAssignments.development).toEqual({ activeProfile: ref, routeVersion: 'development-v1', verification: proof() });
+    expect(savedValues.reasoningConfiguration.routeAssignments.development).toEqual({ activeProfile: ref, routeVersion: 'development-v1', verification });
     expect(savedValues.routeChecks).toEqual({ development: 'development-check' });
-    expect(api.start).toHaveBeenCalledWith('aiRouting', 7, submitted(), []);
+    expect(api.start).toHaveBeenCalledWith('aiRouting', 7, submitted(), method ? [confirmationWarning.code] : []);
     api.configuration.mockResolvedValueOnce(configuration(persisted(savedValues), 8));
     api.inventory.mockImplementation(async (route: string) => inventory(route, savedValues.reasoningConfiguration.routeAssignments[route]?.verification));
     cleanup();
@@ -300,7 +316,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     await openRoute('development');
     await screen.findByText('@cf/development');
     expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
-    expect(within(screen.getByRole('button', { name: 'Configure development' })).getByText('Verified')).toBeVisible();
+    expect(within(screen.getByRole('button', { name: 'Configure development' })).getByText(method ? 'Administrator-confirmed' : 'Verified')).toBeVisible();
     expect(draft(reloaded.container).routeAssignments.development).toEqual(savedValues.reasoningConfiguration.routeAssignments.development);
     // Restoring a persisted proof must use management reads, not another paid check.
     expect(api.discover).toHaveBeenCalledTimes(1);

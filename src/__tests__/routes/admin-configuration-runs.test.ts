@@ -390,7 +390,7 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(browser.kv.put).not.toHaveBeenCalledWith(SETUP_KEYS.BROWSER_RENDER_TOKEN, expect.anything(), expect.anything());
   });
 
-  it('REQ-ENTERPRISE-038: retains exact single-leg verification through confirmed Save and configuration GET', async () => {
+  it.each([undefined, 'administrator'] as const)('REQ-ENTERPRISE-038: retains exact %s verification through confirmed Save and configuration GET', async (method) => {
     const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'deployment-test-token' });
     const ref = getBuiltInProfileRef('workers-ai-kimi-k-thinking');
     const configuration = verifiedRoutingConfiguration({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {
@@ -399,11 +399,12 @@ describe('configuration runs (REQ-SETUP-018)', () => {
         evidence: { current: true, toolReplay: true, ingress: 'ai-gateway-chat-completions', status: 'Verified' },
       }] },
     } }, { gatewayUrl: routingGatewayUrl, token: 'deployment-test-token' });
+    if (method) configuration.routeAssignments.general_usage.verification!.method = method;
     const checkId = await issueRouteCheck(kv as unknown as KVNamespace, 'general_usage', configuration.routeAssignments.general_usage.verification!);
     const values = { gatewayUrl: routingGatewayUrl, replacementToken: '',
       dynamicRoutes: ['general_usage'], defaultRoute: { route: 'general_usage', reasoning: 'medium' },
       routeContextWindows: { general_usage: 256000 }, groupRouting: [{ accessGroup: 'engineering', routes: ['general_usage'], defaultRoute: 'general_usage', reasoning: 'medium' }], reasoningConfiguration: configuration, routeChecks: { general_usage: checkId } };
-    const response = await post(app, { section: 'aiRouting', baseRevision: 0, values, confirmedWarnings: ['reasoning_profile_unverified'] });
+    const response = await post(app, { section: 'aiRouting', baseRevision: 0, values, confirmedWarnings: method ? ['administrator_confirmed'] : ['reasoning_profile_unverified'] });
     expect(response.status).toBe(200);
     const events = snapshots(await response.text());
     expect(events[events.length - 1].run).toMatchObject({ state: 'succeeded', resultingRevision: 1 });

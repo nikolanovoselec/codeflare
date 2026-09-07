@@ -20,7 +20,7 @@ function customRevision(overrides: Record<string, unknown> = {}) {
 }
 
 describe('REQ-ENTERPRISE-031 atomic reasoning configuration', () => {
-  it('parses one bounded document and preserves exact route and leg profile references', async () => {
+  it.each([undefined, 'ornith-1.5'])('preserves exact route and leg references with optional backend description %s', async (customProviderBackend) => {
     const { parseReasoningConfiguration } = await subject();
     const profileRef = getBuiltInProfileRef('workers-ai-glm-thinking');
     const input = {
@@ -29,7 +29,7 @@ describe('REQ-ENTERPRISE-031 atomic reasoning configuration', () => {
         mesh: {
           activeProfile: profileRef,
           routeVersion: 'route-v1',
-          legs: [{ nodeId: 'primary', provider: 'custom-mesh', declaredModel: 'mesh', customProviderBackend: 'ornith-1.5', profileRef }],
+          legs: [{ nodeId: 'primary', provider: 'custom-mesh', declaredModel: 'mesh', ...(customProviderBackend && { customProviderBackend }), profileRef }],
           commonMapping: (() => {
             const levels = { medium: { removePaths: [], writes: [{ path: 'reasoning_effort', value: 'medium' }] } };
             return { levels, digest: canonicalHash(levels) };
@@ -231,7 +231,7 @@ describe('REQ-ENTERPRISE-031 atomic reasoning configuration', () => {
     const malformed = [
       { assignment: null, error: /must be an object/i },
       { assignment: { activeProfile, legs: {} }, error: /legs must be an array/i },
-      { assignment: { activeProfile, legs: [{ ...leg, provider: 'custom-mesh' }] }, error: /backend provenance/i },
+      { assignment: { activeProfile, legs: [{ ...leg, provider: 'custom-mesh', customProviderBackend: 'bad\nvalue' }] }, error: /customProviderBackend/i },
       { assignment: { activeProfile, legs: [leg, leg] }, error: /duplicate nodeId/i },
     ];
 

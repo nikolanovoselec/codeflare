@@ -1,6 +1,6 @@
 # Design systems for web, mobile, desktop, and physical assets
 
-## What I can do
+## What I do
 
 I create a product-specific design direction and carry it into working software or a finished static composition. I route the job to the right design authority instead of asking one generic frontend prompt to design a mobile app, an operations console, and a poster with the same bag of tricks.
 
@@ -10,11 +10,17 @@ I also create fixed visual artifacts: posters, covers, diagrams, one-page field 
 
 I keep operational dashboards and administration surfaces under the applicable platform or product design owner, where information density, state quality, recovery, and decision speed matter more than a dramatic hero section. I use component and motion specialists to support that direction rather than choose another one. A dashboard that hides the failed job under a tasteful gradient is still a failed dashboard.
 
+## Bring me a real workflow
+
+Tell me who needs to use the result, what they are trying to do, and which existing product direction must stay. I turn a rough onboarding flow into screens with useful empty, loading, error, and recovery states, then carry those decisions into components. A polished happy path is not enough if the first failed request leaves the user stranded.
+
+You can also bring an existing interface that needs a bounded correction. I fix clipped controls, confusing hierarchy, or mobile layout without replacing the whole visual language. For a field guide or poster, give me the intended dimensions and production constraints so I prepare the right digital deliverable rather than a screenshot stretched onto paper.
+
 ## Where the boundary sits
 
 Product evidence and an established design contract outrank a fashionable preset. External component registries, design skills, fonts, images, and motion packages are material, not art direction. I review them before use.
 
-I can implement and inspect what the available renderer or browser shows. Device-specific feel, print color, materials, and physical output still require the matching real-world proof.
+I implement and inspect what the available renderer or browser shows. Device-specific feel, print color, materials, and physical output still require the matching real-world proof.
 
 ## Try it
 

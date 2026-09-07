@@ -1,27 +1,33 @@
 # Managed skills, policy, and curation
 
-## What I can do
+## What I do
 
-I can work with an agent environment whose skills, rules, specialists, hooks, extensions, and runtime projections are delivered as reviewed managed content. The curation repository owns that source. One compiler projects portable content into Claude, Pi, Codex, OpenCode, Antigravity, and the supported rule surfaces without pretending every runtime has identical APIs.
+I use your organization's reviewed skills, rules, specialists, hooks, and extensions without making you assemble a new agent setup for every session. Teams teach me their review standard or incident workflow once and distribute that guidance through managed content. You still give me the real task and its constraints; the shared guidance keeps routine expectations from becoming a long preamble you paste every morning.
 
-I publish reviewed policy and skills as signed immutable releases across supported agent runtimes without rebuilding the container image when the change stays inside the existing compiler and runtime contract. The publication pipeline compiles every target, rebuilds the bundle twice, compares the bytes, signs the exact gzip payload, and publishes a monotonically increasing release. Each running image selects the newest verified release compatible with its runtime dependency hash.
+I help you understand an available skill, apply it to your repository, or draft an improvement when a recurring task needs clearer guidance. For example, I turn a release checklist into a focused workflow that asks for the right evidence and stops before deployment. A skill should save you work, not merely add more instructions to read.
 
-I update an organization's engineering policy or specialist workflow without rebuilding an entire workstation image. It also keeps the update auditable. “The prompt changed somewhere” is not release management.
+## How a team changes shared guidance
+
+If you maintain the organization's curation, I help update the authoritative source, keep portable content portable, and prepare the change for review and CI. One compiler projects the managed source into the supported Claude, Pi, Codex, OpenCode, and Antigravity layouts and supported rule surfaces. I do not pretend every runtime has identical APIs or that every target supports skill directories.
+
+With authorization to publish, I follow reviewed content through the signed immutable release process. CI compiles every supported target, builds the bundle twice, compares the bytes, and signs the exact payload. Each image selects the newest verified release compatible with its runtime dependency hash. Ordinary users receive compatible managed guidance without rebuilding a workstation image themselves.
+
+I keep this distinction clear: asking me to use a skill is an ordinary work request; changing shared policy or publishing it is a maintainer action. “The prompt changed somewhere” is not release management.
 
 ## Where the boundary sits
 
-I ship through curation only content that the installed runtime already understands. I put a new package, native binary, compiler transform, seed ABI, or image-owned path into the Codeflare image first.
+A content-only update ships through curation when the installed compiler and runtime already understand it. A new package, native binary, compiler transform, seed ABI, or image-owned path needs the owning Codeflare change first. A signature proves identity and integrity, not compatibility by magic.
 
-The managed source is authoritative for managed sessions. A separately versioned baked fallback may lag when a task explicitly excludes a Codeflare image change. Signatures prove release identity and integrity; they do not make incompatible content executable.
+The managed source is authoritative for managed sessions. Codeflare's separately versioned baked fallback may lag; I do not create a duplicate skill or an image change merely to edit managed guidance. I follow the repository's ownership rules for the content actually being changed.
 
 ## Try it
 
 Ask me:
 
-> Add this organization-wide engineering skill, keep it portable, measure its runtime footprint, run managed-seed CI, and publish the next immutable release.
+> Use the available engineering guidance to plan this bug fix. Explain the evidence I should expect and which decisions remain mine.
 
 Other useful requests:
 
-- “Add a new portable skill and show which runtimes receive it.”
-- “Update this preseeded skill in curation, then align Codeflare’s embedded preseed.”
-- “Prepare a managed seed release and verify the compiled bundle is reproducible.”
+- “Help me draft a reusable review checklist from the mistakes we keep finding, without publishing it.”
+- “Explain which available specialist workflow fits this migration.”
+- “I maintain our curation. Prepare this skill improvement for review and managed-seed CI, and stop before publication.”

@@ -155,10 +155,10 @@ export const ReasoningCheckDetails: Component<{ result: ReasoningDiscoveryResult
 </details>;
 
 const ReasoningProfileEditor: Component<Props> = (props) => {
-  let heading!: HTMLHeadingElement;
+  let panel!: HTMLElement;
   let disposed = false;
   onCleanup(() => { disposed = true; props.onBusyChange?.(false); });
-  onMount(() => { heading.focus(); void discover(); });
+  onMount(() => { panel.focus(); void discover(); });
   const [result, setResult] = createSignal<ReasoningDiscoveryResult>();
   const [name, setName] = createSignal('');
   const [busy, setBusy] = createSignal(false);
@@ -211,13 +211,11 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
     }
   };
 
-  return <section class="admin-profile-editor admin-form-wide" aria-labelledby="custom-profile-heading" onKeyDown={(event) => { if (event.key === 'Enter' && event.target instanceof HTMLInputElement) event.preventDefault(); }}>
+  return <section class="admin-profile-editor admin-form-wide" aria-label={`Discover compatibility for ${props.route}`} tabIndex={-1} ref={panel} onKeyDown={(event) => { if (event.key === 'Enter' && event.target instanceof HTMLInputElement) event.preventDefault(); }}>
     <div class="admin-subsection-heading">
-      <div>
-        <p class="admin-step-label">Discover Profile</p>
-        <h5 id="custom-profile-heading" tabIndex={-1} ref={heading}>Discover compatibility for {props.route}</h5>
-        <p role={busy() ? 'status' : undefined} aria-live="polite">{busy() ? `Discovering profiles for ${props.route}… Checking reasoning, tool calls, and tool-result replay.` : 'Discovery does not save changes or enable access.'}</p>
-      </div>
+      <Show when={busy()} fallback={<h5>Discover compatibility for {props.route}</h5>}>
+        <div class="admin-inline-progress" role="status"><progress aria-label="Discovering profiles" /><span>Discovering profiles for {props.route}…</span></div>
+      </Show>
       <button type="button" class="admin-link-button" onClick={props.onCancel}>Cancel</button>
     </div>
     <Show when={error()}><div class="admin-inline-error" role="alert">{error()}</div></Show>
@@ -227,7 +225,7 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
         <div class="admin-discovery-success">
           <strong>Compatible Pi profiles found</strong>
           <p>These translations fit the observed behavior. Provider labels describe original testing, not the model currently behind this route.</p>
-          <span>Assign a profile to the draft, Verify it, then Save. Mapping alone does not enable access.</span>
+          <span>Assign a profile, verify or confirm it, then Save to activate access.</span>
           <Show when={discovered().diagnostics?.some((diagnostic) => diagnostic.status === 429)}><p role="status">The remaining checks stopped because of rate limiting. Completed matches are shown below; no automatic retry was made.</p></Show>
         </div>
         <For each={matchedProfiles()}>{(profile) => {
@@ -246,7 +244,7 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
         </div>
         <label class="admin-form-field admin-profile-name"><span>Profile name</span><input aria-label="Profile name" maxlength="128" placeholder={`For example, ${props.route} Pi compatibility`} value={name()} onInput={(event) => setName(event.currentTarget.value)} /></label>
         <div class="admin-review-action">
-          <div><strong>Assign to {props.route}</strong><span>Create and assign the draft, then Verify Profile before granting access. Nothing is stored until Save is confirmed.</span></div>
+          <div><strong>Assign to {props.route}</strong><span>Create the draft, verify or confirm it, then assign access and Save.</span></div>
           <button type="button" class="admin-primary-button" onClick={save}>Create &amp; Assign</button>
         </div>
       </Show>

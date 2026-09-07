@@ -100,11 +100,15 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     expect(DISCOVERY_COMPLETION_TOKENS).toBe(4096);
     expect(discoverMock).toHaveBeenCalledExactlyOnceWith({ route: 'mesh', maxCompletionTokens: 4096 });
     expect(view.getByRole('status')).toHaveTextContent('Discovering profiles');
+    expect(view.getByRole('progressbar', { name: 'Discovering profiles' })).not.toHaveAttribute('value');
+    expect(view.queryByRole('heading')).toBeNull();
+    expect(view.getByRole('button', { name: 'Cancel' })).toBeEnabled();
     expect(view.queryByRole('spinbutton')).toBeNull();
     expect(view.queryByRole('button', { name: /check compatibility|checking/i })).toBeNull();
     expect(view.queryByText('Advanced mapping controls')).toBeNull();
     complete({ classification: 'Inconclusive', assignable: false, diagnostics: [{ levels: ['high'], stage: 'tool-replay', code: 'completion_limit' }] });
     expect(await view.findByRole('alert')).toHaveTextContent(/incomplete at the fixed 4096-token budget/i);
+    expect(view.queryByRole('progressbar')).toBeNull();
     expect(view.container).not.toHaveTextContent(/increase|edit.*ceiling/i);
     expect(view.container.querySelectorAll('details')).toHaveLength(0);
     expect(view.queryByRole('spinbutton')).toBeNull();

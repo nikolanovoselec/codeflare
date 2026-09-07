@@ -1,12 +1,18 @@
 # Browser research and authorized deployed verification
 
-## What I can do
+## What I do
 
-I can start with ordinary web retrieval for public static material. When the page depends on JavaScript, browser state, redirects, or interaction, I can use an isolated Chromium session through Browser Run.
+I start with ordinary web retrieval for public static material. When the page depends on JavaScript, browser state, redirects, or interaction, I use an isolated Chromium session through Browser Run.
 
 I use that browser to navigate, click, fill forms, inspect the rendered accessibility tree, measure DOM and computed layout, capture screenshots, test responsive viewports, and follow network or console evidence. I use it for public research and explicitly authorized application flows.
 
-For deployed verification, I can compare what the browser renders with the acceptance criteria. I can check mobile overflow, exercise a non-destructive workflow, confirm a redirect, or gather one screenshot with exact viewport and URL evidence.
+For deployed verification, I compare what the browser renders with the acceptance criteria. I check mobile overflow, exercise a non-destructive workflow, confirm a redirect, or gather one screenshot with exact viewport and URL evidence.
+
+## Pick the evidence you need
+
+If you bring me a public documentation page that only renders after JavaScript runs, I read its rendered content and relate it to your integration. If you bring me a layout bug, give me the URL, viewport, and interaction that exposes it. I collect the rendered evidence instead of guessing from source alone.
+
+For a form workflow, tell me where to stop. I inspect labels and validation without submitting, or follow a specifically authorized flow when the test environment and allowed actions are clear. That keeps a request to inspect the checkout page from becoming an accidental purchase.
 
 ## Where the boundary sits
 

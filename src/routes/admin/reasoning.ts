@@ -42,10 +42,11 @@ const discoverySchema = z.object({
   route: routeSchema,
   profileRef: profileRefSchema.optional(),
   profileDraft: z.unknown().optional(),
+  administratorConfirmed: z.literal(true).optional(),
   backendDescriptions: backendDescriptionsSchema.optional(),
   gateway: gatewayDraftSchema.optional(),
   maxCompletionTokens: z.number().int().min(32).max(16_384).default(4096),
-}).strict();
+}).strict().refine((request) => !request.administratorConfirmed || Boolean(request.profileRef), 'Confirmation requires a selected profile');
 
 type ProfileRef = z.infer<typeof profileRefSchema>;
 
@@ -481,8 +482,20 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
       const stored = configuration.routeAssignments[request.data.route] as unknown as RouteReasoningAssignment | undefined;
       const descriptions = request.data.backendDescriptions ?? assignmentBackendDescriptions(stored);
       const before = await loadCheckedRouteInventory(gateway, request.data.route, descriptions);
-      if (!before.provenanceComplete || before.inventory.models.length === 0) {
-        return c.json({ error: 'Custom provider backend provenance is required before verification', code: 'validation_error' }, 400);
+      if (before.inventory.models.length === 0) {
+        return c.json({ error: 'The route must contain a model', code: 'validation_error' }, 400);
+      }
+      // REQ-ENTERPRISE-043: explicit admin authority uses the existing receipt/Save path, never fabricated canary results.
+      if (request.data.administratorConfirmed) {
+        const verification: RouteVerification = {
+          schemaVersion: 1, method: 'administrator', profileRef: request.data.profileRef,
+          routeVersion: before.inventory.versionId, inventoryDigest: before.inventoryDigest,
+          connectionFingerprint: connectionFingerprint(gateway)!, canaryVersion: PI_WIRE_CANARY_VERSION,
+          supportedLevels: [...(profile as unknown as NormalizedReasoningProfile).supportedLevels],
+          scope: before.scope, checkedAt: new Date().toISOString(),
+        };
+        const checkId = await issueRouteCheck(c.env.KV, request.data.route, verification);
+        return c.json({ route: request.data.route, classification: 'Administrator-confirmed', assignable: true, checkId, verification });
       }
       const report = await discoverPiCompatibility({
         accountId: parsedGateway.accountId,
