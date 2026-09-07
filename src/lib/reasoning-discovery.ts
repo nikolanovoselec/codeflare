@@ -956,6 +956,8 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
       maxCompletionTokens: input.maxCompletionTokens,
       sessionId: `${profile.id}-${representativeLevel}-reasoning`,
     }), group.semantic);
+    // The paid canary budget belongs to the caller, not the profile mapping.
+    reasoningRequest.max_completion_tokens = input.maxCompletionTokens;
     accounting.logicalProbes += 1;
     const reasoningProbe = await executeReasoningProbe(common, reasoningRequest);
     addEvidence(accounting, reasoningProbe);
@@ -975,6 +977,7 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
       maxCompletionTokens: input.maxCompletionTokens,
       sessionId: `${profile.id}-${representativeLevel}-tools`,
     }), group.semantic);
+    initialRequest.max_completion_tokens = input.maxCompletionTokens;
     accounting.logicalProbes += 1;
     const toolLifecycle = await executeToolLifecycle(common, initialRequest);
     addEvidence(accounting, toolLifecycle.first);
@@ -998,6 +1001,7 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
       maxCompletionTokens: input.maxCompletionTokens,
       sessionId: `${profile.id}-off-candidate`,
     }), offCandidate);
+    request.max_completion_tokens = input.maxCompletionTokens;
     accounting.logicalProbes += 1;
     const probe = await executeReasoningProbe(common, request);
     addEvidence(accounting, probe);

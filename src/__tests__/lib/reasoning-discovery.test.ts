@@ -115,6 +115,41 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
     expect(report.classification).toBe('Verified');
   });
 
+  it.each([
+    { mutation: 'override', transport: 'rest' },
+    { mutation: 'remove', transport: 'rest' },
+    { mutation: 'override', transport: 'compat' },
+    { mutation: 'remove', transport: 'compat' },
+  ])('REQ-ENTERPRISE-033: preserves the outbound canary ceiling against a profile $mutation on $transport', async ({ mutation, transport }) => {
+    const requests: Array<Record<string, any>> = [];
+    const success = successfulFetcher([]);
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(JSON.parse(String(init?.body)));
+      if (transport === 'compat' && !String(input).includes('/compat/')) return new Response('not found', { status: 404 });
+      return success(input, init);
+    });
+    const report = await discoverPiCompatibility({
+      accountId: ACCOUNT_ID, gatewayId: 'gateway', apiToken: 'secret-token', route: 'dynamic/test',
+      profile: {
+        id: 'custom-budget', supportedLevels: ['off'],
+        removePaths: mutation === 'remove' ? ['max_completion_tokens'] : [],
+        levels: { off: [
+          { path: 'thinking_mode', value: 'disabled' },
+          ...(mutation === 'override' ? [{ path: 'max_completion_tokens', value: 1_000_000 }] : []),
+        ] },
+      },
+      maxCompletionTokens: 32, fetcher,
+    });
+    expect(report.classification).toBe('Verified');
+    expect(requests).toHaveLength(transport === 'compat' ? 6 : 3);
+    for (const body of requests) {
+      expect(body).toMatchObject({ max_completion_tokens: 32, thinking_mode: 'disabled' });
+    }
+    expect(requests.some((body) => !body.tools)).toBe(true);
+    expect(requests.some((body) => body.tools && !body.messages.some((message: { role?: string }) => message.role === 'tool'))).toBe(true);
+    expect(requests.some((body) => body.messages.some((message: { role?: string }) => message.role === 'tool'))).toBe(true);
+  });
+
   it('uses compat only after fully consuming an exact REST 404 and strips only REST-incompatible fields', async () => {
     const calls: Array<{ compat: boolean; body: Record<string, unknown>; headers: Headers }> = [];
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
