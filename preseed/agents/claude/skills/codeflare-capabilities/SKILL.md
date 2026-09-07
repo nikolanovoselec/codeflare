@@ -10,8 +10,7 @@ Use this skill for broad Codeflare capability or onboarding requests and for fol
 ## Routing
 
 - Broad capability, onboarding, tour, or “what can you do?” request: read `references/overview.md` completely. Output its entire contents verbatim, from the first line through the last. Do not summarize, paraphrase, restructure, omit sections, add an introduction, add bullets, or append options. Preserve the page’s existing formatting. If the read is truncated, read the remaining content before answering.
-- One number from 1 through 14 as a menu follow-up: read only the matching reference below and return its complete canonical page unchanged.
-- Comma-separated menu numbers: read only those matching references and return their complete canonical pages unchanged, in the user's requested order.
+- During capability navigation, bare or comma-separated numbers 1–14 always select the fixed top-level references below, regardless of the last page displayed—not items in its headings, lists, examples, or “Try it” section. Read only the selected references completely and output them verbatim in the requested order, continuing any truncated reads.
 - A named capability that clearly selects one menu item: read only that reference and return its complete canonical page unchanged.
 - An unmapped number: ask the user to choose 1 through 14.
 

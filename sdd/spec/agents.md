@@ -3652,7 +3652,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. A number-only, comma-separated, or named follow-up reads only the reference or references selected by the user. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Routing --> <!-- @manual: Reply with one number and then request one multi-subsystem selection; inspect loaded files. -->
+1. A number-only, comma-separated, or named follow-up reads only the reference or references selected by the user. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Routing --> <!-- @manual: In capability navigation, send 5 then 1 and verify terminals then SDD are returned verbatim, not a terminals example; send 5,1 and check the same top-level order; verify a number in an unrelated task stays task-scoped. -->
 2. A deep dive states supported capabilities directly while retaining applicable permission, operator-configuration, external-system, and unproven-capability boundaries. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer boundary --> <!-- @manual: Review configured, unconfigured, permission-gated, and external-system deep dives. -->
 3. A deep dive gives a concrete example the user or operator can try. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer boundary --> <!-- @manual: Review each applicable user- or administrator-operated example. -->
 4. User-facing tutorials use Codeflare to advance the user's work and omit Codeflare's own source paths, requirement IDs, implementation anchors, and maintainer navigation. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Answer boundary --> <!-- @manual: Review every deep-dive reference for internal repository navigation. -->
