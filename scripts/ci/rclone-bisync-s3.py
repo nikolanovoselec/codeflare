@@ -122,7 +122,7 @@ class Proxy(http.server.BaseHTTPRequestHandler):
 
 
 def test_recovery_archive_filters(run, root, server_root):
-    """REQ-STOR-011 AC4: flat S3 listings cannot admit home-cache archives."""
+    """REQ-STOR-011 AC5–AC7: isolate/preserve archives without changing live-file sync."""
     entrypoint = (Path(__file__).resolve().parents[2] / "entrypoint.sh").read_text()
     start = entrypoint.index('if [ "${SESSION_MODE:-default}" = "advanced" ]; then')
     common = entrypoint.index("RCLONE_FILTERS_COMMON=(", start)
