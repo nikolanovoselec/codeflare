@@ -4,7 +4,7 @@ import EnvironmentAreaFields, { environmentValues } from '../../components/admin
 import { normalizeCustomProfile } from '../../../../src/lib/reasoning-profiles';
 import type {
   PiReasoningLevel, ProfileRevisionRef, ReasoningCatalog, ReasoningConfiguration,
-  ReasoningDiscoveryResult, ReasoningManagementContext, ReasoningRouteAssignment,
+  ReasoningDiscoveryResult, ReasoningRouteAssignment,
   ReasoningRouteInventory, ReasoningRouteVerification,
 } from '../../types';
 

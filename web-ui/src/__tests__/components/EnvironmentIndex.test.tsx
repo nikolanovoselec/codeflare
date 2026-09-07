@@ -230,7 +230,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(screen.queryByRole('heading', { name: 'Confirm Save' })).not.toBeInTheDocument();
     await verifyRoute();
     expect(save).toBeDisabled();
-    expect(screen.getByText('Assign a checked route to at least one group before saving.')).toBeVisible();
+    expect(screen.getByText('Assign an available route to at least one group before saving.')).toBeVisible();
     await fireEvent.submit(save.closest('form')!);
     expect(api.preview).not.toHaveBeenCalled();
     await section('Access & fallback');

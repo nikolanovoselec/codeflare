@@ -365,7 +365,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 - Candidate-specific request rejection stops that candidate without retry.
 - Complete existing-profile matches precede partial candidate drafts.
 - Rate limiting never triggers automatic retries or custom-draft creation.
-- Completed matches require explicit selection and Verify before activation.
+- Completed matches require explicit selection followed by live verification or administrator confirmation before activation.
 - Other fatal failures suppress recommendations and drafts.
 - Retained matches show a notice that remaining checks stopped on rate limiting. <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (REQ-ENTERPRISE-035: offers completed matches with a rate-limit notice without retrying) -->
 - Partial drafts require one unambiguous maximal mapping, never a union of contradictory protocols.
@@ -484,7 +484,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Constraints:**
 
-- Policy defaults require eligible live-verified or administrator-confirmed routes; profile selection alone remains a draft operation.
+- Policy defaults require eligible live-verified or administrator-confirmed routes; profile selection alone remains a draft operation. <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-043: explicit administrator confirmation enables access without claiming live-check results) -->
 - Catalog hydration preserves existing selections; changing the route or profile replaces an unsupported selection with a supported level.
 
 **Priority:** P1
@@ -566,7 +566,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 2. Invalid draft gateway credentials or provenance are rejected before external I/O. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (rejects draft gateway credentials, unsafe hosts and provenance before external I/O) -->
 3. Transient connection overlays reuse saved encrypted credentials without persisting replacements during checks. <!-- @impl: src/lib/ai-gateway-management.ts::resolveGatewayConnection --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (reuses the saved encrypted token for draft inspection without changing storage) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-042: checking changed credentials does not save or run model probes) -->
 4. Selected verification accepts one bounded canonical unsaved custom revision with its exact reference. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (verifies an unsaved canonical custom profile and draft gateway without activation) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (rejects invalid, mismatched and mutated or disabled existing custom drafts before provider I/O) -->
-5. Verification accepts custom-provider and multi-model routes without a backend description; absent custom provenance limits live evidence to the observed path. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-042: verifies a three-model route without requiring a custom backend description) -->
+5. Verification accepts custom-provider and multi-model routes without a backend description. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-042: verifies a three-model route without requiring a custom backend description) -->
+6. Absent custom provenance limits live evidence to the observed path. <!-- @impl: src/lib/reasoning-verification.ts::checkedRouteInventory --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (verifies an undescribed custom backend without inventing inherited provenance) -->
 
 **Constraints:**
 
@@ -594,16 +595,17 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. A selected live check issues authority only after complete supported-level Pi lifecycle success against stable inventory. <!-- @impl: src/lib/reasoning-verification.ts::completedProfileCheck --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (issues no receipt for %s checks) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (issues no receipt when inventory drifts during an otherwise complete canary) -->
 2. Route-only mapping never issues activation authority. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (route-only Map never creates an eligibility receipt) -->
-3. Save accepts only matching server-issued receipts or unchanged current server-owned verification, never submitted evidence flags. <!-- @impl: src/lib/admin-configuration.ts::normalizeAiReasoningConfiguration --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (never trusts forged verification or legacy evidence flags in Save) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (rejects a receipt after $identity identity changes (administrator: $administratorConfirmed)) -->
+3. Save accepts only matching server-issued receipts or unchanged current server-owned verification, never submitted evidence flags or fabricated administrator confirmation. <!-- @impl: src/lib/admin-configuration.ts::normalizeAiReasoningConfiguration --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (never trusts forged verification or legacy evidence flags in Save) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (rejects a receipt after $identity identity changes (administrator: $administratorConfirmed)) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (does not accept browser-fabricated administrator confirmation as saved authority) -->
 4. A successful observed path may be assigned with a warning that other backends remain untested. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-043: a successful observed-path check enables assignment with an untested-backup warning) -->
 5. Unavailable receipts fail closed with retry guidance rather than automatic paid rechecks. <!-- @impl: src/lib/reasoning-verification.ts::readRouteCheck --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (fails closed on delayed receipt visibility with retry advice and no automatic paid checks) -->
 6. Save preserves new verification or administrator confirmation on inactive drafts without granting policy access. <!-- @impl: src/lib/admin-configuration.ts::normalizeAiReasoningConfiguration --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (persists a newly checked inactive draft without granting policy access or repeating paid checks) -->
 
-7. Mark as verified explicitly confirms a canonical selected profile without model probes, enabling the existing review/Save path; mere selection and fabricated confirmation objects grant no authority. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (confirms an administrator-selected profile without paid probes and preserves authority through Save and runtime loading) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (does not accept browser-fabricated administrator confirmation as saved authority) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-043: explicit administrator confirmation enables access without claiming live-check results) -->
+7. Mark as verified explicitly confirms a canonical selected profile without model probes. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (confirms an administrator-selected profile without paid probes and preserves authority through Save and runtime loading) -->
 
 **Constraints:**
 
-- Both live and administrator-confirmed receipts bind the exact profile revision, gateway credential context, inventory, any supplied provenance, and compatibility contract version. Administrator confirmation is persisted as a distinct method, never live-check evidence.
+- Both live and administrator-confirmed receipts bind the exact profile revision, gateway credential context, inventory, any supplied provenance, and compatibility contract version.
+- Administrator confirmation is persisted as a distinct method, never live-check evidence.
 - Temporary receipts use unique immutable KV keys; saved verification does not expire with its receipt.
 - Runtime performs no management polling or branch forcing.
 - Observed-path authority is not per-leg or whole-route certification.

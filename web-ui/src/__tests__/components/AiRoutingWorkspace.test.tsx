@@ -75,9 +75,17 @@ describe('Administrator route workspace', () => {
     await openRoute(view, 'development');
     await fireEvent.click(view.getByRole('button', { name: 'Verify Profile for development' }));
     expect(await view.findByText('Verifying profile for development…')).toBeVisible();
+    const local = within(view.getByRole('article', { name: 'development route' }));
+    expect(local.getAllByRole('progressbar')).toHaveLength(1);
+    const progress = local.getByRole('progressbar', { name: 'Verifying profile' });
+    expect(progress).not.toHaveAttribute('value');
+    const status = progress.closest('[role="status"]') as HTMLElement;
+    expect(within(status).queryByRole('heading')).toBeNull();
+    expect(status.querySelector('strong, p')).toBeNull();
     expect(view.queryByText('Wait for the current profile check to finish.')).toBeNull();
     finish({ classification: 'Inconclusive', assignable: false, diagnostics: [] });
-    await waitFor(() => expect(view.queryByText('Verifying profile for development…')).toBeNull());
+    await waitFor(() => expect(local.queryByRole('progressbar')).toBeNull());
+    expect(view.queryByText('Verifying profile for development…')).toBeNull();
   });
   it.each(['initial', 'refresh'] as const)('REQ-ENTERPRISE-044: selected policy inventory pending during %s blocks Save without dropping routes', async (phase) => {
     const data = current();
@@ -197,6 +205,9 @@ describe('Administrator route workspace', () => {
       { nodeId: 'kimi', provider: 'workers-ai', declaredModel: 'kimi' },
       { nodeId: 'glm', provider: 'workers-ai', declaredModel: 'glm' },
     ] } : inventory(route));
+    api.discover.mockResolvedValueOnce({ classification: 'Verified', assignable: true, compatibleLevels: ['medium', 'high'], diagnostics: [],
+      piCompatibility: { status: 'verified', verifiedLevels: ['medium', 'high'], failedLevels: [] },
+      checkId: 'three-model-check', verification: proof('development', 'observed-path') });
     const view = mount(); await ready(view); await openRoute(view, 'development');
     const verify = view.getByRole('button', { name: 'Verify Profile for development' });
     expect(verify).toBeEnabled();
@@ -204,6 +215,11 @@ describe('Administrator route workspace', () => {
     await fireEvent.click(verify);
     await waitFor(() => expect(api.discover).toHaveBeenCalledWith(expect.objectContaining({ route: 'development', profileRef: ref })));
     expect(api.discover.mock.calls[0][0]).not.toHaveProperty('backendDescriptions');
+    expect(await view.findByText(/Other backends remain untested/)).toBeVisible();
+    await section(view, 'Access & fallback');
+    await fireEvent.click(view.getByRole('checkbox', { name: 'developers development route' }));
+    expect(values(view.container).dynamicRoutes).toContain('development');
+    expect(values(view.container).routeChecks.development).toBe('three-model-check');
   });
   it('REQ-ENTERPRISE-043: explicit administrator confirmation enables access without claiming live-check results', async () => {
     api.discover.mockResolvedValueOnce({ classification: 'Administrator-confirmed', assignable: true,
