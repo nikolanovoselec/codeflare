@@ -10,6 +10,12 @@ beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Enterprise Pi administration transport', () => {
+  it('rejects an unknown authority method instead of silently relabeling it', async () => {
+    fetchMock.mockResolvedValueOnce(response({ classification: 'Administrator-confirmed', assignable: true,
+      checkId: 'check-id', verification: { ...verification, method: 'unknown' } }));
+    await expect(discoverReasoningCompatibility({ route: 'team', profileRef, administratorConfirmed: true, maxCompletionTokens: 4096 })).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it('REQ-ENTERPRISE-042: checks a draft connection and retains its sanitized status', async () => {
     fetchMock.mockResolvedValueOnce(response({ schemaVersion: 1, profiles: [], notices: [], usage: [], routes: ['team'], routeCatalogStatus: 'ready', connection: { status: 'ready', message: 'Routes can be read.' } }));
     const result = await getReasoningCatalog(gateway);
@@ -21,16 +27,22 @@ describe('Enterprise Pi administration transport', () => {
     expect(result).not.toHaveProperty('replacementToken');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
-  it('REQ-ENTERPRISE-043: retains server verification metadata for draft inventory and checks', async () => {
+  it.each([undefined, 'administrator'] as const)('REQ-ENTERPRISE-043: retains %s authority through real discovery and inventory response parsing', async (method) => {
+    const authority = { ...verification, ...(method && { method }) };
     const context = { gateway, backendDescriptions: { primary: 'Team backend' } };
-    fetchMock.mockResolvedValueOnce(response({ route: 'team', routeVersion: 'v1', inventoryDigest: verification.inventoryDigest, legs: [], verification }));
-    expect((await getReasoningRouteInventory('team', context)).verification).toEqual(verification);
+    fetchMock.mockResolvedValueOnce(response({ route: 'team', routeVersion: 'v1', inventoryDigest: verification.inventoryDigest, legs: [], verification: authority }));
+    expect((await getReasoningRouteInventory('team', context)).verification).toEqual(authority);
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(context);
     const profileDraft = { ...profileRef, name: 'Team mapping' };
-    fetchMock.mockResolvedValueOnce(response({ classification: 'Verified', checkId: 'check-id', verification }));
-    const result = await discoverReasoningCompatibility({ route: 'team', profileRef, profileDraft, ...context, maxCompletionTokens: 4096 });
+    const classification = method ? 'Administrator-confirmed' : 'Verified';
+    const confirmation = method ? { administratorConfirmed: true as const } : {};
+    fetchMock.mockResolvedValueOnce(response({ classification, assignable: true, checkId: 'check-id', verification: authority }));
+    const result = await discoverReasoningCompatibility({ route: 'team', profileRef, profileDraft, ...context, ...confirmation, maxCompletionTokens: 4096 });
+    expect(result.classification).toBe(classification);
+    expect(result.assignable).toBe(true);
     expect(result.checkId).toBe('check-id');
-    expect(result.verification).toEqual(verification);
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ route: 'team', profileRef, profileDraft, ...context, maxCompletionTokens: 4096 });
+    expect(result.verification).toEqual(authority);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ route: 'team', profileRef, profileDraft, ...context, ...confirmation, maxCompletionTokens: 4096 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

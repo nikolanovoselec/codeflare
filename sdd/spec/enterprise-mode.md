@@ -540,6 +540,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Constraints:**
 
 - The incumbent Administration tokens, responsive layout and accessible controls remain authoritative.
+- Desktop profile progress is vertically centered beside the right-hand actions; narrow screens stack the row. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @manual: During verification, check progress/action vertical alignment at desktop width and stacked, non-overflowing controls on mobile. -->
 - Section and route navigation must not discard drafts or start paid checks.
 - Mapping and verification use one compact indeterminate progress indicator at the active route, without repeated headings, explanatory paragraphs, or duplicate bottom-of-form status. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: verification progress is visible beside the route without a bottom duplicate) -->
 - A finished mapping error does not lock profile selection; choosing another profile dismisses the old result. <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: mapping failure unlocks profile selection and keeps progress local) -->
@@ -605,7 +606,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Constraints:**
 
 - Both live and administrator-confirmed receipts bind the exact profile revision, gateway credential context, inventory, any supplied provenance, and compatibility contract version.
-- Administrator confirmation is persisted as a distinct method, never live-check evidence.
+- Administrator confirmation retains its distinct method through browser response validation and persistence, never becoming live-check evidence. <!-- @impl: web-ui/src/lib/schemas.ts::ReasoningRouteVerificationSchema --> <!-- @test: web-ui/src/__tests__/api/reasoning-client.test.ts (REQ-ENTERPRISE-043: retains %s authority through real discovery and inventory response parsing) -->
 - Temporary receipts use unique immutable KV keys; saved verification does not expire with its receipt.
 - Runtime performs no management polling or branch forcing.
 - Observed-path authority is not per-leg or whole-route certification.

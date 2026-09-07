@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, waitFor, within } from '@solidjs/testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import EnvironmentAreaFields, { environmentValues } from '../../components/admin/EnvironmentAreaFields';
 import type { ReasoningRouteVerification } from '../../types';
+import { ReasoningDiscoveryResultSchema } from '../../lib/schemas';
 
 const api = vi.hoisted(() => ({ catalog: vi.fn(), inventory: vi.fn(), discover: vi.fn() }));
 vi.mock('../../api/client', () => ({
@@ -78,6 +79,9 @@ describe('Administrator route workspace', () => {
     const local = within(view.getByRole('article', { name: 'development route' }));
     expect(local.getAllByRole('progressbar')).toHaveLength(1);
     const progress = local.getByRole('progressbar', { name: 'Verifying profile' });
+    const actions = within(local.getByRole('group', { name: 'development profile actions' }));
+    expect(actions.getByRole('progressbar', { name: 'Verifying profile' })).toBe(progress);
+    expect(actions.getByRole('button', { name: 'Mark development as verified' })).toBeDisabled();
     expect(progress).not.toHaveAttribute('value');
     const status = progress.closest('[role="status"]') as HTMLElement;
     expect(within(status).queryByRole('heading')).toBeNull();
@@ -222,8 +226,8 @@ describe('Administrator route workspace', () => {
     expect(values(view.container).routeChecks.development).toBe('three-model-check');
   });
   it('REQ-ENTERPRISE-043: explicit administrator confirmation enables access without claiming live-check results', async () => {
-    api.discover.mockResolvedValueOnce({ classification: 'Administrator-confirmed', assignable: true,
-      checkId: 'admin-confirmation', verification: { ...proof('development'), method: 'administrator' } });
+    api.discover.mockResolvedValueOnce(ReasoningDiscoveryResultSchema.parse({ classification: 'Administrator-confirmed', assignable: true,
+      checkId: 'admin-confirmation', verification: { ...proof('development'), method: 'administrator' } }));
     const view = mount(); await ready(view); await openRoute(view, 'development');
     expect(values(view.container).dynamicRoutes).not.toContain('development');
     await fireEvent.click(view.getByRole('button', { name: 'Mark development as verified' }));

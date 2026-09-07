@@ -83,6 +83,7 @@ const ReasoningRouteLegSchema = z.object({
 
 const ReasoningRouteVerificationSchema = z.object({
   schemaVersion: z.literal(1),
+  method: z.literal('administrator').optional(),
   profileRef: ProfileRevisionRefSchema,
   routeVersion: z.string(),
   inventoryDigest: z.string(),
