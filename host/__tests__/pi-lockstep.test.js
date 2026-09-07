@@ -309,8 +309,8 @@ describe('REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210:
     } finally { rmSync(fixture.directory, { recursive: true, force: true }); }
   });
 
-  it('REQ-AGENT-210: rejects either missing managed startup cache', () => {
-    for (const name of ['@gotgenes/pi-subagents', 'pi-mcp-adapter']) {
+  it('REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches', () => {
+    for (const name of ['@gotgenes/pi-subagents', 'pi-mcp-adapter', '@narumitw/pi-plan-mode']) {
       const fixture = runImageWarmFixture(name);
       try {
         assert.notEqual(fixture.result.status, 0);
