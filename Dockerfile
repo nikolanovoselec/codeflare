@@ -492,6 +492,7 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     fi && \
     node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-runtime \
       /opt/codeflare/pi-agent/npm/node_modules/@earendil-works/pi-coding-agent/package.json && \
+    node /opt/codeflare/scripts/prune-npm-platform-artifacts.mjs node_modules && \
     apt-get purge -y make gcc g++ && \
     apt-get autoremove -y && \
     npm cache clean --force && \

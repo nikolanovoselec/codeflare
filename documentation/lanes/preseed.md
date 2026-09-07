@@ -609,8 +609,8 @@ remain absent.
 The default+advanced `safe-local-checks` skill supplies the operational policy and one
 managed wrapper for every repository. It resolves only already-installed local
 Oxlint, ESLint, Biome, or Prettier binaries, permits full-project read-only checks with
-no file-count limit, and runs them at low priority for at most three minutes; Node
-syntax checks use the same deadline. TypeScript syntax parsing prefers repository-local
+no file-count limit, and runs them at low priority for at most three minutes. Node
+syntax checks and explicitly named Node test files use the same deadline. TypeScript syntax parsing prefers repository-local
 `esbuild` and falls back to the exact immutable copy under `/opt/codeflare/npm-tools`,
 so managed sessions need no project install for this supplemental check. This parser
 selection follows [REQ-AGENT-192](../../sdd/spec/agents.md#req-agent-192-image-baked-typescript-syntax-parser). <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire -->
@@ -622,9 +622,9 @@ suppressing duplicate native catalog injection. <!-- @impl: scripts/agent-seed-c
 
 Mutation, watch, output-file, cache-writing, and analyzer-concurrency flags fail
 closed. Shell composition beyond one optional leading `cd … &&` prefix, or any
-redirection, cannot turn an allowed wrapper invocation into a write. Builds, tests,
-type checks, Knip and other dependency-graph analysis, installs, servers, and
-authoritative verification remain CI-only. Both Pi and Claude guards allow only the
+redirection, cannot turn an allowed wrapper invocation into a write. Builds, package
+test scripts, broad integration suites, type checks, Knip and other dependency-graph
+analysis, installs, servers, and authoritative verification remain CI-only. Both Pi and Claude guards allow only the
 exact wrapper path, and direct blocked commands point agents to the skill; the
 user-only one-shot bypass remains unchanged. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh::PATTERNS --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand -->
 

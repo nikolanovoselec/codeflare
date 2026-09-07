@@ -30,6 +30,8 @@ describe('REQ-OPS-040: Linux coding-agent package pruning', () => {
         packageDirectory(nodeModules, '', 'opencode-linux-x64'),
         packageDirectory(nodeModules, '@oxlint', 'binding-linux-x64-gnu'),
       ];
+      const nestedEsbuild = join(nodeModules, '@earendil-works', 'pi-coding-agent', 'node_modules');
+      keep.push(packageDirectory(nestedEsbuild, '@esbuild', 'linux-x64'));
       const remove = [
         packageDirectory(nodeModules, '@anthropic-ai', 'claude-code-linux-x64-musl', 32),
         packageDirectory(nodeModules, '@anthropic-ai', 'claude-code-darwin-arm64', 32),
@@ -41,6 +43,9 @@ describe('REQ-OPS-040: Linux coding-agent package pruning', () => {
         packageDirectory(nodeModules, '', 'opencode-windows-x64', 32),
         packageDirectory(nodeModules, '@oxlint', 'binding-linux-x64-musl', 32),
         packageDirectory(nodeModules, '@oxlint', 'binding-darwin-arm64', 32),
+        packageDirectory(nestedEsbuild, '@esbuild', 'darwin-arm64', 32),
+        packageDirectory(nestedEsbuild, '@esbuild', 'linux-arm64', 32),
+        packageDirectory(nestedEsbuild, '@esbuild', 'win32-x64', 32),
       ];
 
       const result = spawnSync(process.execPath, [script, nodeModules], { encoding: 'utf8' });

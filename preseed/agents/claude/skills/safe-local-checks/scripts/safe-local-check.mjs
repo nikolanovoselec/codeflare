@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { constants } from 'node:fs';
-import { access, readFile, realpath } from 'node:fs/promises';
+import { access, readFile, realpath, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, extname, join, parse, relative, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -38,6 +38,7 @@ function usage() {
     '  safe-local-check.mjs json <file...>',
     '  safe-local-check.mjs yaml <file...>',
     '  safe-local-check.mjs shell-syntax <file...>',
+    '  safe-local-check.mjs node-test <file...>',
     '  safe-local-check.mjs lock-consistency [package-lock.json...]',
     '  safe-local-check.mjs pi-preseed',
   ].join('\n');
@@ -131,6 +132,7 @@ async function repositoryFiles(args, mode) {
     const path = resolve(process.cwd(), file);
     if (!(await readable(path))) throw new Error(`${file} is not readable`);
     const resolvedPath = await realpath(path);
+    if (!(await stat(resolvedPath)).isFile()) throw new Error(`${file} is not a regular file`);
     const rel = relative(root, resolvedPath);
     if (rel.startsWith('..') || rel === '' || parse(rel).root) {
       throw new Error(`${file} is outside repository ${root}`);
@@ -336,6 +338,10 @@ async function main() {
   if (mode === 'yaml') return checkYaml(args);
   if (mode === 'ts-syntax') return checkTsSyntax(args);
   if (mode === 'shell-syntax') return checkShellSyntax(args);
+  if (mode === 'node-test') {
+    const { files } = await repositoryFiles(args, 'node-test');
+    return runBounded(process.execPath, ['--test', '--test-concurrency=1', ...files], managedTimeout());
+  }
   if (mode === 'lock-consistency') return checkLockConsistency(args);
   if (mode === 'pi-preseed') return checkPiPreseed();
   if (!ANALYZERS.has(mode)) throw new Error(`unsupported analyzer ${JSON.stringify(mode)}`);

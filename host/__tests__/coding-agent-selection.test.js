@@ -205,15 +205,18 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
       ['/npm/@github', []],
       ['/npm/@openai', ['codex', 'codex-linux-x64']],
       ['/npm', ['opencode-ai', 'opencode-linux-x64']],
+      ['/npm/@earendil-works/pi-coding-agent/node_modules/@esbuild', ['linux-x64']],
+      ['/pi-npm/@earendil-works/pi-coding-agent/node_modules/@esbuild', ['linux-x64']],
     ]);
     const options = {
       hasCodingAgent: (selection, agent) => selection.split(',').includes(agent),
       nodeModulesPath: '/npm',
+      piNodeModulesPath: '/pi-npm',
       readDirectory: async (path) => inventories.get(path) ?? [],
     };
 
     assert.deepEqual(
-      await verifySelectedAgentPackages('claude-code,codex,opencode', options),
+      await verifySelectedAgentPackages('claude-code,codex,opencode,pi', options),
       {
         'claude-code': ['claude-code', 'claude-code-linux-x64'],
         codex: ['codex', 'codex-linux-x64'],
@@ -228,8 +231,15 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
       'claude-code-linux-x64-musl',
     ]);
     await assert.rejects(
-      verifySelectedAgentPackages('claude-code,codex,opencode', options),
+      verifySelectedAgentPackages('claude-code,codex,opencode,pi', options),
       /claude-code package inventory/i,
+    );
+
+    inventories.set('/npm/@anthropic-ai', ['claude-code', 'claude-code-linux-x64']);
+    inventories.set('/pi-npm/@earendil-works/pi-coding-agent/node_modules/@esbuild', ['darwin-arm64', 'linux-x64']);
+    await assert.rejects(
+      verifySelectedAgentPackages('claude-code,codex,opencode,pi', options),
+      /Pi prewarm esbuild package inventory/i,
     );
   });
 

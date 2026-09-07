@@ -65,7 +65,7 @@ function buildHarness({
   listingPresent = false,
 }) {
   const runtimeRoot = join(dirname(logFile), 'runtime');
-  const listingDir = join(runtimeRoot, 'sync/rclone/bisync');
+  const listingDir = join(runtimeRoot, 'sync/rclone');
   mkdirSync(listingDir, { recursive: true });
   if (listingPresent) {
     writeFileSync(join(listingDir, 'home_user..r2_test-bucket.path1.lst'), 'listing');
@@ -172,7 +172,7 @@ R2_BUCKET_NAME=test-bucket
 CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'
 SYNC_RUNTIME_DIR='${runtimeRoot}/sync'
 HOME='${runtimeRoot}/home'
-mkdir -p "$HOME" "$SYNC_RUNTIME_DIR/rclone/bisync"
+mkdir -p "$HOME" "$SYNC_RUNTIME_DIR/rclone"
 touch "$SYNC_RUNTIME_DIR/last-bisync-output.txt"
 
 ${patched}
@@ -465,9 +465,10 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
       const log = await waitFor(h.logFile, (s) => /RESYNC_CALLED/.test(s), 8000);
       assert.match(log, /RESYNC_CALLED/,
         'three consecutive failures must invoke establish_bisync_baseline (the --resync fallback)');
-      // Also verify the status was updated to "failed" before the resync.
       assert.match(log, /STATUS status=failed/,
         'failure path must call update_sync_status with "failed" before the resync fallback');
+      assert.match(log, /STATUS status=success err=null/,
+        'a successful fallback must publish recovery instead of leaving failed status visible');
     } finally {
       killHarness(h.child, pid);
     }

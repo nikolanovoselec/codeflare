@@ -24,6 +24,7 @@ const CODE_SERVER_ROOT = '/opt/code-server';
 const EXTENSION_NAME = 'codeflare-agent-sidebar';
 const WELCOME_EXTENSION_NAME = 'codeflare-welcome';
 const NPM_TOOLS_NODE_MODULES = '/opt/codeflare/npm-tools/node_modules';
+const PI_NPM_NODE_MODULES = '/opt/codeflare/pi-agent/npm/node_modules';
 const AGENT_PACKAGE_FAMILIES = Object.freeze([
   Object.freeze({ agent: 'claude-code', directory: '@anthropic-ai', prefix: 'claude-code', keep: Object.freeze(['claude-code', 'claude-code-linux-x64']) }),
   Object.freeze({ agent: 'codex', directory: '@openai', prefix: 'codex', keep: Object.freeze(['codex', 'codex-linux-x64']) }),
@@ -113,6 +114,7 @@ export async function verifySelectedAgentPackages(
   {
     hasCodingAgent,
     nodeModulesPath = NPM_TOOLS_NODE_MODULES,
+    piNodeModulesPath = PI_NPM_NODE_MODULES,
     readDirectory = readdir,
   },
 ) {
@@ -129,6 +131,13 @@ export async function verifySelectedAgentPackages(
     const expected = hasCodingAgent(selection, family.agent) ? [...family.keep].sort() : [];
     assert.deepEqual(actual, expected, `${family.agent} package inventory must contain only canonical Linux x64 payloads`);
     inventories[family.agent] = actual;
+  }
+  if (hasCodingAgent(selection, 'pi')) {
+    for (const [label, root] of [['shared', nodeModulesPath], ['Pi prewarm', piNodeModulesPath]]) {
+      const esbuildDirectory = join(root, '@earendil-works', 'pi-coding-agent', 'node_modules', '@esbuild');
+      const actual = (await readDirectory(esbuildDirectory)).sort();
+      assert.deepEqual(actual, ['linux-x64'], `${label} esbuild package inventory must contain only Linux x64`);
+    }
   }
   return inventories;
 }

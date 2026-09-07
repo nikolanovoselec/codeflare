@@ -203,7 +203,7 @@ describe('entrypoint production helpers', () => {
       `CALLS=${JSON.stringify(calls)}\n` +
       `pi() { if [ "$1" = "--version" ]; then echo 'pi 0.84.4'; else printf 'pi:%s offline=%s skip=%s\\n' "$*" "\${PI_OFFLINE:-}" "\${PI_SKIP_VERSION_CHECK:-}" >> "$CALLS"; fi; }\n` +
       `codex() { echo 'codex-cli 0.151.0'; }\n` +
-      `npm() { printf 'npm:%s\\n' "$*" >> "$CALLS"; }\n` +
+      `npm() { printf 'npm:%s\\n' "$*" >> "$CALLS"; case "$*" in "view @earendil-works/pi-coding-agent@latest version") echo 0.85.1 ;; "view @openai/codex@latest version") echo 0.151.0 ;; esac; }\n` +
       'node() { return 0; }\n' +
       'FAST_CLI_START=true\nconfigure_fast_start_environment\nupdate_pi_and_codex_when_fast_start_disabled\n' +
       'printf "on:%s:%s:%s:%s:%s\\n" "$DISABLE_AUTOUPDATER" "$OPENCODE_DISABLE_AUTOUPDATE" "$COPILOT_AUTO_UPDATE" "$PI_OFFLINE" "$PI_SKIP_VERSION_CHECK"\n' +
@@ -221,8 +221,10 @@ describe('entrypoint production helpers', () => {
       '[entrypoint] Fast Start disabled; Pi version after update: pi 0.84.4',
       '[entrypoint] Fast Start disabled; Codex version after update: codex-cli 0.151.0',
       'off:unset:unset:unset:unset:unset:unset',
+      'npm:view @earendil-works/pi-coding-agent@latest version',
       'pi:update --extensions offline= skip=',
-      'npm:install --prefix /opt/codeflare/npm-tools --omit=dev --save-exact --ignore-scripts --no-audit --no-fund @earendil-works/pi-coding-agent@latest @openai/codex@latest',
+      'npm:view @openai/codex@latest version',
+      'npm:install --prefix /opt/codeflare/npm-tools --omit=dev --save-exact --ignore-scripts --no-audit --no-fund @earendil-works/pi-coding-agent@0.85.1 @openai/codex@0.151.0',
     ]);
   });
 
@@ -233,16 +235,45 @@ describe('entrypoint production helpers', () => {
     const script = `${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +
       `pi() { [ "$1" != "--version" ] || echo 'pi 0.85.1'; }\n` +
       'codex() { echo codex; }\n' +
-      `npm() { echo "$1" >> '${calls}'; [ "$1" != ci ] || touch '${healthy}'; }\n` +
-      `node() { if [ "$2" = --verify-runtime ]; then [ -f '${healthy}' ]; elif [ "$2" = --reset-runtime-jiti ]; then echo cache-reset >> '${calls}'; fi; }\n` +
+      `npm() { if [ "$1" = view ]; then echo 0.85.1; return; fi; echo "$1" >> '${calls}'; [ "$1" != ci ] || touch '${healthy}'; }\n` +
+      `node() { if [[ "$1" = *prune-npm-platform-artifacts.mjs ]]; then echo prune >> '${calls}'; elif [ "$2" = --verify-runtime ]; then [ -f '${healthy}' ]; elif [ "$2" = --reset-runtime-jiti ]; then echo cache-reset >> '${calls}'; fi; }\n` +
       'FAST_CLI_START=false\nupdate_pi_and_codex_when_fast_start_disabled\n';
     try {
       const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: runtimeEnv() });
       assert.equal(result.status, 0, result.stderr);
-      assert.deepEqual(readFileSync(calls, 'utf8').trim().split('\n'), ['install', 'install', 'ci', 'cache-reset']);
+      assert.deepEqual(readFileSync(calls, 'utf8').trim().split('\n'), ['install', 'install', 'ci', 'prune', 'cache-reset']);
       assert.equal(existsSync(healthy), true);
       assert.match(result.stdout, /repairing Pi dependencies from the lockfile/);
     } finally { rmSync(fixture, { recursive: true, force: true }); }
+  });
+
+  it('REQ-STOR-003 AC6: recovery baseline uses the real workdir and newest-side convergence', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'bisync-newest-baseline-'));
+    const calls = join(fixture, 'calls');
+    const runtimeRoot = join(fixture, 'runtime');
+    mkdirSync(join(runtimeRoot, 'sync/rclone'), { recursive: true });
+    const result = runFunction(
+      'establish_bisync_baseline',
+      [
+        `timeout() { shift; printf '%s\\n' "$*" > '${calls}'; return 0; }`,
+        'record_sync_disk_failure() { :; }',
+        'recover_vanished_files() { return 1; }',
+        'RCLONE_FILTERS=()',
+        `RECOVERY_FILTER_FILE='${join(runtimeRoot, 'sync/recovery-filters.txt')}'`,
+        `SYNC_RUNTIME_DIR='${join(runtimeRoot, 'sync')}'`,
+        `USER_HOME='${join(fixture, 'home')}'`,
+        "R2_BUCKET_NAME='bucket'",
+        "RCLONE_CONFIG='/tmp/rclone.conf'",
+        'mkdir -p "$USER_HOME"',
+      ].join('\n'),
+      'establish_bisync_baseline',
+      { CODEFLARE_RUNTIME_ROOT: runtimeRoot },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const args = readFileSync(calls, 'utf8');
+    assert.match(args, /--workdir .*\/sync\/rclone(?: |$)/);
+    assert.match(args, /--resync --resync-mode newer/);
   });
 
   it('starts a reachable recovery daemon when baseline fails for disk space', () => {
@@ -326,9 +357,10 @@ describe('entrypoint production helpers', () => {
       const verify = () => spawnSync(process.execPath, [join(scripts, 'verify-pi-lockstep.mjs'), '--verify-runtime', join(installed, 'package.json')], { encoding: 'utf8' });
       const body = extractFunction('update_pi_and_codex_when_fast_start_disabled')
         .replaceAll('/opt/codeflare/scripts/coding-agent-selection.mjs', join(scripts, 'ci/coding-agent-selection.mjs'))
+        .replaceAll('/opt/codeflare/scripts/prune-npm-platform-artifacts.mjs', join(scripts, 'ci/prune-npm-platform-artifacts.mjs'))
         .replaceAll('/opt/codeflare/scripts', scripts);
       // Suppress latest-version network updates; execute the production repair commands with real npm.
-      const run = () => spawnSync('bash', ['-c', `${body}\npi() { echo fixture-pi; }\ncodex() { echo fixture-codex; }\nnpm() { if [[ " $* " == *" --save-exact "* ]]; then return 0; fi; command npm "$@" --offline; }\nFAST_CLI_START=false\nupdate_pi_and_codex_when_fast_start_disabled`], { env, encoding: 'utf8', timeout: 120_000 });
+      const run = () => spawnSync('bash', ['-c', `${body}\npi() { echo fixture-pi; }\ncodex() { echo fixture-codex; }\nnpm() { if [ "$1" = view ]; then echo 1.0.0; elif [[ " $* " == *" --save-exact "* ]]; then return 0; else command npm "$@" --offline; fi; }\nFAST_CLI_START=false\nupdate_pi_and_codex_when_fast_start_disabled`], { env, encoding: 'utf8', timeout: 120_000 });
       rmSync(processor);
       assert.notEqual(verify().status, 0);
       const repaired = run(); assert.equal(repaired.status, 0, repaired.stdout + repaired.stderr);
@@ -346,7 +378,7 @@ describe('entrypoint production helpers', () => {
     const script = `${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +
       `pi() { [ "$1" = "--version" ] && { echo 'pi 0.84.4'; return 0; }; return 7; }\n` +
       `codex() { echo 'codex-cli 0.150.1'; }\n` +
-      `npm() { return 9; }\n` +
+      `npm() { if [ "$1" = view ]; then case "$2" in @earendil-works/*) echo 0.85.1 ;; *) echo 0.151.0 ;; esac; return 0; fi; return 9; }\n` +
       'node() { return 0; }\n' +
       'FAST_CLI_START=false\n' +
       'update_pi_and_codex_when_fast_start_disabled || echo update-failed\n';
@@ -363,7 +395,7 @@ describe('entrypoint production helpers', () => {
     const script = `${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +
       `pi() { [ "$1" = "update" ] && return 0; return 7; }\n` +
       `codex() { return 8; }\n` +
-      `npm() { printf 'runtime-update %s\\n' "$*"; }\n` +
+      `npm() { if [ "$1" = view ]; then case "$2" in @earendil-works/*) echo 0.85.1 ;; *) echo 0.151.0 ;; esac; else printf 'runtime-update %s\\n' "$*"; fi; }\n` +
       'node() { return 0; }\n' +
       'FAST_CLI_START=false\n' +
       'update_pi_and_codex_when_fast_start_disabled || echo update-failed\n';
@@ -372,8 +404,8 @@ describe('entrypoint production helpers', () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Could not read Pi version before update/);
     assert.match(result.stdout, /Could not read Codex version before update/);
-    assert.match(result.stdout, /runtime-update .*@earendil-works\/pi-coding-agent@latest/);
-    assert.match(result.stdout, /runtime-update .*@openai\/codex@latest/);
+    assert.match(result.stdout, /runtime-update .*@earendil-works\/pi-coding-agent@0\.85\.1/);
+    assert.match(result.stdout, /runtime-update .*@openai\/codex@0\.151\.0/);
     assert.match(result.stdout, /Could not read Pi version after update/);
     assert.match(result.stdout, /Could not read Codex version after update/);
     assert.match(result.stdout, /update-failed/);

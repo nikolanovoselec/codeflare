@@ -49,6 +49,10 @@ describe('REQ-OPS-018/019: protected branch required-check triggers', () => {
     const containerUi = parseYaml(readFileSync(resolve(__dirname, '../../.github/codeql/codeql-container-ui.yml'), 'utf8'));
     assert.deepEqual(worker.paths, ['src/**', 'scripts/**', 'stress/**', '*.mjs', '*.ts']);
     assert.deepEqual(containerUi.paths, ['host/**', 'web-ui/**', 'landing/**', 'openvscode/**', 'preseed/**']);
+    assert.ok(
+      containerUi['paths-ignore'].includes('host/__fixtures__/**'),
+      'vendored upstream fixtures must not be analyzed as shipped container code',
+    );
   });
 });
 
