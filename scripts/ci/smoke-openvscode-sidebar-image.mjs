@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import {
@@ -97,6 +97,49 @@ export async function verifySelectedAgentLaunchers(
     }
   }
   return versions;
+}
+
+export async function verifyPiClassicSessionStartup({
+  piPath = '/usr/local/bin/pi',
+  temporaryRoot = tmpdir(),
+  run = spawnSync,
+} = {}) {
+  const home = await mkdtemp(join(temporaryRoot, 'pi-classic-session-'));
+  const cwd = join(home, 'workspace');
+  const sessionId = '00000000-0000-4000-8000-000000000211';
+  const timestamp = new Date().toISOString();
+  const encodedCwd = `--${cwd.slice(1).replaceAll('/', '-').replaceAll(':', '-')}--`;
+  const sessionDir = join(home, '.pi', 'agent', 'sessions', encodedCwd);
+  const sessionFile = join(sessionDir, `${timestamp.replaceAll(':', '-').replaceAll('.', '-')}_${sessionId}.jsonl`);
+  try {
+    await mkdir(cwd, { recursive: true });
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(sessionFile, `${JSON.stringify({ type: 'session', version: 3, id: sessionId, timestamp, cwd })}\n`);
+
+    const result = run(piPath, ['--session-id', sessionId, '--print'], {
+      cwd,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        HOME: home,
+        PI_CODING_AGENT_DIR: join(home, '.pi', 'agent'),
+        PI_OFFLINE: '1',
+        PI_SKIP_VERSION_CHECK: '1',
+      },
+      input: '',
+      timeout: 10_000,
+    });
+    assert.equal(result.error, undefined, `Pi Classic session smoke must start: ${result.error?.message ?? ''}`);
+    assert.equal(result.signal, null, 'Pi Classic session smoke must terminate without a signal');
+    assert.doesNotMatch(
+      result.stderr ?? '',
+      /Warning: No project session found with id .*; creating a new session with that id\./,
+      'Pi must discover the seeded Classic session without a missing-session warning',
+    );
+    return sessionId;
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 }
 
 export function verifyOxlintRuntime({
@@ -294,6 +337,9 @@ async function main() {
   });
   const claudeVersion = agentVersions['claude-code'];
   const piVersion = agentVersions.pi;
+  const piClassicSessionId = piVersion
+    ? await verifyPiClassicSessionStartup({ piPath: CODING_AGENT_COMMANDS.pi.path })
+    : null;
 
   process.stdout.write(`${JSON.stringify({
     result: 'SIDEBAR_IMAGE_SMOKE_OK',
@@ -310,6 +356,7 @@ async function main() {
     agentVersions,
     claudeVersion,
     piVersion,
+    piClassicSessionId,
   })}\n`);
 }
 

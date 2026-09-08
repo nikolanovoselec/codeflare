@@ -12,6 +12,7 @@ import {
   verifyNodeTarRuntimes,
   verifyPacoteRuntime,
   verifyOxlintRuntime,
+  verifyPiClassicSessionStartup,
   verifySelectedAgentLaunchers,
   verifySelectedAgentPackages,
 } from '../../scripts/ci/smoke-openvscode-sidebar-image.mjs';
@@ -197,6 +198,50 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     assert.deepEqual(inspected, Object.values(commands).map(({ path }) => path));
     assert.deepEqual(started, ['/agents/claude', '/agents/codex', '/agents/pi']);
     assert.equal(versions.copilot, null);
+  });
+
+  it('REQ-AGENT-211 AC2: complete-image smoke rejects Pi missing-session warnings for a seeded Classic ID', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-classic-smoke-'));
+    let inspectedHeader;
+    let inspectedHome;
+    const run = (_path, args, options) => {
+      inspectedHome = options.env.HOME;
+      const sessionsRoot = join(inspectedHome, '.pi/agent/sessions');
+      const sessionDir = join(sessionsRoot, readdirSync(sessionsRoot)[0]);
+      const sessionFile = join(sessionDir, readdirSync(sessionDir)[0]);
+      inspectedHeader = JSON.parse(readFileSync(sessionFile, 'utf8'));
+      assert.equal(options.cwd, join(options.env.HOME, 'workspace'));
+      assert.deepEqual(args.slice(0, 2), ['--session-id', inspectedHeader.id]);
+      return { status: 1, signal: null, stderr: 'Error: No models available\n' };
+    };
+
+    try {
+      await verifyPiClassicSessionStartup({ temporaryRoot: root, piPath: '/agents/pi', run });
+      assert.deepEqual(
+        { ...inspectedHeader, timestamp: undefined },
+        {
+          type: 'session',
+          version: 3,
+          id: '00000000-0000-4000-8000-000000000211',
+          timestamp: undefined,
+          cwd: join(inspectedHome, 'workspace'),
+        },
+      );
+      await assert.rejects(
+        verifyPiClassicSessionStartup({
+          temporaryRoot: root,
+          piPath: '/agents/pi',
+          run: () => ({
+            status: 1,
+            signal: null,
+            stderr: "Warning: No project session found with id '00000000-0000-4000-8000-000000000211'; creating a new session with that id.\n",
+          }),
+        }),
+        /must discover the seeded Classic session without a missing-session warning/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('the complete-image smoke rejects alternate platform packages after pruning', async () => {

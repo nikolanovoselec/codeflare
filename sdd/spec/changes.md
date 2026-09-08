@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-08
 
-- **Fresh Classic Pi starts without a false missing-session warning** ([REQ-AGENT-211](agents.md#req-agent-211-classic-agent-transcript-resume) AC1 amended; remains Implemented). Classic seeds Pi's empty native session header before launching the newly bound exact ID. Restored Classic continuity is unchanged, and Herdr keeps its separate launch path.
+- **Fresh Classic Pi starts without a false missing-session warning** ([REQ-AGENT-211](agents.md#req-agent-211-classic-agent-transcript-resume) AC2 added; remains Implemented). Classic seeds Pi's empty native session header before launching the newly bound exact ID. Restored Classic continuity is unchanged, and Herdr keeps its separate launch path.
 
 - **Review completion follows the regular R2 sync cadence** ([REQ-STOR-027](storage.md#req-stor-027-review-completion-marker-sync) AC5 amended; remains Implemented). Pi and Claude write local completion markers without forcing an additional sync; normal periodic or final workspace sync carries them to R2.
 
