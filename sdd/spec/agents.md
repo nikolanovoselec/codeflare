@@ -761,15 +761,16 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. A new Classic session starts one empty native conversation under a newly generated UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1-AC3: binds fresh and restored Pi and Claude launches to the Codeflare session) -->
-2. Restoring that Codeflare session starts its immutable tab-1 agent with the same UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1-AC3: binds fresh and restored Pi and Claude launches to the Codeflare session) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-AGENT-211 AC2: persists only the current classic agent-session binding) -->
-3. The restored native agent resumes its synced transcript. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1-AC3: binds fresh and restored Pi and Claude launches to the Codeflare session) -->
+1. A new Classic session starts one empty native conversation under a newly generated UUID; Pi does not report that this deliberate fresh ID is missing. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1-AC3: starts fresh Pi without a missing-session warning and binds restored Pi and Claude launches to the Codeflare session) -->
+2. Restoring that Codeflare session starts its immutable tab-1 agent with the same UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1-AC3: starts fresh Pi without a missing-session warning and binds restored Pi and Claude launches) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-AGENT-211 AC2: persists only the current classic agent-session binding) -->
+3. The restored native agent resumes its synced transcript. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1-AC3: starts fresh Pi without a missing-session warning and binds restored Pi and Claude launches) -->
 4. A different Codeflare session receives a different native conversation UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC4: a different Codeflare session starts empty under a different native ID) -->
 
 **Constraints:**
 
 - The binding is scoped only by the immutable Codeflare session ID; selecting another conversation inside the agent does not replace it.
 - Historical Classic sessions without a binding start empty rather than guessing from the newest transcript.
+- Herdr keeps its own native session-reference lifecycle and does not use this Classic bootstrap.
 
 **Priority:** P0
 

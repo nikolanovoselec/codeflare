@@ -2005,6 +2005,7 @@ configure_tab_autostart() {
     AUTOSTART_MARKER="# terminal-autostart"
     local classic_agent_kind="" classic_agent_state="" classic_agent_id="" classic_agent_launch=""
     local classic_binding_dir classic_binding_file classic_binding_tmp configured_primary
+    local classic_pi_cwd classic_pi_session_dir classic_pi_session_file classic_pi_session_tmp classic_pi_timestamp
 
     # A Classic session owns one native Pi/Claude conversation UUID. The UUID is
     # created only after initial restore and is scoped by the immutable Codeflare
@@ -2052,6 +2053,25 @@ configure_tab_autostart() {
                     mv -f "$classic_binding_tmp" "$classic_binding_file"
                     classic_agent_state="fresh"
                 fi
+            fi
+
+            if [ "$classic_agent_kind:$classic_agent_state" = "pi:fresh" ]; then
+                # Pi's exact-ID option warns when the requested session does not yet
+                # exist. Seed the empty native v3 header that Pi itself opens so a
+                # deliberately fresh Classic session starts without a false warning.
+                classic_pi_cwd="$USER_HOME/workspace"
+                classic_pi_session_dir="${classic_pi_cwd#/}"
+                classic_pi_session_dir="${classic_pi_session_dir//\//-}"
+                classic_pi_session_dir="${classic_pi_session_dir//:/-}"
+                classic_pi_session_dir="$USER_HOME/.pi/agent/sessions/--${classic_pi_session_dir}--"
+                classic_pi_timestamp=$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')
+                classic_pi_session_file="$classic_pi_session_dir/${classic_pi_timestamp//[:.]/-}_${classic_agent_id}.jsonl"
+                install -d -m 0700 "$classic_pi_session_dir"
+                classic_pi_session_tmp=$(mktemp "$classic_pi_session_dir/.session.XXXXXX")
+                jq -cn --arg id "$classic_agent_id" --arg timestamp "$classic_pi_timestamp" --arg cwd "$classic_pi_cwd" \
+                    '{type:"session",version:3,id:$id,timestamp:$timestamp,cwd:$cwd}' > "$classic_pi_session_tmp"
+                chmod 0600 "$classic_pi_session_tmp"
+                mv -f "$classic_pi_session_tmp" "$classic_pi_session_file"
             fi
 
             case "$classic_agent_kind:$classic_agent_state" in

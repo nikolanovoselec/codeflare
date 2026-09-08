@@ -9,7 +9,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -96,6 +96,13 @@ function bindingId(dir, sessionId) {
   return readFileSync(join(dir, '.codeflare/classic/sessions', `cf-${sessionId}`, 'agent-session-id'), 'utf8').trim();
 }
 
+function piSessionHeader(dir, nativeId) {
+  const sessionDir = join(dir, '.pi/agent/sessions', `--${join(dir, 'workspace').slice(1).replaceAll('/', '-')}--`);
+  const sessionFile = readdirSync(sessionDir).find((name) => name.endsWith(`_${nativeId}.jsonl`));
+  assert.ok(sessionFile, `fresh Pi session ${nativeId} must have an empty native transcript`);
+  return JSON.parse(readFileSync(join(sessionDir, sessionFile), 'utf8'));
+}
+
 // REQ-TERM-005: Tab 1 auto-starts the configured agent
 // REQ-TERM-006: User-created tabs start with plain bash
 
@@ -134,7 +141,7 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
     assert.match(bashrc, /^# terminal-autostart$/m);
   });
 
-  it('REQ-AGENT-211 AC1-AC3: binds fresh and restored Pi and Claude launches to the Codeflare session', () => {
+  it('REQ-AGENT-211 AC1-AC3: starts fresh Pi without a missing-session warning and binds restored Pi and Claude launches', () => {
     for (const command of ['pi', 'claude']) {
       const sessionId = command === 'pi' ? 'piabc123' : 'claude12';
       const dir = mkdtempSync(join(tmpdir(), `classic-${command}-resume-`));
@@ -156,9 +163,12 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
       );
 
       if (command === 'pi') {
-        const transcriptDir = join(dir, '.pi/agent/sessions/--home-user-workspace--');
-        mkdirSync(transcriptDir, { recursive: true });
-        writeFileSync(join(transcriptDir, `2026-09-07T00-00-00-000Z_${nativeId}.jsonl`), '{}\n');
+        const header = piSessionHeader(dir, nativeId);
+        assert.deepEqual(
+          { ...header, timestamp: undefined },
+          { type: 'session', version: 3, id: nativeId, timestamp: undefined, cwd: join(dir, 'workspace') },
+        );
+        assert.match(header.timestamp, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
       } else {
         const transcriptDir = join(dir, '.claude/projects/-home-user-workspace');
         mkdirSync(transcriptDir, { recursive: true });
