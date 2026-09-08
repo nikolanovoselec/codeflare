@@ -222,9 +222,7 @@ cleaning, an older marker means the product has dropped that key -- so
 retirements need no bookkeeping. An S3 PUT replaces metadata wholesale and
 rclone does not send custom metadata, so editing a seeded file through the
 browser or inside the container drops the marker and the file becomes the
-user's own. Deletion always requires positive evidence: a marker, or
-membership of the frozen list. All three behaviours were probed against a
-real R2 bucket before the mechanism was built on them; see
+user's own. Ordinary active-agent retirement still requires that ownership evidence. A separate rule removes an exact path without a marker only when current or already-available verified inventory assigns it to an inactive deployment agent. The marker behavior was probed against a real R2 bucket before the mechanism was built on it; see
 [AD118](../decisions/README.md#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on).
 
 Listing is issued per two-segment prefix (`.claude/skills/`, `.pi/agent/`
@@ -232,9 +230,7 @@ and twelve others) rather than per runtime root. That keeps the
 getting-started documents out of scope even though the same helper stamps
 them, and keeps the large runtime trees -- `.claude/projects/` session
 transcripts, `.claude/todos/` -- out of the pages entirely, which matters
-because the same request has already issued one PUT per live key. The HEAD
-fan-out is batched, and a candidate count past the cap skips the sweep with
-a warning rather than issuing the requests.
+because broad runtime scans would exhaust the request budget. Cleanup listing and bounds finish before the first mutation. The HEAD fan-out remains batched, and a candidate count past the cap aborts managed reconciliation rather than publishing partial state.
 
 **Upgrade semantics**: the dashboard uses the dedicated automatic upgrade
 endpoint. For a managed release, it compares the exact applied signed bundle
@@ -248,26 +244,17 @@ marker. A target-digest match skips the PUT only after a GET verifies exact
 bytes and content type. New PUTs receive the same read-back verification, and
 successful removals receive a final absence check. Any mismatch leaves applied
 state unpublished, so a later dashboard visit retries from retained target
-ownership. Fresh buckets and a valid applied digest whose immutable cache
-object is unavailable plan the full target, then use the same marker checks.
+ownership. Fresh buckets, legacy or changed projection identity, policy changes, and unavailable immutable history plan the full selected target, then use the same marker checks.
 R2 markers govern execution; the expiring KV progress record is display-only.
 <!-- @impl: src/lib/r2-seed.ts::verifyManagedDocument --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 
-Before managed-release writes, preferences record the bounded set of targets
-that may have written managed objects. If the active target changes, the next run
+Before managed-release writes, preferences record the bounded set of release, mode, and projection targets that may have written managed objects. If the active target changes, the next run
 repairs a desired path only when it still carries an interrupted target marker.
 It removes interrupted-only paths only while they retain that provenance. The
 state survives another interruption and clears with successful applied
 publication. See [REQ-STOR-035](../../sdd/spec/storage.md#req-stor-035-managed-reconciliation-cleanup-and-finalization).
 
-When both applied and target bundles are available, direct-delta cleanup
-considers paths present in the applied mode and absent from the target mode.
-Signed target retirements are a separate cleanup source and retain their
-existing provenance rule. Direct removals require a valid Codeflare digest;
-markerless edits and every desired target path remain. Conditional deletion
-also preserves an object replaced after its cleanup check. The applied release identity is
-written only after reconciliation and final target, mode, policy, SSE,
-session-ownership, and migration checks. Implements
+When both applied and target bundles are available, direct-delta cleanup considers paths present in the applied mode and absent from the selected target. Exact paths with verified inactive ownership are removed regardless of marker. Active and unknown history, including signed retirements, retains its existing mutable or protected provenance rule. Conditional deletion preserves an object replaced after inspection. The applied release and projection identities are written only after reconciliation and final selection, mode, policy, SSE, session ownership, and migration checks. Implements
 [REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed),
 [REQ-STOR-033](../../sdd/spec/storage.md#req-stor-033-managed-release-delta-planning-and-resume),
 [REQ-STOR-034](../../sdd/spec/storage.md#req-stor-034-observational-managed-reconciliation-progress-writes),
@@ -555,14 +542,9 @@ All preseed content is deployed via the manifest pipeline:
    (`default`, `advanced`, or both)
 3. The seed compiler reads manifested files, applies every agent transform, and
    writes the generated runtime module.
-4. On first bucket creation:
-   `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })`
-   writes mode-appropriate files to R2
-5. On "Recreate skills & rules" button:
-   `reconcileAgentConfigs(mode, { overwrite: true, cleanup: true })`
-   overwrites in R2 and deletes files not in current mode
-6. On first dashboard load after a release, the frontend compares the baked
-   seed hash with the user's stored seed hash.
+4. On first bucket creation, `reconcileAgentConfigs()` writes files for the resolved mode and deployment-selected coding agents to R2.
+5. **Recreate skills & rules** runs a full selected-target reconcile and removes exact generated paths owned by inactive agents.
+6. On first dashboard load after a release, the frontend compares the baked seed hash and projection identity with the user's stored values.
 7. Bisync pulls from R2 to container config directories
    (`~/.claude/`, `~/.codex/`, `~/.gemini/` (Antigravity), `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
@@ -576,18 +558,12 @@ ABI. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: h
 
 Managed curation and the baked fallback select one web, mobile, desktop, static, or incumbent authority and keep motion, components, performance, and available finishing tools subordinate. The pinned compiler projects agent-neutral content to supported runtimes; Pi receives one compact routing rule, Copilot receives usable fallback boundaries without projected skill directories, and Canvas retains required Apache-2.0 attribution. The inventory includes `design`, `frontend-design`, `native-mobile-design`, `desktop-native-design`, `canvas-design`, and `motion-design`, and excludes UI UX Pro Max and `emil-design-eng`. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
 
-The release auto-upgrade check uses
-`GET /api/sessions/batch-status?includePreseedCheck=true` to compare
-`PRESEED_CONTENT_HASH` with `lastPreseedHash` in `UserPreferences` KV. If they
-differ, the frontend fires `recreateAgentConfigs()` in the background. The "+ New
-Session" button and stopped-session cards are disabled during the upgrade. On
-completion, `lastPreseedHash` is updated. Failure is non-fatal; a page refresh
-retries. Implements
+The release auto-upgrade check uses `GET /api/sessions/batch-status?includePreseedCheck=true` to compare `PRESEED_CONTENT_HASH` and the canonical agent projection with their stored values. A mismatch starts background reconciliation. New Session and stopped-session controls remain disabled until the Worker records both identities; a failed baked attempt retries after the next status check. Implements
 [REQ-AGENT-049](../../sdd/spec/agents.md#req-agent-049-auto-upgrade-preseed-on-release).
 
-Managed curation reuses that flow. Status polls compare the verified active digest, sequence, and resolved mode with `managedEnvironmentApplied`. Unchanged-release polls do not expand payload bytes, while the five-minute resolver still verifies and caches a newly discovered release. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease -->
+Managed curation reuses that flow. Status polls compare the verified active digest, sequence, mode, resource policy, and projection identity with `managedEnvironmentApplied`. Unchanged-release polls do not expand payload bytes, while the five-minute resolver still verifies and caches a newly discovered release. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease -->
 
-An idle mismatch sends the dashboard through `POST /api/storage/seed/agent-configs/upgrade`. The Worker loads the exact applied and target signed bundles from deployment R2, verifies them as bounded streams, and writes only added or release-changed target paths with no more than six concurrent R2 operations. Target markers resume interrupted writes. A fresh bucket or unavailable valid applied history uses a marker-resumable full-target pass. The response returns matching completion progress when available, and the next existing status poll exposes and clears finalization so even a sub-poll upgrade remains visibly ordered as `Upgrading N / N`, `Finalizing`, then current. Manual `POST /api/storage/seed/agent-configs` remains the full-overwrite Recreate path. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch -->
+An idle mismatch sends the dashboard through `POST /api/storage/seed/agent-configs/upgrade`. The Worker loads the universal signed bundle, projects it through the canonical deployment selection, and uses the same selected keys for fingerprint planning and streaming writes. Ordinary matching-identity upgrades keep direct deltas. Fresh buckets, legacy or changed projection identity, policy changes, unavailable history, and manual recreation verify the full selected target. The response returns matching completion progress when available, and the next existing status poll exposes and clears finalization so even a sub-poll upgrade remains visibly ordered as `Upgrading N / N`, `Finalizing`, then current. Manual `POST /api/storage/seed/agent-configs` remains the full-overwrite Recreate path. <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch -->
 
 New Session controls follow [REQ-AGENT-175](../../sdd/spec/agents.md#req-agent-175-environment-update-ui-lockdown), while managed admission follows [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission). The canonical explanation of Mutable, Immutable, Exclusive, release-delta cleanup, and retirement tombstones lives in [Managed-resource persistence modes](storage-and-sync.md#managed-resource-persistence-modes). Repository trust, signed release rollout, persistence-mode selection, acceptance, and recovery belong to the private [Managed Environment runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/managed-environment.md).
 
@@ -839,10 +815,11 @@ Pi subagents are provided by `@gotgenes/pi-subagents`; the generator adapts
 <a id="multi-agent-preseed"></a>
 ## Agent-Specific Projection
 
-The generator produces adapted config files for all supported agents
-from CC's preseed as the default source of truth. Pi-specific runtime contracts
-that must differ from Claude, such as `git-workflow` and `ci-monitoring`, live as
-native Pi manifest entries instead of transformed Claude files.
+The generator produces adapted config files for all supported agents from Claude Code's preseed as the default source. Pi-specific runtime contracts that must differ, such as `git-workflow` and `ci-monitoring`, remain native Pi manifest entries.
+
+Curation publishes one universal signed seed. The Worker maps each managed path to exactly one of the six agent homes, rejects an unknown current root, then writes only documents owned by active deployment agents. It stores identities such as `v1:claude-code,pi` beside applied and pending state; changing the selection triggers reconciliation without changing the universal release digest. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::managedPathOwner --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+
+Inactive-agent cleanup is narrow and blunt on purpose. Current or already-available verified inventories authorize markerless deletion only for exact paths with an inactive owner. Active and unknown historical paths keep provenance rules. The image still contains the universal bake, but startup lays down selected roots, skips Pi relay when Pi is inactive, and does not configure Claude context-mode when Claude Code is inactive. <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
 
 Shared operational policy remains canonical under `preseed/agents/claude/`.
 `scripts/generate-agent-seed.mjs` keeps monolithic transformed instructions for Codex,
