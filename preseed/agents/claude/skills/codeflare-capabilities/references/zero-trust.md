@@ -43,4 +43,4 @@ I follow your scope and seek explicit authorization for protected actions. Those
 
 ## Using the workspace
 
-You should be able to sign in, open your session, and work without administering each layer. If something is unavailable, I help locate the relevant decision: admission, session ownership, administrator role, connected-service permission, model policy, or network rule. I explain what needs changing and who owns that change, rather than trying to bypass it.
+You should be able to sign in, open your session, and work without administering each layer. If something is unavailable, I locate the relevant decision: admission, session ownership, administrator role, connected-service permission, model policy, or network rule. I explain what needs changing and who owns that change, rather than trying to bypass it.

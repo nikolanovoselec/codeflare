@@ -43,7 +43,6 @@ export type CompletionStatus = {
 type StoreOptions = {
   root?: string;
   now?: () => Date;
-  requestSync?: () => boolean;
   isAncestor?: (base: string, head: string, repo: string) => boolean;
 };
 
@@ -280,24 +279,6 @@ export function latestAncestorCompletion(
     .find((marker) => isAncestor(marker.head, normalized.head, repo));
 }
 
-export function requestCompletionSync(
-  pidFile = process.env.CODEFLARE_SYNC_DAEMON_PIDFILE || "/run/codeflare/sync/sync-daemon.pid",
-): boolean {
-  try {
-    const rawPid = readFileSync(pidFile, "utf8").trim();
-    const pid = Number(rawPid);
-    if (!/^[1-9][0-9]*$/.test(rawPid) || !Number.isSafeInteger(pid)) {
-      console.warn("[review-completion] R2 sync trigger unavailable: invalid daemon PID");
-      return false;
-    }
-    process.kill(pid, "SIGUSR1");
-    return true;
-  } catch (error) {
-    console.warn(`[review-completion] R2 sync trigger unavailable: ${String(error)}`);
-    return false;
-  }
-}
-
 function publish(path: string, contents: string, now: Date): boolean {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   chmodSync(dirname(path), 0o700);
@@ -324,12 +305,12 @@ function publish(path: string, contents: string, now: Date): boolean {
 export function writeCompletion(
   identity: ReviewIdentity,
   options: StoreOptions = {},
-): { written: boolean; syncRequested: boolean } {
+): { written: boolean } {
   const normalized = normalizedIdentity(identity);
   if (!normalized) throw new Error("Invalid review identity");
   const now = (options.now ?? (() => new Date()))();
   const current = readCompletion(normalized, options);
-  if (current.status === "complete") return { written: false, syncRequested: false };
+  if (current.status === "complete") return { written: false };
   const marker: CompletionMarker = {
     version: VERSION,
     ...normalized,
@@ -337,9 +318,7 @@ export function writeCompletion(
   };
   const written = publish(completionPath(normalized, options.root), `${JSON.stringify(marker)}\n`, now);
   pruneBranch(branchDirectory(normalized, options.root), now, stateRoot(options.root));
-  if (!written) return { written: false, syncRequested: false };
-  const syncRequested = (options.requestSync ?? requestCompletionSync)();
-  return { written: true, syncRequested };
+  return { written };
 }
 
 export default function () {}

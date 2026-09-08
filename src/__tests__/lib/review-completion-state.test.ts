@@ -35,7 +35,7 @@ function identity(overrides: Partial<ReviewIdentity> = {}): ReviewIdentity {
 }
 
 function options(stateRoot: string, now = NOW) {
-  return { root: stateRoot, now: () => now, requestSync: vi.fn(() => true) };
+  return { root: stateRoot, now: () => now };
 }
 
 afterEach(() => {
@@ -48,14 +48,14 @@ describe('user-scoped review completion state', () => {
   it('writes one immutable exact marker and never refreshes its age', () => {
     const stateRoot = root();
     const first = options(stateRoot);
-    expect(writeCompletion(identity(), first)).toEqual({ written: true, syncRequested: true });
+    expect(writeCompletion(identity(), first)).toEqual({ written: true });
 
     const path = completionPath(identity(), stateRoot);
     const initial = JSON.parse(readFileSync(path, 'utf8')) as { reviewedAt: string };
     expect(readCompletion(identity(), first)).toMatchObject({ status: 'complete' });
 
     const later = options(stateRoot, new Date(NOW.getTime() + DAY));
-    expect(writeCompletion(identity(), later)).toEqual({ written: false, syncRequested: false });
+    expect(writeCompletion(identity(), later)).toEqual({ written: false });
     expect(JSON.parse(readFileSync(path, 'utf8')).reviewedAt).toBe(initial.reviewedAt);
   });
 
@@ -134,30 +134,15 @@ describe('user-scoped review completion state', () => {
     expect(readCompletion(identity(), options(stateRoot)).status).toBe('missing');
   });
 
-  it('warns for malformed daemon PID state without changing local acknowledgement', async () => {
+  it('writes local acknowledgement without forcing an R2 sync', () => {
     const stateRoot = root();
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
     const pidFile = join(stateRoot, 'daemon.pid');
-    writeFileSync(pidFile, 'not-a-pid\n', 'utf8');
+    writeFileSync(pidFile, `${process.pid}\n`, 'utf8');
     process.env.CODEFLARE_SYNC_DAEMON_PIDFILE = pidFile;
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-    expect(writeCompletion(identity(), { root: stateRoot, now: () => NOW })).toEqual({
-      written: true,
-      syncRequested: false,
-    });
-    expect(warn).toHaveBeenCalledOnce();
-    expect(warn.mock.calls[0]?.[0]).toContain('R2 sync trigger unavailable');
-    delete process.env.CODEFLARE_SYNC_DAEMON_PIDFILE;
-    warn.mockRestore();
-  });
-
-  it('keeps local acknowledgement when sync signaling fails', () => {
-    const stateRoot = root();
-    const requestSync = vi.fn(() => false);
-    expect(writeCompletion(identity(), { root: stateRoot, now: () => NOW, requestSync })).toEqual({
-      written: true,
-      syncRequested: false,
-    });
+    expect(writeCompletion(identity(), { root: stateRoot, now: () => NOW })).toEqual({ written: true });
+    expect(kill).not.toHaveBeenCalled();
     expect(readCompletion(identity(), { root: stateRoot, now: () => NOW }).status).toBe('complete');
   });
 });

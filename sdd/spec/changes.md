@@ -2,7 +2,19 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-08
+
+- **Fresh Classic Pi starts without a false missing-session warning** ([REQ-AGENT-211](agents.md#req-agent-211-classic-agent-transcript-resume) AC2 added; remains Implemented). Classic seeds Pi's empty native session header before launching the newly bound exact ID. Restored Classic continuity is unchanged, and Herdr keeps its separate launch path.
+
+- **Review completion follows the regular R2 sync cadence** ([REQ-STOR-027](storage.md#req-stor-027-review-completion-marker-sync) AC5 amended; remains Implemented). Pi and Claude write local completion markers without forcing an additional sync; normal periodic or final workspace sync carries them to R2.
+
 ## 2026-09-07
+
+- **Bisync recovery uses the real work directory and converges newest-side-first** ([REQ-STOR-045](storage.md#req-stor-045-bisync-baseline-recovery) added and [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start) AC6 amended; both Implemented). Listing detection no longer searches a nonexistent nested directory and forces premature resync. Recovery baselines use newest-side-wins instead of rewriting every local object to R2, and terminal recovery state reports the actual success or failure. Proven Codex SQLite companions, Claude daemon caches, code-server logs, and desktop Trash stay outside R2.
+
+- **Linux images discard nested alternate-platform esbuild binaries and managed checks admit focused Node tests** ([REQ-OPS-040](operations.md#req-ops-040-selected-coding-agent-packaging) AC4 and [REQ-AGENT-052](agents.md#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening) AC6 amended; remain Implemented). Both shared npm tools and Pi's prewarm tree retain only the Linux x64 esbuild payload. The safe-local-check wrapper can run explicitly named repository Node test files under its existing low-priority deadline without admitting package scripts or broad test commands.
+
+- **Classic sessions resume their bound Pi or Claude transcript** ([REQ-AGENT-211](agents.md#req-agent-211-classic-agent-transcript-resume) added; Implemented). Each new Classic Codeflare session creates one native agent UUID and starts an empty conversation. Normal home sync persists that session-scoped binding beside the agent-owned transcript; restoring the same stopped session passes the exact UUID back to its immutable tab-1 agent, while another Codeflare session receives a different UUID. Historical unbound sessions start empty rather than selecting the newest unrelated transcript.
 
 - **Shadow-pin compatibility and native Impeccable** (REQ-AGENT-111, REQ-AGENT-163, REQ-AGENT-164, REQ-AGENT-178, REQ-AGENT-181). Reviewed Goal 0.54.4 and Plan Mode 0.56.0 candidates preserve workflow ownership and parsed command boundaries. Impeccable 4.2.2 uses a checksum-pinned, source-built image engine with the existing idle-grace and no-symlink raster-scan boundaries; launchers refuse runtime downloads and self-updates and regain executable permissions after sync.
 

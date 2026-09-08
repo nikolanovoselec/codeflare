@@ -18,9 +18,9 @@ Strict Gateway Egress is optional and requires deployment configuration. I do no
 
 Cloudflare Gateway supplies the policy enforcement. Your administrator configures the applicable destination rules, inspection, malware protection, isolation, and data-loss prevention. I connect the workload to that policy; enabling the transport does not invent a complete policy for your organization.
 
-This gives different questions a concrete owner. May the project reach this package host? Does a response match a malware rule? Does an outgoing transfer match configured sensitive-data criteria? The relevant Gateway rule and event provide the answer—not the agent's intention or a successful HTTP status alone.
+This gives different questions a concrete owner. May the project reach this package host? Does a response match a malware rule? Does an outgoing transfer match configured sensitive-data criteria? The relevant Gateway rule and event provide the answer, not the agent's intention or a successful HTTP status alone.
 
-I work within the resulting decisions. For a blocked dependency, I identify the destination and why the project needs it, then help prepare a narrow request for the administrator. I do not change clients, protocols, or proxy settings to evade the block.
+I work within the resulting decisions. For a blocked dependency, I identify the destination and why the project needs it, then prepare a narrow request for the administrator. I do not change clients, protocols, or proxy settings to evade the block.
 
 ## Platform traffic retains its own controls
 
@@ -28,13 +28,13 @@ Some own-account control-plane and bounded storage paths are deliberate direct e
 
 Exact destination, account, path, and ownership checks determine the supported exception. Storage signing remains bound to the user's bucket. Other-account destinations do not inherit own-account authority. AI Gateway and Browser Rendering have their designated platform paths and authorization mechanisms.
 
-That is why I keep their evidence separate from Gateway policy events. I can explain which boundary governs a request without claiming every byte crosses the same inspection service.
+That is why I keep their evidence separate from Gateway policy events. I explain which boundary governs a request without claiming every byte crosses the same inspection service.
 
 ## Assess the network requirements before execution
 
-I can inspect a project's documented endpoints and configuration before attempting a new workflow. Web APIs, WebSockets, direct database connections, private services, and arbitrary raw TCP are different requirements; I do not assume a working HTTPS request proves all of them are supported.
+I inspect a project's documented endpoints and configuration before attempting a new workflow. Web APIs, WebSockets, direct database connections, private services, and arbitrary raw TCP are different requirements; I do not assume a working HTTPS request proves all of them are supported.
 
-The same applies to data movement. A formatter that runs locally, a hosted analysis service, and a browser-based upload have different consequences for the files you provide. I help identify those consequences before execution and respect the configured policy and your authorization.
+The same applies to data movement. A formatter that runs locally, a hosted analysis service, and a browser-based upload have different consequences for the files you provide. I identify those consequences before execution and respect the configured policy and your authorization.
 
 Credential interception, service permission, and Gateway policy retain separate decisions: an allowed destination does not grant credentials, and a valid token does not bypass the network rule. Sensitive material still belongs only in approved flows.
 

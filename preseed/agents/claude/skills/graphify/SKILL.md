@@ -69,7 +69,7 @@ When labeling is skipped, do not run prepare/apply. Keep Graphify's official rep
 
 1. **MCP query tools are always available.** Even before any graph is built, you can call `mcp__graphify__query_graph`, `mcp__graphify__get_node`, `mcp__graphify__get_neighbors`, and `mcp__graphify__shortest_path`. They return useful errors when no graph is present. After a build, point them at `graphify-out/graph.json` in the current cwd.
 
-2. **Never use an external LLM backend; never run `graphify label`.** Do NOT pass `--backend openai` (or `--backend gemini` / `--backend deepseek`) to any command, and NEVER run `graphify label` - it requires a provider backend AND re-clusters, which renumbers communities and discards existing labels. Codeflare configures no third-party LLM API keys. Semantic extraction uses in-session Claude subagents. Optional community naming uses the in-session `local-graphify-labels.sh` flow (Recipe 5); unlabeled graphs keep official Graphify report/html output.
+2. **Use only local or in-session Graphify workflows; never run `graphify label`.** Do not pass `--backend` to any command. Provider-backed labeling also re-clusters, which renumbers communities and discards existing labels. Semantic extraction uses in-session Claude subagents. Optional community naming uses the in-session `local-graphify-labels.sh` flow (Recipe 5); unlabeled graphs keep official Graphify report/html output.
 
 3. **Persistence lives in git, not R2.** The graph travels with the repo. After your first `/graphify` build in a repo the user has push permission to:
    - Add to the repo's `.gitignore` (create if absent):

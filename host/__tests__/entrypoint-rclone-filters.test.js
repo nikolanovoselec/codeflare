@@ -83,6 +83,8 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
   mkdirSync(join(fx, '.codeflare/review-state/v2/repo/branch'), { recursive: true });
   mkdirSync(join(fx, '.codeflare/herdr/sessions/cf-abc12345'), { recursive: true });
   mkdirSync(join(fx, '.codeflare/herdr/sessions/cf-other123'), { recursive: true });
+  mkdirSync(join(fx, '.codeflare/classic/sessions/cf-abc12345'), { recursive: true });
+  mkdirSync(join(fx, '.codeflare/classic/sessions/cf-other123'), { recursive: true });
   mkdirSync(join(fx, 'workspace/repo/graphify-out'), { recursive: true });
   mkdirSync(join(fx, '.cache/rclone'), { recursive: true });
   mkdirSync(join(fx, '.config/rclone'), { recursive: true });
@@ -91,6 +93,8 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
   mkdirSync(join(fx, '.codex/cache'), { recursive: true });
   mkdirSync(join(fx, '.copilot'), { recursive: true });
   mkdirSync(join(fx, '.claude/projects/repo/workflows'), { recursive: true });
+  mkdirSync(join(fx, '.local/share/code-server/coder-logs'), { recursive: true });
+  mkdirSync(join(fx, '.local/share/Trash/files'), { recursive: true });
 
   const fixtures = {
     'Vault/note.md': 'user vault note',
@@ -111,6 +115,9 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
     '.codeflare/herdr/sessions/cf-abc12345/session-history.json': 'terminal output must stay local',
     '.codeflare/herdr/sessions/cf-abc12345/herdr.sock': 'socket must stay local',
     '.codeflare/herdr/sessions/cf-other123/session.json': '{"version":3,"workspaces":[]}',
+    '.codeflare/classic/sessions/cf-abc12345/agent-session-id': '01991fc9-f25d-7000-8000-000000000001',
+    '.codeflare/classic/sessions/cf-abc12345/private.json': 'must stay local',
+    '.codeflare/classic/sessions/cf-other123/agent-session-id': '01991fc9-f25d-7000-8000-000000000002',
     '.codeflare/private-runtime.json': 'must stay local',
     'workspace/repo/graphify-out/g.json': 'repo graph artifact',
     '.cache/rclone/junk': 'ephemeral cache',
@@ -121,6 +128,12 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true }) {
     '.codex/logs_2.sqlite': 'regenerable codex log database',
     '.codex/logs_2.sqlite-wal': 'regenerable codex log wal',
     '.codex/logs_2.sqlite-shm': 'regenerable codex log shm',
+    '.codex/thread_history_1.sqlite-wal': 'ephemeral codex transcript wal',
+    '.codex/goals_1.sqlite-shm': 'ephemeral codex goals shm',
+    '.claude/daemon-auth-status.json': 'ephemeral daemon auth status',
+    '.claude/gh-pr-status-cache.json': 'regenerated PR status cache',
+    '.local/share/code-server/coder-logs/code-server-stdout.log': 'ephemeral server log',
+    '.local/share/Trash/files/old-note.md': 'discarded desktop file',
     '.copilot/session-store.db-wal': 'ephemeral copilot wal',
     '.copilot/session-store.db-shm': 'ephemeral copilot shm',
     '.claude/projects/repo/workflows/run.json': 'ephemeral workflow state',
@@ -254,6 +267,13 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     assert.equal(v['.codeflare/herdr/sessions/cf-other123/session.json'], 'EXCLUDED');
   });
 
+  it('REQ-AGENT-211 AC3: persists only the current classic agent-session binding', () => {
+    const v = verdictUnder({ sessionMode: 'default' });
+    assert.equal(v['.codeflare/classic/sessions/cf-abc12345/agent-session-id'], 'INCLUDED');
+    assert.equal(v['.codeflare/classic/sessions/cf-abc12345/private.json'], 'EXCLUDED');
+    assert.equal(v['.codeflare/classic/sessions/cf-other123/agent-session-id'], 'EXCLUDED');
+  });
+
   it('default mode: positively excludes the entire vault tree (REQ-MEM-006 AC1)', () => {
     const v = verdictUnder({ sessionMode: 'default' });
     assert.equal(
@@ -327,6 +347,12 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
         '.codex/logs_2.sqlite',
         '.codex/logs_2.sqlite-wal',
         '.codex/logs_2.sqlite-shm',
+        '.codex/thread_history_1.sqlite-wal',
+        '.codex/goals_1.sqlite-shm',
+        '.claude/daemon-auth-status.json',
+        '.claude/gh-pr-status-cache.json',
+        '.local/share/code-server/coder-logs/code-server-stdout.log',
+        '.local/share/Trash/files/old-note.md',
         '.copilot/session-store.db-wal',
         '.copilot/session-store.db-shm',
         '.claude/projects/repo/workflows/run.json',

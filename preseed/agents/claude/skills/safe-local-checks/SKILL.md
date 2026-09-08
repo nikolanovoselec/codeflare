@@ -1,19 +1,20 @@
 ---
 name: safe-local-checks
-description: Run bounded read-only local lint, parse, and package-consistency checks without replacing CI.
+description: Run bounded local lint, parse, focused Node test, and package-consistency checks without replacing CI.
 ---
 
 # Safe local checks
 
-Use this skill only when a local static or syntax check would give useful feedback. Builds, tests, type checks, dependency-graph analysis, installs, servers, and watch processes remain CI-only.
+Use this skill only when a bounded local static, syntax, or explicit Node test-file check would give useful feedback. Builds, package test scripts, type checks, dependency-graph analysis, installs, servers, and watch processes remain CI-only.
 
 ## When it is useful
 
 - After editing JavaScript modules, run `syntax` to catch parser errors quickly.
 - After editing TypeScript or TSX, run `ts-syntax` on the touched files when repo-local `esbuild` is already installed.
 - After editing JSON, YAML, shell scripts, package locks, or Pi preseed files, run the matching parse or consistency mode.
+- Run explicit Node unit-test files when focused behavioral feedback is needed.
 - Run a repository-installed analyzer on changed paths, or its full-project read-only scope, before pushing when lint feedback would help.
-- Do not use this capability for unit or integration tests, builds, type checks, Knip, final verification, or dependency installs; those belong to CI.
+- Do not use this capability for package test scripts, broad integration tests, builds, type checks, Knip, final verification, or dependency installs; those belong to CI.
 
 ## Managed runner
 
@@ -29,6 +30,7 @@ node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs ts-syntax <
 node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs json <file...>
 node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs yaml <file...>
 node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs shell-syntax <file...>
+node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs node-test <file...>
 node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs lock-consistency [package-lock.json...]
 node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs pi-preseed
 ```
@@ -46,6 +48,7 @@ node ~/.pi/agent/skills/safe-local-checks/scripts/safe-local-check.mjs <mode> [.
 - `json`: parses repository JSON files.
 - `yaml`: parses repository YAML with repo-local `yaml`.
 - `shell-syntax`: runs `bash -n` on repository shell files.
+- `node-test`: runs only the explicitly named repository test files with Node's test runner.
 - `lock-consistency`: checks npm lockfile root dependency mirrors, exact pinned entries, tarball URL/version shape, and SHA-512 integrity. Defaults to `package-lock.json`.
 - `pi-preseed`: checks Codeflare Pi preseed package lock consistency, `entrypoint.sh` required package specs, and generated seed embedding.
 - `oxlint`, `eslint`, `biome check`, `prettier --check`: run existing repo-local analyzers through the bounded wrapper.
@@ -54,6 +57,7 @@ Examples:
 
 ```bash
 node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs shell-syntax entrypoint.sh
+node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs node-test host/__tests__/npm-platform-pruning.test.js
 node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs json package.json preseed/agents/pi/package.json
 node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs lock-consistency package-lock.json preseed/agents/pi/package-lock.json
 node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs pi-preseed
@@ -69,12 +73,13 @@ The wrapper:
 - runs external analyzers at low priority and stops the complete process group after at most three minutes;
 - rejects mutation, watch, output-file, cache-writing, and analyzer-concurrency flags;
 - rejects repository-file modes that target paths outside the repository;
+- runs Node tests only from explicit canonical repository file paths;
 - never installs or downloads a package.
 
 Biome is limited to `check`. Prettier requires `--check`. Syntax mode runs Node's parser against each named file within one shared deadline. `ts-syntax` uses repository-local `esbuild` first and then the immutable `/opt/codeflare/npm-tools` copy; `yaml` requires the repository dependency. Both fail closed when their parser is unavailable.
 
 ## Verification boundary
 
-Treat output as supplemental preflight evidence only. It never proves TDD RED or GREEN and never replaces behavioral tests, type checks, Knip, builds, or required CI. Report exactly what ran and reserve final verification claims for CI.
+Treat output as supplemental preflight evidence only. Focused Node test results provide local behavioral evidence but never replace broader required CI, type checks, Knip, or builds. Report exactly what ran and reserve final verification claims for CI.
 
 Invoke the wrapper as a standalone command (optionally after one `cd`); shell composition and redirection are blocked. Direct analyzer commands remain blocked so the resource envelope cannot be skipped. The user-created, consume-on-use `/tmp/local-build-bypass` remains the only exceptional route; never create it yourself.

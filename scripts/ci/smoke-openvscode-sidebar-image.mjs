@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import {
@@ -24,6 +24,7 @@ const CODE_SERVER_ROOT = '/opt/code-server';
 const EXTENSION_NAME = 'codeflare-agent-sidebar';
 const WELCOME_EXTENSION_NAME = 'codeflare-welcome';
 const NPM_TOOLS_NODE_MODULES = '/opt/codeflare/npm-tools/node_modules';
+const PI_NPM_NODE_MODULES = '/opt/codeflare/pi-agent/npm/node_modules';
 const AGENT_PACKAGE_FAMILIES = Object.freeze([
   Object.freeze({ agent: 'claude-code', directory: '@anthropic-ai', prefix: 'claude-code', keep: Object.freeze(['claude-code', 'claude-code-linux-x64']) }),
   Object.freeze({ agent: 'codex', directory: '@openai', prefix: 'codex', keep: Object.freeze(['codex', 'codex-linux-x64']) }),
@@ -98,6 +99,49 @@ export async function verifySelectedAgentLaunchers(
   return versions;
 }
 
+export async function verifyPiClassicSessionStartup({
+  piPath = '/usr/local/bin/pi',
+  temporaryRoot = tmpdir(),
+  run = spawnSync,
+} = {}) {
+  const home = await mkdtemp(join(temporaryRoot, 'pi-classic-session-'));
+  const cwd = join(home, 'workspace');
+  const sessionId = '00000000-0000-4000-8000-000000000211';
+  const timestamp = new Date().toISOString();
+  const encodedCwd = `--${cwd.slice(1).replaceAll('/', '-').replaceAll(':', '-')}--`;
+  const sessionDir = join(home, '.pi', 'agent', 'sessions', encodedCwd);
+  const sessionFile = join(sessionDir, `${timestamp.replaceAll(':', '-').replaceAll('.', '-')}_${sessionId}.jsonl`);
+  try {
+    await mkdir(cwd, { recursive: true });
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(sessionFile, `${JSON.stringify({ type: 'session', version: 3, id: sessionId, timestamp, cwd })}\n`);
+
+    const result = run(piPath, ['--session-id', sessionId, '--print'], {
+      cwd,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        HOME: home,
+        PI_CODING_AGENT_DIR: join(home, '.pi', 'agent'),
+        PI_OFFLINE: '1',
+        PI_SKIP_VERSION_CHECK: '1',
+      },
+      input: '',
+      timeout: 10_000,
+    });
+    assert.equal(result.error, undefined, `Pi Classic session smoke must start: ${result.error?.message ?? ''}`);
+    assert.equal(result.signal, null, 'Pi Classic session smoke must terminate without a signal');
+    assert.doesNotMatch(
+      result.stderr ?? '',
+      /Warning: No project session found with id .*; creating a new session with that id\./,
+      'Pi must discover the seeded Classic session without a missing-session warning',
+    );
+    return sessionId;
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
 export function verifyOxlintRuntime({
   path = '/usr/local/bin/oxlint',
   expectedVersion = '1.80.0',
@@ -113,6 +157,7 @@ export async function verifySelectedAgentPackages(
   {
     hasCodingAgent,
     nodeModulesPath = NPM_TOOLS_NODE_MODULES,
+    piNodeModulesPath = PI_NPM_NODE_MODULES,
     readDirectory = readdir,
   },
 ) {
@@ -129,6 +174,13 @@ export async function verifySelectedAgentPackages(
     const expected = hasCodingAgent(selection, family.agent) ? [...family.keep].sort() : [];
     assert.deepEqual(actual, expected, `${family.agent} package inventory must contain only canonical Linux x64 payloads`);
     inventories[family.agent] = actual;
+  }
+  if (hasCodingAgent(selection, 'pi')) {
+    for (const [label, root] of [['shared', nodeModulesPath], ['Pi prewarm', piNodeModulesPath]]) {
+      const esbuildDirectory = join(root, '@earendil-works', 'pi-coding-agent', 'node_modules', '@esbuild');
+      const actual = (await readDirectory(esbuildDirectory)).sort();
+      assert.deepEqual(actual, ['linux-x64'], `${label} esbuild package inventory must contain only Linux x64`);
+    }
   }
   return inventories;
 }
@@ -285,6 +337,9 @@ async function main() {
   });
   const claudeVersion = agentVersions['claude-code'];
   const piVersion = agentVersions.pi;
+  const piClassicSessionId = piVersion
+    ? await verifyPiClassicSessionStartup({ piPath: CODING_AGENT_COMMANDS.pi.path })
+    : null;
 
   process.stdout.write(`${JSON.stringify({
     result: 'SIDEBAR_IMAGE_SMOKE_OK',
@@ -301,6 +356,7 @@ async function main() {
     agentVersions,
     claudeVersion,
     piVersion,
+    piClassicSessionId,
   })}\n`);
 }
 

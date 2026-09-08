@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +12,7 @@ import {
   verifyNodeTarRuntimes,
   verifyPacoteRuntime,
   verifyOxlintRuntime,
+  verifyPiClassicSessionStartup,
   verifySelectedAgentLaunchers,
   verifySelectedAgentPackages,
 } from '../../scripts/ci/smoke-openvscode-sidebar-image.mjs';
@@ -199,21 +200,68 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     assert.equal(versions.copilot, null);
   });
 
+  it('REQ-AGENT-211 AC2: complete-image smoke rejects Pi missing-session warnings for a seeded Classic ID', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-classic-smoke-'));
+    let inspectedHeader;
+    let inspectedHome;
+    const run = (_path, args, options) => {
+      inspectedHome = options.env.HOME;
+      const sessionsRoot = join(inspectedHome, '.pi/agent/sessions');
+      const sessionDir = join(sessionsRoot, readdirSync(sessionsRoot)[0]);
+      const sessionFile = join(sessionDir, readdirSync(sessionDir)[0]);
+      inspectedHeader = JSON.parse(readFileSync(sessionFile, 'utf8'));
+      assert.equal(options.cwd, join(options.env.HOME, 'workspace'));
+      assert.deepEqual(args.slice(0, 2), ['--session-id', inspectedHeader.id]);
+      return { status: 1, signal: null, stderr: 'Error: No models available\n' };
+    };
+
+    try {
+      await verifyPiClassicSessionStartup({ temporaryRoot: root, piPath: '/agents/pi', run });
+      assert.deepEqual(
+        { ...inspectedHeader, timestamp: undefined },
+        {
+          type: 'session',
+          version: 3,
+          id: '00000000-0000-4000-8000-000000000211',
+          timestamp: undefined,
+          cwd: join(inspectedHome, 'workspace'),
+        },
+      );
+      await assert.rejects(
+        verifyPiClassicSessionStartup({
+          temporaryRoot: root,
+          piPath: '/agents/pi',
+          run: () => ({
+            status: 1,
+            signal: null,
+            stderr: "Warning: No project session found with id '00000000-0000-4000-8000-000000000211'; creating a new session with that id.\n",
+          }),
+        }),
+        /must discover the seeded Classic session without a missing-session warning/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('the complete-image smoke rejects alternate platform packages after pruning', async () => {
     const inventories = new Map([
       ['/npm/@anthropic-ai', ['claude-code', 'claude-code-linux-x64']],
       ['/npm/@github', []],
       ['/npm/@openai', ['codex', 'codex-linux-x64']],
       ['/npm', ['opencode-ai', 'opencode-linux-x64']],
+      ['/npm/@earendil-works/pi-coding-agent/node_modules/@esbuild', ['linux-x64']],
+      ['/pi-npm/@earendil-works/pi-coding-agent/node_modules/@esbuild', ['linux-x64']],
     ]);
     const options = {
       hasCodingAgent: (selection, agent) => selection.split(',').includes(agent),
       nodeModulesPath: '/npm',
+      piNodeModulesPath: '/pi-npm',
       readDirectory: async (path) => inventories.get(path) ?? [],
     };
 
     assert.deepEqual(
-      await verifySelectedAgentPackages('claude-code,codex,opencode', options),
+      await verifySelectedAgentPackages('claude-code,codex,opencode,pi', options),
       {
         'claude-code': ['claude-code', 'claude-code-linux-x64'],
         codex: ['codex', 'codex-linux-x64'],
@@ -228,8 +276,15 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
       'claude-code-linux-x64-musl',
     ]);
     await assert.rejects(
-      verifySelectedAgentPackages('claude-code,codex,opencode', options),
+      verifySelectedAgentPackages('claude-code,codex,opencode,pi', options),
       /claude-code package inventory/i,
+    );
+
+    inventories.set('/npm/@anthropic-ai', ['claude-code', 'claude-code-linux-x64']);
+    inventories.set('/pi-npm/@earendil-works/pi-coding-agent/node_modules/@esbuild', ['darwin-arm64', 'linux-x64']);
+    await assert.rejects(
+      verifySelectedAgentPackages('claude-code,codex,opencode,pi', options),
+      /Pi prewarm esbuild package inventory/i,
     );
   });
 

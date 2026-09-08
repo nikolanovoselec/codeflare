@@ -288,7 +288,7 @@ describe('Pi marker-or-dialog review ingress', () => {
     const input = fixture();
     const stateRoot = join(input.home, '.codeflare/review-state/v1');
     const old = { ...input.identity, head: 'c'.repeat(40) };
-    writeCompletion(old, { root: stateRoot, now: () => new Date(0), requestSync: () => false });
+    writeCompletion(old, { root: stateRoot, now: () => new Date(0) });
     const outside = join(input.home, 'outside');
     mkdirSync(outside);
     const outsideMarker = join(outside, 'keep.json');
@@ -301,7 +301,7 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(existsSync(outsideMarker)).toBe(true);
 
     const later = { ...input.identity, repository: 'owner/unrelated', head: 'd'.repeat(40) };
-    writeCompletion(later, { root: stateRoot, now: () => new Date(0), requestSync: () => false });
+    writeCompletion(later, { root: stateRoot, now: () => new Date(0) });
     await app.emit('session_start', { reason: 'resume' });
     expect(existsSync(completionPath(later, stateRoot))).toBe(true);
   });
@@ -546,7 +546,6 @@ describe('Pi marker-or-dialog review ingress', () => {
     const input = fixture();
     writeCompletion(input.identity, {
       root: join(input.home, '.codeflare/review-state/v1'),
-      requestSync: () => true,
     });
     const app = await harness(input);
     await app.emit('session_start', { reason: 'resume' });
@@ -592,7 +591,6 @@ describe('Pi marker-or-dialog review ingress', () => {
     const input = fixture();
     writeCompletion(input.identity, {
       root: join(input.home, '.codeflare/review-state/v1'),
-      requestSync: () => true,
     });
     write(input.repo, 'graphify-out/graph.json', '{}\n');
     git(input.repo, 'add', 'graphify-out/graph.json');

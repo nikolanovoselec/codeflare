@@ -1,6 +1,6 @@
 # Design systems for web, mobile, desktop, and physical assets
 
-I can carry a product from an intended experience to screens, components, interactions, and finished visual assets. The work includes deciding what deserves attention, how a person moves through a task, and what happens when the system is loading, unavailable, or wrong.
+I carry a product from an intended experience to screens, components, interactions, and finished visual assets. The work includes deciding what deserves attention, how a person moves through a task, and what happens when the system is loading, unavailable, or wrong.
 
 A responsive website, a native application, an operations console, and a printed field guide need different design decisions. I use the discipline appropriate to the deliverable while keeping its identity connected to your product.
 
@@ -8,9 +8,9 @@ A responsive website, a native application, an operations console, and a printed
 
 I begin with the audience, the job they need to perform, the platform, and any existing product direction. Information architecture, hierarchy, typography, color, geometry, imagery, density, and interaction follow from those decisions.
 
-An established interface remains established even if nobody wrote a formal design document. I can make a focused correction without replacing its visual language. For new work, I develop a coherent direction before collecting attractive components that may have nothing to do with one another.
+An established interface remains established even if nobody wrote a formal design document. I make a focused correction without replacing its visual language. For new work, I develop a coherent direction before collecting attractive components that may have nothing to do with one another.
 
-Operational interfaces need particular care. Filters, drill-downs, bulk actions, stale data, partial results, permission-limited views, destructive choices, and recovery paths are part of the design. A dashboard has to help somebody decide and act under real conditions—not only look composed with perfect sample data.
+Operational interfaces need particular care. Filters, drill-downs, bulk actions, stale data, partial results, permission-limited views, destructive choices, and recovery paths are part of the design. A dashboard has to help somebody decide and act under real conditions, not only look composed with perfect sample data.
 
 ## Respect the delivery platform
 

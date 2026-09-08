@@ -20,7 +20,7 @@ Managed publication produces an immutable bundle from an exact compiler revision
 
 I check more than the signature before accepting a release. Release identity, sequence, document paths, asset integrity, and runtime compatibility must agree. A correctly signed bundle cannot introduce an unsupported runtime dependency simply by declaring itself trustworthy. Extension artifacts have their own identity and integrity checks.
 
-I can then select a verified release compatible with the installed runtime. Discovery, validation, and application are separate stages; an update does not become active merely because a repository contains a newer file. Compatible content can be delivered without rebuilding the container image, while new npm packages, native binaries, or compiler behavior still require the owning runtime change.
+I then select a verified release compatible with the installed runtime. Discovery, validation, and application are separate stages; an update does not become active merely because a repository contains a newer file. Compatible content can be delivered without rebuilding the container image, while new npm packages, native binaries, or compiler behavior still require the owning runtime change.
 
 ## Updates meet a workspace that already contains work
 
@@ -30,10 +30,10 @@ Where protected managed-resource policies are configured, I enforce their persis
 
 ## Turn experience into the next session's starting point
 
-I can help identify a recurring failure in a workflow, improve the relevant guidance, and prepare it for review and managed-seed CI. A useful change might clarify acceptance evidence, preserve a subtle security boundary, or remove an outdated instruction that sends every new session down the same dead end.
+I identify recurring failures in a workflow, improve the relevant guidance, and prepare it for review and managed-seed CI. A useful change might clarify acceptance evidence, preserve a subtle security boundary, or remove an outdated instruction that sends every new session down the same dead end.
 
 Using a skill is ordinary task work. Changing shared policy or publishing a release affects other sessions and requires the appropriate authorization. I keep that distinction explicit.
 
 Managed content is authoritative for managed sessions; the image-baked fallback is separately versioned. I follow the owning release path and distinguish publication from verified application.
 
-That gives organizational learning a delivery mechanism. You can turn a better way of investigating, reviewing, or shipping into the starting point for future work—complete with provenance and runtime compatibility, rather than another document people must remember to find.
+That gives organizational learning a delivery mechanism. You can turn a better way of investigating, reviewing, or shipping into the starting point for future work, complete with provenance and runtime compatibility, rather than another document people must remember to find.

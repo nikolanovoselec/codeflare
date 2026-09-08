@@ -65,7 +65,7 @@ function buildHarness({
   listingPresent = false,
 }) {
   const runtimeRoot = join(dirname(logFile), 'runtime');
-  const listingDir = join(runtimeRoot, 'sync/rclone/bisync');
+  const listingDir = join(runtimeRoot, 'sync/rclone');
   mkdirSync(listingDir, { recursive: true });
   if (listingPresent) {
     writeFileSync(join(listingDir, 'home_user..r2_test-bucket.path1.lst'), 'listing');
@@ -172,7 +172,7 @@ R2_BUCKET_NAME=test-bucket
 CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'
 SYNC_RUNTIME_DIR='${runtimeRoot}/sync'
 HOME='${runtimeRoot}/home'
-mkdir -p "$HOME" "$SYNC_RUNTIME_DIR/rclone/bisync"
+mkdir -p "$HOME" "$SYNC_RUNTIME_DIR/rclone"
 touch "$SYNC_RUNTIME_DIR/last-bisync-output.txt"
 
 ${patched}
@@ -448,8 +448,8 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     }
   });
 
-  it('three consecutive failures trigger --resync fallback (REQ-STOR-003 AC6 / REQ-STOR-002 AC1: resync re-establishes baseline so next sync can persist files)', async () => {
-    // REQ-STOR-003 AC6: after 3 consecutive unrecoverable failures, daemon falls back to --resync
+  it('REQ-STOR-045 AC1+AC3 / REQ-STOR-002 AC1: three consecutive failures trigger resync fallback', async () => {
+    // REQ-STOR-045 AC1: after 3 consecutive unrecoverable failures, daemon falls back to --resync
     // bisync always fails (return 7), recover_vanished_files returns 1
     // (no recovery), so CONSECUTIVE_FAILURES accumulates and the resync
     // fallback fires on the third iteration.
@@ -465,15 +465,16 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
       const log = await waitFor(h.logFile, (s) => /RESYNC_CALLED/.test(s), 8000);
       assert.match(log, /RESYNC_CALLED/,
         'three consecutive failures must invoke establish_bisync_baseline (the --resync fallback)');
-      // Also verify the status was updated to "failed" before the resync.
       assert.match(log, /STATUS status=failed/,
         'failure path must call update_sync_status with "failed" before the resync fallback');
+      assert.match(log, /STATUS status=success err=null/,
+        'a successful fallback must publish recovery instead of leaving failed status visible');
     } finally {
       killHarness(h.child, pid);
     }
   });
 
-  it('uses protected workdir listings before forcing immediate resync', async () => {
+  it('REQ-STOR-045 AC2: uses protected workdir listings before forcing immediate resync', async () => {
     const h = spawnHarness({
       daemonBody,
       bisyncBehavior: 'failure',
@@ -492,7 +493,7 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     }
   });
 
-  it('forces immediate resync when protected workdir listings are absent', async () => {
+  it('REQ-STOR-045 AC2: forces immediate resync when protected workdir listings are absent', async () => {
     const h = spawnHarness({
       daemonBody,
       bisyncBehavior: 'failure',

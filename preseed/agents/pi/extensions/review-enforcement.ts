@@ -16,7 +16,6 @@ import {
   latestAncestorCompletion,
   pruneCompletionState,
   readCompletion,
-  requestCompletionSync,
   writeCompletion,
   type ReviewIdentity,
 } from "./review-completion-state";
@@ -717,7 +716,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     pendingGoalPauseHead = undefined;
     if (!globalPrunePerformed) {
       globalPrunePerformed = true;
-      if (pruneCompletionState()) requestCompletionSync();
+      pruneCompletionState();
     }
     const repo = findGitRoot(ctx.cwd);
     if (repo) await evaluate(ctx, repo, `startup:${Date.now()}`);

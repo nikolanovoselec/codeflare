@@ -35,7 +35,7 @@ function identity(overrides = {}) {
 }
 
 function options(stateRoot, now = NOW) {
-  return { root: stateRoot, now: () => now, requestSync: () => true };
+  return { root: stateRoot, now: () => now };
 }
 
 afterEach(() => {
@@ -46,13 +46,12 @@ afterEach(() => {
 describe('Claude review completion helper parity', () => {
   it('writes and reads an immutable exact marker', () => {
     const stateRoot = root();
-    assert.deepEqual(writeCompletion(identity(), options(stateRoot)), { written: true, syncRequested: true });
+    assert.deepEqual(writeCompletion(identity(), options(stateRoot)), { written: true });
     const path = completionPath(identity(), stateRoot);
     const first = JSON.parse(readFileSync(path, 'utf8')).reviewedAt;
     assert.equal(readCompletion(identity(), options(stateRoot)).status, 'complete');
     assert.deepEqual(writeCompletion(identity(), options(stateRoot, new Date(NOW.getTime() + DAY))), {
       written: false,
-      syncRequested: false,
     });
     assert.equal(JSON.parse(readFileSync(path, 'utf8')).reviewedAt, first);
   });
@@ -88,30 +87,20 @@ describe('Claude review completion helper parity', () => {
     assert.equal(candidate?.head, ancestorHead);
   });
 
-  it('warns for malformed daemon PID state', () => {
+  it('writes local completion without forcing an R2 sync', () => {
     const stateRoot = root();
     const pidFile = join(stateRoot, 'daemon.pid');
-    writeFileSync(pidFile, '0\n');
+    writeFileSync(pidFile, `${process.pid}\n`);
     process.env.CODEFLARE_SYNC_DAEMON_PIDFILE = pidFile;
-    const warnings = [];
-    const original = console.warn;
-    console.warn = (message) => warnings.push(String(message));
+    const original = process.kill;
+    let signals = 0;
+    process.kill = () => { signals += 1; return true; };
     try {
-      assert.equal(writeCompletion(identity(), { root: stateRoot, now: () => NOW }).syncRequested, false);
+      assert.deepEqual(writeCompletion(identity(), { root: stateRoot, now: () => NOW }), { written: true });
     } finally {
-      console.warn = original;
+      process.kill = original;
     }
-    assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /R2 sync trigger unavailable/);
-  });
-
-  it('keeps local completion when the sync signal fails', () => {
-    const stateRoot = root();
-    assert.deepEqual(writeCompletion(identity(), {
-      root: stateRoot,
-      now: () => NOW,
-      requestSync: () => false,
-    }), { written: true, syncRequested: false });
+    assert.equal(signals, 0);
     assert.equal(readCompletion(identity(), { root: stateRoot, now: () => NOW }).status, 'complete');
   });
 });

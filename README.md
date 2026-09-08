@@ -119,7 +119,9 @@ Workers KV stores control-plane records. Per-user R2 stores the explicitly selec
 Codeflare reduces standing and cross-session exposure around powerful agents. It does not claim that an unrestricted engineering agent is safe merely because it runs in a browser.
 
 - Each session has its own container, authenticated route, lifecycle-scoped proxy token, terminal set, and agent process tree.
-- Browser VS Code opens on a fixed workspace and rejects browser-supplied workspace selectors. The server snapshots the workspace choice when it creates the session, so changing the future default cannot convert existing sessions. This confines navigation, not terminal commands or trusted extensions.
+- Browser VS Code opens on a fixed workspace and rejects browser-supplied workspace selectors.
+
+  The server snapshots that choice when it creates the session, so changing the future default cannot convert existing sessions. This confines navigation, not terminal commands or trusted extensions.
 - Workspace synchronization is opt-in. Git remains the recommended persistence path for source code; R2 synchronization is periodic, not transactional.
 - Strict Gateway Egress is optional and carries a startup-availability trade-off. Review its exceptions before treating it as a mandatory DLP boundary.
 - The initial setup endpoint is public until the deployment is claimed. Complete setup promptly and protect the initialization hostname afterward.

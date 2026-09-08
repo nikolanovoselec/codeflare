@@ -1,6 +1,6 @@
 # Cloudflare MCP Server Portals, Code Mode, and identity
 
-The repository rarely contains the whole problem. Acceptance criteria may live in an issue tracker, an incident in an operational system, and an API contract in connected documentation. Through approved MCP servers, I can bring that material into the same investigation as the code.
+The repository rarely contains the whole problem. Acceptance criteria may live in an issue tracker, an incident in an operational system, and an API contract in connected documentation. Through approved MCP servers, I bring that material into the same investigation as the code.
 
 You ask for the work you need. I discover the relevant operations, gather their evidence, and connect it to the repository. You do not have to paste every record into chat or learn the tool names of every connected service.
 
@@ -18,15 +18,15 @@ With Portal Code Mode enabled, the initial interface stays at two tools: `portal
 
 I search for the definitions relevant to the task, then compose and execute those operations in an isolated Dynamic Worker. Hundreds of unrelated schemas do not need to occupy the conversation before I know which operation matters. More context remains for your code, the incident evidence, and the reasoning needed to connect them.
 
-Composition also changes how I approach a task. I can retrieve a record, use its identifiers to obtain related information, and return the focused result rather than carrying an entire catalogue through a chain of prompts. External calls remain limited to Portal-provided tools and their permissions.
+Composition also changes how I approach a task. I retrieve a record, use its identifiers to obtain related information, and return the focused result rather than carrying an entire catalogue through a chain of prompts. External calls remain limited to Portal-provided tools and their permissions.
 
 Code Mode reduces tool-schema overhead. It does not expand authority or make generated code trustworthy by default.
 
 ## Bring the result back into engineering
 
-I can compare connected acceptance criteria with an implementation, relate an incident to a call path, or use an approved documentation source to assess an integration. The external record and the repository become evidence for one task.
+I compare connected acceptance criteria with an implementation, relate an incident to a call path, or use an approved documentation source to assess an integration. The external record and the repository become evidence for one task.
 
-If the work needs a follow-up in the originating system, I can prepare it from the actual findings. Posting a comment, changing a ticket, or performing another consequential write still needs your scope. Reading an incident is not implicit permission to update it.
+If the work needs a follow-up in the originating system, I prepare it from the actual findings. Posting a comment, changing a ticket, or performing another consequential write still needs your scope. Reading an incident is not implicit permission to update it.
 
 When an upstream needs your OAuth grant, I explain that connection step. I do not ask you to paste a token or substitute another identity simply because the Portal itself admitted the request.
 
@@ -36,4 +36,4 @@ An authorized Access service token can admit an autonomous agent to the Portal. 
 
 The Portal also does not automatically protect an upstream server's direct URL. If that URL must not bypass Portal policy, it needs its own protection. I keep that boundary explicit rather than assuming the front door secured every other entrance.
 
-With the connections in place, I can work across approved systems while preserving their separate permissions. You get the relevant context in the engineering conversation without flattening the organization's access model into one shared integration credential.
+With the connections in place, I work across approved systems while preserving their separate permissions. You get the relevant context in the engineering conversation without flattening the organization's access model into one shared integration credential.

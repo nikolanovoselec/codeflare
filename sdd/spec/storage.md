@@ -99,11 +99,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. Conflict resolution is newest-file-wins. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
 4. The daemon retries on transient failure and continues the periodic cycle. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (daemon retries after transient failure and continues the cycle (REQ-STOR-003 AC4)) -->
 5. On bisync failure, the daemon attempts vanishing-file recovery (parse the error output, exclude transient files, clear stale locks, retry) before counting the failure against the failure budget. <!-- @impl: entrypoint.sh::recover_vanished_files --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (failure + vanishing-file recovery retries bisync and clears CONSECUTIVE_FAILURES (REQ-STOR-003 AC5)) -->
-6. Except while disk-space recovery is blocked, the default fallback remains three consecutive unrecoverable failures (each with internal retries exhausted). When exit code 7 coincides with a missing prior listing, the daemon immediately re-establishes a resync baseline because two more attempts cannot use absent state. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (three consecutive failures trigger --resync fallback (REQ-STOR-003 AC6 / REQ-STOR-002 AC1: resync re-establishes baseline so next sync can persist files)) --> <!-- @manual: Remove the listing, force exit 7, and confirm the first failed cycle enters baseline re-establishment. -->
 
 **Constraints:**
 
-- Disk-exhausted sync waits for [explicit recovery](#req-stor-041-disk-space-recovery).
+- Disk-exhausted sync recovery follows [REQ-STOR-045](#req-stor-045-bisync-baseline-recovery).
 - Bisync invocations must tolerate files changing mid-transfer (no false hash-mismatch aborts).
 - Bulk deletions in the workspace must propagate (no conservative delete cap that strands removals locally).
 - Post-sync listing validation must not abort the cycle when R2 changes during the sync window.
@@ -114,6 +113,32 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** [REQ-STOR-001](#req-stor-001-dedicated-per-user-r2-bucket), [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start)
 
 **Verification:** Automated test ([entrypoint-bisync-behavior](../../host/__tests__/entrypoint-bisync-behavior.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-045: Bisync Baseline Recovery
+
+**Intent:** Failed bisync state must recover promptly without overwriting newer data or leaving stale status visible.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Except while disk-space recovery is blocked, three consecutive unrecoverable failures trigger baseline re-establishment. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (REQ-STOR-045 AC1+AC3 / REQ-STOR-002 AC1: three consecutive failures trigger resync fallback) -->
+2. When synchronization reports that prior state is unavailable, recovery immediately establishes a newest-side-wins baseline. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-STOR-045 AC2: recovery baseline uses the real workdir and newest-side convergence) --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (REQ-STOR-045 AC2: forces immediate resync when protected workdir listings are absent) -->
+3. Successful baseline recovery publishes successful sync status. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (REQ-STOR-045 AC1+AC3 / REQ-STOR-002 AC1: three consecutive failures trigger resync fallback) -->
+
+**Constraints:**
+
+- Disk-exhausted sync waits for [explicit recovery](#req-stor-041-disk-space-recovery).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-041](#req-stor-041-disk-space-recovery)
+
+**Verification:** Automated test ([entrypoint-bisync-behavior](../../host/__tests__/entrypoint-bisync-behavior.test.js), [entrypoint-runtime-behavior](../../host/__tests__/entrypoint-runtime-behavior.test.js))
 
 **Status:** Implemented
 
@@ -132,7 +157,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. All per-agent config file modifications complete after the initial sync but before the bisync baseline, so the baseline observes a stable snapshot. The per-agent file enumeration lives in [documentation/lanes/configuration.md](../../documentation/lanes/configuration.md). <!-- @impl: entrypoint.sh::run_managed_curation_startup --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7: restores managed content and declared image companions before baseline) --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (executes the reachable baked restore, relay, cleanup, and baseline in order when curation is disabled) --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
 4. A bisync baseline is established after the post-sync file modifications complete. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (settings merge runs before bisync baseline) -->
 5. Vanished non-workspace files enter the recovery filter before retry; vanished workspace files retry without exclusion. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/entrypoint-vanished-file-recovery.test.js (adds a vanished NON-workspace file to the session recovery filter and signals retry (REQ-STOR-004 AC5)) -->
-6. Known per-session ephemeral agent-state files are statically excluded from all sync operations, including Codex plugin/general caches and log databases, Copilot SQLite temporary files, and Claude workflow artifacts. The full per-path inventory lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md#whats-synced-vs-excluded-req-stor-011). <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (statically excludes ephemeral caches, repo graphify-out, and R2 secrets in both modes (REQ-STOR-004 AC6 / REQ-AGENT-026 AC1)) -->
+6. Known per-session ephemeral agent-state files are statically excluded from all sync operations, including Codex plugin/general caches and SQLite WAL/SHM companions, Copilot SQLite temporary files, Claude workflow/daemon caches, code-server logs, and desktop Trash. The full per-path inventory lives in [documentation/lanes/storage-and-sync.md](../../documentation/lanes/storage-and-sync.md#whats-synced-vs-excluded-req-stor-011). <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (statically excludes ephemeral caches, repo graphify-out, and R2 secrets in both modes (REQ-STOR-004 AC6 / REQ-AGENT-026 AC1)) -->
 7. The bisync daemon starts unconditionally after the baseline phase, even if all baseline attempts fail; a dead daemon would mean zero sync for the entire session, and the daemon already has its own recovery path (vanishing-file recovery plus resync fallback). <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync + idempotent init) / REQ-VAULT-007 (preseeded plugs)) -->
 
 **Constraints:**
@@ -811,7 +836,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. Marker publication uses a mode-`0600` same-directory temporary file and atomic hard-link publication. A valid destination is idempotent and never refreshes `reviewedAt`; an invalid destination is removed and publication retries once. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::publish --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::publish --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (writes one immutable exact marker and never refreshes its age) --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (replaces an invalid exact destination once and rejects symlinks) -->
 3. Invalid or expired markers are pruned before lookup and after write; each repository branch retains ten newest markers, and first root startup performs one bounded symlink-safe global prune. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::pruneCompletionState --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::pruneCompletionState --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (deletes expired markers and retains ten newest per repository and branch) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (prunes marker state once on first root startup without traversing symlinks) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (prunes marker state once on first root startup without traversing symlinks) -->
 4. Every workspace sync mode includes only `~/.codeflare/review-state/v1/**` through the common restore, baseline, regular bisync, and final-sync filter set while other private `.codeflare` files remain excluded. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (persists user-scoped review completion in every workspace sync mode) -->
-5. A successful local marker write reads `CODEFLARE_SYNC_DAEMON_PIDFILE`, defaulting to `/run/codeflare/sync/sync-daemon.pid`, and sends `SIGUSR1` once. Missing or invalid PID state and signaling failure log one bounded warning but never roll back local completion. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::requestCompletionSync --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::requestCompletionSync --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (keeps local acknowledgement when sync signaling fails) --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (warns for malformed daemon PID state without changing local acknowledgement) --> <!-- @test: host/__tests__/review-completion-state.test.js (warns for malformed daemon PID state) -->
+5. Marker writes and pruning rely on regular or final workspace sync and do not force an additional sync. <!-- @impl: preseed/agents/pi/extensions/review-completion-state.ts::writeCompletion --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/lib/review-completion-state.mjs::writeCompletion --> <!-- @test: src/__tests__/lib/review-completion-state.test.ts (writes local acknowledgement without forcing an R2 sync) --> <!-- @test: host/__tests__/review-completion-state.test.js (writes local completion without forcing an R2 sync) -->
 
 **Constraints:** No review-specific R2 service, Worker endpoint, database, or direct `/internal/bisync-trigger` call exists. R2 convergence may repeat a prompt but cannot fabricate completion.
 

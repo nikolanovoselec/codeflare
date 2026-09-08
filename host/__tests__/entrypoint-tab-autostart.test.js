@@ -9,7 +9,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,18 +36,23 @@ function extractConfigureBody() {
   return lines.slice(start, end + 1).join('\n');
 }
 
-function runHarness({ tabConfig, env = {} } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'tab-autostart-harness-'));
+function runHarness({ tabConfig, env = {}, dir = mkdtempSync(join(tmpdir(), 'tab-autostart-harness-')) } = {}) {
   const body = extractConfigureBody();
   const runtimeRoot = join(dir, 'runtime');
   const envLines = [
     `export USER_HOME='${dir}'`,
     `export CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
+    `export SESSION_ID=${JSON.stringify(env.SESSION_ID ?? 'abc12345')}`,
+    `export CODEFLARE_TERMINAL_MODE=${JSON.stringify(env.CODEFLARE_TERMINAL_MODE ?? 'classic')}`,
     `mkdir -p '${runtimeRoot}/services'`,
-    ...Object.entries(env).map(([k, v]) => `export ${k}=${JSON.stringify(v)}`),
+    ...Object.entries(env)
+      .filter(([key]) => key !== 'SESSION_ID' && key !== 'CODEFLARE_TERMINAL_MODE')
+      .map(([k, v]) => `export ${k}=${JSON.stringify(v)}`),
   ];
   if (tabConfig !== undefined) {
     envLines.push(`export TAB_CONFIG=${JSON.stringify(tabConfig)}`);
+  } else {
+    envLines.push('unset TAB_CONFIG');
   }
   const script = [
     '#!/usr/bin/env bash',
@@ -64,6 +69,38 @@ function runHarness({ tabConfig, env = {} } = {}) {
     result,
     bashrc: existsSync(join(dir, '.bashrc')) ? readFileSync(join(dir, '.bashrc'), 'utf8') : '',
   };
+}
+
+function runGeneratedBashrc(dir, command) {
+  const bin = join(dir, 'bin');
+  const log = join(dir, 'agent.log');
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, command), '#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "$AGENT_LOG"\n', { mode: 0o755 });
+  const bashrcPath = join(dir, '.bashrc');
+  writeFileSync(
+    bashrcPath,
+    readFileSync(bashrcPath, 'utf8').replace(
+      'export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"',
+      `export PATH="${bin}:/usr/local/bin:/usr/bin:/bin:$PATH"`,
+    ),
+  );
+  const shell = `env HOME=${dir} AGENT_LOG=${log} TERMINAL_ID=1 TERMINAL_APP_STARTED= MANUAL_TAB= bash --noprofile --rcfile ${bashrcPath} -ic 'printf shell-survived'`;
+  const result = spawnSync('script', ['-qfec', shell, '/dev/null'], { encoding: 'utf8', timeout: 10_000 });
+  return {
+    result,
+    args: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : [],
+  };
+}
+
+function bindingId(dir, sessionId) {
+  return readFileSync(join(dir, '.codeflare/classic/sessions', `cf-${sessionId}`, 'agent-session-id'), 'utf8').trim();
+}
+
+function piSessionHeader(dir, nativeId) {
+  const sessionDir = join(dir, '.pi/agent/sessions', `--${join(dir, 'workspace').slice(1).replaceAll('/', '-')}--`);
+  const sessionFile = readdirSync(sessionDir).find((name) => name.endsWith(`_${nativeId}.jsonl`));
+  assert.ok(sessionFile, `fresh Pi session ${nativeId} must have an empty native transcript`);
+  return JSON.parse(readFileSync(join(sessionDir, sessionFile), 'utf8'));
 }
 
 // REQ-TERM-005: Tab 1 auto-starts the configured agent
@@ -102,6 +139,69 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
     assert.match(bashrc, /lazygit/, 'dynamic layout must emit the configured tab-1 command');
     // Marker still present so re-runs short-circuit
     assert.match(bashrc, /^# terminal-autostart$/m);
+  });
+
+  it('REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session', () => {
+    for (const command of ['pi', 'claude']) {
+      const sessionId = command === 'pi' ? 'piabc123' : 'claude12';
+      const dir = mkdtempSync(join(tmpdir(), `classic-${command}-resume-`));
+      mkdirSync(join(dir, 'workspace'), { recursive: true });
+      const tabConfig = JSON.stringify([{ id: '1', command, label: 'Terminal 1' }]);
+
+      const first = runHarness({ dir, tabConfig, env: { SESSION_ID: sessionId } });
+      assert.equal(first.result.status, 0, first.result.stderr);
+      const nativeId = bindingId(dir, sessionId);
+      assert.match(nativeId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      const fresh = runGeneratedBashrc(dir, command);
+      assert.equal(fresh.result.status, 0, fresh.result.stderr);
+      assert.match(fresh.result.stdout, /shell-survived/);
+      assert.deepEqual(
+        fresh.args,
+        command === 'pi'
+          ? ['--session-id', nativeId]
+          : ['--dangerously-skip-permissions', '--session-id', nativeId],
+      );
+
+      if (command === 'pi') {
+        const header = piSessionHeader(dir, nativeId);
+        assert.deepEqual(
+          { ...header, timestamp: undefined },
+          { type: 'session', version: 3, id: nativeId, timestamp: undefined, cwd: join(dir, 'workspace') },
+        );
+        assert.match(header.timestamp, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      } else {
+        const transcriptDir = join(dir, '.claude/projects/-home-user-workspace');
+        mkdirSync(transcriptDir, { recursive: true });
+        writeFileSync(join(transcriptDir, `${nativeId}.jsonl`), '{}\n');
+      }
+      rmSync(join(dir, '.bashrc'));
+      rmSync(join(dir, '.bash_profile'));
+      const restored = runHarness({ dir, tabConfig, env: { SESSION_ID: sessionId } });
+      assert.equal(restored.result.status, 0, restored.result.stderr);
+      assert.equal(bindingId(dir, sessionId), nativeId);
+      const resumed = runGeneratedBashrc(dir, command);
+      assert.deepEqual(
+        resumed.args,
+        command === 'pi'
+          ? ['--session', nativeId]
+          : ['--dangerously-skip-permissions', '--resume', nativeId],
+      );
+    }
+  });
+
+  it('REQ-AGENT-211 AC5: a different Codeflare session starts empty under a different native ID', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'classic-session-isolation-'));
+    mkdirSync(join(dir, 'workspace'), { recursive: true });
+    const tabConfig = JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]);
+    runHarness({ dir, tabConfig, env: { SESSION_ID: 'sessiona1' } });
+    const firstId = bindingId(dir, 'sessiona1');
+    rmSync(join(dir, '.bashrc'));
+    rmSync(join(dir, '.bash_profile'));
+    runHarness({ dir, tabConfig, env: { SESSION_ID: 'sessionb2' } });
+    const secondId = bindingId(dir, 'sessionb2');
+    assert.notEqual(secondId, firstId);
+    const fresh = runGeneratedBashrc(dir, 'pi');
+    assert.deepEqual(fresh.args, ['--session-id', secondId]);
   });
 
   it('AC1 dynamic: TAB_CONFIG entries with non-1-6 ids are rejected by the validator (injection guard)', () => {

@@ -745,7 +745,37 @@ Multi-agent support, preseed system, and session modes.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-TERM-035](terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace)
+**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents), [REQ-AGENT-002](#req-agent-002-agent-selection-at-session-creation), [REQ-TERM-035](terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-211: Classic Agent Transcript Resume
+
+**Intent:** A stopped Classic session must resume the exact native Pi or Claude conversation it started, without selecting an unrelated transcript.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A new Classic session starts one empty native conversation under a newly generated UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) -->
+2. Fresh Classic Pi startup does not report that its deliberate new session ID is missing. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-AGENT-211 AC2: complete-image smoke rejects Pi missing-session warnings for a seeded Classic ID) -->
+3. Restoring that Codeflare session starts its immutable tab-1 agent with the same UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-AGENT-211 AC3: persists only the current classic agent-session binding) -->
+4. The restored native agent resumes its synced transcript. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) -->
+5. A different Codeflare session receives a different native conversation UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC5: a different Codeflare session starts empty under a different native ID) -->
+
+**Constraints:**
+
+- The binding is scoped only by the immutable Codeflare session ID; selecting another conversation inside the agent does not replace it.
+- Historical Classic sessions without a binding start empty rather than guessing from the newest transcript.
+- Herdr keeps its own native session-reference lifecycle and does not use this Classic bootstrap.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-AGENT-003](#req-agent-003-agent-cli-auto-started-in-tab-1), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
 **Verification:** Automated test
 
@@ -2372,14 +2402,14 @@ None.
 3. The attribution guard does not match a bare `Claude`, so `git`/`gh` commands that name `preseed/agents/claude/` paths are not false-positives. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
 4. The local-build guard covers the package-manager build/test/lint/typecheck/dev verbs plus `pytest`, `vitest`, `go test`, `swift test`, `cargo test`, `tsc`, `eslint`, `oxlint`, `biome`, direct Node syntax checks, `prettier`, and `wrangler dev`. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isLocalBuildCommand --> <!-- @manual -->
 5. The local-build guard honors a user-only consume-on-use sentinel at `/tmp/local-build-bypass`: when present, the guard deletes it and allows the one command through; the block message names the override path. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::localBuildBlockReason --> <!-- @manual -->
-6. The seeded safe-local-check wrapper runs approved read-only analyzers or Node syntax checks from any repository through local binaries at low priority with one bounded deadline and no file-count limit. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::FORBIDDEN_ARGUMENTS --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::managedTimeout --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::runBounded --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
+6. The seeded safe-local-check wrapper runs approved read-only analyzers, Node syntax checks, or explicitly named Node test files from any repository through local binaries at low priority with one bounded deadline and no file-count limit. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::FORBIDDEN_ARGUMENTS --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::managedTimeout --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::runBounded --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
 7. Checked paths whose canonical targets leave the current repository directly or through symlinks are rejected. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryFiles --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
 
 **Constraints:**
 
 - The attribution and local-build detection sets are kept aligned with the canonical Claude hook scripts (`block-attributed-commits.sh`, the no-local-builds rule); divergence is a regression, except the documented Pi superset (brain emoji + `ChatGPT`) in AC2.
 - The bypass sentinel is user-only and consume-on-use under [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent).
-- Managed local checks are supplemental preflight evidence; tests, type checks, dependency-graph analysis, builds, installs, servers, and authoritative verification remain CI-only.
+- Managed local checks are supplemental preflight evidence; package test scripts, broad integration suites, type checks, dependency-graph analysis, builds, installs, servers, and authoritative verification remain CI-only.
 
 **Priority:** P1
 
@@ -3657,7 +3687,8 @@ None.
 
 - As a model instruction rather than a deterministic rendering guarantee, the router requires complete overview reads, continuation after truncation, and verbatim reproduction without omissions, restructuring, or added framing. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Routing --> <!-- @manual: Compare the complete response to the overview for “what can you do?” including a truncated initial read; verify no added introduction or options. -->
 
-- Capability statements name the agent in direct first-person active voice; factual boundaries may name the owning product or system.
+- Capability statements name the agent in direct first-person operational present tense, not modal “I can”; factual boundaries may name the owning product or system.
+- The overview presents the Knowledge Graph as the workflow joining cumulative knowledge to the checked-out repository and branch, with current source authoritative.
 - Product labels use exact names, including Cloudflare Access, Cloudflare Gateway, and Cloudflare AI Gateway.
 - Claims trace internally to active requirements, implementation, or operator documentation.
 - References remain lazy.
@@ -3689,7 +3720,7 @@ None.
 
 **Constraints:**
 
-- Capability statements name the agent in direct first-person active voice; factual boundaries may name the owning product or system.
+- Capability statements name the agent in direct first-person operational present tense, not modal “I can”; factual boundaries may name the owning product or system.
 - Product labels use exact names, including Cloudflare Access, Cloudflare Gateway, and Cloudflare AI Gateway.
 - Claims trace internally to active requirements, implementation, or operator documentation.
 - References remain lazy.

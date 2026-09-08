@@ -145,7 +145,7 @@ In a repository containing `sdd/README.md`, a push qualifies only when the check
 
 A selected or automatic launch still uses the established lane classifier, deterministic temporary reports, and exact-head CI correlation. Pi keeps one current round in memory. Claude limits transcript inspection to bytes after one `/run/codeflare/review-session` offset. Neither runtime persists partial lane state, a launch decision, retry work, counters, or missing-work demands. If work stops or the process reloads, the next delivery starts a fresh round and the next non-delivery exposure asks again. This is deliberate. Recovering half a review was the mechanism that kept reviving old authority.
 
-After canonical triage, FIX handling revalidates the exact GitHub identity and writes its marker before emitting the existing FIX follow-up. Marker files live under `~/.codeflare/review-state/v1`, retain ten heads per repository and branch, expire after 30 days, and sync through the common home-directory R2 filters. The local write does not wait for R2; the helper signals the existing daemon with `SIGUSR1` and accepts that failed convergence may repeat a prompt on another device ([REQ-STOR-027](../../sdd/spec/storage.md#req-stor-027-review-completion-marker-sync)).
+After canonical triage, FIX handling revalidates the exact GitHub identity and writes its marker before emitting the existing FIX follow-up. Marker files live under `~/.codeflare/review-state/v1`, retain ten heads per repository and branch, expire after 30 days, and sync through the common home-directory R2 filters. The local write does not wait for or trigger R2; regular cadence or final sync carries the marker, so another device may repeat the prompt before convergence ([REQ-STOR-027](../../sdd/spec/storage.md#req-stor-027-review-completion-marker-sync)).
 
 No executable review source reads or migrates `.git/sdd-review-*` files. Linked worktrees and separate clones therefore observe the same marker when they share the user's R2 bucket. Goal pause remains current-round coordination and releases before FIX; session restart never reconstructs review ownership from an old transcript.
 
@@ -553,14 +553,8 @@ All preseed content is deployed via the manifest pipeline:
    `rules/`, `agents/`, `commands/`, `skills/`, `plugins/`
 2. `preseed/agents/claude/manifest.json` maps each file to modes
    (`default`, `advanced`, or both)
-3. The side-effect-free `scripts/agent-seed-core.mjs` reads manifest + files
-   (manifest-driven, ignores non-manifest files like `plugins/cache/`) and applies
-   every agent transform. `scripts/generate-agent-seed.mjs` is the image-build CLI
-   wrapper; it generates `src/lib/agent-seed.generated.ts` with the
-   `AGENTS_SEEDED_CONFIGS` array and `PRESEED_CONTENT_HASH` (deterministic SHA-256
-   over all documents sorted by key, truncated to 16 hex chars). The shared core
-   also exposes the combined managed npm lock identity that binds managed
-   releases to the runtime dependency ABI. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
+3. The seed compiler reads manifested files, applies every agent transform, and
+   writes the generated runtime module.
 4. On first bucket creation:
    `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })`
    writes mode-appropriate files to R2
@@ -572,6 +566,13 @@ All preseed content is deployed via the manifest pipeline:
 7. Bisync pulls from R2 to container config directories
    (`~/.claude/`, `~/.codex/`, `~/.gemini/` (Antigravity), `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
+
+The side-effect-free `scripts/agent-seed-core.mjs` ignores non-manifest content
+and applies the transforms. The image-build CLI wrapper writes
+`src/lib/agent-seed.generated.ts` with `AGENTS_SEEDED_CONFIGS` and a deterministic
+16-character `PRESEED_CONTENT_HASH`. The shared core also exposes the combined
+managed npm lock identity that binds managed releases to the runtime dependency
+ABI. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
 
 Managed curation and the baked fallback select one web, mobile, desktop, static, or incumbent authority and keep motion, components, performance, and available finishing tools subordinate. The pinned compiler projects agent-neutral content to supported runtimes; Pi receives one compact routing rule, Copilot receives usable fallback boundaries without projected skill directories, and Canvas retains required Apache-2.0 attribution. The inventory includes `design`, `frontend-design`, `native-mobile-design`, `desktop-native-design`, `canvas-design`, and `motion-design`, and excludes UI UX Pro Max and `emil-design-eng`. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
 
@@ -609,8 +610,8 @@ remain absent.
 The default+advanced `safe-local-checks` skill supplies the operational policy and one
 managed wrapper for every repository. It resolves only already-installed local
 Oxlint, ESLint, Biome, or Prettier binaries, permits full-project read-only checks with
-no file-count limit, and runs them at low priority for at most three minutes; Node
-syntax checks use the same deadline. TypeScript syntax parsing prefers repository-local
+no file-count limit, and runs them at low priority for at most three minutes. Node
+syntax checks and explicitly named Node test files use the same deadline. TypeScript syntax parsing prefers repository-local
 `esbuild` and falls back to the exact immutable copy under `/opt/codeflare/npm-tools`,
 so managed sessions need no project install for this supplemental check. This parser
 selection follows [REQ-AGENT-192](../../sdd/spec/agents.md#req-agent-192-image-baked-typescript-syntax-parser). <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire -->
@@ -622,9 +623,9 @@ suppressing duplicate native catalog injection. <!-- @impl: scripts/agent-seed-c
 
 Mutation, watch, output-file, cache-writing, and analyzer-concurrency flags fail
 closed. Shell composition beyond one optional leading `cd … &&` prefix, or any
-redirection, cannot turn an allowed wrapper invocation into a write. Builds, tests,
-type checks, Knip and other dependency-graph analysis, installs, servers, and
-authoritative verification remain CI-only. Both Pi and Claude guards allow only the
+redirection, cannot turn an allowed wrapper invocation into a write. Builds, package
+test scripts, broad integration suites, type checks, Knip and other dependency-graph
+analysis, installs, servers, and authoritative verification remain CI-only. Both Pi and Claude guards allow only the
 exact wrapper path, and direct blocked commands point agents to the skill; the
 user-only one-shot bypass remains unchanged. <!-- @impl: preseed/agents/claude/plugins/codeflare-hooks/scripts/block-local-builds.sh::PATTERNS --> <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isManagedSafeLocalCheckCommand -->
 
@@ -1438,7 +1439,7 @@ The CI monitor does not return on the first failed row. Pi waits for every obser
 
 If terminal evidence exists but FIX does not appear, confirm canonical triage followed every required reviewer and exact-head CI result. CI failure or timeout needs a row with FINDING `Exact-head CI` and PROPOSED FIX `CI_RESULT failure` or `CI_RESULT timeout`; Pi issues one correction follow-up when a table is present but that row is malformed. Head drift and marker-write failure intentionally suppress FIX.
 
-Marker writes acknowledge locally before R2 convergence. The helper reads `CODEFLARE_SYNC_DAEMON_PIDFILE`, defaults to `/run/codeflare/sync/sync-daemon.pid`, and sends `SIGUSR1`. A signal warning does not revoke local completion. Another clone or device may ask again until bisync converges; that duplicate prompt is safer than claiming review completion that never reached storage.
+Marker writes acknowledge locally before R2 convergence and do not trigger an extra sync. Regular cadence or final sync carries them to R2. Another clone or device may ask again until bisync converges; that duplicate prompt is safer than claiming review completion that never reached storage ([REQ-STOR-027](../../sdd/spec/storage.md#req-stor-027-review-completion-marker-sync)).
 
 ## Image-Baked Delivery Alias
 
