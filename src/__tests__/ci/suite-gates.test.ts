@@ -56,6 +56,7 @@ type CacheJob = {
   needs?: string | string[];
   strategy?: { 'max-parallel'?: number };
   if?: string;
+  'timeout-minutes'?: number;
 };
 type CacheWorkflow = {
   permissions?: WorkflowPermissions;
@@ -217,6 +218,26 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       expect(matchesAny(path, flattenPatterns(filters.webui)), path).toBe(true);
     }
     expect(testWorkflow.jobs.summary.needs).toContain('impeccable-engine');
+  });
+
+  it('REQ-OPS-058 AC6-AC7: configures the native source regression without a container build and with a one-minute timeout', () => {
+    const { testWorkflow } = readCacheWorkflowContract();
+    const job = testWorkflow.jobs['impeccable-engine'];
+
+    expect(job['timeout-minutes']).toBe(1);
+    expect(job.steps).toEqual([
+      {
+        uses: expect.stringMatching(/^actions\/checkout@[0-9a-f]{40}$/),
+        with: {
+          'persist-credentials': false,
+          ref: '${{ github.event.pull_request.head.sha || github.sha }}',
+        },
+      },
+      {
+        name: 'Verify the pinned patched engine source',
+        run: 'python3 scripts/ci/impeccable-engine-source.py',
+      },
+    ]);
   });
 
   it('routes owned Browser IDE paths through the workflow classifier while leaving docs-only changes inert', () => {

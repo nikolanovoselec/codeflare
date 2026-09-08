@@ -5144,8 +5144,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. A wait client treats a live question page as open throughout the configured positive idle grace and reports the still-unanswered wait without inventing a choice. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) -->
-2. A wait client reports page closure only after the configured idle grace expires. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) -->
+1. A wait client treats a live question page as open throughout the configured positive idle grace and reports the still-unanswered wait without inventing a choice. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+2. A wait client reports page closure only after the configured idle grace expires. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
 
 **Constraints:** Waiting, page closure, and server failure remain distinct outcomes; none is treated as a user decision.
 
@@ -5194,10 +5194,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. [Native traversal and raster selection](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L184). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
-2. Scan mode excludes nested hidden directories and installed dependency directories. [Native directory exclusions](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L179). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
-3. Scan mode never follows a nested symbolic link, including broken and cyclic links. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
-4. An explicit symbolic-link target is rejected instead of producing an unaudited clean result. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
+1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. [Native traversal and raster selection](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L184). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+2. Scan mode excludes nested hidden directories and installed dependency directories. [Native directory exclusions](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L179). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+3. Scan mode never follows a nested symbolic link, including broken and cyclic links. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+4. An explicit symbolic-link target is rejected instead of producing an unaudited clean result. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
 
 **Constraints:** Scan mode never follows a symbolic link.
 

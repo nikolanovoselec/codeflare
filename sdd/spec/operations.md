@@ -155,6 +155,61 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
+### REQ-OPS-058: Fast Impeccable native-engine regression
+
+**Intent:** Impeccable source corrections receive complete regression feedback within the PR Checks time budget.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The PR lane rejects source that does not match the reviewed engine version, commit, and archive digest. <!-- @impl: scripts/ci/impeccable-engine-source.py::main --> <!-- @test: scripts/ci/impeccable-engine-source.py (main) -->
+2. The PR lane reproduces the upstream early-close behavior while the configured idle grace remains open. <!-- @impl: scripts/ci/impeccable-engine-source.py::verify_probe --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+3. The PR lane reproduces upstream traversal through a nested symbolic link. <!-- @impl: scripts/ci/impeccable-engine-source.py::verify_probe --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+4. The corrected wait condition keeps the question open through the configured idle grace and closes it after expiry. <!-- @impl: scripts/ci/impeccable-engine-source.py::verify_probe --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+5. The corrected raster traversal retains ordinary raster discovery and exclusions while skipping nested symbolic links and rejecting linked targets. <!-- @impl: scripts/ci/impeccable-engine-source.py::verify_probe --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+6. The PR lane builds no container. <!-- @impl: .github/workflows/test.yml::impeccable-engine --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-058 AC6-AC7: configures the native source regression without a container build and with a one-minute timeout) -->
+7. The PR lane has a one-minute hard timeout. <!-- @impl: .github/workflows/test.yml::impeccable-engine --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-058 AC6-AC7: configures the native source regression without a container build and with a one-minute timeout) -->
+
+**Constraints:**
+
+- The focused probes compile logic extracted from the checksum-verified source archive.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-AGENT-163](agents.md#req-agent-163-impeccable-browser-question-idle-lifecycle), [REQ-AGENT-164](agents.md#req-agent-164-impeccable-raster-scan-traversal)
+
+**Verification:** Automated source-probe and workflow-contract tests
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-059: Complete Impeccable native-binary verification
+
+**Intent:** Deployment image publication retains executable proof for the complete native engine in addition to focused PR feedback.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The deployment image build compiles and behavior-tests the complete upstream native binary before applying Codeflare corrections. <!-- @impl: Dockerfile::impeccable-builder --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) -->
+2. The deployment image build compiles and behavior-tests the complete corrected native binary before publication. <!-- @impl: Dockerfile::impeccable-builder --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) -->
+
+**Constraints:**
+
+- Focused PR probes do not replace deployment verification of the complete executable.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-058](#req-ops-058-fast-impeccable-native-engine-regression), [REQ-AGENT-163](agents.md#req-agent-163-impeccable-browser-question-idle-lifecycle), [REQ-AGENT-164](agents.md#req-agent-164-impeccable-raster-scan-traversal)
+
+**Verification:** Automated deployment native-binary tests
+
+**Status:** Implemented
+
+---
+
 ### REQ-OPS-005: Weekly pentest
 
 **Intent:** Automated external pentest probes run on a weekly schedule to detect regressions in production security posture.
