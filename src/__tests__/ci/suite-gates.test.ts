@@ -220,7 +220,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(testWorkflow.jobs.summary.needs).toContain('impeccable-engine');
   });
 
-  it('REQ-OPS-058 AC3: configures the native source regression without a container build and with a one-minute timeout', () => {
+  it('REQ-OPS-058 AC6-AC7: configures the native source regression without a container build and with a one-minute timeout', () => {
     const { testWorkflow } = readCacheWorkflowContract();
     const job = testWorkflow.jobs['impeccable-engine'];
     const command = job.steps?.find((step) => step.name === 'Verify the pinned patched engine source')?.run;
