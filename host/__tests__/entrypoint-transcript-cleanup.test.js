@@ -303,6 +303,33 @@ bisync_with_r2 ''
     }
   });
 
+  test('AC8: Pi removes only conflict copies wholly contained in their canonical transcript', () => {
+    const scratch = makeScratch();
+    try {
+      const pi = join(scratch.dir, '.pi', 'agent', 'sessions');
+      const canonical = writePi(pi, 1, 1, 50_000);
+      const canonicalContent = readFileSync(canonical);
+      const redundant = `${canonical}.conflict1`;
+      const divergent = `${canonical}.conflict2`;
+      const taskDir = join(dirname(canonical), 'tasks');
+      const excluded = join(taskDir, `${basename(canonical)}.conflict3`);
+      mkdirSync(taskDir, { recursive: true });
+      writeFileSync(redundant, canonicalContent.subarray(0, canonicalContent.indexOf(0x0a) + 1));
+      writeFileSync(divergent, Buffer.concat([canonicalContent.subarray(0, canonicalContent.indexOf(0x0a) + 1), Buffer.from('unique\n')]));
+      writeFileSync(excluded, canonicalContent);
+
+      const output = runRetention('pi', pi);
+
+      assert.match(output, /redundant-conflicts=1/);
+      assert.equal(existsSync(redundant), false);
+      assert.equal(existsSync(divergent), true);
+      assert.equal(existsSync(excluded), true);
+      assert.equal(readFileSync(canonical, 'utf8'), canonicalContent.toString('utf8'));
+    } finally {
+      scratch.cleanup();
+    }
+  });
+
   test('AC4: every unsupported identity branch switches the entire agent to mtime retention', () => {
     const cases = [
       {

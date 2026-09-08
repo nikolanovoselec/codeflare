@@ -11,13 +11,14 @@ import {
   readdirSync,
   unlinkSync,
 } from 'node:fs';
-import { basename, resolve, sep } from 'node:path';
+import { basename, dirname, resolve, sep } from 'node:path';
 
 const CHUNK_BYTES = 64 * 1024;
 const MAX_SCAN_BYTES = 1024 * 1024;
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const CLAUDE_FILENAME = new RegExp(`^(${UUID})\\.jsonl$`, 'i');
 const PI_FILENAME = new RegExp(`_(${UUID})\\.jsonl$`, 'i');
+const PI_CONFLICT_FILENAME = new RegExp(`^(.+_${UUID}\\.jsonl)\\.conflict[1-9]\\d*$`, 'i');
 const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 function parseTimestamp(value) {
@@ -55,6 +56,72 @@ function discoverTranscripts(root, excludedSegments) {
 
   visit(root);
   return transcripts;
+}
+
+function sameFileSnapshot(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeNs === right.mtimeNs;
+}
+
+function removeContainedConflictCopy(canonicalPath, conflictPath) {
+  let canonical;
+  let conflict;
+  try {
+    canonical = openSync(canonicalPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    conflict = openSync(conflictPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const canonicalBefore = fstatSync(canonical, { bigint: true });
+    const conflictBefore = fstatSync(conflict, { bigint: true });
+    if (!canonicalBefore.isFile() || !conflictBefore.isFile() || conflictBefore.size === 0n || conflictBefore.size > canonicalBefore.size) return false;
+
+    const canonicalBuffer = Buffer.allocUnsafe(CHUNK_BYTES);
+    const conflictBuffer = Buffer.allocUnsafe(CHUNK_BYTES);
+    let position = 0;
+    while (position < Number(conflictBefore.size)) {
+      const length = Math.min(CHUNK_BYTES, Number(conflictBefore.size) - position);
+      const canonicalRead = readSync(canonical, canonicalBuffer, 0, length, position);
+      const conflictRead = readSync(conflict, conflictBuffer, 0, length, position);
+      if (canonicalRead !== length || conflictRead !== length || !canonicalBuffer.subarray(0, length).equals(conflictBuffer.subarray(0, length))) return false;
+      position += length;
+    }
+
+    if (!sameFileSnapshot(canonicalBefore, fstatSync(canonical, { bigint: true })) ||
+        !sameFileSnapshot(canonicalBefore, lstatSync(canonicalPath, { bigint: true })) ||
+        !sameFileSnapshot(conflictBefore, fstatSync(conflict, { bigint: true })) ||
+        !sameFileSnapshot(conflictBefore, lstatSync(conflictPath, { bigint: true }))) return false;
+    unlinkSync(conflictPath);
+    return true;
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ELOOP') return false;
+    throw error;
+  } finally {
+    if (canonical !== undefined) closeSync(canonical);
+    if (conflict !== undefined) closeSync(conflict);
+  }
+}
+
+function removeRedundantPiConflicts(root, excludedSegments) {
+  if (!existsSync(root)) return 0;
+  const rootStat = lstatSync(root);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return 0;
+
+  let deleted = 0;
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (excludedSegments.has(entry.name)) continue;
+      const path = resolve(directory, entry.name);
+      if (!path.startsWith(`${root}${sep}`)) throw new Error(`candidate escaped transcript root: ${path}`);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) {
+        visit(path);
+        continue;
+      }
+      const match = entry.isFile() ? PI_CONFLICT_FILENAME.exec(entry.name) : undefined;
+      if (match && removeContainedConflictCopy(resolve(dirname(path), match[1]), path)) deleted += 1;
+    }
+  };
+
+  visit(root);
+  if (deleted > 0) process.stdout.write(`[transcript-cleanup] agent=pi redundant-conflicts=${deleted}\n`);
+  return deleted;
 }
 
 function readHeaderObjects(path) {
@@ -207,6 +274,7 @@ function main() {
   const excluded = agent === 'claude'
     ? new Set(['subagents', 'tool-results', 'workflows'])
     : new Set(['tasks']);
+  if (agent === 'pi') removeRedundantPiConflicts(root, excluded);
   const parser = agent === 'claude' ? parseClaudeTimestamp : parsePiTimestamp;
   retainLatest(agent, discoverTranscripts(root, excluded), keepCount, parser);
 }
