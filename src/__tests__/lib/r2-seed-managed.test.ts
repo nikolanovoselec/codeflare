@@ -1276,8 +1276,8 @@ describe('managed release user-bucket reconciliation', () => {
     const unknownHistorical = 'legacy/shared-resource.txt';
     const target = await selection('8'.repeat(64), release(58, [document('.pi/agent/extensions/current.ts')]));
     const prior = await selection('7'.repeat(64), release(57, [
-      document('.pi/agent/extensions/current.ts'),
       document(activeHistorical),
+      document('.pi/agent/extensions/current.ts'),
       document(unknownHistorical),
     ]));
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {

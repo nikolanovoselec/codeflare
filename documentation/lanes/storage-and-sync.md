@@ -62,7 +62,7 @@ A managed path is an exact object key owned by the verified release inventory, a
 
 **Immutable** applies when **Immutable Resources** is enabled and **Disable User Created Resources** is disabled. Current managed paths and signed retirement tombstones are exact protected paths. Personal files elsewhere continue to persist. Container filters keep routine bisync away from protected paths; if those filters are bypassed or damaged, the Worker rejects the protected R2 mutation with S3 `403`. A file at a path introduced by a later release is replaced by managed content and protected from then on.
 
-**Exclusive** applies when **Disable User Created Resources** is enabled. Universal policy still protects exact paths and governed roots for all six agent homes, so sync cannot restore inactive content. Cleanup uses a separate selected keep-set and removes unrecognized objects only inside those governed roots after bounded prevalidation. <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy -->
+**Exclusive** applies when **Disable User Created Resources** is enabled. Universal policy still protects exact paths and governed roots for all six agent homes, so sync cannot restore inactive content. Cleanup uses a separate selected keep-set and removes unrecognized objects only inside those governed roots after bounded prevalidation. <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy --> <!-- @impl: src/lib/r2-seed.ts::listExclusiveCleanupCandidates -->
 
 Selected files, Worker metadata, active runtime companions, root-level personal files, and unrelated home paths survive. Enabling this mode is intentionally destructive inside governed roots, so reconciliation waits until the user's sessions have stopped.
 

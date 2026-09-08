@@ -106,16 +106,19 @@ describe('deployment container image input hash', () => {
       'scripts/verify-pi-lockstep.mjs',
       'scripts/verify-pi-prompt.mjs',
       'scripts/pi-prompt-contract.mjs',
+      'scripts/ci/coding-agent-selection-core.mjs',
       'scripts/ci/coding-agent-selection.mjs',
       'scripts/ci/prune-npm-platform-artifacts.mjs',
       'scripts/ci/smoke-openvscode-sidebar-image.mjs',
       'scripts/ci/validate-trivy-result.mjs',
       'src/lib/agent-seed.generated.ts',
     ]) write(path);
-    write(
-      'scripts/ci/coding-agent-selection.mjs',
-      readFileSync(join(ROOT, 'scripts/ci/coding-agent-selection.mjs'), 'utf8'),
-    );
+    for (const file of ['coding-agent-selection-core.mjs', 'coding-agent-selection.mjs']) {
+      write(
+        `scripts/ci/${file}`,
+        readFileSync(join(ROOT, 'scripts/ci', file), 'utf8'),
+      );
+    }
     commit('fixture');
     const baseline = imageHashResult();
     assert.match(baseline.tag ?? '', /^in-[a-f0-9]{16}$/);

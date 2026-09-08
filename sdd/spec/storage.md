@@ -1265,29 +1265,81 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ---
 
-### REQ-STOR-046: Selective Agent Projection
+### REQ-STOR-046: Coding-agent selection and ownership
 
-**Intent:** Managed and baked agent resources match the configured active coding agents.
+**Intent:** Deployment configuration resolves one valid ownership boundary for agent resources.
 
-**Applies To:** User, Enterprise
+**Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Selection resolves to a canonical non-empty agent set, and invalid explicit input fails before storage work. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (defaults to every coding agent and canonicalizes a configured subset) --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-024: rejects invalid explicit selection before initial restore or baseline work) -->
-2. Every managed agent path has exactly one known owner; unknown current paths fail before R2 mutation. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::managedPathOwner --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-STOR-021: classifies every managed home by one owner and rejects unknown roots) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 + REQ-STOR-029: an unknown current owner fails before any R2 mutation) -->
-3. Managed planning, streaming writes, and progress use the same selected-agent target. <!-- @impl: src/lib/r2-seed.ts::getSelectedManagedDocumentKeys --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
-4. Pending, applied, and baked state store projection identity; absent or changed identity triggers a full selected-target reconciliation. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC3: journals the canonical projection before R2 work and publishes it with applied state) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033: a full selected-target pass verifies every selected document and metadata) -->
-5. Exact inactive-agent paths from verified inventories can be deleted without provenance only when a conditional identity check still matches. <!-- @impl: src/lib/r2-seed.ts::deleteExactInactiveConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021: exact inactive paths from current, prior, and interrupted inventories delete markerless with HEAD ETags) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 + REQ-STOR-035: a competing replacement blocks inactive cleanup and policy publication) -->
-6. Exclusive policy keeps universal governed roots while its keep-set contains only selected managed resources. <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029: exclusive policy stays universal while selected cleanup removes only governed inactive and personal resources) -->
-7. Startup lays down only selected baked roots and skips Pi or Claude setup when that agent is inactive. <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-024: lays down only selected agent roots and skips the Pi relay when Pi is inactive) --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (REQ-STOR-024: Claude-inactive startup does not register or enable Claude context-mode) -->
+1. Omitted selection resolves to every supported coding agent. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (defaults to every coding agent and canonicalizes a configured subset) -->
+2. Configured supported names resolve in canonical order without duplicates. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (defaults to every coding agent and canonicalizes a configured subset) -->
+3. An empty explicit selection is rejected. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (rejects empty explicit sets and unknown agent names) -->
+4. An unknown selected agent fails before storage work. <!-- @impl: entrypoint.sh::validate_coding_agent_selection --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-024: rejects invalid explicit selection before initial restore or baseline work) -->
+5. Every recognized managed agent path resolves to one owner. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::managedPathOwner --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-STOR-021: classifies every managed home by one owner and rejects unknown roots) -->
+6. An unknown current managed path fails before R2 mutation. <!-- @impl: src/lib/r2-seed.ts::requireManagedDocumentOwners --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 + REQ-STOR-029: an unknown current owner fails before any R2 mutation) -->
 
-**Constraints:** Curation remains one universal signed release; projection happens in Codeflare without changing the release digest.
+**Constraints:** The supported owner mapping is shared by image and Worker paths.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-STOR-021](#req-stor-021-managed-agent-resource-ownership), [REQ-STOR-024](#req-stor-024-managed-agent-environment-reconciliation), [REQ-STOR-029](#req-stor-029-managed-agent-resource-policies), [REQ-STOR-033](#req-stor-033-managed-release-delta-reconciliation)
+**Dependencies:** [REQ-STOR-021](#req-stor-021-managed-content-ownership)
 
-**Verification:** Automated resolver, R2 reconciliation, route, and startup tests.
+**Verification:** Automated resolver, ownership, and startup-order tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-047: Selected managed-release projection
+
+**Intent:** User-bucket reconciliation applies only the active agents from one universal release.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Fingerprint planning uses only selected managed documents. <!-- @impl: src/lib/r2-seed.ts::getSelectedManagedDocumentKeys --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
+2. Streaming writes use the same selected target as planning. <!-- @impl: src/lib/r2-seed.ts::seedManagedDocuments --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
+3. Reconciliation progress counts the selected target. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
+4. Published pending, applied, and baked state carries projection identity. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC3: journals the canonical projection before R2 work and publishes it with applied state) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-033: baked mode reconciliation stamps selection identity beside the content hash) -->
+5. Absent projection identity triggers a full selected-target reconciliation. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033: a full selected-target pass verifies every selected document and metadata) -->
+6. Changed projection identity triggers a full selected-target reconciliation. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC3: same-release %s forces a full selected-target pass) -->
+7. Markerless inactive-agent deletion requires a matching conditional identity check. <!-- @impl: src/lib/r2-seed.ts::deleteExactInactiveConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 + REQ-STOR-035: a competing replacement blocks inactive cleanup and policy publication) -->
+
+**Constraints:** Projection does not change the universal signed release digest.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-STOR-033](#req-stor-033-managed-release-delta-planning-and-resume), [REQ-STOR-035](#req-stor-035-managed-reconciliation-cleanup-and-finalization)
+
+**Verification:** Automated planning, write, progress, state, and cleanup tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-048: Selected agent startup
+
+**Intent:** Container startup activates only image resources owned by selected coding agents.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Startup validates agent selection before initial restore. <!-- @impl: entrypoint.sh::run_initial_r2_restore --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-024: rejects invalid explicit selection before initial restore or baseline work) -->
+2. Baked lay-down copies only selected agent roots. <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-024: lays down only selected agent roots and skips the Pi relay when Pi is inactive) -->
+3. Pi relay does not run when Pi is inactive. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-024: lays down only selected agent roots and skips the Pi relay when Pi is inactive) -->
+4. Claude context setup does not run when Claude Code is inactive. <!-- @impl: entrypoint.sh::coding_agent_is_selected --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (REQ-STOR-024: Claude-inactive startup does not register or enable Claude context-mode) -->
+
+**Constraints:** Remote curation retains release-owned bytes and image-owned companions.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-031](#req-stor-031-managed-resource-container-sync)
+
+**Verification:** Automated startup-order, baked lay-down, Pi relay, and Claude context tests.
 
 **Status:** Implemented
 
