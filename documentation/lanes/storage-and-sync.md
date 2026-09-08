@@ -216,7 +216,7 @@ Malformed interior or trailing records are harmless when the header and latest t
 
 Cleanup runs once after the initial R2 restore, before agent PTYs are released, and again inside every regular or final `bisync_with_r2()` call. Deletions therefore reach R2 in the following sync. Each call remains isolated with `|| true`, so cleanup cannot kill startup or the sync daemon. Existing R2 exclusions for Claude subagents and Pi tasks are unchanged. Codex is unchanged too: its session recordings stay excluded and its SQLite-backed transcript state has no smart-retention adapter. <!-- @impl: entrypoint.sh::release_agent_pty_after_cleanup --> <!-- @impl: entrypoint.sh::cleanup_main_transcripts --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 
-Pi cleanup deletes every `.conflict*` file beneath `~/.pi/agent/sessions/`, including task paths and divergent copies. Pi cannot resume these files, and unique turns in them are intentionally disposable. The canonical transcript remains available for resume. <!-- @impl: transcript-retention.mjs::deletePiConflictFiles -->
+Under [REQ-STOR-051](../../sdd/spec/storage.md#req-stor-051-pi-transcript-conflict-cleanup), Pi cleanup deletes every `.conflict*` file beneath `~/.pi/agent/sessions/`, including task paths and divergent copies. Pi cannot resume these files, and unique turns in them are intentionally disposable. The conflict-file sweep does not select canonical transcript filenames; normal ten-transcript retention still applies. <!-- @impl: transcript-retention.mjs::deletePiConflictFiles -->
 
 ## Conflict Resolution
 
