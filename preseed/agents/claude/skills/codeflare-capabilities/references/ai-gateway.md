@@ -6,9 +6,9 @@ I connect those choices through Cloudflare AI Gateway.
 
 A route is a stable handle. Behind it can sit hosted inference or a compatible customer-operated backend. Gateway credentials and route resolution stay at my Worker boundary; you use the choices assigned to your identity rather than carrying provider tokens into the session.
 
-## A route can do more than name a model
+## A route does more than name a model
 
-Dynamic Routes can express configured conditional, weighted, limit, and fallback behavior. Your administrator can change that routing while retaining the handle used by the agent. Codeflare Inference Mesh can supply an additional customer-operated backend, but it is optional; hosted providers remain valid defaults or fallbacks.
+Dynamic Routes express configured conditional, weighted, limit, and fallback behavior. Your administrator configures that routing while retaining the handle used by the agent. Codeflare Inference Mesh can supply an additional customer-operated backend, but it is optional; hosted providers remain valid defaults or fallbacks.
 
 In Pi, `/model` shows your available catalogue. Context limits and supported reasoning choices help distinguish a route suited to a long investigation from one suited to a smaller task. A model mentioned in conversation does not become selectable merely because I recognize its name.
 

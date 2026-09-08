@@ -1,7 +1,7 @@
 # Graph Report - codeflare  (2026-09-08)
 
 ## Corpus Check
-- 1627 files · ~3,845,078 words
+- 1627 files · ~3,844,925 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `824baa18`
+- Built from commit: `1375d929`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -2961,7 +2961,7 @@ Nodes (6): A knowledge base you can read without me, Bring in another judgment d
 
 ### Community 937 - "Cloudflare AI Gateway, models, routing, and attribution"
 Cohesion: 0.29
-Nodes (6): A route can do more than name a model, Access follows your organization's policy, Cloudflare AI Gateway, models, routing, and attribution, Compatibility includes the work between answers, Keep the evidence attached to what was checked, Make a route usable without turning setup into guesswork
+Nodes (6): A route does more than name a model, Access follows your organization's policy, Cloudflare AI Gateway, models, routing, and attribution, Compatibility includes the work between answers, Keep the evidence attached to what was checked, Make a route usable without turning setup into guesswork
 
 ### Community 938 - "PR reviews, CI, release, and production evidence"
 Cohesion: 0.33
@@ -2969,7 +2969,7 @@ Nodes (5): A replacement commit needs its own evidence, Findings are proposals, 
 
 ### Community 939 - "Browser VS Code, native agent workflows, and extensions"
 Cohesion: 0.33
-Nodes (5): A session-owned editor, Ask about the code in front of you, Browser VS Code, native agent workflows, and extensions, Read the change while it is being made, Your workbench preferences can return
+Nodes (5): A session-owned editor, Ask about the code in front of you, Browser VS Code, native agent workflows, and extensions, Read the change while it is being made, Your workbench preferences persist within scope
 
 ### Community 940 - "Browser research and authorized deployed verification"
 Cohesion: 0.33

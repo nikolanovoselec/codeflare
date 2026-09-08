@@ -26,11 +26,11 @@ Supported Cloudflare OAuth connections also require refresh handling. I obtain c
 
 With strict storage interception, I validate the bound storage identity and sign requests for the exact user's bucket. A storage request cannot fall back to an account-wide management credential when its scoped authorization is missing.
 
-These paths preserve the client's transport needs—authorization formats, streams, and supported WebSockets—while keeping credential selection under trusted ownership.
+These paths preserve the client's transport needs, including authorization formats, streams, and supported WebSockets, while keeping credential selection under trusted ownership.
 
 ## Connect once through the supported flow
 
-You authorize your user connections through the appropriate connection surface. Administrators configure shared gateway and browser-service connections. I can then work with the access supplied by those connections without asking you to retrieve and paste their tokens.
+You authorize your user connections through the appropriate connection surface. Administrators configure shared gateway and browser-service connections. I then work with the access supplied by those connections without asking you to retrieve and paste their tokens.
 
 If a call fails, I distinguish an absent connection, expired authorization, insufficient service permission, an unsupported destination, and a network policy decision. I use the error and configuration evidence without exposing credentials. A valid workspace login does not automatically provide all of these connections.
 

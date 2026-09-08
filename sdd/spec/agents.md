@@ -3685,7 +3685,8 @@ None.
 
 - As a model instruction rather than a deterministic rendering guarantee, the router requires complete overview reads, continuation after truncation, and verbatim reproduction without omissions, restructuring, or added framing. <!-- @impl: preseed/agents/claude/skills/codeflare-capabilities/SKILL.md::Routing --> <!-- @manual: Compare the complete response to the overview for “what can you do?” including a truncated initial read; verify no added introduction or options. -->
 
-- Capability statements name the agent in direct first-person active voice; factual boundaries may name the owning product or system.
+- Capability statements name the agent in direct first-person operational present tense, not modal “I can”; factual boundaries may name the owning product or system.
+- The overview presents the Knowledge Graph as the workflow joining cumulative knowledge to the checked-out repository and branch, with current source authoritative.
 - Product labels use exact names, including Cloudflare Access, Cloudflare Gateway, and Cloudflare AI Gateway.
 - Claims trace internally to active requirements, implementation, or operator documentation.
 - References remain lazy.
@@ -3717,7 +3718,7 @@ None.
 
 **Constraints:**
 
-- Capability statements name the agent in direct first-person active voice; factual boundaries may name the owning product or system.
+- Capability statements name the agent in direct first-person operational present tense, not modal “I can”; factual boundaries may name the owning product or system.
 - Product labels use exact names, including Cloudflare Access, Cloudflare Gateway, and Cloudflare AI Gateway.
 - Claims trace internally to active requirements, implementation, or operator documentation.
 - References remain lazy.

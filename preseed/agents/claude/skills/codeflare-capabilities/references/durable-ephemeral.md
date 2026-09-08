@@ -20,9 +20,9 @@ I keep three different kinds of continuity straight:
 
 **Synchronized storage preserves selected files.** Notes, assets, datasets, configuration, and deliberately persisted workspace material can outlive compute. Workspace synchronization is an explicit preference and defaults off; having a bucket does not make every local path durable.
 
-**The Vault preserves working knowledge.** Decisions, references, plans, and supported session captures remain readable Markdown. Their graph relationships can connect later work to the evidence behind an earlier conclusion.
+**The Vault preserves working knowledge.** Decisions, references, plans, and supported session captures remain readable Markdown. Their relationships connect later work to the evidence behind an earlier conclusion through the Knowledge Graph.
 
-I help put an output where its future use requires it. Before replacing a session, I identify work that still needs committing or synchronization instead of assuming that whatever is visible in the terminal has already been saved.
+I put each output where its future use requires it. Before replacing a session, I identify work that still needs committing or synchronization instead of assuming that whatever is visible in the terminal has already been saved.
 
 ## Synchronization has a schedule
 

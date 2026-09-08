@@ -8,7 +8,7 @@ The workbench uses the session's actual filesystem and toolchain. There is no se
 
 An agent conversation can explain a proposed correction; the editor lets you examine it. Open related files, follow references, inspect the diff, compare diagnostics, or run an approved command in the integrated terminal. You can keep the relevant code on screen while the investigation continues.
 
-I bring the supported native agent experience into that workbench. Pi-selected sessions can use Codeflare Chat and editor-context workflows; selected Claude sessions use their supported official extension integration. The selected supported integration determines which native actions are available. Your repository determines how the project is built, tested, and operated.
+I bring the supported native agent experience into that workbench. Pi-selected sessions use Codeflare Chat and editor-context workflows; selected Claude sessions use their supported official extension integration. The selected supported integration determines which native actions are available. Your repository determines how the project is built, tested, and operated.
 
 ## Ask about the code in front of you
 
@@ -18,7 +18,7 @@ Inline proposals belong to the editor's acceptance flow. Document identity, rang
 
 Review with Codeflare attaches a workspace file from the Explorer or editor. For a multi-file change, I keep the wider investigation in the appropriate conversation and make the resulting diffs inspectable.
 
-## Your workbench preferences can return
+## Your workbench preferences persist within scope
 
 Themes, web keyboard layout, Explorer expansion, open-file resources, and supported extension choices have bounded continuity. I restore user-selected Open VSX extensions through a versioned manifest, rather than copying a live extension runtime wholesale between sessions. Managed company extensions can be reconciled alongside that user intent.
 

@@ -146889,14 +146889,14 @@
       "source_location": "L1"
     },
     {
-      "id": "preseed_agents_claude_skills_codeflare_capabilities_references_ai_gateway_a_route_can_do_more_than_name_a_model",
-      "label": "A route can do more than name a model",
+      "id": "preseed_agents_claude_skills_codeflare_capabilities_references_ai_gateway_a_route_does_more_than_name_a_model",
+      "label": "A route does more than name a model",
       "_origin": "ast",
       "community": 937,
       "community_name": "Cloudflare AI Gateway, models, routing, and attribution",
       "file_type": "document",
       "node_kind": "heading",
-      "norm_label": "a route can do more than name a model",
+      "norm_label": "a route does more than name a model",
       "source_file": "preseed/agents/claude/skills/codeflare-capabilities/references/ai-gateway.md",
       "source_location": "L9"
     },
@@ -147093,14 +147093,14 @@
       "source_location": "L7"
     },
     {
-      "id": "preseed_agents_claude_skills_codeflare_capabilities_references_browser_ide_your_workbench_preferences_can_return",
-      "label": "Your workbench preferences can return",
+      "id": "preseed_agents_claude_skills_codeflare_capabilities_references_browser_ide_your_workbench_preferences_persist_within_scope",
+      "label": "Your workbench preferences persist within scope",
       "_origin": "ast",
       "community": 939,
       "community_name": "Browser VS Code, native agent workflows, and extensions",
       "file_type": "document",
       "node_kind": "heading",
-      "norm_label": "your workbench preferences can return",
+      "norm_label": "your workbench preferences persist within scope",
       "source_file": "preseed/agents/claude/skills/codeflare-capabilities/references/browser-ide.md",
       "source_location": "L21"
     },
@@ -405430,7 +405430,7 @@
     },
     {
       "source": "preseed_agents_claude_skills_codeflare_capabilities_references_ai_gateway_cloudflare_ai_gateway_models_routing_and_attribution",
-      "target": "preseed_agents_claude_skills_codeflare_capabilities_references_ai_gateway_a_route_can_do_more_than_name_a_model",
+      "target": "preseed_agents_claude_skills_codeflare_capabilities_references_ai_gateway_a_route_does_more_than_name_a_model",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -405518,7 +405518,7 @@
     },
     {
       "source": "preseed_agents_claude_skills_codeflare_capabilities_references_browser_ide_browser_vs_code_native_agent_workflows_and_extensions",
-      "target": "preseed_agents_claude_skills_codeflare_capabilities_references_browser_ide_your_workbench_preferences_can_return",
+      "target": "preseed_agents_claude_skills_codeflare_capabilities_references_browser_ide_your_workbench_preferences_persist_within_scope",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -519744,5 +519744,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "824baa1867ccb956a1859971d47aeaa4f38ac628"
+  "built_at_commit": "1375d92994148ea001546f1adfd5f3e7e8015789"
 }
