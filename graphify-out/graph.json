@@ -8776,7 +8776,7 @@
       "file_type": "code",
       "norm_label": "proxy",
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L37"
+      "source_location": "L38"
     },
     {
       "id": "landing_src_content_site_agentrun",
@@ -68418,7 +68418,7 @@
       "file_type": "code",
       "norm_label": "free_port()",
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L28"
+      "source_location": "L29"
     },
     {
       "id": "scripts_ci_rclone_bisync_s3_proxy_forward",
@@ -68430,7 +68430,7 @@
       "file_type": "code",
       "norm_label": ".forward()",
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L41"
+      "source_location": "L42"
     },
     {
       "id": "scripts_ci_rclone_bisync_s3_proxy_log_message",
@@ -68442,7 +68442,7 @@
       "file_type": "code",
       "norm_label": ".log_message()",
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L38"
+      "source_location": "L39"
     },
     {
       "id": "scripts_ci_rclone_bisync_s3_test_recovery_archive_filters",
@@ -68454,7 +68454,7 @@
       "file_type": "code",
       "norm_label": "test_recovery_archive_filters()",
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L155"
+      "source_location": "L161"
     },
     {
       "id": "scripts_ci_rclone_bisync_s3_test_server_modtime_sync",
@@ -68466,7 +68466,7 @@
       "file_type": "code",
       "norm_label": "test_server_modtime_sync()",
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L208"
+      "source_location": "L214"
     },
     {
       "id": "scripts_ci_tls_legacy_probe_client_hello",
@@ -126423,7 +126423,7 @@
       "source_location": ""
     },
     {
-      "id": "scripts_ci_rclone_bisync_s3_rationale_156",
+      "id": "scripts_ci_rclone_bisync_s3_rationale_162",
       "label": "REQ-STOR-011 AC5\u2013AC7: isolate/preserve archives without changing live-file sync.",
       "_origin": "ast",
       "community": 461,
@@ -126431,7 +126431,7 @@
       "file_type": "rationale",
       "norm_label": "req-stor-011 ac5\u2013ac7: isolate/preserve archives without changing live-file sync.",
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L156"
+      "source_location": "L162"
     },
     {
       "id": "scripts_ci_rclone_bisync_s3_rationale_2",
@@ -126445,7 +126445,7 @@
       "source_location": "L2"
     },
     {
-      "id": "scripts_ci_rclone_bisync_s3_rationale_209",
+      "id": "scripts_ci_rclone_bisync_s3_rationale_215",
       "label": "REQ-STOR-003 / REQ-STOR-042 / REQ-STOR-043: real per-side bookkeeping, conflict\u2026",
       "_origin": "ast",
       "community": 461,
@@ -126453,7 +126453,7 @@
       "file_type": "rationale",
       "norm_label": "req-stor-003 / req-stor-042 / req-stor-043: real per-side bookkeeping, conflict...",
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L209"
+      "source_location": "L215"
     },
     {
       "id": "scripts_ci_tls_legacy_probe_rationale_2",
@@ -234198,7 +234198,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L252",
+      "source_location": "L258",
       "weight": 1.0
     },
     {
@@ -435290,7 +435290,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L155",
+      "source_location": "L161",
       "weight": 1.0
     },
     {
@@ -435301,7 +435301,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L208",
+      "source_location": "L214",
       "weight": 1.0
     },
     {
@@ -435312,7 +435312,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L28",
+      "source_location": "L29",
       "weight": 1.0
     },
     {
@@ -435323,7 +435323,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L37",
+      "source_location": "L38",
       "weight": 1.0
     },
     {
@@ -491178,7 +491178,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L38",
+      "source_location": "L39",
       "weight": 1.0
     },
     {
@@ -491189,7 +491189,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L41",
+      "source_location": "L42",
       "weight": 1.0
     },
     {
@@ -493888,14 +493888,14 @@
       "weight": 1.0
     },
     {
-      "source": "scripts_ci_rclone_bisync_s3_rationale_156",
+      "source": "scripts_ci_rclone_bisync_s3_rationale_162",
       "target": "scripts_ci_rclone_bisync_s3_test_recovery_archive_filters",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L156",
+      "source_location": "L162",
       "weight": 1.0
     },
     {
@@ -493910,14 +493910,14 @@
       "weight": 1.0
     },
     {
-      "source": "scripts_ci_rclone_bisync_s3_rationale_209",
+      "source": "scripts_ci_rclone_bisync_s3_rationale_215",
       "target": "scripts_ci_rclone_bisync_s3_test_server_modtime_sync",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "scripts/ci/rclone-bisync-s3.py",
-      "source_location": "L209",
+      "source_location": "L215",
       "weight": 1.0
     },
     {
@@ -519744,5 +519744,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "ce031e0b32b355c70ddcd70dfc4a071cded58125"
+  "built_at_commit": "824baa1867ccb956a1859971d47aeaa4f38ac628"
 }

@@ -23,6 +23,7 @@ race_armed = False
 race_at_list = False
 completion_pagination_armed = False
 completion_page_served = False
+completion_token_used = False
 
 
 def free_port():
@@ -39,7 +40,7 @@ class Proxy(http.server.BaseHTTPRequestHandler):
         pass
 
     def forward(self):
-        global race_armed, completion_page_served
+        global race_armed, completion_page_served, completion_token_used
         counts[self.command] += 1
         if self.command == "GET" and ("list-type=" in self.path or "delimiter=" in self.path):
             counts["LIST"] += 1
@@ -59,9 +60,14 @@ class Proxy(http.server.BaseHTTPRequestHandler):
         data = self.rfile.read(int(self.headers.get("Content-Length", "0")))
         connection = http.client.HTTPConnection("127.0.0.1", backend_port, timeout=30)
         try:
-            parsed_path = urlsplit(self.path)
-            backend_query = [(name, value) for name, value in parse_qsl(parsed_path.query) if not (name == "continuation-token" and value == "codeflare-page-2")]
-            backend_path = urlunsplit(("", "", parsed_path.path, urlencode(backend_query), ""))
+            continuation_followup = query.get("continuation-token") == ["codeflare-page-2"]
+            if continuation_followup:
+                completion_token_used = True
+                parsed_path = urlsplit(self.path)
+                backend_query = [(name, value) for name, value in parse_qsl(parsed_path.query, keep_blank_values=True) if name != "continuation-token"]
+                backend_path = urlunsplit(("", "", parsed_path.path, urlencode(backend_query), ""))
+            else:
+                backend_path = self.path
             # serve s3 otherwise maps the mtime metadata onto the local file's
             # LastModified. Real S3 does not: emulate its server-time semantics.
             # The isolated loopback fixture permits anonymous requests only here.
@@ -207,7 +213,7 @@ def test_recovery_archive_filters(run, root, server_root):
 
 def test_server_modtime_sync():
     """REQ-STOR-003 / REQ-STOR-042 / REQ-STOR-043: real per-side bookkeeping, conflict preservation and request bounds."""
-    global race_file, race_at_list, completion_pagination_armed, completion_page_served
+    global race_file, race_at_list, completion_pagination_armed, completion_page_served, completion_token_used
     with tempfile.TemporaryDirectory(prefix="rclone-bisync-ci-") as directory:
         root = Path(directory)
         local = root / "local"
@@ -279,16 +285,20 @@ def test_server_modtime_sync():
             transcript.write_bytes(b"original\nappend\n")
             completion_pagination_armed = True
             completion_page_served = False
+            completion_token_used = False
             before = counts.copy()
             sync()
             changed = counts - before
-            conflicts = bool(list(local.glob("*.conflict*"))) or b"conflict" in run("lsf", "fixture:bucket")
+            local_conflicts = {path.name for path in local.glob("session.jsonl.conflict*")}
+            remote_conflicts = {name for name in run("lsf", "fixture:bucket").decode().splitlines() if name.startswith("session.jsonl.conflict")}
+            unexpected_conflicts = (local_conflicts | remote_conflicts) - {"session.jsonl.conflict-existing"}
             if "--expect-false-conflict" in sys.argv:
-                assert conflicts, "Unpatched rclone no longer reproduces the bug; review/remove the patch"
+                assert unexpected_conflicts, "Unpatched rclone no longer reproduces the bug; review/remove the patch"
                 print("RED: unpatched rclone reproduced an own-upload false conflict")
                 return
-            assert not conflicts, "Own upload caused false conflict copies"
+            assert not unexpected_conflicts, f"Own upload caused false conflict copies: {unexpected_conflicts}"
             assert completion_page_served, "Completion lookup did not exercise the synthetic sibling page"
+            assert completion_token_used, "Completion lookup did not use the supplied continuation token"
             assert changed["COMPLETION_LIST"] == 2, f"Expected the exact destination lookup to consume two pages: {changed}"
             assert changed["HEAD"] <= 4, f"One upload introduced unrelated HEAD requests: {changed}"
             assert run("cat", "fixture:bucket/session.jsonl") == transcript.read_bytes()
