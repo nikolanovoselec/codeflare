@@ -796,6 +796,25 @@ repair_hook_exec_bits() {
         -maxdepth 0 -type f -exec chmod 0755 {} + 2>/dev/null || true
 }
 
+CODING_AGENT_SELECTOR="${CODING_AGENT_SELECTOR:-/opt/codeflare/scripts/coding-agent-selection.mjs}"
+
+validate_coding_agent_selection() {
+    local canonical
+    if [ "${CODEFLARE_CODING_AGENTS+x}" = "x" ]; then
+        canonical="$(node "$CODING_AGENT_SELECTOR" resolve "$CODEFLARE_CODING_AGENTS")" || return 1
+    else
+        canonical="$(node "$CODING_AGENT_SELECTOR" resolve)" || return 1
+    fi
+    export CODEFLARE_CODING_AGENTS="$canonical"
+}
+
+coding_agent_is_selected() {
+    case ",${CODEFLARE_CODING_AGENTS}," in
+        *,"$1",*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # REQ-STOR-017 / AD90: lay down the image-baked agent seed for the session's mode into
 # $USER_HOME before the initial R2 sync. Only in Governed Mode (R2_SSE_DISABLED=true),
 # where the subsequent --checksum sync can prove the laid-down files match R2 and skip
@@ -817,14 +836,27 @@ lay_down_agent_seed_preseed() {
         echo "[entrypoint] Governed Mode: no baked agent seed for mode '${mode}'; skipping lay-down" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
         return 0
     fi
-    echo "[entrypoint] Governed Mode: laying down baked agent seed (mode=${mode}) before initial sync" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
-    # The bake tree mirrors the R2 key layout rooted at $USER_HOME (.claude/, .pi/agent/,
-    # .gemini/, .codex/, .copilot/, .config/opencode/), so one copy lands every agent home.
-    # cp -rp preserves modes, and the bake contains no .claude/hooks/ tree because
-    # the seed has no key under it - the exec-bit repair that used to follow this
-    # copy was left over from when it did, and could never match anything.
-    cp -rp "$bake/." "$USER_HOME/"
-    echo "[entrypoint] Baked agent seed laid down" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+    echo "[entrypoint] Governed Mode: laying down selected baked agent seed (mode=${mode}) before initial sync" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+    # Keep the universal bake in the image, but copy only deployment-selected homes.
+    # Each source mirrors its path below $USER_HOME; cp -rp preserves modes.
+    local agent relative source destination copied=0
+    while IFS='|' read -r agent relative; do
+        coding_agent_is_selected "$agent" || continue
+        source="$bake/$relative"
+        [ -d "$source" ] || continue
+        destination="$USER_HOME/$relative"
+        mkdir -p "$destination"
+        cp -rp "$source/." "$destination/"
+        copied=$((copied + 1))
+    done <<'AGENT_ROOTS'
+claude-code|.claude
+codex|.codex
+copilot|.copilot
+antigravity|.gemini
+opencode|.config/opencode
+pi|.pi/agent
+AGENT_ROOTS
+    echo "[entrypoint] Baked agent seed laid down (${copied} selected roots)" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
 }
 
 # REQ-STOR-017 / AD90: image-authoritative relay of Pi extension code.
@@ -835,6 +867,7 @@ lay_down_agent_seed_preseed() {
 # mode-aware.
 readonly -a IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS=(context-mode-runtime.ts)
 relay_managed_pi_extensions() {
+    coding_agent_is_selected pi || return 0
     local warm_src="${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}"
     local dest="$USER_HOME/.pi/agent/extensions"
     if [ "${REMOTE_CURATION_ACTIVE:-false}" = "true" ]; then
@@ -2569,6 +2602,9 @@ fi
 # Note: Claude Code consent is pre-accepted via bypassPermissionsModeAccepted in .claude.json.
 
 run_initial_r2_restore() {
+    # Validate explicit deployment selection before any restore or baseline can
+    # reintroduce disabled-agent content.
+    validate_coding_agent_selection || return 1
     if [ $RCLONE_CONFIG_RESULT -eq 0 ]; then
         # REQ-ENTERPRISE-016: under strict Gateway egress the container's rclone egress is
         # TLS-terminated by the platform with the Cloudflare containers CA. Install that CA
@@ -3577,6 +3613,7 @@ fi
 # without revisiting AD49 first.
 CONTEXT_MODE_VERSION="1.0.169"
 CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
+if coding_agent_is_selected claude-code; then
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     # Surface the manifest version in the entrypoint log so a mismatch
     # against the build-time-installed binary (= /usr/local/bin/context-mode
@@ -3604,6 +3641,7 @@ else
     echo "$CONTEXT_MODE_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
 fi
 echo "[entrypoint] context-mode MCP server registered in .claude.json (version $CONTEXT_MODE_VERSION)"
+fi
 
 # ---------------------------------------------------------------------------
 # Configure graphify MCP server. (Implements REQ-AGENT-023)
@@ -4044,7 +4082,7 @@ repair_hook_exec_bits
 
 # Enable plugins (silently skipped if plugin files absent in default mode).
 # context-mode and graphify are conditionally enabled via the preseed-plugin gates.
-if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
+if coding_agent_is_selected claude-code && [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     PLUGINS_CONFIG='{"enabledPlugins":{"codeflare-memory":true,"codeflare-hooks":true,"context-mode":true}}'
     echo "[entrypoint] context-mode plugin enabled (preseed manifest present)"
 else

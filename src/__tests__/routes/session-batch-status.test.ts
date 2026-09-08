@@ -23,6 +23,8 @@ import {
 import { isSaasModeActive } from '../../lib/onboarding';
 import { getEffectiveTierForUser, getDefaultTiers, resetTierConfigCache } from '../../lib/subscription';
 
+const PROJECTION_ALL = 'v1:claude-code,codex,copilot,antigravity,opencode,pi';
+
 const persistedContainerState = vi.hoisted(() => ({
   status: 'running',
   error: null as Error | null,
@@ -428,13 +430,32 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(true);
     });
 
-    it('returns preseedNeedsUpgrade false when hash matches', async () => {
-      mockKV._set('user-prefs:test-bucket', { lastPreseedHash: 'abc1234567890def' });
+    it('returns preseedNeedsUpgrade false when hash and baked projection match', async () => {
+      mockKV._set('user-prefs:test-bucket', {
+        lastPreseedHash: 'abc1234567890def',
+        lastPreseedProjectionIdentity: PROJECTION_ALL,
+      });
       const app = createApp();
       const res = await app.request('/sessions/batch-status?includePreseedCheck=true');
       expect(res.status).toBe(200);
       const body = await res.json() as { preseedNeedsUpgrade?: boolean };
       expect(body.preseedNeedsUpgrade).toBe(false);
+    });
+
+    it.each([
+      ['missing', undefined],
+      ['mismatched', 'v1:pi'],
+      ['old schema', 'v0:claude-code,codex,copilot,antigravity,opencode,pi'],
+    ])('REQ-STOR-033 AC3: matching baked hash with %s projection requires reconciliation', async (_case, projectionIdentity) => {
+      mockKV._set('user-prefs:test-bucket', {
+        lastPreseedHash: 'abc1234567890def',
+        ...(projectionIdentity ? { lastPreseedProjectionIdentity: projectionIdentity } : {}),
+      });
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { preseedNeedsUpgrade?: boolean };
+
+      expect(body.preseedNeedsUpgrade).toBe(true);
     });
 
     // REQ-ENTERPRISE-001 AC6: a pre-existing enterprise bucket without a stamped
@@ -449,8 +470,12 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(true);
     });
 
-    it('enterprise: returns preseedNeedsUpgrade false once the preference is stamped advanced and hash matches', async () => {
-      mockKV._set('user-prefs:test-bucket', { lastPreseedHash: 'abc1234567890def', sessionMode: 'advanced' });
+    it('enterprise: returns preseedNeedsUpgrade false once mode, hash, and projection match', async () => {
+      mockKV._set('user-prefs:test-bucket', {
+        lastPreseedHash: 'abc1234567890def',
+        lastPreseedProjectionIdentity: PROJECTION_ALL,
+        sessionMode: 'advanced',
+      });
       const app = createApp({ ENTERPRISE_MODE: 'active' });
       const res = await app.request('/sessions/batch-status?includePreseedCheck=true');
       expect(res.status).toBe(200);
@@ -599,19 +624,42 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(true);
     });
 
-    it('reports current only when the active release, manifest digest, resolved mode, and resource policy match applied state', async () => {
+    it('reports current only when release, mode, policy, and projection identity match applied state', async () => {
       managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'immutable' };
       mockKV._set('user-prefs:test-bucket', {
         sessionMode: 'advanced',
         managedEnvironmentApplied: {
           digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'advanced',
-          resourcePolicy: 'immutable', managedPathsDigest: 'f'.repeat(64), appliedAt: '2026-01-01T00:00:00.000Z',
+          resourcePolicy: 'immutable', managedPathsDigest: 'f'.repeat(64), projectionIdentity: PROJECTION_ALL,
+          appliedAt: '2026-01-01T00:00:00.000Z',
         },
       });
       const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
       const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
       expect(body.managedReleaseStatus).toBe('current');
       expect(body.preseedNeedsUpgrade).toBe(false);
+    });
+
+    it.each([
+      ['missing', undefined],
+      ['selection mismatch', 'v1:pi'],
+      ['schema mismatch', 'v0:claude-code,codex,copilot,antigravity,opencode,pi'],
+    ])('REQ-STOR-023 AC1: matching managed release with %s projection is not current', async (_case, projectionIdentity) => {
+      managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      mockKV._set('user-prefs:test-bucket', {
+        sessionMode: 'default',
+        managedEnvironmentApplied: {
+          digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'default',
+          ...(projectionIdentity ? { projectionIdentity } : {}),
+          appliedAt: '2026-01-01T00:00:00.000Z',
+        },
+      });
+
+      const res = await createApp().request('/sessions/batch-status?includePreseedCheck=true');
+      const body = await res.json() as { managedReleaseStatus?: string; preseedNeedsUpgrade?: boolean };
+
+      expect(body.managedReleaseStatus).toBe('upgrading');
+      expect(body.preseedNeedsUpgrade).toBe(true);
     });
 
     it('REQ-STOR-023 AC4: pending target state retries even when applied identity matches active', async () => {

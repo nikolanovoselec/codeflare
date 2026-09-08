@@ -1,4 +1,5 @@
 import { MANAGED_RELEASE_LIMITS } from '../../scripts/agent-seed-release-limits.mjs';
+import { isCodingAgentProjectionIdentity } from '../../scripts/ci/coding-agent-selection-core.mjs';
 import type { Env, UserPreferences } from '../types';
 import { PRESEED_RUNTIME_DEPENDENCY_HASH } from './agent-seed.generated';
 import { readBoundedResponse } from './bounded-stream';
@@ -48,10 +49,11 @@ export function readManagedReconciliationTargets(value: unknown): ManagedReconci
       || !Number.isSafeInteger(target.sequence)
       || target.sequence <= 0
       || (target.mode !== 'default' && target.mode !== 'advanced')
+      || (target.projectionIdentity !== undefined && !isCodingAgentProjectionIdentity(target.projectionIdentity))
     ) {
       throw new Error('Managed reconciliation target state is invalid');
     }
-    const key = `${target.digest}:${target.mode}`;
+    const key = `${target.digest}:${target.mode}:${target.projectionIdentity ?? 'legacy'}`;
     const existing = seen.get(key);
     if (existing && existing.sequence !== target.sequence) {
       throw new Error('Managed reconciliation target state conflicts with itself');
@@ -74,7 +76,11 @@ export function appendManagedReconciliationTarget(
   target: ManagedReconciliationTarget,
 ): ManagedReconciliationTarget[] {
   const next = [
-    ...targets.filter(value => value.digest !== target.digest || value.mode !== target.mode),
+    ...targets.filter(value => (
+      value.digest !== target.digest
+      || value.mode !== target.mode
+      || value.projectionIdentity !== target.projectionIdentity
+    )),
     target,
   ];
   if (next.length > MAX_INTERRUPTED_MANAGED_TARGETS) {

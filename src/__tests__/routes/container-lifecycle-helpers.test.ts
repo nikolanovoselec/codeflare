@@ -305,12 +305,21 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
         env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
         bucketName: 'test-bucket',
         sessionMode: 'default',
+        codingAgents: 'pi',
         logger: mockLogger as any,
       });
 
       expect(mockSeedGettingStartedDocs).toHaveBeenCalled();
+      expect(mockReconcileAgentConfigs).toHaveBeenCalledWith(
+        expect.anything(), 'test-bucket', expect.any(String), 'default',
+        expect.objectContaining({ codingAgents: 'pi' }),
+      );
       const prefs = await mockKV.get('user-prefs:test-bucket', 'json') as Record<string, unknown> | null;
-      expect(prefs).toMatchObject({ gettingStartedSeeded: true });
+      expect(prefs).toMatchObject({
+        gettingStartedSeeded: true,
+        lastPreseedHash: expect.any(String),
+        lastPreseedProjectionIdentity: 'v1:pi',
+      });
     });
 
     // The bug this fixes: a pre-existing bucket whose one-shot create-time docs seed

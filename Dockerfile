@@ -381,7 +381,7 @@ ARG CODEFLARE_CODING_AGENTS=claude-code,codex,copilot,antigravity,opencode,pi
 ENV CODEFLARE_CODING_AGENTS=${CODEFLARE_CODING_AGENTS}
 COPY preseed/npm-tools/package.json preseed/npm-tools/package-lock.json /opt/codeflare/npm-tools/
 COPY image/oxlint/package.json image/oxlint/package-lock.json /opt/codeflare/oxlint/
-COPY scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs /opt/codeflare/scripts/
+COPY scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs /opt/codeflare/scripts/
 RUN cd /opt/codeflare/oxlint && \
     npm ci --omit=dev --ignore-scripts --no-audit --no-fund && \
     node /opt/codeflare/scripts/prune-npm-platform-artifacts.mjs node_modules && \

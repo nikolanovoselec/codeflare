@@ -29,6 +29,7 @@ import { guardManagedStorageMutation } from '../../lib/managed-storage-guard';
 import { readVerifiedManagedR2Policy } from '../../lib/managed-r2-policy';
 
 const user: AccessUser = { email: 'user@example.com', authenticated: true };
+const PROJECTION_ALL = 'v1:claude-code,codex,copilot,antigravity,opencode,pi';
 
 describe('REQ-ENTERPRISE-030 Storage mutation guard', () => {
   let kv: ReturnType<typeof createMockKV>;
@@ -47,7 +48,8 @@ describe('REQ-ENTERPRISE-030 Storage mutation guard', () => {
     kv._set('user-prefs:bucket', {
       managedEnvironmentApplied: {
         digest: 'd'.repeat(64), sequence: 4, mode: 'default', managedExtensionsDigest: 'e'.repeat(64),
-        resourcePolicy: 'exclusive', managedPathsDigest: 'f'.repeat(64), appliedAt: '2026-01-01T00:00:00.000Z',
+        resourcePolicy: 'exclusive', managedPathsDigest: 'f'.repeat(64), projectionIdentity: PROJECTION_ALL,
+        appliedAt: '2026-01-01T00:00:00.000Z',
       },
     });
   });
@@ -68,10 +70,12 @@ describe('REQ-ENTERPRISE-030 Storage mutation guard', () => {
     ['extension digest', (_snapshot: any, applied: any) => { applied.managedExtensionsDigest = undefined; }],
     ['resource policy', (_snapshot: any, applied: any) => { applied.resourcePolicy = 'immutable'; }],
     ['path digest', (_snapshot: any, applied: any) => { applied.managedPathsDigest = undefined; }],
+    ['projection identity', (_snapshot: any, applied: any) => { applied.projectionIdentity = 'v1:pi'; }],
   ])('fails update-pending before policy lookup on %s mismatch', async (_dimension, mutate) => {
     const applied = {
       digest: 'd'.repeat(64), sequence: 4, mode: 'default', managedExtensionsDigest: 'e'.repeat(64),
-      resourcePolicy: 'exclusive', managedPathsDigest: 'f'.repeat(64), appliedAt: '2026-01-01T00:00:00.000Z',
+      resourcePolicy: 'exclusive', managedPathsDigest: 'f'.repeat(64), projectionIdentity: PROJECTION_ALL,
+      appliedAt: '2026-01-01T00:00:00.000Z',
     };
     mutate(state.snapshot, applied);
     kv._set('user-prefs:bucket', { managedEnvironmentApplied: applied });

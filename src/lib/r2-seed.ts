@@ -17,6 +17,12 @@ import {
   readVerifiedManagedR2Policy,
   type BuiltManagedR2Policy,
 } from './managed-r2-policy';
+import {
+  codingAgentProjectionIdentity,
+  managedPathOwner,
+  resolveCodingAgents,
+  type CodingAgent,
+} from '../../scripts/ci/coding-agent-selection-core.mjs';
 
 const logger = createLogger('r2-seed');
 
@@ -86,6 +92,45 @@ type SeedDocsResult = {
   written: string[];
   skipped: string[];
 };
+
+type ResolvedCodingAgentSelection = {
+  canonical: string;
+  active: ReadonlySet<CodingAgent>;
+};
+
+function resolveCodingAgentSelection(rawSelection?: unknown): ResolvedCodingAgentSelection {
+  const canonical = resolveCodingAgents(rawSelection);
+  return { canonical, active: new Set(canonical.split(',') as CodingAgent[]) };
+}
+
+function requireManagedDocumentOwners(release: ManagedReleaseIndex): Map<string, CodingAgent> {
+  const owners = new Map<string, CodingAgent>();
+  for (const document of release.documents) {
+    const owner = managedPathOwner(document.key);
+    if (!owner) throw new Error(`Managed release document has no coding-agent owner: ${document.key}`);
+    owners.set(document.key, owner);
+  }
+  return owners;
+}
+
+function getSelectedManagedDocumentKeys(
+  release: ManagedReleaseIndex,
+  mode: SessionMode,
+  activeAgents: ReadonlySet<CodingAgent>,
+  owners = requireManagedDocumentOwners(release),
+): Set<string> {
+  const keys = release.documents
+    .filter((document) => document.modes.includes(mode) && activeAgents.has(owners.get(document.key)!))
+    .map((document) => document.key);
+  if (new Set(keys).size !== keys.length) throw new Error(`Duplicate managed key in mode "${mode}"`);
+  return new Set(keys);
+}
+
+function isSelectedBakedKey(key: string, activeAgents: ReadonlySet<CodingAgent>): boolean {
+  const owner = managedPathOwner(key);
+  if (!owner) throw new Error(`Baked agent document has no coding-agent owner: ${key}`);
+  return activeAgents.has(owner);
+}
 
 const R2_SEED_CONCURRENCY = 6;
 
@@ -208,6 +253,7 @@ async function seedManagedDocuments(
   options: {
     overwrite: boolean;
     r2SseDisabled?: boolean;
+    eligibleKeys: ReadonlySet<string>;
     plannedKeys?: ReadonlySet<string>;
     requiredMarkersByKey?: ReadonlyMap<string, ReadonlySet<string>>;
     resumeFromTargetMarker?: boolean;
@@ -216,7 +262,7 @@ async function seedManagedDocuments(
   },
 ): Promise<SeedDocsResult> {
   const eligibleKeys = selection.release.documents
-    .filter((document) => document.modes.includes(mode))
+    .filter((document) => document.modes.includes(mode) && options.eligibleKeys.has(document.key))
     .map((document) => document.key)
     .filter((key) => options.plannedKeys?.has(key) ?? true);
   const eligible = new Set(eligibleKeys);
@@ -367,8 +413,11 @@ function normalizePiSeedDocument(doc: SeedDocument): SeedDocument | null {
 export function getConfigsForMode(
   mode: SessionMode,
   contextModeEnabled = false,
+  codingAgents?: unknown,
 ): SeedDocument[] {
+  const { active } = resolveCodingAgentSelection(codingAgents);
   const docs = AGENTS_SEEDED_CONFIGS.filter((doc) => {
+    if (!isSelectedBakedKey(doc.key, active)) return false;
     if (!doc.modes.includes(mode)) return false;
     if (isPiContextModeKey(doc.key)) return false;
     if (!contextModeEnabled && isContextModeKey(doc.key)) return false;
@@ -416,16 +465,13 @@ export function getConfigsForMode(
  * upgrade, return no marker, and are kept. On a bucket with nothing retired the
  * candidate set is whatever the user added, and no DELETE is ever issued for it.
  */
-async function deleteStaleMarkedConfigs(
+async function listStaleMarkedConfigCandidates(
   env: SeedEnv,
   bucketName: string,
   endpoint: string,
   seededKeys: ReadonlySet<string>,
-  r2SseDisabled?: boolean
-): Promise<{ deleted: string[]; warnings: string[] }> {
+): Promise<{ candidates: string[]; warnings: string[] }> {
   const r2Client = createR2Client(env);
-  const sseHeaders = getSseHeaders(env, r2SseDisabled);
-  const deleted: string[] = [];
   const warnings: string[] = [];
 
   // Derived from the seed itself, so a new runtime directory is covered without
@@ -480,7 +526,7 @@ async function deleteStaleMarkedConfigs(
         warnings.push(
           `stale-marker sweep skipped: more than ${MAX_STALE_MARKER_CANDIDATES} candidates under ${prefix}`
         );
-        return { deleted, warnings };
+        return { candidates: [], warnings };
       }
     } while (continuationToken);
 
@@ -493,11 +539,24 @@ async function deleteStaleMarkedConfigs(
       warnings.push(
         `stale-marker sweep skipped: more than ${MAX_STALE_MARKER_CANDIDATES} candidates across the seed prefixes`
       );
-      return { deleted, warnings };
+      return { candidates: [], warnings };
     }
   }
 
-  if (candidates.length === 0) return { deleted, warnings };
+  return { candidates, warnings };
+}
+
+async function deleteStaleMarkedConfigCandidates(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  candidates: readonly string[],
+  r2SseDisabled?: boolean,
+): Promise<{ deleted: string[]; warnings: string[] }> {
+  const r2Client = createR2Client(env);
+  const sseHeaders = getSseHeaders(env, r2SseDisabled);
+  const deleted: string[] = [];
+  const warnings: string[] = [];
 
   for (let i = 0; i < candidates.length; i += STALE_MARKER_BATCH) {
     const results = await Promise.allSettled(
@@ -535,6 +594,51 @@ async function deleteStaleMarkedConfigs(
   return { deleted, warnings };
 }
 
+async function deleteExactInactiveConfigs(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  candidates: readonly string[],
+  r2SseDisabled?: boolean,
+): Promise<string[]> {
+  const client = createR2Client(env);
+  const sseHeaders = getSseHeaders(env, r2SseDisabled);
+  const outcomes = await mapWithConcurrency(candidates, async (key) => {
+    const url = getR2Url(endpoint, bucketName, key);
+    const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
+    if (head.status === 404) return null;
+    if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
+    const etag = head.headers.get('etag');
+    if (!etag) throw new Error(`HEAD ${key}: missing ETag`);
+    const response = await client.fetch(url, { method: 'DELETE', headers: { 'If-Match': etag } });
+    if (response.status === 412) throw new Error(`DELETE ${key}: object changed during cleanup`);
+    if (!response.ok && response.status !== 404) throw new Error(`DELETE ${key}: HTTP ${response.status}`);
+    return key;
+  });
+  return outcomes.filter((key): key is string => key !== null);
+}
+
+async function deleteUnconditionalConfigs(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  candidates: readonly string[],
+): Promise<{ deleted: string[]; warnings: string[] }> {
+  const client = createR2Client(env);
+  const deleted: string[] = [];
+  const warnings: string[] = [];
+  const results = await Promise.allSettled(candidates.map(async (key) => {
+    const response = await client.fetch(getR2Url(endpoint, bucketName, key), { method: 'DELETE' });
+    if (response.ok || response.status === 404) return key;
+    throw new Error(`DELETE ${key}: HTTP ${response.status}`);
+  }));
+  for (const result of results) {
+    if (result.status === 'fulfilled') deleted.push(result.value);
+    else warnings.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+  }
+  return { deleted, warnings };
+}
+
 /**
  * Keys earlier builds seeded that no build produces any more, recovered by
  * walking every revision of the generated seed.
@@ -560,10 +664,13 @@ async function deleteStaleMarkedConfigs(
 export function getPreseedKeysNotInMode(
   mode: SessionMode,
   contextModeEnabled = false,
+  codingAgents?: unknown,
 ): string[] {
+  const { active } = resolveCodingAgentSelection(codingAgents);
   const keysInMode = new Set(
     AGENTS_SEEDED_CONFIGS
       .filter((doc) => {
+        if (!isSelectedBakedKey(doc.key, active)) return false;
         if (!doc.modes.includes(mode)) return false;
         if (isPiContextModeKey(doc.key)) return false;
         if (!contextModeEnabled && isContextModeKey(doc.key)) return false;
@@ -571,10 +678,15 @@ export function getPreseedKeysNotInMode(
       })
       .map((doc) => doc.key)
   );
-  return AGENTS_SEEDED_CONFIGS
-    .filter((doc) => isPiContextModeKey(doc.key) || !doc.modes.includes(mode) || (!contextModeEnabled && isContextModeKey(doc.key)))
+  return [...new Set(AGENTS_SEEDED_CONFIGS
+    .filter((doc) => (
+      !isSelectedBakedKey(doc.key, active)
+      || isPiContextModeKey(doc.key)
+      || !doc.modes.includes(mode)
+      || (!contextModeEnabled && isContextModeKey(doc.key))
+    ))
     .map((doc) => doc.key)
-    .filter((k) => !keysInMode.has(k));
+    .filter((key) => !keysInMode.has(key)))];
 }
 
 /**
@@ -595,51 +707,53 @@ export async function deleteNonModeConfigs(
   contextModeEnabled = false,
   r2SseDisabled?: boolean,
   protectedKeys: ReadonlySet<string> = new Set(),
+  codingAgents?: unknown,
 ): Promise<{ deleted: string[]; warnings: string[] }> {
+  const selection = resolveCodingAgentSelection(codingAgents);
   // The generated set is the authority on what is live; nothing it seeds may be
   // deleted right after being written. A managed-disable reconcile additionally
   // protects its prior document set from baked by-name/stale cleanup; the exact
   // prior-digest pass below is the only owner allowed to remove those keys.
   const seededKeys = new Set([
-    ...getConfigsForMode(mode, contextModeEnabled).map((doc) => doc.key),
+    ...getConfigsForMode(mode, contextModeEnabled, selection.canonical).map((doc) => doc.key),
     ...protectedKeys,
   ]);
-  const keysToDelete = [
-    ...getPreseedKeysNotInMode(mode, contextModeEnabled),
+  const keysToDelete = [...new Set([
+    ...getPreseedKeysNotInMode(mode, contextModeEnabled, selection.canonical),
     ...RETIRED_PRESEED_KEYS.filter((key) => !seededKeys.has(key)),
-  ].filter((key) => !protectedKeys.has(key));
+  ])].filter((key) => !protectedKeys.has(key));
+  const inactive = keysToDelete.filter((key) => {
+    const owner = managedPathOwner(key);
+    return owner !== null && !selection.active.has(owner);
+  });
+  const inactiveSet = new Set(inactive);
+  const named = keysToDelete.filter((key) => !inactiveSet.has(key));
+  const stalePreflight = await listStaleMarkedConfigCandidates(env, bucketName, endpoint, seededKeys);
+  const claimed = new Set([...inactive, ...named]);
+  const staleCandidates = stalePreflight.candidates.filter((key) => !claimed.has(key));
+  assertCleanupCandidateBound([...claimed, ...staleCandidates]);
 
-  const r2Client = createR2Client(env);
-  const deleted: string[] = [];
-  const warnings: string[] = [];
-
-  const results = await Promise.allSettled(
-    keysToDelete.map(async (key) => {
-      const url = getR2Url(endpoint, bucketName, key);
-      const response = await r2Client.fetch(url, { method: 'DELETE' });
-      // 204 = deleted, 404 = already gone - both are success
-      if (response.ok || response.status === 404) {
-        return key;
-      }
-      throw new Error(`DELETE ${key}: HTTP ${response.status}`);
-    })
+  const deleted = await deleteExactInactiveConfigs(
+    env,
+    bucketName,
+    endpoint,
+    inactive,
+    r2SseDisabled,
   );
-
-  for (const result of results) {
-    if (result.status === 'fulfilled') {
-      deleted.push(result.value);
-    } else {
-      warnings.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
-    }
-  }
-
-  // Last, so a key already removed by name above simply HEADs 404 here and is
-  // not counted twice.
-  const stale = await deleteStaleMarkedConfigs(env, bucketName, endpoint, seededKeys, r2SseDisabled);
+  const namedResult = await deleteUnconditionalConfigs(env, bucketName, endpoint, named);
+  deleted.push(...namedResult.deleted);
+  const stale = await deleteStaleMarkedConfigCandidates(
+    env,
+    bucketName,
+    endpoint,
+    staleCandidates,
+    r2SseDisabled,
+  );
   deleted.push(...stale.deleted);
-  warnings.push(...stale.warnings);
-
-  return { deleted, warnings };
+  return {
+    deleted,
+    warnings: [...stalePreflight.warnings, ...namedResult.warnings, ...stale.warnings],
+  };
 }
 
 /**
@@ -689,6 +803,7 @@ function managedExtensionsDocument(selection: ManagedReleaseSelection): SeedDocu
 
 export interface ManagedAutomaticReconcileOptions {
   assumeEmpty: boolean;
+  fullReconciliation?: boolean;
   onProgress?: (progress: { completed: number; total: number }) => Promise<void>;
   beforeCleanup?: () => Promise<void>;
 }
@@ -707,10 +822,11 @@ async function managedDocumentContentDigest(contentType: string, content: string
 async function managedDocumentFingerprintMap(
   selection: ManagedReleaseSelection,
   mode: SessionMode,
+  eligibleKeys: ReadonlySet<string>,
 ): Promise<Map<string, ManagedDocumentFingerprint>> {
   const fingerprints = new Map<string, ManagedDocumentFingerprint>();
   await streamManagedReleaseDocuments(selection.compressed, async (document) => {
-    if (!document.modes.includes(mode)) return;
+    if (!document.modes.includes(mode) || !eligibleKeys.has(document.key)) return;
     fingerprints.set(document.key, {
       contentType: document.contentType,
       contentDigest: await managedDocumentContentDigest(document.contentType, document.content),
@@ -722,6 +838,8 @@ async function managedDocumentFingerprintMap(
 async function buildManagedAutomaticPlan(
   target: ManagedReleaseSelection,
   mode: SessionMode,
+  eligibleKeys: ReadonlySet<string>,
+  fullReconciliation: boolean,
   prior?: PriorManagedReleaseSelection,
   interrupted: readonly PriorManagedReleaseSelection[] = [],
 ): Promise<{
@@ -731,8 +849,8 @@ async function buildManagedAutomaticPlan(
   writeExtensions: boolean;
   directDelta: boolean;
 }> {
-  const targetFingerprints = await managedDocumentFingerprintMap(target, mode);
-  if (!prior) {
+  const targetFingerprints = await managedDocumentFingerprintMap(target, mode, eligibleKeys);
+  if (fullReconciliation || !prior) {
     return {
       documentKeys: new Set(targetFingerprints.keys()),
       requiredMarkersByKey: new Map(),
@@ -742,7 +860,7 @@ async function buildManagedAutomaticPlan(
     };
   }
 
-  const priorFingerprints = await managedDocumentFingerprintMap(prior, prior.mode);
+  const priorFingerprints = await managedDocumentFingerprintMap(prior, prior.mode, eligibleKeys);
   const documentKeys = new Set<string>();
   for (const [key, targetFingerprint] of targetFingerprints) {
     const priorFingerprint = priorFingerprints.get(key);
@@ -765,7 +883,7 @@ async function buildManagedAutomaticPlan(
   const requiredMarkersByKey = new Map<string, Set<string>>();
   const requiredExtensionMarkers = new Set<string>();
   for (const interruptedRelease of interrupted) {
-    const interruptedFingerprints = await managedDocumentFingerprintMap(interruptedRelease, interruptedRelease.mode);
+    const interruptedFingerprints = await managedDocumentFingerprintMap(interruptedRelease, interruptedRelease.mode, eligibleKeys);
     for (const [key, targetFingerprint] of targetFingerprints) {
       if (documentKeys.has(key) && !requiredMarkersByKey.has(key)) continue;
       const interruptedFingerprint = interruptedFingerprints.get(key);
@@ -843,71 +961,11 @@ async function seedAutomaticDocument(
   return { written: true, skipped: false };
 }
 
-async function deleteManagedConfigsByDigest(
-  env: SeedEnv,
-  bucketName: string,
-  endpoint: string,
-  candidates: readonly string[],
-  digest: string,
-  r2SseDisabled?: boolean,
-  acceptAnyManagedMarker = false,
-): Promise<{ deleted: string[]; warnings: string[] }> {
-  const client = createR2Client(env);
-  const sseHeaders = getSseHeaders(env, r2SseDisabled);
-  const deleted: string[] = [];
-  const warnings: string[] = [];
-
-  const outcomes = await mapWithConcurrency(candidates, async (key) => {
-    const url = getR2Url(endpoint, bucketName, key);
-    try {
-      const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
-      if (head.status === 404) return {};
-      if (!head.ok) throw new Error(`HEAD ${key}: HTTP ${head.status}`);
-      const marker = head.headers.get(PRESEED_MARKER_HEADER);
-      if (acceptAnyManagedMarker ? !marker || !/^[0-9a-f]{64}$/.test(marker) : marker !== digest) return {};
-      const etag = head.headers.get('etag');
-      if (!etag) throw new Error(`HEAD ${key}: missing ETag`);
-      const response = await client.fetch(url, { method: 'DELETE', headers: { 'If-Match': etag } });
-      if (response.status === 412) throw new Error(`DELETE ${key}: object changed during cleanup`);
-      if (!response.ok && response.status !== 404) throw new Error(`DELETE ${key}: HTTP ${response.status}`);
-      return { deleted: key };
-    } catch (error) {
-      return { warning: error instanceof Error ? error.message : String(error) };
-    }
-  });
-  for (const outcome of outcomes) {
-    if (outcome.deleted) deleted.push(outcome.deleted);
-    if (outcome.warning) warnings.push(outcome.warning);
-  }
-  return { deleted, warnings };
-}
-
-async function deletePriorManagedConfigs(
-  env: SeedEnv,
-  bucketName: string,
-  endpoint: string,
-  prior: PriorManagedReleaseSelection,
-  current: ManagedReleaseSelection | null,
-  mode: SessionMode,
-  r2SseDisabled?: boolean,
-  acceptAnyManagedMarker = false,
-): Promise<{ deleted: string[]; warnings: string[] }> {
-  const priorKeys = new Set([
-    ...getManagedDocumentKeysForMode(prior.release, prior.mode),
-    '.codeflare/managed-extensions.json',
-  ]);
-  const currentKeys = new Set(current
-    ? [...getManagedDocumentKeysForMode(current.release, mode), '.codeflare/managed-extensions.json']
-    : []);
-  const candidates = [...priorKeys].filter((key) => !currentKeys.has(key));
-  return deleteManagedConfigsByDigest(env, bucketName, endpoint, candidates, prior.digest, r2SseDisabled, acceptAnyManagedMarker);
-}
-
 async function deleteRetiredManagedConfigs(
   env: SeedEnv,
   bucketName: string,
   endpoint: string,
-  release: ManagedReleaseIndex,
+  candidates: readonly string[],
   r2SseDisabled?: boolean,
   deleteWithoutProvenance = false,
 ): Promise<{ deleted: string[]; warnings: string[] }> {
@@ -915,7 +973,7 @@ async function deleteRetiredManagedConfigs(
   const sseHeaders = getSseHeaders(env, r2SseDisabled);
   const deleted: string[] = [];
   const warnings: string[] = [];
-  const outcomes = await mapWithConcurrency(release.retiredPaths, async (key) => {
+  const outcomes = await mapWithConcurrency(candidates, async (key) => {
     const url = getR2Url(endpoint, bucketName, key);
     try {
       const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
@@ -946,6 +1004,115 @@ const MAX_EXCLUSIVE_OBJECT_BYTES = 1024 * 1024 * 1024;
 const MAX_EXCLUSIVE_LIST_PAGE_BYTES = 8 * 1024 * 1024;
 const MAX_EXCLUSIVE_LIST_PAGES = 10_001;
 const MAX_EXCLUSIVE_DELETE_RESPONSE_BYTES = 8 * 1024 * 1024;
+
+function assertCleanupCandidateBound(candidates: readonly string[]): void {
+  if (new Set(candidates).size > MAX_EXCLUSIVE_OBJECTS) {
+    throw new Error('Managed-resource cleanup exceeds 10,000 objects');
+  }
+}
+
+type ManagedMarkerCleanupRule = {
+  key: string;
+  acceptedMarkers: Set<string>;
+  acceptAnyManagedMarker: boolean;
+};
+
+type ReconcileCleanupPreflight = {
+  inactive: string[];
+  bakedNamed: string[];
+  managedMarkerRules: ManagedMarkerCleanupRule[];
+  retired: string[];
+  stale: string[];
+  exclusive: string[];
+  warnings: string[];
+};
+
+function activeImageCompanionKeys(
+  contextModeEnabled: boolean,
+  activeAgents: ReadonlySet<CodingAgent>,
+): Set<string> {
+  if (!contextModeEnabled) return new Set();
+  const keys = AGENTS_SEEDED_CONFIGS
+    .filter((document) => isContextModeKey(document.key) || isPiContextModeKey(document.key))
+    .filter((document) => {
+      const owner = managedPathOwner(document.key);
+      if (!owner) throw new Error(`Baked agent document has no coding-agent owner: ${document.key}`);
+      return activeAgents.has(owner);
+    })
+    .map((document) => document.key);
+  return new Set(keys);
+}
+
+function addInactiveInventoryPaths(
+  keys: Set<string>,
+  release: ManagedReleaseIndex,
+  activeAgents: ReadonlySet<CodingAgent>,
+): void {
+  for (const key of [
+    ...release.documents.map((document) => document.key),
+    ...release.retiredPaths,
+  ]) {
+    const owner = managedPathOwner(key);
+    if (owner && !activeAgents.has(owner)) keys.add(key);
+  }
+}
+
+function addManagedMarkerRule(
+  rules: Map<string, ManagedMarkerCleanupRule>,
+  key: string,
+  digest: string,
+  acceptAnyManagedMarker: boolean,
+): void {
+  const rule = rules.get(key) ?? {
+    key,
+    acceptedMarkers: new Set<string>(),
+    acceptAnyManagedMarker: false,
+  };
+  rule.acceptedMarkers.add(digest);
+  rule.acceptAnyManagedMarker ||= acceptAnyManagedMarker;
+  rules.set(key, rule);
+}
+
+async function deleteManagedConfigsByMarkerRules(
+  env: SeedEnv,
+  bucketName: string,
+  endpoint: string,
+  rules: readonly ManagedMarkerCleanupRule[],
+  r2SseDisabled?: boolean,
+): Promise<{ deleted: string[]; warnings: string[] }> {
+  const client = createR2Client(env);
+  const sseHeaders = getSseHeaders(env, r2SseDisabled);
+  const deleted: string[] = [];
+  const warnings: string[] = [];
+  const outcomes = await mapWithConcurrency(rules, async (rule) => {
+    const url = getR2Url(endpoint, bucketName, rule.key);
+    try {
+      const head = await client.fetch(url, { method: 'HEAD', headers: sseHeaders });
+      if (head.status === 404) return {};
+      if (!head.ok) throw new Error(`HEAD ${rule.key}: HTTP ${head.status}`);
+      const marker = head.headers.get(PRESEED_MARKER_HEADER);
+      const accepted = marker && (
+        rule.acceptAnyManagedMarker
+          ? /^[0-9a-f]{64}$/.test(marker)
+          : rule.acceptedMarkers.has(marker)
+      );
+      if (!accepted) return {};
+      const etag = head.headers.get('etag');
+      if (!etag) throw new Error(`HEAD ${rule.key}: missing ETag`);
+      const response = await client.fetch(url, { method: 'DELETE', headers: { 'If-Match': etag } });
+      if (response.status === 412) throw new Error(`DELETE ${rule.key}: object changed during cleanup`);
+      if (!response.ok && response.status !== 404) throw new Error(`DELETE ${rule.key}: HTTP ${response.status}`);
+      return { deleted: rule.key };
+    } catch (error) {
+      return { warning: error instanceof Error ? error.message : String(error) };
+    }
+  });
+  for (const outcome of outcomes) {
+    if (outcome.deleted) deleted.push(outcome.deleted);
+    if (outcome.warning) warnings.push(outcome.warning);
+  }
+  return { deleted, warnings };
+}
 
 function parseExclusiveListPage(xml: string, root: string): ReturnType<typeof parseListObjectsXml> {
   const listRoots = xml.match(/<ListBucketResult(?:\s[^>]*)?>/g) ?? [];
@@ -982,11 +1149,15 @@ async function listExclusiveCleanupCandidates(
   bucketName: string,
   endpoint: string,
   policy: BuiltManagedR2Policy,
+  keepKeys: ReadonlySet<string>,
   r2SseDisabled?: boolean,
 ): Promise<string[]> {
   const client = createR2Client(env);
   const candidates = new Set<string>();
-  const protectedPaths = new Set(policy.value.paths);
+  const protectedPaths = new Set(keepKeys);
+  const isProtectedPath = (key: string): boolean => protectedPaths.has(key) || [...protectedPaths].some((path) => (
+    path.endsWith('/') && (key === path.slice(0, -1) || key.startsWith(path))
+  ));
   const sseHeaders = getSseHeaders(env, r2SseDisabled);
   let listedObjects = 0;
   let listBytes = 0;
@@ -1009,7 +1180,7 @@ async function listExclusiveCleanupCandidates(
       objectBytes += rootObjectBytes;
       if (listedObjects > MAX_EXCLUSIVE_OBJECTS) throw new Error('Exclusive managed-resource cleanup exceeds 10,000 objects');
       if (objectBytes > MAX_EXCLUSIVE_OBJECT_BYTES) throw new Error('Exclusive managed-resource cleanup exceeds 1 GiB of object size');
-      if (!protectedPaths.has(rootObject)) candidates.add(rootObject);
+      if (!isProtectedPath(rootObject)) candidates.add(rootObject);
     } else if (rootHead.status !== 404) {
       throw new Error(`Exclusive managed-resource root check failed: HTTP ${rootHead.status}`);
     }
@@ -1048,7 +1219,7 @@ async function listExclusiveCleanupCandidates(
         throw new Error('Exclusive managed-resource cleanup exceeds 1 GiB of object size');
       }
       for (const object of parsed.objects) {
-        if (!protectedPaths.has(object.key)) candidates.add(object.key);
+        if (!isProtectedPath(object.key)) candidates.add(object.key);
       }
       if (parsed.isTruncated && !parsed.nextContinuationToken) {
         throw new Error('Exclusive managed-resource listing omitted its continuation token');
@@ -1061,6 +1232,161 @@ async function listExclusiveCleanupCandidates(
     } while (continuationToken);
   }
   return [...candidates].sort();
+}
+
+async function buildReconcileCleanupPreflight(input: {
+  env: SeedEnv;
+  bucketName: string;
+  endpoint: string;
+  mode: SessionMode;
+  contextModeEnabled: boolean;
+  r2SseDisabled?: boolean;
+  cleanup: boolean;
+  selection: ResolvedCodingAgentSelection;
+  managedRelease?: ManagedReleaseSelection | null;
+  selectedManagedKeys: ReadonlySet<string>;
+  priorManagedRelease?: PriorManagedReleaseSelection;
+  interruptedManagedReleases: readonly PriorManagedReleaseSelection[];
+  priorManagedDigest?: string;
+  policy?: BuiltManagedR2Policy;
+  automaticDirectDelta?: boolean;
+  automaticFullSweep: boolean;
+}): Promise<ReconcileCleanupPreflight> {
+  const inactive = new Set<string>();
+  const bakedNamed = new Set<string>();
+  const markerRules = new Map<string, ManagedMarkerCleanupRule>();
+  const retired = new Set<string>();
+  const warnings: string[] = [];
+  let staleCandidates: string[] = [];
+
+  if (input.cleanup) {
+    if (input.managedRelease) addInactiveInventoryPaths(inactive, input.managedRelease.release, input.selection.active);
+    if (input.priorManagedRelease) addInactiveInventoryPaths(inactive, input.priorManagedRelease.release, input.selection.active);
+    for (const interrupted of input.interruptedManagedReleases) {
+      addInactiveInventoryPaths(inactive, interrupted.release, input.selection.active);
+    }
+
+    const desiredManagedKeys = new Set(input.managedRelease
+      ? [...input.selectedManagedKeys, '.codeflare/managed-extensions.json']
+      : []);
+    const addHistoricalCleanup = (
+      historical: PriorManagedReleaseSelection,
+      acceptAnyManagedMarker: boolean,
+    ): void => {
+      for (const key of [
+        ...getManagedDocumentKeysForMode(historical.release, historical.mode),
+        '.codeflare/managed-extensions.json',
+      ]) {
+        if (!desiredManagedKeys.has(key)) {
+          addManagedMarkerRule(markerRules, key, historical.digest, acceptAnyManagedMarker);
+        }
+      }
+    };
+    if (input.priorManagedRelease) {
+      addHistoricalCleanup(input.priorManagedRelease, input.automaticDirectDelta === true);
+    } else if (input.managedRelease && input.priorManagedDigest) {
+      for (const document of input.managedRelease.release.documents) {
+        if (!input.selectedManagedKeys.has(document.key)) {
+          addManagedMarkerRule(markerRules, document.key, input.priorManagedDigest, false);
+        }
+      }
+    }
+    for (const interrupted of input.interruptedManagedReleases) addHistoricalCleanup(interrupted, false);
+    if (input.managedRelease) {
+      for (const key of input.managedRelease.release.retiredPaths) retired.add(key);
+    }
+
+    if (input.managedRelease === undefined || input.managedRelease === null) {
+      for (const key of [
+        ...AGENTS_SEEDED_CONFIGS.map((document) => document.key),
+        ...RETIRED_PRESEED_KEYS,
+      ]) {
+        const owner = managedPathOwner(key);
+        if (owner && !input.selection.active.has(owner)) inactive.add(key);
+      }
+      const protectedKeys = input.managedRelease === null && input.priorManagedRelease
+        ? new Set([
+            ...getManagedDocumentKeysForMode(input.priorManagedRelease.release, input.priorManagedRelease.mode),
+            '.codeflare/managed-extensions.json',
+          ])
+        : new Set<string>();
+      const seededKeys = new Set([
+        ...getConfigsForMode(input.mode, input.contextModeEnabled, input.selection.canonical).map((document) => document.key),
+        ...protectedKeys,
+      ]);
+      for (const key of [
+        ...getPreseedKeysNotInMode(input.mode, input.contextModeEnabled, input.selection.canonical),
+        ...RETIRED_PRESEED_KEYS.filter((key) => !seededKeys.has(key)),
+      ]) {
+        if (!protectedKeys.has(key)) bakedNamed.add(key);
+      }
+      const stale = await listStaleMarkedConfigCandidates(input.env, input.bucketName, input.endpoint, seededKeys);
+      staleCandidates = stale.candidates;
+      warnings.push(...stale.warnings);
+    } else if (input.automaticFullSweep) {
+      const stale = await listStaleMarkedConfigCandidates(
+        input.env,
+        input.bucketName,
+        input.endpoint,
+        new Set([...input.selectedManagedKeys, '.codeflare/managed-extensions.json']),
+      );
+      if (stale.warnings.length > 0) {
+        throw new Error(`Managed cleanup preflight failed: ${stale.warnings[0]}`);
+      }
+      staleCandidates = stale.candidates;
+    }
+  }
+
+  let exclusiveCandidates: string[] = [];
+  if (input.policy?.value.resourcePolicy === 'exclusive') {
+    const keepKeys = new Set([
+      ...input.selectedManagedKeys,
+      '.codeflare/managed-extensions.json',
+      MANAGED_R2_POLICY_KEY,
+      ...activeImageCompanionKeys(input.contextModeEnabled, input.selection.active),
+      ...(input.selection.active.has('claude-code') ? RUNTIME_MANAGED_KEYS : []),
+    ]);
+    exclusiveCandidates = await listExclusiveCleanupCandidates(
+      input.env,
+      input.bucketName,
+      input.endpoint,
+      input.policy,
+      keepKeys,
+      input.r2SseDisabled,
+    );
+  }
+
+  const claimed = new Set<string>();
+  const claim = (values: Iterable<string>): string[] => {
+    const selected: string[] = [];
+    for (const value of values) {
+      if (claimed.has(value)) continue;
+      claimed.add(value);
+      selected.push(value);
+    }
+    return selected;
+  };
+  const inactivePlan = claim(inactive);
+  const exclusivePlan = claim(exclusiveCandidates);
+  const retiredPlan = claim(retired);
+  const bakedPlan = claim(bakedNamed);
+  const markerPlan = [...markerRules.values()].filter((rule) => {
+    if (claimed.has(rule.key)) return false;
+    claimed.add(rule.key);
+    return true;
+  });
+  const stalePlan = claim(staleCandidates);
+  assertCleanupCandidateBound([...claimed]);
+
+  return {
+    inactive: inactivePlan,
+    bakedNamed: bakedPlan,
+    managedMarkerRules: markerPlan,
+    retired: retiredPlan,
+    stale: stalePlan,
+    exclusive: exclusivePlan,
+    warnings,
+  };
 }
 
 function decodeExclusiveDeleteKey(text: string): string {
@@ -1218,18 +1544,35 @@ export async function reconcileAgentConfigs(
     interruptedManagedReleases?: readonly PriorManagedReleaseSelection[];
     /** Prior applied ownership marker used only for bounded current-release paths. */
     priorManagedDigest?: string;
+    /** Build-installed coding agents. Invalid explicit values fail before R2 access. */
+    codingAgents?: unknown;
+    /** Caller-journaled projection identity, revalidated by the caller before publication. */
+    projectionIdentity?: string;
     /** Explicit only for managed-environment reconciliation; omission preserves legacy seed behavior. */
     resourcePolicy?: ManagedResourcePolicy;
     /** Dashboard-owned automatic upgrade. Omission preserves every existing caller. */
     automatic?: ManagedAutomaticReconcileOptions;
   }
 ): Promise<{ written: string[]; skipped: string[]; deleted: string[]; warnings: string[]; managedPathsDigest?: string }> {
+  const selection = resolveCodingAgentSelection(options.codingAgents);
+  if (
+    options.projectionIdentity !== undefined
+    && options.projectionIdentity !== codingAgentProjectionIdentity(selection.canonical)
+  ) {
+    throw new Error('Coding-agent projection identity does not match the selected agents');
+  }
   const contextModeEnabled = options.contextModeEnabled === true;
   const managedRelease = options.managedRelease;
+  const currentOwners = managedRelease ? requireManagedDocumentOwners(managedRelease.release) : undefined;
+  const selectedManagedKeys = managedRelease
+    ? getSelectedManagedDocumentKeys(managedRelease.release, mode, selection.active, currentOwners)
+    : new Set<string>();
   const automaticPlan = managedRelease && options.automatic
     ? await buildManagedAutomaticPlan(
         managedRelease,
         mode,
+        selectedManagedKeys,
+        options.automatic.fullReconciliation === true,
         options.priorManagedRelease,
         options.interruptedManagedReleases,
       )
@@ -1257,13 +1600,29 @@ export async function reconcileAgentConfigs(
       ? await buildManagedR2Policy(managedRelease.digest, managedRelease.release, options.resourcePolicy)
       : (() => { throw new Error('Protected managed-resource policy requires a verified active release'); })()
     : undefined;
-  const exclusiveCandidates = policy?.value.resourcePolicy === 'exclusive'
-    ? await listExclusiveCleanupCandidates(env, bucketName, endpoint, policy, options.r2SseDisabled)
-    : [];
+  const cleanupPreflight = await buildReconcileCleanupPreflight({
+    env,
+    bucketName,
+    endpoint,
+    mode,
+    contextModeEnabled,
+    r2SseDisabled: options.r2SseDisabled,
+    cleanup: options.cleanup,
+    selection,
+    managedRelease,
+    selectedManagedKeys,
+    priorManagedRelease: options.priorManagedRelease,
+    interruptedManagedReleases: options.interruptedManagedReleases ?? [],
+    priorManagedDigest: options.priorManagedDigest,
+    policy,
+    automaticDirectDelta: automaticPlan?.directDelta,
+    automaticFullSweep: automaticPlan !== undefined && !automaticPlan.directDelta,
+  });
   const seedResult = managedRelease
     ? await seedManagedDocuments(env, bucketName, endpoint, mode, managedRelease, {
         overwrite: options.overwrite,
         r2SseDisabled: options.r2SseDisabled,
+        eligibleKeys: selectedManagedKeys,
         ...(automaticPlan ? {
           plannedKeys: automaticPlan.documentKeys,
           requiredMarkersByKey: automaticPlan.requiredMarkersByKey,
@@ -1272,7 +1631,7 @@ export async function reconcileAgentConfigs(
           onItemComplete: reportAutomaticProgress,
         } : {}),
       })
-    : await seedDocuments(env, bucketName, endpoint, getConfigsForMode(mode, contextModeEnabled), {
+    : await seedDocuments(env, bucketName, endpoint, getConfigsForMode(mode, contextModeEnabled, selection.canonical), {
         overwrite: options.overwrite,
         r2SseDisabled: options.r2SseDisabled,
       });
@@ -1306,105 +1665,67 @@ export async function reconcileAgentConfigs(
       seedResult.skipped.push(...extensionResult.skipped);
     }
   }
-  let deleted: string[] = [];
-  let warnings: string[] = [];
+  const deleted: string[] = [];
+  const warnings: string[] = [...cleanupPreflight.warnings];
 
   if (options.cleanup) {
     await options.automatic?.beforeCleanup?.();
-    if (managedRelease === undefined || managedRelease === null) {
-      const protectedKeys = managedRelease === null && options.priorManagedRelease
-        ? new Set([
-            ...getManagedDocumentKeysForMode(options.priorManagedRelease.release, options.priorManagedRelease.mode),
-            '.codeflare/managed-extensions.json',
-          ])
-        : new Set<string>();
-      const cleanupResult = await deleteNonModeConfigs(
-        env,
-        bucketName,
-        endpoint,
-        mode,
-        contextModeEnabled,
-        options.r2SseDisabled,
-        protectedKeys,
-      );
-      deleted = cleanupResult.deleted;
-      warnings = cleanupResult.warnings;
-    }
-    if (options.priorManagedRelease) {
-      const cleanupResult = await deletePriorManagedConfigs(
-        env,
-        bucketName,
-        endpoint,
-        options.priorManagedRelease,
-        managedRelease ?? null,
-        mode,
-        options.r2SseDisabled,
-        automaticPlan?.directDelta === true,
-      );
-      deleted.push(...cleanupResult.deleted);
-      warnings.push(...cleanupResult.warnings);
-    } else if (managedRelease && options.priorManagedDigest) {
-      const currentModeKeys = new Set(getManagedDocumentKeysForMode(managedRelease.release, mode));
-      const candidates = managedRelease.release.documents
-        .map((document) => document.key)
-        .filter((key) => !currentModeKeys.has(key));
-      const cleanupResult = await deleteManagedConfigsByDigest(
-        env,
-        bucketName,
-        endpoint,
-        candidates,
-        options.priorManagedDigest,
-        options.r2SseDisabled,
-      );
-      deleted.push(...cleanupResult.deleted);
-      warnings.push(...cleanupResult.warnings);
-    }
-    if (options.interruptedManagedReleases) {
-      for (const interruptedRelease of options.interruptedManagedReleases) {
-        const cleanupResult = await deletePriorManagedConfigs(
-          env,
-          bucketName,
-          endpoint,
-          interruptedRelease,
-          managedRelease ?? null,
-          mode,
-          options.r2SseDisabled,
-        );
-        deleted.push(...cleanupResult.deleted);
-        warnings.push(...cleanupResult.warnings);
-      }
-    }
-    if (managedRelease && automaticPlan && !automaticPlan.directDelta) {
-      const seededKeys = new Set([
-        ...getManagedDocumentKeysForMode(managedRelease.release, mode),
-        '.codeflare/managed-extensions.json',
-      ]);
-      const cleanupResult = await deleteStaleMarkedConfigs(
-        env,
-        bucketName,
-        endpoint,
-        seededKeys,
-        options.r2SseDisabled,
-      );
-      deleted.push(...cleanupResult.deleted);
-      warnings.push(...cleanupResult.warnings);
-    }
-    if (managedRelease) {
-      const cleanupResult = await deleteRetiredManagedConfigs(
-        env,
-        bucketName,
-        endpoint,
-        managedRelease.release,
-        options.r2SseDisabled,
-        options.resourcePolicy !== undefined && options.resourcePolicy !== 'mutable',
-      );
-      deleted.push(...cleanupResult.deleted);
-      warnings.push(...cleanupResult.warnings);
-    }
+    deleted.push(...await deleteExactInactiveConfigs(
+      env,
+      bucketName,
+      endpoint,
+      cleanupPreflight.inactive,
+      options.r2SseDisabled,
+    ));
   }
+  if (cleanupPreflight.exclusive.length > 0) {
+    deleted.push(...await deleteExclusiveCleanupCandidates(
+      env,
+      bucketName,
+      endpoint,
+      cleanupPreflight.exclusive,
+    ));
+  }
+  if (options.cleanup) {
+    const retiredResult = await deleteRetiredManagedConfigs(
+      env,
+      bucketName,
+      endpoint,
+      cleanupPreflight.retired,
+      options.r2SseDisabled,
+      options.resourcePolicy !== undefined && options.resourcePolicy !== 'mutable',
+    );
+    deleted.push(...retiredResult.deleted);
+    warnings.push(...retiredResult.warnings);
 
-  if (exclusiveCandidates.length > 0) {
-    deleted.push(...await deleteExclusiveCleanupCandidates(env, bucketName, endpoint, exclusiveCandidates));
+    const bakedResult = await deleteUnconditionalConfigs(
+      env,
+      bucketName,
+      endpoint,
+      cleanupPreflight.bakedNamed,
+    );
+    deleted.push(...bakedResult.deleted);
+    warnings.push(...bakedResult.warnings);
+
+    const managedResult = await deleteManagedConfigsByMarkerRules(
+      env,
+      bucketName,
+      endpoint,
+      cleanupPreflight.managedMarkerRules,
+      options.r2SseDisabled,
+    );
+    deleted.push(...managedResult.deleted);
+    warnings.push(...managedResult.warnings);
+
+    const staleResult = await deleteStaleMarkedConfigCandidates(
+      env,
+      bucketName,
+      endpoint,
+      cleanupPreflight.stale,
+      options.r2SseDisabled,
+    );
+    deleted.push(...staleResult.deleted);
+    warnings.push(...staleResult.warnings);
   }
   if (automaticPlan && deleted.length > 0) {
     const client = createR2Client(env);
@@ -1451,11 +1772,18 @@ export async function seedAgentConfigs(
   env: SeedEnv,
   bucketName: string,
   endpoint: string,
-  options: { overwrite?: boolean; mode?: SessionMode; contextModeEnabled?: boolean; r2SseDisabled?: boolean } = {}
+  options: {
+    overwrite?: boolean;
+    mode?: SessionMode;
+    contextModeEnabled?: boolean;
+    r2SseDisabled?: boolean;
+    codingAgents?: unknown;
+  } = {},
 ): Promise<SeedDocsResult> {
+  const selection = resolveCodingAgentSelection(options.codingAgents);
   const mode = options.mode ?? 'default';
   const contextModeEnabled = options.contextModeEnabled === true;
-  const docs = getConfigsForMode(mode, contextModeEnabled);
+  const docs = getConfigsForMode(mode, contextModeEnabled, selection.canonical);
   const result = await seedDocuments(env, bucketName, endpoint, docs, { overwrite: options.overwrite, r2SseDisabled: options.r2SseDisabled });
 
   logger.info('Seeded agent configs', {
@@ -1489,8 +1817,10 @@ export async function reseedContextModePlugin(
   endpoint: string,
   contextModeEnabled: boolean,
   r2SseDisabled = false,
+  codingAgents?: unknown,
 ): Promise<SeedDocsResult> {
-  if (!contextModeEnabled) {
+  const { active } = resolveCodingAgentSelection(codingAgents);
+  if (!contextModeEnabled || !active.has('claude-code')) {
     return { written: [], skipped: [] };
   }
   const contextModeDocs = AGENTS_SEEDED_CONFIGS.filter((doc) => isContextModeKey(doc.key));

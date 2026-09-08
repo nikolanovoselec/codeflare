@@ -8,6 +8,7 @@ import { createR2Client, getR2Url } from './r2-client';
 import { getR2Config } from './r2-config';
 import { getSseHeaders } from './r2-sse';
 import { isR2SseDisabledForBucket } from './r2-migration';
+import { codingAgentProjectionIdentity } from '../../scripts/ci/coding-agent-selection-core.mjs';
 import {
   canPrefixIntersectManagedPolicy,
   isManagedMutationProtected,
@@ -39,10 +40,12 @@ export async function guardManagedStorageMutation(input: {
     const mode = await resolveEffectiveSessionMode(preferences, input.user, input.env);
     const desiredPolicy: ManagedResourcePolicy = snapshot.config.resourcePolicy;
     const appliedPolicy = applied.resourcePolicy ?? 'mutable';
+    const projectionIdentity = codingAgentProjectionIdentity(input.env.CODING_AGENTS);
     if (
       applied.digest !== snapshot.active.digest
       || applied.sequence !== snapshot.active.sequence
       || applied.mode !== mode
+      || applied.projectionIdentity !== projectionIdentity
       || !/^[0-9a-f]{64}$/.test(applied.managedExtensionsDigest ?? '')
       || appliedPolicy !== desiredPolicy
       || (desiredPolicy !== 'mutable' && !/^[0-9a-f]{64}$/.test(applied.managedPathsDigest ?? ''))

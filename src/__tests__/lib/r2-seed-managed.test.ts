@@ -1113,4 +1113,376 @@ describe('managed release user-bucket reconciliation', () => {
       String(url).endsWith('/stable.md') && ['HEAD', 'DELETE', 'PUT'].includes(String(init?.method))
     ))).toBe(false);
   });
+
+  it('REQ-STOR-024: a Pi-only empty bucket receives only Pi managed documents and managed metadata', async () => {
+    const digest = 'a'.repeat(64);
+    const managedRelease = await selection(digest, release(51, [
+      document('.claude/skills/company/SKILL.md'),
+      document('.pi/agent/extensions/company.ts'),
+      document('.codex/rules/company.md'),
+    ]));
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: false,
+      managedRelease,
+      codingAgents: 'pi',
+    } as Parameters<typeof reconcileAgentConfigs>[4] & { codingAgents: string });
+
+    expect(result.written).toEqual([
+      '.pi/agent/extensions/company.ts',
+      '.codeflare/managed-extensions.json',
+    ]);
+    expect(fetchR2.mock.calls.filter(([, init]) => init?.method === 'PUT').map(([url]) => String(url))).toEqual([
+      `${endpoint}/bucket/.pi/agent/extensions/company.ts`,
+      `${endpoint}/bucket/.codeflare/managed-extensions.json`,
+    ]);
+  });
+
+  it('REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys', async () => {
+    const prior = await selection('1'.repeat(64), release(51, [
+      document('.claude/skills/company/SKILL.md', ['default'], 'old Claude'),
+      document('.pi/agent/extensions/company.ts', ['default'], 'old Pi'),
+    ]));
+    const target = await selection('2'.repeat(64), release(52, [
+      document('.claude/skills/company/SKILL.md', ['default'], 'new Claude'),
+      document('.pi/agent/extensions/company.ts', ['default'], 'new Pi'),
+    ]));
+    const progress: Array<{ completed: number; total: number }> = [];
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: target,
+      priorManagedRelease: { ...prior, mode: 'default' },
+      codingAgents: 'pi',
+      automatic: {
+        assumeEmpty: true,
+        onProgress: async (value) => { progress.push(value); },
+      },
+    } as Parameters<typeof reconcileAgentConfigs>[4] & { codingAgents: string });
+
+    expect(result.written).toEqual([
+      '.pi/agent/extensions/company.ts',
+      '.codeflare/managed-extensions.json',
+    ]);
+    expect(progress).toEqual([
+      { completed: 0, total: 2 },
+      { completed: 1, total: 2 },
+      { completed: 2, total: 2 },
+    ]);
+    expect(fetchR2.mock.calls.some(([url]) => String(url).includes('/.claude/'))).toBe(false);
+  });
+
+  it('REQ-STOR-021: exact inactive paths from current, prior, and interrupted inventories delete markerless with HEAD ETags', async () => {
+    const inactiveKeys = [
+      '.claude/skills/current/SKILL.md',
+      '.codex/rules/prior.md',
+      '.gemini/commands/interrupted.toml',
+    ];
+    const target = await selection('3'.repeat(64), release(53, [
+      document('.pi/agent/extensions/current.ts', ['default'], 'target Pi'),
+      document(inactiveKeys[0]),
+    ]));
+    const prior = await selection('2'.repeat(64), release(52, [
+      document('.pi/agent/extensions/current.ts', ['default'], 'prior Pi'),
+      document(inactiveKeys[1]),
+    ]));
+    const interrupted = await selection('4'.repeat(64), release(54, [document(inactiveKeys[2])]));
+    const deleted = new Set<string>();
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      const key = decodeURIComponent(new URL(url).pathname.replace('/bucket/', ''));
+      if (init?.method === 'HEAD' && inactiveKeys.includes(key)) {
+        return deleted.has(key)
+          ? new Response('', { status: 404 })
+          : new Response('', { status: 200, headers: { etag: `"etag-${inactiveKeys.indexOf(key)}"` } });
+      }
+      if (init?.method === 'HEAD') return new Response('', { status: 404 });
+      if (init?.method === 'DELETE' && inactiveKeys.includes(key)) {
+        deleted.add(key);
+        return new Response(null, { status: 204 });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: target,
+      priorManagedRelease: { ...prior, mode: 'default' },
+      interruptedManagedReleases: [{ ...interrupted, mode: 'default' }],
+      codingAgents: 'pi',
+      automatic: { assumeEmpty: true },
+    } as Parameters<typeof reconcileAgentConfigs>[4] & { codingAgents: string });
+
+    expect(result.deleted).toEqual(expect.arrayContaining(inactiveKeys));
+    const conditionalDeletes = fetchR2.mock.calls
+      .filter(([, init]) => init?.method === 'DELETE')
+      .map(([url, init]) => ({
+        key: decodeURIComponent(new URL(String(url)).pathname.replace('/bucket/', '')),
+        ifMatch: new Headers(init?.headers).get('If-Match'),
+      }));
+    expect(conditionalDeletes).toEqual(expect.arrayContaining(inactiveKeys.map((key, index) => ({
+      key,
+      ifMatch: `"etag-${index}"`,
+    }))));
+  });
+
+  it('REQ-STOR-021 + REQ-STOR-035: a competing replacement blocks inactive cleanup and policy publication', async () => {
+    const inactiveKey = '.claude/skills/company/SKILL.md';
+    const target = await selection('6'.repeat(64), release(56, [
+      document('.pi/agent/extensions/company.ts'),
+      document(inactiveKey),
+    ]));
+    const prior = await selection('5'.repeat(64), release(55, [
+      document('.pi/agent/extensions/company.ts'),
+      document(inactiveKey),
+    ]));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith(`/${inactiveKey}`) && init?.method === 'HEAD') {
+        return new Response('', { status: 200, headers: { etag: '"observed"' } });
+      }
+      if (url.endsWith(`/${inactiveKey}`) && init?.method === 'DELETE') {
+        return new Response('', { status: 412 });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: target,
+      priorManagedRelease: { ...prior, mode: 'default' },
+      resourcePolicy: 'immutable',
+      codingAgents: 'pi',
+      automatic: { assumeEmpty: false },
+    } as Parameters<typeof reconcileAgentConfigs>[4] & { codingAgents: string })).rejects.toThrow(/changed during cleanup/i);
+
+    const deletion = fetchR2.mock.calls.find(([url, init]) => url.endsWith(`/${inactiveKey}`) && init?.method === 'DELETE');
+    expect(new Headers(deletion?.[1]?.headers).get('If-Match')).toBe('"observed"');
+    expect(fetchR2.mock.calls.some(([url, init]) => (
+      url.endsWith('/.codeflare/managed-paths.json') && init?.method === 'PUT'
+    ))).toBe(false);
+  });
+
+  it('REQ-STOR-021: active and unknown historical markerless paths retain ordinary marker ownership', async () => {
+    const activeHistorical = '.pi/agent/extensions/active-edit.ts';
+    const unknownHistorical = 'legacy/shared-resource.txt';
+    const target = await selection('8'.repeat(64), release(58, [document('.pi/agent/extensions/current.ts')]));
+    const prior = await selection('7'.repeat(64), release(57, [
+      document('.pi/agent/extensions/current.ts'),
+      document(activeHistorical),
+      document(unknownHistorical),
+    ]));
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD' && (url.endsWith(`/${activeHistorical}`) || url.endsWith(`/${unknownHistorical}`))) {
+        return new Response('', { status: 200, headers: { etag: '"user-owned"' } });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: target,
+      priorManagedRelease: { ...prior, mode: 'default' },
+      codingAgents: 'pi',
+      automatic: { assumeEmpty: false },
+    } as Parameters<typeof reconcileAgentConfigs>[4] & { codingAgents: string });
+
+    expect(result.deleted).not.toEqual(expect.arrayContaining([activeHistorical, unknownHistorical]));
+    expect(fetchR2.mock.calls.some(([url, init]) => (
+      (url.endsWith(`/${activeHistorical}`) || url.endsWith(`/${unknownHistorical}`))
+      && init?.method === 'DELETE'
+    ))).toBe(false);
+  });
+
+  it('REQ-STOR-029: exclusive policy stays universal while selected cleanup removes only governed inactive and personal resources', async () => {
+    const piManaged = '.pi/agent/extensions/company.ts';
+    const claudeManaged = '.claude/skills/company/SKILL.md';
+    const piPersonal = '.pi/agent/extensions/personal.ts';
+    const claudePersonal = '.claude/skills/personal/SKILL.md';
+    const rootPersonal = '.claude/personal.md';
+    const unrelated = 'Vault/Notes/personal.md';
+    const objects = new Map<string, { body: string; contentType: string; marker?: string; etag: string }>([
+      [claudeManaged, { body: 'old Claude', contentType: 'text/markdown; charset=utf-8', etag: '"claude-managed"' }],
+      [piPersonal, { body: 'personal Pi', contentType: 'text/plain', etag: '"pi-personal"' }],
+      [claudePersonal, { body: 'personal Claude', contentType: 'text/plain', etag: '"claude-personal"' }],
+      [rootPersonal, { body: 'root personal', contentType: 'text/plain', etag: '"root-personal"' }],
+      [unrelated, { body: 'vault note', contentType: 'text/plain', etag: '"unrelated"' }],
+    ]);
+    let policyBytes: BodyInit | null | undefined;
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      const parsedUrl = new URL(url);
+      const key = decodeURIComponent(parsedUrl.pathname.replace('/bucket/', ''));
+      if (init?.method === 'GET' && parsedUrl.searchParams.get('list-type') === '2') {
+        const prefix = parsedUrl.searchParams.get('prefix') ?? '';
+        const contents = [...objects.entries()]
+          .filter(([objectKey]) => objectKey.startsWith(prefix))
+          .map(([objectKey, value]) => `<Contents><Key>${objectKey}</Key><Size>${value.body.length}</Size><LastModified>2026-01-01T00:00:00Z</LastModified></Contents>`)
+          .join('');
+        return new Response(`<ListBucketResult><IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`, { status: 200 });
+      }
+      if (init?.method === 'HEAD') {
+        const existing = objects.get(key);
+        return existing
+          ? new Response('', { status: 200, headers: { etag: existing.etag, 'content-length': String(existing.body.length) } })
+          : new Response('', { status: 404 });
+      }
+      if (init?.method === 'PUT') {
+        if (key === '.codeflare/managed-paths.json') policyBytes = init.body;
+        const headers = new Headers(init.headers);
+        objects.set(key, {
+          body: typeof init.body === 'string' ? init.body : new TextDecoder().decode(init.body as Uint8Array),
+          contentType: headers.get('Content-Type') ?? '',
+          marker: headers.get('x-amz-meta-codeflare-preseed') ?? undefined,
+          etag: `"written-${key}"`,
+        });
+        return new Response('', { status: 200 });
+      }
+      if (init?.method === 'GET') return new Response('', { status: 200 });
+      if (init?.method === 'DELETE') {
+        objects.delete(key);
+        return new Response(null, { status: 204 });
+      }
+      if (init?.method === 'POST' && parsedUrl.searchParams.has('delete')) {
+        for (const match of String(init.body).matchAll(/<Key>([^<]+)<\/Key>/g)) objects.delete(match[1]);
+        return new Response('<DeleteResult />', { status: 200 });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: await selection('9'.repeat(64), release(59, [
+        document(claudeManaged),
+        document(piManaged),
+      ])),
+      resourcePolicy: 'exclusive',
+      codingAgents: 'pi',
+    } as Parameters<typeof reconcileAgentConfigs>[4] & { codingAgents: string });
+
+    const policy = JSON.parse(new TextDecoder().decode(policyBytes as Uint8Array));
+    expect(policy.paths).toEqual(expect.arrayContaining([claudeManaged, piManaged]));
+    expect(policy.resourceRoots).toEqual(expect.arrayContaining(['.claude/skills/', '.pi/agent/extensions/']));
+    expect(result.deleted).toEqual(expect.arrayContaining([claudeManaged, piPersonal, claudePersonal]));
+    expect(objects.has(piManaged)).toBe(true);
+    expect(objects.has('.codeflare/managed-extensions.json')).toBe(true);
+    expect(objects.has('.codeflare/managed-paths.json')).toBe(true);
+    expect(objects.has(claudeManaged)).toBe(false);
+    expect(objects.has(piPersonal)).toBe(false);
+    expect(objects.has(claudePersonal)).toBe(false);
+    expect(objects.has(rootPersonal)).toBe(true);
+    expect(objects.has(unrelated)).toBe(true);
+  });
+
+  it('REQ-STOR-021 + REQ-STOR-029: an unknown current owner fails before any R2 mutation', async () => {
+    const unknown = await selection('a'.repeat(64), release(60, [document('.shared/rules/company.md')]));
+
+    await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: true,
+      managedRelease: unknown,
+      codingAgents: 'pi',
+    } as Parameters<typeof reconcileAgentConfigs>[4] & { codingAgents: string })).rejects.toThrow(/owner|managed root/i);
+
+    expect(fetchR2.mock.calls.some(([, init]) => ['PUT', 'DELETE', 'POST'].includes(String(init?.method)))).toBe(false);
+  });
+
+  it('REQ-STOR-033: a full selected-target pass verifies every selected document and metadata', async () => {
+    const targetDigest = 'b'.repeat(64);
+    const target = await selection(targetDigest, release(61, [
+      document('.pi/agent/extensions/first.ts', ['default'], 'first'),
+      document('.claude/skills/inactive/SKILL.md', ['default'], 'inactive'),
+      document('.pi/agent/rules/second.md', ['default'], 'second'),
+    ]));
+    const prior = await selection('c'.repeat(64), release(60, target.release.documents.map((item) => (
+      document(item.key, item.modes, item.content, item.contentType)
+    ))));
+    const expectedByKey = new Map([
+      ['.pi/agent/extensions/first.ts', { body: 'first', contentType: 'text/markdown; charset=utf-8' }],
+      ['.pi/agent/rules/second.md', { body: 'second', contentType: 'text/markdown; charset=utf-8' }],
+      ['.codeflare/managed-extensions.json', {
+        body: JSON.stringify({ schemaVersion: 1, release: { digest: targetDigest, sequence: 61 }, extensions: [] }),
+        contentType: 'application/json; charset=utf-8',
+      }],
+    ]);
+    const progress: Array<{ completed: number; total: number }> = [];
+    fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
+      const key = decodeURIComponent(new URL(url).pathname.replace('/bucket/', ''));
+      const expected = expectedByKey.get(key);
+      if (init?.method === 'HEAD' && expected) {
+        return new Response('', { status: 200, headers: { 'x-amz-meta-codeflare-preseed': targetDigest } });
+      }
+      if (init?.method === 'GET' && expected) {
+        return new Response(expected.body, { status: 200, headers: {
+          'Content-Type': expected.contentType,
+          'x-amz-meta-codeflare-preseed': targetDigest,
+        } });
+      }
+      return new Response('', { status: 200 });
+    });
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: false,
+      managedRelease: target,
+      priorManagedRelease: { ...prior, mode: 'default' },
+      codingAgents: 'pi',
+      automatic: {
+        assumeEmpty: false,
+        fullReconciliation: true,
+        onProgress: async (value) => { progress.push(value); },
+      },
+    } as Parameters<typeof reconcileAgentConfigs>[4] & {
+      codingAgents: string;
+      automatic: { assumeEmpty: boolean; fullReconciliation: boolean };
+    });
+
+    expect(result.skipped).toEqual(expect.arrayContaining([...expectedByKey.keys()]));
+    expect(fetchR2.mock.calls.filter(([, init]) => init?.method === 'GET').map(([url]) => (
+      decodeURIComponent(new URL(String(url)).pathname.replace('/bucket/', ''))
+    ))).toEqual(expect.arrayContaining([...expectedByKey.keys()]));
+    expect(progress.at(-1)).toEqual({ completed: 3, total: 3 });
+    expect(fetchR2.mock.calls.some(([url]) => String(url).includes('/.claude/'))).toBe(false);
+  });
+
+  it('REQ-STOR-033: matching projection identity keeps unchanged selected documents on direct delta', async () => {
+    const target = await selection('d'.repeat(64), release(62, [
+      document('.pi/agent/extensions/stable.ts', ['default'], 'stable'),
+      document('.claude/skills/inactive/SKILL.md', ['default'], 'inactive'),
+    ]));
+    const prior = await selection('e'.repeat(64), release(61, [
+      document('.pi/agent/extensions/stable.ts', ['default'], 'stable'),
+      document('.claude/skills/inactive/SKILL.md', ['default'], 'prior inactive'),
+    ]));
+    const progress: Array<{ completed: number; total: number }> = [];
+
+    const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
+      overwrite: true,
+      cleanup: false,
+      managedRelease: target,
+      priorManagedRelease: { ...prior, mode: 'default' },
+      codingAgents: 'pi',
+      automatic: {
+        assumeEmpty: false,
+        fullReconciliation: false,
+        onProgress: async (value) => { progress.push(value); },
+      },
+    } as Parameters<typeof reconcileAgentConfigs>[4] & {
+      codingAgents: string;
+      automatic: { assumeEmpty: boolean; fullReconciliation: boolean };
+    });
+
+    expect(result.written).toEqual(['.codeflare/managed-extensions.json']);
+    expect(result.skipped).toEqual([]);
+    expect(progress).toEqual([
+      { completed: 0, total: 1 },
+      { completed: 1, total: 1 },
+    ]);
+    expect(fetchR2.mock.calls.some(([url]) => (
+      String(url).includes('/.pi/agent/') || String(url).includes('/.claude/')
+    ))).toBe(false);
+  });
 });

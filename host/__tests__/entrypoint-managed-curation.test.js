@@ -7,7 +7,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(resolve(here, '../../entrypoint.sh'), 'utf8');
+const root = resolve(here, '../..');
+const selectorPath = join(root, 'scripts/ci/coding-agent-selection.mjs');
+const source = readFileSync(join(root, 'entrypoint.sh'), 'utf8');
 const lines = source.split('\n');
 const companionDeclaration = lines.find((line) => line.startsWith('readonly -a IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS='));
 assert.ok(companionDeclaration, 'image-owned companion declaration missing');
@@ -29,6 +31,8 @@ function productionInvocation(name) {
   return invocation;
 }
 
+const validateSelection = functionSource('validate_coding_agent_selection');
+const codingAgentSelected = functionSource('coding_agent_is_selected');
 const layDown = functionSource('lay_down_agent_seed_preseed');
 const relay = functionSource('relay_managed_pi_extensions');
 const initialRestore = functionSource('run_initial_r2_restore');
@@ -47,7 +51,8 @@ function fixture() {
   mkdirSync(warm, { recursive: true });
   const runtimeRoot = join(root, 'runtime');
   mkdirSync(join(runtimeRoot, 'sync'), { recursive: true });
-  writeFileSync(join(bake, 'default/.claude/company.md'), 'baked');
+  writeFileSync(join(bake, 'default/.claude/company.md'), 'baked claude');
+  writeFileSync(join(bake, 'default/.pi/agent/extensions/company.ts'), 'baked pi');
   writeFileSync(join(home, '.pi/agent/extensions/codeflare.ts'), 'restored release');
   writeFileSync(join(warm, 'codeflare.ts'), 'baked image');
   for (const companion of imageOwnedCompanions) {
@@ -56,7 +61,7 @@ function fixture() {
   return { root, home, bake, warm, runtimeRoot, events: join(root, 'events') };
 }
 
-function runStartup(remoteCurationActive) {
+function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copilot,antigravity,opencode,pi') {
   const f = fixture();
   const result = spawnSync('bash', ['-c', [
     'set -euo pipefail',
@@ -65,6 +70,8 @@ function runStartup(remoteCurationActive) {
     `AGENT_SEED_BAKE_DIR='${f.bake}'`,
     `PI_WARM_EXTENSIONS_DIR='${f.warm}'`,
     `EVENTS='${f.events}'`,
+    `CODING_AGENT_SELECTOR='${selectorPath}'`,
+    `CODEFLARE_CODING_AGENTS='${codingAgents}'`,
     "R2_SSE_DISABLED='true'",
     "RCLONE_CONFIG_RESULT='0'",
     "ENTERPRISE_MODE=''",
@@ -91,6 +98,8 @@ function runStartup(remoteCurationActive) {
     'run_post_restore_startup() { echo post-restore >> "$EVENTS"; }',
     'renice() { :; }',
     'ionice() { :; }',
+    validateSelection,
+    codingAgentSelected,
     layDown,
     companionDeclaration,
     relay,
@@ -107,6 +116,7 @@ function runStartup(remoteCurationActive) {
     ...f,
     result,
     companyFile: join(f.home, '.claude/company.md'),
+    piCompanyFile: join(f.home, '.pi/agent/extensions/company.ts'),
     extensionFile: join(f.home, '.pi/agent/extensions/codeflare.ts'),
     companionFiles: imageOwnedCompanions.map((companion) => ({
       content: `image-owned ${companion}`,
@@ -139,7 +149,7 @@ describe('managed curation entrypoint behavior', () => {
     const run = runStartup(false);
 
     assert.equal(run.result.status, 0, run.result.stderr);
-    assert.equal(readFileSync(run.companyFile, 'utf8'), 'baked');
+    assert.equal(readFileSync(run.companyFile, 'utf8'), 'baked claude');
     assert.equal(readFileSync(run.extensionFile, 'utf8'), 'baked image');
     assert.deepEqual(readFileSync(run.events, 'utf8').trim().split('\n'), [
       'laydown',
@@ -150,5 +160,25 @@ describe('managed curation entrypoint behavior', () => {
       'cleanup',
       'baseline',
     ]);
+  });
+
+  it('REQ-STOR-024: lays down only selected agent roots and skips the Pi relay when Pi is inactive', () => {
+    const run = runStartup(false, 'claude-code');
+
+    assert.equal(run.result.status, 0, run.result.stderr);
+    assert.equal(readFileSync(run.companyFile, 'utf8'), 'baked claude');
+    assert.equal(existsSync(run.piCompanyFile), false);
+    assert.equal(readFileSync(run.extensionFile, 'utf8'), 'restored release');
+    assert.equal(readFileSync(run.events, 'utf8').trim().split('\n').includes('relay'), false);
+  });
+
+  it('REQ-STOR-024: rejects invalid explicit selection before initial restore or baseline work', () => {
+    const run = runStartup(false, 'pi,unknown');
+
+    assert.notEqual(run.result.status, 0);
+    assert.match(run.result.stderr, /unknown coding agent.*unknown/i);
+    assert.equal(existsSync(run.events), false);
+    assert.equal(existsSync(run.companyFile), false);
+    assert.equal(existsSync(run.piCompanyFile), false);
   });
 });

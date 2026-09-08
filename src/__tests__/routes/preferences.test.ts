@@ -792,6 +792,52 @@ describe('Preferences Routes', () => {
   // REQ-STOR-022: the no-hot-mutation gate applies only while curation is active or a
   // prior curated state must converge; unconfigured baked behavior stays byte-identical.
   describe('PATCH /preferences managed-environment gating / REQ-STOR-022', () => {
+    it('REQ-STOR-023 + REQ-STOR-035: journals and publishes the selected managed projection identity', async () => {
+      managedReleaseState.active = {
+        digest: 'd'.repeat(64),
+        compressed: new Uint8Array(),
+        release: { sequence: 9 },
+      };
+      mockKV._set('user-prefs:codeflare-test-user', { sessionMode: 'default' });
+      mockReconcileAgentConfigs.mockImplementationOnce(async (...args: any[]) => {
+        expect(args[4]).toEqual(expect.objectContaining({ projectionIdentity: 'v1:pi' }));
+        expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({
+          managedEnvironmentReconciliation: {
+            targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced', projectionIdentity: 'v1:pi' }],
+          },
+        });
+        return { written: [], skipped: [], deleted: [], warnings: [] };
+      });
+
+      const res = await createTestApp({ CODING_AGENTS: ' pi,pi ' }).request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({
+        managedEnvironmentApplied: { digest: 'd'.repeat(64), projectionIdentity: 'v1:pi' },
+      });
+    });
+
+    it('REQ-STOR-033: baked mode reconciliation stamps selection identity beside the content hash', async () => {
+      mockKV._set('user-prefs:codeflare-test-user', { sessionMode: 'default' });
+
+      const res = await createTestApp({ CODING_AGENTS: 'pi' }).request('/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionMode: 'advanced' }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(await mockKV.get('user-prefs:codeflare-test-user', 'json')).toMatchObject({
+        sessionMode: 'advanced',
+        lastPreseedHash: expect.any(String),
+        lastPreseedProjectionIdentity: 'v1:pi',
+      });
+    });
+
     it('REQ-STOR-022: a running session does not block a sessionMode change on an unconfigured deployment', async () => {
       mockKV._set('session:codeflare-test-user:abc', { status: 'running' }, { s: 'r' });
       const app = createTestApp();
