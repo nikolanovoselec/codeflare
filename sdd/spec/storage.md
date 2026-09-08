@@ -400,10 +400,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. R2 transcript persistence retains the existing exclusions for Claude child artifacts, Pi task transcripts, and Codex session recordings. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-governed-sync.test.js (REQ-STOR-012: child transcripts stay outside R2 sync) -->
 3. Each agent independently retains at most ten main transcript files across all nested directories, ranked by recoverable native activity with a deterministic path tie-breaker. <!-- @impl: transcript-retention.mjs::retainLatest --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (main transcript retention / REQ-STOR-012) -->
 4. If one candidate has an unsupported shape or no recoverable native activity, that entire agent retains ten files by deterministic filesystem modification time instead. <!-- @impl: transcript-retention.mjs::parseClaudeTimestamp --> <!-- @impl: transcript-retention.mjs::parsePiTimestamp --> <!-- @impl: transcript-retention.mjs::retainLatest --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (main transcript retention / REQ-STOR-012) -->
-5. Retention changes only selected candidate files; every other path remains untouched. <!-- @impl: transcript-retention.mjs::retainLatest --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (main transcript retention / REQ-STOR-012) -->
+5. Cleanup changes only selected candidate files; every non-candidate path remains untouched. <!-- @impl: transcript-retention.mjs::retainLatest --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (main transcript retention / REQ-STOR-012) -->
 6. Restored transcript candidates are pruned before the first agent PTY is released. <!-- @impl: entrypoint.sh::release_agent_pty_after_cleanup --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (main transcript retention / REQ-STOR-012) -->
 7. Every regular or final bisync attempts transcript cleanup first and still proceeds when cleanup fails. <!-- @impl: entrypoint.sh::cleanup_main_transcripts --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (main transcript retention / REQ-STOR-012) -->
-8. Pi cleanup deletes a numbered conflict copy only when its complete bytes are contained at the start of its unchanged canonical transcript; divergent copies, task paths, missing canonicals, symlinks, and files changed during comparison remain untouched. <!-- @impl: transcript-retention.mjs::removeContainedConflictCopy --> <!-- @impl: transcript-retention.mjs::removeRedundantPiConflicts --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (main transcript retention / REQ-STOR-012) -->
 
 **Constraints:**
 
@@ -1383,6 +1382,28 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** [REQ-STOR-021](#req-stor-021-managed-content-ownership), [REQ-STOR-047](#req-stor-047-coding-agent-selection-resolution)
 
 **Verification:** Automated ownership and fail-before-mutation tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-051: Pi transcript conflict cleanup
+
+**Intent:** Pi transcript conflict copies must not accumulate because Pi cannot resume them.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Cleanup deletes every file or symbolic link whose name contains `.conflict` beneath the Pi session root while preserving canonical transcripts. <!-- @impl: transcript-retention.mjs::deletePiConflictFiles --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (REQ-STOR-051 AC1: Pi deletes every conflict file and preserves canonical transcripts) -->
+
+**Constraints:** Unique turns in conflict copies are disposable.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-012](#req-stor-012-main-session-transcript-cleanup)
+
+**Verification:** Automated test ([entrypoint-transcript-cleanup](../../host/__tests__/entrypoint-transcript-cleanup.test.js))
 
 **Status:** Implemented
 

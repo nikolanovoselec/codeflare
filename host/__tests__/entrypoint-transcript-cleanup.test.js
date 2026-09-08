@@ -303,27 +303,26 @@ bisync_with_r2 ''
     }
   });
 
-  test('AC8: Pi removes only conflict copies wholly contained in their canonical transcript', () => {
+  test('REQ-STOR-051 AC1: Pi deletes every conflict file and preserves canonical transcripts', () => {
     const scratch = makeScratch();
     try {
       const pi = join(scratch.dir, '.pi', 'agent', 'sessions');
       const canonical = writePi(pi, 1, 1, 50_000);
       const canonicalContent = readFileSync(canonical);
-      const redundant = `${canonical}.conflict1`;
-      const divergent = `${canonical}.conflict2`;
-      const taskDir = join(dirname(canonical), 'tasks');
-      const excluded = join(taskDir, `${basename(canonical)}.conflict3`);
-      mkdirSync(taskDir, { recursive: true });
-      writeFileSync(redundant, canonicalContent.subarray(0, canonicalContent.indexOf(0x0a) + 1));
-      writeFileSync(divergent, Buffer.concat([canonicalContent.subarray(0, canonicalContent.indexOf(0x0a) + 1), Buffer.from('unique\n')]));
-      writeFileSync(excluded, canonicalContent);
+      const conflicts = [
+        `${canonical}.conflict1`,
+        join(dirname(canonical), 'tasks', `${basename(canonical)}.conflict2`),
+        join(dirname(canonical), `2026-08-18T10-00-02Z_${uuid(2)}.jsonl.conflict-copy`),
+      ];
+      mkdirSync(dirname(conflicts[1]), { recursive: true });
+      writeFileSync(conflicts[0], Buffer.from('divergent user content\n'));
+      writeFileSync(conflicts[1], canonicalContent);
+      symlinkSync(canonical, conflicts[2]);
 
       const output = runRetention('pi', pi);
 
-      assert.match(output, /redundant-conflicts=1/);
-      assert.equal(existsSync(redundant), false);
-      assert.equal(existsSync(divergent), true);
-      assert.equal(existsSync(excluded), true);
+      assert.match(output, /conflicts=3/);
+      for (const path of conflicts) assert.equal(existsSync(path), false, `${path} must be deleted`);
       assert.equal(readFileSync(canonical, 'utf8'), canonicalContent.toString('utf8'));
     } finally {
       scratch.cleanup();

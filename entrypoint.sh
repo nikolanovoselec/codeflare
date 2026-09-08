@@ -1122,7 +1122,7 @@ bisync_with_r2() {
     # The daemon reads it for vanishing-file recovery. It's overwritten each invocation.
 
     record_sync_disk_failure "$SYNC_OUTPUT"
-    # Conflict copies may contain unique user content; never delete them blindly.
+    # Pi transcript conflict copies were removed by cleanup; other conflict files remain untouched.
     if [ $RESULT -eq 0 ]; then
         # A sync that rewrote a hook from R2 dropped its exec bit; restore it here so
         # the window is seconds rather than the rest of the daemon cycle.
