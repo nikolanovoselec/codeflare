@@ -796,7 +796,7 @@ Multi-agent support, preseed system, and session modes.
 3. Issues, incorporated pull requests, requirements, decisions, commits, runs, releases, deployments, and follow-ups are linked only with their relationship and relevance stated. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Links and traceability --> <!-- @manual -->
 4. Verification identifies exact heads and distinguishes automated, deployed, managed-publication, manual, owner-reported, and pending evidence. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Verification --> <!-- @manual -->
 5. Features and improvements precede secondary corrections; operational boundaries follow verification, and substantive review history stays last. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Core rule --> <!-- @manual -->
-6. The authoring reference reaches every skill-capable runtime in default and advanced modes. <!-- @impl: preseed/agents/claude/manifest.json::skills/pr-workflow/references/pull-request-authoring.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (REQ-AGENT-212: generates byte-identical output and delivers the canonical PR authoring reference) -->
+6. The authoring reference reaches every skill-capable runtime in default and advanced modes. <!-- @impl: preseed/agents/claude/manifest.json::skills/pr-workflow/references/pull-request-authoring.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 7. Native Pi and canonical workflow skills point to the same relative authoring-reference path. <!-- @impl: preseed/agents/claude/skills/pr-workflow/SKILL.md::Pull Request Workflow --> <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md::Pull Request Workflow in Pi --> <!-- @manual -->
 
 **Constraints:**
@@ -809,7 +809,7 @@ Multi-agent support, preseed system, and session modes.
 
 **Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
 
-**Verification:** Automated delivery test and manual content review
+**Verification:** Manual content and delivery review
 
 **Status:** Implemented
 

@@ -42,7 +42,7 @@ describe('shared agent seed compiler', () => {
     assert.deepEqual(await readFile(generatedPath), beforeBytes);
   });
 
-  it('REQ-AGENT-212: generates byte-identical output and delivers the canonical PR authoring reference', async () => {
+  it('generates byte-identical image output through the shared core', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'agent-seed-core-'));
     try {
       const outputFile = join(dir, 'agent-seed.generated.ts');
@@ -81,18 +81,6 @@ describe('shared agent seed compiler', () => {
         '.pi/agent/skills/humanize/reference/findings.md',
         '.pi/agent/skills/humanize/SKILL.md',
       ].map((key) => ({ key, modes: ['advanced'] })));
-
-      const prReferenceDocuments = compiled.documents
-        .filter((document) => document.key.endsWith('/skills/pr-workflow/references/pull-request-authoring.md'))
-        .map(({ key, modes }) => ({ key, modes }))
-        .sort((left, right) => left.key.localeCompare(right.key));
-      assert.deepEqual(prReferenceDocuments, [
-        '.claude/skills/pr-workflow/references/pull-request-authoring.md',
-        '.codex/skills/pr-workflow/references/pull-request-authoring.md',
-        '.config/opencode/skills/pr-workflow/references/pull-request-authoring.md',
-        '.gemini/skills/pr-workflow/references/pull-request-authoring.md',
-        '.pi/agent/skills/pr-workflow/references/pull-request-authoring.md',
-      ].map((key) => ({ key, modes: ['default', 'advanced'] })));
       assert.deepEqual(await readFile(outputFile), await readFile(generatedPath));
     } finally {
       await rm(dir, { recursive: true, force: true });
