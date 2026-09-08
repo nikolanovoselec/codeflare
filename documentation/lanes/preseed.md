@@ -459,11 +459,12 @@ authority, latest-stable dependency selection, and current-task continuity
 [REQ-AGENT-198](../../sdd/spec/agents.md#req-agent-198-engineering-constitution-security-policy),
 [REQ-AGENT-199](../../sdd/spec/agents.md#req-agent-199-engineering-constitution-dependency-policy),
 [REQ-AGENT-200](../../sdd/spec/agents.md#req-agent-200-engineering-constitution-work-continuity)).
-It acknowledges and retains new input immediately, then finishes the active concrete step
-before acting on unrelated input unless the user stops, pauses, or reprioritizes it. Direct
-current-session instructions override conflicting Codeflare workflow defaults; `override`
-for a specific action executes the latest direction without another confirmation. Security,
-privacy, authorization, tenant, least-privilege, and secret boundaries remain binding.
+It acknowledges and retains new input, then finishes the active concrete step before acting
+on unrelated input unless the user stops, pauses, or reprioritizes it. The current user controls
+scope, sequencing, implementation choices, and internal Codeflare workflows and processes.
+Their latest clear instruction overrides conflicting defaults; `override` for a named action
+executes immediately without confirmation or process delay. Security, privacy, authorization,
+tenant, least-privilege, secret, system, and platform boundaries remain binding.
 
 Default+advanced `git-workflow` owns PR-boundary mechanics, and focused skills own
 platform behavior. Generic coding and language recipes remain absent under

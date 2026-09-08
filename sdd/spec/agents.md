@@ -2920,7 +2920,7 @@ None.
 1. Seed compilation delivers the constitution to every supported runtime in default and advanced modes. <!-- @impl: preseed/agents/claude/manifest.json::rules/engineering-constitution.md --> <!-- @impl: preseed/agents/pi/manifest.json::rules/engineering-constitution.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 2. Repository evidence and explicit constraints outrank generic patterns, and implementation stays within the smallest coherent change. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 3. Every changed behavior starts with failing behavioral proof and passes observable-outcome verification before completion. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
-4. Composition and extraction follow explicit ownership, coupling, state, reuse, testability, and maintenance evidence. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+4. Composition and extraction follow explicit ownership, state, reuse, testability, and maintenance evidence. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 5. Updates prefer immutability, keep necessary mutation local, validate untrusted boundaries, and trust typed internals. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 6. Repositories with `sdd/` keep changed behavior traced to truthful requirements, anchors, and documentation, with no touched REQ left `Partial`. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 
@@ -2986,16 +2986,16 @@ None.
 
 ### REQ-AGENT-200: Engineering Constitution work continuity
 
-**Intent:** Every managed coding session follows direct current-session user authority while retaining new input without abandoning active work mid-step.
+**Intent:** Every managed coding session follows direct current-user authority while retaining new input without abandoning active work mid-step.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. New user input is acknowledged and retained immediately. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
+1. New user input is acknowledged and retained. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
 2. Unrelated new input waits until the active task reaches a safe stopping point unless the user explicitly stops, pauses, or reprioritizes it. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
-3. Direct current-session instructions override conflicting Codeflare workflow rules, sequencing, preferences, and prior user instructions. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
-4. `override` for a specific action executes the latest instruction immediately without another question. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
+3. The current user controls scope, sequencing, implementation choices, and internal Codeflare workflows and processes; their latest clear instruction overrides conflicting conventions, safeguards, preferences, and prior user instructions. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
+4. `override` for a named action executes immediately without confirmation, procedural delay, review, or substitution of a preferred workflow. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
 
 **Constraints:** Related corrections remain part of the active task; overrides remain bounded by the named action, security, privacy, authentication, authorization, tenant isolation, least privilege, secret handling, and system or platform limits outside Codeflare's control.
 
