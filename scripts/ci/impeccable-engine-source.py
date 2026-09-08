@@ -58,7 +58,7 @@ def source_between(source: str, start: str, end: str) -> str:
     return source[source.index(start):source.index(end)]
 
 
-def compile_probe(source_root: Path, output: Path) -> None:
+def probe_module(source_root: Path, module_name: str) -> str:
     embed = (source_root / "crates/context/src/embed_prompt.rs").read_text()
     serve = (source_root / "crates/context/src/serve_question.rs").read_text()
     walk = source_between(embed, "fn walk(", "\nfn is_raster(")
@@ -70,39 +70,66 @@ def compile_probe(source_root: Path, output: Path) -> None:
     if len(conditions) != 1:
         raise ValueError("Impeccable idle-grace condition is missing or ambiguous")
     condition = conditions[0].replace("now_ms()", "now")
-    harness = f"""
-use std::env;
-
-fn read_dir_names(path: &str) -> Option<Vec<String>> {{
-    let mut names: Vec<String> = std::fs::read_dir(path).ok()?
-        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
-        .collect();
-    names.sort();
-    Some(names)
-}}
+    return f"""
+mod {module_name} {{
+    fn read_dir_names(path: &str) -> Option<Vec<String>> {{
+        let mut names: Vec<String> = std::fs::read_dir(path).ok()?
+            .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+            .collect();
+        names.sort();
+        Some(names)
+    }}
 
 {walk}
 
 {is_raster}
 
-fn closes(mid_delivery: bool, lb: f64, now: f64, idle_grace_ms: f64) -> bool {{
-    {condition}
+    #[allow(unused_variables)]
+    pub fn closes(age: f64, idle_grace_ms: f64) -> bool {{
+        let mid_delivery = false;
+        let lb = 1.0;
+        let now = age + lb;
+        {condition}
+    }}
+
+    pub fn scan(path: &str) -> Result<Vec<String>, String> {{
+        let mut rasters = Vec::new();
+        walk(path, true, &mut rasters)?;
+        rasters.sort();
+        Ok(rasters)
+    }}
 }}
+"""
+
+
+def compile_probe(upstream_root: Path, patched_root: Path, output: Path) -> None:
+    harness = f"""
+use std::env;
+
+{probe_module(upstream_root, "upstream")}
+{probe_module(patched_root, "patched")}
 
 fn main() {{
     let args: Vec<String> = env::args().collect();
-    if args.get(1).map(String::as_str) == Some("idle") {{
-        let age: f64 = args[2].parse().unwrap();
-        let grace: f64 = args[3].parse().unwrap();
-        println!("{{}}", closes(false, 1.0, age + 1.0, grace));
+    let variant = args[1].as_str();
+    if args[2] == "idle" {{
+        let age: f64 = args[3].parse().unwrap();
+        let grace: f64 = args[4].parse().unwrap();
+        let closed = match variant {{
+            "upstream" => upstream::closes(age, grace),
+            "patched" => patched::closes(age, grace),
+            _ => panic!("unknown source variant"),
+        }};
+        println!("{{}}", closed);
         return;
     }}
-    let mut rasters = Vec::new();
-    match walk(&args[2], true, &mut rasters) {{
-        Ok(()) => {{
-            rasters.sort();
-            for raster in rasters {{ println!("{{}}", raster); }}
-        }}
+    let result = match variant {{
+        "upstream" => upstream::scan(&args[3]),
+        "patched" => patched::scan(&args[3]),
+        _ => panic!("unknown source variant"),
+    }};
+    match result {{
+        Ok(rasters) => for raster in rasters {{ println!("{{}}", raster); }},
         Err(error) => {{
             eprintln!("{{}}", error);
             std::process::exit(1);
@@ -112,7 +139,7 @@ fn main() {{
 """
     harness_path = output.with_suffix(".rs")
     harness_path.write_text(harness)
-    subprocess.run(["rustc", "--edition=2021", str(harness_path), "-o", str(output)], check=True, timeout=20)
+    subprocess.run(["rustc", "--edition=2021", str(harness_path), "-o", str(output)], check=True, timeout=35)
 
 
 def run(binary: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -120,8 +147,9 @@ def run(binary: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 
 def verify_probe(binary: Path, expect_upstream_bugs: bool) -> None:
-    idle_open = run(binary, "idle", "20000", "60000")
-    idle_closed = run(binary, "idle", "70000", "60000")
+    variant = "upstream" if expect_upstream_bugs else "patched"
+    idle_open = run(binary, variant, "idle", "20000", "60000")
+    idle_closed = run(binary, variant, "idle", "70000", "60000")
     expected_open = "true" if expect_upstream_bugs else "false"
     if idle_open.returncode != 0 or idle_open.stdout.strip() != expected_open:
         raise AssertionError((idle_open.returncode, idle_open.stdout, idle_open.stderr))
@@ -147,7 +175,7 @@ def verify_probe(binary: Path, expect_upstream_bugs: bool) -> None:
             folder.mkdir()
             (folder / "excluded.png").write_bytes(b"excluded")
 
-        scanned = run(binary, "scan", str(target))
+        scanned = run(binary, variant, "scan", str(target))
         if scanned.returncode != 0:
             raise AssertionError((scanned.returncode, scanned.stdout, scanned.stderr))
         actual = scanned.stdout.strip().splitlines()
@@ -160,19 +188,14 @@ def verify_probe(binary: Path, expect_upstream_bugs: bool) -> None:
             raise AssertionError((actual, sorted(expected)))
         (target / "broken").symlink_to(root / "absent")
         (target / "cycle").symlink_to(target, target_is_directory=True)
-        scanned = run(binary, "scan", str(target))
+        scanned = run(binary, variant, "scan", str(target))
         if scanned.returncode != 0 or scanned.stdout.strip().splitlines() != sorted(expected):
             raise AssertionError((scanned.returncode, scanned.stdout, scanned.stderr))
-        for explicit in (
-            target / "escape",
-            Path(f"{target / 'escape'}/"),
-            target / "escape" / ".",
-            target / "escape" / "private.png",
-            target / "escape" / "..",
-        ):
-            rejected = run(binary, "scan", str(explicit))
+        escape = str(target / "escape")
+        for explicit in (escape, f"{escape}/", f"{escape}/.", f"{escape}/private.png", f"{escape}/.."):
+            rejected = run(binary, variant, "scan", explicit)
             if rejected.returncode != 1 or "symbolic link" not in rejected.stderr:
-                raise AssertionError((str(explicit), rejected.returncode, rejected.stdout, rejected.stderr))
+                raise AssertionError((explicit, rejected.returncode, rejected.stdout, rejected.stderr))
 
 
 def main() -> None:
@@ -196,18 +219,17 @@ def main() -> None:
         if not re.search(r"(?m)^version\s*=\s*\"0\.1\.3\"\s*$", cargo):
             raise ValueError("Pinned Impeccable source version is not 0.1.3")
 
-        upstream_probe = Path(directory) / "upstream-probe"
-        compile_probe(source_root, upstream_probe)
-        verify_probe(upstream_probe, expect_upstream_bugs=True)
-
+        patched_root = Path(directory) / "patched-source"
+        shutil.copytree(source_root, patched_root)
         subprocess.run(
-            [sys.executable, str(root / "scripts/patch-impeccable-engine.py"), str(source_root)],
+            [sys.executable, str(root / "scripts/patch-impeccable-engine.py"), str(patched_root)],
             check=True,
             timeout=5,
         )
-        patched_probe = Path(directory) / "patched-probe"
-        compile_probe(source_root, patched_probe)
-        verify_probe(patched_probe, expect_upstream_bugs=False)
+        probe = Path(directory) / "source-probe"
+        compile_probe(source_root, patched_root, probe)
+        verify_probe(probe, expect_upstream_bugs=True)
+        verify_probe(probe, expect_upstream_bugs=False)
 
     print("Impeccable source identity, idle-grace, and raster boundaries passed")
 
