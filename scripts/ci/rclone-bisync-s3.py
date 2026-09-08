@@ -293,9 +293,10 @@ def test_server_modtime_sync():
             remote_conflicts = {name for name in run("lsf", "fixture:bucket").decode().splitlines() if name.startswith("session.jsonl.conflict")}
             unexpected_conflicts = (local_conflicts | remote_conflicts) - {"session.jsonl.conflict-existing"}
             if "--expect-false-conflict" in sys.argv:
-                assert completion_page_served, "Unpatched control did not exercise the synthetic sibling page"
+                assert not completion_page_served, "Unpatched rclone now performs a completion lookup; review/remove the patch"
                 assert not completion_token_used, "Unpatched rclone now follows the completion pagination token; review/remove the patch"
-                print("RED: unpatched rclone did not follow the completion pagination token")
+                assert changed["COMPLETION_LIST"] == 0, f"Unpatched rclone unexpectedly performed a completion lookup: {changed}"
+                print("RED: unpatched rclone performed no completion lookup")
                 return
             assert not unexpected_conflicts, f"Own upload caused false conflict copies: {unexpected_conflicts}"
             assert completion_page_served, "Completion lookup did not exercise the synthetic sibling page"
