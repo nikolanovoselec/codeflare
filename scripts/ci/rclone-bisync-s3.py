@@ -12,7 +12,7 @@ import tempfile
 import threading
 import time
 import xml.etree.ElementTree as ET
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit, urlunsplit
 
 binary = str(Path(sys.argv[1]).resolve())
 server_binary = str(Path(os.environ["RCLONE_S3_FIXTURE_BINARY"]).resolve())
@@ -21,6 +21,8 @@ metadata_evidence = collections.deque(maxlen=8)
 race_file = None
 race_armed = False
 race_at_list = False
+completion_pagination_armed = False
+completion_page_served = False
 
 
 def free_port():
@@ -37,15 +39,15 @@ class Proxy(http.server.BaseHTTPRequestHandler):
         pass
 
     def forward(self):
-        global race_armed
+        global race_armed, completion_page_served
         counts[self.command] += 1
         if self.command == "GET" and ("list-type=" in self.path or "delimiter=" in self.path):
             counts["LIST"] += 1
             query = parse_qs(urlsplit(self.path).query)
-            if query.get("max-keys") == ["1"] and query.get("prefix", [""])[0]:
+            if query.get("prefix", [""])[0]:
                 counts["COMPLETION_LIST"] += 1
         query = parse_qs(urlsplit(self.path).query)
-        race_boundary = (self.command == "HEAD" and not race_at_list and self.path.split("?")[0] == "/bucket/racing.jsonl") or (race_at_list and self.command == "GET" and query.get("prefix") == ["racing.jsonl"] and query.get("max-keys") == ["1"])
+        race_boundary = (self.command == "HEAD" and not race_at_list and self.path.split("?")[0] == "/bucket/racing.jsonl") or (race_at_list and self.command == "GET" and query.get("prefix") == ["racing.jsonl"])
         if race_armed and race_boundary:
             rival = http.client.HTTPConnection("127.0.0.1", backend_port, timeout=30)
             rival.request("PUT", "/bucket/racing.jsonl", b"other writer\n")
@@ -57,6 +59,9 @@ class Proxy(http.server.BaseHTTPRequestHandler):
         data = self.rfile.read(int(self.headers.get("Content-Length", "0")))
         connection = http.client.HTTPConnection("127.0.0.1", backend_port, timeout=30)
         try:
+            parsed_path = urlsplit(self.path)
+            backend_query = [(name, value) for name, value in parse_qsl(parsed_path.query) if not (name == "continuation-token" and value == "codeflare-page-2")]
+            backend_path = urlunsplit(("", "", parsed_path.path, urlencode(backend_query), ""))
             # serve s3 otherwise maps the mtime metadata onto the local file's
             # LastModified. Real S3 does not: emulate its server-time semantics.
             # The isolated loopback fixture permits anonymous requests only here.
@@ -91,9 +96,32 @@ class Proxy(http.server.BaseHTTPRequestHandler):
                 headers = {name: value for name, value in headers.items()
                            if not name.lower().startswith("x-amz-copy-") and name.lower() not in ("content-length", "content-md5", "x-amz-content-sha256")}
                 headers["Content-Length"] = str(len(data))
-            connection.request(self.command, self.path, data, headers)
+            connection.request(self.command, backend_path, data, headers)
             response = connection.getresponse()
             body = response.read()
+            synthetic_page = (
+                completion_pagination_armed
+                and not completion_page_served
+                and self.command == "GET"
+                and query.get("prefix") == ["session.jsonl"]
+                and "continuation-token" not in query
+                and response.status == 200
+            )
+            if synthetic_page:
+                listing = ET.fromstring(body)
+                contents = listing.findall("{*}Contents")
+                sibling = next(item for item in contents if item.findtext("{*}Key") == "session.jsonl.conflict-existing")
+                for item in contents:
+                    listing.remove(item)
+                listing.append(sibling)
+                listing.find("{*}IsTruncated").text = "true"
+                key_count = listing.find("{*}KeyCount")
+                if key_count is not None:
+                    key_count.text = "1"
+                token = ET.SubElement(listing, listing.tag.replace("ListBucketResult", "NextContinuationToken"))
+                token.text = "codeflare-page-2"
+                body = ET.tostring(listing, encoding="utf-8", xml_declaration=True)
+                completion_page_served = True
             if part_copy and response.status == 200:
                 assert response.getheader("ETag"), "Fixture upload part omitted its ETag"
                 result = ET.Element("CopyPartResult")
@@ -108,9 +136,12 @@ class Proxy(http.server.BaseHTTPRequestHandler):
                 race_armed = True
             self.send_response(response.status)
             for name, value in response.getheaders():
-                if name.lower() not in ("connection", "transfer-encoding") and not (part_copy and name.lower() in ("content-length", "content-type")):
+                if name.lower() not in ("connection", "transfer-encoding") and not ((part_copy or synthetic_page) and name.lower() in ("content-length", "content-type")):
                     self.send_header(name, value)
-            if part_copy:
+            if synthetic_page:
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Type", "application/xml")
+            elif part_copy:
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Content-Type", "application/xml")
             self.end_headers()
@@ -176,7 +207,7 @@ def test_recovery_archive_filters(run, root, server_root):
 
 def test_server_modtime_sync():
     """REQ-STOR-003 / REQ-STOR-042 / REQ-STOR-043: real per-side bookkeeping, conflict preservation and request bounds."""
-    global race_file, race_at_list
+    global race_file, race_at_list, completion_pagination_armed, completion_page_served
     with tempfile.TemporaryDirectory(prefix="rclone-bisync-ci-") as directory:
         root = Path(directory)
         local = root / "local"
@@ -242,8 +273,12 @@ def test_server_modtime_sync():
             run("rcat", "fixture:bucket/sentinel", data=b"unchanged remote anchor\n")
             sync("--resync")
             baseline = listing_snapshot()
+            run("rcat", "fixture:bucket/session.jsonl.conflict-existing", data=b"preserved sibling\n")
+            sync()
             time.sleep(1.1)
             transcript.write_bytes(b"original\nappend\n")
+            completion_pagination_armed = True
+            completion_page_served = False
             before = counts.copy()
             sync()
             changed = counts - before
@@ -253,7 +288,8 @@ def test_server_modtime_sync():
                 print("RED: unpatched rclone reproduced an own-upload false conflict")
                 return
             assert not conflicts, "Own upload caused false conflict copies"
-            assert changed["COMPLETION_LIST"] == 1, f"Expected one exact-destination lookup: {changed}"
+            assert completion_page_served, "Completion lookup did not exercise the synthetic sibling page"
+            assert changed["COMPLETION_LIST"] == 2, f"Expected the exact destination lookup to consume two pages: {changed}"
             assert changed["HEAD"] <= 4, f"One upload introduced unrelated HEAD requests: {changed}"
             assert run("cat", "fixture:bucket/session.jsonl") == transcript.read_bytes()
             before = counts.copy()

@@ -139,19 +139,29 @@ func (b *bisyncRun) WriteCompletedCopy(ctx context.Context, src, dst fs.Object) 
 func (o *Object) completedListingTime(ctx context.Context, etag string) error {
  if !o.fs.ci.UseServerModTime { return nil }
  bucket, key := o.split()
- var listed *s3.ListObjectsV2Output
- err := o.fs.pacer.Call(func() (bool, error) {
-  var err error
-  listed, err = o.fs.c.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: &bucket, Prefix: &key, MaxKeys: aws.Int32(1)})
-  return o.fs.shouldRetry(ctx, err)
- })
- if err != nil { return err }
- if listed == nil || len(listed.Contents) != 1 { return fmt.Errorf("completed destination missing from exact-key listing") }
- item := listed.Contents[0]
- if item.Key == nil || *item.Key != key || item.ETag == nil || etag == "" || strings.Trim(*item.ETag, "\"") != strings.Trim(etag, "\"") || item.Size == nil || *item.Size != o.Size() || item.LastModified == nil {
-  return fmt.Errorf("object identity changed after upload; refusing to acknowledge destination metadata")
+ var continuationToken *string
+ for {
+  var listed *s3.ListObjectsV2Output
+  err := o.fs.pacer.Call(func() (bool, error) {
+   var err error
+   listed, err = o.fs.c.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: &bucket, Prefix: &key, MaxKeys: aws.Int32(1000), ContinuationToken: continuationToken})
+   return o.fs.shouldRetry(ctx, err)
+  })
+  if err != nil { return err }
+  if listed == nil { return fmt.Errorf("completed destination missing from exact-key listing") }
+  for _, item := range listed.Contents {
+   if item.Key == nil || *item.Key != key { continue }
+   if item.ETag == nil || etag == "" || strings.Trim(*item.ETag, "\"") != strings.Trim(etag, "\"") || item.Size == nil || *item.Size != o.Size() || item.LastModified == nil {
+    return fmt.Errorf("object identity changed after upload; refusing to acknowledge destination metadata")
+   }
+   o.lastModified = *item.LastModified
+   return nil
+  }
+  if listed.IsTruncated == nil || !*listed.IsTruncated || listed.NextContinuationToken == nil {
+   return fmt.Errorf("completed destination missing from exact-key listing")
+  }
+  continuationToken = listed.NextContinuationToken
  }
- o.lastModified = *item.LastModified
  return nil
 }
 

@@ -1,7 +1,7 @@
 # Graph Report - codeflare  (2026-09-08)
 
 ## Corpus Check
-- 1627 files · ~3,844,735 words
+- 1627 files · ~3,845,032 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `b03926ce`
+- Built from commit: `ce031e0b`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -2549,7 +2549,7 @@ Nodes (6): BUDGETS, gzipKiB, matches, pctOfLimit, rawKiB, summary
 
 ### Community 461 - "tls-legacy-probe.py"
 Cohesion: 0.14
-Nodes (14): Proxy, REQ-STOR-011 AC5–AC7: isolate/preserve archives without changing live-file sync., REQ-STOR-003 / REQ-STOR-042 / REQ-STOR-043: real per-side bookkeeping, conflict…, CI-only real bisync/S3 regression, using isolated files and dummy credentials., test_recovery_archive_filters(), test_server_modtime_sync(), client_hello(), is_ip_literal() (+6 more)
+Nodes (14): Proxy, REQ-STOR-011 AC5–AC7: isolate/preserve archives without changing live-file sync., CI-only real bisync/S3 regression, using isolated files and dummy credentials., REQ-STOR-003 / REQ-STOR-042 / REQ-STOR-043: real per-side bookkeeping, conflict…, test_recovery_archive_filters(), test_server_modtime_sync(), client_hello(), is_ip_literal() (+6 more)
 
 ### Community 462 - "update-impeccable-skill.mjs"
 Cohesion: 0.21
