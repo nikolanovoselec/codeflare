@@ -34,7 +34,7 @@ Wait for every required reviewer and required exact-head CI result. CI success, 
 
 A failed or timed-out CI result requires FINDING `Exact-head CI` and PROPOSED FIX `CI_RESULT failure` or `CI_RESULT timeout`. A clean successful round may keep the table empty. Judge finding validity separately from its proposed fix and reject oversized fixes with evidence.
 
-Make no file or Git change in the triage turn. End the turn. Agent-end handling revalidates the identity, writes completion, signals sync, and emits a separate FIX reminder. Apply only accepted decisions in FIX. Root alone mutates, commits, and pushes.
+Make no file or Git change in the triage turn. End the turn. Agent-end handling revalidates the identity, writes completion, and emits a separate FIX reminder. Apply only accepted decisions in FIX. Root alone mutates, commits, and pushes.
 
 Stopped or interrupted work stores no progress and emits no missing-work demand. After live siblings settle, the next delivery creates a fresh plan and the next non-delivery exposure asks again. Never read, write, migrate, or delete legacy `.git/sdd-review-*` state.
 

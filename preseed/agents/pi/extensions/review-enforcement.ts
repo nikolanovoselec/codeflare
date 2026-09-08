@@ -16,7 +16,6 @@ import {
   latestAncestorCompletion,
   pruneCompletionState,
   readCompletion,
-  requestCompletionSync,
   writeCompletion,
   type ReviewIdentity,
 } from "./review-completion-state";
@@ -581,20 +580,6 @@ function statusReason(status: ReturnType<typeof readCompletion>["status"]): stri
   return "no saved completion";
 }
 
-function requestCompletionSyncForContext(ctx: ReviewContext): boolean {
-  return requestCompletionSync(undefined, (message) => {
-    if (ctx.hasUI && ctx.ui) {
-      ctx.ui.notify(message, "warning");
-      return;
-    }
-    console.warn(message);
-  });
-}
-
-function writeCompletionForContext(identity: ReviewIdentity, ctx: ReviewContext): void {
-  writeCompletion(identity, { requestSync: () => requestCompletionSyncForContext(ctx) });
-}
-
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
   let activeRound: ActiveRound | undefined;
   let dialogIdentity: string | undefined;
@@ -645,7 +630,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (!refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
     if (readCompletion(refreshed.identity).status === "complete") return;
     if (decision === MARK_COMPLETE) {
-      writeCompletionForContext(refreshed.identity, ctx);
+      writeCompletion(refreshed.identity);
       return;
     }
     const ancestor = latestAncestorCompletion(refreshed.identity, refreshed.repo);
@@ -654,7 +639,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const reviewers = requiredReviewLanes({ repo: refreshed.repo, ackHead, head: refreshed.identity.head });
     if (reviewers.length === 0) {
       try {
-        writeCompletionForContext(refreshed.identity, ctx);
+        writeCompletion(refreshed.identity);
       } catch {
         // Exact-head CI remains independent of completion persistence.
       }
@@ -731,7 +716,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     pendingGoalPauseHead = undefined;
     if (!globalPrunePerformed) {
       globalPrunePerformed = true;
-      if (pruneCompletionState()) requestCompletionSyncForContext(ctx);
+      pruneCompletionState();
     }
     const repo = findGitRoot(ctx.cwd);
     if (repo) await evaluate(ctx, repo, `startup:${Date.now()}`);
@@ -801,7 +786,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       return;
     }
     try {
-      writeCompletionForContext(round.identity, ctx);
+      writeCompletion(round.identity);
       if (readCompletion(round.identity).status !== "complete") return;
     } catch {
       return;

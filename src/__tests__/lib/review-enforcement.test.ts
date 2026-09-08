@@ -23,10 +23,7 @@ type TestContext = {
     getEntries(): Record<string, unknown>[];
     getHeader(): { parentSession?: string };
   };
-  ui: {
-    select(title: string, options: string[]): Promise<string | undefined>;
-    notify(message: string, level?: 'info' | 'warning' | 'error'): void;
-  };
+  ui: { select(title: string, options: string[]): Promise<string | undefined>; notify(): void };
 };
 
 const roots: string[] = [];
@@ -215,7 +212,6 @@ async function harness(
   const { goalControlAvailable = true, ...reviewDependencyOverrides } = dependencyOverrides;
   const sent: Array<{ customType: string; content?: string; details?: Record<string, unknown> }> = [];
   const prompts: Array<{ title: string; options: string[] }> = [];
-  const notifications: Array<{ message: string; level?: 'info' | 'warning' | 'error' }> = [];
   const entries = () => readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
     .map((line) => JSON.parse(line) as Record<string, unknown>).filter((entry) => entry.type !== 'session');
   let activeTools = ['read', 'bash'];
@@ -254,7 +250,7 @@ async function harness(
         prompts.push({ title, options });
         return decisions.shift();
       },
-      notify: (message, level) => { notifications.push({ message, level }); },
+      notify: () => undefined,
     },
   };
   registerReviewEnforcement(pi as never, {
@@ -269,7 +265,6 @@ async function harness(
     ctx,
     sent,
     prompts,
-    notifications,
     goalActions,
     activeTools: () => activeTools,
     emit: async (event: string, payload: any = {}) => {
@@ -293,7 +288,7 @@ describe('Pi marker-or-dialog review ingress', () => {
     const input = fixture();
     const stateRoot = join(input.home, '.codeflare/review-state/v1');
     const old = { ...input.identity, head: 'c'.repeat(40) };
-    writeCompletion(old, { root: stateRoot, now: () => new Date(0), requestSync: () => false });
+    writeCompletion(old, { root: stateRoot, now: () => new Date(0) });
     const outside = join(input.home, 'outside');
     mkdirSync(outside);
     const outsideMarker = join(outside, 'keep.json');
@@ -306,7 +301,7 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(existsSync(outsideMarker)).toBe(true);
 
     const later = { ...input.identity, repository: 'owner/unrelated', head: 'd'.repeat(40) };
-    writeCompletion(later, { root: stateRoot, now: () => new Date(0), requestSync: () => false });
+    writeCompletion(later, { root: stateRoot, now: () => new Date(0) });
     await app.emit('session_start', { reason: 'resume' });
     expect(existsSync(completionPath(later, stateRoot))).toBe(true);
   });
@@ -551,7 +546,6 @@ describe('Pi marker-or-dialog review ingress', () => {
     const input = fixture();
     writeCompletion(input.identity, {
       root: join(input.home, '.codeflare/review-state/v1'),
-      requestSync: () => true,
     });
     const app = await harness(input);
     await app.emit('session_start', { reason: 'resume' });
@@ -597,7 +591,6 @@ describe('Pi marker-or-dialog review ingress', () => {
     const input = fixture();
     writeCompletion(input.identity, {
       root: join(input.home, '.codeflare/review-state/v1'),
-      requestSync: () => true,
     });
     write(input.repo, 'graphify-out/graph.json', '{}\n');
     git(input.repo, 'add', 'graphify-out/graph.json');
@@ -616,9 +609,8 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(app.sent[0]?.content).not.toContain('FIX');
   });
 
-  it('stamps completion after canonical triage without writing sync failures into the TUI terminal', async () => {
+  it('stamps completion only after terminal evidence and canonical triage, then emits FIX', async () => {
     const input = fixture();
-    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const app = await harness(input, []);
     await app.emit('tool_result', boundary('git push origin feature', 'push-1'));
     await app.emit('agent_end');
@@ -658,11 +650,6 @@ describe('Pi marker-or-dialog review ingress', () => {
       'pr-boundary-launch-plan',
       'pr-boundary-fix-follow-up',
     ]);
-    expect(warning).not.toHaveBeenCalled();
-    expect(app.notifications).toEqual([{
-      message: expect.stringContaining('R2 sync trigger unavailable'),
-      level: 'warning',
-    }]);
   });
 
   it('treats every exact-head CI result as terminal and writes completion before FIX', async () => {

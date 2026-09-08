@@ -145,7 +145,7 @@ In a repository containing `sdd/README.md`, a push qualifies only when the check
 
 A selected or automatic launch still uses the established lane classifier, deterministic temporary reports, and exact-head CI correlation. Pi keeps one current round in memory. Claude limits transcript inspection to bytes after one `/run/codeflare/review-session` offset. Neither runtime persists partial lane state, a launch decision, retry work, counters, or missing-work demands. If work stops or the process reloads, the next delivery starts a fresh round and the next non-delivery exposure asks again. This is deliberate. Recovering half a review was the mechanism that kept reviving old authority.
 
-After canonical triage, FIX handling revalidates the exact GitHub identity and writes its marker before emitting the existing FIX follow-up. Marker files live under `~/.codeflare/review-state/v1`, retain ten heads per repository and branch, expire after 30 days, and sync through the common home-directory R2 filters. The local write does not wait for R2; the helper signals the existing daemon with `SIGUSR1` and accepts that failed convergence may repeat a prompt on another device ([REQ-STOR-027](../../sdd/spec/storage.md#req-stor-027-review-completion-marker-sync)).
+After canonical triage, FIX handling revalidates the exact GitHub identity and writes its marker before emitting the existing FIX follow-up. Marker files live under `~/.codeflare/review-state/v1`, retain ten heads per repository and branch, expire after 30 days, and sync through the common home-directory R2 filters. The local write does not wait for or trigger R2; regular cadence or final sync carries the marker, so another device may repeat the prompt before convergence ([REQ-STOR-027](../../sdd/spec/storage.md#req-stor-027-review-completion-marker-sync)).
 
 No executable review source reads or migrates `.git/sdd-review-*` files. Linked worktrees and separate clones therefore observe the same marker when they share the user's R2 bucket. Goal pause remains current-round coordination and releases before FIX; session restart never reconstructs review ownership from an old transcript.
 
@@ -1439,7 +1439,7 @@ The CI monitor does not return on the first failed row. Pi waits for every obser
 
 If terminal evidence exists but FIX does not appear, confirm canonical triage followed every required reviewer and exact-head CI result. CI failure or timeout needs a row with FINDING `Exact-head CI` and PROPOSED FIX `CI_RESULT failure` or `CI_RESULT timeout`; Pi issues one correction follow-up when a table is present but that row is malformed. Head drift and marker-write failure intentionally suppress FIX.
 
-Marker writes acknowledge locally before R2 convergence. The helper reads `CODEFLARE_SYNC_DAEMON_PIDFILE`, defaults to `/run/codeflare/sync/sync-daemon.pid`, and sends `SIGUSR1`. It reports a failed signal through the owning agent surface instead of writing directly into Pi's active terminal. The warning does not revoke local completion. Another clone or device may ask again until bisync converges; that duplicate prompt is safer than claiming review completion that never reached storage.
+Marker writes acknowledge locally before R2 convergence and do not trigger an extra sync. Regular cadence or final sync carries them to R2. Another clone or device may ask again until bisync converges; that duplicate prompt is safer than claiming review completion that never reached storage.
 
 ## Image-Baked Delivery Alias
 

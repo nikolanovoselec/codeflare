@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-08
 
-- **Pi review completion warnings preserve the terminal editor** ([REQ-STOR-027](storage.md#req-stor-027-review-completion-marker-sync) AC5 amended; remains Implemented). Failed R2 sync signaling uses Pi's managed notification surface instead of writing directly into the fullscreen terminal, while local acknowledgement and non-UI warning behavior remain unchanged.
+- **Review completion follows the regular R2 sync cadence** ([REQ-STOR-027](storage.md#req-stor-027-review-completion-marker-sync) AC5 amended; remains Implemented). Pi and Claude write local completion markers without forcing an additional sync; normal periodic or final workspace sync carries them to R2.
 
 ## 2026-09-07
 

@@ -141,7 +141,7 @@ describe('Claude marker-or-dialog ingress', () => {
       base: 'main',
       head: 'c'.repeat(40),
     };
-    writeCompletion(identity, { root: stateRoot, now: () => new Date(0), requestSync: () => false });
+    writeCompletion(identity, { root: stateRoot, now: () => new Date(0) });
     const outside = join(fx.home, 'outside');
     mkdirSync(outside);
     const outsideMarker = join(outside, 'keep.json');
@@ -153,7 +153,7 @@ describe('Claude marker-or-dialog ingress', () => {
     assert.equal(existsSync(outsideMarker), true);
 
     const later = { ...identity, repository: 'owner/unrelated', head: 'd'.repeat(40) };
-    writeCompletion(later, { root: stateRoot, now: () => new Date(0), requestSync: () => false });
+    writeCompletion(later, { root: stateRoot, now: () => new Date(0) });
     sessionStart(fx);
     assert.equal(existsSync(completionPath(later, stateRoot)), true);
   });
