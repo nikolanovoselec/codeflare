@@ -224,10 +224,14 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const { testWorkflow } = readCacheWorkflowContract();
     const job = testWorkflow.jobs['impeccable-engine'];
     const command = job.steps?.find((step) => step.name === 'Verify the pinned patched engine source')?.run;
+    const stepContracts = (job.steps ?? [])
+      .flatMap((step) => [step.run, step.uses])
+      .filter((value): value is string => typeof value === 'string')
+      .join('\n');
 
     expect(job['timeout-minutes']).toBe(1);
     expect(command).toContain('scripts/ci/impeccable-engine-source.py');
-    expect(command).not.toMatch(/docker\s+build/);
+    expect(stepContracts).not.toMatch(/\b(?:docker|podman)\s+(?:build|buildx\s+build)|\bbuildah\s+(?:bud|build)|(?:docker\/build-push-action|redhat-actions\/buildah-build)@/i);
   });
 
   it('routes owned Browser IDE paths through the workflow classifier while leaving docs-only changes inert', () => {
