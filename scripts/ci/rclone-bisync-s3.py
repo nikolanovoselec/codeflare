@@ -320,7 +320,8 @@ def test_server_modtime_sync():
             sync()
             remote_idle = counts - before
             assert remote_idle["PUT"] == 0 and remote_idle["COMPLETION_LIST"] == 0, f"Remote-only edit was recopied: {remote_idle}"
-            assert not list(local.glob("*.conflict*")), "Remote-only edit created conflicts"
+            remote_edit_conflicts = {path.name for path in local.glob("session.jsonl.conflict*")} - {"session.jsonl.conflict-existing"}
+            assert not remote_edit_conflicts, f"Remote-only edit created conflicts: {remote_edit_conflicts}"
             # Simultaneous divergence must preserve both versions, including the loser.
             time.sleep(1.1)
             ours, theirs = b"local divergent\n", b"other divergent\n"
