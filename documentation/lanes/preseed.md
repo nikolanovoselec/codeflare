@@ -553,15 +553,8 @@ All preseed content is deployed via the manifest pipeline:
    `rules/`, `agents/`, `commands/`, `skills/`, `plugins/`
 2. `preseed/agents/claude/manifest.json` maps each file to modes
    (`default`, `advanced`, or both)
-3. The side-effect-free `scripts/agent-seed-core.mjs` reads manifested files,
-   ignores non-manifest content, and applies every agent transform.
-
-   `scripts/generate-agent-seed.mjs` is the image-build CLI wrapper. It writes
-   `src/lib/agent-seed.generated.ts` with `AGENTS_SEEDED_CONFIGS` and a
-   deterministic 16-character `PRESEED_CONTENT_HASH`.
-
-   The shared core also exposes the combined managed npm lock identity that binds
-   managed releases to the runtime dependency ABI. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
+3. The seed compiler reads manifested files, applies every agent transform, and
+   writes the generated runtime module.
 4. On first bucket creation:
    `reconcileAgentConfigs(mode, { overwrite: false, cleanup: false })`
    writes mode-appropriate files to R2
@@ -573,6 +566,13 @@ All preseed content is deployed via the manifest pipeline:
 7. Bisync pulls from R2 to container config directories
    (`~/.claude/`, `~/.codex/`, `~/.gemini/` (Antigravity), `~/.copilot/`,
    `~/.config/opencode/`, `~/.pi/agent/`)
+
+The side-effect-free `scripts/agent-seed-core.mjs` ignores non-manifest content
+and applies the transforms. The image-build CLI wrapper writes
+`src/lib/agent-seed.generated.ts` with `AGENTS_SEEDED_CONFIGS` and a deterministic
+16-character `PRESEED_CONTENT_HASH`. The shared core also exposes the combined
+managed npm lock identity that binds managed releases to the runtime dependency
+ABI. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
 
 Managed curation and the baked fallback select one web, mobile, desktop, static, or incumbent authority and keep motion, components, performance, and available finishing tools subordinate. The pinned compiler projects agent-neutral content to supported runtimes; Pi receives one compact routing rule, Copilot receives usable fallback boundaries without projected skill directories, and Canvas retains required Apache-2.0 attribution. The inventory includes `design`, `frontend-design`, `native-mobile-design`, `desktop-native-design`, `canvas-design`, and `motion-design`, and excludes UI UX Pro Max and `emil-design-eng`. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed -->
 
