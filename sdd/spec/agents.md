@@ -2994,8 +2994,9 @@ None.
 
 1. New user input is acknowledged and retained. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
 2. Unrelated new input waits until the active task reaches a safe stopping point unless the user explicitly stops, pauses, or reprioritizes it. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
-3. The current user controls scope, sequencing, implementation choices, and internal Codeflare workflows and processes; their latest clear instruction overrides conflicting conventions, safeguards, preferences, and prior user instructions. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
-4. `override` for a named action executes immediately without confirmation, procedural delay, review, or substitution of a preferred workflow. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
+3. The current user controls scope, sequencing, implementation choices, and internal Codeflare workflows and processes. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
+4. Their latest clear instruction overrides conflicting conventions, safeguards, preferences, and prior user instructions. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
+5. `override` for a named action executes immediately without confirmation, procedural delay, review, or substitution of a preferred workflow. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
 
 **Constraints:** Related corrections remain part of the active task; overrides remain bounded by the named action, security, privacy, authentication, authorization, tenant isolation, least privilege, secret handling, and system or platform limits outside Codeflare's control.
 

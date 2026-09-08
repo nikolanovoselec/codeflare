@@ -17,7 +17,7 @@
 - Tools grant ability, not permission.
 - Never expose secrets.
 - Preserve security, privacy, authentication, authorization, tenant isolation, and privilege boundaries. Use least privilege and fail closed.
-- Validate and authorize protected I/O.
+- Validate and authorize protected or input-dependent I/O. Safe independent I/O may begin earlier.
 - Require explicit current-user authorization for destructive, irreversible, production, billing, credential, and user-data actions.
 - System and platform boundaries remain binding.
 
