@@ -1439,7 +1439,7 @@ The CI monitor does not return on the first failed row. Pi waits for every obser
 
 If terminal evidence exists but FIX does not appear, confirm canonical triage followed every required reviewer and exact-head CI result. CI failure or timeout needs a row with FINDING `Exact-head CI` and PROPOSED FIX `CI_RESULT failure` or `CI_RESULT timeout`; Pi issues one correction follow-up when a table is present but that row is malformed. Head drift and marker-write failure intentionally suppress FIX.
 
-Marker writes acknowledge locally before R2 convergence and do not trigger an extra sync. Regular cadence or final sync carries them to R2. Another clone or device may ask again until bisync converges; that duplicate prompt is safer than claiming review completion that never reached storage.
+Marker writes acknowledge locally before R2 convergence and do not trigger an extra sync. Regular cadence or final sync carries them to R2. Another clone or device may ask again until bisync converges; that duplicate prompt is safer than claiming review completion that never reached storage ([REQ-STOR-027](../../sdd/spec/storage.md#req-stor-027-review-completion-marker-sync)).
 
 ## Image-Baked Delivery Alias
 
