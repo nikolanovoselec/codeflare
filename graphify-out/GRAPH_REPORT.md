@@ -1,16 +1,16 @@
 # Graph Report - codeflare  (2026-09-08)
 
 ## Corpus Check
-- 1627 files · ~3,844,925 words
+- 1627 files · ~3,845,111 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 13770 nodes · 30995 edges · 982 communities (501 shown, 457 thin omitted)
+- 13772 nodes · 31000 edges · 965 communities (488 shown, 455 thin omitted)
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 540 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `1375d929`
+- Built from commit: `fc96863b`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -19,16 +19,16 @@
 - src/types.ts
 - client.ts
 - agents/code-reviewer.md
-- accounting.ts
+- timekeeper/index.ts
 - r2-seed.ts
-- setup/index.ts
-- cloudflare-token.ts
+- setup/access.ts
+- user-cleanup.ts
 - useTerminal.ts
 - solid-js
 - remote-curation.ts
 - web-ui/src/lib/constants.ts
 - container/lifecycle.ts
-- src/lib/logger.ts
+- src/container/index.ts
 - stores/session.ts
 - stores/terminal.ts
 - claude/skills/impeccable/scripts/live-browser.js
@@ -36,8 +36,8 @@
 - lib/access.ts
 - usage-report-scheduler.ts
 - impeccable-4.2.2/scripts/live-browser.js
-- Dashboard.test.tsx
-- App.tsx
+- Header.tsx
+- github-auth.ts
 - OnboardingPage.tsx
 - agents/Explore.md
 - resumeSession
@@ -46,11 +46,11 @@
 - src/index.ts
 - reasoning-discovery.ts
 - reasoning.ts
-- xterm-internals.ts
-- r2-migration.ts
+- createTestApp
+- r2-migration.test.ts
 - el
 - initPageChat
-- FileList.tsx
+- ReasoningProfileEditor.tsx
 - Layout.tsx
 - setLiveState
 - resumeSession
@@ -60,27 +60,27 @@
 - review-enforcement.ts
 - upgrade-dispatcher.ts
 - native-chat.ts
-- reasoning-profiles.ts
-- reasoning-configuration.ts
+- reasoning-profiles.test.ts
+- r2-migration.ts
 - site.ts
 - StorageBrowser.test.tsx
 - initGlobalBar
-- reasoning-verification.ts
+- EnvironmentIndex.test.tsx
 - admin-configuration.ts
 - stores/setup.ts
 - check-shape.mjs
-- approval-bridge.ts
-- agent-notifications.ts
+- ApprovalHost
+- SettingsPanel.tsx
 - managed-r2-policy.ts
 - AiRoutingFields.tsx
 - dynamic-route-inventory.ts
 - claude/skills/impeccable/scripts/modern-screenshot.umd.js
-- SettingsPanel.test.tsx
+- approval-bridge.ts
 - pi/skills/impeccable/scripts/modern-screenshot.umd.js
 - extension-persistence.ts
 - el
-- useTerminal.test.ts
-- stores/terminal.test.ts
+- guard-helpers.ts
+- r2-seed-mode.test.ts
 - el
 - AiRoutingFields.test.tsx
 - Pi Engineering Constitution
@@ -92,7 +92,7 @@
 - cloudflare-browser-interceptor.ts
 - showToast
 - handleManualEditActivity
-- web-ui/src/lib/webgl-utils.ts
+- EnvironmentAreaFields.tsx
 - remote-curation-cache.ts
 - pi-goal-review-control-patch.test.js
 - captureElementToBlob
@@ -100,37 +100,37 @@
 - check-suite-completeness.mjs
 - core.mjs
 - Source-anchor truth checking
-- web-ui/src/lib/splash-cursor-logic.ts
+- reasoning-discovery.test.ts
 - pi-memory-vault-delivery.test.ts
 - Impeccable Frontend Design Skill
 - memory-vault.ts
-- vault-migration.fuzz.test.ts
+- container-env.ts
 - Impeccable Polish
 - resolveLiveInjectionAnchor
-- agent-seed.generated.ts
+- activation.test.ts
 - resolveLiveInjectionAnchor
 - review-helpers.ts
 - resolveLiveInjectionAnchor
 - agent-seed-core.mjs
-- PiChildProcess
-- terminal-layout.ts
-- collectMetrics
+- node-rpc-backend.ts
+- active-repo-memory.ts
+- web-ui/package.json
 - admin-usage.ts
-- check-coverage-result.mjs
-- dependencies
+- container/index.test.ts
+- pi-capabilities.test.ts
 - onAnnotDown
-- terminalStore
+- setup-enterprise-groups.test.ts
 - Operate surfaces and dashboards
 - adapt.md
 - initGlobalBar
 - Common Cognitive Load Violations
-- compileAgentSeed
+- executeToolLifecycle
 - suite-gates.test.ts
 - devDependencies
 - container-config-schema.ts
 - context-mode-runtime.ts
 - serverTimeFs
-- @xterm/xterm
+- terminal-link-provider.ts
 - smoke-openvscode-sidebar-image.mjs
 - Graph-first system orientation
 - agent-events.ts
@@ -143,25 +143,25 @@
 - vscode-native-chat.ts
 - Component systems and registries
 - agent-seed-release.mjs
-- terminal-url-detection.ts
+- isPlainObject
 - server.ts
 - ConfigureStep.test.tsx
-- SplashCursor.tsx
+- setup-provisioning-flows.test.ts
 - review-completion-state.ts
-- r2-client.ts
+- email.ts
 - oauth-scopes.ts
 - review-completion-state.mjs
 - proof.ts
 - agent-sidebar/package.json
-- initFramebuffers
-- nightly-pr-checks-routing.test.js
+- AiRoutingWorkspace.test.tsx
+- dom.ts
 - critique.md
 - Persona-Based Design Testing
 - codeflare-commands.ts
-- node-rpc-backend.ts
+- PiRpcBackend
 - prewarm-readiness.ts
 - Native Technical Quality Audit
-- web-ui/src/lib/splash-math.ts
+- dependencies
 - memory-inject.ts
 - Graphify Skill
 - setup-types.ts
@@ -170,13 +170,13 @@
 - push-sender.ts
 - Cloudflare Agents SDK Skill
 - request-router.ts
-- Native Technical UI Audit
+- Web Technical UI Audit
 - lane-evidence.mjs
 - review-command.ts
 - review-helpers.test.ts
 - host/src/types.ts
 - extension.ts
-- ValidationError
+- subscription.ts
 - Nielsen's 10 Heuristics
 - scheduleAcceptCleanup
 - container-metrics.ts
@@ -185,19 +185,19 @@
 - landing/src/lib/webgl-utils.ts
 - local-statusline.ts
 - entrypoint.sh
-- SplashSimulation
+- jwt.test.ts
 - handleManualEditActivity
 - scheduleAcceptCleanup
 - vault-manifest-fs.ts
 - entrypoint.sh script
 - handleManualEditActivity
 - Responsive Design
-- createSplashSimulation
+- web-ui/src/lib/splash-cursor-logic.ts
 - ci-workflow-hardening.test.js
 - Generate Combined Critique Report
 - What I do for you
-- Operate mode depth
-- Live injection configuration
+- Prerendered Astro landing application
+- Live variant mode
 - setup-prefill.ts
 - Direction Comps
 - pi/package.json
@@ -207,14 +207,14 @@
 - agents/ci-monitor.md
 - impeccable-4.2.2/SKILL.md
 - compilerOptions
-- adaptPaths
+- promotion-source.test.js
 - browser-ide-ui-state.py
 - vault-prewarm.ts
 - Workers best practices skill
 - dockerfile-dependency-integrity.test.js
 - memory-capture-hook.test.js
-- prune-npm-platform-artifacts.mjs
-- CloudflareOAuthProviderInterface
+- .error
+- vite-plugin-solid
 - initFramebuffers
 - Frontend Design Skill
 - browser-run-core.test.ts
@@ -232,8 +232,7 @@
 - Art direction
 - Assets and motion
 - New work and full redesign
-- userKeyForEmail
-- Security Boundaries
+- overrides
 - impeccable-4.2.2/scripts/impeccable
 - prepare-sidebar-config.mjs
 - showToast
@@ -242,7 +241,7 @@
 - vault-browser-bundle.test.ts
 - Architecture
 - host/package.json
-- Typography System
+- Android Platform
 - entrypoint-openvscode.test.js
 - browser-run-helpers.ts
 - Durable Objects Skill
@@ -258,7 +257,6 @@
 - captureElementToBlob
 - stores/setup.test.ts
 - Protected-Head Review Pipeline
-- llm-interceptor.ts
 - storage-operations.js
 - npm-tools/package.json
 - graphify-active-repo.test.js
@@ -276,9 +274,8 @@
 - __tests__/container/lifecycle.test.ts
 - impeccable-engine.py
 - Setup Wizard
-- VscodeEventEmitter
 - emptyGroupRouting
-- Interface resilience
+- Polish flow
 - Graphify in Pi / Codeflare
 - LazyGraph
 - AgentEventQueue
@@ -288,7 +285,6 @@
 - entrypoint-managed-curation.test.js
 - security-headers.test.ts
 - pi-tool-exposure-finalizer.test.js
-- Semantic and raster separation
 - process-generation.ts
 - overrides
 - rclone-bookkeeping-patch.test.js
@@ -309,9 +305,7 @@
 - commands/cloudflare-build-mcp.md
 - commands/deploy.md
 - web-ui/src/types.ts
-- container-metrics.test.ts
 - enterprise-llm.test.ts
-- Clarify Interface Text
 - Visual philosophy
 - wrangler/package.json
 - session-wire-protocol.test.js
@@ -321,7 +315,6 @@
 - contact-controller.ts
 - landing/src/lib/splash-cursor-logic.ts
 - scramble.ts
-- Bolder UI Refinement
 - extension-persistence.test.ts
 - createLiveBrowserDomHelpers
 - build-review-packet.mjs
@@ -350,10 +343,9 @@
 - plugins/graphify/scripts/graphify-clone-prompt.sh
 - Pi memory capture contract
 - plugins/graphify/scripts/graphify-mcp-lazy.py
-- Codeflare landing package README
+- Isolated session container
 - Two-tier design detector
-- Live variant protocol
-- .error
+- npm-tool-manifest-update.test.js
 - pi-settings-packages.test.js
 - trivy-exception-gate.test.js
 - workflow-tool-pins.mjs
@@ -418,7 +410,6 @@
 - entrypoint-bisync-behavior.test.js
 - entrypoint-hook-exec-bits.test.js
 - lane-evidence.test.js
-- release-signing-workflow.test.js
 - tls-legacy-probe.test.js
 - skills/frontend-design/references/new-work.md
 - HeroKicker.astro
@@ -468,7 +459,6 @@
 - Sixteen-Pass Documentation Manifest
 - skills/motion-design/references/motion-decisions.md
 - skills/motion-design/references/transitions-continuity.md
-- ClonePicker.test.tsx
 - skills/motion-design/SKILL.md
 - skills/native-mobile-design/references/platform-behavior.md
 - round-limit.mjs
@@ -482,7 +472,6 @@
 - Cloudflare Stack playbook
 - skills/review-scope/scripts/build-review-packet.mjs
 - Browser E2E
-- orch.ts
 - Diff-bounded review scope
 - Managed Skill Authoring
 - claude/skills/impeccable/scripts/live-browser-ignores.js
@@ -505,7 +494,7 @@
 - skills/safe-local-checks/scripts/safe-local-check.mjs
 - skills/sandbox-migrate-to-next/SKILL.md
 - skills/sandbox-next/references/api-quick-ref.md
-- web-ui/package.json
+- TerminalTabs.tsx
 - verify-source-anchors.py
 - measure-pi-runtime-context.mjs
 - render-test-summary.mjs
@@ -554,7 +543,6 @@
 - memory-iso-ts-script.test.js
 - Design systems for web, mobile, desktop, and physical assets
 - Connect GitHub OAuth scope tiers
-- touch-event-debug.ts
 - Atomic memory capture pipeline
 - cleanup_main_transcripts
 - agent-seed-core.test.js
@@ -633,8 +621,6 @@
 - skills/spec-driven-development/references/templates/documentation-troubleshooting.md
 - normalize-https-origin.mjs
 - fix-broken-sourcemaps.js
-- ExecuteFailCommand
-- ExecuteSuccessCommand
 - ResetCommand
 - skills/spec-driven-development/references/templates/req-shape-example.md
 - skills/code-review-checklist/SKILL.md
@@ -729,7 +715,6 @@
 - agents/build-error-resolver.md
 - skills/impeccable/reference/polish.md
 - skills/impeccable/reference/doctor.md
-- generateAgentSeed
 - skills/agents-sdk/references/configuration.md
 - skills/agents-sdk/references/email.md
 - skills/impeccable/reference/init.md
@@ -1001,7 +986,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (982 total, 457 thin omitted)
+## Communities (965 total, 455 thin omitted)
 
 ### Community 0 - "claude/manifest.json"
 Cohesion: 0.04
@@ -1009,59 +994,59 @@ Nodes (56): agents/architect.md, modes, agents/deep-reviewer.md, modes, commands
 
 ### Community 1 - "src/types.ts"
 Cohesion: 0.02
-Nodes (212): hono, MAX_SESSION_NAME_LENGTH, PROTECTED_PATHS, AppError, DownloadsDisabledError, RateLimitError, parseInitiateMultipartUploadXml(), getBuiltInProfileRef() (+204 more)
+Nodes (189): hono, CfAccessAppsResponseSchema, CfAccessGroupsResponseSchema, CfAccessPoliciesResponseSchema, getAllUsers(), logger, parseAccessResponse(), syncAccessPolicy() (+181 more)
 
 ### Community 2 - "client.ts"
-Cohesion: 0.03
-Nodes (116): AdminConfigurationResponseSchema, AdminUsageDetailSchema, AdminUsageResponse, AdminUsageResponseSchema, AdminUsageUserSchema, AgentNotificationConfigSchema, AgentNotificationSubscriptionRegistration, BillingStatusSchema (+108 more)
+Cohesion: 0.02
+Nodes (216): @solidjs/router, AdminConfigurationResponseSchema, AdminUsageDetailSchema, AdminUsageQuery, AdminUsageResponse, AdminUsageResponseSchema, AdminUsageUser, AdminUsageUserSchema (+208 more)
 
-### Community 4 - "accounting.ts"
-Cohesion: 0.20
-Nodes (18): stateAt(), AccountingStateV2, applyPositiveDelta(), createAccountingState(), hashSessionId(), HistoryOutboxEntry, historyPhase(), LegacyAccountingState (+10 more)
+### Community 4 - "timekeeper/index.ts"
+Cohesion: 0.11
+Nodes (31): userKeyForEmail(), writeUsageHistory(), getIsoWeekStart(), getUtcDateString(), getUtcMonthString(), stateAt(), selectedD1Time(), applyPositiveDelta() (+23 more)
 
 ### Community 5 - "r2-seed.ts"
-Cohesion: 0.07
-Nodes (59): readBoundedResponse(), readReleaseByDigest(), sha256Hex(), createR2Client(), getR2Url(), buildManagedAutomaticPlan(), decodeExclusiveDeleteKey(), deleteExclusiveCleanupCandidates() (+51 more)
+Cohesion: 0.12
+Nodes (43): readBoundedResponse(), readReleaseByDigest(), sha256Hex(), createR2Client(), getR2Url(), buildManagedAutomaticPlan(), decodeExclusiveDeleteKey(), deleteExclusiveCleanupCandidates() (+35 more)
 
-### Community 6 - "setup/index.ts"
-Cohesion: 0.04
-Nodes (89): CfApiBaseSchema, CfApiResponse, parseCfResponse(), cfApiCB, CF_API_BASE, CircuitBreakerOpenError, SetupError, toError() (+81 more)
+### Community 6 - "setup/access.ts"
+Cohesion: 0.05
+Nodes (68): CfApiBaseSchema, CfApiResponse, parseCfResponse(), CircuitBreaker, CircuitBreakerOptions, CircuitState, BreakerEntry, cfApiCB (+60 more)
 
-### Community 7 - "cloudflare-token.ts"
+### Community 7 - "user-cleanup.ts"
 Cohesion: 0.03
-Nodes (108): RFC-6749, RFC-7009, gitApiHost(), gitCopilotMcpHost(), GitHubInterceptor, GithubInterceptorProps, gitWebHost(), interceptedGithubHosts() (+100 more)
+Nodes (115): RFC-6749, RFC-7009, applyInterception(), browserRendering, cloudflareOauthApi, CONTAINER_INTERCEPTION_REGISTRY, github, InterceptorRegistration (+107 more)
 
 ### Community 8 - "useTerminal.ts"
-Cohesion: 0.05
-Nodes (77): FloatingTerminalButtons(), FloatingTerminalButtonsProps, Terminal(), TerminalInstance(), TerminalProps, isAtBottom(), useTerminal(), initializeTerminal() (+69 more)
+Cohesion: 0.02
+Nodes (151): @xterm/xterm, FloatingTerminalButtons(), FloatingTerminalButtonsProps, SessionSection(), Terminal(), TerminalInstance(), TerminalProps, ScrollCorrectionParams (+143 more)
 
 ### Community 9 - "solid-js"
 Cohesion: 0.02
-Nodes (153): @mdi/js, solid-js, @solidjs/testing-library, cloneIntoSession(), GithubRepo, GithubStatus, CreateSessionDialog(), CreateSessionDialogProps (+145 more)
+Nodes (134): @mdi/js, solid-js, @solidjs/testing-library, cloneIntoSession(), GithubRepo, GithubStatus, getDownloadUrl(), Dashboard() (+126 more)
 
 ### Community 10 - "remote-curation.ts"
-Cohesion: 0.05
-Nodes (81): getManagedEnvironmentPatKey(), getManagedEnvironmentStateKey(), ActivePointerSchema, assertManagedExtensions(), assertManagedPath(), assertSorted(), bytesFromHex(), ActiveManagedRelease (+73 more)
+Cohesion: 0.04
+Nodes (89): getManagedEnvironmentPatKey(), getManagedEnvironmentStateKey(), ActiveVerifiedManagedRelease, VerifiedManagedReleaseContent, ActivePointerSchema, assertManagedExtensions(), assertSorted(), bytesFromHex() (+81 more)
 
 ### Community 11 - "web-ui/src/lib/constants.ts"
 Cohesion: 0.03
-Nodes (63): ACTIONABLE_URL_PATTERNS, BUTTON_LABEL_VISIBLE_DURATION_MS, CONTEXT_EXPIRY_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS, MAX_STARTUP_POLL_ERRORS, MAX_STOP_POLL_ATTEMPTS, MAX_STOP_POLL_ERRORS, SESSION_ID_DISPLAY_LENGTH (+55 more)
+Nodes (76): ACTIONABLE_URL_PATTERNS, BUTTON_LABEL_VISIBLE_DURATION_MS, CONTEXT_EXPIRY_MS, DASHBOARD_WS_DISCONNECT_DELAY_MS, MAX_STARTUP_POLL_ERRORS, MAX_STOP_POLL_ATTEMPTS, MAX_STOP_POLL_ERRORS, MAX_URL_CONTINUATION_ROWS (+68 more)
 
 ### Community 12 - "container/lifecycle.ts"
-Cohesion: 0.03
-Nodes (105): PRESEED_CONTENT_HASH, cleanupStaleBreakers(), containerHealthMap, containerInternalMap, containerSessionsMap, getContainerHealthCB(), getContainerInternalCB(), getContainerSessionsCB() (+97 more)
+Cohesion: 0.02
+Nodes (138): PRESEED_CONTENT_HASH, PRESEED_RUNTIME_DEPENDENCY_HASH, RETIRED_PRESEED_KEYS, SeedDocument, cleanupStaleBreakers(), containerHealthMap, containerInternalMap, containerSessionsMap (+130 more)
 
-### Community 13 - "src/lib/logger.ts"
-Cohesion: 0.05
-Nodes (54): ContainerHost, ensureVaultKey(), getBucketName(), setBucketName(), updateEnvVars(), applyBucketName(), applyPrefsOnRestart(), buildEnvVars() (+46 more)
+### Community 13 - "src/container/index.ts"
+Cohesion: 0.09
+Nodes (26): ContainerHost, ensureVaultKey(), getBucketName(), setBucketName(), updateEnvVars(), ContainerEnvState, RestartPrefsInput, SetBucketNameCreds (+18 more)
 
 ### Community 14 - "stores/session.ts"
 Cohesion: 0.03
-Nodes (110): ManagedReleaseProgress, upgradeAgentConfigs(), LOG_LEVELS, logger, LogLevel, cleanupSessionVaultCache(), getLS(), listSessionMarkers() (+102 more)
+Nodes (102): ManagedReleaseProgress, upgradeAgentConfigs(), LOG_LEVELS, logger, LogLevel, cleanupSessionVaultCache(), getLS(), listSessionMarkers() (+94 more)
 
 ### Community 15 - "stores/terminal.ts"
-Cohesion: 0.05
-Nodes (70): sessionId(), getTerminalWebSocketUrl(), cleanupMapByPrefix(), createFrameAssembler(), FRAME_MAX_CHARS, FRAME_STALL_TIMEOUT_MS, FrameAssembler, counters (+62 more)
+Cohesion: 0.03
+Nodes (99): sessionId(), @xterm/addon-fit, CSS_TRANSITION_DELAY_MS, WS_RECONNECT_BASE_MS, WS_RECONNECT_MAX_MS, cleanupMapByPrefix(), createFrameAssembler(), FRAME_MAX_CHARS (+91 more)
 
 ### Community 16 - "claude/skills/impeccable/scripts/live-browser.js"
 Cohesion: 0.03
@@ -1072,36 +1057,36 @@ Cohesion: 0.03
 Nodes (123): addManualContextText(), applyGlobalBarLabelState(), applyPlaceholderSizingStyles(), bindEditBadgeProxy(), bufferToBase64(), buildCollapsible(), buildColorModels(), buildInsertPlaceholderSnapshotFromDom() (+115 more)
 
 ### Community 18 - "lib/access.ts"
-Cohesion: 0.03
-Nodes (78): RFC-6762, authenticateRequest(), BucketClaimResult, BucketOwnerStub, claimVersionedBucket(), extractAccessJwt(), getBucketName(), getBucketOwnerStub() (+70 more)
+Cohesion: 0.04
+Nodes (67): RFC-6762, authenticateRequest(), BucketClaimResult, BucketOwnerStub, claimVersionedBucket(), extractAccessJwt(), getBucketName(), getBucketOwnerStub() (+59 more)
 
 ### Community 19 - "usage-report-scheduler.ts"
 Cohesion: 0.10
-Nodes (35): scheduled(), base64Utf8(), sendUsageReportEmail(), claimReportDelivery(), completeReportDelivery(), createDueScheduledDispatch(), createReportDispatch(), dateOnly() (+27 more)
+Nodes (33): scheduled(), claimReportDelivery(), completeReportDelivery(), createDueScheduledDispatch(), createReportDispatch(), dateOnly(), isoWeekStart(), logger (+25 more)
 
 ### Community 20 - "impeccable-4.2.2/scripts/live-browser.js"
 Cohesion: 0.03
 Nodes (123): addManualContextText(), applyGlobalBarLabelState(), applyPlaceholderSizingStyles(), bindEditBadgeProxy(), bufferToBase64(), buildCollapsible(), buildColorModels(), buildInsertPlaceholderSnapshotFromDom() (+115 more)
 
-### Community 21 - "Dashboard.test.tsx"
-Cohesion: 0.04
-Nodes (20): Dashboard(), Header(), getGravatarUrl(), gravatarExists(), decidePanelLayoutMode(), LayoutModeInput, PanelLayoutMode, getBrowserTimezone() (+12 more)
+### Community 21 - "Header.tsx"
+Cohesion: 0.10
+Nodes (18): Header(), VAULT_BUTTON_META, VaultButton(), VaultButtonProps, VaultButtonStatus, getGravatarUrl(), gravatarExists(), md5() (+10 more)
 
-### Community 22 - "App.tsx"
-Cohesion: 0.03
-Nodes (100): @solidjs/router, AdminUsageQuery, AdminUsageUser, ConfigurationPreview, ConfigurationRequestError, ConfigurationRun, getAdminUsage(), getConfigurationRun() (+92 more)
+### Community 22 - "github-auth.ts"
+Cohesion: 0.04
+Nodes (53): CONNECT_CALLBACK_PATH, CONNECT_CALLBACK_PATH, connectStateSecret(), getBaseUrl(), isValidCustomDomain(), b64url(), b64urlDecode(), claimOauthNonce() (+45 more)
 
 ### Community 23 - "OnboardingPage.tsx"
-Cohesion: 0.06
-Nodes (51): getPreferences(), markOnboardingComplete(), updatePreferences(), cloudflareConnectUrl(), cloudflareFetch(), CloudflareStatus, disconnectCloudflare(), getCloudflareStatus() (+43 more)
+Cohesion: 0.05
+Nodes (65): getPreferences(), markOnboardingComplete(), updatePreferences(), cloudflareConnectUrl(), cloudflareFetch(), CloudflareStatus, disconnectCloudflare(), getCloudflareStatus() (+57 more)
 
 ### Community 25 - "resumeSession"
 Cohesion: 0.06
 Nodes (87): applyParamDefaults(), applyParamValue(), applyPlaceholderDimensions(), applySavedSessionMeta(), clampVariantIndex(), clearHandled(), closedClipPath(), closeTunePopover() (+79 more)
 
 ### Community 26 - "vault/index.ts"
-Cohesion: 0.02
-Nodes (117): AGENT_COMMANDS, getDefaultTabConfig(), ANONYMOUS_RATE_LIMIT_KEY, BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_FETCH_TIMEOUT, CONTAINER_ID_DISPLAY_LENGTH, CONTAINER_WS_FORWARD_TIMEOUT_MS, CORS_MAX_AGE_SECONDS (+109 more)
+Cohesion: 0.05
+Nodes (65): VAULT_GENERATED_PREFIXES, VAULT_COMPLETE_BOOTSTRAP_SOURCE, VAULT_CONTROLLED_RELOAD_SOURCE, VAULT_PREWARM_BRIDGE_SOURCE, VAULT_PREWARM_FOCUS_GUARD_SOURCE, VAULT_REGISTER_CANONICAL_WORKER_SOURCE, VAULT_UNREGISTER_STALE_WORKERS_SOURCE, getVaultBucketToken() (+57 more)
 
 ### Community 27 - "setLiveState"
 Cohesion: 0.08
@@ -1109,23 +1094,23 @@ Nodes (71): abortSvelteComponentInjection(), applyEditing(), beginNewLiveConfigu
 
 ### Community 28 - "src/index.ts"
 Cohesion: 0.03
-Nodes (91): app, AppStatusCode, AppVariables, fetch(), logger, redirectWithHeaders(), SECURITY_HEADERS, SOCIAL_IDP_TYPES (+83 more)
+Nodes (70): Deferred, app, AppStatusCode, AppVariables, fetch(), logger, redirectWithHeaders(), SECURITY_HEADERS (+62 more)
 
 ### Community 29 - "reasoning-discovery.ts"
-Cohesion: 0.06
-Nodes (69): Accounting, addEvidence(), appendReasoningBlock(), applyProfileMapping(), applySemanticMapping(), basePiMessages(), buildInitialPiRequest(), buildPiReplayMessages() (+61 more)
+Cohesion: 0.08
+Nodes (31): Accounting, appendReasoningBlock(), CANARY_TOOL, ChatCompletionsAttempt, ChatCompletionsAttemptInput, CommonRequest, consumeSseData(), DANGEROUS_PATH_SEGMENTS (+23 more)
 
 ### Community 30 - "reasoning.ts"
-Cohesion: 0.09
-Nodes (47): normalizeAiReasoningConfiguration(), connectionStatus, gatewayDraftSchema, parseGatewayUrl(), resolveGatewayConnection(), deriveCommonMapping(), canonicalHash(), canonicalJson() (+39 more)
+Cohesion: 0.02
+Nodes (188): applyDefaultDrift(), loadEnterpriseRouteConfig(), resolveRouteCatalog(), configurationFromProfileIds(), normalizeAiReasoningConfiguration(), backendDescriptionsSchema, connectionStatus, dynamicRouteSchema (+180 more)
 
-### Community 31 - "xterm-internals.ts"
-Cohesion: 0.09
-Nodes (27): attachWheelScrolling(), onWheel(), ARROW, attachSwipeGestures(), cancelInertia(), clearTimers(), onTouchCancel(), onTouchEnd() (+19 more)
+### Community 31 - "createTestApp"
+Cohesion: 0.06
+Nodes (38): MAX_SESSION_NAME_LENGTH, app, app, app, app, app, app, createMockR2Config() (+30 more)
 
-### Community 32 - "r2-migration.ts"
-Cohesion: 0.08
-Nodes (54): getRegimeStateKey(), abortInFlightMultiparts(), advanceMigration(), capturePreservedMetadata(), countObjects(), DriverEnv, encodeCopySource(), encodeKey() (+46 more)
+### Community 32 - "r2-migration.test.ts"
+Cohesion: 0.11
+Nodes (32): getRegimeStateKey(), fetchObjectWithRegimeFallback(), markMixedRecovery(), MIGRATE_SLICE_MS, migrateBucketEncryption(), planRegimeReconcile(), release(), WORK_DEADLINE_MS (+24 more)
 
 ### Community 33 - "el"
 Cohesion: 0.07
@@ -1135,13 +1120,13 @@ Nodes (54): actionLabel(), applyConfigureBarChrome(), bindConfigureCountPillTool
 Cohesion: 0.08
 Nodes (53): armPageChatForTyping(), attachSteerFocusDebug(), attachSteerFocusGuard(), buildSteerProcessingDots(), buildSteerQueueHint(), clearSteerAwaitTimer(), clearSteerFocusRecoverTimer(), collapsePageChat() (+45 more)
 
-### Community 35 - "FileList.tsx"
+### Community 35 - "ReasoningProfileEditor.tsx"
 Cohesion: 0.10
-Nodes (25): getViewUrl(), formatBucketLabel(), StatCards(), StatCardsProps, StorageStats, FileList(), FileListProps, folderShortPath() (+17 more)
+Nodes (27): discoverReasoningCompatibility(), VerificationDraft, BUILTIN_PRESENTATION, profileDisplayName(), ProfileIdentity, profileValidationBasis(), CheckCell(), CheckPill() (+19 more)
 
 ### Community 36 - "Layout.tsx"
-Cohesion: 0.05
-Nodes (45): clearPrewarmingVaultStatus(), Layout(), LayoutProps, pruneNonRunningSessionState(), ViewState, BrowserIdeWindowResult, createBrowserIdeWindowOpener(), OpenWindow (+37 more)
+Cohesion: 0.02
+Nodes (105): clearPrewarmingVaultStatus(), Layout(), LayoutProps, pruneNonRunningSessionState(), ViewState, SplashCursor(), SplashCursorProps, TerminalArea() (+97 more)
 
 ### Community 37 - "setLiveState"
 Cohesion: 0.08
@@ -1160,12 +1145,12 @@ Cohesion: 0.06
 Nodes (87): applyParamDefaults(), applyParamValue(), applyPlaceholderDimensions(), applySavedSessionMeta(), clampVariantIndex(), clearHandled(), closedClipPath(), closeTunePopover() (+79 more)
 
 ### Community 41 - "kv-keys.ts"
-Cohesion: 0.04
-Nodes (104): @cloudflare/containers, checkContainerHealth(), ContainerHealthResult, ContainerStubWithState, ContainerVariables, getContainerContext(), getContainerId(), getSessionIdFromQuery() (+96 more)
+Cohesion: 0.03
+Nodes (117): @cloudflare/containers, AGENT_COMMANDS, getDefaultTabConfig(), ANONYMOUS_RATE_LIMIT_KEY, BUCKET_NAME_SETTLE_DELAY_MS, CONTAINER_FETCH_TIMEOUT, CONTAINER_ID_DISPLAY_LENGTH, CONTAINER_WS_FORWARD_TIMEOUT_MS (+109 more)
 
 ### Community 42 - "review-enforcement.ts"
-Cohesion: 0.06
-Nodes (67): ACTIVE_REPO_KEY, ActiveRepoMemory, activeRepoMemoryExtension(), commandInvocations(), effectivePath(), findGitRoot(), rememberActiveRepoFromToolResult(), resolveShellInvocationRepo() (+59 more)
+Cohesion: 0.07
+Nodes (52): requestCompletionSync(), ActiveRound, ClassifiedBoundary, clearReviewGoalPause(), currentGoal(), CurrentReview, Dependencies, execFileAsync (+44 more)
 
 ### Community 43 - "upgrade-dispatcher.ts"
 Cohesion: 0.10
@@ -1175,17 +1160,13 @@ Nodes (31): AUTH_EXEMPT_PATHS, AuthOutcome, checkContainerAuth(), safeTokenCompa
 Cohesion: 0.06
 Nodes (31): boundedList(), boundedTail(), buildNativePiPrompt(), ContextSections, isString(), MAX_NATIVE_CHAT_PROMPT_BYTES, NativePiBackend, NativePiCancellation (+23 more)
 
-### Community 45 - "reasoning-profiles.ts"
-Cohesion: 0.08
-Nodes (37): ALL_LEVELS, asRecord(), boundedString(), BUILT_IN_REASONING_PROFILES, BUILT_INS_BY_ID, BuiltInDraft, COMMON_REMOVALS, COMPATIBILITY_NOTICES (+29 more)
-
-### Community 46 - "reasoning-configuration.ts"
-Cohesion: 0.12
-Nodes (38): configurationFromProfileIds(), asRecord(), assertOnly(), bounded(), byteLength(), createReasoningConfigurationFromProfileIds(), EvidenceRef, getProfileForRef() (+30 more)
+### Community 46 - "r2-migration.ts"
+Cohesion: 0.14
+Nodes (27): parseDeleteKeys(), extractTag(), parseListObjectsXml(), abortInFlightMultiparts(), advanceMigration(), capturePreservedMetadata(), countObjects(), DriverEnv (+19 more)
 
 ### Community 47 - "site.ts"
-Cohesion: 0.06
-Nodes (51): AgentRun, AGENTS, BoundaryRow, BROWSER, Card, CONTACT_FORM, CONTEXT, COST (+43 more)
+Cohesion: 0.05
+Nodes (52): AgentRun, AGENTS, BoundaryRow, BROWSER, Card, CONTACT_FORM, CONTEXT, COST (+44 more)
 
 ### Community 48 - "StorageBrowser.test.tsx"
 Cohesion: 0.04
@@ -1195,45 +1176,45 @@ Nodes (27): mockBreadcrumbs, mockBrowse, mockClearSelection, mockClosePreview, m
 Cohesion: 0.09
 Nodes (39): agentHasWorkInFlight(), agentStatusText(), barPaletteForTheme(), brandMarkSvg(), buildDesignHeader(), buildParamsPanel(), cursorForInsertAxis(), designPanelCss() (+31 more)
 
-### Community 50 - "reasoning-verification.ts"
-Cohesion: 0.11
-Nodes (28): backendDescriptionsSchema, dynamicRouteSchema, extractElements(), extractVersion(), GatewayConnection, GatewayDraft, GatewayManagementError, isPlainObject() (+20 more)
+### Community 50 - "EnvironmentIndex.test.tsx"
+Cohesion: 0.08
+Nodes (15): aiRouting(), api, group, levels, openRoute(), persisted(), profileDraft, proof() (+7 more)
 
 ### Community 51 - "admin-configuration.ts"
 Cohesion: 0.03
-Nodes (98): RFC-6598, loadEnterpriseRouteConfig(), accessSchema, AdministrationMode, aiRoutingSchema, applicableConfigurationSections(), buildConfigurationPreview(), COMMON_SECTIONS (+90 more)
+Nodes (97): accessSchema, AdministrationMode, aiRoutingSchema, applicableConfigurationSections(), buildConfigurationPreview(), COMMON_SECTIONS, CONFIGURATION_SECTIONS, ConfigurationChange (+89 more)
 
 ### Community 53 - "check-shape.mjs"
 Cohesion: 0.10
 Nodes (44): ADR_INDEX_HEADERS, ADR_SEMANTIC_STOP_WORDS, ADR_STATES, adrField(), adrRenderedText(), adrSemanticTokens(), adrSentenceCount(), adrStateFromStatus() (+36 more)
 
-### Community 54 - "approval-bridge.ts"
-Cohesion: 0.05
-Nodes (32): createBackend(), ApprovalBridge, ApprovalBridgeError, ApprovalBridgeErrorCode, ApprovalHost, ApprovalManifest, ApprovalOperation, bounded() (+24 more)
-
-### Community 55 - "agent-notifications.ts"
+### Community 54 - "ApprovalHost"
 Cohesion: 0.08
-Nodes (27): AGENT_TITLES, AgentNotificationBrowser, AgentNotificationContext, AgentNotificationPayload, agentNotificationPermission(), agentNotificationsAvailable(), agentNotificationsEnabled(), AgentNotificationSubscription (+19 more)
+Nodes (11): ApprovalHost, ApprovalManifest, VsCodeApprovalHost, withCancellation(), manifest, manifestContent, manifestDigest, RecordingApprovalHost (+3 more)
+
+### Community 55 - "SettingsPanel.tsx"
+Cohesion: 0.03
+Nodes (67): deleteAgentNotificationSubscription(), getAgentNotificationVapidPublicKey(), saveAgentNotificationSubscription(), recreateAgentConfigs(), recreateGettingStartedDocs(), AppearanceSection(), AppearanceSectionProps, SessionSectionProps (+59 more)
 
 ### Community 56 - "managed-r2-policy.ts"
-Cohesion: 0.10
-Nodes (32): readBoundedStream(), assertCanonicalPath(), assertExpectedIdentity(), assertSortedUnique(), buildManagedR2Policy(), BuiltManagedR2Policy, classifyManagedR2Request(), compareStrings() (+24 more)
+Cohesion: 0.11
+Nodes (28): readBoundedStream(), assertCanonicalPath(), assertExpectedIdentity(), assertSortedUnique(), buildManagedR2Policy(), BuiltManagedR2Policy, classifyManagedR2Request(), compareStrings() (+20 more)
 
 ### Community 57 - "AiRoutingFields.tsx"
-Cohesion: 0.04
-Nodes (75): discoverReasoningCompatibility(), getReasoningCatalog(), getReasoningRouteInventory(), AiRoutingFields(), AssignmentDraft, completeVerification(), GroupDraft, groupDrafts() (+67 more)
+Cohesion: 0.11
+Nodes (32): getReasoningCatalog(), getReasoningRouteInventory(), AiRoutingFields(), AssignmentDraft, completeVerification(), GroupDraft, groupDrafts(), inventoryVersion() (+24 more)
 
 ### Community 58 - "dynamic-route-inventory.ts"
-Cohesion: 0.10
-Nodes (24): CommonLevelMapping, CommonMappingResult, CommonMappingWarning, CONTINUATION_OUTPUTS, DynamicRouteEdge, DynamicRouteElement, DynamicRouteInventoryError, DynamicRouteModelSummary (+16 more)
+Cohesion: 0.16
+Nodes (16): CommonLevelMapping, CommonMappingWarning, CONTINUATION_OUTPUTS, DynamicRouteEdge, DynamicRouteElement, DynamicRouteInventoryError, DynamicRouteModelSummary, DynamicRoutePathSummary (+8 more)
 
 ### Community 59 - "claude/skills/impeccable/scripts/modern-screenshot.umd.js"
 Cohesion: 0.09
 Nodes (55): ae(), be(), bt(), Ce(), s(), Ct(), de(), dt() (+47 more)
 
-### Community 60 - "SettingsPanel.test.tsx"
-Cohesion: 0.09
-Nodes (22): AppearanceSection(), accentContrast(), applyAccentColor(), defaultSettings, hexToHSL(), isValidHex(), saveSettings(), localStorageMock (+14 more)
+### Community 60 - "approval-bridge.ts"
+Cohesion: 0.14
+Nodes (21): ApprovalBridge, ApprovalBridgeError, ApprovalBridgeErrorCode, ApprovalOperation, bounded(), boundedOptional(), dialogSignal(), FIRE_AND_FORGET_METHODS (+13 more)
 
 ### Community 61 - "pi/skills/impeccable/scripts/modern-screenshot.umd.js"
 Cohesion: 0.09
@@ -1247,37 +1228,37 @@ Nodes (55): acknowledgeExtensionSecurity(), affectsUserExtensionConfiguration(),
 Cohesion: 0.07
 Nodes (54): actionLabel(), applyConfigureBarChrome(), bindConfigureCountPillTooltip(), bindConfigureInlineControlHover(), bindConfigureModifierPillHover(), buildConfigureActionControl(), buildConfigureCountControl(), buildConfigureRow() (+46 more)
 
-### Community 64 - "useTerminal.test.ts"
-Cohesion: 0.07
-Nodes (24): DECTCEM_CURSOR_PARAM, KEYBOARD_REFIT_DEBOUNCE_MS, agentEventCallbackState, mockActivateLinkAt, mockAgentEventDisposition, mockAttachCustomKeyEventHandler, mockAttachHerdrMouseInput, mockFit (+16 more)
+### Community 64 - "guard-helpers.ts"
+Cohesion: 0.18
+Nodes (23): attributionBlockReason(), BypassFs, COMMAND_PREFIXES, CONTROL_WORDS, executableShellCommands(), Heredoc, heredocDeclarations(), invokesSafeLocalCheckWrapper() (+15 more)
 
-### Community 65 - "stores/terminal.test.ts"
-Cohesion: 0.12
-Nodes (12): ScrollCorrectionParams, useScrollCorrection(), clearScrollIntent(), hasRecentScrollIntent(), intentByKey, makeKey(), markScrollIntent(), READ_HOLD_MAX_CHARS (+4 more)
+### Community 65 - "r2-seed-mode.test.ts"
+Cohesion: 0.10
+Nodes (14): getConfigsForMode(), getPreseedKeysNotInMode(), isContextModeKey(), isPiContextModeKey(), normalizePiSeedDocument(), reseedContextModePlugin(), seedAgentConfigs(), env (+6 more)
 
 ### Community 66 - "el"
 Cohesion: 0.07
 Nodes (54): actionLabel(), applyConfigureBarChrome(), bindConfigureCountPillTooltip(), bindConfigureInlineControlHover(), bindConfigureModifierPillHover(), buildConfigureActionControl(), buildConfigureCountControl(), buildConfigureRow() (+46 more)
 
 ### Community 67 - "AiRoutingFields.test.tsx"
-Cohesion: 0.05
-Nodes (51): checked(), EnvironmentAreaFields(), environmentValues(), lines(), parsed(), Props, record(), routeContextWindows() (+43 more)
+Cohesion: 0.10
+Nodes (23): api, catalog, checkedCurrent(), current, expectDevelopmentInactive(), formValues(), glmRef, kimiRef (+15 more)
 
 ### Community 68 - "Pi Engineering Constitution"
 Cohesion: 0.12
 Nodes (25): Behavioral testing, Cloudflare Browser Run, Conventional commits, Exact-head review, Independent CI monitoring, Public URL constraint, Required CI, Review triage (+17 more)
 
 ### Community 69 - "codeflare-pi.ts"
-Cohesion: 0.08
-Nodes (41): rememberActiveRepo(), ACTIVE_REPO_FILE, activeRepo(), commandText(), currentBranch(), currentHead(), ensureCacheDir(), existingGraphCloneNotice() (+33 more)
+Cohesion: 0.07
+Nodes (42): ACTIVE_REPO_FILE, activeRepo(), commandText(), currentBranch(), currentHead(), effectivePathForCommand(), ensureCacheDir(), existingGraphCloneNotice() (+34 more)
 
 ### Community 70 - "memory-vault-helpers.ts"
 Cohesion: 0.08
-Nodes (52): captureFilename(), captureFilenameAt(), captureTimestamp(), capTurn(), citations(), compactMessages(), EXTRACTION_MAX_TURNS, EXTRACTION_RUNNING_TTL_MS (+44 more)
+Nodes (47): captureFilename(), captureFilenameAt(), captureTimestamp(), capTurn(), citations(), compactMessages(), EXTRACTION_MAX_TURNS, EXTRACTION_RUNNING_TTL_MS (+39 more)
 
 ### Community 71 - "web-ui/src/lib/schemas.ts"
-Cohesion: 0.02
-Nodes (102): CloneIntoSessionArgs, CloneIntoSessionResult, disconnectGithub(), getGithubRepos(), githubFetch(), GithubReposResponse, abortMultipartUpload(), browseStorage() (+94 more)
+Cohesion: 0.03
+Nodes (80): ApiError, baseFetch(), BaseFetchOptions, expiredSessionError(), isHtmlResponse(), abortMultipartUpload(), browseStorage(), completeMultipartUpload() (+72 more)
 
 ### Community 72 - "initPageChat"
 Cohesion: 0.08
@@ -1299,13 +1280,13 @@ Nodes (26): abandonForeignSession(), applyOriginalAttrsToSvelteAnchor(), commitA
 Cohesion: 0.16
 Nodes (26): clearStoredManualApplyState(), fetchPendingCount(), handleManualEditActivity(), hasTextRows(), hidePendingApplyDock(), manualApplyLoadingText(), manualApplyStateKey(), manualEditEventForCurrentPage() (+18 more)
 
-### Community 77 - "web-ui/src/lib/webgl-utils.ts"
-Cohesion: 0.17
-Nodes (12): hashCode(), addKeywords(), compileShader(), createGLProgram(), getSupportedFormat(), getUniforms(), getWebGLContext(), GLFormat (+4 more)
+### Community 77 - "EnvironmentAreaFields.tsx"
+Cohesion: 0.15
+Nodes (18): checked(), EnvironmentAreaFields(), environmentValues(), lines(), parsed(), Props, record(), routeContextWindows() (+10 more)
 
 ### Community 78 - "remote-curation-cache.ts"
-Cohesion: 0.13
-Nodes (13): activateCachedManagedRelease(), activateManagedRelease(), getLegacyManagedReleaseCacheBucketName(), getManagedReleaseCacheBucketName(), ManagedReleaseCache, managedReleaseCacheSuffix(), ManagedReleaseSelection, recognizableWorkerName() (+5 more)
+Cohesion: 0.12
+Nodes (14): activateCachedManagedRelease(), activateManagedRelease(), getLegacyManagedReleaseCacheBucketName(), getManagedReleaseCacheBucketName(), ManagedReleaseCache, managedReleaseCacheSuffix(), ManagedReleaseSelection, recognizableWorkerName() (+6 more)
 
 ### Community 79 - "pi-goal-review-control-patch.test.js"
 Cohesion: 0.06
@@ -1331,85 +1312,81 @@ Nodes (12): emptyRenderText(), executeBrowserAction(), gotoOptions(), initialTar
 Cohesion: 0.06
 Nodes (49): Acceptance criterion count cap, Acceptance criterion granularity, Architecture decision record discipline, Canonical domain terminology, Canonical requirement shape, Cross-cutting specification constraints, Canonical documentation lanes, Specification index integrity (+41 more)
 
-### Community 85 - "web-ui/src/lib/splash-cursor-logic.ts"
-Cohesion: 0.24
-Nodes (12): advectionShaderSource, baseVertexShaderSource, clearShaderSource, copyShaderSource, curlShaderSource, displayShaderSource, divergenceShaderSource, gradientSubtractShaderSource (+4 more)
+### Community 85 - "reasoning-discovery.test.ts"
+Cohesion: 0.15
+Nodes (17): addEvidence(), applyProfileMapping(), applySemanticMapping(), basePiMessages(), buildInitialPiRequest(), buildPiReplayMessages(), buildReasoningRequest(), clone() (+9 more)
 
 ### Community 86 - "pi-memory-vault-delivery.test.ts"
 Cohesion: 0.06
-Nodes (32): ExtractionJob, MEMORY_CAPTURE_MAX_RESCUED_REFS, PublicExtractionRequest, activeExecutionPath(), appendEntry(), appendPrompt(), failExactAttempts(), FakePi (+24 more)
+Nodes (34): ToolActivationPi, ExtractionJob, MEMORY_CAPTURE_MAX_RESCUED_REFS, PublicExtractionRequest, MemoryVaultPi, activeExecutionPath(), appendEntry(), appendPrompt() (+26 more)
 
 ### Community 87 - "Impeccable Frontend Design Skill"
 Cohesion: 0.05
 Nodes (62): Semantic color roles, Built-result quality floor, Deprecated craft alias, Delight thesis, Tool, schema, and truth drift, Post-build design-system record, Capture evidence gate, Durable PRODUCT.md record (+54 more)
 
 ### Community 88 - "memory-vault.ts"
-Cohesion: 0.09
-Nodes (58): ToolActivationPi, absoluteChangedFiles(), ActiveMemoryRequest, ActiveVaultRequest, addGraphToGlobal(), bestEffortMergeGraphs(), CACHE_DIR, captureOutputPath() (+50 more)
+Cohesion: 0.08
+Nodes (61): absoluteChangedFiles(), ActiveMemoryRequest, ActiveVaultRequest, addGraphToGlobal(), bestEffortMergeGraphs(), CACHE_DIR, captureOutputPath(), cleanupVaultRequest() (+53 more)
 
-### Community 89 - "vault-migration.fuzz.test.ts"
-Cohesion: 0.13
-Nodes (11): VAULT_GENERATED_PREFIXES, graftVaultKeyRecovery(), VAULT_NATIVE_SW_SHA256, VAULT_NATIVE_SW_VERBATIM, ASYNC_NUM_RUNS, hex32Arb, NUM_RUNS, regimeArb (+3 more)
+### Community 89 - "container-env.ts"
+Cohesion: 0.19
+Nodes (10): applyBucketName(), applyPrefsOnRestart(), buildEnvVars(), logger, normalizeIanaTz(), setManagedResourceIdentity(), ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER, ENTERPRISE_GH_TOKEN_PLACEHOLDER (+2 more)
 
 ### Community 90 - "Impeccable Polish"
-Cohesion: 0.13
-Nodes (18): Browser visual verification, Context-appropriate technical ambition, Design-system preservation, Progressive enhancement, Quiet Design, Signal-driven command routing, Typographic system, Visual Hierarchy (+10 more)
+Cohesion: 0.12
+Nodes (19): Browser visual verification, Context-appropriate technical ambition, Design-system preservation, Progressive enhancement, Quiet Design, Signal-driven command routing, Typographic system, Visitor Mode (+11 more)
 
 ### Community 91 - "resolveLiveInjectionAnchor"
 Cohesion: 0.16
 Nodes (19): buildSvelteExpressionTextMap(), buildSveltePropValuesFromLiveElement(), buildSveltePropValuesV2(), cloneWithoutElements(), collectTextNodes(), collectVisibleTexts(), cssEscapeIdent(), elementMatchesOriginalMarkup() (+11 more)
 
-### Community 92 - "agent-seed.generated.ts"
-Cohesion: 0.21
-Nodes (11): mutableInput(), registerReviewerToolGuard(), repositoryFromPrompt(), REVIEWER_RUNTIME_MARKER, shellQuote(), AGENTS_SEEDED_CONFIGS, PRESEED_RUNTIME_DEPENDENCY_HASH, RETIRED_PRESEED_KEYS (+3 more)
+### Community 92 - "activation.test.ts"
+Cohesion: 0.12
+Nodes (6): deactivate(), host, installActiveEditor(), nativeChat, runInlineDiagnosticRequest(), textEdit()
 
 ### Community 93 - "resolveLiveInjectionAnchor"
 Cohesion: 0.16
 Nodes (19): buildSvelteExpressionTextMap(), buildSveltePropValuesFromLiveElement(), buildSveltePropValuesV2(), cloneWithoutElements(), collectTextNodes(), collectVisibleTexts(), cssEscapeIdent(), elementMatchesOriginalMarkup() (+11 more)
 
 ### Community 94 - "review-helpers.ts"
-Cohesion: 0.05
-Nodes (69): attributionBlockReason(), BypassFs, COMMAND_PREFIXES, CONTROL_WORDS, executableShellCommands(), Heredoc, heredocDeclarations(), invokesSafeLocalCheckWrapper() (+61 more)
+Cohesion: 0.07
+Nodes (45): ALL_REVIEW_LANES, anchorCitesChanged(), behaviouralPaths(), BoundarySurfaces, BULK_PREFIXES, CiTerminalResult, completedPublicCiResult(), ExecutableShellSegment (+37 more)
 
 ### Community 95 - "resolveLiveInjectionAnchor"
 Cohesion: 0.16
 Nodes (19): buildSvelteExpressionTextMap(), buildSveltePropValuesFromLiveElement(), buildSveltePropValuesV2(), cloneWithoutElements(), collectTextNodes(), collectVisibleTexts(), cssEscapeIdent(), elementMatchesOriginalMarkup() (+11 more)
 
 ### Community 96 - "agent-seed-core.mjs"
-Cohesion: 0.10
-Nodes (24): AGENT_CONFIGS, CLAUDE_ONLY_CATEGORIES, CLAUDE_ONLY_FILES, CLAUDE_ONLY_SKILLS, CLAUDE_ONLY_TOOLS, compactPiIndexPurpose(), DEFAULT_ROOT_DIR, __dirname (+16 more)
-
-### Community 97 - "PiChildProcess"
 Cohesion: 0.07
-Nodes (18): NodePiProcessSpawner, FIXED_PI_SPAWN_SPEC, PiChildProcess, PiProcessSpawner, PiSessionOptions, PiSpawnSpec, DelayedSpawnPiChild, DelayedSpawnPiSpawner (+10 more)
+Nodes (51): adaptAgentFrontmatter(), adaptPaths(), adaptPiInstructionLinks(), adaptPiRuntimeNames(), adaptPiSkillContent(), adaptSkillContent(), AGENT_CONFIGS, classifyFile() (+43 more)
 
-### Community 98 - "terminal-layout.ts"
-Cohesion: 0.16
-Nodes (19): @xterm/addon-fit, CSS_TRANSITION_DELAY_MS, resyncViewportScrollState(), scrollBufferToBottom(), clearFitAddons(), ConnectionsGetter, fitAddons, getConnections() (+11 more)
+### Community 97 - "node-rpc-backend.ts"
+Cohesion: 0.06
+Nodes (23): assistantTextDelta(), assistantThinkingDelta(), compareEditPosition(), isRecord(), parseInlineEditResult(), validInlineSummary(), FIXED_PI_SPAWN_SPEC, PiChildProcess (+15 more)
 
-### Community 99 - "collectMetrics"
-Cohesion: 0.35
-Nodes (13): beginMonitorTransportRecovery(), clearTransportRecoveryState(), collectMetrics(), continueTerminalConvergence(), failedProbeObservation(), isTransportRecoveryRecord(), monitorNetworkLossProbes(), persistTransportRecovery() (+5 more)
+### Community 98 - "active-repo-memory.ts"
+Cohesion: 0.21
+Nodes (16): ACTIVE_REPO_KEY, ActiveRepoMemory, activeRepoMemoryExtension(), commandInvocations(), effectivePath(), findGitRoot(), rememberActiveRepo(), rememberActiveRepoFromToolResult() (+8 more)
+
+### Community 99 - "web-ui/package.json"
+Cohesion: 0.12
+Nodes (15): @testing-library/jest-dom, @thisbeyond/solid-dnd, fast-check, jsdom, knip, oxlint, @types/node, typescript (+7 more)
 
 ### Community 100 - "admin-usage.ts"
-Cohesion: 0.08
-Nodes (31): AcknowledgementRow, AdminUsageRow, AdminUsageSeriesPoint, D1UsageRow, logger, mapAdminUsageRow(), PERIOD_KINDS, queryAdminUsageRows() (+23 more)
+Cohesion: 0.07
+Nodes (32): AcknowledgementRow, AdminUsageRow, AdminUsageSeriesPoint, D1UsageRow, logger, mapAdminUsageRow(), PERIOD_KINDS, queryAdminUsageRows() (+24 more)
 
-### Community 101 - "check-coverage-result.mjs"
-Cohesion: 0.47
-Nodes (9): changedCoverageFromGit(), evaluateChangedLineCoverage(), evaluateCoverageResult(), isProductionPath(), main(), normalizeLcovSource(), normalizePath(), parseChangedProduction() (+1 more)
-
-### Community 102 - "dependencies"
-Cohesion: 0.29
-Nodes (7): dependencies, aws4fetch, @cloudflare/containers, edgepush, hono, @streamparser/json, zod
+### Community 102 - "pi-capabilities.test.ts"
+Cohesion: 0.16
+Nodes (10): capabilityExtension(), CapabilityParams, ExtensionAPI, activationGroup(), capabilityHelpersExtension(), matchScore(), RegisteredTool, searchCapabilities() (+2 more)
 
 ### Community 103 - "onAnnotDown"
 Cohesion: 0.20
 Nodes (17): beginEditPin(), buildAnnotationsForCapture(), buildPinElement(), cancelEditingPin(), clampPlaceholderSize(), finalizeEditingPin(), initAnnotOverlay(), localCoords() (+9 more)
 
-### Community 104 - "terminalStore"
-Cohesion: 0.11
-Nodes (12): WS_RECONNECT_BASE_MS, WS_RECONNECT_MAX_MS, AGENT_EVENT_KINDS, AgentEventControlMessage, AgentEventKind, ControlMessage, hasOnlyKeys(), parseAgentEventControl() (+4 more)
+### Community 104 - "setup-enterprise-groups.test.ts"
+Cohesion: 0.19
+Nodes (8): accessAppFlowMocks(), baseFlowMocks(), createUrlMockFetch(), customDomainFlowMocks(), defaultIdpMock, jsonHeaders, mockFullSuccessFlow(), mockResponses
 
 ### Community 105 - "Operate surfaces and dashboards"
 Cohesion: 0.14
@@ -1427,9 +1404,9 @@ Nodes (39): agentHasWorkInFlight(), agentStatusText(), barPaletteForTheme(), bra
 Cohesion: 0.12
 Nodes (16): 1. The Wall of Options, 2. The Memory Bridge, 3. The Hidden Navigation, 4. The Jargon Barrier, 5. The Visual Noise Floor, 6. The Inconsistent Pattern, 7. The Multi-Task Demand, 8. The Context Switch (+8 more)
 
-### Community 109 - "compileAgentSeed"
-Cohesion: 0.15
-Nodes (16): classifyFile(), compileAgentSeed(), computeAgentRuntimeHash(), computePreseedHash(), expandSkillIncludes(), hasPathsFrontmatter(), inferContentType(), isClaudeOnlyFile() (+8 more)
+### Community 109 - "executeToolLifecycle"
+Cohesion: 0.31
+Nodes (12): digest(), DiscoveryAttemptError, executeReasoningProbe(), executeToolLifecycle(), fetchWithTimeout(), numericUsage(), readBoundedText(), requestChatCompletionsWithCompat() (+4 more)
 
 ### Community 110 - "suite-gates.test.ts"
 Cohesion: 0.06
@@ -1451,13 +1428,13 @@ Nodes (27): attachConfiguredContextMode(), attachContextModeToForeground(), CONT
 Cohesion: 0.18
 Nodes (11): serverTimeFs, serverTimeObject, context.Context, github.com/rclone/rclone/fs.Features, github.com/rclone/rclone/fs.Fs, github.com/rclone/rclone/fs.Object, github.com/rclone/rclone/fs.ObjectInfo, io.Reader (+3 more)
 
-### Community 115 - "@xterm/xterm"
-Cohesion: 0.10
-Nodes (26): @xterm/xterm, MAX_URL_CONTINUATION_ROWS, attachHerdrMouseInput(), modifierBits(), sendHerdrTap(), sgrMouse(), terminalCell(), TerminalInputSender (+18 more)
+### Community 115 - "terminal-link-provider.ts"
+Cohesion: 0.16
+Nodes (17): findLogicalLineStart(), isLikelyUrlContinuation(), linkContains(), linksForBufferLine(), mapStringToBuffer(), registerMultiLineLinkProvider(), XTermBuffer, XTermLine (+9 more)
 
 ### Community 116 - "smoke-openvscode-sidebar-image.mjs"
-Cohesion: 0.11
-Nodes (29): containerWorkflow, deploy, ROOT, selectorPath, roots, activateExtensionWithVscode(), AGENT_PACKAGE_FAMILIES, assertExtensionApiFloor() (+21 more)
+Cohesion: 0.10
+Nodes (30): containerWorkflow, deploy, ROOT, selectorPath, roots, activateExtensionWithVscode(), AGENT_PACKAGE_FAMILIES, assertExtensionApiFloor() (+22 more)
 
 ### Community 117 - "Graph-first system orientation"
 Cohesion: 0.07
@@ -1489,11 +1466,11 @@ Nodes (35): clearCloneTargetState(), cloneTargetHadGit(), cloneTargetKey(), clon
 
 ### Community 124 - "timekeeper/index.test.ts"
 Cohesion: 0.09
-Nodes (15): createWelcomeTimekeeper(), createHarness(), createBillingTimekeeper(), createTimekeeper(), mockKV, mockStorage, NOW, THIS_MONTH (+7 more)
+Nodes (17): createWelcomeTimekeeper(), createHarness(), createHarness(), createBillingTimekeeper(), createTimekeeper(), mockKV, mockStorage, NOW (+9 more)
 
 ### Community 125 - "vscode-native-chat.ts"
 Cohesion: 0.12
-Nodes (30): NativePiActiveEditor, ActiveEditorSnapshot, canonicalWorkspacePath(), collectActiveEditor(), collectDiagnostics(), collectHistory(), collectNativePiPromptInput(), collectOpenFiles() (+22 more)
+Nodes (31): NativePiActiveEditor, ActiveEditorSnapshot, canonicalWorkspaceFilePath(), canonicalWorkspacePath(), collectActiveEditor(), collectDiagnostics(), collectHistory(), collectNativePiPromptInput() (+23 more)
 
 ### Community 126 - "Component systems and registries"
 Cohesion: 0.15
@@ -1501,27 +1478,27 @@ Nodes (11): Design skill routing, Design skill router, Use smallest specialist s
 
 ### Community 127 - "agent-seed-release.mjs"
 Cohesion: 0.11
-Nodes (32): buildAgentSeedRelease(), compareStrings(), isExactManagedExtensionVersion(), isManagedReleaseContextModePath(), MANAGED_EXTENSION_VERSION_PATTERN, MANAGED_RELEASE_CONTENT_TYPES, MANAGED_RELEASE_LIMITS, MANAGED_RELEASE_PATH_PREFIXES (+24 more)
+Nodes (33): buildAgentSeedRelease(), compareStrings(), isExactManagedExtensionVersion(), isManagedReleaseContextModePath(), MANAGED_EXTENSION_VERSION_PATTERN, MANAGED_RELEASE_CONTENT_TYPES, MANAGED_RELEASE_LIMITS, MANAGED_RELEASE_PATH_PREFIXES (+25 more)
 
-### Community 128 - "terminal-url-detection.ts"
-Cohesion: 0.16
-Nodes (19): md5(), md5blk(), md5cycle(), rhex(), getBufferActive(), getLastUrlFromBuffer(), getTerminalFn(), isActionableUrl() (+11 more)
+### Community 128 - "isPlainObject"
+Cohesion: 0.28
+Nodes (13): groupMappings(), isPlainObject(), isScalar(), mappingFromWrites(), normalizeLevelMapping(), normalizeProfile(), normalizeRemovePaths(), normalizeStandaloneMapping() (+5 more)
 
 ### Community 129 - "server.ts"
 Cohesion: 0.06
 Nodes (40): createActivityTracker(), NOTE: there is NO 30-minute (or any) disconnect-based auto-expire., getPrewarmConfig(), ProxyTarget, buildTabConfigMap(), createServerState(), createWsEventLogger(), getWorkingDirectory() (+32 more)
 
-### Community 131 - "SplashCursor.tsx"
-Cohesion: 0.33
-Nodes (4): SplashCursor(), SplashCursorProps, SplashConfig, splashMocks
+### Community 131 - "setup-provisioning-flows.test.ts"
+Cohesion: 0.21
+Nodes (8): accessAppFlowMocks(), baseFlowMocks(), createUrlMockFetch(), customDomainFlowMocks(), defaultIdpMock, jsonHeaders, mockFullSuccessFlow(), mockResponses
 
 ### Community 132 - "review-completion-state.ts"
 Cohesion: 0.15
 Nodes (25): branchDirectory(), branchMarkers(), CompletionMarker, completionPath(), CompletionStatus, latestAncestorCompletion(), markerFrom(), normalizedIdentity() (+17 more)
 
-### Community 133 - "r2-client.ts"
-Cohesion: 0.08
-Nodes (32): CircuitBreaker, CircuitBreakerOptions, CircuitState, BreakerEntry, getMaxSessions(), REQUEST_ID_PATTERN, buildPlanChangeRows(), buildSubscriptionDetailRows() (+24 more)
+### Community 133 - "email.ts"
+Cohesion: 0.25
+Nodes (17): base64Utf8(), buildPlanChangeRows(), buildSubscriptionDetailRows(), getModeLabel(), logger, sendAccessRequestConfirmation(), sendAccessRequestNotification(), sendEmail() (+9 more)
 
 ### Community 134 - "oauth-scopes.ts"
 Cohesion: 0.27
@@ -1539,13 +1516,13 @@ Nodes (26): artifacts, executionReel, FEED_TONES, feedCaret(), FeedLine, feedPro
 Cohesion: 0.05
 Nodes (43): activationEvents, capabilities, untrustedWorkspaces, contributes, chatParticipants, commands, languageModelChatProviders, menus (+35 more)
 
-### Community 138 - "initFramebuffers"
-Cohesion: 0.43
-Nodes (6): initFramebuffers(), createDoubleFBO(), createFBO(), FBO, resizeDoubleFBO(), resizeFBO()
+### Community 138 - "AiRoutingWorkspace.test.tsx"
+Cohesion: 0.19
+Nodes (9): ReasoningDiscoveryResultSchema, api, current(), inventory(), offRef, openRoute(), proof(), ref (+1 more)
 
-### Community 139 - "nightly-pr-checks-routing.test.js"
-Cohesion: 0.33
-Nodes (5): deploy, nightly, prChecks, ROOT, WORKFLOWS
+### Community 139 - "dom.ts"
+Cohesion: 0.46
+Nodes (4): render(), decodeEntities(), documentDom(), dom()
 
 ### Community 140 - "critique.md"
 Cohesion: 0.17
@@ -1559,9 +1536,9 @@ Nodes (12): 1. Impatient Power User: "Alex", 2. Confused First-Timer: "Jordan", 
 Cohesion: 0.40
 Nodes (9): dispatchBrainstorm(), dispatchDebug(), dispatchDeploy(), sendUserPrompt(), BRAINSTORM_WORKFLOW, commandInstructions(), DEBUG_WORKFLOW, DEPLOY_WORKFLOW (+1 more)
 
-### Community 143 - "node-rpc-backend.ts"
-Cohesion: 0.11
-Nodes (14): PiExtensionUiRequest, NativePiInlineEditResult, ActiveTurn, assistantTextDelta(), assistantThinkingDelta(), compareEditPosition(), createTransport(), isRecord() (+6 more)
+### Community 143 - "PiRpcBackend"
+Cohesion: 0.13
+Nodes (6): NativePiInlineEditResult, ActiveTurn, NodePiChild, PiRpcBackend, PiTurnObserver, toolActivity()
 
 ### Community 144 - "prewarm-readiness.ts"
 Cohesion: 0.26
@@ -1571,13 +1548,13 @@ Nodes (7): handlePrewarmOrphanExpiry(), PrewarmOrphanActions, PrewarmOrphanOutco
 Cohesion: 0.17
 Nodes (12): Android Slop Test, Android Device Screenshot Evidence, Five-Dimension Web Audit Score, Web Implementation Integrity Verdict, Native Adaptivity Audit, Native Screen-Reader and Scaling Audit, Native Technical Quality Audit, Native Platform Conformance Verdict (+4 more)
 
-### Community 146 - "web-ui/src/lib/splash-math.ts"
-Cohesion: 0.40
-Nodes (5): updatePointerMoveData(), correctDeltaX(), correctDeltaY(), getResolution(), wrap()
+### Community 146 - "dependencies"
+Cohesion: 0.25
+Nodes (8): dependencies, @mdi/js, solid-js, @solidjs/router, @thisbeyond/solid-dnd, @xterm/addon-fit, @xterm/xterm, zod
 
 ### Community 147 - "memory-inject.ts"
-Cohesion: 0.13
-Nodes (24): buildInjection(), defaultDependencies, extractKeywords(), GraphNode, MEMORY_INJECT_MAX_GRAPH_BYTES, MEMORY_INJECT_MAX_NODES, MEMORY_INJECT_MAX_RENDERED_BYTES, MEMORY_INJECT_MIN_PROMPT_CHARS (+16 more)
+Cohesion: 0.14
+Nodes (23): buildInjection(), defaultDependencies, extractKeywords(), GraphNode, MEMORY_INJECT_MAX_GRAPH_BYTES, MEMORY_INJECT_MAX_NODES, MEMORY_INJECT_MAX_RENDERED_BYTES, MEMORY_INJECT_MIN_PROMPT_CHARS (+15 more)
 
 ### Community 148 - "Graphify Skill"
 Cohesion: 0.07
@@ -1585,15 +1562,15 @@ Nodes (30): Graphify Build Cluster and Publish Protocol, Graph Construction and 
 
 ### Community 149 - "setup-types.ts"
 Cohesion: 0.24
-Nodes (6): SetupPrefillResponseSchema, configure(), buildConfigurePayload(), GroupRouting, ReasoningProfileId, SetupState
+Nodes (8): ManagedEnvironmentSectionProps, configure(), buildConfigurePayload(), GroupRouting, ManagedEnvironmentFreshness, ManagedEnvironmentPatExpiryState, ReasoningProfileId, SetupState
 
 ### Community 150 - "capability-helpers.ts"
-Cohesion: 0.09
-Nodes (32): capabilityExtension(), CapabilityParams, ExtensionAPI, activationGroup(), activePlanTools(), capabilityHelpersExtension(), CapabilityMatch, configuredGoalToolVisibility() (+24 more)
+Cohesion: 0.13
+Nodes (22): activePlanTools(), CapabilityMatch, configuredGoalToolVisibility(), CORE_TOOL_NAMES, DISABLED_TOOL_NAMES, GOAL_TERMINAL_TOOLS, GoalToolVisibility, initialActiveTools() (+14 more)
 
 ### Community 151 - "pi-post-compaction-recall.test.ts"
-Cohesion: 0.13
-Nodes (20): buildRecall(), defaultDependencies, byCodePointDescending(), capBytes(), captureInstant(), orderByCaptureInstant(), RECALL_EXTRACT_COUNT, RECALL_PER_FILE_BYTES (+12 more)
+Cohesion: 0.12
+Nodes (21): capRenderedBytes(), buildRecall(), defaultDependencies, byCodePointDescending(), capBytes(), captureInstant(), orderByCaptureInstant(), RECALL_EXTRACT_COUNT (+13 more)
 
 ### Community 152 - "push-sender.ts"
 Cohesion: 0.09
@@ -1607,9 +1584,9 @@ Nodes (50): Agent browser tools, Agent diagnostics events, Agent durable fibers,
 Cohesion: 0.08
 Nodes (37): AgentEventDrainResult, evaluateFinalSync(), FinalSyncEval, FinalSyncResult, SyncStatusRecord, buildCloneArgs(), GitCloneResolution, resolveGitClone() (+29 more)
 
-### Community 155 - "Native Technical UI Audit"
-Cohesion: 0.18
-Nodes (17): Design tokens, Native adaptation, Native platform conformance, Responsive adaptation, Semantic color roles, Technical UI audit, WCAG AA, Adapt Web Design (+9 more)
+### Community 155 - "Web Technical UI Audit"
+Cohesion: 0.27
+Nodes (11): Design tokens, Responsive adaptation, Semantic color roles, Technical UI audit, WCAG AA, Adapt Web Design, Web Technical UI Audit, Strategic UI Color (+3 more)
 
 ### Community 156 - "lane-evidence.mjs"
 Cohesion: 0.18
@@ -1617,7 +1594,7 @@ Nodes (26): adrLedger(), callSites(), changedFiles(), citedBy(), clip(), DECL_SH
 
 ### Community 157 - "review-command.ts"
 Cohesion: 0.12
-Nodes (25): activateRegisteredTools(), dispatchReview(), helpText(), REVIEW_EXECUTION, reviewCommandDecision, ReviewCommandPi, reviewDocumentationSurfaceDecision, sendUserPrompt() (+17 more)
+Nodes (26): activateRegisteredTools(), dispatchReview(), helpText(), REVIEW_EXECUTION, reviewCommandDecision, ReviewCommandPi, reviewDocumentationSurfaceDecision, reviewWorkflowDecision (+18 more)
 
 ### Community 158 - "review-helpers.test.ts"
 Cohesion: 0.11
@@ -1628,12 +1605,12 @@ Cohesion: 0.09
 Nodes (19): cachedDiskMetrics, execFileAsync, getDiskMetrics(), ServerState, SessionManager, SessionManagerLike, attachTerminalConnectionHandler(), TerminalWsDeps (+11 more)
 
 ### Community 160 - "extension.ts"
-Cohesion: 0.07
-Nodes (33): activate(), CHAT_LOCATION_EDITOR, CHAT_LOCATION_PANEL, createInlineDiagnostics(), deactivate(), describeChangedTabs(), describeTab(), describeTabSnapshot() (+25 more)
+Cohesion: 0.12
+Nodes (28): activate(), CHAT_LOCATION_EDITOR, CHAT_LOCATION_PANEL, createBackend(), createInlineDiagnostics(), describeChangedTabs(), describeTab(), describeTabSnapshot() (+20 more)
 
-### Community 161 - "ValidationError"
+### Community 161 - "subscription.ts"
 Cohesion: 0.03
-Nodes (118): CfAccessAppsResponseSchema, CfAccessGroupsResponseSchema, CfAccessPoliciesResponseSchema, getAdminEmails(), getAllUsers(), logger, parseAccessResponse(), syncAccessPolicy() (+110 more)
+Nodes (97): getAdminEmails(), resolveBucketName(), storeAccessUsers(), EUR_COUNTRIES, getCurrencyForCountry(), SUPPORTED_CURRENCIES, SupportedCurrency, isDownloadsDisabled() (+89 more)
 
 ### Community 162 - "Nielsen's 10 Heuristics"
 Cohesion: 0.18
@@ -1645,15 +1622,11 @@ Nodes (11): acceptedDomAlreadyClean(), clearHandledWrapperReloadStamp(), deferre
 
 ### Community 164 - "container-metrics.ts"
 Cohesion: 0.09
-Nodes (31): AGENT_EVENT_KINDS, AgentEventDeliveryState, agentEventDeliveryStates, AgentEventDrainRequest, classifyProbeFailure(), deliverRunningAgentEvents(), deliveryStateFor(), drainAgentEvents() (+23 more)
+Nodes (45): AGENT_EVENT_KINDS, AgentEventDeliveryState, agentEventDeliveryStates, AgentEventDrainRequest, beginMonitorTransportRecovery(), classifyProbeFailure(), clearTransportRecoveryState(), collectMetrics() (+37 more)
 
 ### Community 165 - "landing/package.json"
 Cohesion: 0.08
 Nodes (24): dependencies, astro, @fontsource-variable/inter, @fontsource-variable/jetbrains-mono, motion, devDependencies, happy-dom, vitest (+16 more)
-
-### Community 166 - "BaseLayout.astro"
-Cohesion: 0.11
-Nodes (8): LOGIN, render(), Deferred, decodeEntities(), documentDom(), dom(), DESIGN_READY_SCRIPT, provider()
 
 ### Community 167 - "landing/src/lib/webgl-utils.ts"
 Cohesion: 0.15
@@ -1666,6 +1639,10 @@ Nodes (17): recallActiveRepo(), Cache, contextPercent(), ExtensionAPI, Extension
 ### Community 169 - "entrypoint.sh"
 Cohesion: 0.13
 Nodes (18): CODEFLARE_GRAPH_LOCK, CODEFLARE_INIT_FLAG_FILE, CODEFLARE_OPENVSCODE_EXTENSIONS_DIR, CODEFLARE_RUNTIME_ROOT, CODEFLARE_SYNC_DAEMON_PIDFILE, GRAPHIFY_VIZ_NODE_LIMIT, HOME, IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS (+10 more)
+
+### Community 170 - "jwt.test.ts"
+Cohesion: 0.33
+Nodes (4): base64UrlEncode(), createTestJWT(), TestJWK, TestKeyPair
 
 ### Community 171 - "handleManualEditActivity"
 Cohesion: 0.16
@@ -1691,13 +1668,13 @@ Nodes (26): clearStoredManualApplyState(), fetchPendingCount(), handleManualEdit
 Cohesion: 0.20
 Nodes (10): Breakpoints: Content-Driven, Detect Input Method, Not Just Screen Size, Layout Adaptation Patterns, Mobile-First: Write It Right, Picture Element for Art Direction, Responsive Design, Responsive Images: Get It Right, Safe Areas: Handle the Notch (+2 more)
 
-### Community 177 - "createSplashSimulation"
-Cohesion: 0.15
-Nodes (23): createSplashSimulation(), applyInputs(), calcDeltaTime(), clickSplat(), drawDisplay(), generateColor(), handleMouseDown(), handleMouseMove() (+15 more)
+### Community 177 - "web-ui/src/lib/splash-cursor-logic.ts"
+Cohesion: 0.05
+Nodes (60): createSplashSimulation(), applyInputs(), calcDeltaTime(), clickSplat(), drawDisplay(), generateColor(), handleMouseDown(), handleMouseMove() (+52 more)
 
 ### Community 178 - "ci-workflow-hardening.test.js"
-Cohesion: 0.14
-Nodes (11): coverageAction, deploy, fuzz, pentest, prChecks, promotion, release, ROOT (+3 more)
+Cohesion: 0.13
+Nodes (20): coverageAction, deploy, fuzz, pentest, prChecks, promotion, release, ROOT (+12 more)
 
 ### Community 179 - "Generate Combined Critique Report"
 Cohesion: 0.20
@@ -1707,21 +1684,21 @@ Nodes (10): Design Health Score, Design Specificity Verdict, Generate Combined C
 Cohesion: 0.20
 Nodes (9): Bring the system, not just a coding question, Design the product as well as its implementation, Explore the system, Keep knowledge without keeping the machine, Reach models, tools, and the running application, Recover the intent, then prove the change, Stay close to the work, The agent does not own the security boundary (+1 more)
 
-### Community 181 - "Operate mode depth"
+### Community 181 - "Prerendered Astro landing application"
 Cohesion: 0.40
-Nodes (5): Earned delight, Earned familiarity in product UI, Operate mode depth, Delight must serve the task, Tools should disappear into the task
+Nodes (6): Prerendered Astro landing application, Landing font-readiness visibility gate, Landing package runtime boundary, Landing unstyled first-paint analysis, Gate landing until critical assets are ready, Keep landing presentation separate from Worker policy
 
-### Community 182 - "Live injection configuration"
-Cohesion: 0.40
-Nodes (5): Live injection configuration, Live-mode setup, Live setup, CSP source patches require consent, CSP source changes require explicit consent
+### Community 182 - "Live variant mode"
+Cohesion: 0.20
+Nodes (11): Atomic manual edit entry, Live variant protocol, Live injection configuration, Live-mode setup, Live variant mode, Live setup, Impeccable Manual Edit Applier, CSP source patches require consent (+3 more)
 
 ### Community 183 - "setup-prefill.ts"
-Cohesion: 0.36
-Nodes (9): hydrateExistingConfig(), loadExistingConfig(), applyEnterpriseConfigPrefill(), applyEnterprisePrefill(), applyInitialPrefill(), applyProviderPrefill(), applyReconfigPrefill(), SetupPrefill (+1 more)
+Cohesion: 0.26
+Nodes (10): SetupPrefillResponseSchema, hydrateExistingConfig(), loadExistingConfig(), applyEnterpriseConfigPrefill(), applyEnterprisePrefill(), applyInitialPrefill(), applyProviderPrefill(), applyReconfigPrefill() (+2 more)
 
 ### Community 184 - "Direction Comps"
-Cohesion: 0.14
-Nodes (18): Approved Comp, Implementation Asset Inventory, Asset medium fidelity, Asset Provenance, Confirmed Design Brief, Design Discovery, Direction Comps, Implementation Fidelity (+10 more)
+Cohesion: 0.10
+Nodes (23): Approved Comp, Implementation Asset Inventory, Asset medium fidelity, Asset Provenance, Context-aware Command Routing, Confirmed Design Brief, Design Discovery, Direction Comps (+15 more)
 
 ### Community 185 - "pi/package.json"
 Cohesion: 0.04
@@ -1747,9 +1724,9 @@ Nodes (7): Craft floor, Refuse, Verify, Commands, How to design, Modes, Setup
 Cohesion: 0.12
 Nodes (16): compilerOptions, allowSyntheticDefaultImports, esModuleInterop, isolatedModules, jsx, jsxImportSource, lib, module (+8 more)
 
-### Community 192 - "adaptPaths"
-Cohesion: 0.31
-Nodes (9): adaptAgentFrontmatter(), adaptPaths(), adaptPiInstructionLinks(), adaptPiRuntimeNames(), adaptPiSkillContent(), adaptSkillContent(), compactPiSkillDescription(), remapTools() (+1 more)
+### Community 192 - "promotion-source.test.js"
+Cohesion: 0.33
+Nodes (4): __dirname, root, validationStep, workflow
 
 ### Community 193 - "browser-ide-ui-state.py"
 Cohesion: 0.11
@@ -1771,9 +1748,9 @@ Nodes (22): atLeast(), browserRunLock, browserRunPackage, containerImageWorkflow
 Cohesion: 0.12
 Nodes (15): created, tempDir(), armed(), armedAt(), __dirname, HOOK, makeFixture(), realUserLine() (+7 more)
 
-### Community 198 - "prune-npm-platform-artifacts.mjs"
-Cohesion: 0.60
-Nodes (4): FAMILIES, fileBytes(), main(), pruneNpmPlatformArtifacts()
+### Community 198 - ".error"
+Cohesion: 0.16
+Nodes (9): deployOutcome(), main(), VALID_RESULTS, FAMILIES, fileBytes(), main(), pruneNpmPlatformArtifacts(), log() (+1 more)
 
 ### Community 200 - "initFramebuffers"
 Cohesion: 0.36
@@ -1785,15 +1762,15 @@ Nodes (20): append(), appendSuccessfulRound(), boundary(), expectAutomaticDelive
 
 ### Community 204 - "User Vault"
 Cohesion: 0.05
-Nodes (44): Billing Status, Bisync, Capture Agent, Classic Terminal, Effective Tier, Herdr Runtime, Herdr Structural Session Snapshot, Multi-currency Pricing (+36 more)
+Nodes (44): Billing Status, Bisync, Capture Agent, Classic Terminal, Compute-based Trial, Effective Tier, Herdr Runtime, Herdr Structural Session Snapshot (+36 more)
 
 ### Community 205 - "inline-edit.ts"
 Cohesion: 0.19
 Nodes (19): fixture(), proposal, INLINE_EDIT_COMMAND, INLINE_EDIT_TOOL, ActiveInlineEdit, constrainInlineOpenAiPayload(), decodeInlineEditCommandPayload(), encodeInlineEditCommandPayload() (+11 more)
 
 ### Community 206 - "components.test.ts"
-Cohesion: 0.18
-Nodes (9): APP_LINKS, ExecutionLine, HEADER_SIGN_IN, HERO, NAV_LINKS, TranscriptLine, approvedExecutionLinkStart(), EXECUTION_PR_URL (+1 more)
+Cohesion: 0.20
+Nodes (8): ExecutionLine, HEADER_SIGN_IN, HERO, NAV_LINKS, TranscriptLine, approvedExecutionLinkStart(), EXECUTION_PR_URL, LINES
 
 ### Community 207 - "boundary-classifier.cjs"
 Cohesion: 0.13
@@ -1835,14 +1812,6 @@ Nodes (6): Assets and motion, Build loops as assets first, Give motion a job, Tr
 Cohesion: 0.33
 Nodes (6): Define content and assets, Design the system, Establish product truth, Implement and finish, New work and full redesign, Resolve direction
 
-### Community 217 - "userKeyForEmail"
-Cohesion: 0.19
-Nodes (7): tombstoneUsageUser(), userKeyForEmail(), validateSnapshot(), writeUsageHistory(), now, createHarness(), selectedD1Time()
-
-### Community 218 - "Security Boundaries"
-Cohesion: 0.50
-Nodes (4): CI and Deployment Pipeline, Dual Authentication Modes, Public Landing Surface, Security Boundaries
-
 ### Community 219 - "impeccable-4.2.2/scripts/impeccable"
 Cohesion: 0.70
 Nodes (4): impeccable script, check_download(), fetch_url(), probe_ok()
@@ -1868,16 +1837,16 @@ Cohesion: 0.12
 Nodes (10): Element, HtmlElement, Input, markedScript(), repoRoot, scriptBodies(), scriptBodyAt(), SvgElement (+2 more)
 
 ### Community 225 - "Architecture"
-Cohesion: 0.27
-Nodes (24): Mutually exclusive authentication branch, Compute-based Trial, Effective entitlement, Exact-head CI evidence, Timekeeper, Contributing to Codeflare, Codeflare product overview, Security policy (+16 more)
+Cohesion: 0.34
+Nodes (26): Mutually exclusive authentication branch, Effective entitlement, Exact-head CI evidence, Contributing to Codeflare, Codeflare product overview, Security policy, Documentation coverage ledger, Codeflare documentation index (+18 more)
 
 ### Community 226 - "host/package.json"
 Cohesion: 0.06
 Nodes (31): dependencies, node-pty, ws, @xterm/addon-serialize, @xterm/headless, description, devDependencies, fast-check (+23 more)
 
-### Community 227 - "Typography System"
-Cohesion: 0.18
-Nodes (11): Codeflare Design System, Context-aware Command Routing, Font Delivery, Mechanical Design Scan, Reading Measure, SilverBullet Theme, Typography System, Visitor Mode (+3 more)
+### Community 227 - "Android Platform"
+Cohesion: 0.12
+Nodes (26): Font Delivery, Artifact drift triage, iOS native conformance, Semantic layout, Reading Measure, Typography System, Material Design 3, Native adaptation (+18 more)
 
 ### Community 228 - "entrypoint-openvscode.test.js"
 Cohesion: 0.17
@@ -1908,8 +1877,8 @@ Cohesion: 0.40
 Nodes (5): Audit before replacing, Evolve the incumbent system, Redesign and polish, Set the change boundary, Verify preservation
 
 ### Community 235 - "Impeccable"
-Cohesion: 0.07
-Nodes (54): Artifact drift triage, DESIGN.md contract, Finish review gate, Incumbent-world polish, iOS native conformance, PRODUCT.md product truth record, Ruthless simplification, Semantic layout (+46 more)
+Cohesion: 0.08
+Nodes (38): DESIGN.md contract, Earned delight, Earned familiarity in product UI, Finish review gate, PRODUCT.md product truth record, Semantic and raster separation, Shipped artifact is design-system ground truth, Visual authority routing (+30 more)
 
 ### Community 236 - "enforce-review-spawn.test.js"
 Cohesion: 0.16
@@ -1930,10 +1899,6 @@ Nodes (23): averageRgb01(), captureAndEmit(), captureChromeNodes(), captureEleme
 ### Community 242 - "Protected-Head Review Pipeline"
 Cohesion: 0.50
 Nodes (4): Protected-Head Review Pipeline, Review Decisions Ledger, Review Queue, Triage before mutation
-
-### Community 243 - "llm-interceptor.ts"
-Cohesion: 0.12
-Nodes (19): applyDefaultDrift(), resolveRouteCatalog(), getRouteReasoningProfile(), parseReasoningConfigurationWithLegacyFallback(), preferredReasoningLevel(), verificationMatches(), COMPAT_INCOMPATIBLE_FIELDS, ensureStreamTerminator() (+11 more)
 
 ### Community 244 - "storage-operations.js"
 Cohesion: 0.11
@@ -1956,8 +1921,8 @@ Cohesion: 0.29
 Nodes (17): codeflare-herdr-terminal script, bootstrap(), fail(), install_integration(), prepare_runtime(), primary_command(), run_agent(), run_process() (+9 more)
 
 ### Community 249 - "StrictPiJsonlTransport"
-Cohesion: 0.20
-Nodes (9): isEnvelope(), PiJsonlLimits, PiProtocolError, PiProtocolErrorCode, PiRpcEnvelope, positiveInteger(), StrictPiJsonlTransport, validId() (+1 more)
+Cohesion: 0.18
+Nodes (10): createTransport(), isEnvelope(), PiJsonlLimits, PiProtocolError, PiProtocolErrorCode, PiRpcEnvelope, positiveInteger(), StrictPiJsonlTransport (+2 more)
 
 ### Community 250 - "compilerOptions"
 Cohesion: 0.12
@@ -1984,12 +1949,12 @@ Cohesion: 0.50
 Nodes (3): impeccable script, IMPECCABLE_SELF, IMPECCABLE_SKILL_DIR
 
 ### Community 256 - "egress-controller.ts"
-Cohesion: 0.14
-Nodes (19): EgressController, EgressProps, logger, managedR2AuditData(), managedR2Operation(), requestedR2Bucket(), s3PolicyError(), sha256Prefix() (+11 more)
+Cohesion: 0.13
+Nodes (22): RFC-6598, EgressController, EgressProps, logger, managedR2AuditData(), managedR2Operation(), requestedR2Bucket(), s3PolicyError() (+14 more)
 
 ### Community 257 - "verify-pi-prompt.mjs"
-Cohesion: 0.07
-Nodes (38): __dirname, SCRIPT, filterDocsForMode(), main(), parseGeneratedSeed(), claudeDir, descChars(), __dirname (+30 more)
+Cohesion: 0.06
+Nodes (46): __dirname, SCRIPT, mutableInput(), registerReviewerToolGuard(), repositoryFromPrompt(), REVIEWER_RUNTIME_MARKER, shellQuote(), filterDocsForMode() (+38 more)
 
 ### Community 258 - "__tests__/container/lifecycle.test.ts"
 Cohesion: 0.12
@@ -2003,9 +1968,9 @@ Nodes (18): Canonical Managed-resource Policy, Custom Domain Provisioning, Manag
 Cohesion: 0.50
 Nodes (4): emptyGroupRouting(), setGroupDefaultRoute(), setGroupReasoning(), toggleGroupRoute()
 
-### Community 263 - "Interface resilience"
-Cohesion: 0.15
-Nodes (13): Interface resilience, Contextual overdrive, Evidence-led performance optimization, Measured performance optimization, Harden, Optimize, Optimize flow, Overdrive flow (+5 more)
+### Community 263 - "Polish flow"
+Cohesion: 0.09
+Nodes (23): Interface resilience, Contextual overdrive, Evidence-led performance optimization, Incumbent-world polish, Ruthless simplification, Time-to-value onboarding, Measured performance optimization, Harden (+15 more)
 
 ### Community 264 - "Graphify in Pi / Codeflare"
 Cohesion: 0.18
@@ -2020,8 +1985,8 @@ Cohesion: 0.31
 Nodes (9): clean(), cliOptions(), main(), monitorCi(), parseRows(), summary(), TERMINAL_OK, validRun() (+1 more)
 
 ### Community 268 - "container-lifecycle.ts"
-Cohesion: 0.17
-Nodes (15): collectMetrics(), destroy(), drainFinalSyncAudited(), FinalSyncOutcome, FinalSyncResult, LifecycleHost, onError(), onStart() (+7 more)
+Cohesion: 0.08
+Nodes (24): collectMetrics(), destroy(), drainFinalSyncAudited(), FinalSyncOutcome, FinalSyncResult, LifecycleHost, onError(), onStart() (+16 more)
 
 ### Community 269 - "entrypoint-governed-sync.test.js"
 Cohesion: 0.21
@@ -2034,10 +1999,6 @@ Nodes (14): companionDeclaration, companionResult, completeStartup, fixture(), h
 ### Community 271 - "security-headers.test.ts"
 Cohesion: 0.83
 Nodes (3): createBaseEnv(), createMockCtx(), fetchHealth()
-
-### Community 273 - "Semantic and raster separation"
-Cohesion: 0.67
-Nodes (3): Semantic and raster separation, Impeccable Asset Producer, Mock crops are reference-only
 
 ### Community 274 - "process-generation.ts"
 Cohesion: 0.24
@@ -2072,28 +2033,20 @@ Cohesion: 0.16
 Nodes (16): Email analytics datasets, Email REST contract, Retrieval-first email implementation, Email suppression, Inbound email handler, Store and reply later, Workers email binding, Email CLI and MCP reference (+8 more)
 
 ### Community 287 - "Codeflare Platform"
-Cohesion: 0.07
-Nodes (35): Bucket-stable Vault Scope, Codeflare Cloudflare Architecture, Cloudflare Bindings, Codeflare Platform, Codeflare Vault, Cross-session Memory, Durable Notes, Ephemeral Session Containers (+27 more)
+Cohesion: 0.06
+Nodes (40): Bucket-stable Vault Scope, Codeflare Cloudflare Architecture, Cloudflare Bindings, Codeflare Design System, Codeflare Platform, Codeflare Vault, Cross-session Memory, Durable Notes (+32 more)
 
 ### Community 288 - "Multi-perspective Review"
-Cohesion: 0.14
-Nodes (16): Deep Requirement Verification, Direct Invalidation, Interactive Review Triage, Multi-perspective Review, Pull Request Workflow, Reality Filter, Review Boundary Stop, Review Lane Packet (+8 more)
+Cohesion: 0.11
+Nodes (20): Deep Requirement Verification, Direct Invalidation, Interactive Review Triage, Multi-perspective Review, Codeflare Pro Mode, Pull Request Workflow, Reality Filter, Review Boundary Stop (+12 more)
 
 ### Community 289 - "validate-pr-checks-run.test.js"
 Cohesion: 0.21
 Nodes (12): expected, jobs, receipt, run, validator, discoverSuccessfulRunIds(), ghApi(), loadRunEvidence() (+4 more)
 
 ### Community 294 - "web-ui/src/types.ts"
-Cohesion: 0.03
-Nodes (81): InitProgressComponent(), InitProgressProps, stageIcons, stages, TerminalArea(), getLayoutClass(), SLOT_INDEXES, TerminalGrid() (+73 more)
-
-### Community 295 - "container-metrics.test.ts"
-Cohesion: 0.12
-Nodes (10): CONTAINER_POLL_BUDGET_MS, FINAL_SYNC_BUDGET_MS, TRANSPORT_FAILURE_STREAK_KEY, TRANSPORT_RECOVERY_KEY, CtxHost, MockContainer, mockLogger, sendAgentEventPushesMock (+2 more)
-
-### Community 297 - "Clarify Interface Text"
-Cohesion: 1.00
-Nodes (3): Actionable UX copy, Clarify Interface Text, Clear interface copy explains outcome and recovery
+Cohesion: 0.04
+Nodes (65): CreateSessionDialog(), CreateSessionDialogProps, DashboardProps, ClonePickerNewSession(), ClonePickerNewSessionProps, HeaderProps, InitProgressComponent(), InitProgressProps (+57 more)
 
 ### Community 298 - "Visual philosophy"
 Cohesion: 0.13
@@ -2120,8 +2073,8 @@ Cohesion: 0.17
 Nodes (8): __dirname, ENTRYPOINT, REPO_ROOT, RETENTION_SCRIPT, setMtime(), uuid(), writeClaude(), writePi()
 
 ### Community 304 - "contact-controller.ts"
-Cohesion: 0.25
-Nodes (9): ENDPOINTS, TopicOption, buildContactPayload(), ContactPayload, pickDeepLinkTopic(), submitContact(), SubmitResult, CONTACT_TOPICS (+1 more)
+Cohesion: 0.21
+Nodes (10): APP_LINKS, ENDPOINTS, TopicOption, buildContactPayload(), ContactPayload, pickDeepLinkTopic(), submitContact(), SubmitResult (+2 more)
 
 ### Community 305 - "landing/src/lib/splash-cursor-logic.ts"
 Cohesion: 0.19
@@ -2130,10 +2083,6 @@ Nodes (17): updatePointerMoveData(), correctDeltaX(), correctDeltaY(), correctRa
 ### Community 306 - "scramble.ts"
 Cohesion: 0.20
 Nodes (10): animateWord(), buildWordBoxes(), decodeWord(), initScramble(), initScrambleHover(), Phase, randomChar(), setupElement() (+2 more)
-
-### Community 307 - "Bolder UI Refinement"
-Cohesion: 1.00
-Nodes (3): Scoped visual amplification, Bolder UI Refinement, Bolder refinement amplifies existing visual world without redesigning it
 
 ### Community 308 - "extension-persistence.test.ts"
 Cohesion: 0.14
@@ -2168,8 +2117,8 @@ Cohesion: 0.08
 Nodes (29): Browser IDE, Browser Run, Awaited final synchronization drain, Governed Mode, Graphify Knowledge Graph, Graphify 0.8.45 successful update and query smoke, Graphify knowledge-graph toolchain, Mobile Terminal (+21 more)
 
 ### Community 320 - "Three-use extraction threshold"
-Cohesion: 0.33
-Nodes (6): Canonical DESIGN.md format, Three-use extraction threshold, Extract flow, Tokens are normative; prose supplies context, Premature abstraction is worse than duplication, Avoid premature abstraction
+Cohesion: 0.29
+Nodes (7): Canonical DESIGN.md format, Three-use extraction threshold, Extract flow, Extract flow, Tokens are normative; prose supplies context, Premature abstraction is worse than duplication, Avoid premature abstraction
 
 ### Community 321 - "Turnstile Siteverify"
 Cohesion: 0.30
@@ -2204,8 +2153,8 @@ Cohesion: 0.14
 Nodes (3): localStorageMock, MockResizeObserver, MockWebSocket
 
 ### Community 331 - "package.json"
-Cohesion: 0.12
-Nodes (16): esbuild, fast-check, knip, oxlint, @types/node, typescript, vitest, wrangler (+8 more)
+Cohesion: 0.08
+Nodes (23): dependencies, aws4fetch, @cloudflare/containers, edgepush, hono, @streamparser/json, zod, esbuild (+15 more)
 
 ### Community 332 - "Documentation truth checks"
 Cohesion: 0.17
@@ -2215,21 +2164,17 @@ Nodes (13): Canonical documentation layout, Canonical lane records, Decision led
 Cohesion: 0.26
 Nodes (13): Atomic Vault graph publication, Bounded memory capture, Persistent user Vault, Vault note capture, Vault path ownership, Wikilink concept deduplication, Pi memory capture agent, Pi memory capture contract (+5 more)
 
-### Community 336 - "Codeflare landing package README"
-Cohesion: 0.06
-Nodes (40): Per-agent cost attribution, Agentic engineering engine, Prerendered Astro landing application, Browser-isolated web ingestion, Clone-created session metadata, Cloudflare-based governed agent platform, Container Durable Object, Container transport reconciliation (+32 more)
+### Community 336 - "Isolated session container"
+Cohesion: 0.08
+Nodes (32): Per-agent cost attribution, Agentic engineering engine, Browser-isolated web ingestion, Clone-created session metadata, Cloudflare-based governed agent platform, Container Durable Object, Container transport reconciliation, Egress Credential Injection (+24 more)
 
 ### Community 337 - "Two-tier design detector"
 Cohesion: 0.22
 Nodes (9): Independent design and detector assessments, Two-tier design detector, Dual-assessment critique, Critique, Critique flow, Design judgment precedes detector evidence, Use the narrowest evidenced detector exception, Assessment isolation avoids anchoring (+1 more)
 
-### Community 338 - "Live variant protocol"
-Cohesion: 0.40
-Nodes (5): Atomic manual edit entry, Live variant protocol, Impeccable Manual Edit Applier, Live variants preserve identity by default, Manual edit atomicity prevents partial source corruption
-
-### Community 339 - ".error"
-Cohesion: 0.12
-Nodes (13): piLibraries, script, deployOutcome(), main(), VALID_RESULTS, assertVersion(), PI_LIBRARIES, readJson() (+5 more)
+### Community 339 - "npm-tool-manifest-update.test.js"
+Cohesion: 0.23
+Nodes (8): piLibraries, script, assertVersion(), PI_LIBRARIES, readJson(), updateNpmToolManifests(), runChecked(), updatePiRuntimeArtifacts()
 
 ### Community 340 - "pi-settings-packages.test.js"
 Cohesion: 0.23
@@ -2320,8 +2265,8 @@ Cohesion: 0.27
 Nodes (11): BOILERPLATE, entries(), FIELDS, fieldValue(), hasLocator(), main(), normalized(), parseArgs() (+3 more)
 
 ### Community 372 - "SubscribePage.tsx"
-Cohesion: 0.04
-Nodes (64): createCheckoutSession(), createPortalSession(), createSwitchSession(), getAuthProviders(), getBillingStatus(), getPublicTiers(), getUsage(), subscribe() (+56 more)
+Cohesion: 0.03
+Nodes (77): createCheckoutSession(), createPortalSession(), createSwitchSession(), getBillingStatus(), getPublicTiers(), getUsage(), subscribe(), getViewUrl() (+69 more)
 
 ### Community 374 - "Cloudflare One skill"
 Cohesion: 0.18
@@ -2368,8 +2313,8 @@ Cohesion: 0.30
 Nodes (11): dedupe_node_link_edges(), dedupe_node_link_file(), main(), merge_node_link_evidence(), node_link_edges(), Any, Path, merge-vault-graph.py - REQ-MEM-009 cumulative vault-graph merge. Loads the per-… (+3 more)
 
 ### Community 392 - "notifications.ts"
-Cohesion: 0.15
-Nodes (18): getPushSubPrefix(), MAX_PUSH_SUBSCRIPTIONS_PER_USER, ALLOWED_PUSH_HOSTS, app, enforceSubscriptionCap(), hasExactKeys(), invalidRequest(), isAllowedEndpoint() (+10 more)
+Cohesion: 0.13
+Nodes (20): getLlmKeysKey(), getPushSubPrefix(), MAX_PUSH_SUBSCRIPTIONS_PER_USER, deleteUserKvEntries(), ALLOWED_PUSH_HOSTS, app, enforceSubscriptionCap(), hasExactKeys() (+12 more)
 
 ### Community 393 - "rules"
 Cohesion: 0.20
@@ -2415,10 +2360,6 @@ Nodes (8): __dirname, entrypoint, extractBootRepair(), extractFunction(), runBoo
 Cohesion: 0.36
 Nodes (7): commit(), __dirname, fixture(), git(), makeRepo(), SCRIPT, write()
 
-### Community 405 - "release-signing-workflow.test.js"
-Cohesion: 0.20
-Nodes (6): __dirname, fixtures, root, script, steps, workflow
-
 ### Community 406 - "tls-legacy-probe.test.js"
 Cohesion: 0.22
 Nodes (8): ALERT_HANDSHAKE_FAILURE, ALERT_PROTOCOL_VERSION, __dirname, EXIT, PROBE, runProbe(), runProbeArgs(), SERVER_HELLO
@@ -2460,8 +2401,8 @@ Cohesion: 0.27
 Nodes (9): collectRelativeFilePaths(), __dirname, __filename, generate(), inferContentType(), outputFile, rootDir, toGeneratedModuleSource() (+1 more)
 
 ### Community 425 - "Architecture decision ledger"
-Cohesion: 0.43
-Nodes (37): Codeflare, Durable References, Enterprise Mode, Herdr Terminal Mode, Architecture decision ledger, API reference, Architecture internals, Configuration (+29 more)
+Cohesion: 0.39
+Nodes (35): CI and Deployment Pipeline, Codeflare, Dual Authentication Modes, Enterprise Mode, Herdr Terminal Mode, Public Landing Surface, Security Boundaries, Architecture decision ledger (+27 more)
 
 ### Community 426 - "Ship"
 Cohesion: 0.31
@@ -2534,10 +2475,6 @@ Nodes (4): exclude, extends, include, astro/tsconfigs/strict
 ### Community 453 - "Sixteen-Pass Documentation Manifest"
 Cohesion: 0.25
 Nodes (8): Authoring Quality Review, Documentation Diff Scope Contract, Documentation Index Integrity, Documentation Enforcement Orchestrator, File-Level Cap Removal Rationale, Per-Element Documentation Budgets, Sixteen-Pass Documentation Manifest, Document Source-Anchor Truth Check
-
-### Community 456 - "ClonePicker.test.tsx"
-Cohesion: 0.20
-Nodes (4): mockCloneIntoSession, mockCreateSessionWithClone, REPO, sessionStoreState
 
 ### Community 459 - "round-limit.mjs"
 Cohesion: 0.29
@@ -2639,9 +2576,9 @@ Nodes (6): bounded_cap(), frontmatter_value(), need_value(), run-review-lane.sh 
 Cohesion: 0.40
 Nodes (5): Unrelated-Product Substitution Test, Authentic Interface Content, Frontend Product Truth, Two-Pass Frontend Critique, Brief-Specific Visual Direction
 
-### Community 493 - "web-ui/package.json"
-Cohesion: 0.05
-Nodes (42): @testing-library/jest-dom, @thisbeyond/solid-dnd, vite, vite-plugin-solid, dependencies, @mdi/js, solid-js, @solidjs/router (+34 more)
+### Community 493 - "TerminalTabs.tsx"
+Cohesion: 0.18
+Nodes (17): SessionSwitcher(), getTabType(), resolveTabIcon(), resolveTabLabel(), SortableTab(), StaticTab(), TerminalTabs(), TerminalTabsProps (+9 more)
 
 ### Community 494 - "verify-source-anchors.py"
 Cohesion: 0.39
@@ -2688,8 +2625,8 @@ Cohesion: 0.50
 Nodes (4): maintenance_claims, report_deliveries, usage_periods, usage_users
 
 ### Community 520 - "yaml"
-Cohesion: 0.11
-Nodes (11): __dirname, ACTION, fixtures, ROOT, __dirname, root, validationStep, workflow (+3 more)
+Cohesion: 0.07
+Nodes (18): __dirname, ACTION, fixtures, ROOT, deploy, nightly, prChecks, ROOT (+10 more)
 
 ### Community 521 - "pi-subagent-resume-compat.test.js"
 Cohesion: 0.33
@@ -2742,10 +2679,6 @@ Nodes (6): Design systems for web, mobile, desktop, and physical assets, Establi
 ### Community 544 - "Connect GitHub OAuth scope tiers"
 Cohesion: 0.60
 Nodes (5): Connect GitHub OAuth scope tiers, Direct GitHub login scopes, GitHub Connect gist scope correction, GitHub login gist scope analysis, Place gist scope on Connect GitHub tiers
-
-### Community 545 - "touch-event-debug.ts"
-Cohesion: 0.70
-Nodes (3): attachTouchEventDebug(), targetLabel(), touchSource()
 
 ### Community 546 - "Atomic memory capture pipeline"
 Cohesion: 0.50
@@ -3010,7 +2943,7 @@ Nodes (6): A session ID is not a permission, Admission is the first decision, Cl
 ## Knowledge Gaps
 - **3444 isolated node(s):** `name`, `private`, `wrangler`, `wrangler`, `undici` (+3439 more)
   These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 5060 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **457 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **455 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Work-memory lessons
 
@@ -3024,13 +2957,13 @@ _Questions this graph is uniquely positioned to answer:_
   _High betweenness centrality (0.043) - this node is a cross-community bridge._
 - **Why does `sessionId()` connect `stores/terminal.ts` to `memory-vault.ts`, `memory-inject.ts`, `memory-vault-helpers.ts`?**
   _High betweenness centrality (0.039) - this node is a cross-community bridge._
-- **Why does `solid-js` connect `solid-js` to `client.ts`, `SplashCursor.tsx`, `useTerminal.ts`, `web-ui/src/lib/constants.ts`, `stores/session.ts`, `stores/terminal.ts`, `App.tsx`, `OnboardingPage.tsx`, `FileList.tsx`, `Layout.tsx`, `web-ui/src/types.ts`, `stores/setup.ts`, `AiRoutingFields.tsx`, `SettingsPanel.test.tsx`, `useTerminal.test.ts`, `stores/terminal.test.ts`, `AiRoutingFields.test.tsx`, `web-ui/src/lib/schemas.ts`, `terminal-layout.ts`, `web-ui/package.json`, `SubscribePage.tsx`?**
-  _High betweenness centrality (0.037) - this node is a cross-community bridge._
+- **Why does `solid-js` connect `solid-js` to `client.ts`, `web-ui/package.json`, `ReasoningProfileEditor.tsx`, `Layout.tsx`, `web-ui/src/types.ts`, `useTerminal.ts`, `EnvironmentAreaFields.tsx`, `TerminalTabs.tsx`, `stores/session.ts`, `stores/terminal.ts`, `SubscribePage.tsx`, `Header.tsx`, `SettingsPanel.tsx`, `OnboardingPage.tsx`, `stores/setup.ts`, `AiRoutingFields.tsx`?**
+  _High betweenness centrality (0.032) - this node is a cross-community bridge._
 - **What connects `name`, `private`, `wrangler` to the rest of the system?**
   _3444 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `claude/manifest.json` be split into smaller, more focused modules?**
   _Cohesion score 0.03508771929824561 - nodes in this community are weakly interconnected._
 - **Should `src/types.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.01549056019808109 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.018444096619992384 - nodes in this community are weakly interconnected._
 - **Should `client.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.026029526029526028 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.01564667369472341 - nodes in this community are weakly interconnected._

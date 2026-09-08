@@ -282,18 +282,19 @@ export function latestAncestorCompletion(
 
 export function requestCompletionSync(
   pidFile = process.env.CODEFLARE_SYNC_DAEMON_PIDFILE || "/run/codeflare/sync/sync-daemon.pid",
+  warn: (message: string) => void = (message) => console.warn(message),
 ): boolean {
   try {
     const rawPid = readFileSync(pidFile, "utf8").trim();
     const pid = Number(rawPid);
     if (!/^[1-9][0-9]*$/.test(rawPid) || !Number.isSafeInteger(pid)) {
-      console.warn("[review-completion] R2 sync trigger unavailable: invalid daemon PID");
+      warn("[review-completion] R2 sync trigger unavailable: invalid daemon PID");
       return false;
     }
     process.kill(pid, "SIGUSR1");
     return true;
   } catch (error) {
-    console.warn(`[review-completion] R2 sync trigger unavailable: ${String(error)}`);
+    warn(`[review-completion] R2 sync trigger unavailable: ${String(error)}`);
     return false;
   }
 }

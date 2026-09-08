@@ -23,7 +23,10 @@ type TestContext = {
     getEntries(): Record<string, unknown>[];
     getHeader(): { parentSession?: string };
   };
-  ui: { select(title: string, options: string[]): Promise<string | undefined>; notify(): void };
+  ui: {
+    select(title: string, options: string[]): Promise<string | undefined>;
+    notify(message: string, level?: 'info' | 'warning' | 'error'): void;
+  };
 };
 
 const roots: string[] = [];
@@ -212,6 +215,7 @@ async function harness(
   const { goalControlAvailable = true, ...reviewDependencyOverrides } = dependencyOverrides;
   const sent: Array<{ customType: string; content?: string; details?: Record<string, unknown> }> = [];
   const prompts: Array<{ title: string; options: string[] }> = [];
+  const notifications: Array<{ message: string; level?: 'info' | 'warning' | 'error' }> = [];
   const entries = () => readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
     .map((line) => JSON.parse(line) as Record<string, unknown>).filter((entry) => entry.type !== 'session');
   let activeTools = ['read', 'bash'];
@@ -250,7 +254,7 @@ async function harness(
         prompts.push({ title, options });
         return decisions.shift();
       },
-      notify: () => undefined,
+      notify: (message, level) => { notifications.push({ message, level }); },
     },
   };
   registerReviewEnforcement(pi as never, {
@@ -265,6 +269,7 @@ async function harness(
     ctx,
     sent,
     prompts,
+    notifications,
     goalActions,
     activeTools: () => activeTools,
     emit: async (event: string, payload: any = {}) => {
@@ -611,8 +616,9 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(app.sent[0]?.content).not.toContain('FIX');
   });
 
-  it('stamps completion only after terminal evidence and canonical triage, then emits FIX', async () => {
+  it('stamps completion after canonical triage without writing sync failures into the TUI terminal', async () => {
     const input = fixture();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const app = await harness(input, []);
     await app.emit('tool_result', boundary('git push origin feature', 'push-1'));
     await app.emit('agent_end');
@@ -652,6 +658,11 @@ describe('Pi marker-or-dialog review ingress', () => {
       'pr-boundary-launch-plan',
       'pr-boundary-fix-follow-up',
     ]);
+    expect(warning).not.toHaveBeenCalled();
+    expect(app.notifications).toEqual([{
+      message: expect.stringContaining('R2 sync trigger unavailable'),
+      level: 'warning',
+    }]);
   });
 
   it('treats every exact-head CI result as terminal and writes completion before FIX', async () => {

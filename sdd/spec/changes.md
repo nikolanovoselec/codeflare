@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-08
+
+- **Pi review completion warnings preserve the terminal editor** ([REQ-STOR-027](storage.md#req-stor-027-review-completion-marker-sync) AC5 amended; remains Implemented). Failed R2 sync signaling uses Pi's managed notification surface instead of writing directly into the fullscreen terminal, while local acknowledgement and non-UI warning behavior remain unchanged.
+
 ## 2026-09-07
 
 - **Bisync recovery uses the real work directory and converges newest-side-first** ([REQ-STOR-045](storage.md#req-stor-045-bisync-baseline-recovery) added and [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start) AC6 amended; both Implemented). Listing detection no longer searches a nonexistent nested directory and forces premature resync. Recovery baselines use newest-side-wins instead of rewriting every local object to R2, and terminal recovery state reports the actual success or failure. Proven Codex SQLite companions, Claude daemon caches, code-server logs, and desktop Trash stay outside R2.
