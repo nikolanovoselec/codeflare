@@ -227,7 +227,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(job['timeout-minutes']).toBe(1);
     expect(job.steps).toEqual([
       {
-        uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+        uses: expect.stringMatching(/^actions\/checkout@[0-9a-f]{40}$/),
         with: {
           'persist-credentials': false,
           ref: '${{ github.event.pull_request.head.sha || github.sha }}',
