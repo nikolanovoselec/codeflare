@@ -6,7 +6,7 @@ Commit `<type>: <description>` using `feat|fix|refactor|docs|test|chore|perf|ci`
 
 - Explicit CI monitoring or a fresh merge/deploy result: `ci-monitoring`.
 - Boundary plan or selected `Launch review`: `git-review-pipeline`.
-- User-requested PR: `pr-workflow`.
+- Any PR creation or material title/body rewrite, regardless of either branch: read `~/.claude/skills/pr-workflow/references/pull-request-authoring.md`, then use `pr-workflow`.
 - Unclear GitHub or Wrangler credentials: `deploy-credentials`.
 
 ## Review exposure

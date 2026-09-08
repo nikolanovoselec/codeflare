@@ -81,6 +81,31 @@ describe('shared agent seed compiler', () => {
         '.pi/agent/skills/humanize/reference/findings.md',
         '.pi/agent/skills/humanize/SKILL.md',
       ].map((key) => ({ key, modes: ['advanced'] })));
+
+      // REQ-AGENT-212: every delivered PR workflow loads the canonical authoring reference.
+      const prReferenceDocuments = compiled.documents
+        .filter((document) => document.key.endsWith('/skills/pr-workflow/references/pull-request-authoring.md'))
+        .map(({ key, modes }) => ({ key, modes }))
+        .sort((left, right) => left.key.localeCompare(right.key));
+      assert.deepEqual(prReferenceDocuments, [
+        '.claude/skills/pr-workflow/references/pull-request-authoring.md',
+        '.codex/skills/pr-workflow/references/pull-request-authoring.md',
+        '.config/opencode/skills/pr-workflow/references/pull-request-authoring.md',
+        '.gemini/skills/pr-workflow/references/pull-request-authoring.md',
+        '.pi/agent/skills/pr-workflow/references/pull-request-authoring.md',
+      ].map((key) => ({ key, modes: ['default', 'advanced'] })));
+      for (const key of [
+        '.claude/skills/pr-workflow/SKILL.md',
+        '.codex/skills/pr-workflow/SKILL.md',
+        '.config/opencode/skills/pr-workflow/SKILL.md',
+        '.gemini/skills/pr-workflow/SKILL.md',
+        '.pi/agent/skills/pr-workflow/SKILL.md',
+      ]) {
+        const skill = compiled.documents.find((document) => document.key === key);
+        assert.ok(skill, `${key} must be delivered`);
+        assert.match(skill.content, /references\/pull-request-authoring\.md/);
+        assert.match(skill.content, /every pull request/i);
+      }
       assert.deepEqual(await readFile(outputFile), await readFile(generatedPath));
     } finally {
       await rm(dir, { recursive: true, force: true });

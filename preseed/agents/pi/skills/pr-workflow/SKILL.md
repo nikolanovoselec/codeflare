@@ -1,12 +1,12 @@
 ---
 name: pr-workflow
 description: Create a pull request with review, REQ backlinks, push, and CI handoff.
-version: 3.0.0
+version: 3.1.0
 ---
 
 # Pull Request Workflow in Pi
 
-Use this when the user asks to open a PR.
+Use this when the user asks to create or materially rewrite a pull request. Before drafting every pull request, on any source or base branch, read [`references/pull-request-authoring.md`](references/pull-request-authoring.md) and follow its canonical shape.
 
 ## Ownership boundaries
 
@@ -44,9 +44,9 @@ The next turn begins when the queued launch plan arrives. Execute that supplied 
    git diff <base>...HEAD
    ```
 
-3. If `sdd/` exists, include relevant `REQ-*` backlinks in the PR body.
+3. Collect the issues, incorporated PRs, requirements, decisions, exact commits, CI, releases, deployments, and deferred work that explain the change.
 4. Draft a concise title under 70 characters, using the repository convention when visible.
-5. Draft a body with a summary and test plan.
+5. Draft the body through `references/pull-request-authoring.md`; explain every relationship and mark pending evidence truthfully.
 6. Push with upstream if needed:
 
    ```bash
@@ -63,22 +63,9 @@ The next turn begins when the queued launch plan arrives. Execute that supplied 
 
 No open PR targeting `main`/`master`/`develop`, or no JSON request from the resolver, means no automatic CI monitor. Do not relaunch an aborted monitor automatically. A later extension-issued boundary plan or explicit user request is the only other launch path.
 
-## Body template
+## Body contract
 
-Use a heredoc so markdown is preserved:
-
-```bash
-gh pr create --base <base> --head <branch> --title "<title>" --body "$(cat <<'EOF'
-## Summary
-- <1-3 bullets describing what changed and why>
-- <REQ-* backlink bullet if sdd/ exists>
-
-## Test plan
-- [ ] CI green on this PR
-- [ ] <feature-specific smoke check>
-EOF
-)"
-```
+[`references/pull-request-authoring.md`](references/pull-request-authoring.md) is the canonical PR shape for every branch. Do not substitute a summary/test-plan stub, a raw requirement list, or a copied commit log. Use a body file or heredoc so Markdown is preserved.
 
 ## After the PR is open
 

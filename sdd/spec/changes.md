@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-08
 
+- **Pull requests become durable, linked history records** ([REQ-AGENT-212](agents.md#req-agent-212-canonical-pull-request-history-record) added; Implemented). Every PR creation or material rewrite now loads one branch-independent authoring reference derived from current GitHub guidance and the latest 50 Codeflare `develop`-to-`main` promotions. The shared shape leads with shipped behavior, explains issue/PR/requirement/decision links, separates exact-head and deployment evidence, records boundaries and readiness, keeps secondary corrections low, and leaves substantive review history last.
+
 - **The Engineering Constitution becomes terse and direct** ([REQ-AGENT-065](agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) AC4 and [REQ-AGENT-200](agents.md#req-agent-200-engineering-constitution-work-continuity) Intent and AC1/AC3-AC5 amended; remain Implemented). Short imperative rules preserve engineering proof, security boundaries, dependency discipline, and continuity while making current-user control of internal Codeflare scope, sequencing, implementation, workflows, and processes explicit. A named `override` executes without confirmation or process delay.
 
 - **Pi transcript conflict copies are disposable** ([REQ-STOR-051](storage.md#req-stor-051-pi-transcript-conflict-cleanup) added; Implemented). Cleanup deletes every `.conflict*` file beneath the Pi session root because Pi cannot resume them. Canonical transcripts remain available.

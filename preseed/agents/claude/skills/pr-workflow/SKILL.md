@@ -1,37 +1,25 @@
 ---
 name: pr-workflow
 description: Pull request creation template. Steps for analyzing the full commit history, drafting summary/body, REQ backlinks (when sdd/ exists), and using -u for new branches. Invoked when the user asks the agent to open a PR.
-version: 1.0.0
+version: 2.0.0
 ---
 
 # Pull Request Workflow
+
+Before creating or materially rewriting every pull request, on any source or base branch, read [`references/pull-request-authoring.md`](references/pull-request-authoring.md) and follow its canonical shape.
 
 When creating PRs:
 
 1. **Analyze full commit history** (not just latest commit). Use `git log --no-merges <base>..HEAD` to see every commit that will land.
 2. **Use `git diff [base-branch]...HEAD`** to see all changes that will be merged.
-3. **If `sdd/` exists**, reference implemented REQ-* IDs in the PR summary (one line per REQ touched).
-4. **Draft a comprehensive PR summary**: 1-3 bullets describing what changed and why.
-5. **Include a test plan**: bulleted markdown checklist of TODOs for verifying the PR (smoke tests, browser checks, CI runs to watch).
+3. **Collect traceability**: issues, incorporated PRs, requirements, decisions, exact commits, CI, releases, deployments, and deferred work that explain this change.
+4. **Draft through the reference**: use its section order, explain every relationship, and scale detail to the PR.
+5. **Mark verification truthfully**: distinguish pending checks, exact-head evidence, deployments, owner reports, and production state.
 6. **Push with `-u` flag** if the branch is new (`git push -u origin HEAD`).
 
-## Body template
+## Body contract
 
-Use a HEREDOC to ensure correct multi-line formatting:
-
-```bash
-gh pr create --title "the pr title" --body "$(cat <<'EOF'
-## Summary
-- <1-3 bullets describing what changed>
-- <one bullet per implemented REQ if sdd/ exists, e.g. "REQ-PIPE-003 AC 4-7 now have labeled tests">
-
-## Test plan
-- [ ] CI green on develop (PR Checks + CodeQL)
-- [ ] Smoke test: <feature-specific check>
-- [ ] <browser/playwright check if UI changed>
-EOF
-)"
-```
+[`references/pull-request-authoring.md`](references/pull-request-authoring.md) is the canonical PR shape. Do not substitute a summary/test-plan stub, a raw requirement list, or a copied commit log.
 
 ## Title guidance
 
@@ -47,4 +35,4 @@ EOF
 
 ## Binding invocation rule
 
-When the user asks the agent to open a PR, invoke this skill as a first action. The skill's steps are mechanical and the body template is the canonical shape.
+When the user asks the agent to create or materially rewrite a PR, invoke this skill as a first action regardless of either branch. The workflow steps are mechanical; the linked reference owns the canonical body shape.

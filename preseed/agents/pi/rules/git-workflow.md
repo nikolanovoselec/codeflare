@@ -2,6 +2,8 @@
 
 Commit `<type>: <description>` using `feat|fix|refactor|docs|test|chore|perf|ci`. No AI attribution, emoji, or co-author line.
 
+For every PR creation or material title/body rewrite, regardless of either branch, read `~/.pi/agent/skills/pr-workflow/references/pull-request-authoring.md`, then use `pr-workflow`.
+
 <!-- git-workflow-ci-route -->
 
 ## Review exposure
