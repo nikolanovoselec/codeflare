@@ -1265,37 +1265,34 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ---
 
-### REQ-STOR-046: Selected managed-release projection
+### REQ-STOR-046: Managed projection identity lifecycle
 
-**Intent:** User-bucket reconciliation applies only the active agents from one universal release.
+**Intent:** Projection identity controls publication, reconciliation, and inactive-agent cleanup.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Fingerprint planning uses only selected managed documents. <!-- @impl: src/lib/r2-seed.ts::getSelectedManagedDocumentKeys --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
-2. Streaming writes use the same selected target as planning. <!-- @impl: src/lib/r2-seed.ts::seedManagedDocuments --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
-3. Reconciliation progress counts the selected target. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
-4. Published pending and applied state carries projection identity. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC3: journals the canonical projection before R2 work and publishes it with applied state) -->
-5. Published baked state carries projection identity. <!-- @impl: src/routes/preferences.ts::app --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-033: baked mode reconciliation stamps selection identity beside the content hash) -->
-6. Absent or changed projection identity triggers a full selected-target reconciliation. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033: a full selected-target pass verifies every selected document and metadata) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC3: same-release %s forces a full selected-target pass) -->
-7. Markerless inactive-agent deletion requires a matching conditional identity check. <!-- @impl: src/lib/r2-seed.ts::deleteExactInactiveConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 + REQ-STOR-035: a competing replacement blocks inactive cleanup and policy publication) -->
+1. Published pending and applied state carries projection identity. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC3: journals the canonical projection before R2 work and publishes it with applied state) -->
+2. Published baked state carries projection identity. <!-- @impl: src/routes/preferences.ts::app --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-033: baked mode reconciliation stamps selection identity beside the content hash) -->
+3. Absent or changed projection identity triggers a full selected-target reconciliation. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033: a full selected-target pass verifies every selected document and metadata) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC3: same-release %s forces a full selected-target pass) -->
+4. Markerless inactive-agent deletion requires a matching conditional identity check. <!-- @impl: src/lib/r2-seed.ts::deleteExactInactiveConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 + REQ-STOR-035: a competing replacement blocks inactive cleanup and policy publication) -->
 
 **Constraints:** Projection does not change the universal signed release digest.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-STOR-033](#req-stor-033-managed-release-delta-planning-and-resume), [REQ-STOR-035](#req-stor-035-managed-reconciliation-cleanup-and-finalization)
+**Dependencies:** [REQ-STOR-033](#req-stor-033-managed-release-delta-planning-and-resume), [REQ-STOR-035](#req-stor-035-managed-reconciliation-cleanup-and-finalization)
 
-**Verification:** Automated planning, write, progress, state, and cleanup tests.
+**Verification:** Automated state, fallback, and conditional-cleanup tests.
 
 **Status:** Implemented
 
 ---
 
-### REQ-STOR-047: Coding-agent selection and ownership
+### REQ-STOR-047: Coding-agent selection resolution
 
-**Intent:** Deployment configuration resolves one valid ownership boundary for agent resources.
+**Intent:** Deployment configuration resolves one valid active coding-agent set.
 
 **Applies To:** User
 
@@ -1305,16 +1302,14 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. Configured supported names resolve in canonical order without duplicates. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (defaults to every coding agent and canonicalizes a configured subset) -->
 3. An empty explicit selection is rejected. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (rejects empty explicit sets and unknown agent names) -->
 4. An unknown selected agent fails before storage work. <!-- @impl: entrypoint.sh::validate_coding_agent_selection --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-024: rejects invalid explicit selection before initial restore or baseline work) -->
-5. Every recognized managed agent path resolves to one owner. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::managedPathOwner --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-STOR-021: classifies every managed home by one owner and rejects unknown roots) -->
-6. An unknown current managed path fails before R2 mutation. <!-- @impl: src/lib/r2-seed.ts::requireManagedDocumentOwners --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 + REQ-STOR-029: an unknown current owner fails before any R2 mutation) -->
 
-**Constraints:** The supported owner mapping is shared by image and Worker paths.
+**Constraints:** Image and Worker paths share the canonical resolver.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-STOR-021](#req-stor-021-managed-content-ownership)
+**Dependencies:** None.
 
-**Verification:** Automated resolver, ownership, and startup-order tests.
+**Verification:** Automated resolver and startup-order tests.
 
 **Status:** Implemented
 
@@ -1337,9 +1332,56 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-031](#req-stor-031-managed-resource-container-sync), [REQ-STOR-047](#req-stor-047-coding-agent-selection-and-ownership)
+**Dependencies:** [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-031](#req-stor-031-managed-resource-container-sync), [REQ-STOR-047](#req-stor-047-coding-agent-selection-resolution)
 
 **Verification:** Automated startup-order, baked lay-down, Pi relay, and Claude context tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-049: Selected managed-target execution
+
+**Intent:** Managed planning, writes, and progress use one selected-agent target.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Fingerprint planning uses only selected managed documents. <!-- @impl: src/lib/r2-seed.ts::getSelectedManagedDocumentKeys --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
+2. Streaming writes use the same selected target as planning. <!-- @impl: src/lib/r2-seed.ts::seedManagedDocuments --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
+3. Reconciliation progress counts the selected target. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
+
+**Constraints:** Target projection does not change release bytes.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-STOR-046](#req-stor-046-managed-projection-identity-lifecycle), [REQ-STOR-047](#req-stor-047-coding-agent-selection-resolution)
+
+**Verification:** Automated planning, streaming-write, and progress tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-050: Managed-path agent ownership
+
+**Intent:** Every managed agent path has one known owner before mutation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every recognized managed agent path resolves to one owner. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::managedPathOwner --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-STOR-021: classifies every managed home by one owner and rejects unknown roots) -->
+2. An unknown current managed path fails before R2 mutation. <!-- @impl: src/lib/r2-seed.ts::requireManagedDocumentOwners --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 + REQ-STOR-029: an unknown current owner fails before any R2 mutation) -->
+
+**Constraints:** Ownership applies only to governed agent resource homes.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-021](#req-stor-021-managed-content-ownership), [REQ-STOR-047](#req-stor-047-coding-agent-selection-resolution)
+
+**Verification:** Automated ownership and fail-before-mutation tests.
 
 **Status:** Implemented
 

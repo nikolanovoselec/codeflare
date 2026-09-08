@@ -1297,7 +1297,6 @@ describe('managed release user-bucket reconciliation', () => {
       managedRelease: target,
       priorManagedRelease: { ...prior, mode: 'default' },
       codingAgents: 'pi',
-      automatic: { assumeEmpty: false },
     } as Parameters<typeof reconcileAgentConfigs>[4] & { codingAgents: string });
 
     expect(result.deleted).not.toEqual(expect.arrayContaining([activeHistorical, unknownHistorical]));
