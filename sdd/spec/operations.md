@@ -133,7 +133,6 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 5. A PR that changes a production dependency lockfile cannot pass when the changed dependency set contains a high-severity vulnerability. <!-- @impl: .github/workflows/test.yml::dependency-review --> <!-- @impl: .github/workflows/test.yml::summary --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-053: dependency-review evidence policy) --> <!-- @test: host/__tests__/required-check-covers-every-lane.test.js (lists every job except itself in needs, so no lane escapes the merge gate) --> <!-- @manual -->
 6. A Browser IDE extension change cannot pass the required PR status unless its owned validation suite succeeds. <!-- @impl: .github/workflows/test.yml::browser-ide --> <!-- @impl: scripts/ci/suites.mjs::SUITES --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC6: Browser IDE extension suite ownership) -->
 7. PR Checks never build, scan, run, or publish the session container image; the deployment image workflow owns the complete-image build, packaged smoke, vulnerability scan, SBOM, and push. <!-- @impl: .github/workflows/test.yml::summary --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
-8. The Impeccable native-engine PR lane has a one-minute hard timeout while preserving checksum-pinned source identity, upstream-regression reproduction, and corrected idle-grace and raster-boundary proof; the deployment image separately verifies the complete native binary. <!-- @impl: .github/workflows/test.yml::impeccable-engine --> <!-- @impl: scripts/ci/impeccable-engine-source.py::main --> <!-- @impl: Dockerfile::impeccable-builder --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-003 AC7: verifies the native patch without building a container and finishes within one minute) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) -->
 
 **Constraints:**
 
@@ -151,6 +150,33 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** None.
 
 **Verification:** Automated tests ([required-check-covers-every-lane](../../host/__tests__/required-check-covers-every-lane.test.js), [nightly-pr-checks-routing](../../host/__tests__/nightly-pr-checks-routing.test.js), [workflow hardening](../../host/__tests__/ci-workflow-hardening.test.js)); lint, typecheck, and audit ACs verified in CI
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-058: Fast Impeccable native-engine regression
+
+**Intent:** Impeccable source corrections receive fast PR feedback without replacing complete native-binary verification before image publication.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The PR lane rejects source that does not match the reviewed engine version, commit, and archive digest. <!-- @impl: scripts/ci/impeccable-engine-source.py::main --> <!-- @test: scripts/ci/impeccable-engine-source.py (main) -->
+2. The PR lane reproduces the upstream idle-grace and symlink-traversal defects before proving the corrected wait and raster boundaries. <!-- @impl: scripts/ci/impeccable-engine-source.py::verify_probe --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+3. The PR lane builds no container and has a one-minute hard timeout. <!-- @impl: .github/workflows/test.yml::impeccable-engine --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-058 AC3: configures the native source regression without a container build and with a one-minute timeout) -->
+4. The deployment image build compiles and behavior-tests the complete upstream and corrected native binaries before publication. <!-- @impl: Dockerfile::impeccable-builder --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) -->
+
+**Constraints:**
+
+- The focused probes compile logic extracted from the checksum-verified source archive; production image verification continues to exercise the complete executable.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-AGENT-163](agents.md#req-agent-163-impeccable-browser-question-idle-lifecycle), [REQ-AGENT-164](agents.md#req-agent-164-impeccable-raster-scan-traversal)
+
+**Verification:** Automated source-probe, workflow-contract, and deployment native-binary tests
 
 **Status:** Implemented
 

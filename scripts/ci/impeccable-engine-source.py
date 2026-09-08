@@ -152,7 +152,7 @@ def verify_probe(binary: Path, expect_upstream_bugs: bool) -> None:
             raise AssertionError((scanned.returncode, scanned.stdout, scanned.stderr))
         actual = scanned.stdout.strip().splitlines()
         if expect_upstream_bugs:
-            if str(outside / "private.png") not in actual:
+            if str(target / "escape" / "private.png") not in actual:
                 raise AssertionError("Upstream symlink traversal regression was not reproduced")
             return
 

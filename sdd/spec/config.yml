@@ -42,6 +42,7 @@ enforce_tdd: true
 # web-ui/src/__tests__, and landing/src/__tests__.
 test_globs:
   - "scripts/ci/impeccable-engine.py"
+  - "scripts/ci/impeccable-engine-source.py"
   - "scripts/ci/rclone-bookkeeping_test.go"
   - "scripts/ci/rclone-bisync-s3.py"
   - "src/__tests__/**/*.test.{ts,js,tsx,jsx,mjs}"
