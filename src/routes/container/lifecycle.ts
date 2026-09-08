@@ -31,6 +31,7 @@ import { hasStrictGatewayEgress } from '../../lib/controller-egress';
 import { createR2Client, getR2Url } from '../../lib/r2-client';
 import { getSseHeaders } from '../../lib/r2-sse';
 import { MANAGED_R2_POLICY_KEY, readVerifiedManagedR2Policy } from '../../lib/managed-r2-policy';
+import { codingAgentProjectionIdentity } from '../../../scripts/ci/coding-agent-selection-core.mjs';
 
 // Re-exported so existing importers (and the spec-anchored unit tests that
 // import these from './lifecycle') keep resolving them after the CF-024b split
@@ -200,6 +201,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       'session_mode',
       () => resolveEffectiveSessionMode(preferences, user, c.env),
     );
+    const projectionIdentity = codingAgentProjectionIdentity(c.env.CODING_AGENTS);
     let remoteCurationActive = false;
     let remoteCurationReleaseDigest: string | undefined;
     let remoteCurationManifestDigest: string | undefined;
@@ -221,6 +223,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
         ? applied?.digest !== activeManagedRelease.digest
           || applied.mode !== sessionMode
           || applied.sequence !== activeManagedRelease.pointer.sequence
+          || applied.projectionIdentity !== projectionIdentity
           || !/^[0-9a-f]{64}$/.test(applied.managedExtensionsDigest ?? '')
           || appliedPolicy !== desiredPolicy
           || (desiredPolicy !== 'mutable' && !/^[0-9a-f]{64}$/.test(applied.managedPathsDigest ?? ''))
@@ -241,6 +244,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
         hasPendingManagedReconciliation(preferences.managedEnvironmentReconciliation)
         || !preferences.managedEnvironmentApplied
         || preferences.managedEnvironmentApplied.mode !== sessionMode
+        || preferences.managedEnvironmentApplied.projectionIdentity !== projectionIdentity
         || !/^[0-9a-f]{64}$/.test(preferences.managedEnvironmentApplied.managedExtensionsDigest ?? '')
       ) {
         throw new ManagedEnvironmentUpdatePendingError();
@@ -330,6 +334,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       bucketName,
       sessionMode,
       contextModeEnabled,
+      codingAgents: c.env.CODING_AGENTS,
       logger: reqLogger,
     }));
 

@@ -23,6 +23,7 @@ import type { UsageRecord } from '../../types';
 import { getActiveManagedRelease, hasPendingManagedReconciliation } from '../../lib/managed-release-active';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
 import { clearMatchingManagedReconcileProgress, readManagedReconcileProgress } from '../../lib/managed-reconcile-progress';
+import { codingAgentProjectionIdentity } from '../../../scripts/ci/coding-agent-selection-core.mjs';
 
 /**
  * Check container health and PTY status for a session.
@@ -184,6 +185,7 @@ app.get('/batch-status', async (c) => {
     const prefs = await c.env.KV.get<UserPreferences>(getPreferencesKey(bucketName), 'json');
     const mode = await resolveEffectiveSessionMode(prefs ?? null, user, c.env);
     try {
+      const projectionIdentity = codingAgentProjectionIdentity(c.env.CODING_AGENTS);
       const active = await getActiveManagedRelease(c.env);
       const applied = prefs?.managedEnvironmentApplied;
       const hasInterruptedTargets = hasPendingManagedReconciliation(
@@ -195,6 +197,7 @@ app.get('/batch-status', async (c) => {
         ? applied?.digest !== active.digest
           || applied.mode !== mode
           || applied.sequence !== active.pointer.sequence
+          || applied.projectionIdentity !== projectionIdentity
           || !/^[0-9a-f]{64}$/.test(applied.managedExtensionsDigest ?? '')
           || appliedPolicy !== desiredPolicy
           || (desiredPolicy !== 'mutable' && !/^[0-9a-f]{64}$/.test(applied.managedPathsDigest ?? ''))
@@ -203,6 +206,7 @@ app.get('/batch-status', async (c) => {
 
       const bakedMismatch = !active && (
         prefs?.lastPreseedHash !== PRESEED_CONTENT_HASH
+        || prefs?.lastPreseedProjectionIdentity !== projectionIdentity
         || (isEnterpriseMode(c.env) && prefs?.sessionMode !== 'advanced')
       );
       const needsReconciliation = managedMismatch || bakedMismatch;

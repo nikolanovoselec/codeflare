@@ -57,6 +57,28 @@ function discoverTranscripts(root, excludedSegments) {
   return transcripts;
 }
 
+function deletePiConflictFiles(root) {
+  if (!existsSync(root)) return;
+  const rootStat = lstatSync(root);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return;
+
+  let deleted = 0;
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = resolve(directory, entry.name);
+      if (!path.startsWith(`${root}${sep}`)) throw new Error(`candidate escaped transcript root: ${path}`);
+      if (entry.isDirectory() && !entry.isSymbolicLink()) visit(path);
+      else if ((entry.isFile() || entry.isSymbolicLink()) && entry.name.includes('.conflict')) {
+        unlinkSync(path);
+        deleted += 1;
+      }
+    }
+  };
+
+  visit(root);
+  if (deleted > 0) process.stdout.write(`[transcript-cleanup] agent=pi conflicts=${deleted}\n`);
+}
+
 function readHeaderObjects(path) {
   const file = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
@@ -207,6 +229,7 @@ function main() {
   const excluded = agent === 'claude'
     ? new Set(['subagents', 'tool-results', 'workflows'])
     : new Set(['tasks']);
+  if (agent === 'pi') deletePiConflictFiles(root);
   const parser = agent === 'claude' ? parseClaudeTimestamp : parsePiTimestamp;
   retainLatest(agent, discoverTranscripts(root, excluded), keepCount, parser);
 }

@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, it } from 'node:test';
 import { parse as parseYaml } from 'yaml';
 import {
@@ -41,6 +41,33 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
     const { resolveCodingAgents } = await selector();
     assert.throws(() => resolveCodingAgents(' , '), /at least one coding agent/i);
     assert.throws(() => resolveCodingAgents('claude-code,gemini'), /unknown coding agent.*gemini/i);
+  });
+
+  it('REQ-STOR-024: exposes one side-effect-free Worker resolver with the canonical selection contract', async () => {
+    const shared = await import(`${pathToFileURL(join(ROOT, 'scripts/ci/coding-agent-selection-core.mjs')).href}?test=${Date.now()}`);
+
+    assert.equal(shared.resolveCodingAgents(undefined), ALL_AGENTS);
+    assert.equal(shared.resolveCodingAgents(' pi,claude-code,pi '), 'claude-code,pi');
+    assert.throws(() => shared.resolveCodingAgents(' , '), /at least one coding agent/i);
+    assert.throws(() => shared.resolveCodingAgents('claude-code,unknown'), /unknown coding agent.*unknown/i);
+  });
+
+  it('REQ-STOR-021: classifies every managed home by one owner and rejects unknown roots', async () => {
+    const shared = await import(`${pathToFileURL(join(ROOT, 'scripts/ci/coding-agent-selection-core.mjs')).href}?test=${Date.now()}`);
+    const paths = {
+      '.claude/skills/company/SKILL.md': 'claude-code',
+      '.codex/rules/company.md': 'codex',
+      '.copilot/prompts/company.md': 'copilot',
+      '.gemini/commands/company.md': 'antigravity',
+      '.config/opencode/agents/company.md': 'opencode',
+      '.pi/agent/extensions/company.ts': 'pi',
+    };
+
+    for (const [path, owner] of Object.entries(paths)) {
+      assert.equal(shared.managedPathOwner(path), owner);
+    }
+    assert.equal(shared.managedPathOwner('.unknown/skills/company.md'), null);
+    assert.equal(shared.managedPathOwner('Vault/personal.md'), null);
   });
 
   it('derives an npm manifest containing only selected coding agents plus shared tools', async () => {

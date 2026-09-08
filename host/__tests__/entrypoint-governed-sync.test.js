@@ -50,7 +50,7 @@ const createRcloneConfig = () =>
 const layDownFn = () =>
   extractBetween(
     'lay_down_agent_seed_preseed() {',
-    '    echo "[entrypoint] Baked agent seed laid down" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log\n}',
+    '    echo "[entrypoint] Baked agent seed laid down (${copied} selected roots)" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log\n}',
     'lay_down_agent_seed_preseed',
   );
 
@@ -133,6 +133,8 @@ function runLayDown({ r2SseDisabled, sessionMode = 'default', seedModes = ['defa
     `AGENT_SEED_BAKE_DIR='${bakeRoot}'`,
     `SESSION_MODE='${sessionMode}'`,
     r2SseDisabled ? "R2_SSE_DISABLED='true'" : '',
+    "CODEFLARE_CODING_AGENTS='claude-code,codex,copilot,antigravity,opencode,pi'",
+    'coding_agent_is_selected() { case ",${CODEFLARE_CODING_AGENTS}," in *,"$1",*) return 0 ;; *) return 1 ;; esac; }',
     layDownFn(),
     'lay_down_agent_seed_preseed',
   ].join('\n');
@@ -213,6 +215,8 @@ function runRelay({ warmFiles, destFiles, bakeFiles, sessionMode, warmPresent = 
     `PI_WARM_EXTENSIONS_DIR='${warmSrc}'`,
     ...(bakeFiles ? [`AGENT_SEED_BAKE_DIR='${bakeRoot}'`] : []),
     ...(sessionMode ? [`SESSION_MODE='${sessionMode}'`] : []),
+    "CODEFLARE_CODING_AGENTS='claude-code,codex,copilot,antigravity,opencode,pi'",
+    'coding_agent_is_selected() { case ",${CODEFLARE_CODING_AGENTS}," in *,"$1",*) return 0 ;; *) return 1 ;; esac; }',
     relayFn(),
     'relay_managed_pi_extensions',
   ].join('\n');

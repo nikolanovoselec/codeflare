@@ -640,19 +640,19 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ### REQ-STOR-021: Managed content ownership
 
-**Intent:** Managed reconciliation preserves mutable user ownership while treating signed retirements as authoritative under an active protected policy.
+**Intent:** Managed reconciliation preserves mutable user ownership while removing exact files that verified inventory assigns to inactive deployment agents.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. Managed writes carry active release provenance. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC1 + REQ-STOR-024 AC2: Default and Advanced stream identical mode payloads with active release provenance) -->
-2. A path proven obsolete by direct applied-to-target comparison is deleted in mutable mode only while it retains a valid Codeflare provenance marker; marker equality with the immediately applied release is not required. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC2 + REQ-STOR-035 AC5: direct delta cleanup accepts older valid markers and preserves markerless edits) -->
-3. In mutable mode, signed retirements delete earlier seeded content only while a Codeflare ownership marker remains. <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC3: signed retirements delete only Codeflare-owned paths) -->
+2. Active-agent and unknown historical paths are deleted in mutable mode only while valid Codeflare provenance remains. <!-- @impl: src/lib/r2-seed.ts::deleteManagedConfigsByMarkerRules --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021: active and unknown historical markerless paths retain ordinary marker ownership) -->
+3. Exact paths assigned by current or available verified inventory to an inactive agent are deleted without requiring provenance, using conditional object identity. <!-- @impl: src/lib/r2-seed.ts::deleteExactInactiveConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021: exact inactive paths from current, prior, and interrupted inventories delete markerless with HEAD ETags) -->
 4. Image-owned runtime files, user roots, transcripts, Vault content, and company package bytes remain outside managed documents. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/lib/r2-seed.ts::reseedContextModePlugin --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC4: image-owned and user-owned roots remain outside managed documents) -->
 5. In protected modes, signed retirements delete prior content without requiring an ownership marker. <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC5: protected signed retirement deletes markerless prior content) -->
 
-**Constraints:** Changed or absent ownership markers preserve mutable content except active protected signed retirements; company extension metadata may enter R2, but package bytes may not.
+**Constraints:** Markerless deletion requires an exact path with a verified inactive owner. Unknown historical paths keep existing marker rules; company extension metadata may enter R2, but package bytes may not.
 
 **Priority:** P1
 
@@ -700,9 +700,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Initial status compares the verified active descriptor, resolved mode, and managed-resource policy identity with applied user state. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/lib/managed-release-active.test.ts (REQ-STOR-023 AC1: returns configured managed resource policy with the active descriptor) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1+AC2: initial status compares descriptor and mode without payload bytes) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (reports upgrading when a downgraded SaaS user has advanced managed content applied) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1: a pre-upgrade applied stamp without a manifest digest requires reconciliation) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1: reports upgrading when managed resource %s) -->
+1. Initial status compares the verified active descriptor, resolved mode, managed-resource policy, and canonical agent-projection identity with applied user state. <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1: matching managed release with %s projection is not current) --> <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/lib/managed-release-active.test.ts (REQ-STOR-023 AC1: returns configured managed resource policy with the active descriptor) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1+AC2: initial status compares descriptor and mode without payload bytes) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (reports upgrading when a downgraded SaaS user has advanced managed content applied) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1: a pre-upgrade applied stamp without a manifest digest requires reconciliation) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1: reports upgrading when managed resource %s) -->
 2. An unchanged release status check does not load payload bytes. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1+AC2: initial status compares descriptor and mode without payload bytes) -->
-3. During cache failure, last-known-good startup is allowed only when its applied mode matches the resolved mode. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC3: an outage rejects last-known-good state for another mode) -->
+3. During cache failure, last-known-good startup is allowed only when its applied mode and projection identity match the deployment. <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-STOR-023 AC3: blocks container start when applied projection identity is %s) --> <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC3: an outage rejects last-known-good state for another mode) -->
 4. Pending target identities report upgrading even when applied identity matches the active release. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC4: pending target state retries even when applied identity matches active) -->
 5. Status reports update-pending without a compatible verified active descriptor. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC5: reports update pending when no compatible verified active release is available) -->
 
@@ -756,11 +756,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. A release mismatch with no owning session reads one verified cached gzip for reconciliation. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC1+AC4: successful managed reconcile loads cached content and stamps applied state last) -->
-2. Reconciliation writes byte-identical content selected for the resolved mode. <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC1 + REQ-STOR-024 AC2: Default and Advanced stream identical mode payloads with active release provenance) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (reconciles and stamps the entitlement-clamped mode for a downgraded SaaS user) -->
+2. Reconciliation writes byte-identical content selected for the resolved mode and deployment coding-agent set. <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) --> <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @impl: src/lib/remote-curation.ts::streamManagedReleaseDocuments --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC1 + REQ-STOR-024 AC2: Default and Advanced stream identical mode payloads with active release provenance) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (reconciles and stamps the entitlement-clamped mode for a downgraded SaaS user) -->
 3. Reconciliation uses at most six concurrent R2 operations. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024 AC3: bounds R2 concurrency for a maximum-size managed document set) -->
-4. Applied release and synthesized-manifest digests are stamped only after every reconciliation operation succeeds. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::managedExtensionsDocumentDigest --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC1+AC4: successful managed reconcile loads cached content and stamps applied state last) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC4: does not stamp applied state when context-mode reconciliation fails) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC4 + REQ-STOR-039 AC1: failed automatic byte verification does not publish applied state) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024 AC4: trusted digest hashes the exact valid empty company manifest bytes) -->
+4. Applied release, projection, and synthesized-manifest identities are stamped only after every reconciliation operation succeeds. <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC3: journals the canonical projection before R2 work and publishes it with applied state) --> <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::managedExtensionsDocumentDigest --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC1+AC4: successful managed reconcile loads cached content and stamps applied state last) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC4: does not stamp applied state when context-mode reconciliation fails) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC4 + REQ-STOR-039 AC1: failed automatic byte verification does not publish applied state) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024 AC4: trusted digest hashes the exact valid empty company manifest bytes) -->
 5. Applying a current release after deployment-cache replacement does not require a historical cached bundle. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC5 + REQ-STOR-033 AC5: reconciles from current release when disposable cache history is absent) -->
-6. Cacheless application removes prior-digest paths that the current release excludes from the resolved mode. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024 AC6: cacheless application cleans only current-release paths outside the effective mode) -->
+6. Cacheless application removes exact current-release paths excluded by mode or verified inactive ownership. <!-- @test: src/__tests__/lib/r2-seed-mode.test.ts (REQ-STOR-024: filters baked planning and inactive cleanup by the canonical agent selection) --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024 AC6: cacheless application cleans only current-release paths outside the effective mode) -->
 7. Disabling curation without the prior release fails without mutation or applied-state clearing. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC7 + REQ-STOR-024 AC7: cacheless disable fails closed with applied state intact) -->
 
 **Constraints:** Applied state is written last.
@@ -884,11 +884,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 1. Managed-seed reconciliation writes and read-verifies protected policy after managed content. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC1: writes and read-verifies canonical protected policy after managed content) -->
 2. Exclusive cleanup prevalidates the 10,000-object and 1-GiB object-size bounds, including exact root objects. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC2: exclusive cleanup bounds fail before every mutation) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC2: exclusive cleanup rejects summed object size above 1 GiB with zero mutations) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC2: exact root object size contributes to the exclusive cleanup bound) -->
-3. Exclusive cleanup uses bounded delete batches without touching managed or similarly prefixed objects. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC3: exclusive cleanup preserves managed objects in one bounded delete batch) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC3: exclusive cleanup bounds each delete batch to 1,000 objects) -->
+3. Exclusive cleanup deletes unrecognized objects in bounded batches only inside governed resource roots. <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029: exclusive policy stays universal while selected cleanup removes only governed inactive and personal resources) --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC3: exclusive cleanup preserves managed objects in one bounded delete batch) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC3: exclusive cleanup bounds each delete batch to 1,000 objects) -->
 4. Exclusive reconciliation writes canonical policy only after every requested deletion is confirmed and no per-object error is reported. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC4: verbose delete confirmation decodes valid numeric XML character references) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC4: partial exclusive batch failures prevent policy identity from being committed) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC4: %s cannot commit exclusive policy identity) -->
 5. Malformed or over-bound exclusive listing or root metadata fails before every cleanup mutation. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC5: invalid exact root size %s causes zero mutations) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC5: malformed exclusive listings cause zero mutations) -->
 6. Mutable transition removes stale R2 policy. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-029 AC6: mutable transition removes stale canonical policy) -->
-7. Applied release, mode, and policy identity are stamped only after successful reconciliation. <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-029 AC7: transports configured policy and stamps verified identity last) -->
+7. Applied release, mode, projection, and policy identity are stamped only after successful reconciliation. <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC3: journals the canonical projection before R2 work and publishes it with applied state) --> <!-- @impl: src/routes/storage/seed.ts::updatedPreferences --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-029 AC7: transports configured policy and stamps verified identity last) -->
 
 **Constraints:** Reconciliation reuses the managed-seed path; no queue, database, or separate reconciler is introduced.
 
@@ -934,13 +934,13 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Initial restore includes the canonical managed-policy document before policy validation. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-IDE-002 AC6 / REQ-STOR-031 AC1: syncs bounded Browser IDE manifests and managed policy) --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7: restores managed content and declared image companions before baseline) -->
+1. Initial restore includes the universal managed-policy document. <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7: restores managed content and declared image companions before baseline) --> <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-IDE-002 AC6 / REQ-STOR-031 AC1: syncs bounded Browser IDE manifests and managed policy) --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7: restores managed content and declared image companions before baseline) -->
 2. Protected modes verify exact policy identity after restore and before baseline creation. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7: restores managed content and declared image companions before baseline) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) -->
 3. The generated filter excludes protected exact paths. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) -->
 4. Exclusive filtering also excludes governed resource roots. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) -->
 5. Mutable transition removes stale local policy and filter state before baseline. <!-- @impl: entrypoint.sh::prepare_managed_resource_filter --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (mutable reset removes stale policy and filter before baseline) -->
 6. Baseline, periodic, manual, recovery, and final bisync use the common generated filter. <!-- @impl: entrypoint.sh::RCLONE_FILTERS --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (validates canonical exclusive identity and excludes exact paths and roots while preserving adjacent paths) --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persistence) / REQ-STOR-004 (initial sync) / REQ-STOR-005 (graceful shutdown final sync) / REQ-SESSION-003 AC3 (entrypoint initial rclone sync) + AC4 (bisync daemon + SIGUSR1) / REQ-SESSION-011 (graceful shutdown with final sync) / REQ-VAULT-006 (shutdown bisync vault writes) / REQ-OPS-010 (graceful container shutdown) / REQ-MEM-004 (memory dirs in bisync filter)) -->
-7. With remote curation active, post-restore startup restores declared image-owned runtime companions required by managed extensions without replacing release-owned extension bytes. <!-- @impl: entrypoint.sh::IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7: restores managed content and declared image companions before baseline) -->
+7. With remote curation active, startup restores declared image-owned runtime companions without replacing release-owned bytes.  <!-- @impl: entrypoint.sh::IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-031 AC1/AC2/AC7: restores managed content and declared image companions before baseline) -->
 
 **Constraints:** Container policy is non-authoritative, with no Durable Object policy persistence or replacement of release-owned extension bytes by image copies.
 
@@ -962,7 +962,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Exclusive mode derives segment-aware resource roots only from the governed category allowlist. <!-- @impl: src/lib/managed-r2-policy.ts::deriveManagedResourceRoots --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (REQ-STOR-032 AC1/AC2: exclusive roots derive segment-aware while sessions and root files remain outside) -->
+1. Exclusive mode derives segment-aware resource roots across all six managed homes from the governed category allowlist, independent of the selected keep-set. <!-- @impl: src/lib/managed-r2-policy.ts::deriveManagedResourceRoots --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (REQ-STOR-032 AC1/AC2: exclusive roots derive segment-aware while sessions and root files remain outside) -->
 2. Exclusive roots protect root objects and descendants without covering similarly prefixed names, session state, or unrelated personal paths. <!-- @impl: src/lib/managed-r2-policy.ts::isManagedMutationProtected --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (REQ-STOR-032 AC1/AC2: exclusive roots derive segment-aware while sessions and root files remain outside) -->
 3. Exclusive generation fails before reconciliation when a managed or retired path uses an unknown nested category. <!-- @impl: src/lib/managed-r2-policy.ts::deriveManagedResourceRoots --> <!-- @test: src/__tests__/lib/managed-r2-policy.test.ts (REQ-STOR-032 AC3: exclusive generation rejects a novel or later nested managed category) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-032 AC3: exclusive generation fails before every R2 request) -->
 
@@ -987,9 +987,9 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. Automatic reconciliation compares the exact applied release directly with the active target without replaying intermediate releases. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC1/AC2: direct delta handles a fifteen-release gap and writes only added or changed release paths) -->
-2. The direct plan includes only target paths whose release content or content type changed, so release-identical markerless edits remain untouched. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC1/AC2: direct delta handles a fifteen-release gap and writes only added or changed release paths) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-039 AC1/AC3 + REQ-STOR-033 AC1/AC2: arbitrary-gap delta materializes exact target R2 bytes and content types) -->
+2. The direct plan includes only target paths whose release content or content type changed, so release-identical markerless edits remain untouched. <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) --> <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC1/AC2: direct delta handles a fifteen-release gap and writes only added or changed release paths) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-039 AC1/AC3 + REQ-STOR-033 AC1/AC2: arbitrary-gap delta materializes exact target R2 bytes and content types) -->
 3. A same-target retry skips objects that carry the target marker only after its bytes and content type verify against the target release. <!-- @impl: src/lib/r2-seed.ts::seedManagedDocuments --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-039 AC2 + REQ-STOR-033 AC3 + REQ-STOR-034 AC3: target provenance resumes and increments progress) -->
-4. Fresh or missing-history fallback plans every target path before stale-marker cleanup. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC4 + REQ-STOR-035 AC5: full-target fallback sweeps stale managed markers only after desired writes) -->
+4. Fresh buckets, absent or changed projection identity, policy changes, missing history, and manual recreation run a full selected-target pass before cleanup. <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033: a full selected-target pass verifies every selected document and metadata) --> <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033 AC4 + REQ-STOR-035 AC5: full-target fallback sweeps stale managed markers only after desired writes) -->
 5. Fallback accepts absent applied identity or unavailable valid history. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-024 AC5 + REQ-STOR-033 AC5: reconciles from current release when disposable cache history is absent) -->
 6. Malformed or conflicting applied identity fails before bucket mutation. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC6: invalid applied identity fails closed before bucket mutation) -->
 7. Manual Recreate and non-dashboard callers retain full-overwrite behavior. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC7: automatic endpoint is separate and manual Recreate remains full overwrite) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-033 AC7: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true) -->
@@ -1045,13 +1045,13 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. Before managed-release R2 writes, at most 32 target identities are recorded. <!-- @impl: src/lib/managed-release-active.ts::appendManagedReconciliationTarget --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: src/routes/preferences.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1: rejects unbounded interrupted target state before bucket mutation) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC2: failed manual Recreate records and retains its active target) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-035 AC1/AC2: a failed managed mode change records and retains its active target) -->
+1. Before managed-release R2 writes, at most 32 release, mode, and projection target identities are recorded. <!-- @impl: src/lib/managed-release-active.ts::appendManagedReconciliationTarget --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: src/routes/preferences.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1: rejects unbounded interrupted target state before bucket mutation) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC2: failed manual Recreate records and retains its active target) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-035 AC1/AC2: a failed managed mode change records and retains its active target) -->
 2. A failed reconciliation retains its recorded pending target identities. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: src/routes/preferences.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC2/AC7: target changes before cleanup, preserves pending ownership, and prevents finalization) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC2: unavailable interrupted history fails before bucket mutation and retains state) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC2: failed manual Recreate records and retains its active target) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-035 AC1/AC2: a failed managed mode change records and retains its active target) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-035 AC2: unavailable interrupted history rejects a mode change and preserves pending state) -->
 3. Successful publication clears pending identities only after every recorded target has been repaired or superseded by a complete full-target reconcile. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @impl: src/routes/preferences.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC3: records automatic target ownership before writes and clears it with applied publication) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC3: manual Recreate repairs interrupted targets before clearing their state) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC3: managed disable cleans interrupted targets before clearing their state) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-035 AC3: mode-change disable repairs interrupted targets before clearing state) -->
 4. After target drift, desired paths are repaired only when they carry an interrupted target marker; markerless paths remain untouched. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @impl: src/lib/r2-seed.ts::seedManagedDocuments --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-035 AC4: interrupted target drift repairs only objects carrying interrupted provenance) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-035 AC4: repairs markers from repeated interrupted targets) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-035 AC4: repairs an interrupted extensions manifest when applied already matches target) -->
-5. Cleanup removes source-absent, interrupted-only, or signed-retired paths only when they meet the active ownership rule. <!-- @impl: src/lib/r2-seed.ts::deleteManagedConfigsByDigest --> <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC2 + REQ-STOR-035 AC5: direct delta cleanup accepts older valid markers and preserves markerless edits) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-035 AC5: managed disable removes interrupted-only objects with matching provenance) -->
-6. Cleanup does not delete an object replaced after cleanup inspection. <!-- @impl: src/lib/r2-seed.ts::deleteManagedConfigsByDigest --> <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-035 AC6: cleanup preserves an object replaced after inspection) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-035 AC6: fallback cleanup preserves an object replaced after inspection) -->
-7. Applied publication requires unchanged target identity, mode, resource policy, storage encryption, session ownership, migration state, and pending target set. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC2/AC7: target changes before cleanup, preserves pending ownership, and prevents finalization) -->
+5. Cleanup applies existing ownership-marker rules to active or unknown source-absent, interrupted-only, and signed-retired paths. <!-- @impl: src/lib/r2-seed.ts::buildReconcileCleanupPreflight --> <!-- @impl: src/lib/r2-seed.ts::deleteExactInactiveConfigs --> <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 AC2 + REQ-STOR-035 AC5: direct delta cleanup accepts older valid markers and preserves markerless edits) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-035 AC5: managed disable removes interrupted-only objects with matching provenance) -->
+6. Cleanup does not delete an object replaced after cleanup inspection. <!-- @impl: src/lib/r2-seed.ts::deleteManagedConfigsByMarkerRules --> <!-- @impl: src/lib/r2-seed.ts::deleteRetiredManagedConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-035 AC6: cleanup preserves an object replaced after inspection) --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-035 AC6: fallback cleanup preserves an object replaced after inspection) -->
+7. Applied publication requires unchanged release, projection, mode, resource policy, storage encryption, session ownership, migration state, and pending target set. <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC7: selection drift after journaling blocks applied publication) --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC2/AC7: target changes before cleanup, preserves pending ownership, and prevents finalization) -->
 
 **Constraints:**
 
@@ -1260,6 +1260,150 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** [REQ-STOR-041](#req-stor-041-disk-space-recovery)
 
 **Verification:** Automated startup, UI and final-sync HTTP tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-046: Managed projection identity lifecycle
+
+**Intent:** Projection identity controls publication, reconciliation, and inactive-agent cleanup.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Published pending and applied state carries projection identity. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC3: journals the canonical projection before R2 work and publishes it with applied state) -->
+2. Published baked state carries projection identity. <!-- @impl: src/routes/preferences.ts::app --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-033: baked mode reconciliation stamps selection identity beside the content hash) -->
+3. Absent or changed projection identity triggers a full selected-target reconciliation. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033: a full selected-target pass verifies every selected document and metadata) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC3: same-release %s forces a full selected-target pass) -->
+4. Markerless inactive-agent deletion requires a matching conditional identity check. <!-- @impl: src/lib/r2-seed.ts::deleteExactInactiveConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 + REQ-STOR-035: a competing replacement blocks inactive cleanup and policy publication) -->
+
+**Constraints:** Projection does not change the universal signed release digest.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-033](#req-stor-033-managed-release-delta-planning-and-resume), [REQ-STOR-035](#req-stor-035-managed-reconciliation-cleanup-and-finalization)
+
+**Verification:** Automated state, fallback, and conditional-cleanup tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-047: Coding-agent selection resolution
+
+**Intent:** Deployment configuration resolves one valid active coding-agent set.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Omitted selection resolves to every supported coding agent. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (defaults to every coding agent and canonicalizes a configured subset) -->
+2. Configured supported names resolve in canonical order without duplicates. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (defaults to every coding agent and canonicalizes a configured subset) -->
+3. An empty explicit selection is rejected. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::resolveCodingAgents --> <!-- @test: host/__tests__/coding-agent-selection.test.js (rejects empty explicit sets and unknown agent names) -->
+4. An unknown selected agent fails before storage work. <!-- @impl: entrypoint.sh::validate_coding_agent_selection --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-024: rejects invalid explicit selection before initial restore or baseline work) -->
+
+**Constraints:** Image and Worker paths share the canonical resolver.
+
+**Priority:** P0
+
+**Dependencies:** None.
+
+**Verification:** Automated resolver and startup-order tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-048: Selected agent startup
+
+**Intent:** Container startup activates only image resources owned by selected coding agents.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Startup validates agent selection before initial restore. <!-- @impl: entrypoint.sh::run_initial_r2_restore --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-024: rejects invalid explicit selection before initial restore or baseline work) -->
+2. Baked lay-down copies only selected agent roots. <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-024: lays down only selected agent roots and skips the Pi relay when Pi is inactive) -->
+3. Pi relay does not run when Pi is inactive. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-024: lays down only selected agent roots and skips the Pi relay when Pi is inactive) -->
+4. Claude context setup does not run when Claude Code is inactive. <!-- @impl: entrypoint.sh::claude_context_mode_is_selected --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (REQ-STOR-024: Claude-inactive startup does not register or enable Claude context-mode) -->
+
+**Constraints:** Remote curation retains release-owned bytes and image-owned companions.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-031](#req-stor-031-managed-resource-container-sync), [REQ-STOR-047](#req-stor-047-coding-agent-selection-resolution)
+
+**Verification:** Automated startup-order, baked lay-down, Pi relay, and Claude context tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-049: Selected managed-target execution
+
+**Intent:** Managed planning, writes, and progress use one selected-agent target.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Fingerprint planning uses only selected managed documents. <!-- @impl: src/lib/r2-seed.ts::getSelectedManagedDocumentKeys --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
+2. Streaming writes use the same selected target as planning. <!-- @impl: src/lib/r2-seed.ts::seedManagedDocuments --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
+3. Reconciliation progress counts the selected target. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
+
+**Constraints:** Target projection does not change release bytes.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-STOR-046](#req-stor-046-managed-projection-identity-lifecycle), [REQ-STOR-047](#req-stor-047-coding-agent-selection-resolution)
+
+**Verification:** Automated planning, streaming-write, and progress tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-050: Managed-path agent ownership
+
+**Intent:** Every managed agent path has one known owner before mutation.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every recognized managed agent path resolves to one owner. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::managedPathOwner --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-STOR-021: classifies every managed home by one owner and rejects unknown roots) -->
+2. An unknown current managed path fails before R2 mutation. <!-- @impl: src/lib/r2-seed.ts::requireManagedDocumentOwners --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 + REQ-STOR-029: an unknown current owner fails before any R2 mutation) -->
+
+**Constraints:** Ownership applies only to governed agent resource homes.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-021](#req-stor-021-managed-content-ownership), [REQ-STOR-047](#req-stor-047-coding-agent-selection-resolution)
+
+**Verification:** Automated ownership and fail-before-mutation tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-051: Pi transcript conflict cleanup
+
+**Intent:** Pi transcript conflict copies must not accumulate because Pi cannot resume them.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Cleanup deletes every file or symbolic link whose name contains `.conflict` beneath the Pi session root while preserving canonical transcripts. <!-- @impl: transcript-retention.mjs::deletePiConflictFiles --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (REQ-STOR-051 AC1: Pi deletes every conflict file and preserves canonical transcripts) -->
+
+**Constraints:** Unique turns in conflict copies are disposable.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-STOR-012](#req-stor-012-main-session-transcript-cleanup)
+
+**Verification:** Automated test ([entrypoint-transcript-cleanup](../../host/__tests__/entrypoint-transcript-cleanup.test.js))
 
 **Status:** Implemented
 

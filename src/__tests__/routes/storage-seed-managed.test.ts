@@ -21,7 +21,13 @@ const state = vi.hoisted(() => ({
   containerStatus: 'running',
   containerError: null as Error | null,
 }));
-const reconcile = vi.hoisted(() => vi.fn(async () => ({ written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined as string | undefined })));
+const reconcile = vi.hoisted(() => vi.fn(async (): Promise<{
+  written: string[];
+  skipped: string[];
+  deleted: string[];
+  warnings: string[];
+  managedPathsDigest: string | undefined;
+}> => ({ written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined })));
 const reseedContext = vi.hoisted(() => vi.fn(async () => ({ written: [], skipped: [] })));
 const createBucket = vi.hoisted(() => vi.fn(async () => ({ success: true, created: false })));
 const fetchR2 = vi.hoisted(() => vi.fn(async () => new Response('', { status: 200 })));
@@ -79,6 +85,9 @@ vi.mock('../../lib/agent-seed.generated', () => ({
 }));
 
 import routes from '../../routes/storage/seed';
+
+const PROJECTION_ALL = 'v1:claude-code,codex,copilot,antigravity,opencode,pi';
+const PROJECTION_CLAUDE_PI = 'v1:claude-code,pi';
 
 const release: ManagedRelease = {
   seedAbi: 1,
@@ -191,6 +200,131 @@ describe('managed storage reconcile', () => {
     expect(Date.parse(applied.managedEnvironmentApplied.appliedAt)).not.toBeNaN();
     const finalPut = kv.put.mock.calls.at(-1)!;
     expect(finalPut[0]).toBe('user-prefs:user-bucket');
+  });
+
+  it('REQ-STOR-035 AC1/AC3: journals the canonical projection before R2 work and publishes it with applied state', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+    reconcile.mockImplementationOnce(async () => {
+      const during = await kv.get('user-prefs:user-bucket', 'json') as any;
+      expect(during.managedEnvironmentApplied).toBeUndefined();
+      expect(during.managedEnvironmentReconciliation).toEqual({
+        targets: [{
+          digest: 'd'.repeat(64),
+          sequence: 9,
+          mode: 'advanced',
+          projectionIdentity: PROJECTION_CLAUDE_PI,
+        }],
+      });
+      return { written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined };
+    });
+
+    const response = await appFor(kv, undefined, { CODING_AGENTS: 'pi, claude-code,pi' })
+      .request('/seed/agent-configs/upgrade', { method: 'POST' });
+
+    expect(response.status).toBe(200);
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentApplied.projectionIdentity).toBe(PROJECTION_CLAUDE_PI);
+    expect(preferences.managedEnvironmentReconciliation).toBeUndefined();
+  });
+
+  it.each([
+    ['legacy identity', undefined, 'mutable', 'mutable'],
+    ['selection change', 'v1:claude-code', 'mutable', 'mutable'],
+    ['policy change', PROJECTION_CLAUDE_PI, 'mutable', 'exclusive'],
+  ] as const)('REQ-STOR-033 AC3: same-release %s forces a full selected-target pass', async (_case, priorProjection, appliedPolicy, desiredPolicy) => {
+    state.resourcePolicy = desiredPolicy;
+    reconcile.mockResolvedValueOnce({
+      written: ['.claude/company.md'],
+      skipped: [],
+      deleted: [],
+      warnings: [],
+      managedPathsDigest: desiredPolicy === 'mutable' ? undefined : '9'.repeat(64),
+    });
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentApplied: {
+        digest: 'd'.repeat(64),
+        managedExtensionsDigest: 'e'.repeat(64),
+        sequence: 9,
+        mode: 'advanced',
+        resourcePolicy: appliedPolicy,
+        ...(priorProjection ? { projectionIdentity: priorProjection } : {}),
+        appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+
+    const response = await appFor(kv, undefined, { CODING_AGENTS: 'pi,claude-code' })
+      .request('/seed/agent-configs/upgrade', { method: 'POST' });
+
+    expect(response.status).toBe(200);
+    expect(reconcile).toHaveBeenCalledWith(
+      expect.anything(), 'user-bucket', 'https://r2.example.com', 'advanced',
+      expect.objectContaining({
+        automatic: expect.objectContaining({ fullReconciliation: true }),
+        projectionIdentity: PROJECTION_CLAUDE_PI,
+      }),
+    );
+    expect(await kv.get('user-prefs:user-bucket', 'json')).toMatchObject({
+      managedEnvironmentApplied: {
+        digest: 'd'.repeat(64),
+        projectionIdentity: PROJECTION_CLAUDE_PI,
+        resourcePolicy: desiredPolicy,
+      },
+    });
+  });
+
+  it('REQ-STOR-035 AC2: a legacy pending target remains journaled and forces a full retry', async () => {
+    const legacyTarget = { digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' as const };
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', {
+      sessionMode: 'advanced',
+      managedEnvironmentApplied: {
+        digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 9,
+        mode: 'advanced', projectionIdentity: PROJECTION_CLAUDE_PI,
+        appliedAt: '2026-01-01T00:00:00.000Z',
+      },
+      managedEnvironmentReconciliation: { targets: [legacyTarget] },
+    });
+    reconcile.mockImplementationOnce(async (...args: any[]) => {
+      const during = await kv.get('user-prefs:user-bucket', 'json') as any;
+      expect(during.managedEnvironmentReconciliation.targets).toEqual([
+        legacyTarget,
+        { ...legacyTarget, projectionIdentity: PROJECTION_CLAUDE_PI },
+      ]);
+      expect(args[4].automatic.fullReconciliation).toBe(true);
+      return { written: [], skipped: ['.claude/company.md'], deleted: [], warnings: [], managedPathsDigest: undefined };
+    });
+
+    const response = await appFor(kv, undefined, { CODING_AGENTS: 'claude-code,pi' })
+      .request('/seed/agent-configs/upgrade', { method: 'POST' });
+
+    expect(response.status).toBe(200);
+    expect(await kv.get('user-prefs:user-bucket', 'json')).toMatchObject({
+      managedEnvironmentApplied: { projectionIdentity: PROJECTION_CLAUDE_PI },
+    });
+  });
+
+  it('REQ-STOR-035 AC7: selection drift after journaling blocks applied publication', async () => {
+    const kv = createMockKV();
+    kv._set('user-prefs:user-bucket', { sessionMode: 'advanced' });
+    reconcile.mockImplementationOnce(async (...args: any[]) => {
+      const env = args[0] as Env;
+      env.CODING_AGENTS = 'pi';
+      await args[4].automatic.beforeCleanup();
+      return { written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined };
+    });
+
+    const response = await appFor(kv, undefined, { CODING_AGENTS: 'claude-code,pi' })
+      .request('/seed/agent-configs/upgrade', { method: 'POST' });
+
+    expect(response.status).toBe(500);
+    const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
+    expect(preferences.managedEnvironmentApplied).toBeUndefined();
+    expect(preferences.managedEnvironmentReconciliation.targets).toEqual([
+      { digest: 'd'.repeat(64), sequence: 9, mode: 'advanced', projectionIdentity: PROJECTION_CLAUDE_PI },
+    ]);
   });
 
   it('REQ-STOR-029 AC7: transports configured policy and stamps verified identity last', async () => {
@@ -381,6 +515,7 @@ describe('managed storage reconcile', () => {
     expect(preferences.managedEnvironmentApplied).toBeUndefined();
     expect(preferences.workspaceSyncEnabled).toBe(true);
     expect(preferences.lastPreseedHash).toBe('baked-hash');
+    expect(preferences.lastPreseedProjectionIdentity).toBe(PROJECTION_ALL);
   });
 
   it('REQ-STOR-033 AC7: automatic endpoint is separate and manual Recreate remains full overwrite', async () => {
@@ -423,7 +558,7 @@ describe('managed storage reconcile', () => {
     const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
     expect(preferences.managedEnvironmentApplied).toBeUndefined();
     expect(preferences.managedEnvironmentReconciliation).toEqual({
-      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' }],
+      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced', projectionIdentity: PROJECTION_ALL }],
     });
   });
 
@@ -443,7 +578,7 @@ describe('managed storage reconcile', () => {
     expect(response.status).toBe(500);
     const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
     expect(preferences.managedEnvironmentReconciliation).toEqual({
-      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' }],
+      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced', projectionIdentity: PROJECTION_ALL }],
     });
   });
 
@@ -607,7 +742,7 @@ describe('managed storage reconcile', () => {
       const during = await kv.get('user-prefs:user-bucket', 'json') as any;
       expect(during.managedEnvironmentReconciliation.targets).toEqual([
         { digest: '2'.repeat(64), sequence: 8, mode: 'advanced' },
-        { digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' },
+        { digest: 'd'.repeat(64), sequence: 9, mode: 'advanced', projectionIdentity: PROJECTION_ALL },
       ]);
       expect(args[4].interruptedManagedReleases).toEqual([
         expect.objectContaining({ digest: '2'.repeat(64), mode: 'advanced' }),
@@ -641,7 +776,7 @@ describe('managed storage reconcile', () => {
     const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
     expect(preferences.managedEnvironmentApplied).toBeUndefined();
     expect(preferences.managedEnvironmentReconciliation).toEqual({
-      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' }],
+      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced', projectionIdentity: PROJECTION_ALL }],
     });
   });
 

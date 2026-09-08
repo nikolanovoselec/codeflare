@@ -15,6 +15,8 @@ import type { AccessUser, Env } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
 
+const PROJECTION_ALL = 'v1:claude-code,codex,copilot,antigravity,opencode,pi';
+
 // Hoisted shared test state
 const testState = vi.hoisted(() => ({
   container: null as {
@@ -165,7 +167,10 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
     it('retains a previously applied verified release during a transient cache outage', async () => {
       testState.managedReleaseError = new Error('verified cache unavailable');
       mockKV._set('user-prefs:test-bucket', {
-        managedEnvironmentApplied: { digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'default', appliedAt: '2026-08-18T00:00:00.000Z' },
+        managedEnvironmentApplied: {
+          digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'default',
+          projectionIdentity: PROJECTION_ALL, appliedAt: '2026-08-18T00:00:00.000Z',
+        },
       });
       const fetch = createApp();
 
@@ -182,6 +187,30 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
         managedResourcePolicy: 'mutable',
         managedResourcePathsDigest: null,
       }));
+    });
+
+    it.each([
+      ['missing', undefined],
+      ['selection mismatch', 'v1:pi'],
+      ['schema mismatch', 'v0:claude-code,codex,copilot,antigravity,opencode,pi'],
+    ])('REQ-STOR-023 AC3: blocks container start when applied projection identity is %s', async (_case, projectionIdentity) => {
+      testState.activeManagedRelease = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' };
+      mockKV._set('user-prefs:test-bucket', {
+        managedEnvironmentApplied: {
+          digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'default',
+          ...(projectionIdentity ? { projectionIdentity } : {}),
+          appliedAt: '2026-08-18T00:00:00.000Z',
+        },
+      });
+      const fetch = createApp();
+
+      const response = await fetch('/container/start?sessionId=abcdef1234567890abcdef12', { method: 'POST' });
+      const body = await response.json() as { code: string };
+
+      expect(response.status).toBe(409);
+      expect(body.code).toBe('MANAGED_ENVIRONMENT_UPDATE_PENDING');
+      expect(createBucketIfNotExists).not.toHaveBeenCalled();
+      expect(testState.container!.fetch).not.toHaveBeenCalled();
     });
 
     it('REQ-STOR-022 AC3: blocks container start while interrupted targets remain pending', async () => {
@@ -306,7 +335,8 @@ describe('REQ-SESSION-003: R2 bucket mounted and synced on start', () => {
         sessionMode: 'advanced',
         managedEnvironmentApplied: {
           digest: 'd'.repeat(64), managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'advanced',
-          resourcePolicy: 'exclusive', managedPathsDigest: 'f'.repeat(64), appliedAt: '2026-08-18T00:00:00.000Z',
+          resourcePolicy: 'exclusive', managedPathsDigest: 'f'.repeat(64), projectionIdentity: PROJECTION_ALL,
+          appliedAt: '2026-08-18T00:00:00.000Z',
         },
       });
       const fetch = createApp({ ENTERPRISE_MODE: 'active', EGRESS: { fetch: vi.fn() } as unknown as Fetcher });

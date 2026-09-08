@@ -68,7 +68,9 @@ describe('Storage Upload Routes / REQ-STOR-008 (file upload via direct-to-R2 PUT
     mockKV._set('user-prefs:test-bucket', {
       managedEnvironmentApplied: {
         digest: releaseDigest, sequence: 1, mode: 'default', managedExtensionsDigest: 'e'.repeat(64),
-        resourcePolicy: 'immutable', managedPathsDigest: pathsDigest, appliedAt: '2026-01-01T00:00:00.000Z',
+        resourcePolicy: 'immutable', managedPathsDigest: pathsDigest,
+        projectionIdentity: 'v1:claude-code,codex,copilot,antigravity,opencode,pi',
+        appliedAt: '2026-01-01T00:00:00.000Z',
       },
     });
     mockFetch.mockResolvedValue(new Response(policyBytes, { status: 200 }));
