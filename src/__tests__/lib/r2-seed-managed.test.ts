@@ -1275,11 +1275,15 @@ describe('managed release user-bucket reconciliation', () => {
     const activeHistorical = '.pi/agent/extensions/active-edit.ts';
     const unknownHistorical = 'legacy/shared-resource.txt';
     const target = await selection('8'.repeat(64), release(58, [document('.pi/agent/extensions/current.ts')]));
-    const prior = await selection('7'.repeat(64), release(57, [
-      document(activeHistorical),
-      document('.pi/agent/extensions/current.ts'),
-      document(unknownHistorical),
-    ]));
+    const prior = {
+      digest: '7'.repeat(64),
+      compressed: new Uint8Array(),
+      release: release(57, [
+        document(activeHistorical),
+        document('.pi/agent/extensions/current.ts'),
+        document(unknownHistorical),
+      ]),
+    };
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === 'HEAD' && (url.endsWith(`/${activeHistorical}`) || url.endsWith(`/${unknownHistorical}`))) {
         return new Response('', { status: 200, headers: { etag: '"user-owned"' } });

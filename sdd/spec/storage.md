@@ -1265,7 +1265,35 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ---
 
-### REQ-STOR-046: Coding-agent selection and ownership
+### REQ-STOR-046: Selected managed-release projection
+
+**Intent:** User-bucket reconciliation applies only the active agents from one universal release.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Fingerprint planning uses only selected managed documents. <!-- @impl: src/lib/r2-seed.ts::getSelectedManagedDocumentKeys --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
+2. Streaming writes use the same selected target as planning. <!-- @impl: src/lib/r2-seed.ts::seedManagedDocuments --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
+3. Reconciliation progress counts the selected target. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
+4. Published pending and applied state carries projection identity. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC3: journals the canonical projection before R2 work and publishes it with applied state) -->
+5. Published baked state carries projection identity. <!-- @impl: src/routes/preferences.ts::app --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-033: baked mode reconciliation stamps selection identity beside the content hash) -->
+6. Absent or changed projection identity triggers a full selected-target reconciliation. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033: a full selected-target pass verifies every selected document and metadata) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC3: same-release %s forces a full selected-target pass) -->
+7. Markerless inactive-agent deletion requires a matching conditional identity check. <!-- @impl: src/lib/r2-seed.ts::deleteExactInactiveConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 + REQ-STOR-035: a competing replacement blocks inactive cleanup and policy publication) -->
+
+**Constraints:** Projection does not change the universal signed release digest.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-STOR-033](#req-stor-033-managed-release-delta-planning-and-resume), [REQ-STOR-035](#req-stor-035-managed-reconciliation-cleanup-and-finalization)
+
+**Verification:** Automated planning, write, progress, state, and cleanup tests.
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-047: Coding-agent selection and ownership
 
 **Intent:** Deployment configuration resolves one valid ownership boundary for agent resources.
 
@@ -1292,34 +1320,6 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 ---
 
-### REQ-STOR-047: Selected managed-release projection
-
-**Intent:** User-bucket reconciliation applies only the active agents from one universal release.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Fingerprint planning uses only selected managed documents. <!-- @impl: src/lib/r2-seed.ts::getSelectedManagedDocumentKeys --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
-2. Streaming writes use the same selected target as planning. <!-- @impl: src/lib/r2-seed.ts::seedManagedDocuments --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
-3. Reconciliation progress counts the selected target. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-024: automatic fingerprints, streaming writes, and progress use the same selected keys) -->
-4. Published pending, applied, and baked state carries projection identity. <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-035 AC1/AC3: journals the canonical projection before R2 work and publishes it with applied state) --> <!-- @test: src/__tests__/routes/preferences.test.ts (REQ-STOR-033: baked mode reconciliation stamps selection identity beside the content hash) -->
-5. Absent projection identity triggers a full selected-target reconciliation. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-033: a full selected-target pass verifies every selected document and metadata) -->
-6. Changed projection identity triggers a full selected-target reconciliation. <!-- @impl: src/lib/r2-seed.ts::buildManagedAutomaticPlan --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-033 AC3: same-release %s forces a full selected-target pass) -->
-7. Markerless inactive-agent deletion requires a matching conditional identity check. <!-- @impl: src/lib/r2-seed.ts::deleteExactInactiveConfigs --> <!-- @test: src/__tests__/lib/r2-seed-managed.test.ts (REQ-STOR-021 + REQ-STOR-035: a competing replacement blocks inactive cleanup and policy publication) -->
-
-**Constraints:** Projection does not change the universal signed release digest.
-
-**Priority:** P0
-
-**Dependencies:** [REQ-STOR-024](#req-stor-024-managed-release-application), [REQ-STOR-033](#req-stor-033-managed-release-delta-planning-and-resume), [REQ-STOR-035](#req-stor-035-managed-reconciliation-cleanup-and-finalization)
-
-**Verification:** Automated planning, write, progress, state, and cleanup tests.
-
-**Status:** Implemented
-
----
-
 ### REQ-STOR-048: Selected agent startup
 
 **Intent:** Container startup activates only image resources owned by selected coding agents.
@@ -1331,13 +1331,13 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. Startup validates agent selection before initial restore. <!-- @impl: entrypoint.sh::run_initial_r2_restore --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-024: rejects invalid explicit selection before initial restore or baseline work) -->
 2. Baked lay-down copies only selected agent roots. <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-024: lays down only selected agent roots and skips the Pi relay when Pi is inactive) -->
 3. Pi relay does not run when Pi is inactive. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions --> <!-- @test: host/__tests__/entrypoint-managed-curation.test.js (REQ-STOR-024: lays down only selected agent roots and skips the Pi relay when Pi is inactive) -->
-4. Claude context setup does not run when Claude Code is inactive. <!-- @impl: entrypoint.sh::coding_agent_is_selected --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (REQ-STOR-024: Claude-inactive startup does not register or enable Claude context-mode) -->
+4. Claude context setup does not run when Claude Code is inactive. <!-- @impl: entrypoint.sh::claude_context_mode_is_selected --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (REQ-STOR-024: Claude-inactive startup does not register or enable Claude context-mode) -->
 
 **Constraints:** Remote curation retains release-owned bytes and image-owned companions.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-031](#req-stor-031-managed-resource-container-sync)
+**Dependencies:** [REQ-STOR-004](#req-stor-004-initial-sync-restores-files-on-container-start), [REQ-STOR-031](#req-stor-031-managed-resource-container-sync), [REQ-STOR-047](#req-stor-047-coding-agent-selection-and-ownership)
 
 **Verification:** Automated startup-order, baked lay-down, Pi relay, and Claude context tests.
 

@@ -3578,6 +3578,10 @@ CF_OAUTH_CA_EOF
 fi
 
 # Configure context-mode MCP server. (Implements REQ-AGENT-005)
+claude_context_mode_is_selected() {
+    coding_agent_is_selected claude-code
+}
+
 # context-mode (https://github.com/mksglu/context-mode) ships in two layers:
 #   1. MCP server (ctx_* tools) - registered for ALL users on every session
 #      so the agent always has the helper tools available. The package is
@@ -3613,7 +3617,7 @@ fi
 # without revisiting AD49 first.
 CONTEXT_MODE_VERSION="1.0.169"
 CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
-if coding_agent_is_selected claude-code; then
+if claude_context_mode_is_selected; then
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     # Surface the manifest version in the entrypoint log so a mismatch
     # against the build-time-installed binary (= /usr/local/bin/context-mode
@@ -4082,7 +4086,7 @@ repair_hook_exec_bits
 
 # Enable plugins (silently skipped if plugin files absent in default mode).
 # context-mode and graphify are conditionally enabled via the preseed-plugin gates.
-if coding_agent_is_selected claude-code && [ -f "$CONTEXT_MODE_MANIFEST" ]; then
+if claude_context_mode_is_selected && [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     PLUGINS_CONFIG='{"enabledPlugins":{"codeflare-memory":true,"codeflare-hooks":true,"context-mode":true}}'
     echo "[entrypoint] context-mode plugin enabled (preseed manifest present)"
 else
