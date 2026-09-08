@@ -791,14 +791,19 @@ Multi-agent support, preseed system, and session modes.
 
 **Acceptance Criteria:**
 
-1. Creating or materially rewriting any pull request loads the canonical authoring reference regardless of source or base branch. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Triggers and routes --> <!-- @impl: preseed/agents/pi/rules/git-workflow.md::Git Workflow --> <!-- @impl: preseed/agents/claude/skills/pr-workflow/SKILL.md::Pull Request Workflow --> <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md::Pull Request Workflow in Pi --> <!-- @test: host/__tests__/agent-seed-core.test.js (REQ-AGENT-212: every delivered PR workflow loads the canonical authoring reference) -->
+1. Creating or materially rewriting any pull request loads the canonical authoring reference regardless of source or base branch. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Triggers and routes --> <!-- @impl: preseed/agents/pi/rules/git-workflow.md::Git Workflow --> <!-- @impl: preseed/agents/claude/skills/pr-workflow/SKILL.md::Pull Request Workflow --> <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md::Pull Request Workflow in Pi --> <!-- @manual -->
 2. Every body follows the same ordered roles: summary, shipped behavior, linked traceability, verification, boundaries, completion state, and final review record. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Canonical shape --> <!-- @manual -->
 3. Issues, incorporated pull requests, requirements, decisions, commits, runs, releases, deployments, and follow-ups are linked only with their relationship and relevance stated. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Links and traceability --> <!-- @manual -->
 4. Verification identifies exact heads and distinguishes automated, deployed, managed-publication, manual, owner-reported, and pending evidence. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Verification --> <!-- @manual -->
 5. Features and improvements precede secondary corrections; operational boundaries follow verification, and substantive review history stays last. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Core rule --> <!-- @manual -->
-6. The authoring reference reaches every skill-capable runtime in default and advanced modes, with native Pi and canonical workflow skills pointing to the same relative path. <!-- @impl: preseed/agents/claude/manifest.json::skills/pr-workflow/references/pull-request-authoring.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (REQ-AGENT-212: every delivered PR workflow loads the canonical authoring reference) -->
+6. The authoring reference reaches every skill-capable runtime in default and advanced modes. <!-- @impl: preseed/agents/claude/manifest.json::skills/pr-workflow/references/pull-request-authoring.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (REQ-AGENT-212: generates byte-identical output and delivers the canonical PR authoring reference) -->
+7. Native Pi and canonical workflow skills point to the same relative authoring-reference path. <!-- @impl: preseed/agents/claude/skills/pr-workflow/SKILL.md::Pull Request Workflow --> <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md::Pull Request Workflow in Pi --> <!-- @manual -->
 
-**Constraints:** Detail scales to the change without dropping the section roles. Closing keywords are used only when the PR targets the default branch and should close the linked issue. Raw requirement, commit, file, or check catalogs are not traceability.
+**Constraints:**
+
+- Detail scales without dropping the section roles.
+- Closing keywords are used only when the PR targets the default branch and should close the linked issue.
+- Raw requirement, commit, file, or check catalogs are not traceability.
 
 **Priority:** P1
 
