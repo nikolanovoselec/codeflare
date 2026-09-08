@@ -854,9 +854,9 @@ describe('managed release user-bucket reconciliation', () => {
 
     expect(result.deleted).toContain('.claude/extensions/obsolete.md');
     const desiredPut = fetchR2.mock.calls.findIndex(([url, init]) => url.endsWith('/current.md') && init?.method === 'PUT');
-    const cleanupList = fetchR2.mock.calls.findIndex(([url]) => String(url).includes('list-type=2'));
+    const cleanupDelete = fetchR2.mock.calls.findIndex(([url, init]) => url.endsWith('/obsolete.md') && init?.method === 'DELETE');
     expect(desiredPut).toBeGreaterThanOrEqual(0);
-    expect(cleanupList).toBeGreaterThan(desiredPut);
+    expect(cleanupDelete).toBeGreaterThan(desiredPut);
   });
 
   it('REQ-STOR-035 AC6: fallback cleanup preserves an object replaced after inspection', async () => {
@@ -1118,8 +1118,8 @@ describe('managed release user-bucket reconciliation', () => {
     const digest = 'a'.repeat(64);
     const managedRelease = await selection(digest, release(51, [
       document('.claude/skills/company/SKILL.md'),
-      document('.pi/agent/extensions/company.ts'),
       document('.codex/rules/company.md'),
+      document('.pi/agent/extensions/company.ts'),
     ]));
 
     const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
@@ -1150,6 +1150,10 @@ describe('managed release user-bucket reconciliation', () => {
     ]));
     const progress: Array<{ completed: number; total: number }> = [];
 
+    fetchR2.mockImplementation(async (_url: string, init?: RequestInit) => (
+      init?.method === 'HEAD' ? new Response('', { status: 404 }) : new Response('', { status: 200 })
+    ));
+
     const result = await reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
       overwrite: true,
       cleanup: true,
@@ -1171,7 +1175,9 @@ describe('managed release user-bucket reconciliation', () => {
       { completed: 1, total: 2 },
       { completed: 2, total: 2 },
     ]);
-    expect(fetchR2.mock.calls.some(([url]) => String(url).includes('/.claude/'))).toBe(false);
+    expect(fetchR2.mock.calls.some(([url, init]) => (
+      String(url).includes('/.claude/') && init?.method !== 'HEAD'
+    ))).toBe(false);
   });
 
   it('REQ-STOR-021: exact inactive paths from current, prior, and interrupted inventories delete markerless with HEAD ETags', async () => {
@@ -1181,12 +1187,12 @@ describe('managed release user-bucket reconciliation', () => {
       '.gemini/commands/interrupted.toml',
     ];
     const target = await selection('3'.repeat(64), release(53, [
-      document('.pi/agent/extensions/current.ts', ['default'], 'target Pi'),
       document(inactiveKeys[0]),
+      document('.pi/agent/extensions/current.ts', ['default'], 'target Pi'),
     ]));
     const prior = await selection('2'.repeat(64), release(52, [
-      document('.pi/agent/extensions/current.ts', ['default'], 'prior Pi'),
       document(inactiveKeys[1]),
+      document('.pi/agent/extensions/current.ts', ['default'], 'prior Pi'),
     ]));
     const interrupted = await selection('4'.repeat(64), release(54, [document(inactiveKeys[2])]));
     const deleted = new Set<string>();
@@ -1231,12 +1237,12 @@ describe('managed release user-bucket reconciliation', () => {
   it('REQ-STOR-021 + REQ-STOR-035: a competing replacement blocks inactive cleanup and policy publication', async () => {
     const inactiveKey = '.claude/skills/company/SKILL.md';
     const target = await selection('6'.repeat(64), release(56, [
-      document('.pi/agent/extensions/company.ts'),
       document(inactiveKey),
+      document('.pi/agent/extensions/company.ts'),
     ]));
     const prior = await selection('5'.repeat(64), release(55, [
-      document('.pi/agent/extensions/company.ts'),
       document(inactiveKey),
+      document('.pi/agent/extensions/company.ts'),
     ]));
     fetchR2.mockImplementation(async (url: string, init?: RequestInit) => {
       if (url.endsWith(`/${inactiveKey}`) && init?.method === 'HEAD') {
@@ -1378,7 +1384,11 @@ describe('managed release user-bucket reconciliation', () => {
   });
 
   it('REQ-STOR-021 + REQ-STOR-029: an unknown current owner fails before any R2 mutation', async () => {
-    const unknown = await selection('a'.repeat(64), release(60, [document('.shared/rules/company.md')]));
+    const unknown = {
+      digest: 'a'.repeat(64),
+      compressed: new Uint8Array(),
+      release: release(60, [document('.shared/rules/company.md')]),
+    };
 
     await expect(reconcileAgentConfigs(env, 'bucket', endpoint, 'default', {
       overwrite: true,
@@ -1392,14 +1402,13 @@ describe('managed release user-bucket reconciliation', () => {
 
   it('REQ-STOR-033: a full selected-target pass verifies every selected document and metadata', async () => {
     const targetDigest = 'b'.repeat(64);
-    const target = await selection(targetDigest, release(61, [
-      document('.pi/agent/extensions/first.ts', ['default'], 'first'),
+    const targetDocuments = [
       document('.claude/skills/inactive/SKILL.md', ['default'], 'inactive'),
+      document('.pi/agent/extensions/first.ts', ['default'], 'first'),
       document('.pi/agent/rules/second.md', ['default'], 'second'),
-    ]));
-    const prior = await selection('c'.repeat(64), release(60, target.release.documents.map((item) => (
-      document(item.key, item.modes, item.content, item.contentType)
-    ))));
+    ];
+    const target = await selection(targetDigest, release(61, targetDocuments));
+    const prior = await selection('c'.repeat(64), release(60, targetDocuments));
     const expectedByKey = new Map([
       ['.pi/agent/extensions/first.ts', { body: 'first', contentType: 'text/markdown; charset=utf-8' }],
       ['.pi/agent/rules/second.md', { body: 'second', contentType: 'text/markdown; charset=utf-8' }],
@@ -1450,12 +1459,12 @@ describe('managed release user-bucket reconciliation', () => {
 
   it('REQ-STOR-033: matching projection identity keeps unchanged selected documents on direct delta', async () => {
     const target = await selection('d'.repeat(64), release(62, [
-      document('.pi/agent/extensions/stable.ts', ['default'], 'stable'),
       document('.claude/skills/inactive/SKILL.md', ['default'], 'inactive'),
+      document('.pi/agent/extensions/stable.ts', ['default'], 'stable'),
     ]));
     const prior = await selection('e'.repeat(64), release(61, [
-      document('.pi/agent/extensions/stable.ts', ['default'], 'stable'),
       document('.claude/skills/inactive/SKILL.md', ['default'], 'prior inactive'),
+      document('.pi/agent/extensions/stable.ts', ['default'], 'stable'),
     ]));
     const progress: Array<{ completed: number; total: number }> = [];
 

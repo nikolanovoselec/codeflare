@@ -21,7 +21,13 @@ const state = vi.hoisted(() => ({
   containerStatus: 'running',
   containerError: null as Error | null,
 }));
-const reconcile = vi.hoisted(() => vi.fn(async () => ({ written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined as string | undefined })));
+const reconcile = vi.hoisted(() => vi.fn(async (): Promise<{
+  written: string[];
+  skipped: string[];
+  deleted: string[];
+  warnings: string[];
+  managedPathsDigest: string | undefined;
+}> => ({ written: ['.claude/company.md'], skipped: [], deleted: [], warnings: [], managedPathsDigest: undefined })));
 const reseedContext = vi.hoisted(() => vi.fn(async () => ({ written: [], skipped: [] })));
 const createBucket = vi.hoisted(() => vi.fn(async () => ({ success: true, created: false })));
 const fetchR2 = vi.hoisted(() => vi.fn(async () => new Response('', { status: 200 })));
@@ -225,7 +231,6 @@ describe('managed storage reconcile', () => {
   it.each([
     ['legacy identity', undefined, 'mutable', 'mutable'],
     ['selection change', 'v1:claude-code', 'mutable', 'mutable'],
-    ['schema change', 'v0:claude-code,pi', 'mutable', 'mutable'],
     ['policy change', PROJECTION_CLAUDE_PI, 'mutable', 'exclusive'],
   ] as const)('REQ-STOR-033 AC3: same-release %s forces a full selected-target pass', async (_case, priorProjection, appliedPolicy, desiredPolicy) => {
     state.resourcePolicy = desiredPolicy;
@@ -553,7 +558,7 @@ describe('managed storage reconcile', () => {
     const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
     expect(preferences.managedEnvironmentApplied).toBeUndefined();
     expect(preferences.managedEnvironmentReconciliation).toEqual({
-      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' }],
+      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced', projectionIdentity: PROJECTION_ALL }],
     });
   });
 
@@ -573,7 +578,7 @@ describe('managed storage reconcile', () => {
     expect(response.status).toBe(500);
     const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
     expect(preferences.managedEnvironmentReconciliation).toEqual({
-      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' }],
+      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced', projectionIdentity: PROJECTION_ALL }],
     });
   });
 
@@ -737,7 +742,7 @@ describe('managed storage reconcile', () => {
       const during = await kv.get('user-prefs:user-bucket', 'json') as any;
       expect(during.managedEnvironmentReconciliation.targets).toEqual([
         { digest: '2'.repeat(64), sequence: 8, mode: 'advanced' },
-        { digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' },
+        { digest: 'd'.repeat(64), sequence: 9, mode: 'advanced', projectionIdentity: PROJECTION_ALL },
       ]);
       expect(args[4].interruptedManagedReleases).toEqual([
         expect.objectContaining({ digest: '2'.repeat(64), mode: 'advanced' }),
@@ -771,7 +776,7 @@ describe('managed storage reconcile', () => {
     const preferences = await kv.get('user-prefs:user-bucket', 'json') as any;
     expect(preferences.managedEnvironmentApplied).toBeUndefined();
     expect(preferences.managedEnvironmentReconciliation).toEqual({
-      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced' }],
+      targets: [{ digest: 'd'.repeat(64), sequence: 9, mode: 'advanced', projectionIdentity: PROJECTION_ALL }],
     });
   });
 

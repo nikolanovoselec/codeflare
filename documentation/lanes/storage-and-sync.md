@@ -48,9 +48,11 @@ Signed immutable assets are content-addressed under `releases/<bundle-sha256>/`.
 
 Under [REQ-STOR-024 AC5-AC7](../../sdd/spec/storage.md#req-stor-024-managed-release-application), user reconciliation reads only verified releases from the disposable cache and never GitHub. Without prior history it can still remove exact current-release paths excluded by mode or inactive ownership; signed retirements cover globally removed paths. Arbitrary historical paths absent from available verified inventories remain undiscoverable. A cacheless disable therefore fails before bucket mutation and retains applied state. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 
-A user's applied release digest, exact managed-extension-manifest digest, sequence, mode, and canonical agent projection live in preferences. Pending targets carry the same projection. Legacy records without it remain retryable and force one full pass rather than guessing what the bucket contains.
+A user's applied release digest, exact managed-extension-manifest digest, sequence, mode, and canonical agent projection live in preferences. Pending targets carry the same projection. Legacy records without it remain retryable and force one full pass rather than guessing what the bucket contains. <!-- @impl: src/types.ts::UserPreferences -->
 
-The agent-config route projects one universal verified release through the deployment's `CODING_AGENTS` selection. Fingerprint planning and streamed writes share the same selected key set. Exact paths assigned by current or available verified inventory to inactive agents are removed with ETag-conditional deletes even when their marker is absent; active and unknown historical paths keep provenance rules. The route records applied state only after selected content, required deletions, context companions, and policy verify. No user bucket is mutated while a session owns it. <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest -->
+The agent-config route projects one universal verified release through the deployment's `CODING_AGENTS` selection. Fingerprint planning and streamed writes share the same selected key set. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::resolveCodingAgents --> <!-- @impl: src/lib/r2-seed.ts::getSelectedManagedDocumentKeys -->
+
+Exact paths assigned by current or available verified inventory to inactive agents are removed with ETag-conditional deletes even when their marker is absent; active and unknown historical paths keep provenance rules. The route records applied state only after selected content, required deletions, context companions, and policy verify. No user bucket is mutated while a session owns it. <!-- @impl: src/lib/r2-seed.ts::deleteExactInactiveConfigs --> <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest -->
 
 ### Managed-resource persistence modes
 
@@ -60,11 +62,15 @@ A managed path is an exact object key owned by the verified release inventory, a
 
 **Immutable** applies when **Immutable Resources** is enabled and **Disable User Created Resources** is disabled. Current managed paths and signed retirement tombstones are exact protected paths. Personal files elsewhere continue to persist. Container filters keep routine bisync away from protected paths; if those filters are bypassed or damaged, the Worker rejects the protected R2 mutation with S3 `403`. A file at a path introduced by a later release is replaced by managed content and protected from then on.
 
-**Exclusive** applies when **Disable User Created Resources** is enabled. Universal policy still protects exact paths and governed roots for all six agent homes, so sync cannot restore inactive content. Cleanup uses a separate selected keep-set and removes unrecognized objects only inside those governed roots after bounded prevalidation. Selected files, Worker metadata, active runtime companions, root-level personal files, and unrelated home paths survive. Enabling this mode is intentionally destructive inside governed roots, so reconciliation waits until the user's sessions have stopped.
+**Exclusive** applies when **Disable User Created Resources** is enabled. Universal policy still protects exact paths and governed roots for all six agent homes, so sync cannot restore inactive content. Cleanup uses a separate selected keep-set and removes unrecognized objects only inside those governed roots after bounded prevalidation. <!-- @impl: src/lib/managed-r2-policy.ts::buildManagedR2Policy -->
+
+Selected files, Worker metadata, active runtime companions, root-level personal files, and unrelated home paths survive. Enabling this mode is intentionally destructive inside governed roots, so reconciliation waits until the user's sessions have stopped.
 
 #### Release changes and retirement
 
-Each user carries an applied release and projection identity. Matching identities use the retained release for direct delta planning, so a user may skip several releases without replaying intermediate versions. A selection, schema, or policy change runs a full selected-target pass at the same universal release. Before the first write or delete, reconciliation classifies current and available historical inventories, lists Exclusive roots when required, deduplicates cleanup candidates, and enforces the existing bounds.
+Each user carries an applied release and projection identity. Matching identities use the retained release for direct delta planning, so a user may skip several releases without replaying intermediate versions. A selection, schema, or policy change runs a full selected-target pass at the same universal release.
+
+Before the first write or delete, reconciliation classifies current and available historical inventories, lists Exclusive roots when required, deduplicates cleanup candidates, and enforces the existing bounds. <!-- @impl: src/lib/r2-seed.ts::buildReconcileCleanupPreflight -->
 
 Routine retirement therefore needs no hand-maintained list: remove the file from the curation manifest and publish a new release. `preseed/retired-keys.json` serves a narrower purpose. It is the cumulative backlog of proven product-created objects that predate provenance markers, plus exceptional product-generated orphans that no release comparison can own safely. The shared compiler validates that list, rejects paths that are still live, and publishes it as sorted `retiredPaths` in `seed-v1`.
 
@@ -84,7 +90,7 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 15 min
 
 [REQ-STOR-004](../../sdd/spec/storage.md#req-stor-004-initial-sync-restores-files-on-container-start) and [REQ-STOR-031](../../sdd/spec/storage.md#req-stor-031-managed-resource-container-sync) govern this startup order. <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
 
-1. Startup validates the canonical agent selection, lays down only selected baked roots when Governed Mode can checksum them, then runs the one-way R2 restore.
+1. Startup validates the canonical agent selection, lays down only selected baked roots when Governed Mode can checksum them, then runs the one-way R2 restore. <!-- @impl: entrypoint.sh::validate_coding_agent_selection --> <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed -->
 2. Managed configuration and tab autostart finish. Pi relay runs only when Pi is active, and Claude context-mode setup runs only when Claude Code is active. <!-- @impl: entrypoint.sh::complete_managed_curation_startup --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
 
     Baked mode restores image bytes and removes retired managed files; remote curation preserves release-owned bytes while restoring the image-owned context-mode runtime they import. <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->

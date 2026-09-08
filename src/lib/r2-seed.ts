@@ -1155,8 +1155,9 @@ async function listExclusiveCleanupCandidates(
   const client = createR2Client(env);
   const candidates = new Set<string>();
   const protectedPaths = new Set(keepKeys);
-  const isProtectedPath = (key: string): boolean => protectedPaths.has(key) || [...protectedPaths].some((path) => (
-    path.endsWith('/') && (key === path.slice(0, -1) || key.startsWith(path))
+  const protectedPrefixes = [...protectedPaths].filter((path) => path.endsWith('/'));
+  const isProtectedPath = (key: string): boolean => protectedPaths.has(key) || protectedPrefixes.some((path) => (
+    key === path.slice(0, -1) || key.startsWith(path)
   ));
   const sseHeaders = getSseHeaders(env, r2SseDisabled);
   let listedObjects = 0;

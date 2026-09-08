@@ -153,6 +153,7 @@ describe('managed curation entrypoint behavior', () => {
     assert.equal(readFileSync(run.extensionFile, 'utf8'), 'baked image');
     assert.deepEqual(readFileSync(run.events, 'utf8').trim().split('\n'), [
       'laydown',
+      'laydown',
       'initial',
       'post-restore',
       'prepare-filter',

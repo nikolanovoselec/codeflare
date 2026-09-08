@@ -222,7 +222,9 @@ cleaning, an older marker means the product has dropped that key -- so
 retirements need no bookkeeping. An S3 PUT replaces metadata wholesale and
 rclone does not send custom metadata, so editing a seeded file through the
 browser or inside the container drops the marker and the file becomes the
-user's own. Ordinary active-agent retirement still requires that ownership evidence. A separate rule removes an exact path without a marker only when current or already-available verified inventory assigns it to an inactive deployment agent. The marker behavior was probed against a real R2 bucket before the mechanism was built on it; see
+user's own. Ordinary active-agent retirement still requires that ownership evidence.
+
+A separate rule removes an exact path without a marker only when current or already-available verified inventory assigns it to an inactive deployment agent. The marker behavior was probed against a real R2 bucket before the mechanism was built on it; see
 [AD118](../decisions/README.md#ad118-seed-provenance-is-carried-in-r2-custom-metadata-verified-before-it-was-relied-on).
 
 Listing is issued per two-segment prefix (`.claude/skills/`, `.pi/agent/`
@@ -254,7 +256,9 @@ It removes interrupted-only paths only while they retain that provenance. The
 state survives another interruption and clears with successful applied
 publication. See [REQ-STOR-035](../../sdd/spec/storage.md#req-stor-035-managed-reconciliation-cleanup-and-finalization).
 
-When both applied and target bundles are available, direct-delta cleanup considers paths present in the applied mode and absent from the selected target. Exact paths with verified inactive ownership are removed regardless of marker. Active and unknown history, including signed retirements, retains its existing mutable or protected provenance rule. Conditional deletion preserves an object replaced after inspection. The applied release and projection identities are written only after reconciliation and final selection, mode, policy, SSE, session ownership, and migration checks. Implements
+When both applied and target bundles are available, direct-delta cleanup considers paths present in the applied mode and absent from the selected target. Exact paths with verified inactive ownership are removed regardless of marker. Active and unknown history, including signed retirements, retains its existing mutable or protected provenance rule.
+
+Conditional deletion preserves an object replaced after inspection. The applied release and projection identities are written only after reconciliation and final selection, mode, policy, SSE, session ownership, and migration checks. Implements
 [REQ-STOR-019](../../sdd/spec/storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed),
 [REQ-STOR-033](../../sdd/spec/storage.md#req-stor-033-managed-release-delta-planning-and-resume),
 [REQ-STOR-034](../../sdd/spec/storage.md#req-stor-034-observational-managed-reconciliation-progress-writes),
@@ -817,9 +821,9 @@ Pi subagents are provided by `@gotgenes/pi-subagents`; the generator adapts
 
 The generator produces adapted config files for all supported agents from Claude Code's preseed as the default source. Pi-specific runtime contracts that must differ, such as `git-workflow` and `ci-monitoring`, remain native Pi manifest entries.
 
-Curation publishes one universal signed seed. The Worker maps each managed path to exactly one of the six agent homes, rejects an unknown current root, then writes only documents owned by active deployment agents. It stores identities such as `v1:claude-code,pi` beside applied and pending state; changing the selection triggers reconciliation without changing the universal release digest. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::managedPathOwner --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
+Curation publishes one universal signed seed. The Worker maps each managed path to exactly one of the six agent homes, rejects an unknown current root, then writes only documents owned by active deployment agents. It stores identities such as `v1:claude-code,pi` beside applied and pending state; changing the selection triggers reconciliation without changing the universal release digest. <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::resolveCodingAgents --> <!-- @impl: scripts/ci/coding-agent-selection-core.mjs::managedPathOwner --> <!-- @impl: src/lib/r2-seed.ts::reconcileAgentConfigs -->
 
-Inactive-agent cleanup is narrow and blunt on purpose. Current or already-available verified inventories authorize markerless deletion only for exact paths with an inactive owner. Active and unknown historical paths keep provenance rules. The image still contains the universal bake, but startup lays down selected roots, skips Pi relay when Pi is inactive, and does not configure Claude context-mode when Claude Code is inactive. <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
+Inactive-agent cleanup is narrow and blunt on purpose. Current or already-available verified inventories authorize markerless deletion only for exact paths with an inactive owner. Active and unknown historical paths keep provenance rules. The image still contains the universal bake, but startup lays down selected roots, skips Pi relay when Pi is inactive, and does not configure Claude context-mode when Claude Code is inactive. <!-- @impl: src/lib/r2-seed.ts::deleteExactInactiveConfigs --> <!-- @impl: entrypoint.sh::lay_down_agent_seed_preseed --> <!-- @impl: entrypoint.sh::relay_managed_pi_extensions -->
 
 Shared operational policy remains canonical under `preseed/agents/claude/`.
 `scripts/generate-agent-seed.mjs` keeps monolithic transformed instructions for Codex,

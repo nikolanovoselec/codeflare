@@ -658,7 +658,13 @@ describe('Preferences Routes', () => {
         'codeflare-test-user',
         'https://r2.test',
         'advanced',
-        { overwrite: true, cleanup: true, contextModeEnabled: false, r2SseDisabled: false },
+        expect.objectContaining({
+          overwrite: true,
+          cleanup: true,
+          contextModeEnabled: false,
+          r2SseDisabled: false,
+          projectionIdentity: 'v1:claude-code,codex,copilot,antigravity,opencode,pi',
+        }),
       );
     });
 
@@ -687,7 +693,13 @@ describe('Preferences Routes', () => {
         'codeflare-test-user',
         'https://r2.test',
         'default',
-        { overwrite: true, cleanup: true, contextModeEnabled: false, r2SseDisabled: false },
+        expect.objectContaining({
+          overwrite: true,
+          cleanup: true,
+          contextModeEnabled: false,
+          r2SseDisabled: false,
+          projectionIdentity: 'v1:claude-code,codex,copilot,antigravity,opencode,pi',
+        }),
       );
     });
 

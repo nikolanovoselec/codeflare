@@ -751,6 +751,7 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
         sessionMode: 'default',
         managedEnvironmentApplied: {
           digest, managedExtensionsDigest: 'e'.repeat(64), sequence: 4, mode: 'default',
+          projectionIdentity: PROJECTION_ALL,
           appliedAt: '2026-01-01T00:00:00.000Z',
         },
       });
