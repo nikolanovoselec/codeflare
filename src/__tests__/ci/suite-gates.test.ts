@@ -223,15 +223,21 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
   it('REQ-OPS-058 AC6-AC7: configures the native source regression without a container build and with a one-minute timeout', () => {
     const { testWorkflow } = readCacheWorkflowContract();
     const job = testWorkflow.jobs['impeccable-engine'];
-    const command = job.steps?.find((step) => step.name === 'Verify the pinned patched engine source')?.run;
-    const stepContracts = (job.steps ?? [])
-      .flatMap((step) => [step.run, step.uses])
-      .filter((value): value is string => typeof value === 'string')
-      .join('\n');
 
     expect(job['timeout-minutes']).toBe(1);
-    expect(command).toContain('scripts/ci/impeccable-engine-source.py');
-    expect(stepContracts).not.toMatch(/\b(?:docker|podman)\s+(?:build|buildx\s+build)|\bbuildah\s+(?:bud|build)|(?:docker\/build-push-action|redhat-actions\/buildah-build)@/i);
+    expect(job.steps).toEqual([
+      {
+        uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
+        with: {
+          'persist-credentials': false,
+          ref: '${{ github.event.pull_request.head.sha || github.sha }}',
+        },
+      },
+      {
+        name: 'Verify the pinned patched engine source',
+        run: 'python3 scripts/ci/impeccable-engine-source.py',
+      },
+    ]);
   });
 
   it('routes owned Browser IDE paths through the workflow classifier while leaving docs-only changes inert', () => {

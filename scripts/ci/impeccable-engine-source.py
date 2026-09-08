@@ -112,7 +112,7 @@ fn main() {{
 """
     harness_path = output.with_suffix(".rs")
     harness_path.write_text(harness)
-    subprocess.run(["rustc", "--edition=2021", str(harness_path), "-o", str(output)], check=True, timeout=15)
+    subprocess.run(["rustc", "--edition=2021", str(harness_path), "-o", str(output)], check=True, timeout=20)
 
 
 def run(binary: Path, *args: str) -> subprocess.CompletedProcess[str]:
