@@ -21,7 +21,6 @@ import {
   parseSessionArchive,
   prepareArchive,
   selectColdCaptures,
-  verifyRemoteArchive,
 } from '../../scripts/compact-session-captures.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -104,7 +103,7 @@ describe('session capture compaction', () => {
     assert.equal(prepareOutcome.phase_state, 'archive-prepared-sources-present');
     assert.equal(prepareOutcome.status, 'prepared');
     assert.equal(prepareOutcome.deletion_sync_completed, false);
-    assert.equal(prepareOutcome.next_phase, 'verify-remote-archive');
+    assert.equal(prepareOutcome.next_phase, 'delete-sources');
     assert.equal(prepareOutcome.source_count, names.length);
     const leftArchive = readFileSync(join(left.sessionsDir, 'Archive.md'));
     assert.deepEqual(leftArchive, readFileSync(join(right.sessionsDir, 'Archive.md')));
@@ -219,99 +218,7 @@ describe('session capture compaction', () => {
     assert.deepEqual(readFileSync(changedArchive.manifestPath), oldManifest);
   });
 
-  it('REQ-STOR-052 AC2: remote digest or conflict uncertainty blocks every source deletion', () => {
-    const fx = fixture();
-    const source = join(fx.sessionsDir, '2026-01-01T00-00-00+0000-source.md');
-    writeFileSync(source, 'durable source');
-    assert.equal(prepare(fx).status, 0);
-    const manifest = JSON.parse(readFileSync(fx.manifestPath, 'utf8'));
-
-    const verified = verifyRemoteArchive({
-      manifestPath: fx.manifestPath,
-      sessionsDir: fx.sessionsDir,
-      remoteSha256: manifest.archive.sha256,
-      remoteBytes: manifest.archive.bytes,
-      remoteConflictCount: 0,
-    });
-    assert.deepEqual(verified, {
-      phase: 'verify',
-      phase_state: 'remote-archive-verified-sources-present',
-      verified: true,
-      mode: 'digest',
-      sha256: manifest.archive.sha256,
-      bytes: manifest.archive.bytes,
-      deletion_sync_completed: false,
-      next_phase: 'relocate-provenance-then-delete-sources',
-    });
-    const shellVerify = run([
-      'verify', fx.manifestPath,
-      '--sessions', fx.sessionsDir,
-      '--remote-conflicts', '0',
-      '--sha256', manifest.archive.sha256,
-      '--bytes', String(manifest.archive.bytes),
-    ]);
-    assert.equal(shellVerify.status, 0, shellVerify.stderr);
-    assert.equal(JSON.parse(shellVerify.stdout).mode, 'digest');
-
-    for (const override of [
-      { remoteSha256: '0'.repeat(64), remoteBytes: manifest.archive.bytes, remoteConflictCount: 0 },
-      { remoteSha256: manifest.archive.sha256, remoteBytes: manifest.archive.bytes + 1, remoteConflictCount: 0 },
-      { remoteSha256: manifest.archive.sha256, remoteBytes: manifest.archive.bytes, remoteConflictCount: 1 },
-      { remoteSha256: manifest.archive.sha256, remoteBytes: manifest.archive.bytes },
-    ]) {
-      assert.throws(
-        () => verifyRemoteArchive({ manifestPath: fx.manifestPath, sessionsDir: fx.sessionsDir, ...override }),
-      );
-      assert.equal(existsSync(source), true);
-    }
-
-    for (const conflictName of [
-      'Archive.md.conflict-copy',
-      'Archive.conflict-copy.md',
-      'Archive (conflicted copy 2026-03-31).md',
-      'Archive.md.conflicted-copy',
-    ]) {
-      const conflictPath = join(fx.sessionsDir, conflictName);
-      writeFileSync(conflictPath, 'conflict');
-      assert.throws(() => verifyRemoteArchive({
-        manifestPath: fx.manifestPath,
-        sessionsDir: fx.sessionsDir,
-        remoteSha256: manifest.archive.sha256,
-        remoteBytes: manifest.archive.bytes,
-        remoteConflictCount: 0,
-      }), /local archive conflict/i, conflictName);
-      assert.equal(existsSync(source), true);
-      unlinkSync(conflictPath);
-    }
-  });
-
-  it('verifies exact downloaded remote bytes through the phase CLI', () => {
-    const fx = fixture();
-    writeFileSync(join(fx.sessionsDir, '2026-01-01T00-00-00+0000-source.md'), 'source');
-    assert.equal(prepare(fx).status, 0);
-    const remoteArchive = join(fx.root, 'remote-Archive.md');
-    writeFileSync(remoteArchive, readFileSync(join(fx.sessionsDir, 'Archive.md')));
-
-    const result = run([
-      'verify', fx.manifestPath,
-      '--sessions', fx.sessionsDir,
-      '--remote-conflicts', '0',
-      '--archive', remoteArchive,
-    ]);
-    assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), {
-      bytes: JSON.parse(readFileSync(fx.manifestPath, 'utf8')).archive.bytes,
-      deletion_sync_completed: false,
-      mode: 'archive',
-      next_phase: 'relocate-provenance-then-delete-sources',
-      phase: 'verify',
-      phase_state: 'remote-archive-verified-sources-present',
-      sha256: JSON.parse(readFileSync(fx.manifestPath, 'utf8')).archive.sha256,
-      verified: true,
-    });
-  });
-
-  it('REQ-STOR-052 AC3: deletes only exact unchanged archived sources', () => {
+  it('REQ-STOR-052 AC1: deletes only exact unchanged archived sources', () => {
     for (const mutation of ['manifest', 'archive', 'source', 'candidate', 'symlink']) {
       const fx = fixture();
       const first = join(fx.sessionsDir, '2026-01-01T00-00-00+0000-first.md');
@@ -358,8 +265,7 @@ describe('session capture compaction', () => {
       phase_state: 'sources-deleted-locally',
       deleted: ['2026-01-01T00-00-00+0000-old.md'],
       deleted_count: 1,
-      deletion_sync_completed: false,
-      second_sync_required: true,
+      sync_required: true,
     });
     assert.equal(existsSync(old), false);
 

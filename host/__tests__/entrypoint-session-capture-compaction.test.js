@@ -128,19 +128,15 @@ function calls(fx) {
 
 const expectedOrder = [
   'PREPARE',
-  'BISYNC_1',
-  'DOWNLOAD',
-  'REMOTE_LIST',
-  'VERIFY',
+  'DELETE',
   'LOCK',
   'RELOCATE',
   'GLOBAL_ADD:global add',
-  'DELETE',
-  'BISYNC_2',
+  'BISYNC_1',
 ];
 
 describe('entrypoint session-capture compaction orchestration', () => {
-  it('runs the two phases serially, stamps only after the deletion bisync, and runs once per UTC day', () => {
+  it('archives, deletes, relocates, and bisyncs once per UTC day', () => {
     const fx = fixture();
     const result = runDaily(fx, {}, 'run_daily_vault_session_compaction\nrun_daily_vault_session_compaction');
     assert.equal(result.status, 0, result.stderr);
@@ -148,7 +144,7 @@ describe('entrypoint session-capture compaction orchestration', () => {
     assert.equal(actual.length, expectedOrder.length);
     expectedOrder.forEach((entry, index) => assert.match(actual[index], new RegExp(`^${entry}`)));
     assert.equal(
-      actual[7],
+      actual[4],
       `GLOBAL_ADD:global add ${join(fx.home, 'Vault/graphify-out/vault-graph.json')} --as user_vault`,
     );
     assert.equal(readFileSync(join(fx.runtime, 'sync/vault-session-compaction.utc-day'), 'utf8'), '2026-03-31\n');
@@ -171,17 +167,13 @@ describe('entrypoint session-capture compaction orchestration', () => {
     assert.equal(calls(fx).length, expectedOrder.length);
   });
 
-  it('preserves the unstamped runtime transaction and stops at every failed safety gate', () => {
+  it('stops at the first failed step without stamping completion', () => {
     const cases = new Map([
-      ['bisync-1', ['PREPARE', 'BISYNC_1']],
-      ['download', ['PREPARE', 'BISYNC_1', 'DOWNLOAD']],
-      ['listing', ['PREPARE', 'BISYNC_1', 'DOWNLOAD', 'REMOTE_LIST']],
-      ['verify', ['PREPARE', 'BISYNC_1', 'DOWNLOAD', 'REMOTE_LIST', 'VERIFY']],
-      ['lock', ['PREPARE', 'BISYNC_1', 'DOWNLOAD', 'REMOTE_LIST', 'VERIFY', 'LOCK']],
-      ['relocate', ['PREPARE', 'BISYNC_1', 'DOWNLOAD', 'REMOTE_LIST', 'VERIFY', 'LOCK', 'RELOCATE']],
-      ['global-add', expectedOrder.slice(0, 8)],
-      ['delete', expectedOrder.slice(0, 9)],
-      ['bisync-2', expectedOrder],
+      ['delete', ['PREPARE', 'DELETE']],
+      ['lock', ['PREPARE', 'DELETE', 'LOCK']],
+      ['relocate', ['PREPARE', 'DELETE', 'LOCK', 'RELOCATE']],
+      ['global-add', expectedOrder.slice(0, 5)],
+      ['bisync-1', expectedOrder],
     ]);
     for (const [fail, expected] of cases) {
       const fx = fixture();

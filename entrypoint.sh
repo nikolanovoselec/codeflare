@@ -1136,7 +1136,6 @@ bisync_with_r2() {
 # normal bisync state and the existing global-graph lock.
 run_daily_vault_session_compaction() {
     local today stamp state_dir sessions_dir manifest prepare_result prepare_status
-    local remote_archive remote_listing remote_conflicts=0 phase="" source any_source_present=0
     local compactor="/opt/codeflare/scripts/compact-session-captures.mjs"
     local merge_script="$USER_HOME/.pi/agent/scripts/merge-vault-graph.py"
     local vault_graph="$USER_HOME/Vault/graphify-out/vault-graph.json"
@@ -1149,120 +1148,44 @@ run_daily_vault_session_compaction() {
     sessions_dir="$USER_HOME/Vault/Raw/Sessions"
     manifest="$state_dir/manifest.json"
     prepare_result="$state_dir/prepare-result.json"
-    remote_archive="$state_dir/remote-Archive.md"
-    remote_listing="$state_dir/remote-listing.txt"
     mkdir -p "$state_dir" || return 1
     chmod 0700 "$state_dir" || return 1
 
-    # A process death can land after the exact-source delete but before its
-    # phase marker is advanced. Distinguish that from a partial/failed delete:
-    # all absent sources resume at the required deletion-publication bisync;
-    # any remaining source re-enters prepare, which safely rebuilds the exact
-    # manifest while retaining what remains.
-    if [ -f "$state_dir/phase" ]; then
-        phase="$(cat "$state_dir/phase" 2>/dev/null || true)"
+    if ! node "$compactor" prepare "$sessions_dir" "$manifest" --today "$today" > "$prepare_result"; then
+        echo "[session-compaction] WARNING: archive preparation failed" >&2
+        return 1
     fi
-    if [ "$phase" = "delete-started" ]; then
-        if ! jq -er '.sources | if type == "array" and length > 0 then .[].source_file else error("invalid sources") end' \
-            "$manifest" > "$state_dir/sources.txt" 2>/dev/null; then
-            echo "[session-compaction] WARNING: cannot recover delete phase from manifest" >&2
-            return 1
-        fi
-        any_source_present=0
-        while IFS= read -r source; do
-            [ ! -e "$source" ] || any_source_present=1
-        done < "$state_dir/sources.txt"
-        if [ "$any_source_present" -eq 0 ]; then
-            printf 'sources-deleted\n' > "$state_dir/phase.tmp" \
-                && mv -f "$state_dir/phase.tmp" "$state_dir/phase" || return 1
-            phase="sources-deleted"
-        else
-            rm -f "$state_dir/phase"
-            phase=""
-        fi
+    prepare_status="$(jq -er '.status' "$prepare_result" 2>/dev/null)" || return 1
+    if [ "$prepare_status" = "noop" ]; then
+        rm -rf -- "$state_dir" || return 1
+        printf '%s\n' "$today" > "${stamp}.tmp" && mv -f "${stamp}.tmp" "$stamp" || return 1
+        echo "[session-compaction] No cold captures; UTC day complete"
+        return 0
+    fi
+    if [ "$prepare_status" != "prepared" ] || [ ! -f "$manifest" ]; then
+        echo "[session-compaction] WARNING: compactor returned an invalid prepare outcome" >&2
+        return 1
     fi
 
-    if [ "$phase" != "sources-deleted" ]; then
-        if ! node "$compactor" prepare "$sessions_dir" "$manifest" --today "$today" > "$prepare_result"; then
-            echo "[session-compaction] WARNING: archive preparation failed; sources retained" >&2
-            return 1
-        fi
-        prepare_status="$(jq -er '.status' "$prepare_result" 2>/dev/null)" || return 1
-        if [ "$prepare_status" = "noop" ]; then
-            rm -rf -- "$state_dir" || return 1
-            printf '%s\n' "$today" > "${stamp}.tmp" && mv -f "${stamp}.tmp" "$stamp" || return 1
-            echo "[session-compaction] No cold captures; UTC day complete"
-            return 0
-        fi
-        if [ "$prepare_status" != "prepared" ] || [ ! -f "$manifest" ]; then
-            echo "[session-compaction] WARNING: compactor returned an invalid prepare outcome" >&2
-            return 1
-        fi
-
-        # Phase 1 publication: Archive.md and its still-present exact sources
-        # converge before any provenance or source deletion can occur.
-        if ! bisync_with_r2 ""; then
-            echo "[session-compaction] WARNING: archive publication bisync failed; sources retained" >&2
-            return 1
-        fi
-
-        # Verify the exact remote Archive.md bytes, plus an independently listed
-        # set of remote Archive conflict names. Both R2 reads are time-bounded
-        # and use the already-created rclone config.
-        if ! timeout 120 rclone copyto \
-            "r2:$R2_BUCKET_NAME/Vault/Raw/Sessions/Archive.md" "$remote_archive" \
-            --config "$RCLONE_CONFIG" --contimeout 10s --timeout 30s --retries 3; then
-            echo "[session-compaction] WARNING: exact remote archive download failed; sources retained" >&2
-            return 1
-        fi
-        if ! timeout 120 rclone lsf "r2:$R2_BUCKET_NAME/Vault/Raw/Sessions/" \
-            --config "$RCLONE_CONFIG" --files-only --max-depth 1 > "$remote_listing"; then
-            echo "[session-compaction] WARNING: remote archive conflict listing failed; sources retained" >&2
-            return 1
-        fi
-        while IFS= read -r source; do
-            source="${source,,}"
-            case "$source" in
-                archive.md.conflict*|archive.conflict*.md|archive*conflicted*)
-                    remote_conflicts=$((remote_conflicts + 1))
-                    ;;
-            esac
-        done < "$remote_listing"
-        if ! node "$compactor" verify "$manifest" --sessions "$sessions_dir" \
-            --remote-conflicts "$remote_conflicts" --archive "$remote_archive"; then
-            echo "[session-compaction] WARNING: remote archive verification failed; sources retained" >&2
-            return 1
-        fi
-
-        # Relocation and publication share one acquisition of the existing
-        # graphify-global lock, so no capture/vault writer can observe the
-        # cumulative graph between those operations.
-        if ! (
-            exec 9>"$CODEFLARE_GRAPH_LOCK" || exit 1
-            flock -w 5 9 || exit 1
-            python3 "$merge_script" \
-                "$USER_HOME/Vault/graphify-out/.graphify_chunk_01.json" \
-                "$vault_graph" "$graph_copy" --relocate "$manifest" \
-                && graphify global add "$vault_graph" --as user_vault
-        ); then
-            echo "[session-compaction] WARNING: graph provenance relocation/publication failed; sources retained" >&2
-            return 1
-        fi
-
-        printf 'delete-started\n' > "$state_dir/phase.tmp" \
-            && mv -f "$state_dir/phase.tmp" "$state_dir/phase" || return 1
-        if ! node "$compactor" delete "$sessions_dir" "$manifest"; then
-            echo "[session-compaction] WARNING: exact source deletion failed; recovery state retained" >&2
-            return 1
-        fi
-        printf 'sources-deleted\n' > "$state_dir/phase.tmp" \
-            && mv -f "$state_dir/phase.tmp" "$state_dir/phase" || return 1
+    if ! node "$compactor" delete "$sessions_dir" "$manifest"; then
+        echo "[session-compaction] WARNING: source deletion failed" >&2
+        return 1
     fi
 
-    # Phase 2 publishes only the verified exact-source deletions. Completion is
-    # recorded after this succeeds; every earlier failure remains retryable.
+    if ! (
+        exec 9>"$CODEFLARE_GRAPH_LOCK" || exit 1
+        flock -w 5 9 || exit 1
+        python3 "$merge_script" \
+            "$USER_HOME/Vault/graphify-out/.graphify_chunk_01.json" \
+            "$vault_graph" "$graph_copy" --relocate "$manifest" \
+            && graphify global add "$vault_graph" --as user_vault
+    ); then
+        echo "[session-compaction] WARNING: graph provenance relocation/publication failed" >&2
+        return 1
+    fi
+
     if ! bisync_with_r2 ""; then
-        echo "[session-compaction] WARNING: deletion publication bisync failed; recovery state retained" >&2
+        echo "[session-compaction] WARNING: compaction bisync failed" >&2
         return 1
     fi
     rm -rf -- "$state_dir" || return 1

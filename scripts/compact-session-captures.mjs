@@ -431,21 +431,6 @@ function verifyArchiveBytes(manifest, bytes) {
   }
 }
 
-function isArchiveConflictName(name) {
-  const lower = name.toLowerCase();
-  return lower.startsWith('archive.md.conflict')
-    || (lower.startsWith('archive.conflict') && lower.endsWith('.md'))
-    || (lower.startsWith('archive') && lower.includes('conflicted'));
-}
-
-function archiveConflicts(sessionsDir) {
-  try {
-    return readdirSync(sessionsDir).filter(isArchiveConflictName).sort(compareText);
-  } catch (error) {
-    fail(`cannot inspect local archive conflicts: ${error.message}`);
-  }
-}
-
 function sameCapture(left, right) {
   return left.filename === right.filename
     && canonicalJson(metadataOf(left)) === canonicalJson(metadataOf(right))
@@ -514,55 +499,8 @@ export function prepareArchive({
     archive_bytes: manifest.archive.bytes,
     cutoff_date: cutoffDate,
     deletion_sync_completed: false,
-    next_phase: 'verify-remote-archive',
+    next_phase: 'delete-sources',
     source_count: cold.length,
-  };
-}
-
-export function verifyRemoteArchive({
-  manifestPath,
-  sessionsDir,
-  remoteArchivePath,
-  remoteSha256,
-  remoteBytes,
-  remoteConflictCount,
-}) {
-  const manifest = loadManifest(manifestPath);
-  const conflicts = archiveConflicts(sessionsDir);
-  if (conflicts.length) fail(`local archive conflict copies exist: ${conflicts.join(', ')}`);
-  if (!isNonNegativeInteger(remoteConflictCount)) fail('remote conflict count is required');
-  if (remoteConflictCount !== 0) fail(`remote archive conflict copies exist: ${remoteConflictCount}`);
-
-  let mode;
-  if (remoteArchivePath !== undefined) {
-    if (remoteSha256 !== undefined || remoteBytes !== undefined) {
-      fail('verify accepts remote archive bytes or a remote digest, not both');
-    }
-    const bytes = readDirectRegularFile(remoteArchivePath, 'remote archive verification target');
-    verifyArchiveBytes(manifest, bytes);
-    mode = 'archive';
-  } else {
-    if (typeof remoteSha256 !== 'string' || !SHA256.test(remoteSha256)
-        || !isNonNegativeInteger(remoteBytes)) {
-      fail('verify requires --archive or exact --sha256 and --bytes values');
-    }
-    if (remoteSha256 !== manifest.archive.sha256) {
-      fail(`remote archive sha256 mismatch: expected ${manifest.archive.sha256}, got ${remoteSha256}`);
-    }
-    if (remoteBytes !== manifest.archive.bytes) {
-      fail(`remote archive byte length mismatch: expected ${manifest.archive.bytes}, got ${remoteBytes}`);
-    }
-    mode = 'digest';
-  }
-  return {
-    phase: 'verify',
-    phase_state: 'remote-archive-verified-sources-present',
-    verified: true,
-    mode,
-    sha256: manifest.archive.sha256,
-    bytes: manifest.archive.bytes,
-    deletion_sync_completed: false,
-    next_phase: 'relocate-provenance-then-delete-sources',
   };
 }
 
@@ -570,8 +508,6 @@ export function deleteVerifiedSources({ sessionsDir, manifestPath }) {
   const manifest = loadManifest(manifestPath);
   const archive = readDirectRegularFile(join(sessionsDir, ARCHIVE_FILENAME), 'local archive');
   verifyArchiveBytes(manifest, archive);
-  if (archiveConflicts(sessionsDir).length) fail('local archive conflict copies exist');
-
   const current = selectColdCaptures(sessionsDir, manifest.cutoff_date);
   if (current.map(({ filename }) => filename).join('\0') !== manifest.sources.map(({ filename }) => filename).join('\0')) {
     fail('current compaction candidate set does not exactly match the manifest');
@@ -595,8 +531,7 @@ export function deleteVerifiedSources({ sessionsDir, manifestPath }) {
     phase_state: 'sources-deleted-locally',
     deleted: manifest.sources.map(({ filename }) => filename),
     deleted_count: manifest.sources.length,
-    deletion_sync_completed: false,
-    second_sync_required: true,
+    sync_required: true,
   };
 }
 
@@ -625,7 +560,6 @@ function requireOptions(options, allowed) {
 function usage() {
   return 'usage:\n'
     + '  compact-session-captures.mjs prepare SESSIONS_DIR MANIFEST [--today YYYY-MM-DD]\n'
-    + '  compact-session-captures.mjs verify MANIFEST --sessions SESSIONS_DIR --remote-conflicts N (--archive PATH | --sha256 HEX --bytes N)\n'
     + '  compact-session-captures.mjs delete SESSIONS_DIR MANIFEST\n';
 }
 
@@ -635,19 +569,6 @@ export function main(argv = process.argv.slice(2)) {
   if (phase === 'prepare' && positional.length === 2) {
     requireOptions(options, new Set(['--today']));
     return prepareArchive({ sessionsDir: positional[0], manifestPath: positional[1], today: options.get('--today') ?? new Date() });
-  }
-  if (phase === 'verify' && positional.length === 1) {
-    requireOptions(options, new Set(['--archive', '--bytes', '--remote-conflicts', '--sessions', '--sha256']));
-    const remoteBytes = options.has('--bytes') ? Number(options.get('--bytes')) : undefined;
-    const remoteConflictCount = options.has('--remote-conflicts') ? Number(options.get('--remote-conflicts')) : undefined;
-    return verifyRemoteArchive({
-      manifestPath: positional[0],
-      sessionsDir: options.get('--sessions'),
-      remoteArchivePath: options.get('--archive'),
-      remoteSha256: options.get('--sha256'),
-      remoteBytes,
-      remoteConflictCount,
-    });
   }
   if (phase === 'delete' && positional.length === 2 && options.size === 0) {
     return deleteVerifiedSources({ sessionsDir: positional[0], manifestPath: positional[1] });

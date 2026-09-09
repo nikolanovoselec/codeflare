@@ -98,13 +98,11 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 15 min
 
 The generated writes in step 2 settle before the baseline so they do not create immediate post-baseline hash/mtime mismatches.
 
-### Verified session capture compaction (REQ-STOR-052)
+### Session capture compaction (REQ-STOR-052)
 
-The entrypoint's existing bisync lifecycle always owns the daily UTC compaction sequence; no agent, feature flag, or second scheduler controls it. `scripts/compact-session-captures.mjs` first writes deterministic `Vault/Raw/Sessions/Archive.md` while every selected capture still exists. The existing bisync owner publishes that archive in phase one. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: scripts/compact-session-captures.mjs::main -->
+The entrypoint's existing bisync lifecycle always owns the daily UTC compaction sequence; no agent, feature flag, or second scheduler controls it. `scripts/compact-session-captures.mjs` writes deterministic `Vault/Raw/Sessions/Archive.md`, then removes only the exact unchanged cold captures recorded in its local manifest. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @impl: scripts/compact-session-captures.mjs::main -->
 
-A successful bisync is necessary but not deletion authority. The entrypoint reads the exact remote archive object, requires its SHA-256 to match the compactor manifest, and rejects any local or remote archive conflict copy. The compactor also rechecks each selected source digest. Missing, unreadable, mismatched, changed, or conflicting evidence leaves all source paths untouched. <!-- @impl: scripts/compact-session-captures.mjs::verifyRemoteArchive -->
-
-After remote proof, the cumulative Vault graph relocates provenance and republishes `user_vault`. Only that success permits exact recorded source paths to be removed; phase two then runs bisync again to propagate deletion. A failed second phase leaves a deterministic archive and converges on a later run without deleting by glob, mtime, or age alone ([AD152](../decisions/README.md#ad152-verified-session-capture-compaction-preserves-durable-memory)).
+The cumulative Vault graph then relocates provenance and republishes `user_vault`. One final bisync publishes the archive, graph update, and source deletions together. If that bisync fails, R2 retains its prior state and the next session restore recovers the source captures ([AD152](../decisions/README.md#ad152-session-capture-compaction-preserves-durable-memory)).
 
 All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verification. rclone v1.73+ treats hash mismatches as fatal ("corrupted on transfer"), which aborts bisync when files change during transfer (e.g., coding agents modifying workspace files). Change detection still uses modtime + size; files that change mid-transfer are caught in the next 15-minute cycle (or sooner via a manual Sync-now trigger).
 
@@ -320,7 +318,7 @@ return an error response (4xx) rather than any listing.
 |---|---|---|---|
 | Persistent workspace and restore | REQ-STOR-002/004/011 | entrypoint sync functions and storage mode resolver | Startup/baseline and scope tests |
 | Final persistence drain | [REQ-STOR-005](../../sdd/spec/storage.md#req-stor-005-graceful-shutdown-performs-final-sync) | `Container.destroy()` → `drainFinalSync`; entrypoint is backstop | Final-sync endpoint/result and lifecycle tests |
-| Seed/transcript policy | REQ-STOR-010/012/052 | seed generator, transcript cleanup, and session compactor | Generated inventory, verified two-phase archive, and cleanup behavior |
+| Seed/transcript policy | REQ-STOR-010/012/052 | seed generator, transcript cleanup, and session compactor | Generated inventory, deterministic archive, and cleanup behavior |
 | Explicit sync | [REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui) | storage route, host endpoint, sync daemon | Trigger/result contract tests |
 | File browser | REQ-STOR-016/018 | storage routes and UI browser state | Traversal, pagination, and recovery tests |
 | Encryption regime | Enterprise/Vault SDD | governed migration engine and R2 configuration | Mode/status evidence; private rollout values stay private |
