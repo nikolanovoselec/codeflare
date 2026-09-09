@@ -107,6 +107,7 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
       <h3 id={`${id}-connection`}>Connection</h3>
       <dl class="ai-routing-review-values">
         <div><dt>Gateway URL</dt><dd>{safe()(gatewayAddress(data().gatewayUrl))}</dd></div>
+        <Show when={text(data().gatewayId)}><div><dt>Gateway name</dt><dd>{safe()(text(data().gatewayId))}</dd></div></Show>
         <div><dt>API token</dt><dd>{tokenSummary()}</dd></div>
       </dl>
     </section>

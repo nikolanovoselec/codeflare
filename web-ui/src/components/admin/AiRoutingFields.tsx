@@ -104,12 +104,27 @@ const AiRoutingFields: Component<Props> = (props) => {
   const updateRoute = (name: string, update: (route: RouteDraft) => RouteDraft) => setRoutes((items) => items.map((route) => route.name === name ? update(route) : route));
   const routeByName = (name: string) => routes().find((route) => route.name === name);
   const [gatewayRoutes, setGatewayRoutes] = createSignal<string[]>([]);
-  const [gatewayUrl, setGatewayUrl] = createSignal(text(current.gatewayUrl));
+  const initialGatewayUrl = text(current.gatewayUrl);
+  const accountApiBase = (value: string): string | undefined => {
+    try {
+      const url = new URL(value.trim());
+      if (url.protocol !== 'https:' || url.hostname !== 'api.cloudflare.com' || url.port || url.username || url.password) return undefined;
+      const match = /^\/client\/v4\/accounts\/([a-f0-9]{32})(\/.*)?$/i.exec(url.pathname);
+      if (!match || !/^\/?$|^\/ai\/?$|^\/ai\/run\/?$|^\/ai\/v1(?:\/(?:chat\/completions|responses|messages|models))?\/?$/i.test(match[2] ?? '')) return undefined;
+      return `https://api.cloudflare.com/client/v4/accounts/${match[1]}/`;
+    } catch { return undefined; }
+  };
+  const legacyGatewayId = (value: string): string => /^https:\/\/gateway\.ai\.cloudflare\.com\/v1\/[^/]+\/([^/?#]+)/i.exec(value.trim())?.[1] ?? '';
+  const [gatewayKind, setGatewayKind] = createSignal<'legacy' | 'account-api'>(accountApiBase(initialGatewayUrl) ? 'account-api' : 'legacy');
+  const [gatewayUrl, setGatewayUrl] = createSignal(initialGatewayUrl);
+  const [gatewayId, setGatewayId] = createSignal(text(current.gatewayId) || legacyGatewayId(initialGatewayUrl));
   const [replacementToken, setReplacementToken] = createSignal(text(current.replacementToken));
   const [checkedConnection, setCheckedConnection] = createSignal<string>();
-  const connectionKey = () => JSON.stringify([gatewayUrl().trim(), replacementToken().trim()]);
-  const gatewayDraft = (): ReasoningGatewayDraft | undefined => gatewayUrl().trim() !== text(current.savedGatewayUrl ?? current.gatewayUrl).trim() || replacementToken().trim()
-    ? { gatewayUrl: gatewayUrl().trim(), ...(replacementToken().trim() && { replacementToken: replacementToken().trim() }) } : undefined;
+  const effectiveGatewayUrl = () => gatewayKind() === 'account-api' ? accountApiBase(gatewayUrl()) ?? gatewayUrl().trim() : gatewayUrl().trim();
+  const effectiveGatewayId = () => gatewayKind() === 'account-api' ? gatewayId().trim() : '';
+  const connectionKey = () => JSON.stringify([effectiveGatewayUrl(), effectiveGatewayId() || legacyGatewayId(gatewayUrl()), replacementToken().trim()]);
+  const gatewayDraft = (): ReasoningGatewayDraft | undefined => effectiveGatewayUrl() !== text(current.savedGatewayUrl ?? current.gatewayUrl).trim() || effectiveGatewayId() !== text(current.gatewayId).trim() || replacementToken().trim()
+    ? { gatewayUrl: effectiveGatewayUrl(), ...(effectiveGatewayId() && { gatewayId: effectiveGatewayId() }), ...(replacementToken().trim() && { replacementToken: replacementToken().trim() }) } : undefined;
   const [catalog, setCatalog] = createSignal<ReasoningCatalog>({ schemaVersion: 1, profiles: [], notices: [], usage: [], routes: [], routeCatalogStatus: 'unavailable' });
   const [catalogBusy, setCatalogBusy] = createSignal(true);
   const [catalogError, setCatalogError] = createSignal('');
@@ -138,7 +153,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const checksBusy = () => profileEditorBusy() || Object.values(verifications()).some((value) => value.busy);
   // REQ-ENTERPRISE-044: compare editable semantics, not inventory-driven policy normalization.
   const draftKey = () => JSON.stringify({
-    gatewayUrl: gatewayUrl().trim(), replacementToken: replacementToken().trim(),
+    gatewayUrl: effectiveGatewayUrl(), gatewayId: effectiveGatewayId(), replacementToken: replacementToken().trim(),
     routes: routes().filter((route) => storedRoutes.includes(route.name) || route.assignment.activeProfile || route.contextWindow !== DEFAULT_CONTEXT_WINDOW)
       .map((route) => ({ name: route.name, contextWindow: route.contextWindow, assignment: route.assignment })).sort((a, b) => a.name.localeCompare(b.name)),
     groups: groups().map((group) => ({ ...group, routes: [...group.routes].sort() })),
@@ -171,7 +186,7 @@ const AiRoutingFields: Component<Props> = (props) => {
     if (!inventory.inventoryDigest || proof.inventoryDigest !== inventory.inventoryDigest || proof.routeVersion !== inventoryVersion(inventory)
       || refKey(proof.profileRef) !== refKey(route.assignment.activeProfile) || !profile.supportedLevels.every((level) => proof.supportedLevels?.includes(level))) return false;
     if (routeChecks()[route.name] === null) return false;
-    if (!routeChecks()[route.name] && (!inventory.verification || inventory.verification.connectionFingerprint !== proof.connectionFingerprint
+    if (!gatewayDraft() && !routeChecks()[route.name] && (!inventory.verification || inventory.verification.connectionFingerprint !== proof.connectionFingerprint
       || inventory.verification.inventoryDigest !== proof.inventoryDigest || refKey(inventory.verification.profileRef) !== refKey(proof.profileRef))) return false;
     return proof.scope === 'observed-path' || (proof.scope === 'single-model' && inventory.legs.length === 1);
   };
@@ -202,10 +217,16 @@ const AiRoutingFields: Component<Props> = (props) => {
       ...(route.assignment.legs && { legs: route.assignment.legs.map((leg) => ({ ...leg, ...(leg.evidence && { evidence: { ...leg.evidence, current: false, status: 'stale' } }) })) }),
     } }));
   };
-  const changeConnection = (field: 'url' | 'token', value: string) => {
-    if (field === 'url') setGatewayUrl(value); else setReplacementToken(value);
+  const changeConnection = (field: 'kind' | 'url' | 'gateway' | 'token', value: string) => {
+    if (field === 'kind') setGatewayKind(value as 'legacy' | 'account-api');
+    else if (field === 'url') setGatewayUrl(value);
+    else if (field === 'gateway') setGatewayId(value);
+    else setReplacementToken(value);
     setCheckedConnection(undefined);
-    for (const route of routes()) clearRouteVerification(route.name);
+    for (const route of routes()) {
+      if (routeChecks()[route.name]) clearRouteVerification(route.name);
+      else updateRoute(route.name, (draft) => ({ ...draft, inventory: undefined, inventoryBusy: false, inventoryError: undefined }));
+    }
   };
   const managementContext = (name: string): ReasoningManagementContext | undefined => {
     const descriptions = Object.fromEntries((routeByName(name)?.assignment.legs ?? []).filter((leg) => leg.provider.toLowerCase().startsWith('custom') && leg.customProviderBackend).map((leg) => [leg.nodeId, leg.customProviderBackend!]));
@@ -226,6 +247,10 @@ const AiRoutingFields: Component<Props> = (props) => {
     }
   };
   const checkConnection = async () => {
+    if (gatewayKind() === 'account-api') {
+      const canonical = accountApiBase(gatewayUrl());
+      if (canonical) setGatewayUrl(canonical);
+    }
     setCatalogBusy(true); setCatalogError('');
     const key = connectionKey();
     try {
@@ -345,7 +370,10 @@ const AiRoutingFields: Component<Props> = (props) => {
     <section hidden={section() !== 'connection'} class="admin-routing-pane" aria-labelledby="connection-heading">
       <h3 id="connection-heading">AI Gateway connection</h3><p>Check that Codeflare can read your routes. Profile verification separately checks model requests and tool calling.</p>
       <div class="admin-route-controls">
-        <label class="admin-form-field"><span>AI Gateway URL</span><input name="gatewayUrl" type="url" value={gatewayUrl()} disabled={checksBusy()} onInput={(event) => changeConnection('url', event.currentTarget.value)} /></label>
+        <label class="admin-form-field"><span>Gateway URL format</span><select aria-label="Gateway URL format" value={gatewayKind()} disabled={checksBusy()} onChange={(event) => changeConnection('kind', event.currentTarget.value)}><option value="account-api">Account API (v4)</option><option value="legacy">Legacy gateway URL (v1)</option></select></label>
+        <label class="admin-form-field"><span>AI Gateway URL</span><input name="gatewayUrl" type="url" value={gatewayUrl()} disabled={checksBusy()} onInput={(event) => changeConnection('url', event.currentTarget.value)} /><small>{gatewayKind() === 'account-api' ? 'Paste any account API URL. Codeflare keeps only the URL through the account ID.' : 'Use the full legacy URL including account ID and gateway name.'}</small></label>
+        <Show when={gatewayKind() === 'account-api'}><label class="admin-form-field"><span>AI Gateway name</span><input aria-label="AI Gateway name" name="gatewayId" value={gatewayId()} disabled={checksBusy()} onInput={(event) => changeConnection('gateway', event.currentTarget.value)} /><small>Used for Dynamic Route discovery and the cf-aig-gateway-id request header.</small></label></Show>
+        <Show when={gatewayKind() === 'legacy'}><input type="hidden" name="gatewayId" value={effectiveGatewayId()} /></Show>
         <label class="admin-form-field"><span>Replacement API token</span><input aria-label="Replacement API token" name="replacementToken" type="password" value={replacementToken()} autocomplete="new-password" disabled={checksBusy()} onInput={(event) => changeConnection('token', event.currentTarget.value)} /><small>Leave blank to keep the saved token. Token permissions must allow route reads and gateway requests.</small></label>
       </div>
       <button type="button" class="admin-secondary-button" disabled={catalogBusy() || checksBusy()} onClick={() => void checkConnection()}>Check connection</button>

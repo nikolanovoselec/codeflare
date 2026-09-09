@@ -84,6 +84,7 @@ export function environmentValues(section: ConfigurationSection, mode: Administr
     case 'domain': return { customDomain: value(data, 'customDomain') };
     case 'aiRouting': return {
       gatewayUrl: value(data, 'gatewayUrl'),
+      gatewayId: value(data, 'gatewayId'),
       replacementToken: value(data, 'replacementToken'),
       dynamicRoutes: data.getAll('dynamicRoutes').map(String),
       defaultRoute: { route: value(data, 'defaultRoute'), reasoning: value(data, 'reasoning') },

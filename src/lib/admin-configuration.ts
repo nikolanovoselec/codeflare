@@ -14,10 +14,10 @@ import { handleConfigureCustomDomain } from '../routes/setup/custom-domain';
 import { getWorkerNameFromHostname } from '../routes/setup/shared';
 import { reactivateUsageUser } from './admin-usage';
 import { REASONING_PROFILE_IDS, canonicalJson, getBuiltInProfile, getBuiltInProfileRef, parseRouteSettings, serializeRouteSettings } from './reasoning-profiles';
-import { dynamicRouteSchema, gatewayDraftSchema, resolveGatewayConnection } from './ai-gateway-management';
+import { dynamicRouteSchema, gatewayDraftSchema, parseGatewayUrl, resolveGatewayConnection } from './ai-gateway-management';
 import {
   assignmentBackendDescriptions, fallbackRoutingSchema, loadCheckedRouteInventory, readRouteCheck,
-  routeCheckIdSchema, verificationMatches, type FallbackRouting,
+  rebindVerificationConnection, routeCheckIdSchema, verificationMatches, type FallbackRouting,
 } from './reasoning-verification';
 import {
   getRouteReasoningProfile,
@@ -98,6 +98,7 @@ const accessSchema = z.object({
 
 const aiRoutingSchema = z.object({
   gatewayUrl: gatewayDraftSchema.shape.gatewayUrl,
+  gatewayId: z.union([dynamicRouteSchema, z.literal('')]).default(''),
   replacementToken: gatewayDraftSchema.shape.replacementToken.default(''),
   dynamicRoutes: z.array(dynamicRouteSchema).min(1),
   defaultRoute: z.object({ route: name, reasoning }).strict(),
@@ -113,6 +114,9 @@ const aiRoutingSchema = z.object({
     reasoning,
   }).strict()).min(1),
 }).strict().superRefine((value, context) => {
+  if (parseGatewayUrl(value.gatewayUrl)?.kind === 'account-api' && !value.gatewayId) {
+    context.addIssue({ code: 'custom', message: 'AI Gateway name is required for an account API URL', path: ['gatewayId'] });
+  }
   const activeRoutes = [...new Set([...value.groupRouting.flatMap((group) => group.routes), ...(value.fallbackRouting.enabled ? value.fallbackRouting.routes : [])])];
   if (!activeRoutes.includes(value.defaultRoute.route)) {
     context.addIssue({ code: 'custom', message: 'Default route must be in dynamicRoutes', path: ['defaultRoute', 'route'] });
@@ -360,7 +364,7 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
     const verification = routeChecks[route] !== null && saved && canonicalJson(identity(saved)) === canonicalJson(identity(draft)) ? saved.verification : undefined;
     return [route, { ...draft, ...(verification && { verification }) }];
   }));
-  const connection = await resolveGatewayConnection(env, { gatewayUrl: values.gatewayUrl as string, replacementToken: values.replacementToken as string });
+  const connection = await resolveGatewayConnection(env, { gatewayUrl: values.gatewayUrl as string, gatewayId: (values.gatewayId as string) || undefined, replacementToken: values.replacementToken as string });
   if ((values.replacementToken as string).trim() && !(await getOrImportKey(env))) throw new Error('Encryption key unavailable; cannot safely replace AI Gateway credentials');
   const checkedRoutes = [...new Set([...dynamicRoutes, ...Object.keys(routeChecks).filter((route) => typeof routeChecks[route] === 'string')])];
   for (const route of checkedRoutes) {
@@ -374,9 +378,13 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
       if (receipt.route !== route) throw new Error(`Route ${route} check receipt does not match its route`);
       verification = receipt.verification;
     }
-    if (!verificationMatches(verification, profile, connection)) throw new Error(`Route ${route} requires a successful check for its exact profile and gateway`);
     const inventory = await loadCheckedRouteInventory(connection, route, assignmentBackendDescriptions(assignment));
-    if (!verificationMatches(verification, profile, connection, inventory)) throw new Error(`Route ${route} check is stale or does not match its inventory and provenance`);
+    if (!verificationMatches(verification, profile, connection, inventory)) {
+      const saved = current?.routeAssignments[route];
+      const unchanged = saved && canonicalJson(identity(saved)) === canonicalJson(identity(assignment));
+      verification = unchanged ? rebindVerificationConnection(saved.verification, profile, connection, inventory) ?? undefined : undefined;
+    }
+    if (!verification) throw new Error(`Route ${route} requires a successful check for its exact profile, gateway, and inventory`);
     if (assignment.routeVersion && assignment.routeVersion !== inventory.inventory.versionId) throw new Error(`Route ${route} inventory is stale`);
     for (const leg of assignment.legs ?? []) {
       const model = inventory.inventory.models.find((model) => model.nodeId === leg.nodeId);
@@ -431,6 +439,7 @@ async function readCurrentConfigurationValues(
       }
       return {
         gatewayUrl: (await env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL)) || env.AIG_GATEWAY_URL || '',
+        gatewayId: (await env.KV.get(SETUP_KEYS.AIG_GATEWAY_ID)) || env.AIG_GATEWAY_ID || '',
         dynamicRoutes: parseJson(await env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES), []),
         defaultRoute,
         routeContextWindows: routeSettings.contextWindows,
@@ -747,13 +756,17 @@ export async function executeConfigurationTask(
       return;
     }
     case 'configure_ai_gateway': {
+      const parsedGateway = parseGatewayUrl(values.gatewayUrl as string);
+      if (parsedGateway?.kind === 'account-api' && !dynamicRouteSchema.safeParse(values.gatewayId).success) throw new Error('AI Gateway name is required for an account API URL');
       const token = (values.replacementToken as string).trim();
       if (token) {
         const key = await getOrImportKey(env);
         if (!key) throw new Error('Encryption key unavailable');
         await encryptAndStore(env.KV, SETUP_KEYS.AIG_TOKEN, { token }, key);
       }
-      await env.KV.put(SETUP_KEYS.AIG_GATEWAY_URL, values.gatewayUrl as string);
+      await env.KV.put(SETUP_KEYS.AIG_GATEWAY_URL, parsedGateway?.canonicalUrl ?? values.gatewayUrl as string);
+      if (parsedGateway?.kind === 'account-api') await env.KV.put(SETUP_KEYS.AIG_GATEWAY_ID, values.gatewayId as string);
+      else await env.KV.delete(SETUP_KEYS.AIG_GATEWAY_ID);
       return;
     }
     case 'configure_active_agents': {

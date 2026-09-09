@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-09
 
+- **Enterprise AI Gateway connection rotation supports current account API URLs** ([REQ-ENTERPRISE-004](enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway) AC2, [REQ-ENTERPRISE-017](enterprise-mode.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard) AC1/AC4, and [REQ-ENTERPRISE-042](enterprise-mode.md#req-enterprise-042-enterprise-pi-draft-connection-and-verification) AC7-AC8 amended; remain Implemented). Administration now distinguishes legacy full gateway URLs from account API URLs, requires the gateway name used by `cf-aig-gateway-id` for the latter, and canonicalizes pasted inference suffixes to the account base. Connection checks, Dynamic Route listing, inventory, profile discovery, Save, and runtime inference use the same coordinates. A successful management check can carry saved profile authority across URL or token rotation only when the exact profile and current route topology still match, so Review changes no longer remains disabled after a valid connection-only edit.
+
 - **Classic Pi preserves the last explicitly resumed transcript** ([REQ-AGENT-211](agents.md#req-agent-211-classic-agent-transcript-resume) AC6 added; remains Implemented). Every successful root `/resume` switch atomically replaces the current Codeflare session binding, including repeated switches. Startup, Herdr, child sessions, malformed transcripts, and inferred latest-session selection cannot replace it.
 
 ## 2026-09-08

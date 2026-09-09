@@ -43,7 +43,7 @@ const AIG_TOKEN = 'aig-secret-token';
 const SESSION_USER = 'nikola@novoselec.ch'; // per-session attribution: the user's email (REQ-ENTERPRISE-004 AC4)
 
 /** Construct an interceptor with the given env + per-session props. */
-function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; groups?: string[]; gatewayUrl?: string; token?: string } = { user: SESSION_USER }) {
+function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; groups?: string[]; gatewayUrl?: string; gatewayId?: string; token?: string } = { user: SESSION_USER }) {
   // The interceptor now reads the route catalog from KV; tests pass a __kv map
   // of key -> JSON string via envOverrides, which backs a minimal KV.get stub.
   const kvStore: Record<string, string> = { ...((envOverrides as { __kv?: Record<string, string> }).__kv ?? {
@@ -53,7 +53,7 @@ function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string;
   }) };
   if (kvStore['setup:reasoning_configuration']) {
     try {
-      const configuration = verifiedRoutingConfiguration(JSON.parse(kvStore['setup:reasoning_configuration']), { gatewayUrl: props.gatewayUrl ?? envOverrides.AIG_GATEWAY_URL ?? GATEWAY, token: props.token ?? envOverrides.AIG_TOKEN ?? AIG_TOKEN });
+      const configuration = verifiedRoutingConfiguration(JSON.parse(kvStore['setup:reasoning_configuration']), { gatewayUrl: props.gatewayUrl ?? envOverrides.AIG_GATEWAY_URL ?? GATEWAY, gatewayId: props.gatewayId ?? envOverrides.AIG_GATEWAY_ID, token: props.token ?? envOverrides.AIG_TOKEN ?? AIG_TOKEN });
       const routes = JSON.parse(kvStore['setup:dynamic_routes'] ?? '[]') as string[];
       const selected = JSON.parse(kvStore['setup:default_route'] ?? 'null');
       configuration.fallbackRouting = routes.length ? { enabled: true, routes, defaultRoute: routes.includes(selected?.route) ? selected.route : routes[0], reasoning: selected?.reasoning ?? 'off' } : { enabled: false };
@@ -132,9 +132,10 @@ describe('REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) 
   // getAigConfig) and passes them via props; the interceptor must PREFER the props and
   // fall back to its own env only when a prop is absent.
   const PROPS_GATEWAY = 'https://gateway.ai.cloudflare.com/v1/abcdef0123456789abcdef0123456789/wizgw';
+  const PROPS_ACCOUNT_API = 'https://api.cloudflare.com/client/v4/accounts/abcdef0123456789abcdef0123456789/';
   const PROPS_REST_BASE = 'https://api.cloudflare.com/client/v4/accounts/abcdef0123456789abcdef0123456789/ai';
 
-  function interceptorWith(props: { user: string; gatewayUrl?: string; token?: string }, envOverrides: Partial<Env> = {}) {
+  function interceptorWith(props: { user: string; gatewayUrl?: string; gatewayId?: string; token?: string }, envOverrides: Partial<Env> = {}) {
     return makeInterceptor(envOverrides, props);
   }
 
@@ -144,6 +145,14 @@ describe('REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) 
     );
     expect(lastFetch?.url).toBe(`${PROPS_REST_BASE}/v1/chat/completions`);
     expect(lastFetch?.headers.get('authorization')).toBe('Bearer wizard-token');
+    expect(lastFetch?.headers.get('cf-aig-gateway-id')).toBe('wizgw');
+  });
+
+  it('uses the configured gateway name with the account API base URL', async () => {
+    await interceptorWith({ user: SESSION_USER, gatewayUrl: PROPS_ACCOUNT_API, gatewayId: 'wizgw', token: 'wizard-token' }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    expect(lastFetch?.url).toBe(`${PROPS_REST_BASE}/v1/chat/completions`);
     expect(lastFetch?.headers.get('cf-aig-gateway-id')).toBe('wizgw');
   });
 

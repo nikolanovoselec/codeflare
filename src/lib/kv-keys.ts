@@ -349,6 +349,7 @@ export const SETUP_KEYS = {
   // Browser Rendering token). Deploy-time env AIG_GATEWAY_URL/AIG_TOKEN remain as an
   // OPTIONAL fallback. Resolved KV-first via getAigConfig (src/lib/aig-config.ts).
   AIG_GATEWAY_URL: 'setup:aig_gateway_url',
+  AIG_GATEWAY_ID: 'setup:aig_gateway_id',
   AIG_TOKEN: 'setup:aig_token',
   IDP_LIST: 'setup:idp_list',
   MAX_USERS: 'setup:max_users',

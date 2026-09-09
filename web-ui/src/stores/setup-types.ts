@@ -65,6 +65,7 @@ export interface SetupState {
   // aigToken holds only a freshly-typed value (the stored token is never returned);
   // aigTokenSet reflects whether one is already saved; aigGatewayUrl is non-secret.
   aigGatewayUrl: string;
+  aigGatewayId: string;
   aigToken: string;
   aigTokenSet: boolean;
   // REQ-ENTERPRISE-016: enterprise-only strict gateway egress toggle. Default OFF;

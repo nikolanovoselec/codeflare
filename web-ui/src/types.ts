@@ -134,7 +134,7 @@ export type FallbackRouting = { enabled: false } | {
   reasoning: PiReasoningLevel;
 };
 
-export interface ReasoningGatewayDraft { gatewayUrl: string; replacementToken?: string }
+export interface ReasoningGatewayDraft { gatewayUrl: string; gatewayId?: string; replacementToken?: string }
 export interface ReasoningManagementContext {
   gateway?: ReasoningGatewayDraft;
   backendDescriptions?: Record<string, string>;

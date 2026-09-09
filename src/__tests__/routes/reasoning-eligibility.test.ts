@@ -21,6 +21,7 @@ vi.mock('../../middleware/auth', () => ({
 }));
 
 const gatewayUrl = 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/gateway';
+const accountApiUrl = 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/';
 const token = 'test-gateway-token';
 const profileRef = getBuiltInProfileRef('openai-gpt-chat-tools-off');
 const model = { id: 'model', type: 'model', properties: { provider: 'openai', model: 'test-model' }, outputs: { success: { elementId: 'end' } } };
@@ -74,6 +75,7 @@ beforeEach(() => {
     const url = input instanceof Request ? input.url : String(input);
     if (method === 'GET') {
       if (managementStatus !== 200) return Response.json({ secret: 'private error' }, { status: managementStatus });
+      if (url.endsWith('/ai-gateway/gateways')) return Response.json({ result: [{ id: 'gateway' }] });
       return url.endsWith('/routes')
         ? Response.json({ result: { routes: ['working', 'other'].map((name) => ({ id: name, name })) } })
         : Response.json({ result: { version: { id: version, active: true, data: elements } } });
@@ -113,6 +115,16 @@ describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
     }
     expect((await f.post('routes/working/inventory', { backendDescriptions: { model: 'bad\nvalue' } })).status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it('accepts the account API base URL and configured gateway name for Dynamic Route inspection', async () => {
+    const f = setup();
+    const response = await f.post('catalog', { gateway: { gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'draft-token' } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ routeCatalogStatus: 'ready', routes: ['working', 'other'] });
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai-gateway/gateways/gateway/routes',
+      expect.objectContaining({ method: 'GET' }),
+    );
   });
   it('reuses the saved encrypted token for draft inspection without changing storage', async () => {
     const f = setup();
@@ -181,6 +193,16 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
     } }));
     expect(result.fieldErrors).toBeDefined();
     expect(providerCalls).toBe(0);
+  });
+  it('discovers and verifies a Dynamic Route profile through the account API URL', async () => {
+    const f = setup();
+    const response = await f.check({ gateway: { gatewayUrl: `${accountApiUrl}ai/v1/chat/completions`, gatewayId: 'gateway', replacementToken: 'draft-token' } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ classification: 'Verified', verification: { profileRef } });
+    const providerRequests = vi.mocked(fetch).mock.calls.filter(([input, init]) => (input instanceof Request ? input.method : init?.method) === 'POST');
+    expect(providerRequests).toHaveLength(3);
+    expect(providerRequests.every(([input]) => String(input instanceof Request ? input.url : input) === `${accountApiUrl}ai/v1/chat/completions`)).toBe(true);
+    expect(providerRequests.every(([input, init]) => new Headers(input instanceof Request ? input.headers : init?.headers).get('cf-aig-gateway-id') === 'gateway')).toBe(true);
   });
   it('verifies an unsaved canonical custom profile and draft gateway without activation', async () => {
     const f = setup();
@@ -318,15 +340,23 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
     const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ routeChecks: { working: checked.checkId } }));
     expect(JSON.stringify(result.fieldErrors)).toMatch(/retry.*without.*check/i); expect(providerCalls).toBe(calls);
   });
-  it.each(['route', 'gateway', 'profile', 'inventory', 'provenance'].flatMap((identity) => [
+  it('rebinds saved route authority after a replacement connection passes management topology validation', async () => {
+    const f = setup(); await activate(f);
+    f.env.ENCRYPTION_KEY = Buffer.alloc(32, 1).toString('base64');
+    const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'rotated-token',
+    }));
+    expect(result.fieldErrors).toBeUndefined();
+    const verification = (result.values?.reasoningConfiguration as any).routeAssignments.working.verification;
+    expect(verification.connectionFingerprint).not.toBe((JSON.parse(f.kv._store.get(SETUP_KEYS.REASONING_CONFIGURATION)!) as any).routeAssignments.working.verification.connectionFingerprint);
+    expect(verification.inventoryDigest).toBe((JSON.parse(f.kv._store.get(SETUP_KEYS.REASONING_CONFIGURATION)!) as any).routeAssignments.working.verification.inventoryDigest);
+    expect(providerCalls).toBe(3);
+  });
+  it.each(['route', 'profile', 'inventory', 'provenance'].flatMap((identity) => [
     { identity, administratorConfirmed: false }, { identity, administratorConfirmed: true },
   ]))('rejects a receipt after $identity identity changes (administrator: $administratorConfirmed)', async ({ identity, administratorConfirmed }) => {
     const f = setup(); const checked = await (await f.check(administratorConfirmed ? { administratorConfirmed: true } : {})).json() as any;
     const proposed = values({ routeChecks: { working: checked.checkId } });
-    if (identity === 'gateway') {
-      proposed.replacementToken = 'different-token';
-      f.env.ENCRYPTION_KEY = Buffer.alloc(32, 1).toString('base64');
-    }
     if (identity === 'inventory') version = 'version-2';
     if (identity === 'profile') proposed.reasoningConfiguration = { schemaVersion: 1, customProfileRevisions: [], routeAssignments: { working: { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') } } };
     if (identity === 'provenance') model.properties.model = 'different-model';

@@ -106,7 +106,8 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
       AIG_GATEWAY_URL: 'https://gateway.ai.cloudflare.com/v1/deploy-account/deploy-gateway',
       AIG_TOKEN: 'deployment-secret-must-not-leak',
     });
-    await kv.put(SETUP_KEYS.AIG_GATEWAY_URL, 'https://gateway.ai.cloudflare.com/v1/admin-account/admin-gateway');
+    await kv.put(SETUP_KEYS.AIG_GATEWAY_URL, 'https://api.cloudflare.com/client/v4/accounts/abcdef0123456789abcdef0123456789/');
+    await kv.put(SETUP_KEYS.AIG_GATEWAY_ID, 'admin-gateway');
     await kv.put(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, 'browser-account');
     await kv.put('admin:configuration:active-run', JSON.stringify({ runId: 'run-1' }));
 
@@ -116,7 +117,8 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     expect(body.mode).toBe('enterprise');
     expect(body.applicableSections).toEqual(enterpriseSections);
     expect(body.sections.aiRouting).toMatchObject({
-      gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/admin-account/admin-gateway',
+      gatewayUrl: 'https://api.cloudflare.com/client/v4/accounts/abcdef0123456789abcdef0123456789/',
+      gatewayId: 'admin-gateway',
       tokenState: 'deployment',
     });
     expect(body.sections.browserRendering).toEqual({

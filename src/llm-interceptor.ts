@@ -51,6 +51,7 @@ import { isPiReasoningLevel, translateReasoningRequest } from './lib/reasoning-p
 import { getRouteReasoningProfile, parseReasoningConfigurationWithLegacyFallback } from './lib/reasoning-configuration';
 import { preferredReasoningLevel, verificationMatches } from './lib/reasoning-verification';
 import { getAigConfig } from './lib/aig-config';
+import { gatewayCoordinates } from './lib/ai-gateway-management';
 
 /**
  * Hosts the DO must intercept for enterprise LLM routing. Only the OpenAI host
@@ -119,23 +120,11 @@ interface InterceptorProps {
    * so existing deploys that haven't run the wizard keep working.
    */
   gatewayUrl?: string;
+  gatewayId?: string;
   token?: string;
 }
 
 /**
- * Parse the account id + gateway id out of AIG_GATEWAY_URL, whose form is
- * `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}[/...]`. The
- * REST API needs the account id in the URL path and the gateway id in the
- * cf-aig-gateway-id header; both are derived from this one already-configured
- * value, so the migration needs no new secret. Returns null when absent or
- * unparseable so the caller can fail closed.
- */
-function parseGateway(raw: string | undefined): { accountId: string; gatewayId: string } | null {
-  if (!raw) return null;
-  const m = raw.match(/\/v1\/([^/?#]+)\/([^/?#]+)/);
-  if (!m) return null;
-  return { accountId: m[1], gatewayId: m[2] };
-}
 
 /**
  * OpenAI-only request fields that non-OpenAI providers reject with a 400
@@ -299,7 +288,11 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // fallback — REQ-ENTERPRISE-017); fall back to env directly when a prop is absent.
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
     const aigToken = props?.token ?? this.env.AIG_TOKEN;
-    const gw = parseGateway(props?.gatewayUrl ?? this.env.AIG_GATEWAY_URL);
+    const gw = gatewayCoordinates({
+      gatewayUrl: props?.gatewayUrl ?? this.env.AIG_GATEWAY_URL,
+      gatewayId: props?.gatewayId ?? this.env.AIG_GATEWAY_ID,
+      token: aigToken,
+    });
     if (!gw || !aigToken || (this.env.KV && !(await getAigConfig(this.env)).token)) {
       // Enterprise deploy with interception wired but no gateway configured:
       // fail closed rather than letting the request fall through anywhere.
@@ -446,7 +439,9 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
               const configuration = await this.loadReasoningConfiguration();
               profile = getRouteReasoningProfile(configuration, route);
               if (!verificationMatches(configuration.routeAssignments[route]?.verification, profile, {
-                gatewayUrl: props?.gatewayUrl ?? this.env.AIG_GATEWAY_URL, token: aigToken,
+                gatewayUrl: props?.gatewayUrl ?? this.env.AIG_GATEWAY_URL,
+                gatewayId: props?.gatewayId ?? this.env.AIG_GATEWAY_ID,
+                token: aigToken,
               })) throw new Error('Reasoning profile check is no longer current');
             } catch (error) {
               const missing = error instanceof Error && error.message.includes('required for route');
@@ -551,6 +546,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
     const { routeCatalog, defaultRoute, defaultReasoning } = await resolveRouteCatalog(this.env.KV, groups, {
       gatewayUrl: props?.gatewayUrl ?? this.env.AIG_GATEWAY_URL,
+      gatewayId: props?.gatewayId ?? this.env.AIG_GATEWAY_ID,
       token: props?.token ?? this.env.AIG_TOKEN,
     });
     return { routes: routeCatalog, defaultRoute, defaultReasoning: defaultReasoning || 'off' };

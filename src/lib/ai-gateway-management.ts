@@ -8,14 +8,20 @@ export const dynamicRouteSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0
   .refine((value) => !['__proto__', 'prototype', 'constructor'].includes(value.toLowerCase()));
 export const gatewayDraftSchema = z.object({
   gatewayUrl: z.string().trim().max(512).refine((value) => parseGatewayUrl(value) !== null),
+  gatewayId: dynamicRouteSchema.optional(),
   replacementToken: z.string().trim().max(2048).regex(/^[^\u0000-\u001f\u007f]*$/).optional(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (parseGatewayUrl(value.gatewayUrl)?.kind === 'account-api' && !value.gatewayId) {
+    context.addIssue({ code: 'custom', message: 'AI Gateway name is required for an account API URL', path: ['gatewayId'] });
+  }
+});
 export const backendDescriptionsSchema = z.record(
   z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/).refine((value) => !['__proto__', 'prototype', 'constructor'].includes(value.toLowerCase())),
   z.string().trim().min(1).max(256).regex(/^[^\u0000-\u001f\u007f]+$/),
 ).refine((value) => Object.keys(value).length <= 256);
 export type GatewayDraft = z.infer<typeof gatewayDraftSchema>;
-export interface GatewayConnection { gatewayUrl?: string; token?: string }
+export interface GatewayConnection { gatewayUrl?: string; gatewayId?: string; token?: string }
+export interface ParsedGatewayUrl { accountId: string; gatewayId?: string; kind: 'legacy' | 'account-api'; canonicalUrl: string }
 export interface ConnectionStatus { status: 'ready' | 'missing' | 'permission-denied' | 'unavailable'; message: string }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -24,18 +30,41 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function safeString(value: unknown, maxLength = 512): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maxLength && !/[\u0000-\u001f\u007f]/.test(value);
 }
-export function parseGatewayUrl(raw: string | undefined): { accountId: string; gatewayId: string } | null {
+export function parseGatewayUrl(raw: string | undefined): ParsedGatewayUrl | null {
   if (!raw) return null;
   let url: URL;
   try { url = new URL(raw); } catch { return null; }
-  if (url.protocol !== 'https:' || url.hostname !== 'gateway.ai.cloudflare.com' || url.port || url.username || url.password || url.search || url.hash) return null;
-  const match = /^\/v1\/([a-f0-9]{32})\/([A-Za-z0-9][A-Za-z0-9_-]{0,63})(?:\/|\/compat\/?)?$/i.exec(url.pathname);
-  return match ? { accountId: match[1], gatewayId: match[2] } : null;
+  if (url.protocol !== 'https:' || url.port || url.username || url.password) return null;
+  if (url.hostname === 'gateway.ai.cloudflare.com') {
+    if (url.search || url.hash) return null;
+    const match = /^\/v1\/([a-f0-9]{32})\/([A-Za-z0-9][A-Za-z0-9_-]{0,63})(?:\/|\/compat\/?)?$/i.exec(url.pathname);
+    return match ? { accountId: match[1], gatewayId: match[2], kind: 'legacy', canonicalUrl: `https://gateway.ai.cloudflare.com/v1/${match[1]}/${match[2]}/` } : null;
+  }
+  if (url.hostname === 'api.cloudflare.com') {
+    const match = /^\/client\/v4\/accounts\/([a-f0-9]{32})(\/.*)?$/i.exec(url.pathname);
+    if (!match) return null;
+    const suffix = match[2] ?? '';
+    if (!/^\/?$|^\/ai\/?$|^\/ai\/run\/?$|^\/ai\/v1(?:\/(?:chat\/completions|responses|messages|models))?\/?$/i.test(suffix)) return null;
+    return { accountId: match[1], kind: 'account-api', canonicalUrl: `https://api.cloudflare.com/client/v4/accounts/${match[1]}/` };
+  }
+  return null;
+}
+export function gatewayCoordinates(connection: GatewayConnection): { accountId: string; gatewayId: string } | null {
+  const parsed = parseGatewayUrl(connection.gatewayUrl);
+  if (!parsed) return null;
+  const gatewayId = parsed.gatewayId ?? connection.gatewayId;
+  return gatewayId && dynamicRouteSchema.safeParse(gatewayId).success ? { accountId: parsed.accountId, gatewayId } : null;
 }
 export async function resolveGatewayConnection(env: Env, draft?: GatewayDraft): Promise<GatewayConnection> {
   // The incumbent source remains the sole owner of stored encrypted credentials.
   const saved = await getAigConfig(env);
-  return { gatewayUrl: draft?.gatewayUrl ?? saved.gatewayUrl, token: draft?.replacementToken?.trim() || saved.token };
+  const gatewayUrl = draft?.gatewayUrl ?? saved.gatewayUrl;
+  const parsed = parseGatewayUrl(gatewayUrl);
+  return {
+    gatewayUrl: parsed?.canonicalUrl ?? gatewayUrl,
+    gatewayId: parsed?.gatewayId ?? draft?.gatewayId ?? saved.gatewayId,
+    token: draft?.replacementToken?.trim() || saved.token,
+  };
 }
 class GatewayManagementError extends Error {
   constructor(public readonly status: number) { super('management_request_failed'); }

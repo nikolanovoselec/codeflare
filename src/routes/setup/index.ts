@@ -105,6 +105,7 @@ const ConfigureBodySchema = z.object({
   // keep the stored token). The deploy secrets (env.AIG_GATEWAY_URL / env.AIG_TOKEN)
   // remain an OPTIONAL fallback — getAigConfig resolves KV first, env second.
   aigGatewayUrl: z.string().max(512).optional(),
+  aigGatewayId: z.string().max(64).optional(),
   aigToken: z.string().max(512).optional(),
   // REQ-GITHUB-008 (admin, any mode): admin-configured GitHub provider. The chooser
   // selects 'app' | 'oauth'; the matching client id is non-secret, the secret is
@@ -259,7 +260,7 @@ app.post('/configure', async (c) => {
   // Validate body synchronously before starting the stream
   const body = await parseJsonBody(c, ConfigureBodySchema);
 
-  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, routeReasoningProfiles, reasoningConfiguration, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, managedEnvironment, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled, activeAgents } = body;
+  const { customDomain, allowedUsers, adminUsers, allowedOrigins, enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, routeReasoningProfiles, reasoningConfiguration, browserRenderToken, browserRenderAccountId, aigGatewayUrl, aigGatewayId, aigToken, githubProviderType, githubAppClientId, githubAppClientSecret, githubOauthClientId, githubOauthClientSecret, cloudflareOauthClientId, cloudflareOauthClientSecret, managedEnvironment, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled, activeAgents } = body;
   const token = c.env.CLOUDFLARE_API_TOKEN;
 
   if (managedEnvironment !== undefined || strictGatewayEgress === false) {
@@ -630,9 +631,10 @@ app.post('/configure', async (c) => {
         // the token blank when unchanged (the stored token never round-trips to the client),
         // so a blank value means "keep what's stored", not "clear". The deploy secrets
         // (env.AIG_*) remain an optional fallback (getAigConfig resolves KV first, env second).
-        if (aigGatewayUrl !== undefined || aigToken !== undefined) {
+        if (aigGatewayUrl !== undefined || aigGatewayId !== undefined || aigToken !== undefined) {
           await runStep('configure_ai_gateway', async () => executeConfigurationTask(c.env, 'configure_ai_gateway', {
             gatewayUrl: aigGatewayUrl?.trim() || await c.env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL) || c.env.AIG_GATEWAY_URL || '',
+            gatewayId: aigGatewayId?.trim() || await c.env.KV.get(SETUP_KEYS.AIG_GATEWAY_ID) || c.env.AIG_GATEWAY_ID || '',
             replacementToken: aigToken ?? '',
           }, administrationContext));
         }

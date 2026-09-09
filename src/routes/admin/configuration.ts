@@ -124,6 +124,7 @@ app.get('/', requireAdmin, async (c) => {
       enterpriseAccessGroup,
       enterpriseAdminAccessGroup,
       aigGatewayUrl,
+      aigGatewayId,
       aigToken,
       browserAccountId,
       browserToken,
@@ -140,6 +141,7 @@ app.get('/', requireAdmin, async (c) => {
       c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP),
       c.env.KV.get(SETUP_KEYS.ENTERPRISE_ADMIN_ACCESS_GROUP),
       c.env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL),
+      c.env.KV.get(SETUP_KEYS.AIG_GATEWAY_ID),
       c.env.KV.get(SETUP_KEYS.AIG_TOKEN),
       c.env.KV.get(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID),
       c.env.KV.get(SETUP_KEYS.BROWSER_RENDER_TOKEN),
@@ -182,6 +184,7 @@ app.get('/', requireAdmin, async (c) => {
       : migration!.proposed;
     sections.aiRouting = {
       gatewayUrl: aigGatewayUrl || c.env.AIG_GATEWAY_URL || '',
+      gatewayId: aigGatewayId || c.env.AIG_GATEWAY_ID || '',
       tokenState: secretState(aigToken, c.env.AIG_TOKEN),
       dynamicRoutes: parseArray(dynamicRoutes),
       defaultRoute: parsedDefaultRoute,

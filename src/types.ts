@@ -145,6 +145,8 @@ interface EnterpriseEnv {
   // env only — never injected into the container (the container reaches the
   // gateway via platform outbound-HTTPS interception, not a URL).
   AIG_GATEWAY_URL?: string;
+  // Gateway name required when AIG_GATEWAY_URL uses the account API base form.
+  AIG_GATEWAY_ID?: string;
   // AI Gateway token the interceptor sends as a standard `Authorization: Bearer`
   // header on the REST API (enterprise only; AD74). Set via wrangler secret.
   // Never exposed to the container.

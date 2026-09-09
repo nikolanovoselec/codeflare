@@ -357,6 +357,7 @@ export const SetupPrefillResponseSchema = z.object({
   // token is set, never the token) + the non-secret gateway URL.
   aigTokenSet: z.boolean().default(false),
   aigGatewayUrl: z.string().default(''),
+  aigGatewayId: z.string().default(''),
   // REQ-GITHUB-008: enterprise GitHub provider config (masked — the server returns only
   // whether each client secret is set, never the secrets) + the non-secret client ids.
   githubProviderType: z.enum(['app', 'oauth']).nullable().default(null),

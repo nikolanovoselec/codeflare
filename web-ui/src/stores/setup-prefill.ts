@@ -53,6 +53,7 @@ function applyEnterpriseConfigPrefill(s: SetupState, prefill: SetupPrefill): voi
   s.cloudflareBrowserTokenSet = prefill.browserRenderTokenSet;
   s.cloudflareBrowserAccountId = prefill.browserRenderAccountId;
   s.aigGatewayUrl = prefill.aigGatewayUrl;
+  s.aigGatewayId = prefill.aigGatewayId;
   s.aigTokenSet = prefill.aigTokenSet;
   s.strictGatewayEgress = prefill.strictGatewayEgress;
   s.r2SseDisabled = prefill.r2SseDisabled;

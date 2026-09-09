@@ -53,6 +53,7 @@ export function buildConfigurePayload(state: SetupState): Record<string, unknown
       browserRenderAccountId: state.cloudflareBrowserAccountId,
       // REQ-ENTERPRISE-017: AI Gateway URL (non-secret) + token (blank => no clobber).
       aigGatewayUrl: state.aigGatewayUrl,
+      aigGatewayId: state.aigGatewayId,
       aigToken: state.aigToken,
       // REQ-ENTERPRISE-013: per-group routing map.
       groupRouting: state.groupRouting,

@@ -660,6 +660,33 @@ describe('Structured AI routing', () => {
     expect(view.getByLabelText('support default reasoning')).toBeDisabled();
   });
 
+  it('REQ-ENTERPRISE-042: a successfully checked credential change preserves saved route authority for Review changes', async () => {
+    const view = mount(checkedCurrent());
+    await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
+    await section(view, 'Connection');
+    await fireEvent.input(view.getByLabelText('Replacement API token'), { target: { value: 'rotated-token' } });
+    expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
+    expect(formValues(view.container).reasoningConfiguration.routeAssignments.development.verification).toEqual(proof());
+    await fireEvent.click(view.getByRole('button', { name: 'Check connection' }));
+    await view.findByText('Connected · 3 routes readable');
+    await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
+    expect(formValues(view.container).replacementToken).toBe('rotated-token');
+    expect(formValues(view.container).dynamicRoutes).toEqual(current.dynamicRoutes);
+  });
+
+  it('REQ-ENTERPRISE-042: canonicalizes a pasted v4 inference URL and supplies the gateway name to Dynamic Route discovery', async () => {
+    const view = mount(checkedCurrent()); await ready(view);
+    await section(view, 'Connection');
+    await fireEvent.change(view.getByLabelText('Gateway URL format'), { target: { value: 'account-api' } });
+    await fireEvent.input(view.getByLabelText('AI Gateway URL'), { target: { value: 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/v1/chat/completions' } });
+    await fireEvent.input(view.getByLabelText('AI Gateway name'), { target: { value: 'codeflare-enterprise' } });
+    await fireEvent.click(view.getByRole('button', { name: 'Check connection' }));
+    await view.findByText('Connected · 3 routes readable');
+    expect(view.getByLabelText('AI Gateway URL')).toHaveValue('https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/');
+    expect(api.catalog).toHaveBeenLastCalledWith({ gatewayUrl: 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/', gatewayId: 'codeflare-enterprise' });
+    expect(formValues(view.container).gatewayId).toBe('codeflare-enterprise');
+  });
+
   it('REQ-ENTERPRISE-039: default reasoning help distinguishes pending connection from missing checked route assignment', async () => {
     let hydrate!: (value: ReasoningCatalog) => void;
     api.catalog.mockReturnValueOnce(new Promise<ReasoningCatalog>((resolve) => { hydrate = resolve; }));

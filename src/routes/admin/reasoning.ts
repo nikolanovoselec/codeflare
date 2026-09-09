@@ -18,7 +18,7 @@ import {
 import { discoverPiCompatibility, PI_WIRE_CANARY_VERSION } from '../../lib/reasoning-discovery';
 import {
   backendDescriptionsSchema, connectionStatus, dynamicRouteSchema, gatewayDraftSchema,
-  listDynamicRoutes, parseGatewayUrl, resolveGatewayConnection, type GatewayDraft,
+  gatewayCoordinates, listDynamicRoutes, resolveGatewayConnection, type GatewayDraft,
 } from '../../lib/ai-gateway-management';
 import {
   assignmentBackendDescriptions, completedProfileCheck, connectionFingerprint, issueRouteCheck,
@@ -373,11 +373,11 @@ async function catalog(c: ReasoningContext, draft?: GatewayDraft) {
   let routes: string[] = [];
   let routeCatalogStatus: 'ready' | 'unavailable' = 'unavailable';
   const gateway = await resolveGatewayConnection(c.env, draft);
-  const parsedGateway = parseGatewayUrl(gateway.gatewayUrl);
+  const coordinates = gatewayCoordinates(gateway);
   let connection = connectionStatus(undefined, true);
-  if (parsedGateway && connectionFingerprint(gateway)) {
+  if (coordinates && connectionFingerprint(gateway)) {
     try {
-      routes = (await listDynamicRoutes(parsedGateway.accountId, parsedGateway.gatewayId, gateway.token!)).map((route) => route.name);
+      routes = (await listDynamicRoutes(coordinates.accountId, coordinates.gatewayId, gateway.token!)).map((route) => route.name);
       routeCatalogStatus = 'ready';
       connection = connectionStatus();
     } catch (error) {
@@ -472,8 +472,8 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
   if (request.data.profileRef && !profile) return c.json({ error: 'Reasoning profile revision not found', code: 'not_found' }, 404);
 
   const gateway = await resolveGatewayConnection(c.env, request.data.gateway);
-  const parsedGateway = parseGatewayUrl(gateway.gatewayUrl);
-  if (!parsedGateway || !gateway.token || !connectionFingerprint(gateway)) {
+  const coordinates = gatewayCoordinates(gateway);
+  if (!coordinates || !gateway.token || !connectionFingerprint(gateway)) {
     return c.json({ error: 'AI Gateway credentials unavailable', code: 'gateway_unavailable' }, 503);
   }
 
@@ -498,8 +498,8 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
         return c.json({ route: request.data.route, classification: 'Administrator-confirmed', assignable: true, checkId, verification });
       }
       const report = await discoverPiCompatibility({
-        accountId: parsedGateway.accountId,
-        gatewayId: parsedGateway.gatewayId,
+        accountId: coordinates.accountId,
+        gatewayId: coordinates.gatewayId,
         apiToken: gateway.token,
         route: `dynamic/${request.data.route}`,
         profile,
@@ -528,13 +528,13 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
       return c.json(report);
     }
 
-    const routes = await listDynamicRoutes(parsedGateway.accountId, parsedGateway.gatewayId, gateway.token);
+    const routes = await listDynamicRoutes(coordinates.accountId, coordinates.gatewayId, gateway.token);
     if (!routes.some((route) => route.name === request.data.route)) return c.json({ error: 'Dynamic route not found', code: 'not_found' }, 404);
     const reports: DiscoveryCandidateReport[] = [];
     for (const candidate of distinctDiscoveryCandidates()) {
       const report = await discoverPiCompatibility({
-        accountId: parsedGateway.accountId,
-        gatewayId: parsedGateway.gatewayId,
+        accountId: coordinates.accountId,
+        gatewayId: coordinates.gatewayId,
         apiToken: gateway.token,
         route: `dynamic/${request.data.route}`,
         profile: candidate,
