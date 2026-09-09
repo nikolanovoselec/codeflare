@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, waitFor, within } from '@solidjs/testing-library';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import EnvironmentAreaFields, { environmentValues } from '../../components/admin/EnvironmentAreaFields';
+import { ApiError } from '../../api/fetch-helper';
 import { normalizeCustomProfile } from '../../../../src/lib/reasoning-profiles';
 import type {
   PiReasoningLevel, ProfileRevisionRef, ReasoningCatalog, ReasoningConfiguration,
@@ -55,7 +56,7 @@ const current = {
     { accessGroup: 'support', routes: ['general_usage'], defaultRoute: 'general_usage', reasoning: 'off' },
   ],
 };
-const savedNativeCustom = normalizeCustomProfile({ schemaVersion: 1, id: 'custom-saved-native', revision: 3, name: 'Saved native', enabled: true, supportedLevels: ['off'], levels: { off: [{ path: 'reasoning_effort', value: 'none' }] }, removePaths: ['reasoning_effort'] });
+const savedNativeCustom = normalizeCustomProfile({ schemaVersion: 1, id: 'custom-saved-native', revision: 3, name: 'Saved native', enabled: true, supportedLevels: ['off'], levels: { off: [{ path: 'reasoning_effort', value: 'none' }] }, offSemantics: { status: 'explicit-value', path: 'reasoning_effort', value: 'none' }, removePaths: ['reasoning_effort'] });
 const savedNativeCustomRef = { id: savedNativeCustom.id, revision: savedNativeCustom.revision, hash: savedNativeCustom.hash };
 const proof = (route = 'development', profileRef = selectedRef(route), scope: ReasoningRouteVerification['scope'] = 'single-model'): ReasoningRouteVerification => ({
   schemaVersion: 1, profileRef: { ...profileRef }, routeVersion: `${route}-v2`, inventoryDigest: `${route}-digest`,
@@ -244,7 +245,7 @@ describe('Structured AI routing', () => {
   });
 
   it('REQ-ENTERPRISE-054: surfaces the server error when native compatibility discovery cannot run', async () => {
-    api.nativeDiscover.mockRejectedValueOnce(new Error('Rate limit exceeded. Try again in 44 seconds.'));
+    api.nativeDiscover.mockRejectedValueOnce(new ApiError('Rate limit exceeded. Try again in 44 seconds.', 429, 'Too Many Requests'));
     const view = mount(checkedCurrent());
     await addNativeTarget(view);
     await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-future-profile' } });
@@ -271,7 +272,7 @@ describe('Structured AI routing', () => {
   });
 
   it('REQ-ENTERPRISE-054: permits administrator confirmation after failure and edits enabled state', async () => {
-    api.native.mockRejectedValueOnce(new Error('Rate limit exceeded. Try again in 44 seconds.'));
+    api.native.mockRejectedValueOnce(new ApiError('Rate limit exceeded. Try again in 44 seconds.', 429, 'Too Many Requests'));
     const view = mount(checkedCurrent());
     await addNativeTarget(view);
     await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Claude custom' } });

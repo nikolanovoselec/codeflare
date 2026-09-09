@@ -2,6 +2,7 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type Component } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
 import { checkNativeTarget, discoverNativeCompatibility, discoverReasoningCompatibility, getReasoningCatalog, getReasoningRouteInventory } from '../../api/client';
+import { apiErrorMessage } from '../../api/fetch-helper';
 import type {
   FallbackRouting, NativeAiTargetDraft, PiReasoningLevel, ProfileRevisionRef, ReasoningCatalog, ReasoningConfiguration,
   ReasoningDiscoveryResult, ReasoningGatewayDraft, ReasoningManagementContext, ReasoningProfileCatalogEntry,
@@ -368,9 +369,7 @@ const AiRoutingFields: Component<Props> = (props) => {
       setNativeChecks((checks) => ({ ...checks, [result.targetId]: result.checkId }));
       setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, id: result.targetId, handle: `cf-native-${result.targetId}`, busy: false, verification: result.verification } : item));
     } catch (error) {
-      const message = error instanceof Error && error.message.trim()
-        ? error.message
-        : 'Target check failed. Check the exact model, provider readiness, and connection.';
+      const message = apiErrorMessage(error, 'Target check failed. Check the exact model, provider readiness, and connection.');
       setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, busy: false, enabled: false, verification: undefined, error: message } : item));
     }
   };
@@ -528,7 +527,7 @@ const AiRoutingFields: Component<Props> = (props) => {
               <p class="admin-status-text" role="status">{target().enabled
                 ? 'Available for routing. Assign this target to an Access group before saving.'
                 : target().verification?.current
-                  ? `${target().verification.method === 'administrator' ? 'Administrator-confirmed' : 'Verified'}. This target can now be made available for routing.`
+                  ? `${target().verification?.method === 'administrator' ? 'Administrator-confirmed' : 'Verified'}. This target can now be made available for routing.`
                   : 'Verify or confirm this exact target before making it available for routing.'}</p>
               <label class="admin-toggle-field"><input type="checkbox" aria-label={`Enable ${target().label} native target`} checked={target().enabled} disabled={!target().verification?.current} onChange={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, enabled: event.currentTarget.checked } : item))} /><span>Available for routing</span></label>
               <Show when={target().error}><p role="alert" class="admin-inline-error">{target().error}</p></Show>

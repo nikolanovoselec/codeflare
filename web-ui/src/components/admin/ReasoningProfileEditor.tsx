@@ -1,6 +1,7 @@
 /* v8 ignore start -- user-validated administration UI */
 import { For, Show, createMemo, createSignal, createUniqueId, onCleanup, onMount, type Component } from 'solid-js';
 import { discoverReasoningCompatibility } from '../../api/client';
+import { apiErrorMessage } from '../../api/fetch-helper';
 import { normalizeCustomProfile } from '../../../../src/lib/reasoning-profiles';
 import type { PiReasoningLevel, ProfileRevisionRef, ReasoningDiscoveryDiagnostic, ReasoningDiscoveryResult, ReasoningManagementContext } from '../../types';
 import { profileDisplayName } from './pi-profile-presentation';
@@ -189,9 +190,7 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
         : await discoverReasoningCompatibility({ route: props.route, ...props.context, maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS });
       if (!disposed) setResult(result);
     } catch (error) {
-      if (!disposed) setError(error instanceof Error && error.message.trim()
-        ? error.message
-        : 'Compatibility check failed. Check the AI Gateway connection and try again.');
+      if (!disposed) setError(apiErrorMessage(error, 'Compatibility check failed. Check the AI Gateway connection and try again.'));
     } finally {
       if (!disposed) { setBusy(false); props.onBusyChange?.(false); }
     }
