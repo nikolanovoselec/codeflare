@@ -103,7 +103,7 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
   it('administrator confirmation issues server identity, persists exact authority, and route-only Save leaves it untouched', async () => {
     const f = setup();
     const checked = await (await f.post('native/discover', {
-      target: { label: 'Claude exact', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, enabled: true },
+      target: { label: 'Claude exact', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, profileId: 'bedrock-anthropic-compat', enabled: true },
       administratorConfirmed: true, maxCompletionTokens: 32,
     })).json() as any;
     expect(checked).toMatchObject({ classification: 'Administrator-confirmed', assignable: true });

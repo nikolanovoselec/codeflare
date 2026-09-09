@@ -64,7 +64,7 @@ export async function resolveGatewayConnection(env: Env, draft?: GatewayDraft): 
   const parsed = parseGatewayUrl(gatewayUrl);
   return {
     gatewayUrl: parsed?.canonicalUrl ?? gatewayUrl,
-    gatewayId: parsed?.gatewayId ?? draft?.gatewayId ?? saved.gatewayId,
+    gatewayId: parsed?.kind === 'legacy' ? undefined : draft?.gatewayId ?? saved.gatewayId,
     token: draft?.replacementToken?.trim() || saved.token,
   };
 }

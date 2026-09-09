@@ -19,8 +19,6 @@ export const nativeTargetDraftSchema = z.object({
   contextWindow: z.number().int().gt(NATIVE_MODEL_MAX_TOKENS).max(4_000_000),
   profileId: z.literal(BEDROCK_PROFILE_ID), enabled: z.boolean(),
 }).strict();
-type NativeTargetDraft = z.infer<typeof nativeTargetDraftSchema>;
-
 const nativeVerificationSchema = z.object({
   schemaVersion: z.literal(1), method: z.literal('administrator').optional(), targetId: z.string().uuid(),
   model: nativeModelSchema, providerConfigId: z.string().min(1).max(128), connectionFingerprint: hashSchema,
