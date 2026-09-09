@@ -14,13 +14,54 @@ function concat(left: Uint8Array, right: Uint8Array): Uint8Array {
   return joined;
 }
 
+function quotedEnd(text: string, start: number): number {
+  let escaped = false;
+  for (let index = start + 1; index < text.length; index += 1) {
+    if (!escaped && text[index] === '"') return index + 1;
+    if (!escaped && text[index] === '\\') escaped = true;
+    else escaped = false;
+  }
+  return -1;
+}
+
+function functionNameSpans(line: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  let from = 0;
+  while ((from = line.indexOf('"function"', from)) >= 0) {
+    if (line[from - 1] === '\\') { from += 10; continue; }
+    let cursor = from + 10;
+    while (/\s/.test(line[cursor] ?? '')) cursor += 1;
+    if (line[cursor++] !== ':') { from += 10; continue; }
+    while (/\s/.test(line[cursor] ?? '')) cursor += 1;
+    if (line[cursor] !== '{') { from += 10; continue; }
+    let depth = 1; let end = cursor + 1;
+    for (; end < line.length && depth > 0; end += 1) {
+      if (line[end] === '"') { const next = quotedEnd(line, end); if (next < 0) return spans; end = next - 1; }
+      else if (line[end] === '{') depth += 1;
+      else if (line[end] === '}') depth -= 1;
+    }
+    let name = cursor + 1;
+    while ((name = line.indexOf('"name"', name)) >= 0 && name < end) {
+      if (line[name - 1] === '\\') { name += 6; continue; }
+      let value = name + 6;
+      while (/\s/.test(line[value] ?? '')) value += 1;
+      if (line[value++] !== ':') { name += 6; continue; }
+      while (/\s/.test(line[value] ?? '')) value += 1;
+      if (line[value] === '"') { const valueEnd = quotedEnd(line, value); if (valueEnd > 0 && valueEnd <= end) spans.push([value, valueEnd]); }
+      break;
+    }
+    from = end;
+  }
+  return spans;
+}
+
 function suppressNameMembers(line: string, suppressions: readonly boolean[]): string {
-  let index = 0;
-  return line.replace(/"function"\s*:\s*\{(?:(?:"(?:\\.|[^"\\])*")|[^{}])*\}/g, (block) => {
-    if (!/("name"\s*:\s*)("(?:\\.|[^"\\])*")/.test(block)) return block;
-    const suppress = suppressions[index++] === true;
-    return suppress ? block.replace(/("name"\s*:\s*)("(?:\\.|[^"\\])*")/, '$1""') : block;
-  });
+  const replacements = functionNameSpans(line).filter((_, index) => suppressions[index]);
+  for (let index = replacements.length - 1; index >= 0; index -= 1) {
+    const [start, end] = replacements[index];
+    line = `${line.slice(0, start)}""${line.slice(end)}`;
+  }
+  return line;
 }
 
 /**
@@ -50,7 +91,8 @@ export function repairRepeatedCompleteToolNames(declaredNames: readonly string[]
         if (!isRecord(rawCall)) continue;
         const call = Number.isInteger(rawCall.index) ? String(rawCall.index) : '0';
         const fn = isRecord(rawCall.function) ? rawCall.function : null;
-        if (!fn || typeof fn.name !== 'string' || !fn.name) continue;
+        if (!fn || typeof fn.name !== 'string') continue;
+        if (!fn.name) { suppressions.push(false); continue; }
         const key = `${choice}:${call}`;
         const prior = accumulated.get(key) ?? '';
         const repeated = declared.has(prior) && fn.name === prior;

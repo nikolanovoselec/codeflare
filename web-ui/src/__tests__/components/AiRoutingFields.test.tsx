@@ -161,7 +161,9 @@ describe('Structured AI routing', () => {
     await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Claude custom' } });
     await fireEvent.input(modelInput, { target: { value: 'eu.anthropic.claude-future-profile' } });
     await fireEvent.input(view.getByLabelText('Native target 1 context window'), { target: { value: '200000' } });
-    await fireEvent.click(view.getByRole('button', { name: 'Mark as verified' }));
+    const markVerified = view.getByRole('button', { name: 'Mark as verified' });
+    await waitFor(() => expect(markVerified).toBeEnabled());
+    await fireEvent.click(markVerified);
     await waitFor(() => expect(api.native).toHaveBeenCalledWith(expect.objectContaining({ target: expect.objectContaining({ model: 'eu.anthropic.claude-future-profile' }), administratorConfirmed: true })));
     expect(environmentValues('aiRouting', 'enterprise', new FormData(view.container.querySelector('form')!))).toMatchObject({ nativeTargets: [{ id: '11111111-1111-4111-8111-111111111111', model: 'eu.anthropic.claude-future-profile' }] });
   });
