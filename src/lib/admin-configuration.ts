@@ -335,6 +335,7 @@ async function readReasoningConfiguration(kv: KVNamespace): Promise<ReasoningCon
 
 async function normalizeAiReasoningConfiguration(env: Env, values: ConfigurationValues): Promise<ReasoningConfiguration> {
   const dynamicRoutes = values.dynamicRoutes as string[];
+  const nativeHandles = new Set(((values.nativeTargets ?? []) as Array<{ id?: string }>).flatMap((target) => target.id ? [nativeTargetHandle(target.id)] : []));
   const defaultRoute = values.defaultRoute as { route: string; reasoning: string };
   const groupRouting = values.groupRouting as Array<{ accessGroup: string; routes: string[]; defaultRoute: string; reasoning: string }>;
   const currentRaw = await env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION);
@@ -371,7 +372,7 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
   if (dynamicRoutes.some((route) => !configuration.routeAssignments[route])) throw new Error('Every active route requires an exact profile assignment');
   configuration = { ...configuration, fallbackRouting: values.fallbackRouting as FallbackRouting };
   const validateDefault = (scope: string, route: string, level: string): void => {
-    if (nativeTargetIdFromHandle(route)) return;
+    if (nativeHandles.has(route)) return;
     const profile = getRouteReasoningProfile(configuration, route);
     if (profile.reasoningMode === 'provider-default') return;
     if (!profile.supportedLevels.includes(level as never)) throw new Error(`${scope} default reasoning level is not mapped by its default route profile`);

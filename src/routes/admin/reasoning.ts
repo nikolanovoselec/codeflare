@@ -30,7 +30,7 @@ import {
 import type { RouteReasoningAssignment } from '../../lib/reasoning-configuration';
 import {
   createNativeTarget, defaultNativeProfileId, issueNativeTargetCheck, nativeProviderSelector, nativeTargetAdapterVersion,
-  nativeTargetDraftSchema, parseNativeAiTargets,
+  nativeTargetDraftSchema, nativeTargetProfileDiscoveryDraftSchema, parseNativeAiTargets,
 } from '../../lib/native-ai-targets';
 import {
   DynamicRouteInventoryError,
@@ -49,7 +49,7 @@ const nativeDiscoverySchema = z.object({
   gateway: gatewayDraftSchema.optional(), maxCompletionTokens: z.number().int().min(32).max(16_384).default(4096),
 }).strict();
 const nativeProfileDiscoverySchema = z.object({
-  target: nativeTargetDraftSchema.omit({ profileRef: true }).extend({ profileRef: profileRefSchema.optional() }), gateway: gatewayDraftSchema.optional(),
+  target: nativeTargetProfileDiscoveryDraftSchema, gateway: gatewayDraftSchema.optional(),
   maxCompletionTokens: z.number().int().min(32).max(16_384).default(4096),
 }).strict();
 const discoverySchema = z.object({

@@ -43,11 +43,14 @@ export function nativeProviderSelector(provider: string, customProvider = false)
 }
 export function nativeProfileRefKey(ref: ProfileRevisionRef): string { return `${ref.id}\u001f${ref.revision}\u001f${ref.hash}`; }
 
-export const nativeTargetDraftSchema = z.object({
+const nativeTargetDraftObjectSchema = z.object({
   id: z.string().uuid().optional(), label: labelSchema, model: nativeModelSchema,
   contextWindow: z.number().int().gt(NATIVE_MODEL_MAX_TOKENS).max(4_000_000),
   provider: providerSchema.default('aws-bedrock'), profileRef: nativeProfileRefSchema, enabled: z.boolean(),
-}).strict().superRefine(enforceProviderModel);
+}).strict();
+export const nativeTargetDraftSchema = nativeTargetDraftObjectSchema.superRefine(enforceProviderModel);
+export const nativeTargetProfileDiscoveryDraftSchema = nativeTargetDraftObjectSchema
+  .extend({ profileRef: nativeProfileRefSchema.optional() }).superRefine(enforceProviderModel);
 const nativeVerificationSchema = z.object({
   schemaVersion: z.literal(1), method: z.literal('administrator').optional(), targetId: z.string().uuid(),
   provider: providerSchema.optional(), customProvider: z.boolean().optional(), model: nativeModelSchema,

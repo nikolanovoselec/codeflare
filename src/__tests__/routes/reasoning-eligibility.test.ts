@@ -154,6 +154,21 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(f.kv.put).not.toHaveBeenCalled();
   });
 
+  it('REQ-ENTERPRISE-055: validates a native-shaped Dynamic Route as a Dynamic Route when no native target owns it', async () => {
+    const f = setup();
+    const route = nativeTargetHandle('11111111-1111-4111-8111-111111111111');
+    const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      dynamicRoutes: [route],
+      defaultRoute: { route, reasoning: 'high' },
+      routeContextWindows: { [route]: 10000 },
+      groupRouting: [{ accessGroup: 'engineering', routes: [route], defaultRoute: route, reasoning: 'high' }],
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: { [route]: { activeProfile: profileRef } } },
+    }));
+    expect(validated.values).toBeUndefined();
+    expect(validated.fieldErrors?.reasoningConfiguration).toContain('Global default reasoning level is not mapped by its default route profile');
+    expect(f.kv.put).not.toHaveBeenCalled();
+  });
+
   it('keeps built-in discovery, validation, and reauthorization available when custom-provider lookup fails', async () => {
     const f = setup();
     await activate(f);
