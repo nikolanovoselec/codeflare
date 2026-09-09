@@ -185,6 +185,18 @@ export async function verifySelectedAgentPackages(
   return inventories;
 }
 
+export async function verifyJsYamlRuntime({
+  runtimePath = '/opt/code-server/node_modules/js-yaml',
+  expectedVersion = '4.3.2',
+} = {}) {
+  const manifest = JSON.parse(await readFile(join(runtimePath, 'package.json'), 'utf8'));
+  assert.equal(manifest.version, expectedVersion, `${runtimePath} must contain js-yaml ${expectedVersion}`);
+  const require = createRequire(import.meta.url);
+  const jsYaml = require(runtimePath);
+  assert.equal(typeof jsYaml.load, 'function', `${runtimePath} must load js-yaml load()`);
+  return runtimePath;
+}
+
 export async function verifyNodeTarRuntimes({
   runtimePaths = [
     '/usr/local/lib/node_modules/npm/node_modules/tar',
@@ -262,6 +274,7 @@ async function waitForUnsupportedInventoryInitialization(inventory) {
 
 async function main() {
   const codeServerRuntime = await verifyCodeServerRuntime();
+  const jsYamlRuntime = await verifyJsYamlRuntime();
   const nodeTarRuntimes = await verifyNodeTarRuntimes();
   const pacoteRuntime = await verifyPacoteRuntime();
   const oxlintVersion = verifyOxlintRuntime();
@@ -349,6 +362,7 @@ async function main() {
     welcomeExtension: WELCOME_EXTENSION_NAME,
     userExtensionPersistence,
     codeServerRuntime,
+    jsYamlRuntime,
     nodeTarRuntimes,
     pacoteRuntime,
     oxlintVersion,

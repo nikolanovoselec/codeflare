@@ -9,6 +9,7 @@ import { parse as parseYaml } from 'yaml';
 import {
   activateExtensionWithVscode,
   createVscodeSmokeApi,
+  verifyJsYamlRuntime,
   verifyNodeTarRuntimes,
   verifyPacoteRuntime,
   verifyOxlintRuntime,
@@ -108,6 +109,36 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
 
       assert.deepEqual(context.observed, ['ready']);
       assert.equal(context.subscriptions.length, 1);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken code-server js-yaml overlay', async () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'js-yaml-runtime-smoke-'));
+    try {
+      const runtimePath = join(fixture, 'js-yaml');
+      const brokenRuntime = join(fixture, 'broken-js-yaml');
+      for (const path of [runtimePath, brokenRuntime]) {
+        mkdirSync(path);
+        writeFileSync(
+          join(path, 'package.json'),
+          JSON.stringify({ name: 'js-yaml', version: '4.3.2', main: 'index.cjs' }),
+        );
+      }
+      writeFileSync(join(runtimePath, 'index.cjs'), 'exports.load = () => ({});\n');
+      writeFileSync(join(brokenRuntime, 'index.cjs'), 'exports.dump = () => "";\n');
+      const wrongVersionRuntime = join(fixture, 'wrong-version-js-yaml');
+      mkdirSync(wrongVersionRuntime);
+      writeFileSync(
+        join(wrongVersionRuntime, 'package.json'),
+        JSON.stringify({ name: 'js-yaml', version: '4.3.1', main: 'index.cjs' }),
+      );
+      writeFileSync(join(wrongVersionRuntime, 'index.cjs'), 'exports.load = () => ({});\n');
+
+      assert.equal(await verifyJsYamlRuntime({ runtimePath }), runtimePath);
+      await assert.rejects(verifyJsYamlRuntime({ runtimePath: brokenRuntime }), /must load js-yaml load/);
+      await assert.rejects(verifyJsYamlRuntime({ runtimePath: wrongVersionRuntime }), /must contain js-yaml 4\.3\.2/);
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }
