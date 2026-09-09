@@ -15,7 +15,7 @@ import { getWorkerNameFromHostname } from '../routes/setup/shared';
 import { reactivateUsageUser } from './admin-usage';
 import { REASONING_PROFILE_IDS, canonicalJson, getBuiltInProfile, getBuiltInProfileRef, parseRouteSettings, serializeRouteSettings } from './reasoning-profiles';
 import { dynamicRouteSchema, gatewayCoordinates, gatewayDraftSchema, listCustomProviderSlugs, listCustomProviderSlugsForProviders, listNativeProviderConfigs, parseGatewayUrl, resolveGatewayConnection, selectNativeProviderConfig } from './ai-gateway-management';
-import { nativeProfileRefKey, nativeTargetDraftSchema, nativeTargetIdFromHandle, nativeVerificationMatches, parseNativeAiTargets, readNativeTargetCheck, reconcileNativeTargets, sanitizeNativeTarget, serializeNativeAiTargets, type NativeProviderAuthority } from './native-ai-targets';
+import { nativeProfileRefKey, nativeTargetDraftSchema, nativeTargetHandle, nativeTargetIdFromHandle, nativeVerificationMatches, parseNativeAiTargets, readNativeTargetCheck, reconcileNativeTargets, sanitizeNativeTarget, serializeNativeAiTargets, type NativeProviderAuthority } from './native-ai-targets';
 import {
   assignmentBackendDescriptions, fallbackRoutingSchema, loadCheckedRouteInventory, readRouteCheck,
   rebindVerificationConnection, routeCheckIdSchema, verificationMatches, type FallbackRouting,
@@ -122,8 +122,12 @@ const aiRoutingSchema = z.object({
   if (parseGatewayUrl(value.gatewayUrl)?.kind === 'account-api' && !value.gatewayId) {
     context.addIssue({ code: 'custom', message: 'AI Gateway name is required for an account API URL', path: ['gatewayId'] });
   }
+  const nativeHandles = new Set(value.nativeTargets?.flatMap((target) => target.id ? [nativeTargetHandle(target.id)] : []) ?? []);
+  if (value.dynamicRoutes.some((route) => nativeHandles.has(route))) {
+    context.addIssue({ code: 'custom', message: 'A Dynamic Route cannot use a native target handle', path: ['dynamicRoutes'] });
+  }
   const policyModels = [...new Set([...value.groupRouting.flatMap((group) => group.routes), ...(value.fallbackRouting.enabled ? value.fallbackRouting.routes : [])])];
-  const activeRoutes = policyModels.filter((route) => nativeTargetIdFromHandle(route) === null);
+  const activeRoutes = policyModels.filter((route) => !nativeHandles.has(route));
   if (!policyModels.includes(value.defaultRoute.route)) {
     context.addIssue({ code: 'custom', message: 'Default model must be in the active policy catalog', path: ['defaultRoute', 'route'] });
   }
@@ -141,7 +145,7 @@ const aiRoutingSchema = z.object({
       if (group.defaultRoute !== '' || group.reasoning !== 'off') context.addIssue({ code: 'custom', message: 'Empty group policies must use an empty default and Off', path: ['groupRouting', index] });
       continue;
     }
-    if (!group.routes.includes(group.defaultRoute) || group.routes.some((route) => !value.dynamicRoutes.includes(route) && !value.nativeTargets?.some((target) => target.id === nativeTargetIdFromHandle(route)))) {
+    if (!group.routes.includes(group.defaultRoute) || group.routes.some((route) => !value.dynamicRoutes.includes(route) && !nativeHandles.has(route))) {
       context.addIssue({ code: 'custom', message: 'Group models must use the submitted Dynamic Route or native target catalog', path: ['groupRouting', index] });
     }
   }
@@ -264,13 +268,14 @@ function normalizeValues(section: ConfigurationSection, mode: AdministrationMode
   if (section === 'aiRouting') {
     const fallback = values.fallbackRouting as FallbackRouting;
     const groups = values.groupRouting as Array<{ accessGroup: string; routes: string[]; defaultRoute: string; reasoning: string }>;
+    const nativeHandles = new Set(((values.nativeTargets as Array<{ id?: string }> | undefined) ?? []).flatMap((target) => target.id ? [nativeTargetHandle(target.id)] : []));
     const activeModels = [...new Set([...groups.flatMap((group) => group.routes), ...(fallback.enabled ? fallback.routes : [])])];
-    const activeRoutes = activeModels.filter((route) => nativeTargetIdFromHandle(route) === null);
+    const activeRoutes = activeModels.filter((route) => !nativeHandles.has(route));
     const targetRef = (value: string) => {
-      const targetId = nativeTargetIdFromHandle(value);
+      const targetId = nativeHandles.has(value) ? nativeTargetIdFromHandle(value) : null;
       return targetId ? { kind: 'native-target' as const, targetId } : { kind: 'dynamic-route' as const, route: value };
     };
-    const normalizedGroups = groups.map((group) => group.routes.some((route) => nativeTargetIdFromHandle(route) !== null)
+    const normalizedGroups = groups.map((group) => group.routes.some((route) => nativeHandles.has(route))
       ? { ...group, targets: group.routes.map(targetRef), defaultTarget: group.defaultRoute ? targetRef(group.defaultRoute) : undefined }
       : group);
     const normalizedFallback = fallback.enabled ? { ...fallback, targets: fallback.routes.map(targetRef), defaultTarget: targetRef(fallback.defaultRoute) } : fallback;

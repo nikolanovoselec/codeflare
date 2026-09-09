@@ -139,6 +139,21 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(f.kv.put).not.toHaveBeenCalled();
   });
 
+  it('REQ-ENTERPRISE-055: rejects a Dynamic Route that collides with a submitted native handle before any routing write', async () => {
+    const f = setup();
+    const id = '11111111-1111-4111-8111-111111111111';
+    const handle = nativeTargetHandle(id);
+    const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      dynamicRoutes: ['working', handle],
+      nativeTargets: [{ id, label: 'Claude', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: false }],
+      nativeChecks: {},
+      groupRouting: [{ accessGroup: 'engineering', routes: ['working', handle], defaultRoute: 'working', reasoning: 'off' }],
+    }));
+    expect(validated.values).toBeUndefined();
+    expect(validated.fieldErrors?.dynamicRoutes).toContain('A Dynamic Route cannot use a native target handle');
+    expect(f.kv.put).not.toHaveBeenCalled();
+  });
+
   it('keeps built-in discovery, validation, and reauthorization available when custom-provider lookup fails', async () => {
     const f = setup();
     await activate(f);

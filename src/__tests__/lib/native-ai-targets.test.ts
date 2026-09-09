@@ -72,8 +72,12 @@ describe('native AI targets', () => {
     expect(nativeTargetHandle(target.id)).toBe('cf-native-11111111-1111-4111-8111-111111111111');
   });
 
-  it('REQ-ENTERPRISE-053: rejects unsafe exact model and undersized context window', () => {
-    expect(() => createNativeTarget({ label: 'Bad', model: '../escape', contextWindow: 200000, providerConfigId: 'raw-provider', profileRef })).toThrow();
+  it('REQ-ENTERPRISE-053: enforces the Bedrock model boundary without restricting custom-provider model syntax', () => {
+    for (const model of ['../escape', 'family/model', 'https://example.com/model', 'arn:aws:bedrock:eu-central-1:123456789012:inference-profile/example', 'model%2Fchild', 'model?query', 'model#fragment', 'model*']) {
+      expect(() => createNativeTarget({ label: 'Bad', model, contextWindow: 200000, providerConfigId: 'raw-provider', profileRef })).toThrow();
+    }
+    const custom = createNativeTarget({ label: 'Custom', provider: 'custom-provider', customProvider: true, model: 'family/model:tag', contextWindow: 200000, providerConfigId: 'raw-provider', profileRef: getBuiltInProfileRef('native-codeflare-inference-mesh-compat') });
+    expect(custom.model).toBe('family/model:tag');
     expect(() => createNativeTarget({ label: 'Small', model: 'valid.model', contextWindow: 16384, providerConfigId: 'raw-provider', profileRef })).toThrow();
   });
 
