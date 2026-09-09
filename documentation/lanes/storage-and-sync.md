@@ -100,7 +100,7 @@ The generated writes in step 2 settle before the baseline so they do not create 
 
 ### Verified session capture compaction (REQ-STOR-052)
 
-When `VAULT_SESSION_COMPACTION_ENABLED=true`, the sync daemon owns the daily UTC compaction sequence; no agent or second scheduler invokes bisync. `scripts/compact-session-captures.mjs` first writes deterministic `Vault/Raw/Sessions/Archive.md` while every selected capture still exists. The existing bisync owner publishes that archive in phase one. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: scripts/compact-session-captures.mjs::main -->
+When `VAULT_SESSION_COMPACTION_ENABLED=true`, the entrypoint's existing bisync lifecycle owns the daily UTC compaction sequence; no agent or second scheduler invokes bisync. `scripts/compact-session-captures.mjs` first writes deterministic `Vault/Raw/Sessions/Archive.md` while every selected capture still exists. The existing bisync owner publishes that archive in phase one. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: scripts/compact-session-captures.mjs::main -->
 
 A successful bisync is necessary but not deletion authority. The entrypoint reads the exact remote archive object, requires its SHA-256 to match the compactor manifest, and rejects any local or remote archive conflict copy. The compactor also rechecks each selected source digest. Missing, unreadable, mismatched, changed, or conflicting evidence leaves all source paths untouched. <!-- @impl: scripts/compact-session-captures.mjs::verifyRemoteArchive -->
 

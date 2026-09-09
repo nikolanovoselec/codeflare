@@ -45,14 +45,6 @@ function prepare(fx, today = TODAY) {
 }
 
 describe('session capture compaction', () => {
-  it('installs the image-owned compactor without changing entrypoint orchestration', () => {
-    const dockerfile = readFileSync(join(repoRoot, 'Dockerfile'), 'utf8');
-    assert.match(
-      dockerfile,
-      /COPY --chmod=0755 scripts\/compact-session-captures\.mjs \/opt\/codeflare\/scripts\/compact-session-captures\.mjs/,
-    );
-  });
-
   it('REQ-MEM-023 AC1: accepts only actual capture timestamp shapes and compares their calendar days', () => {
     const fx = fixture();
     const cold = [

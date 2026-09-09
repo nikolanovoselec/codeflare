@@ -78,6 +78,7 @@ describe('deployment container image input hash', () => {
       'COPY host/src/ /app/host/src/',
       'COPY entrypoint.sh /entrypoint.sh',
       'COPY transcript-retention.mjs /transcript-retention.mjs',
+      'COPY scripts/compact-session-captures.mjs /opt/codeflare/scripts/compact-session-captures.mjs',
       '',
     ].join('\n'));
     for (const path of [
@@ -86,6 +87,7 @@ describe('deployment container image input hash', () => {
       '.trivyignore',
       'entrypoint.sh',
       'transcript-retention.mjs',
+      'scripts/compact-session-captures.mjs',
       'host/package.json',
       'host/package-lock.json',
       'host/tsconfig.json',

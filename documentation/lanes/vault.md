@@ -35,7 +35,7 @@ The vault lives at `/home/user/Vault/` inside every advanced-mode session contai
 Three owners write to the vault:
 
 - The **capture agent** appends a markdown file to `Raw/Sessions/` every 20 real user prompts and captures any durable uncaptured tail on the first prompt after resume.
-- The **image-owned compactor** folds cold capture files into deterministic `Raw/Sessions/Archive.md`; it is not an agent.
+- The **image-owned compactor** folds cold capture files into deterministic `Raw/Sessions/Archive.md`; it is not an agent ([REQ-MEM-023](../../sdd/spec/memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory)). <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive -->
 - **The user** edits notes via SilverBullet or any tool that writes under `Notes/`, `References/`, `Inbox/`, or `Journal/`. Attachments land next to the referencing note; `Raw/Pasted/` remains an optional hand-organised archive.
 
 Vault content hashes are checked on resumed-tail capture and at each crossed 20-real-user-prompt epoch. Changed content signals one bounded background extraction; unchanged content is a no-op, and no polling extraction daemon runs. Future agents query the unified Graphify graph via `mcp__graphify__*` and see captures, user notes, and every active repository's code merged.
