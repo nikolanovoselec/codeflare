@@ -29,7 +29,8 @@ ENV PATH="/usr/local/go/bin:${PATH}" CGO_ENABLED=0 GOTOOLCHAIN=local
 WORKDIR /src/rclone
 RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.73.5 -o /tmp/rclone.tar.gz \
     && echo "e52541bc238dd434a0335f467697d7d9575529698a74aab534ad39b8649f8a49  /tmp/rclone.tar.gz" | sha256sum -c - \
-    && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz
+    && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz \
+    && go mod edit -require=google.golang.org/grpc@v1.83.2
 COPY scripts/patch-rclone-bisync.py /tmp/patch-rclone-bisync.py
 COPY scripts/ci/rclone-bookkeeping_test.go /tmp/rclone-bookkeeping_test.go
 # Only the CI server binary receives S3-compatible lexical pagination.
@@ -274,7 +275,7 @@ RUN SILVERBULLET_VERSION="2.10.0" && \
 # plus the real lib/vscode package version. Shadow Pins derives the gitlink from
 # the immutable release tag and owns the five code-server literals below.
 # The pinned code-server release vendors js-yaml 4.3.0 within its declared ^4.1.0 range;
-# the overlay pins 4.3.1 under an independent integrity hash as defence in
+# the overlay pins 4.3.2 under an independent integrity hash as defence in
 # depth. The immutable Node and code-server artifacts also carry node-tar
 # versions affected by CVE-2026-73566, so one integrity-pinned 7.5.21 artifact
 # replaces both runtime copies. The Node image's bundled npm also carries pacote
@@ -286,8 +287,8 @@ RUN CODE_SERVER_VERSION="4.135.0" && \
     CODE_SERVER_COMMIT="de89acbcdce9d9b870008a270c9f6466993d91f4" && \
     CODE_SERVER_CODE_VERSION="1.135.0" && \
     CODE_SERVER_VSCODE_COMMIT="08d4889f9ec4a1685d257b9b95de036c8e1ce1e5" && \
-    JS_YAML_VERSION="4.3.1" && \
-    JS_YAML_SHA512="098e9cac6ab7d77317f06930bc1eedce0a7df6f8d0c58d7efb9cb5d3f04a37f1947c7a9668e19030d66406fa92cec64a5a4fe28f01e55b3ce42ee96c18786359" && \
+    JS_YAML_VERSION="4.3.2" && \
+    JS_YAML_SHA512="48534ebd227e0e07fff409fdd38631f828129483c2908a5aa38aa8e7596979edb94c845e8dd1f7ae1478119306a0dc77fd33f73bec335ae893165e2ca9b96dcc" && \
     NODE_TAR_VERSION="7.5.21" && \
     NODE_TAR_SHA512="5dd86d0af94ccb0c31a425bc604ab794e5c126950f4d1d8e1c77302cf3b71f0b09a8e1dad8e93fa09eebb86ce9f89acaa113d50b327001d123a8b5bfbcd44f1c" && \
     PACOTE_VERSION="21.5.1" && \
