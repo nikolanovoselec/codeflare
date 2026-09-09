@@ -31,7 +31,7 @@ RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.73.
     && echo "e52541bc238dd434a0335f467697d7d9575529698a74aab534ad39b8649f8a49  /tmp/rclone.tar.gz" | sha256sum -c - \
     && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz \
     && go mod edit -require=google.golang.org/grpc@v1.83.2 \
-    && go mod download google.golang.org/grpc
+    && go mod tidy
 COPY scripts/patch-rclone-bisync.py /tmp/patch-rclone-bisync.py
 COPY scripts/ci/rclone-bookkeeping_test.go /tmp/rclone-bookkeeping_test.go
 # Only the CI server binary receives S3-compatible lexical pagination.
