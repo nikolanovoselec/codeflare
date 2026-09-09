@@ -34,50 +34,74 @@ function compositeEnd(text: string, start: number, open: string, close: string):
   return -1;
 }
 
+function skipWhitespace(text: string, index: number): number {
+  while (index < text.length && (text[index] === ' ' || text[index] === '\t' || text[index] === '\r' || text[index] === '\n')) index += 1;
+  return index;
+}
+
+function valueEnd(text: string, start: number): number {
+  if (text[start] === '"') return quotedEnd(text, start);
+  if (text[start] === '{') return compositeEnd(text, start, '{', '}');
+  if (text[start] === '[') return compositeEnd(text, start, '[', ']');
+  let end = start;
+  while (end < text.length && text[end] !== ',' && text[end] !== '}' && text[end] !== ']') end += 1;
+  return end;
+}
+
+function directMember(text: string, objectStart: number, objectEnd: number, wanted: string): [number, number] | null {
+  let cursor = objectStart + 1;
+  while ((cursor = skipWhitespace(text, cursor)) < objectEnd - 1) {
+    if (text[cursor] === ',') { cursor += 1; continue; }
+    if (text[cursor] !== '"') return null;
+    const keyEnd = quotedEnd(text, cursor);
+    if (keyEnd < 0) return null;
+    let key: unknown;
+    try { key = JSON.parse(text.slice(cursor, keyEnd)); } catch { return null; }
+    cursor = skipWhitespace(text, keyEnd);
+    if (text[cursor++] !== ':') return null;
+    const start = skipWhitespace(text, cursor);
+    const end = valueEnd(text, start);
+    if (end < 0 || end > objectEnd) return null;
+    if (key === wanted) return [start, end];
+    cursor = end;
+  }
+  return null;
+}
+
+function eachObject(text: string, array: [number, number], visit: (start: number, end: number) => void): void {
+  let cursor = array[0] + 1;
+  while ((cursor = skipWhitespace(text, cursor)) < array[1] - 1) {
+    if (text[cursor] === ',') { cursor += 1; continue; }
+    if (text[cursor] !== '{') return;
+    const end = compositeEnd(text, cursor, '{', '}');
+    if (end < 0 || end > array[1]) return;
+    visit(cursor, end);
+    cursor = end;
+  }
+}
+
 function functionNameSpans(line: string): Array<[number, number]> {
   const spans: Array<[number, number]> = [];
-  let search = line.indexOf('"choices"');
-  while (search >= 0 && (search = line.indexOf('"tool_calls"', search)) >= 0) {
-    let arrayStart = search + 12;
-    while (/\s/.test(line[arrayStart] ?? '')) arrayStart += 1;
-    if (line[arrayStart++] !== ':') { search += 12; continue; }
-    while (/\s/.test(line[arrayStart] ?? '')) arrayStart += 1;
-    if (line[arrayStart] !== '[') { search += 12; continue; }
-    const arrayEnd = compositeEnd(line, arrayStart, '[', ']');
-    if (arrayEnd < 0) return spans;
-    let from = arrayStart + 1;
-    while ((from = line.indexOf('"function"', from)) >= 0 && from < arrayEnd) {
-      if (line[from - 1] === '\\') { from += 10; continue; }
-      let cursor = from + 10;
-      while (/\s/.test(line[cursor] ?? '')) cursor += 1;
-      if (line[cursor++] !== ':') { from += 10; continue; }
-      while (/\s/.test(line[cursor] ?? '')) cursor += 1;
-      if (line[cursor] !== '{') { from += 10; continue; }
-      const end = compositeEnd(line, cursor, '{', '}');
-      if (end < 0 || end > arrayEnd) return spans;
-      let objectDepth = 1;
-      for (let name = cursor + 1; name < end && objectDepth > 0; name += 1) {
-        if (line[name] === '{') { objectDepth += 1; continue; }
-        if (line[name] === '}') { objectDepth -= 1; continue; }
-        if (line[name] !== '"') continue;
-        const keyEnd = quotedEnd(line, name);
-        if (keyEnd < 0) return spans;
-        let previous = name - 1;
-        while (/\s/.test(line[previous] ?? '')) previous -= 1;
-        if (objectDepth === 1 && (line[previous] === '{' || line[previous] === ',') && line.slice(name, keyEnd) === '"name"') {
-          let value = keyEnd;
-          while (/\s/.test(line[value] ?? '')) value += 1;
-          if (line[value++] === ':') {
-            while (/\s/.test(line[value] ?? '')) value += 1;
-            if (line[value] === '"') { const valueEnd = quotedEnd(line, value); if (valueEnd > 0 && valueEnd <= end) spans.push([value, valueEnd]); }
-          }
-        }
-        name = keyEnd - 1;
-      }
-      from = end;
-    }
-    search = arrayEnd;
-  }
+  const rootStart = line.indexOf('{');
+  if (rootStart < 0) return spans;
+  const rootEnd = compositeEnd(line, rootStart, '{', '}');
+  const choices = rootEnd > 0 ? directMember(line, rootStart, rootEnd, 'choices') : null;
+  if (!choices || line[choices[0]] !== '[') return spans;
+  eachObject(line, choices, (choiceStart, choiceEnd) => {
+    const delta = directMember(line, choiceStart, choiceEnd, 'delta');
+    if (!delta || line[delta[0]] !== '{') return;
+    const calls = directMember(line, delta[0], delta[1], 'tool_calls');
+    if (!calls || line[calls[0]] !== '[') return;
+    eachObject(line, calls, (callStart, callEnd) => {
+      const fn = directMember(line, callStart, callEnd, 'function');
+      if (!fn || line[fn[0]] !== '{') return;
+      const name = directMember(line, fn[0], fn[1], 'name');
+      if (!name || line[name[0]] !== '"') return;
+      let value: unknown;
+      try { value = JSON.parse(line.slice(name[0], name[1])); } catch { return; }
+      if (typeof value === 'string') spans.push(name);
+    });
+  });
   return spans;
 }
 
