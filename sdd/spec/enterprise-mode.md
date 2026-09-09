@@ -717,25 +717,23 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-### REQ-ENTERPRISE-047: Native AI Gateway Target Administration
+<a id="req-enterprise-047-native-ai-gateway-target-administration"></a>
+### REQ-ENTERPRISE-047: Native AI Gateway Provider Discovery and Selection
 
-**Intent:** Administrators can add exact targets for configured native and custom AI Gateway providers without changing existing Dynamic Route behavior or exposing provider credentials.
+**Intent:** The Worker discovers and selects configured native and custom AI Gateway providers without changing existing Dynamic Route behavior.
 
-**Applies To:** Admin, Worker
+**Applies To:** Worker
 
 **Acceptance Criteria:**
 
 1. The authenticated reasoning catalog discovers all gateway-scoped provider configurations through bounded pagination. <!-- @impl: src/lib/ai-gateway-management.ts::listNativeProviderConfigs --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: discovers all sanitized provider bindings through bounded gateway-scoped pages) -->
 2. The catalog discovers sanitized account custom-provider slugs independently of provider configurations. <!-- @impl: src/lib/ai-gateway-management.ts::listCustomProviderSlugs --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: discovers sanitized custom-provider slugs independently) -->
 3. Provider discovery rejects malformed, over-budget, cross-gateway, or ambiguous data. <!-- @impl: src/lib/ai-gateway-management.ts::listNativeProviderConfigs --> <!-- @impl: src/lib/ai-gateway-management.ts::selectNativeProviderConfig --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: rejects malformed, over-budget, cross-gateway and ambiguous provider discovery) -->
-4. Provider-configuration failure leaves successful Dynamic Route discovery usable. Custom-provider discovery failure leaves built-in provider discovery, validation, and reauthorization usable. <!-- @impl: src/lib/ai-gateway-management.ts::listCustomProviderSlugsForProviders --> <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (REQ-ENTERPRISE-047: provider discovery failure leaves Dynamic Routes usable) --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (uses failed custom-provider lookup only as a built-in classification fallback) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (keeps built-in discovery, validation, and reauthorization available when custom-provider lookup fails) -->
-5. Administration shows every discovered provider and accepts bounded exact model identifiers independently of suggestions. Context windows must exceed 16,384, and the server derives opaque stable `cf-native-<uuid>` handles. <!-- @impl: src/lib/native-ai-targets.ts::createNativeTarget --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-047: shows every configured native provider and allows creating a target for each) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-047: edits an exact Bedrock target without treating suggestions as an allowlist) --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: preserves generic provider identity for %s) --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: rejects unsafe exact model and undersized context window) -->
+4. Provider-configuration failure leaves successful Dynamic Route discovery usable. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (REQ-ENTERPRISE-047: provider discovery failure leaves Dynamic Routes usable) -->
+5. Custom-provider discovery failure leaves built-in provider discovery, validation, and reauthorization usable. <!-- @impl: src/lib/ai-gateway-management.ts::listCustomProviderSlugsForProviders --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (uses failed custom-provider lookup only as a built-in classification fallback) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (keeps built-in discovery, validation, and reauthorization available when custom-provider lookup fails) -->
 6. A sole provider binding is selectable; multiple bindings require exactly one default. <!-- @impl: src/lib/ai-gateway-management.ts::selectNativeProviderConfig --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: discovers all sanitized provider bindings through bounded gateway-scoped pages) --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: rejects malformed, over-budget, cross-gateway and ambiguous provider discovery) -->
-7. Native documents retain raw provider configuration identity and any validated BYOK alias only in Worker KV; verification and runtime use the same stored alias semantics, while browser and container projections omit raw IDs, credentials, aliases, previews, and token material. <!-- @impl: src/lib/native-ai-targets.ts::sanitizeNativeTarget --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: browser projection excludes exact provider authority and aliases) -->
-8. Save validates provider discovery and submitted target data before routing writes, preserves identity and proof only while provider, model, binding, profile, transport, and adapter identity match, and does not create or rewrite native data when a route-only form omits it. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (administrator confirmation issues server identity, persists exact authority, and route-only Save leaves it untouched) --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: label and context edits preserve identity while provider authority or profile drift clears proof) -->
-9. The existing AI routing workspace shows each configuration without claiming readiness and supports provider, label, exact model, context, an immutable built-in or saved custom profile revision, compatibility discovery, verification, enabled state, and removal. Route-derived suggestions are scoped to the selected provider and remain optional. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-047: shows every configured native provider and allows creating a target for each) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-047: edits an exact Bedrock target without treating suggestions as an allowlist) -->
 
-**Constraints:** Dynamic Routes remain backward compatible. Detection proves configuration presence only. Custom-provider detection changes only the Worker-owned compat selector prefix. Administration is sequential and retryable, not transactional.
+**Constraints:** Dynamic Routes remain backward compatible. Detection proves configuration presence only. Custom-provider detection changes only the Worker-owned compat selector prefix.
 
 **Priority:** P1
 
@@ -747,28 +745,78 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-### REQ-ENTERPRISE-048: Native Provider Capability Verification
+### REQ-ENTERPRISE-051: Native AI Gateway Target Administration Workspace
 
-**Intent:** Native providers use evidence-backed compatibility profiles and existing verification authority, with narrowly scoped provider wire adapters where live replay evidence requires them.
+**Intent:** Administrators can create, verify, persist, and manage exact native and custom AI Gateway targets without exposing provider credentials.
 
-**Applies To:** Admin, Worker
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Administration shows every discovered provider and accepts bounded exact model identifiers independently of suggestions. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-047: shows every configured native provider and allows creating a target for each) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-047: edits an exact Bedrock target without treating suggestions as an allowlist) --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: preserves generic provider identity for %s) -->
+2. Context windows must exceed 16,384, and the server derives opaque stable `cf-native-<uuid>` handles. <!-- @impl: src/lib/native-ai-targets.ts::createNativeTarget --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: rejects unsafe exact model and undersized context window) -->
+3. Native documents retain raw provider configuration identity and any validated BYOK alias only in Worker KV; verification and runtime use the same stored alias semantics, while browser and container projections omit raw IDs, credentials, aliases, previews, and token material. <!-- @impl: src/lib/native-ai-targets.ts::sanitizeNativeTarget --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: browser projection excludes exact provider authority and aliases) -->
+4. Save validates provider discovery and submitted target data before routing writes, preserves identity and proof only while provider, model, binding, profile, transport, and adapter identity match, and does not create or rewrite native data when a route-only form omits it. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (administrator confirmation issues server identity, persists exact authority, and route-only Save leaves it untouched) --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-047: label and context edits preserve identity while provider authority or profile drift clears proof) -->
+5. The existing AI routing workspace shows each configuration without claiming readiness and supports provider, label, exact model, context, an immutable built-in or saved custom profile revision, compatibility discovery, verification, enabled state, and removal. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-047: shows every configured native provider and allows creating a target for each) -->
+6. Route-derived suggestions are scoped to the selected provider and remain optional. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-047: edits an exact Bedrock target without treating suggestions as an allowlist) -->
+7. Existing administrator confirmation can authorize the exact target/profile identity without fabricating automated evidence, including after an automated failure. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (administrator confirmation issues server identity, persists exact authority, and route-only Save leaves it untouched) -->
+
+**Constraints:** Administration is sequential and retryable, not transactional.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-047](#req-enterprise-047-native-ai-gateway-target-administration), [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-verification), [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement)
+
+**Verification:** Anchored behavioral fixtures and CI.
+
+**Status:** Implemented
+
+---
+
+<a id="req-enterprise-048-native-provider-capability-verification"></a>
+### REQ-ENTERPRISE-048: Native Provider Capability Catalog
+
+**Intent:** Native providers use evidence-backed compatibility profiles that state only the capabilities demonstrated for each cataloged family.
+
+**Applies To:** Admin
 
 **Acceptance Criteria:**
 
 1. Evidence-backed built-ins cover Bedrock Claude Sonnet/Opus, Google AI Studio Gemini 3.1 Pro and 3.7/3.8 Flash, OpenAI GPT-5.6 Sol/Terra/Luna, and Codeflare Inference Mesh Ornith. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
-2. Bedrock, Gemini, and Mesh use provider-default reasoning. OpenAI GPT-5.6 exposes only the verified `off` mapping `reasoning_effort: none`. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: Bedrock Anthropic uses provider-default opaque reasoning without Pi levels) --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
-3. GPT-6 Astra remains excluded after live Chat Completions tool failure. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
-4. Automated native verification performs a non-vacuous streamed tool-call and exact replay canary through compat against the exact provider/model selector; an empty reasoning-level list alone never passes. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-048: provider-default verification requires a complete tool lifecycle) -->
-5. Existing administrator confirmation can authorize the exact target/profile identity without fabricating automated evidence, including after an automated failure. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (administrator confirmation issues server identity, persists exact authority, and route-only Save leaves it untouched) -->
-6. Receipts bind target kind, target ID, provider slug and custom/native kind, exact model, raw provider configuration and validated alias, gateway connection, profile revision, transport, and adapter revision; cross-kind or changed identity fails closed. <!-- @impl: src/lib/native-ai-targets.ts::nativeVerificationMatches --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-048: provider, alias, model, profile, adapter, target and connection bind verification) -->
-7. Explicit reasoning controls for a provider-default target are rejected before provider I/O while existing configurable Dynamic Route translation remains unchanged. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-048: rejects reasoning controls for provider-default targets before upstream I/O) -->
-8. Gemini streaming exposes its bounded opaque thought signature through Pi's preserved reasoning-details channel and restores it only to the matching assistant tool call on replay; other response and request data remains unchanged. <!-- @impl: src/lib/gemini-thought-signature-adapter.ts::exposeGeminiThoughtSignatures --> <!-- @impl: src/lib/gemini-thought-signature-adapter.ts::restoreGeminiThoughtSignatures --> <!-- @test: src/__tests__/lib/gemini-thought-signature-adapter.test.ts (REQ-ENTERPRISE-048: exposes opaque replay metadata to Pi across arbitrary SSE chunks) --> <!-- @test: src/__tests__/lib/gemini-thought-signature-adapter.test.ts (REQ-ENTERPRISE-048: restores only matching adapter metadata on assistant tool replay) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-048/-050: round-trips Gemini thought signatures through Pi replay metadata) -->
+2. Bedrock, Gemini, and Mesh use provider-default reasoning. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: Bedrock Anthropic uses provider-default opaque reasoning without Pi levels) -->
+3. OpenAI GPT-5.6 exposes only the verified `off` mapping `reasoning_effort: none`. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
+4. GPT-6 Astra remains excluded after live Chat Completions tool failure. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
 
-**Constraints:** `/compat` evidence establishes only the exact tested reasoning mappings. Provider-default profiles do not claim Off, Medium, High, or signed-thinking semantics. No unrelated canary revision changes.
+**Constraints:** Provider-default profiles do not claim Off, Medium, High, or signed-thinking semantics.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-043](#req-enterprise-043-enterprise-pi-verified-route-activation), [REQ-ENTERPRISE-047](#req-enterprise-047-native-ai-gateway-target-administration)
+**Dependencies:** [REQ-ENTERPRISE-031](#req-enterprise-031-enterprise-pi-capability-profile-administration)
+
+**Verification:** Anchored behavioral fixtures and CI.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-052: Native Provider Verification and Runtime Enforcement
+
+**Intent:** Native targets use exact automated evidence with narrowly scoped runtime enforcement and wire adapters.
+
+**Applies To:** Worker
+
+**Acceptance Criteria:**
+
+1. Automated native verification performs a non-vacuous streamed tool-call and exact replay canary through compat against the exact provider/model selector; an empty reasoning-level list alone never passes. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-048: provider-default verification requires a complete tool lifecycle) -->
+2. Receipts bind target kind, target ID, provider slug and custom/native kind, exact model, raw provider configuration and validated alias, gateway connection, profile revision, transport, and adapter revision; cross-kind or changed identity fails closed. <!-- @impl: src/lib/native-ai-targets.ts::nativeVerificationMatches --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-048: provider, alias, model, profile, adapter, target and connection bind verification) -->
+3. Explicit reasoning controls for a provider-default target are rejected before provider I/O while existing configurable Dynamic Route translation remains unchanged. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-048: rejects reasoning controls for provider-default targets before upstream I/O) -->
+4. Gemini streaming exposes its bounded opaque thought signature through Pi's preserved reasoning-details channel and restores it only to the matching assistant tool call on replay; other response and request data remains unchanged. <!-- @impl: src/lib/gemini-thought-signature-adapter.ts::exposeGeminiThoughtSignatures --> <!-- @impl: src/lib/gemini-thought-signature-adapter.ts::restoreGeminiThoughtSignatures --> <!-- @test: src/__tests__/lib/gemini-thought-signature-adapter.test.ts (REQ-ENTERPRISE-048: exposes opaque replay metadata to Pi across arbitrary SSE chunks) --> <!-- @test: src/__tests__/lib/gemini-thought-signature-adapter.test.ts (REQ-ENTERPRISE-048: restores only matching adapter metadata on assistant tool replay) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-048/-050: round-trips Gemini thought signatures through Pi replay metadata) -->
+
+**Constraints:** `/compat` evidence establishes only the exact tested reasoning mappings. No unrelated canary revision changes.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-043](#req-enterprise-043-enterprise-pi-verified-route-activation), [REQ-ENTERPRISE-047](#req-enterprise-047-native-ai-gateway-target-administration), [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-verification)
 
 **Verification:** Anchored behavioral fixtures and CI.
 
@@ -795,7 +843,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-044](#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies), [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-verification)
+**Dependencies:** [REQ-ENTERPRISE-044](#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies), [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-verification), [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement)
 
 **Verification:** Anchored behavioral fixtures, packaged entrypoint fixtures, and CI.
 

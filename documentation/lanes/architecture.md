@@ -140,7 +140,7 @@ The registry below keeps one stable evidence-bearing dossier per runtime compone
 
 **Source:** `src/llm-interceptor.ts`, `src/container/container-interception.ts`.
 
-**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-032](../../sdd/spec/enterprise-mode.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-047](../../sdd/spec/enterprise-mode.md#req-enterprise-047-native-ai-gateway-target-administration), [REQ-ENTERPRISE-048](../../sdd/spec/enterprise-mode.md#req-enterprise-048-native-provider-capability-verification), [REQ-ENTERPRISE-049](../../sdd/spec/enterprise-mode.md#req-enterprise-049-unified-enterprise-model-authorization-and-publication), [REQ-ENTERPRISE-050](../../sdd/spec/enterprise-mode.md#req-enterprise-050-native-provider-compat-dispatch-and-wire-repair)
+**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-032](../../sdd/spec/enterprise-mode.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-047](../../sdd/spec/enterprise-mode.md#req-enterprise-047-native-ai-gateway-target-administration), [REQ-ENTERPRISE-048](../../sdd/spec/enterprise-mode.md#req-enterprise-048-native-provider-capability-verification), [REQ-ENTERPRISE-049](../../sdd/spec/enterprise-mode.md#req-enterprise-049-unified-enterprise-model-authorization-and-publication), [REQ-ENTERPRISE-050](../../sdd/spec/enterprise-mode.md#req-enterprise-050-native-provider-compat-dispatch-and-wire-repair), [REQ-ENTERPRISE-051](../../sdd/spec/enterprise-mode.md#req-enterprise-051-native-ai-gateway-target-administration-workspace), [REQ-ENTERPRISE-052](../../sdd/spec/enterprise-mode.md#req-enterprise-052-native-provider-verification-and-runtime-enforcement)
 
 **Decisions:** [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing), [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api), [AD152](../decisions/README.md#ad152-generalize-native-and-custom-provider-compat-dispatch)
 
@@ -578,31 +578,26 @@ A session created from a repository keeps its clone directive in session metadat
 
 **Requirements:** [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](../../sdd/spec/github.md#req-github-014-clone-created-session-resume)
 
-### Enterprise LLM Routing
+### Enterprise LLM Routing <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
 
 ```mermaid
-sequenceDiagram
-    participant C as Container agent
-    participant I as LlmInterceptor
-    participant G as Customer AI Gateway
-    participant P as Selected backend
-    C->>I: HTTPS with placeholder credential and canonical reasoning level
-    alt Dynamic Route has a valid profile and level
-        I->>G: REST-first request with dynamic/route and translated reasoning
-    else Native/custom handle and selected immutable profile are authorized
-        I->>G: Direct compat request with Worker-held provider/model selector
-    else Profile, capability, or authorization is invalid
-        I-->>C: Bounded configuration or authorization error
-    end
-    G->>P: Gateway-selected backend
-    P-->>G: Response stream
-    G-->>I: Response
-    I-->>C: Profile- and provider-adapted response
+flowchart LR
+    C["Container agent"] -->|"Placeholder credential + canonical level"| I["LlmInterceptor"]
+    I -->|"Valid Dynamic Route"| D["REST-first dynamic/route"]
+    I -->|"Authorized native/custom handle"| N["Direct compat native/custom"]
+    I -->|"Invalid profile, capability, or authorization"| F["Bounded failure"]
+    F --> C
+    D --> G["Customer AI Gateway"]
+    N --> G
+    G --> P["Selected backend"]
+    P --> G
+    G --> I
+    I --> C
 ```
 
 Interception is wired before container start so the platform CA is available to the workload. Gateway URL, token, provider binding, and runtime selectors remain Worker-side; administration accepts exact model IDs, while containers receive only opaque handles. Dynamic Routes retain REST-first dispatch and translate Pi's canonical level through the selected route profile. Authorized native/custom-provider handles use direct compat dispatch governed by their selected immutable profiles. Bedrock alone receives repeated-complete tool-name repair, Gemini alone receives thought-signature exposure and replay, and other providers receive no provider-specific wire repair. Missing routing, stale authorization, unsupported controls, and invalid profiles fail closed before gateway fetch. Detailed transport, route, and streaming behavior belongs to [Security](security.md), [Configuration](configuration.md), and [Architecture Internals](architecture-internals.md).
 
-**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering), [REQ-ENTERPRISE-032](../../sdd/spec/enterprise-mode.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-048](../../sdd/spec/enterprise-mode.md#req-enterprise-048-native-provider-capability-verification), [REQ-ENTERPRISE-049](../../sdd/spec/enterprise-mode.md#req-enterprise-049-unified-enterprise-model-authorization-and-publication), [REQ-ENTERPRISE-050](../../sdd/spec/enterprise-mode.md#req-enterprise-050-native-provider-compat-dispatch-and-wire-repair)
+**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering), [REQ-ENTERPRISE-032](../../sdd/spec/enterprise-mode.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-048](../../sdd/spec/enterprise-mode.md#req-enterprise-048-native-provider-capability-verification), [REQ-ENTERPRISE-049](../../sdd/spec/enterprise-mode.md#req-enterprise-049-unified-enterprise-model-authorization-and-publication), [REQ-ENTERPRISE-050](../../sdd/spec/enterprise-mode.md#req-enterprise-050-native-provider-compat-dispatch-and-wire-repair), [REQ-ENTERPRISE-052](../../sdd/spec/enterprise-mode.md#req-enterprise-052-native-provider-verification-and-runtime-enforcement)
 
 ### Strict Gateway Egress
 

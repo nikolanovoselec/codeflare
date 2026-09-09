@@ -92,8 +92,8 @@ beforeEach(() => {
     if (providerMode === 'failed') return Response.json({}, { status: 503 });
     const body = JSON.parse(input instanceof Request ? await input.text() : String(init?.body));
     if (!body.tools) return stream({ content: '2399', ...(providerMode === 'off-reasons' ? { reasoning_content: 'thinking' } : {}) });
-    if (providerMode === 'unsupported' || (providerMode === 'candidates-unsupported'
-      && !String(body.prompt_cache_key).startsWith('bedrock-anthropic-compat-'))) return stream({ content: 'no tool call' });
+    const candidateToolProbe = Object.hasOwn(body, 'reasoning_effort') || Object.hasOwn(body, 'chat_template_kwargs');
+    if (providerMode === 'unsupported' || (providerMode === 'candidates-unsupported' && candidateToolProbe)) return stream({ content: 'no tool call' });
     if (providerMode === 'partial') return stream({ content: 'unfinished' }, 'length');
     if (body.messages.some((message: any) => message.role === 'tool')) {
       if (providerMode === 'empty-replay') return new Response('');
