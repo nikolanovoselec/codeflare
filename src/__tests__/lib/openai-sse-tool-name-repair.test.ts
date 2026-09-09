@@ -34,7 +34,7 @@ describe('REQ-ENTERPRISE-050 Bedrock tool-name repair', () => {
     expect(output).toContain('"metadata":{"function":{"name":"inside"}},"function"');
     expect(output).toContain('{"index":1,"function":{"name":""}}');
     expect(output).toContain('{"index":2,"function":{"name":"lookup"}}');
-    expect(output).toContain('{"index":0,"function":{"metadata":{"name":"keep"},"name":""}}');
+    expect(output).toContain('{"index":0,"metadata":{"function":{"name":"inside"}},"function":{"metadata":{"name":"keep"},"name":""}}');
   });
 
   it('passes malformed, truncated, and already-repaired framing through unchanged', async () => {
