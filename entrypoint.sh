@@ -1131,6 +1131,159 @@ bisync_with_r2() {
     return $RESULT
 }
 
+# Compact cold session captures only on an explicitly enabled advanced session.
+# This is deliberately a serial extension of an already-successful sync cycle:
+# no compaction daemon, credential surface, or lock exists beyond the normal
+# bisync state and the existing global-graph lock.
+run_daily_vault_session_compaction() {
+    [ "${SESSION_MODE:-default}" = "advanced" ] || return 0
+    [ "${VAULT_SESSION_COMPACTION_ENABLED:-false}" = "true" ] || return 0
+
+    local today stamp state_dir sessions_dir manifest prepare_result prepare_status
+    local remote_archive remote_listing remote_conflicts=0 phase="" source any_source_present=0
+    local compactor="/opt/codeflare/scripts/compact-session-captures.mjs"
+    local merge_script="$USER_HOME/.pi/agent/scripts/merge-vault-graph.py"
+    local vault_graph="$USER_HOME/Vault/graphify-out/vault-graph.json"
+    local graph_copy="$USER_HOME/Vault/graphify-out/graph.json"
+    today="$(date -u +%F)" || return 1
+    stamp="$SYNC_RUNTIME_DIR/vault-session-compaction.utc-day"
+    [ "$(cat "$stamp" 2>/dev/null || true)" != "$today" ] || return 0
+
+    state_dir="$SYNC_RUNTIME_DIR/vault-session-compaction"
+    sessions_dir="$USER_HOME/Vault/Raw/Sessions"
+    manifest="$state_dir/manifest.json"
+    prepare_result="$state_dir/prepare-result.json"
+    remote_archive="$state_dir/remote-Archive.md"
+    remote_listing="$state_dir/remote-listing.txt"
+    mkdir -p "$state_dir" || return 1
+    chmod 0700 "$state_dir" || return 1
+
+    # A process death can land after the exact-source delete but before its
+    # phase marker is advanced. Distinguish that from a partial/failed delete:
+    # all absent sources resume at the required deletion-publication bisync;
+    # any remaining source re-enters prepare, which safely rebuilds the exact
+    # manifest while retaining what remains.
+    if [ -f "$state_dir/phase" ]; then
+        phase="$(cat "$state_dir/phase" 2>/dev/null || true)"
+    fi
+    if [ "$phase" = "delete-started" ]; then
+        if ! jq -er '.sources | if type == "array" and length > 0 then .[].source_file else error("invalid sources") end' \
+            "$manifest" > "$state_dir/sources.txt" 2>/dev/null; then
+            echo "[session-compaction] WARNING: cannot recover delete phase from manifest" >&2
+            return 1
+        fi
+        any_source_present=0
+        while IFS= read -r source; do
+            [ ! -e "$source" ] || any_source_present=1
+        done < "$state_dir/sources.txt"
+        if [ "$any_source_present" -eq 0 ]; then
+            printf 'sources-deleted\n' > "$state_dir/phase.tmp" \
+                && mv -f "$state_dir/phase.tmp" "$state_dir/phase" || return 1
+            phase="sources-deleted"
+        else
+            rm -f "$state_dir/phase"
+            phase=""
+        fi
+    fi
+
+    if [ "$phase" != "sources-deleted" ]; then
+        if ! node "$compactor" prepare "$sessions_dir" "$manifest" --today "$today" > "$prepare_result"; then
+            echo "[session-compaction] WARNING: archive preparation failed; sources retained" >&2
+            return 1
+        fi
+        prepare_status="$(jq -er '.status' "$prepare_result" 2>/dev/null)" || return 1
+        if [ "$prepare_status" = "noop" ]; then
+            rm -rf -- "$state_dir" || return 1
+            printf '%s\n' "$today" > "${stamp}.tmp" && mv -f "${stamp}.tmp" "$stamp" || return 1
+            echo "[session-compaction] No cold captures; UTC day complete"
+            return 0
+        fi
+        if [ "$prepare_status" != "prepared" ] || [ ! -f "$manifest" ]; then
+            echo "[session-compaction] WARNING: compactor returned an invalid prepare outcome" >&2
+            return 1
+        fi
+
+        # Phase 1 publication: Archive.md and its still-present exact sources
+        # converge before any provenance or source deletion can occur.
+        if ! bisync_with_r2 ""; then
+            echo "[session-compaction] WARNING: archive publication bisync failed; sources retained" >&2
+            return 1
+        fi
+
+        # Verify the exact remote Archive.md bytes, plus an independently listed
+        # set of remote Archive conflict names. Both R2 reads are time-bounded
+        # and use the already-created rclone config.
+        if ! timeout 120 rclone copyto \
+            "r2:$R2_BUCKET_NAME/Vault/Raw/Sessions/Archive.md" "$remote_archive" \
+            --config "$RCLONE_CONFIG" --contimeout 10s --timeout 30s --retries 3; then
+            echo "[session-compaction] WARNING: exact remote archive download failed; sources retained" >&2
+            return 1
+        fi
+        if ! timeout 120 rclone lsf "r2:$R2_BUCKET_NAME/Vault/Raw/Sessions/" \
+            --config "$RCLONE_CONFIG" --files-only --max-depth 1 > "$remote_listing"; then
+            echo "[session-compaction] WARNING: remote archive conflict listing failed; sources retained" >&2
+            return 1
+        fi
+        while IFS= read -r source; do
+            source="${source,,}"
+            case "$source" in
+                archive.md.conflict*|archive.conflict*.md|archive*conflicted*)
+                    remote_conflicts=$((remote_conflicts + 1))
+                    ;;
+            esac
+        done < "$remote_listing"
+        if ! node "$compactor" verify "$manifest" --sessions "$sessions_dir" \
+            --remote-conflicts "$remote_conflicts" --archive "$remote_archive"; then
+            echo "[session-compaction] WARNING: remote archive verification failed; sources retained" >&2
+            return 1
+        fi
+
+        # Relocation and publication share one acquisition of the existing
+        # graphify-global lock, so no capture/vault writer can observe the
+        # cumulative graph between those operations.
+        if ! (
+            exec 9>"$CODEFLARE_GRAPH_LOCK" || exit 1
+            flock -w 5 9 || exit 1
+            python3 "$merge_script" \
+                "$USER_HOME/Vault/graphify-out/.graphify_chunk_01.json" \
+                "$vault_graph" "$graph_copy" --relocate "$manifest" \
+                && graphify global add "$vault_graph" --as user_vault
+        ); then
+            echo "[session-compaction] WARNING: graph provenance relocation/publication failed; sources retained" >&2
+            return 1
+        fi
+
+        printf 'delete-started\n' > "$state_dir/phase.tmp" \
+            && mv -f "$state_dir/phase.tmp" "$state_dir/phase" || return 1
+        if ! node "$compactor" delete "$sessions_dir" "$manifest"; then
+            echo "[session-compaction] WARNING: exact source deletion failed; recovery state retained" >&2
+            return 1
+        fi
+        printf 'sources-deleted\n' > "$state_dir/phase.tmp" \
+            && mv -f "$state_dir/phase.tmp" "$state_dir/phase" || return 1
+    fi
+
+    # Phase 2 publishes only the verified exact-source deletions. Completion is
+    # recorded after this succeeds; every earlier failure remains retryable.
+    if ! bisync_with_r2 ""; then
+        echo "[session-compaction] WARNING: deletion publication bisync failed; recovery state retained" >&2
+        return 1
+    fi
+    rm -rf -- "$state_dir" || return 1
+    printf '%s\n' "$today" > "${stamp}.tmp" && mv -f "${stamp}.tmp" "$stamp" || return 1
+    echo "[session-compaction] UTC day completed: $today"
+    return 0
+}
+
+run_vault_session_compaction_after_sync() {
+    [ "${1:-}" = "natural" ] || return 0
+    if ! run_daily_vault_session_compaction; then
+        echo "[sync-daemon] Session-capture compaction deferred; normal sync remains available" \
+            | tee -a "$CODEFLARE_RUNTIME_ROOT/sync/sync.log" >&2
+    fi
+    return 0
+}
+
 # ============================================================================
 # Background sync daemon - bisync every 60 seconds, SIGUSR1-interruptible
 #
@@ -1183,10 +1336,18 @@ start_sync_daemon() {
         # bisync. Skip the sleep entirely if a trigger was queued
         # while finishing the prior cycle (RERUN_REQUESTED) or while
         # we were idle (REQUESTED). Cadence is 15 min (AD56).
+        BISYNC_CYCLE_TRIGGER="manual"
         if [ "$BISYNC_REQUESTED" = "0" ] && [ "$BISYNC_RERUN_REQUESTED" = "0" ]; then
             sleep 900 &
             SYNC_SLEEP_PID=$!
-            wait "$SYNC_SLEEP_PID" 2>/dev/null || true
+            if wait "$SYNC_SLEEP_PID" 2>/dev/null; then
+                # Only an uninterrupted cadence wait is natural. A USR1/USR2
+                # request, including one queued at the wait boundary, remains a
+                # manual cycle and cannot initiate compaction.
+                if [ "$BISYNC_REQUESTED" = "0" ] && [ "$BISYNC_RERUN_REQUESTED" = "0" ]; then
+                    BISYNC_CYCLE_TRIGGER="natural"
+                fi
+            fi
             # If the trap fired, sleep may still be alive in the
             # background. Kill it so it does not linger across cycles
             # (would leak one bash + one sleep process per trigger).
@@ -1232,6 +1393,7 @@ start_sync_daemon() {
             CONSECUTIVE_FAILURES=0
             echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync completed successfully" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
             update_sync_status "success" "null"
+            run_vault_session_compaction_after_sync "$BISYNC_CYCLE_TRIGGER"
         else
             if [ "${BISYNC_DISK_BLOCKED:-0}" = "1" ] || [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
                 update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry." || echo "[sync] Cannot publish disk-space status; sync remains blocked" >&2
@@ -1246,6 +1408,7 @@ start_sync_daemon() {
                     CONSECUTIVE_FAILURES=0
                     echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Recovery bisync succeeded" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
                     update_sync_status "success" "null"
+                    run_vault_session_compaction_after_sync "$BISYNC_CYCLE_TRIGGER"
                     # Clear in-flight before continue so the next
                     # iteration's trap classifies signals correctly
                     # (idle -> REQUESTED, not mid-flight -> RERUN).
@@ -4209,8 +4372,14 @@ complete_managed_curation_startup() {
             renice -n 19 "$BASHPID" >/dev/null 2>&1 || true
             ionice -c 3 -p "$BASHPID" >/dev/null 2>&1 || true
             echo "[entrypoint] Establishing bisync baseline in background (deprioritized: nice 19 / ionice idle)..."
+            BASELINE_SUCCEEDED=0
             if establish_bisync_baseline; then
-                echo "[entrypoint] Bisync baseline established, starting daemon..."
+                if [ "${SYNC_STATUS:-}" = "success" ]; then
+                    BASELINE_SUCCEEDED=1
+                    echo "[entrypoint] Bisync baseline established, starting daemon..."
+                else
+                    echo "[entrypoint] Bisync baseline did not complete successfully; session compaction deferred" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+                fi
             else
                 echo "[entrypoint] WARNING: Bisync baseline failed — starting daemon anyway (daemon has its own recovery)" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
             fi
@@ -4221,6 +4390,12 @@ complete_managed_curation_startup() {
             # Idempotent: skip if vault directory already present.
             # ----------------------------------------------------------------------
             (init_user_vault) || echo "[entrypoint] WARNING: vault init failed; continuing"
+            # Startup compaction is serial with the successful baseline and
+            # completes (or safely defers) before the sync daemon can start.
+            if [ "$BASELINE_SUCCEEDED" = "1" ]; then
+                run_daily_vault_session_compaction \
+                    || echo "[entrypoint] WARNING: session-capture compaction deferred; continuing startup"
+            fi
             # Always start daemons — even if baseline failed.
             # Each daemon has its own retry + recovery; a dead daemon means
             # zero sync (or zero vault ingestion) for the entire session.
