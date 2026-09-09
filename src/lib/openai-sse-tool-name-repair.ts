@@ -72,10 +72,10 @@ function eachObject(text: string, array: [number, number], visit: (start: number
   let cursor = array[0] + 1;
   while ((cursor = skipWhitespace(text, cursor)) < array[1] - 1) {
     if (text[cursor] === ',') { cursor += 1; continue; }
-    if (text[cursor] !== '{') return;
-    const end = compositeEnd(text, cursor, '{', '}');
-    if (end < 0 || end > array[1]) return;
-    visit(cursor, end);
+    const start = cursor;
+    const end = valueEnd(text, start);
+    if (end <= start || end > array[1]) return;
+    if (text[start] === '{') visit(start, end);
     cursor = end;
   }
 }

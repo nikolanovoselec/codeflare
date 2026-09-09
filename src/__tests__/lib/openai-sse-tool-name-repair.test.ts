@@ -27,8 +27,8 @@ describe('REQ-ENTERPRISE-050 Bedrock tool-name repair', () => {
   });
 
   it('keeps parallel choice and tool-call state independent', async () => {
-    const first = 'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"name":"lookup"}}]}}]}\n\n';
-    const parallel = 'data: {"metadata":{"function":{"name":"outside"}},"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"name":""}},{"index":2,"function":{"name":"lookup"}},{"index":0,"metadata":{"function":{"name":"inside"}},"function":{"metadata":{"name":"keep"},"name":"lookup"}}]}}]}\n\n';
+    const first = 'data: {"choices":[null,{"index":0,"delta":{"tool_calls":[null,{"index":0,"function":{"name":"lookup"}}]}}]}\n\n';
+    const parallel = 'data: {"metadata":{"function":{"name":"outside"}},"choices":[null,{"index":0,"delta":{"tool_calls":[null,{"index":1,"function":{"name":""}},{"index":2,"function":{"name":"lookup"}},{"index":0,"metadata":{"function":{"name":"inside"}},"function":{"metadata":{"name":"keep"},"name":"lookup"}}]}}]}\n\n';
     const output = await run([first, parallel], ['lookup']);
     expect(output).toContain('"metadata":{"function":{"name":"outside"}}');
     expect(output).toContain('"metadata":{"function":{"name":"inside"}},"function"');
