@@ -40,15 +40,24 @@ function functionNameSpans(line: string): Array<[number, number]> {
       else if (line[end] === '{') depth += 1;
       else if (line[end] === '}') depth -= 1;
     }
-    let name = cursor + 1;
-    while ((name = line.indexOf('"name"', name)) >= 0 && name < end) {
-      if (line[name - 1] === '\\') { name += 6; continue; }
-      let value = name + 6;
-      while (/\s/.test(line[value] ?? '')) value += 1;
-      if (line[value++] !== ':') { name += 6; continue; }
-      while (/\s/.test(line[value] ?? '')) value += 1;
-      if (line[value] === '"') { const valueEnd = quotedEnd(line, value); if (valueEnd > 0 && valueEnd <= end) spans.push([value, valueEnd]); }
-      break;
+    let objectDepth = 1;
+    for (let name = cursor + 1; name < end && objectDepth > 0; name += 1) {
+      if (line[name] === '{') { objectDepth += 1; continue; }
+      if (line[name] === '}') { objectDepth -= 1; continue; }
+      if (line[name] !== '"') continue;
+      const keyEnd = quotedEnd(line, name);
+      if (keyEnd < 0) return spans;
+      let previous = name - 1;
+      while (/\s/.test(line[previous] ?? '')) previous -= 1;
+      if (objectDepth === 1 && (line[previous] === '{' || line[previous] === ',') && line.slice(name, keyEnd) === '"name"') {
+        let value = keyEnd;
+        while (/\s/.test(line[value] ?? '')) value += 1;
+        if (line[value++] === ':') {
+          while (/\s/.test(line[value] ?? '')) value += 1;
+          if (line[value] === '"') { const valueEnd = quotedEnd(line, value); if (valueEnd > 0 && valueEnd <= end) spans.push([value, valueEnd]); }
+        }
+      }
+      name = keyEnd - 1;
     }
     from = end;
   }

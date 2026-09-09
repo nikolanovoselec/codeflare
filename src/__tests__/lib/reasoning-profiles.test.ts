@@ -38,7 +38,7 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     expect(profile).toMatchObject({ id: 'bedrock-anthropic-compat', name: 'AWS Bedrock · Anthropic Claude', reasoningMode: 'provider-default', supportedLevels: [], levels: {}, validatedTransports: ['compat'] });
     expect((profile as unknown as Record<string, unknown>)?.thinkingLevelMap).toBeUndefined();
   });
-  it('ships exactly the six executable built-ins and keeps failed families as notices', () => {
+  it('ships exactly the seven executable built-ins and keeps failed families as notices', () => {
     expect(profiles.REASONING_PROFILE_IDS).toEqual(BUILTIN_IDS);
     expect((profiles as any).COMPATIBILITY_NOTICES.map((notice: any) => notice.id)).toEqual(NOTICE_IDS);
   });
