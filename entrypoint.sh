@@ -1167,11 +1167,6 @@ run_daily_vault_session_compaction() {
         return 1
     fi
 
-    if ! node "$compactor" delete "$sessions_dir" "$manifest"; then
-        echo "[session-compaction] WARNING: source deletion failed" >&2
-        return 1
-    fi
-
     if ! (
         exec 9>"$CODEFLARE_GRAPH_LOCK" || exit 1
         flock -w 5 9 || exit 1
@@ -1181,6 +1176,11 @@ run_daily_vault_session_compaction() {
             && graphify global add "$vault_graph" --as user_vault
     ); then
         echo "[session-compaction] WARNING: graph provenance relocation/publication failed" >&2
+        return 1
+    fi
+
+    if ! node "$compactor" delete "$sessions_dir" "$manifest"; then
+        echo "[session-compaction] WARNING: source deletion failed" >&2
         return 1
     fi
 

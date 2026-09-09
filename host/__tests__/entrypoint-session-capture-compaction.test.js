@@ -128,15 +128,15 @@ function calls(fx) {
 
 const expectedOrder = [
   'PREPARE',
-  'DELETE',
   'LOCK',
   'RELOCATE',
   'GLOBAL_ADD:global add',
+  'DELETE',
   'BISYNC_1',
 ];
 
 describe('entrypoint session-capture compaction orchestration', () => {
-  it('archives, deletes, relocates, and bisyncs once per UTC day', () => {
+  it('archives, relocates, deletes, and bisyncs once per UTC day', () => {
     const fx = fixture();
     const result = runDaily(fx, {}, 'run_daily_vault_session_compaction\nrun_daily_vault_session_compaction');
     assert.equal(result.status, 0, result.stderr);
@@ -144,7 +144,7 @@ describe('entrypoint session-capture compaction orchestration', () => {
     assert.equal(actual.length, expectedOrder.length);
     expectedOrder.forEach((entry, index) => assert.match(actual[index], new RegExp(`^${entry}`)));
     assert.equal(
-      actual[4],
+      actual[3],
       `GLOBAL_ADD:global add ${join(fx.home, 'Vault/graphify-out/vault-graph.json')} --as user_vault`,
     );
     assert.equal(readFileSync(join(fx.runtime, 'sync/vault-session-compaction.utc-day'), 'utf8'), '2026-03-31\n');
@@ -169,10 +169,10 @@ describe('entrypoint session-capture compaction orchestration', () => {
 
   it('stops at the first failed step without stamping completion', () => {
     const cases = new Map([
-      ['delete', ['PREPARE', 'DELETE']],
-      ['lock', ['PREPARE', 'DELETE', 'LOCK']],
-      ['relocate', ['PREPARE', 'DELETE', 'LOCK', 'RELOCATE']],
-      ['global-add', expectedOrder.slice(0, 5)],
+      ['lock', ['PREPARE', 'LOCK']],
+      ['relocate', ['PREPARE', 'LOCK', 'RELOCATE']],
+      ['global-add', expectedOrder.slice(0, 4)],
+      ['delete', expectedOrder.slice(0, 5)],
       ['bisync-1', expectedOrder],
     ]);
     for (const [fail, expected] of cases) {

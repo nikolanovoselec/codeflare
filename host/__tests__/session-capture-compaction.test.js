@@ -218,7 +218,7 @@ describe('session capture compaction', () => {
     assert.deepEqual(readFileSync(changedArchive.manifestPath), oldManifest);
   });
 
-  it('REQ-STOR-052 AC1: deletes only exact unchanged archived sources', () => {
+  it('REQ-STOR-052 AC3: deletes only exact unchanged archived sources', () => {
     for (const mutation of ['manifest', 'archive', 'source', 'candidate', 'symlink']) {
       const fx = fixture();
       const first = join(fx.sessionsDir, '2026-01-01T00-00-00+0000-first.md');

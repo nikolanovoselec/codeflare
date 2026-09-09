@@ -1417,10 +1417,11 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. The daily UTC path prepares the archive and deletes only recorded cold sources whose current content still matches its manifest. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @impl: scripts/compact-session-captures.mjs::deleteVerifiedSources --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-STOR-052 AC1: deletes only exact unchanged archived sources) -->
-2. Graph provenance is relocated and the complete cumulative contribution is republished after local deletion. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (archives, deletes, relocates, and bisyncs once per UTC day) -->
-3. One bisync publishes the archive, graph update, and source deletions together before the UTC-day completion stamp is written. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (archives, deletes, relocates, and bisyncs once per UTC day) -->
-4. If compaction bisync fails, R2 retains its prior state so the next initial restore can recover source captures. <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (stops at the first failed step without stamping completion) -->
+1. The daily UTC path prepares the deterministic local archive from the selected cold captures. <!-- @impl: scripts/compact-session-captures.mjs::prepareArchive --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-023 AC2: builds a deterministic idempotent archive with recoverable source boundaries) -->
+2. Graph provenance is relocated and the complete cumulative contribution is republished before source deletion. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (archives, relocates, deletes, and bisyncs once per UTC day) -->
+3. The compactor deletes only recorded cold sources whose current content still matches its manifest. <!-- @impl: scripts/compact-session-captures.mjs::deleteVerifiedSources --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-STOR-052 AC3: deletes only exact unchanged archived sources) -->
+4. One bisync publishes the archive, graph update, and source deletions together before the UTC-day completion stamp is written. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (archives, relocates, deletes, and bisyncs once per UTC day) -->
+5. A failed step leaves the UTC day unstamped so later synchronization and compaction attempts can continue. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (stops at the first failed step without stamping completion) -->
 
 **Constraints:**
 
