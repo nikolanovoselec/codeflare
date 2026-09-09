@@ -1131,14 +1131,10 @@ bisync_with_r2() {
     return $RESULT
 }
 
-# Compact cold session captures only on an explicitly enabled advanced session.
-# This is deliberately a serial extension of an already-successful sync cycle:
-# no compaction daemon, credential surface, or lock exists beyond the normal
-# bisync state and the existing global-graph lock.
+# Compact cold session captures as a serial extension of an already-successful
+# sync cycle. No separate daemon, credential surface, or lock exists beyond the
+# normal bisync state and the existing global-graph lock.
 run_daily_vault_session_compaction() {
-    [ "${SESSION_MODE:-default}" = "advanced" ] || return 0
-    [ "${VAULT_SESSION_COMPACTION_ENABLED:-false}" = "true" ] || return 0
-
     local today stamp state_dir sessions_dir manifest prepare_result prepare_status
     local remote_archive remote_listing remote_conflicts=0 phase="" source any_source_present=0
     local compactor="/opt/codeflare/scripts/compact-session-captures.mjs"

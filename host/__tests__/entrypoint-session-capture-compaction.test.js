@@ -35,12 +35,11 @@ function fixture() {
   return { root, runtime, home, sessions, log: join(root, 'calls.log') };
 }
 
-function harness(fx, body, invocation, { fail = '', mode = 'advanced', enabled = 'true', noop = false } = {}) {
+function harness(fx, body, invocation, { fail = '', mode = 'advanced', noop = false } = {}) {
   const source = join(fx.sessions, '2026-01-01T00-00-00Z-old.md');
   return `
 set +e
 SESSION_MODE=${JSON.stringify(mode)}
-VAULT_SESSION_COMPACTION_ENABLED=${JSON.stringify(enabled)}
 CODEFLARE_RUNTIME_ROOT=${JSON.stringify(fx.runtime)}
 SYNC_RUNTIME_DIR=${JSON.stringify(join(fx.runtime, 'sync'))}
 CODEFLARE_GRAPH_LOCK=${JSON.stringify(join(fx.runtime, 'locks/graphify-global.lock'))}
@@ -51,7 +50,7 @@ CALLS=${JSON.stringify(fx.log)}
 FAIL_STAGE=${JSON.stringify(fail)}
 PREPARE_NOOP=${noop ? '1' : '0'}
 BISYNC_CALLS=0
-export SESSION_MODE VAULT_SESSION_COMPACTION_ENABLED CODEFLARE_RUNTIME_ROOT SYNC_RUNTIME_DIR CODEFLARE_GRAPH_LOCK USER_HOME R2_BUCKET_NAME RCLONE_CONFIG CALLS FAIL_STAGE PREPARE_NOOP
+export SESSION_MODE CODEFLARE_RUNTIME_ROOT SYNC_RUNTIME_DIR CODEFLARE_GRAPH_LOCK USER_HOME R2_BUCKET_NAME RCLONE_CONFIG CALLS FAIL_STAGE PREPARE_NOOP
 
 date() { [ "$1 $2" = "-u +%F" ] && printf '2026-03-31\\n' || command date "$@"; }
 timeout() { shift; "$@"; }
@@ -164,17 +163,11 @@ describe('entrypoint session-capture compaction orchestration', () => {
     assert.equal(existsSync(join(fx.runtime, 'sync/vault-session-compaction')), false);
   });
 
-  it('is disabled unless both advanced mode and the explicit true flag are present', () => {
-    for (const options of [
-      { mode: 'default', enabled: 'true' },
-      { mode: 'advanced', enabled: 'false' },
-      { mode: 'advanced', enabled: '' },
-    ]) {
-      const fx = fixture();
-      const result = runDaily(fx, options);
-      assert.equal(result.status, 0, result.stderr);
-      assert.deepEqual(calls(fx), []);
-    }
+  it('runs in the default session mode without a feature flag', () => {
+    const fx = fixture();
+    const result = runDaily(fx, { mode: 'default' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(calls(fx).length, expectedOrder.length);
   });
 
   it('preserves the unstamped runtime transaction and stops at every failed safety gate', () => {
