@@ -1408,3 +1408,32 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Status:** Implemented
 
 ---
+
+### REQ-STOR-052: Session capture compaction uses verified two-phase sync
+
+**Intent:** Compacting durable session captures must never delete the only persisted copy. The archive reaches R2 and is verified there before exact local sources are removed and their deletion is synchronized.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The enabled daily UTC compaction path writes or updates `Vault/Raw/Sessions/Archive.md` without deleting source captures, then completes a first bisync phase. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @impl: scripts/compact-session-captures.mjs::main --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (runs the two phases serially, stamps only after the deletion bisync, and runs once per UTC day) -->
+2. Before deletion, the exact remote archive object must have the expected SHA-256 digest and neither local nor remote storage may contain an archive conflict copy; absent, unreadable, mismatched, or conflicting evidence preserves every source. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @impl: scripts/compact-session-captures.mjs::verifyRemoteArchive --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (preserves the unstamped runtime transaction and stops at every failed safety gate) -->
+3. The compactor deletes only its recorded cold source paths whose current SHA-256 still matches the bytes incorporated into the verified archive; it never uses a directory-wide or age-only delete. <!-- @impl: scripts/compact-session-captures.mjs::deleteVerifiedSources --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-STOR-052 AC3: deletes only exact unchanged archived sources) -->
+4. A second bisync phase propagates the verified exact deletions. Failure leaves the deterministic archive and any remaining source files safe for an idempotent later daily run. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (runs the two phases serially, stamps only after the deletion bisync, and runs once per UTC day) -->
+
+**Constraints:**
+
+- Compaction reuses the existing rclone remote, filters, lock, conflict policy, and bisync owner; it introduces no direct R2 credential, scheduler service, or parallel sync authority.
+- Exact remote verification is mandatory even when the first bisync exits successfully.
+- Source deletion waits for successful graph provenance relocation and cumulative `user_vault` publication under [REQ-MEM-023](memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-042](#req-stor-042-per-side-sync-change-tracking), [REQ-MEM-023](memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory)
+
+**Verification:** Automated compactor and entrypoint orchestration tests
+
+**Status:** Implemented
+
+---

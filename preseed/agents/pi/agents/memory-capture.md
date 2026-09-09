@@ -22,6 +22,8 @@ Inputs the root public request passes:
 
 The request's `captureFilename` field names the exact basename to write under `/home/user/Vault/Raw/Sessions/`. Do not derive a timestamp or filename yourself: the root fixed both when it armed the request, and success refuses to qualify if that file is absent. Writing anywhere else reads as a failed capture.
 
+`Archive.md` is reserved for the image-owned deterministic compactor. Never accept it as `captureFilename`, edit or replace it, merge captures into it, or delete an existing capture.
+
 Use only Bash. All policy needed for this bounded task is in the deployed prompt and immutable snapshot; do not read skills, project documentation, or unrelated files. Normally use one Bash call to read and validate the prompt plus self-contained snapshot, then one Bash call to write and commit. If tool output is truncated, page only its reported saved-output file within the seven-turn bound.
 
 You do not need to respond to the user; this is background ingestion. The main session is handling the user's prompt in parallel.

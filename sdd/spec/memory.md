@@ -14,7 +14,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 ### Out of Scope
 
 - Cross-user memory sharing (each user's vault is isolated to their R2 bucket).
-- Automated graph compaction (the user prunes captured sessions manually via the editor when needed).
+- Semantic graph pruning remains out of scope. Deterministic session-file compaction may relocate graph provenance, but it never removes graph identities or evidence as a relevance judgment.
 - Legacy MCP server-memory migration (the subsystem has been removed; no historical graph is read or written).
 - Bulk memory export (vault files are plain markdown and can be copied with rclone or git).
 
@@ -591,6 +591,35 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Dependencies:** [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions)
 
 **Verification:** Automated test ([Session graph behavior and generated-seed parity](../../host/__tests__/pi-memory-graph-builder.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-023: Cold session captures compact without losing memory
+
+**Intent:** Session captures remain useful without leaving every historical batch as a separate hot file. A deterministic daily compactor keeps an approximate latest-month working set, moves older source text into one durable archive, and preserves graph evidence and retrieval order.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. On each eligible daily UTC run, capture recency is derived from the leading calendar date in each session filename; files dated before the same UTC calendar date in the prior month are cold, while newer or unrecognized names remain hot. <!-- @impl: scripts/compact-session-captures.mjs::selectColdCaptures --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-023 AC1: accepts only actual capture timestamp shapes and compares their calendar days) -->
+2. Cold captures are represented in `Raw/Sessions/Archive.md` in deterministic capture-date/name order, with enough source boundaries to recover each original filename and bytes; repeating the same input produces the same archive bytes without duplicate records. <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-023 AC2: builds a deterministic idempotent archive with recoverable source boundaries) -->
+3. After the archive is durably published, cumulative Vault graph provenance moves from each compacted source path to `Raw/Sessions/Archive.md` without changing node IDs, edge endpoints, relations, or evidence; evidence from different captures remains distinct by archive location, and the updated cumulative graph is published under `user_vault`. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::relocate_node_link_provenance --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::relocate_node_link_provenance --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009: archived edge evidence survives relocation, repetition, and later merges) -->
+4. Agent retrieval checks current individual session captures before `Raw/Sessions/Archive.md`; agents never edit the archive or delete capture files themselves. <!-- @impl: preseed/agents/claude/skills/vault-operations/SKILL.md::Reading --> <!-- @impl: preseed/agents/pi/skills/vault-operations/SKILL.md::Reading --> <!-- @manual -->
+
+**Constraints:**
+
+- `Archive.md` is deterministic image-owned output, not a user-curated note or an agent-authored capture.
+- Compaction changes storage shape and provenance only. Semantic pruning, summarization, node deletion, edge deletion, and relevance-based retention remain out of scope.
+- A filename without a recognized leading calendar date is never deleted automatically.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions), [REQ-STOR-052](storage.md#req-stor-052-session-capture-compaction-uses-verified-two-phase-sync), [REQ-VAULT-032](vault.md#req-vault-032-session-archive-ownership-and-extraction-boundary)
+
+**Verification:** Automated compaction and graph-relocation tests plus manual instruction review
 
 **Status:** Implemented
 

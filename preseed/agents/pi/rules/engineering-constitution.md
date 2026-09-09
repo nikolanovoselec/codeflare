@@ -7,6 +7,7 @@
 - Preserve unrelated work and behavior. Add no speculative abstraction, setting, fallback, or cleanup.
 - Prove every behavior change with a failing behavioral test, then make it pass. Test outcomes, not prose, mocks, or implementation shape.
 - Prefer composition, explicit ownership, immutable updates, and local mutation. Extract only when state, reuse, testability, or maintenance improves.
+- Always launch subagents in the background. Never let a foreground subagent block the main session; continue independent root work and collect results after completion.
 - Validate untrusted input at boundaries. Trust typed internals.
 - In repositories with `sdd/`, trace behavior changes to requirements. Keep specifications, anchors, and documentation truthful. Leave no touched requirement `Partial`.
 - Verify before claiming completion. Separate observation, inference, and uncertainty.

@@ -170,6 +170,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD149](#ad149-herdr-semantic-status-owns-completion-notification-timing) | Let Herdr status own completion notification timing | A ten-minute timer starts when every tracked agent pane becomes ready; renewed work cancels timing and queued completion. | Architecture, Agents | Active |
 | [AD150](#ad150-d1-owns-historical-usage-and-report-delivery-records) | Keep live quota state in Timekeeper and historical set queries in D1 | One database owns historical periods, report claims, and retention while live quota enforcement remains independent. | Architecture, Usage, Operations | Active |
 | [AD151](#ad151-container-lifecycle-and-terminal-transport-outrank-negative-eventual-kv-evidence) | Resolve lifecycle ownership outside eventual KV | Persisted container state governs terminal and managed-mutation admission while local startup and transport ownership guard dashboard projections. | Architecture, Session lifecycle, Storage | Active |
+| [AD152](#ad152-verified-session-capture-compaction-preserves-durable-memory) | Compact cold session captures after verified publication | Daily compaction keeps a filename-derived one-month hot set, verifies the archive remotely before deleting exact sources, and relocates graph provenance. | Architecture, Memory, Storage | Active |
 ---
 
 ## Decisions
@@ -4167,5 +4168,27 @@ Terminal admission reads persisted Container SDK state without waking the contai
 **Consequences:** Terminal-owned sessions cannot be falsely kicked by stale KV. Confirmed SDK stop reaches the session store directly instead of waiting for KV propagation. Managed updates begin after persisted states stop even if LIST metadata still says running; active or unavailable state fails closed. No coordinator, new storage key, or container wake path is added. Explicit stop, configurable idle timeout, multi-tick exit confirmation, and durable `shutdownRequested` protection remain intact.
 
 **Related REQs:** [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard), [REQ-SESSION-030](../../sdd/spec/session-lifecycle.md#req-session-030-negative-kv-evidence-preserves-lifecycle-owned-sessions), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SEC-020](../../sdd/spec/security.md#req-sec-020-ws-upgrade-rate-limit-short-circuits), [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission).
+
+---
+
+### AD152: Verified session capture compaction preserves durable memory
+
+**Category:** Architecture, Memory, Storage
+
+**Status:** Accepted (2026-09-09)
+
+**Context:** Twenty-prompt capture creates a useful append-only audit trail, but keeping every historical batch as a separate hot file makes direct recall and Vault synchronization increasingly noisy. Modification time cannot define age because R2 restore rewrites it, and deleting local sources immediately after writing an archive would trust one bisync exit code as proof that the only durable replacement exists. Existing graph nodes and edges also cite the individual source paths, so a filesystem-only move would leave valid evidence pointing at deleted files.
+
+**Decision:** When the rollout gate is explicitly enabled, run one image-owned compactor on a daily UTC boundary. It approximates a latest-month hot set from each capture filename's leading calendar date, keeps unrecognized names hot, and renders cold captures in deterministic capture-date/name order into `Raw/Sessions/Archive.md`. The archive is machine-owned; capture and interactive agents never edit it or delete individual captures. <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive --> <!-- @impl: entrypoint.sh::bisync_with_r2 -->
+
+Publication is two phase. The first existing bisync publishes the archive while every source remains present. The compactor then verifies the exact remote object's SHA-256 digest and absence of local or remote archive conflict copies. It also requires each source to retain the hash that entered the archive. Any uncertainty preserves every source. After those checks, the cumulative merge helper relocates node and edge `source_file` provenance to the archive without changing node IDs, edge endpoints, relations, or evidence; exact tuple duplicates remain collapsed by the existing merge rule. The compactor republishes the complete graph as `user_vault`; only then are the exact source paths removed and a second bisync propagates deletion. <!-- @impl: scripts/compact-session-captures.mjs::verifyRemoteArchive --> <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::relocate_node_link_provenance --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::relocate_node_link_provenance -->
+
+Vault semantic extraction continues excluding all of `Raw/Sessions/`, including the archive, because its content was already represented when each capture was created. Agent lookup checks the hot individual files first and falls back to `Archive.md`; neither runtime may edit the archive or delete captures. This compacts storage shape only. Semantic summarization, relevance pruning, and graph evidence deletion remain out of scope.
+
+**Alternatives rejected:** Use mtime or file frontmatter for age; keep one archive per month; trust a successful upload without reading remote evidence; delete before graph publication; re-extract the archive; let agents summarize or prune old captures; or add a second sync daemon. These choices reintroduce restore-time age drift, unbounded file counts, deletion races, duplicate semantics, unstable IDs, or competing persistence ownership.
+
+**Consequences:** Recent captures remain cheap to inspect, older source text stays reachable in one deterministic file, and retries are idempotent because failure leaves verified archive bytes and sources intact. The archive can grow, and filename dates only approximate one month, but no model chooses what memory survives. Daily work reuses the existing bisync and graph lock rather than adding a service or credential path. The image ships with `VAULT_SESSION_COMPACTION_ENABLED` disabled so the rollout can validate Integration before destructive scheduling is enabled.
+
+**Related REQs:** [REQ-MEM-023](../../sdd/spec/memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory), [REQ-VAULT-032](../../sdd/spec/vault.md#req-vault-032-session-archive-ownership-and-extraction-boundary), [REQ-STOR-052](../../sdd/spec/storage.md#req-stor-052-session-capture-compaction-uses-verified-two-phase-sync), [REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions).
 
 ---

@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-09
 
+- **Cold session captures compact daily without losing durable text or graph evidence** ([REQ-MEM-023](memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory), [REQ-VAULT-032](vault.md#req-vault-032-session-archive-ownership-and-extraction-boundary), and [REQ-STOR-052](storage.md#req-stor-052-session-capture-compaction-uses-verified-two-phase-sync) added; Implemented). An explicitly enabled image-owned UTC-daily compactor keeps an approximate latest-month hot set from filename calendar dates and deterministically folds older captures into `Raw/Sessions/Archive.md`. A first bisync must publish the archive, then explicit remote digest and conflict checks plus graph-provenance relocation must succeed before exact unchanged sources are deleted and a second bisync propagates those deletions. Existing graph identities and semantic edge evidence remain intact, cumulative `user_vault` is republished, semantic extraction excludes the archive, and agents search hot files before the read-only archive. Semantic graph pruning remains out of scope.
+
 - **Classic Pi preserves the last explicitly resumed transcript** ([REQ-AGENT-211](agents.md#req-agent-211-classic-agent-transcript-resume) AC6 added; remains Implemented). Every successful root `/resume` switch atomically replaces the current Codeflare session binding, including repeated switches. Startup, Herdr, child sessions, malformed transcripts, and inferred latest-session selection cannot replace it.
 
 ## 2026-09-08

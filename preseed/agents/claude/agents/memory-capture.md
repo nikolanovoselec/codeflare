@@ -17,6 +17,8 @@ The request arrives inline, opening with `CAPTURE_REQUEST`: the counter state, t
 
 The request's `capture_file` field names the exact path to write. Do not derive a timestamp or filename yourself: the hook fixed both when it armed the request, and the publish step refuses to publish if that file is absent. Writing anywhere else reads as a failed capture.
 
+`/home/user/Vault/Raw/Sessions/Archive.md` is reserved for the image-owned deterministic compactor. Never use it as `capture_file`, edit or replace it, merge captures into it, or delete an existing capture.
+
 Running the contract's shell steps: prefer the `Bash` tool. If a `Bash` call is blocked or routed in this session (some sessions run a routing gate that intercepts shell), run the identical command through `mcp__context-mode__ctx_execute` (`language: "shell"`) instead - it reaches the same filesystem and binaries. Use whichever is available; never skip a step because one tool is gated. File writes always go through the `Write` tool, not a shell heredoc.
 
 You do not need to respond to the user; this is background ingestion. The main session is handling the user's prompt in parallel.
