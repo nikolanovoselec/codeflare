@@ -151,6 +151,27 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Behavioral fixtures are execution-pending; CI owns RED/GREEN verification.
 describe('Structured AI routing', () => {
+  it('REQ-ENTERPRISE-047: shows every configured native provider and allows creating a target for each', async () => {
+    api.catalog.mockResolvedValueOnce({
+      ...catalog,
+      providers: [
+        { provider: 'google-ai-studio', label: 'Google AI Studio', configured: true, defaultSelection: false, supported: true },
+        { provider: 'codeflare-inference-mesh', label: 'Codeflare Inference Mesh', configured: true, defaultSelection: false, supported: true },
+        { provider: 'openai', label: 'OpenAI', configured: true, defaultSelection: false, supported: true },
+      ],
+    });
+    const view = mount(checkedCurrent());
+    await waitFor(() => expect(view.getByRole('button', { name: 'Native providers' })).toBeEnabled());
+    await fireEvent.click(view.getByRole('button', { name: 'Native providers' }));
+    expect(view.getByText('Google AI Studio')).toBeVisible();
+    expect(view.getByText('Codeflare Inference Mesh')).toBeVisible();
+    expect(view.getByText('OpenAI')).toBeVisible();
+    await fireEvent.click(view.getByRole('button', { name: 'Add native target' }));
+    expect(view.getByLabelText('Native target 1 provider')).toHaveValue('google-ai-studio');
+    await fireEvent.change(view.getByLabelText('Native target 1 provider'), { target: { value: 'openai' } });
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ provider: 'openai' });
+  });
+
   it('REQ-ENTERPRISE-047: edits an exact Bedrock target without treating suggestions as an allowlist', async () => {
     const view = mount(checkedCurrent());
     await waitFor(() => expect(view.getByRole('button', { name: 'Native providers' })).toBeEnabled());
