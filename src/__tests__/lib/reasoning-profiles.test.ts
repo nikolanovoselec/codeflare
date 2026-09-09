@@ -8,6 +8,7 @@ const BUILTIN_IDS = [
   'workers-ai-kimi-k-thinking',
   'workers-ai-glm-thinking',
   'codeflare-inference-mesh-binary-thinking',
+  'bedrock-anthropic-compat',
 ];
 
 const NOTICE_IDS = [
@@ -32,6 +33,11 @@ function customProfile(overrides: Record<string, unknown> = {}) {
 }
 
 describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
+  it('REQ-ENTERPRISE-048: Bedrock Anthropic uses provider-default opaque reasoning without Pi levels', () => {
+    const profile = profiles.getBuiltInProfile('bedrock-anthropic-compat');
+    expect(profile).toMatchObject({ id: 'bedrock-anthropic-compat', name: 'AWS Bedrock · Anthropic Claude', reasoningMode: 'provider-default', supportedLevels: [], levels: {}, validatedTransports: ['compat'] });
+    expect((profile as unknown as Record<string, unknown>)?.thinkingLevelMap).toBeUndefined();
+  });
   it('ships exactly the six executable built-ins and keeps failed families as notices', () => {
     expect(profiles.REASONING_PROFILE_IDS).toEqual(BUILTIN_IDS);
     expect((profiles as any).COMPATIBILITY_NOTICES.map((notice: any) => notice.id)).toEqual(NOTICE_IDS);

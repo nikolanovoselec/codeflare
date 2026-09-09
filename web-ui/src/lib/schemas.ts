@@ -32,6 +32,7 @@ const ReasoningProfileCatalogEntrySchema = ProfileRevisionRefSchema.extend({
   assignable: z.boolean().optional(),
   classification: z.string().optional(),
   ingressContract: z.string().optional(),
+  reasoningMode: z.enum(['pi-levels', 'provider-default']).optional(),
   supportedLevels: z.array(PiReasoningLevelSchema),
   unsupportedLevels: z.array(PiReasoningLevelSchema).optional(),
   levels: z.partialRecord(PiReasoningLevelSchema, z.array(z.object({ path: z.string(), value: ReasoningScalarSchema }))).optional(),
@@ -68,6 +69,8 @@ export const ReasoningCatalogSchema = z.object({
   usage: z.array(z.object({ profileRef: ProfileRevisionRefSchema, routes: z.array(z.string()) })),
   routes: z.array(z.string()),
   routeCatalogStatus: z.enum(['ready', 'unavailable']),
+  providers: z.array(z.object({ provider: z.string(), label: z.string(), configured: z.boolean(), defaultSelection: z.boolean(), supported: z.boolean() })).optional(),
+  providerCatalogStatus: z.enum(['ready', 'unavailable']).optional(),
   connection: z.object({ status: z.enum(['ready', 'missing', 'permission-denied', 'unavailable']), message: z.string() }).optional(),
 });
 

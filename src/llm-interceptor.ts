@@ -52,6 +52,7 @@ import { getRouteReasoningProfile, parseReasoningConfigurationWithLegacyFallback
 import { preferredReasoningLevel, verificationMatches } from './lib/reasoning-verification';
 import { getAigConfig } from './lib/aig-config';
 import { gatewayCoordinates } from './lib/ai-gateway-management';
+import { repairRepeatedCompleteToolNames } from './lib/openai-sse-tool-name-repair';
 
 /**
  * Hosts the DO must intercept for enterprise LLM routing. Only the OpenAI host
@@ -81,6 +82,7 @@ const STRIPPED_HEADERS: readonly string[] = [
   'cf-aig-metadata',
   'cf-aig-gateway-id',
   'cf-aig-authorization',
+  'cf-aig-byok-alias',
 ];
 
 /**
@@ -392,6 +394,9 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
     const isModelRoutable = url.pathname.endsWith('/chat/completions') || url.pathname.endsWith('/responses');
     let outboundBody: BodyInit | null | undefined = hasBody ? request.body : undefined;
+    let nativeRequest = false;
+    let effectiveAdapter = '';
+    let declaredToolNames: string[] = [];
     const catalog = isModelRoutable ? await this.loadRouteCatalog(groups) : null;
     if (catalog && catalog.routes.length === 0) {
       return new Response(JSON.stringify({ error: 'No verified routes are available for this user', code: 'ROUTE_NOT_ELIGIBLE' }), {
@@ -432,8 +437,28 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         }
         {
           const handle = typeof payload.model === 'string' ? payload.model.replace(/^dynamic\//, '') : catalog.defaultRoute;
+          const requestedNative = handle.startsWith('cf-native-');
+          if (requestedNative && !catalog.nativeTargets[handle]) {
+            return new Response(JSON.stringify({ error: 'Native target is not authorized', code: 'ROUTE_NOT_ELIGIBLE' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+          }
           const route = catalog.routes.includes(handle) ? handle : catalog.defaultRoute;
-          if (url.pathname.endsWith('/chat/completions')) {
+          const native = catalog.nativeTargets[route];
+          declaredToolNames = Array.isArray(payload.tools) ? payload.tools.flatMap((tool) => {
+            if (!tool || typeof tool !== 'object' || Array.isArray(tool)) return [];
+            const fn = (tool as Record<string, unknown>).function;
+            return fn && typeof fn === 'object' && !Array.isArray(fn) && typeof (fn as Record<string, unknown>).name === 'string' ? [(fn as Record<string, unknown>).name as string] : [];
+          }) : [];
+          if (native) {
+            if (request.method !== 'POST' || !url.pathname.endsWith('/chat/completions')) {
+              return new Response(JSON.stringify({ error: 'Native targets support POST Chat Completions only', code: 'UNSUPPORTED_NATIVE_ENDPOINT' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+            }
+            if (['reasoning_effort',  'reasoning', 'thinking', 'chat_template_kwargs'].some((key) => Object.hasOwn(payload!, key))) {
+              return new Response(JSON.stringify({ error: 'Reasoning controls are unsupported for this provider-default model', code: 'UNSUPPORTED_REASONING_CONTROL' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+            }
+            payload.model = `aws-bedrock/${native.model}`;
+            nativeRequest = true;
+            effectiveAdapter = native.adapter;
+          } else if (url.pathname.endsWith('/chat/completions')) {
             let profile;
             try {
               const configuration = await this.loadReasoningConfiguration();
@@ -450,24 +475,31 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
                 code: missing ? 'REASONING_PROFILE_REQUIRED' : 'REASONING_CONFIGURATION_UNAVAILABLE',
               }), { status: 400, headers: { 'Content-Type': 'application/json' } });
             }
-            const canonicalLevel = payload.reasoning_effort ?? (isPiReasoningLevel(catalog.defaultReasoning) && profile.supportedLevels.includes(catalog.defaultReasoning)
-              ? catalog.defaultReasoning : preferredReasoningLevel(profile.supportedLevels));
-            if (!isPiReasoningLevel(canonicalLevel) || !profile.supportedLevels.includes(canonicalLevel)) {
-              return new Response(JSON.stringify({ error: 'Unsupported reasoning level', code: 'UNSUPPORTED_REASONING_LEVEL' }), {
-                status: 400,
-                headers: { 'Content-Type': 'application/json' },
-              });
-            }
-            try {
-              payload = translateReasoningRequest(payload, profile, canonicalLevel);
-            } catch {
-              return new Response(JSON.stringify({ error: 'Reasoning profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), {
-                status: 400,
-                headers: { 'Content-Type': 'application/json' },
-              });
+            effectiveAdapter = profile.id;
+            if (profile.reasoningMode === 'provider-default') {
+              if (['reasoning_effort', 'reasoning', 'thinking', 'chat_template_kwargs'].some((key) => Object.hasOwn(payload!, key))) {
+                return new Response(JSON.stringify({ error: 'Reasoning controls are unsupported for this provider-default model', code: 'UNSUPPORTED_REASONING_CONTROL' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+              }
+            } else {
+              const canonicalLevel = payload.reasoning_effort ?? (isPiReasoningLevel(catalog.defaultReasoning) && profile.supportedLevels.includes(catalog.defaultReasoning)
+                ? catalog.defaultReasoning : preferredReasoningLevel(profile.supportedLevels));
+              if (!isPiReasoningLevel(canonicalLevel) || !profile.supportedLevels.includes(canonicalLevel)) {
+                return new Response(JSON.stringify({ error: 'Unsupported reasoning level', code: 'UNSUPPORTED_REASONING_LEVEL' }), {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' },
+                });
+              }
+              try {
+                payload = translateReasoningRequest(payload, profile, canonicalLevel);
+              } catch {
+                return new Response(JSON.stringify({ error: 'Reasoning profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), {
+                  status: 400,
+                  headers: { 'Content-Type': 'application/json' },
+                });
+              }
             }
           }
-          payload.model = `dynamic/${route}`;
+          if (!native) payload.model = `dynamic/${route}`;
           outboundBody = JSON.stringify(payload);
         }
       }
@@ -493,8 +525,8 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
 
     let upstream: Response;
     try {
-      upstream = await sendTo(restUrl, restHeaders);
-      if (upstream.status === 404 && isModelRoutable && typeof outboundBody === 'string') {
+      upstream = nativeRequest ? await sendTo(compatUrl, compatHeaders, stripOpenAiOnlyFields(outboundBody as string)) : await sendTo(restUrl, restHeaders);
+      if (!nativeRequest && upstream.status === 404 && isModelRoutable && typeof outboundBody === 'string') {
         // Compat reaches non-OpenAI providers (e.g. google-ai-studio) that reject
         // OpenAI-only fields (store, prompt_cache_key) with a 400; strip them on
         // THIS leg only, so the REST/OpenAI leg above keeps prompt caching intact.
@@ -524,8 +556,9 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     const contentType = upstream.headers.get('content-type') ?? '';
     const isStreamingChat =
       contentType.includes('text/event-stream') && url.pathname.endsWith('/chat/completions');
-    const responseBody =
-      upstream.body && isStreamingChat ? upstream.body.pipeThrough(ensureStreamTerminator()) : upstream.body;
+    const normalizedBody = upstream.body && isStreamingChat && effectiveAdapter === 'bedrock-anthropic-compat'
+      ? upstream.body.pipeThrough(repairRepeatedCompleteToolNames(declaredToolNames)) : upstream.body;
+    const responseBody = normalizedBody && isStreamingChat ? normalizedBody.pipeThrough(ensureStreamTerminator()) : normalizedBody;
 
     return new Response(responseBody, {
       status: upstream.status,
@@ -541,15 +574,15 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
    * here can never drift from it. The first matched policy wins before filtering;
    * unmatched users need explicit fallback. No eligible catalog denies inference.
    */
-  private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string; defaultReasoning: string }> {
-    if (!this.env.KV) return { routes: [], defaultRoute: '', defaultReasoning: 'off' };
+  private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string; defaultReasoning: string; nativeTargets: Record<string, { model: string; targetId: string; adapter: string; label: string; contextWindow: number }> }> {
+    if (!this.env.KV) return { routes: [], defaultRoute: '', defaultReasoning: 'off', nativeTargets: {} };
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
-    const { routeCatalog, defaultRoute, defaultReasoning } = await resolveRouteCatalog(this.env.KV, groups, {
+    const { routeCatalog, defaultRoute, defaultReasoning, nativeTargets } = await resolveRouteCatalog(this.env.KV, groups, {
       gatewayUrl: props?.gatewayUrl ?? this.env.AIG_GATEWAY_URL,
       gatewayId: props?.gatewayId ?? this.env.AIG_GATEWAY_ID,
       token: props?.token ?? this.env.AIG_TOKEN,
     });
-    return { routes: routeCatalog, defaultRoute, defaultReasoning: defaultReasoning || 'off' };
+    return { routes: routeCatalog, defaultRoute, defaultReasoning: defaultReasoning || 'off', nativeTargets };
   }
 
   private async loadReasoningConfiguration() {

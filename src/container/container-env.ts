@@ -60,6 +60,8 @@ export interface ContainerEnvState {
   _routeContextWindows: Record<string, number>;
   /** Active profile-supported canonical levels for each allowed route. */
   _routeReasoningLevels: Record<string, string[]>;
+  /** Safe administrator labels keyed by opaque native handle. */
+  _modelDisplayNames: Record<string, string>;
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null;
   /** REQ-GITHUB-004: GitHub repo (owner/name) to clone at container start. */
@@ -78,6 +80,7 @@ interface RestartPrefsInput {
   defaultReasoning?: string;
   routeContextWindows?: Record<string, number>;
   routeReasoningLevels?: Record<string, string[]>;
+  modelDisplayNames?: Record<string, string>;
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   tabConfig?: TabConfig[];
@@ -160,8 +163,9 @@ export function validateBucketNameInput(input: {
   sessionWorkspace?: unknown;
   terminalMode?: unknown;
   routeReasoningLevels?: unknown;
+  modelDisplayNames?: unknown;
 }): string | null {
-  const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels } = input;
+  const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels, modelDisplayNames } = input;
 
   if (typeof bucketName !== 'string' || bucketName.trim() === '') {
     return 'bucketName must be a non-empty string';
@@ -207,10 +211,16 @@ export function validateBucketNameInput(input: {
     if (!routeReasoningLevels || typeof routeReasoningLevels !== 'object' || Array.isArray(routeReasoningLevels)) return 'routeReasoningLevels must be an object';
     const canonical = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
     for (const [route, levels] of Object.entries(routeReasoningLevels as Record<string, unknown>)) {
-      if (!route || route.length > 256 || route.includes('/') || !Array.isArray(levels) || levels.length === 0 || levels.length > canonical.size
+      if (!route || route.length > 256 || route.includes('/') || !Array.isArray(levels) || levels.length > canonical.size
         || levels.some((level) => typeof level !== 'string' || !canonical.has(level)) || new Set(levels).size !== levels.length) {
         return 'routeReasoningLevels contains an invalid route or level';
       }
+    }
+  }
+  if (modelDisplayNames !== undefined) {
+    if (!modelDisplayNames || typeof modelDisplayNames !== 'object' || Array.isArray(modelDisplayNames)) return 'modelDisplayNames must be an object';
+    for (const [handle, label] of Object.entries(modelDisplayNames as Record<string, unknown>)) {
+      if (!/^cf-native-[0-9a-f-]{36}$/i.test(handle) || typeof label !== 'string' || !label.trim() || label.length > 128) return 'modelDisplayNames contains an invalid handle or label';
     }
   }
   return null;
@@ -406,15 +416,16 @@ export function buildEnvVars(
     // maps the slash-free handle to dynamic/<route> on egress. Emitted only when
     // enterprise AND present, so a non-enterprise (or unconfigured) container's env
     // is byte-identical to today.
-    ...(isEnterpriseMode(env) && state._routeCatalog.length > 0 && { ENTERPRISE_ROUTE_CATALOG: JSON.stringify(state._routeCatalog) }),
+    ...(isEnterpriseMode(env) && { ENTERPRISE_ROUTE_CATALOG: JSON.stringify(state._routeCatalog) }),
     ...(isEnterpriseMode(env) && state._defaultRoute && { ENTERPRISE_DEFAULT_ROUTE: state._defaultRoute }),
     ...(isEnterpriseMode(env) && state._defaultReasoning && { ENTERPRISE_DEFAULT_REASONING: state._defaultReasoning }),
     // REQ-ENTERPRISE-012: per-route context-window map (route name -> tokens), a
     // non-secret routing hint. entrypoint.sh sets each Pi model's contextWindow from
     // it (falling back to DEFAULT_ROUTE_CONTEXT_WINDOW per route). Emitted only when
     // enterprise AND configured, so a non-enterprise/unconfigured env is byte-identical.
-    ...(isEnterpriseMode(env) && Object.keys(state._routeContextWindows).length > 0 && { ENTERPRISE_ROUTE_CONTEXT_WINDOWS: JSON.stringify(state._routeContextWindows) }),
-    ...(isEnterpriseMode(env) && Object.keys(state._routeReasoningLevels ?? {}).length > 0 && { ENTERPRISE_ROUTE_REASONING_LEVELS: JSON.stringify(state._routeReasoningLevels) }),
+    ...(isEnterpriseMode(env) && { ENTERPRISE_ROUTE_CONTEXT_WINDOWS: JSON.stringify(state._routeContextWindows) }),
+    ...(isEnterpriseMode(env) && { ENTERPRISE_ROUTE_REASONING_LEVELS: JSON.stringify(state._routeReasoningLevels ?? {}) }),
+    ...(isEnterpriseMode(env) && { ENTERPRISE_MODEL_DISPLAY_NAMES: JSON.stringify(state._modelDisplayNames ?? {}) }),
   };
 }
 
@@ -719,7 +730,7 @@ export async function applyPrefsOnRestart(
   // shapes interceptor props), so they set `changed` to regenerate the env. Value
   // equality (JSON.stringify) on the catalog array — a reference !== compare is
   // always true and would churn storage every restart.
-  if (input.routeCatalog && JSON.stringify(input.routeCatalog) !== JSON.stringify(state._routeCatalog)) {
+  if (input.routeCatalog !== undefined && JSON.stringify(input.routeCatalog) !== JSON.stringify(state._routeCatalog)) {
     state._routeCatalog = input.routeCatalog;
     await storage.put('routeCatalog', input.routeCatalog);
     changed = true;
@@ -745,17 +756,23 @@ export async function applyPrefsOnRestart(
   }
   // REQ-ENTERPRISE-012: value-equality compare on the map (a reference !== compare
   // would churn storage every restart), mirroring routeCatalog above.
-  if (input.routeContextWindows && JSON.stringify(input.routeContextWindows) !== JSON.stringify(state._routeContextWindows)) {
+  if (input.routeContextWindows !== undefined && JSON.stringify(input.routeContextWindows) !== JSON.stringify(state._routeContextWindows)) {
     state._routeContextWindows = input.routeContextWindows;
     await storage.put('routeContextWindows', input.routeContextWindows);
     changed = true;
     logger.info('Updated routeContextWindows on restart', { routeContextWindows: input.routeContextWindows });
   }
-  if (input.routeReasoningLevels && JSON.stringify(input.routeReasoningLevels) !== JSON.stringify(state._routeReasoningLevels)) {
+  if (input.routeReasoningLevels !== undefined && JSON.stringify(input.routeReasoningLevels) !== JSON.stringify(state._routeReasoningLevels)) {
     state._routeReasoningLevels = input.routeReasoningLevels;
     await storage.put('routeReasoningLevels', input.routeReasoningLevels);
     changed = true;
     logger.info('Updated routeReasoningLevels on restart', { routes: Object.keys(input.routeReasoningLevels) });
+  }
+  if (input.modelDisplayNames !== undefined && JSON.stringify(input.modelDisplayNames) !== JSON.stringify(state._modelDisplayNames)) {
+    state._modelDisplayNames = input.modelDisplayNames;
+    await storage.put('modelDisplayNames', input.modelDisplayNames);
+    changed = true;
+    logger.info('Updated modelDisplayNames on restart', { models: Object.keys(input.modelDisplayNames) });
   }
 
   return changed;

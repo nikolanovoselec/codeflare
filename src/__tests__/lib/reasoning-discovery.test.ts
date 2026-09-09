@@ -95,6 +95,26 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
     expect(replay.at(-1)).toEqual({ role: 'tool', content: 'ok', tool_call_id: 'call-private' });
   });
 
+  it('REQ-ENTERPRISE-048: provider-default verification requires a complete tool lifecycle', async () => {
+    const requests: Array<{ url: string; body: Record<string, unknown>; headers: Headers }> = [];
+    const report = await discoverPiCompatibility({ accountId: ACCOUNT_ID, gatewayId: 'gateway', apiToken: 'secret-token',
+      route: 'aws-bedrock/eu.anthropic.claude-sonnet-5',
+      profile: { id: 'bedrock-anthropic-compat', reasoningMode: 'provider-default', supportedLevels: [], removePaths: [], levels: {} },
+      maxCompletionTokens: 32, compatOnly: true, fetcher: successfulFetcher(requests),
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests.every((request) => request.url.includes('/compat/chat/completions'))).toBe(true);
+    expect(report).toMatchObject({ classification: 'Verified', assignable: true, compatibleLevels: [], accounting: { logicalProbes: 1, httpAttempts: 2 } });
+    expect(report.distinctMappings[0].toolLifecycle).toMatchObject({ passed: true, stage: 'complete' });
+
+    const failed = await discoverPiCompatibility({ accountId: ACCOUNT_ID, gatewayId: 'gateway', apiToken: 'secret-token',
+      route: 'aws-bedrock/eu.anthropic.claude-sonnet-5',
+      profile: { id: 'bedrock-anthropic-compat', reasoningMode: 'provider-default', supportedLevels: [], removePaths: [], levels: {} },
+      maxCompletionTokens: 32, compatOnly: true, fetcher: vi.fn(async () => sse([{ choices: [{ delta: { content: 'no tool' }, finish_reason: 'stop' }] }, '[DONE]'])),
+    });
+    expect(failed.assignable).toBe(false);
+  });
+
   it('counts one reasoning probe and one complete tool lifecycle per distinct semantic mapping', async () => {
     const requests: Array<{ url: string; body: Record<string, unknown>; headers: Headers }> = [];
     const fetcher = successfulFetcher(requests);

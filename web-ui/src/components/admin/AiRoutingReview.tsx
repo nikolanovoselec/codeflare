@@ -64,6 +64,7 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
   const profiles = () => revisions(configuration().customProfileRevisions);
   const savedProfiles = () => revisions(record(record(props.current).reasoningConfiguration).customProfileRevisions);
   const routes = () => list(data().dynamicRoutes);
+  const nativeTargets = () => revisions(data().nativeTargets);
   const groups = () => revisions(data().groupRouting);
   const explicitFallback = () => {
     const directChange = props.changes.find((change) => change.field === 'fallbackRouting');
@@ -130,6 +131,12 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
         </section>
       </Show>
     </section>
+    <Show when={nativeTargets().length}><section class="ai-routing-review-section" aria-labelledby={`${id}-native`}>
+      <h3 id={`${id}-native`}>Native providers</h3>
+      <table class="ai-routing-review-routes" aria-labelledby={`${id}-native`}><thead><tr><th scope="col">Target</th><th scope="col">Exact model</th><th scope="col">Context window</th><th scope="col">State</th></tr></thead>
+        <tbody><For each={nativeTargets()}>{(target) => <tr><th scope="row">{safe()(text(target.label) || 'Unnamed target')}</th><td>{safe()(text(target.model))}</td><td>{typeof target.contextWindow === 'number' ? `${target.contextWindow.toLocaleString('en-US')} tokens` : 'Not configured'}</td><td>{target.enabled === true ? 'Enabled' : 'Inactive'}</td></tr>}</For></tbody>
+      </table>
+    </section></Show>
     <section class="ai-routing-review-section" aria-labelledby={`${id}-groups`}>
       <h3 id={`${id}-groups`}>Group access</h3>
       <Show when={groups().length} fallback={<p>No group policies</p>}>

@@ -18,7 +18,7 @@ import {
 import { discoverPiCompatibility, PI_WIRE_CANARY_VERSION } from '../../lib/reasoning-discovery';
 import {
   backendDescriptionsSchema, connectionStatus, dynamicRouteSchema, gatewayDraftSchema,
-  gatewayCoordinates, listDynamicRoutes, resolveGatewayConnection, type GatewayDraft,
+  defaultBedrockProvider, gatewayCoordinates, listDynamicRoutes, listNativeProviderConfigs, resolveGatewayConnection, type GatewayDraft,
 } from '../../lib/ai-gateway-management';
 import {
   assignmentBackendDescriptions, completedProfileCheck, connectionFingerprint, issueRouteCheck,
@@ -26,6 +26,9 @@ import {
   type RouteVerification,
 } from '../../lib/reasoning-verification';
 import type { RouteReasoningAssignment } from '../../lib/reasoning-configuration';
+import {
+  BEDROCK_COMPAT_ADAPTER_VERSION, BEDROCK_PROFILE_ID, createNativeTarget, issueNativeTargetCheck, nativeTargetDraftSchema, parseNativeAiTargets,
+} from '../../lib/native-ai-targets';
 import {
   DynamicRouteInventoryError,
   deriveCommonMapping,
@@ -38,6 +41,10 @@ const routeSchema = dynamicRouteSchema;
 const profileRefSchema = profileRevisionRefSchema;
 const catalogSchema = z.object({ gateway: gatewayDraftSchema.optional() }).strict();
 const inventorySchema = catalogSchema.extend({ backendDescriptions: backendDescriptionsSchema.optional() }).strict();
+const nativeDiscoverySchema = z.object({
+  target: nativeTargetDraftSchema, administratorConfirmed: z.literal(true).optional(),
+  gateway: gatewayDraftSchema.optional(), maxCompletionTokens: z.number().int().min(32).max(16_384).default(4096),
+}).strict();
 const discoverySchema = z.object({
   route: routeSchema,
   profileRef: profileRefSchema.optional(),
@@ -108,7 +115,7 @@ function sanitizeEvidenceSummary(value: unknown): Record<string, unknown> | unde
 
 function sanitizeProfile(profile: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  for (const key of ['id', 'name', 'description', 'family', 'schemaVersion', 'revision', 'hash', 'enabled', 'ingressContract', 'supportedLevels', 'unsupportedLevels', 'removePaths', 'levels', 'aliases', 'offSemantics', 'toolCompatibility', 'recognizedResponseFields', 'validatedTransports', 'classification', 'limitations']) {
+  for (const key of ['id', 'name', 'description', 'family', 'schemaVersion', 'revision', 'hash', 'enabled', 'ingressContract', 'reasoningMode', 'supportedLevels', 'unsupportedLevels', 'removePaths', 'levels', 'aliases', 'offSemantics', 'toolCompatibility', 'recognizedResponseFields', 'validatedTransports', 'classification', 'limitations']) {
     if (profile[key] !== undefined) result[key] = profile[key];
   }
   const originallyCreatedAgainst = sanitizeProvenance(profile.originallyCreatedAgainst);
@@ -372,6 +379,8 @@ async function catalog(c: ReasoningContext, draft?: GatewayDraft) {
   }
   let routes: string[] = [];
   let routeCatalogStatus: 'ready' | 'unavailable' = 'unavailable';
+  let providers: Array<Record<string, unknown>> = [];
+  let providerCatalogStatus: 'ready' | 'unavailable' = 'unavailable';
   const gateway = await resolveGatewayConnection(c.env, draft);
   const coordinates = gatewayCoordinates(gateway);
   let connection = connectionStatus(undefined, true);
@@ -384,6 +393,16 @@ async function catalog(c: ReasoningContext, draft?: GatewayDraft) {
       connection = connectionStatus(error);
       logger.warn('Dynamic route catalog discovery failed');
     }
+    try {
+      const configs = await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token!);
+      const bedrock = defaultBedrockProvider(configs);
+      providers = [
+        ...(bedrock ? [{ provider: 'aws-bedrock', label: 'Amazon Bedrock', configured: true, defaultSelection: true, supported: true }] : []),
+        ...[...new Set(configs.filter((item) => item.provider !== 'aws-bedrock').map((item) => item.provider))]
+          .map((provider) => ({ provider, label: provider, configured: true, defaultSelection: false, supported: false })),
+      ];
+      providerCatalogStatus = 'ready';
+    } catch { logger.warn('Native provider catalog discovery failed'); }
   }
   return c.json({
     schemaVersion: 1,
@@ -392,6 +411,8 @@ async function catalog(c: ReasoningContext, draft?: GatewayDraft) {
     usage: assignmentUsage(configuration),
     routes,
     routeCatalogStatus,
+    providers,
+    providerCatalogStatus,
     connection,
   });
 }
@@ -443,6 +464,41 @@ reasoningRoutes.post('/routes/:route/inventory', requireAdmin, async (c) => {
   const request = inventorySchema.safeParse(await c.req.json().catch(() => null));
   if (!request.success) return c.json({ error: 'Invalid inventory request', code: 'validation_error' }, 400);
   return routeInventory(c, request.data);
+});
+
+reasoningRoutes.post('/native/discover', requireAdmin, discoveryRateLimiter, async (c) => {
+  const request = nativeDiscoverySchema.safeParse(await c.req.json().catch(() => null));
+  if (!request.success) return c.json({ error: 'Invalid native target check', code: 'validation_error' }, 400);
+  const gateway = await resolveGatewayConnection(c.env, request.data.gateway);
+  const coordinates = gatewayCoordinates(gateway);
+  const fingerprint = connectionFingerprint(gateway);
+  if (!coordinates || !gateway.token || !fingerprint) return c.json({ error: 'AI Gateway credentials unavailable', code: 'gateway_unavailable' }, 503);
+  try {
+    const provider = defaultBedrockProvider(await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token));
+    if (!provider) return c.json({ error: 'Default Amazon Bedrock configuration not found', code: 'provider_unavailable' }, 409);
+    const profile = BUILT_IN_REASONING_PROFILES.find((candidate) => candidate.id === BEDROCK_PROFILE_ID)!;
+    const current = parseNativeAiTargets(await c.env.KV.get(SETUP_KEYS.NATIVE_AI_TARGETS));
+    const existing = request.data.target.id ? current.targets.find((candidate) => candidate.id === request.data.target.id) : undefined;
+    if (existing && existing.providerConfigId !== provider.id) return c.json({ error: 'Default Amazon Bedrock configuration changed', code: 'provider_changed' }, 409);
+    const target = createNativeTarget({ ...request.data.target, id: existing?.id, providerConfigId: provider.id, profileRef: { id: profile.id, revision: profile.revision, hash: profile.hash } });
+    const verification: import('../../lib/native-ai-targets').NativeTargetVerification = {
+      schemaVersion: 1, ...(request.data.administratorConfirmed && { method: 'administrator' as const }), targetId: target.id,
+      model: target.model, providerConfigId: provider.id, connectionFingerprint: fingerprint, profileRef: target.profileRef,
+      transport: target.transport, adapterVersion: BEDROCK_COMPAT_ADAPTER_VERSION, checkedAt: new Date().toISOString(),
+    };
+    let report: Record<string, any> | undefined;
+    if (!request.data.administratorConfirmed) {
+      report = await discoverPiCompatibility({ accountId: coordinates.accountId, gatewayId: coordinates.gatewayId, apiToken: gateway.token,
+        route: `aws-bedrock/${target.model}`, profile, maxCompletionTokens: request.data.maxCompletionTokens, compatOnly: true });
+      if (!completedProfileCheck(report, profile)) return c.json({ ...report, assignable: false });
+      verification.capabilities = { streaming: true, tools: true, replay: true };
+    }
+    const checkId = await issueNativeTargetCheck(c.env.KV, target.id, verification);
+    return c.json({ targetId: target.id, classification: request.data.administratorConfirmed ? 'Administrator-confirmed' : 'Verified', assignable: true,
+      checkId, verification: { method: verification.method ?? 'automated', checkedAt: verification.checkedAt, current: true }, ...(report && { report }) });
+  } catch {
+    return c.json({ error: 'Native target check unavailable', code: 'discovery_unavailable' }, 502);
+  }
 });
 
 reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) => {

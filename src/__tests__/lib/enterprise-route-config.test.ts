@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { loadEnterpriseRouteConfig } from '../../lib/access';
-import { loadActiveRouteVersion } from '../../lib/ai-gateway-management';
+import { listNativeProviderConfigs, loadActiveRouteVersion } from '../../lib/ai-gateway-management';
+import { connectionFingerprint } from '../../lib/reasoning-verification';
+import { createNativeTarget, nativeTargetHandle, serializeNativeAiTargets } from '../../lib/native-ai-targets';
 import { createMockKV, type MockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
 import { getBuiltInProfileRef, normalizeCustomProfile } from '../../lib/reasoning-profiles';
@@ -10,6 +12,7 @@ import { SETUP_KEYS } from '../../lib/kv-keys';
 vi.mock('../../lib/ai-gateway-management', async (original) => ({
   ...await original<typeof import('../../lib/ai-gateway-management')>(),
   loadActiveRouteVersion: vi.fn(async (_account: string, _gateway: string, route: string) => routingInventoryFixtures.get(route)),
+  listNativeProviderConfigs: vi.fn(async () => [{ id: 'bedrock-default', provider: 'aws-bedrock', gatewayId: 'gateway', defaultSelection: true }]),
 }));
 function makeEnv(kv: MockKV, enterprise = true): Env {
   return { KV: kv, ENTERPRISE_MODE: enterprise ? 'active' : undefined, AIG_GATEWAY_URL: routingGatewayUrl, AIG_TOKEN: 'fixture-token' } as unknown as Env;
@@ -28,9 +31,35 @@ function saved(kv = createMockKV()) {
 }
 
 describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
+  it('REQ-ENTERPRISE-049: resolves mixed typed targets under first-match policy and current provider authority', async () => {
+    const { kv, env } = saved();
+    const id = '11111111-1111-4111-8111-111111111111';
+    const profileRef = getBuiltInProfileRef('bedrock-anthropic-compat');
+    const base = createNativeTarget({ id, label: 'Claude Sonnet', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, providerConfigId: 'bedrock-default', profileRef, enabled: true });
+    const verification = { schemaVersion: 1 as const, method: 'administrator' as const, targetId: id, model: base.model, providerConfigId: base.providerConfigId,
+      connectionFingerprint: connectionFingerprint({ gatewayUrl: routingGatewayUrl, token: 'fixture-token' })!, profileRef, transport: base.transport,
+      adapterVersion: 'bedrock-anthropic-compat-v1' as const, checkedAt: new Date().toISOString() };
+    kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, serializeNativeAiTargets({ schemaVersion: 1, targets: [{ ...base, verification }] }));
+    kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: ['general_usage'], defaultRoute: 'general_usage', reasoning: 'medium',
+      targets: [{ kind: 'dynamic-route', route: 'general_usage' }, { kind: 'native-target', targetId: id }], defaultTarget: { kind: 'native-target', targetId: id } } });
+    const cfg = await loadEnterpriseRouteConfig(env, ['engineering']);
+    expect(cfg.routeCatalog).toEqual(['general_usage', nativeTargetHandle(id)]);
+    expect(cfg.defaultRoute).toBe(nativeTargetHandle(id));
+    expect(cfg.routeReasoningLevels[nativeTargetHandle(id)]).toEqual([]);
+    expect(cfg.modelDisplayNames[nativeTargetHandle(id)]).toBe('Claude Sonnet');
+    expect(cfg.routeContextWindows[nativeTargetHandle(id)]).toBe(200000);
+    expect(cfg.nativeTargets).toBeUndefined();
+  });
+
+  it('REQ-ENTERPRISE-049: expired native provider refresh fails closed without denying Dynamic Routes', async () => {
+    const { env } = saved();
+    vi.mocked(listNativeProviderConfigs).mockRejectedValueOnce(new Error('unavailable'));
+    const cfg = await loadEnterpriseRouteConfig(env);
+    expect(cfg.routeCatalog).toEqual(['general_usage', 'development', 'code_review']);
+  });
   it('AC5: returns empty config when ENTERPRISE_MODE is not active', async () => {
     const cfg = await loadEnterpriseRouteConfig(makeEnv(createMockKV(), false));
-    expect(cfg).toEqual({ routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {} });
+    expect(cfg).toEqual({ routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} });
   });
   it('returns only the allowed verified routes with exact profile levels and scope defaults', async () => {
     const { env } = saved();
@@ -109,6 +138,6 @@ describe('first matching group and optional fallback (REQ-ENTERPRISE-013/-044)',
   it('non-enterprise ignores groups and returns empty config', async () => {
     const { kv } = saved();
     const cfg = await loadEnterpriseRouteConfig(makeEnv(kv, false), ['developers']);
-    expect(cfg).toEqual({ routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {} });
+    expect(cfg).toEqual({ routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} });
   });
 });

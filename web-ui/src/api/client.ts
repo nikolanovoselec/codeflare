@@ -1,7 +1,7 @@
 import type {
   Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences,
   AuthStatus, AuthProvider, AdminConfigurationResponse, ConfigurationSection, ReasoningCatalog,
-  ReasoningDiscoveryRequest, ReasoningDiscoveryResult, ReasoningRouteInventory, ReasoningGatewayDraft, ReasoningManagementContext,
+  NativeAiTargetDraft, NativeTargetCheckResult, ReasoningDiscoveryRequest, ReasoningDiscoveryResult, ReasoningRouteInventory, ReasoningGatewayDraft, ReasoningManagementContext,
 } from '../types';
 import { logger } from '../lib/logger';
 import { STARTUP_POLL_INTERVAL_MS, SESSION_ID_DISPLAY_LENGTH, MAX_STARTUP_POLL_ERRORS, MAX_TERMINALS_PER_SESSION, SESSION_ID_RE } from '../lib/constants';
@@ -76,6 +76,13 @@ export async function getReasoningCatalog(gateway?: ReasoningGatewayDraft): Prom
 
 export async function getReasoningRouteInventory(route: string, context?: ReasoningManagementContext): Promise<ReasoningRouteInventory> {
   return fetchApi(`/admin/reasoning/routes/${encodeURIComponent(route)}/inventory`, context ? { method: 'POST', body: JSON.stringify(context) } : {}, ReasoningRouteInventorySchema) as Promise<ReasoningRouteInventory>;
+}
+
+export async function checkNativeTarget(request: { target: NativeAiTargetDraft; administratorConfirmed?: true; gateway?: ReasoningGatewayDraft; maxCompletionTokens?: number }): Promise<NativeTargetCheckResult> {
+  return fetchApi('/admin/reasoning/native/discover', { method: 'POST', body: JSON.stringify(request) }, z.object({
+    targetId: z.string().uuid(), classification: z.enum(['Verified', 'Administrator-confirmed']), assignable: z.literal(true), checkId: z.string().uuid(),
+    verification: z.object({ method: z.enum(['automated', 'administrator']), checkedAt: z.string(), current: z.literal(true) }),
+  })) as Promise<NativeTargetCheckResult>;
 }
 
 export async function discoverReasoningCompatibility(request: ReasoningDiscoveryRequest): Promise<ReasoningDiscoveryResult> {

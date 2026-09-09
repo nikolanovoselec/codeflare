@@ -16,6 +16,7 @@ const { PROFILE_HASH, BUILTIN_IDS } = vi.hoisted(() => ({
     'workers-ai-kimi-k-thinking',
     'workers-ai-glm-thinking',
     'codeflare-inference-mesh-binary-thinking',
+    'bedrock-anthropic-compat',
   ],
 }));
 
@@ -202,7 +203,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     expect(response.status).toBe(200);
     const text = await response.text();
     const body = JSON.parse(text);
-    expect(Object.keys(body).sort()).toEqual(['connection', 'notices', 'profiles', 'routeCatalogStatus', 'routes', 'schemaVersion', 'usage']);
+    expect(Object.keys(body).sort()).toEqual(['connection', 'notices', 'profiles', 'providerCatalogStatus', 'providers', 'routeCatalogStatus', 'routes', 'schemaVersion', 'usage']);
     expect(body.schemaVersion).toBe(1);
     expect(body.profiles.map((profile: any) => profile.id)).toEqual(BUILTIN_IDS);
     expect(body.profiles).toHaveLength(6);

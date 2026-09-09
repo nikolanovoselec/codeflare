@@ -328,6 +328,8 @@ export const SETUP_KEYS = {
   // DEFAULT_ROUTE is a JSON { route, reasoning } the container applies on start
   // (entrypoint writes Pi defaultThinkingLevel); absent ⇒ no default pinned.
   DYNAMIC_ROUTES: 'setup:dynamic_routes',
+  /** Worker-only direct-provider definitions and verification authority. */
+  NATIVE_AI_TARGETS: 'setup:native_ai_targets',
   DEFAULT_ROUTE: 'setup:default_route',
   // REQ-ENTERPRISE-012: per-route context window. A JSON map keyed by dynamic-route
   // name -> token count (e.g. { "development": 262144 }). The admin sets it in the

@@ -87,14 +87,13 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     // '' is a meaningful "reasoning off" value (admin cleared the default, or it drifted
     // out of the catalog), so it is forwarded explicitly — a truthiness guard would drop
     // the empty reset and leave applyPrefsOnRestart stranded on a stale grade.
-    ...(params.routeCatalog && params.routeCatalog.length > 0 && {
+    ...(params.routeCatalog !== undefined && {
       routeCatalog: params.routeCatalog,
       defaultRoute: params.defaultRoute ?? '',
       defaultReasoning: params.defaultReasoning ?? '',
-      // REQ-ENTERPRISE-012: forward the per-route context-window map alongside the
-      // catalog so buildEnvVars fans it for entrypoint's Pi models.json.
-      ...(params.routeContextWindows && Object.keys(params.routeContextWindows).length > 0 && { routeContextWindows: params.routeContextWindows }),
+      routeContextWindows: params.routeContextWindows ?? {},
       routeReasoningLevels: params.routeReasoningLevels ?? {},
+      modelDisplayNames: params.modelDisplayNames ?? {},
     }),
     // REQ-MEM-001 AC4: forward the user's IANA timezone so the capture
     // pipeline's TZ resolution produces wall-clock filenames matching

@@ -12,10 +12,26 @@ import { reactivateUsageUser } from './admin-usage';
 import { parseRouteSettings, type PiReasoningLevel } from './reasoning-profiles';
 import { getRouteReasoningProfile, parseReasoningConfiguration } from './reasoning-configuration';
 import { getAigConfig } from './aig-config';
-import type { GatewayConnection } from './ai-gateway-management';
-import { preferredReasoningLevel, verificationMatches } from './reasoning-verification';
+import { defaultBedrockProvider, gatewayCoordinates, listNativeProviderConfigs, type GatewayConnection } from './ai-gateway-management';
+import { nativeTargetHandle, nativeVerificationMatches, parseNativeAiTargets } from './native-ai-targets';
+import { connectionFingerprint, preferredReasoningLevel, verificationMatches } from './reasoning-verification';
 
 const logger = createLogger('access');
+const NATIVE_PROVIDER_CACHE_TTL_MS = 60_000;
+const nativeProviderCache = new Map<string, { id: string | null; checkedAt: number }>();
+
+async function currentBedrockProvider(connection: GatewayConnection): Promise<string | null> {
+  const coordinates = gatewayCoordinates(connection);
+  const fingerprint = connectionFingerprint(connection);
+  if (!coordinates || !connection.token || !fingerprint) return null;
+  const key = `${coordinates.accountId}\u001f${coordinates.gatewayId}\u001f${fingerprint}`;
+  const cached = nativeProviderCache.get(key);
+  if (cached && Date.now() - cached.checkedAt < NATIVE_PROVIDER_CACHE_TTL_MS) return cached.id;
+  const provider = defaultBedrockProvider(await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, connection.token));
+  const id = provider?.id ?? null;
+  nativeProviderCache.set(key, { id, checkedAt: Date.now() });
+  return id;
+}
 
 // Internal provenance: only identities produced by successful cryptographic or
 // edge-validated authentication are admitted to JIT provisioning. A WeakSet
@@ -729,38 +745,50 @@ export async function loadEnterpriseRouteConfig(
   defaultReasoning: string;
   routeContextWindows: Record<string, number>;
   routeReasoningLevels: Record<string, PiReasoningLevel[]>;
+  modelDisplayNames: Record<string, string>;
 }> {
   if (!isEnterpriseMode(env)) {
-    return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {} };
+    return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} };
   }
   const resolved = await resolveRouteCatalog(env.KV, groups, await getAigConfig(env));
-  if (resolved.routeCatalog.length === 0) return { ...resolved, routeContextWindows: {}, routeReasoningLevels: {} };
+  if (resolved.routeCatalog.length === 0) return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} };
   const [rawConfiguration, rawLegacyRouteSettings] = await Promise.all([
     env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION),
     env.KV.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS),
   ]);
   const configuration = parseReasoningConfiguration(rawConfiguration);
   const routeReasoningLevels: Record<string, PiReasoningLevel[]> = {};
+  const modelDisplayNames: Record<string, string> = {};
   for (const route of resolved.routeCatalog) {
     const assignment = configuration.routeAssignments[route];
     if (assignment) routeReasoningLevels[route] = [...getRouteReasoningProfile(configuration, route).supportedLevels];
+    else {
+      const target = resolved.nativeTargets[route];
+      if (target) { routeReasoningLevels[route] = []; modelDisplayNames[route] = target.label; }
+    }
   }
   const routeContextWindows = (() => {
     try {
       const windows = parseRouteSettings(rawLegacyRouteSettings ? JSON.parse(rawLegacyRouteSettings) : null).contextWindows;
-      return Object.fromEntries(resolved.routeCatalog.flatMap((route) => windows[route] ? [[route, windows[route]]] : []));
+      return Object.fromEntries(resolved.routeCatalog.flatMap((route) => {
+        const native = resolved.nativeTargets[route];
+        return native ? [[route, native.contextWindow]] : windows[route] ? [[route, windows[route]]] : [];
+      }));
     } catch {
       return {};
     }
   })();
-  return { ...resolved, routeContextWindows, routeReasoningLevels };
+  return { routeCatalog: resolved.routeCatalog, defaultRoute: resolved.defaultRoute, defaultReasoning: resolved.defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames };
 }
 
 /** Per-group routing entry persisted under SETUP_KEYS.GROUP_ROUTING (REQ-ENTERPRISE-013). */
+type RoutingTargetRef = { kind: 'dynamic-route'; route: string } | { kind: 'native-target'; targetId: string };
 interface GroupRoutingEntry {
   routes: string[];
   defaultRoute: string;
   reasoning: string;
+  targets?: RoutingTargetRef[];
+  defaultTarget?: RoutingTargetRef;
 }
 
 /**
@@ -796,11 +824,11 @@ export async function resolveRouteCatalog(
   kv: KVNamespace,
   groups?: string[],
   effectiveGateway?: GatewayConnection,
-): Promise<{ routeCatalog: string[]; defaultRoute: string; defaultReasoning: string }> {
-  const empty = { routeCatalog: [] as string[], defaultRoute: '', defaultReasoning: '' };
+): Promise<{ routeCatalog: string[]; defaultRoute: string; defaultReasoning: string; nativeTargets: Record<string, { model: string; targetId: string; adapter: string; label: string; contextWindow: number }> }> {
+  const empty = { routeCatalog: [] as string[], defaultRoute: '', defaultReasoning: '', nativeTargets: {} as Record<string, { model: string; targetId: string; adapter: string; label: string; contextWindow: number }> };
   try {
-    const [rawConfiguration, rawGroups, rawCatalog] = await Promise.all([
-      kv.get(SETUP_KEYS.REASONING_CONFIGURATION), kv.get(SETUP_KEYS.GROUP_ROUTING), kv.get(SETUP_KEYS.DYNAMIC_ROUTES),
+    const [rawConfiguration, rawGroups, rawCatalog, rawNative] = await Promise.all([
+      kv.get(SETUP_KEYS.REASONING_CONFIGURATION), kv.get(SETUP_KEYS.GROUP_ROUTING), kv.get(SETUP_KEYS.DYNAMIC_ROUTES), kv.get(SETUP_KEYS.NATIVE_AI_TARGETS),
     ]);
     // Legacy evidence is advisory, never an implicit eligibility migration.
     if (!rawConfiguration) return empty;
@@ -812,24 +840,48 @@ export async function resolveRouteCatalog(
     const fallback = configuration.fallbackRouting;
     // Select the policy BEFORE filtering. Empty, malformed or ineligible first
     // matches deny; they cannot grant a later group's or unmatched user's routes.
-    const policy = first !== undefined ? policies[first] : fallback?.enabled ? fallback : undefined;
+    const policy = (first !== undefined ? policies[first] : fallback?.enabled ? fallback : undefined) as GroupRoutingEntry | undefined;
     if (!policy || !Array.isArray(policy.routes)) return empty;
     const connection = effectiveGateway ?? await getAigConfig({ KV: kv } as Env);
+    const refs: RoutingTargetRef[] = Array.isArray(policy.targets)
+      ? policy.targets
+      : policy.routes.map((route) => ({ kind: 'dynamic-route' as const, route }));
     const eligible: string[] = [];
-    for (const route of new Set(policy.routes)) {
-      if (typeof route !== 'string' || !activeRoutes.includes(route)) continue;
-      const assignment = configuration.routeAssignments[route];
-      if (!assignment?.verification) continue;
-      try {
-        const profile = getRouteReasoningProfile(configuration, route);
-        if (!verificationMatches(assignment.verification, profile, connection)) continue;
-        eligible.push(route);
-      } catch { /* Invalid or unverified saved assignments never activate. */ }
+    const nativeTargets: Record<string, { model: string; targetId: string; adapter: string; label: string; contextWindow: number }> = {};
+    let nativeDocument: ReturnType<typeof parseNativeAiTargets> = { schemaVersion: 1, targets: [] };
+    try { nativeDocument = parseNativeAiTargets(rawNative); } catch { /* Malformed native state cannot deny valid Dynamic Routes. */ }
+    let currentProviderId: string | null | undefined;
+    for (const ref of refs) {
+      if (ref?.kind === 'dynamic-route') {
+        const route = ref.route;
+        if (typeof route !== 'string' || !activeRoutes.includes(route)) continue;
+        const assignment = configuration.routeAssignments[route];
+        if (!assignment?.verification) continue;
+        try {
+          const profile = getRouteReasoningProfile(configuration, route);
+          if (!verificationMatches(assignment.verification, profile, connection)) continue;
+          eligible.push(route);
+        } catch { /* Invalid or unverified saved assignments never activate. */ }
+      } else if (ref?.kind === 'native-target' && typeof ref.targetId === 'string') {
+        const target = nativeDocument.targets.find((candidate) => candidate.id === ref.targetId);
+        if (!target?.enabled || !nativeVerificationMatches(target, connection)) continue;
+        if (currentProviderId === undefined) {
+          try { currentProviderId = await currentBedrockProvider(connection); } catch { currentProviderId = null; }
+        }
+        if (!currentProviderId || currentProviderId !== target.providerConfigId) continue;
+        const handle = nativeTargetHandle(target.id);
+        eligible.push(handle);
+        nativeTargets[handle] = { model: target.model, targetId: target.id, adapter: target.profileRef.id, label: target.label, contextWindow: target.contextWindow };
+      }
     }
-    const resolved = applyDefaultDrift(eligible, typeof policy.defaultRoute === 'string' ? policy.defaultRoute : null, typeof policy.reasoning === 'string' ? policy.reasoning : '');
+    const defaultRef = policy.defaultTarget;
+    const configuredDefault = defaultRef?.kind === 'native-target' ? nativeTargetHandle(defaultRef.targetId)
+      : defaultRef?.kind === 'dynamic-route' ? defaultRef.route : typeof policy.defaultRoute === 'string' ? policy.defaultRoute : null;
+    const resolved = applyDefaultDrift(eligible, configuredDefault, typeof policy.reasoning === 'string' ? policy.reasoning : '');
     if (!resolved.defaultRoute) return empty;
+    if (nativeTargets[resolved.defaultRoute]) return { ...resolved, defaultReasoning: '', nativeTargets };
     const levels = getRouteReasoningProfile(configuration, resolved.defaultRoute).supportedLevels;
-    return { ...resolved, defaultReasoning: levels.includes(resolved.defaultReasoning as PiReasoningLevel) ? resolved.defaultReasoning : preferredReasoningLevel(levels) ?? '' };
+    return { ...resolved, nativeTargets, defaultReasoning: levels.includes(resolved.defaultReasoning as PiReasoningLevel) ? resolved.defaultReasoning : preferredReasoningLevel(levels) ?? '' };
   } catch { return empty; }
 }
 

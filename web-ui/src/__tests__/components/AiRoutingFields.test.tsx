@@ -8,11 +8,12 @@ import type {
   ReasoningRouteInventory, ReasoningRouteVerification,
 } from '../../types';
 
-const api = vi.hoisted(() => ({ catalog: vi.fn(), inventory: vi.fn(), discover: vi.fn() }));
+const api = vi.hoisted(() => ({ catalog: vi.fn(), inventory: vi.fn(), discover: vi.fn(), native: vi.fn() }));
 vi.mock('../../api/client', () => ({
   getReasoningCatalog: (...args: unknown[]) => api.catalog(...args),
   getReasoningRouteInventory: (...args: unknown[]) => api.inventory(...args),
   discoverReasoningCompatibility: (...args: unknown[]) => api.discover(...args),
+  checkNativeTarget: (...args: unknown[]) => api.native(...args),
 }));
 
 const hash = (value: string) => value.repeat(64);
@@ -28,6 +29,7 @@ const catalog: ReasoningCatalog = {
   ],
   notices: [{ id: 'gpt-oss-tool-replay', name: 'GPT-OSS tool replay', assignable: false, summary: 'Tool-result replay is unsupported.' }],
   usage: [], routes: ['general_usage', 'development', 'research'], routeCatalogStatus: 'ready',
+  providers: [{ provider: 'aws-bedrock', label: 'Amazon Bedrock', configured: true, defaultSelection: true, supported: true }], providerCatalogStatus: 'ready',
 };
 const glmRef = { id: 'workers-ai-glm-thinking', revision: 1, hash: hash('a') };
 const kimiRef = { id: 'workers-ai-kimi-k-thinking', revision: 1, hash: hash('b') };
@@ -143,11 +145,24 @@ beforeEach(() => {
   api.catalog.mockReset().mockResolvedValue(catalog);
   api.inventory.mockReset().mockImplementation(async (route: string) => routeInventory(route));
   api.discover.mockReset().mockResolvedValue({ classification: 'Compatible, unverified', warnings: ['custom_provider_backend_requires_revalidation'], accounting: { logicalProbes: 2, httpAttempts: 3 } });
+  api.native.mockReset().mockResolvedValue({ targetId: '11111111-1111-4111-8111-111111111111', classification: 'Administrator-confirmed', assignable: true, checkId: '22222222-2222-4222-8222-222222222222', verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true } });
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Behavioral fixtures are execution-pending; CI owns RED/GREEN verification.
 describe('Structured AI routing', () => {
+  it('REQ-ENTERPRISE-047: edits an exact Bedrock target without treating suggestions as an allowlist', async () => {
+    const view = mount(checkedCurrent());
+    await waitFor(() => expect(view.getByRole('button', { name: 'Native providers' })).toBeEnabled());
+    await fireEvent.click(view.getByRole('button', { name: 'Native providers' }));
+    await fireEvent.click(view.getByRole('button', { name: 'Add Bedrock target' }));
+    await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Claude custom' } });
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-future-profile' } });
+    await fireEvent.input(view.getByLabelText('Native target 1 context window'), { target: { value: '200000' } });
+    await fireEvent.click(view.getByRole('button', { name: 'Mark as verified' }));
+    await waitFor(() => expect(api.native).toHaveBeenCalledWith(expect.objectContaining({ target: expect.objectContaining({ model: 'eu.anthropic.claude-future-profile' }), administratorConfirmed: true })));
+    expect(environmentValues('aiRouting', 'enterprise', new FormData(view.container.querySelector('form')!))).toMatchObject({ nativeTargets: [{ id: '11111111-1111-4111-8111-111111111111', model: 'eu.anthropic.claude-future-profile' }] });
+  });
   it.each(['provider', 'model', 'node'] as const)('REQ-ENTERPRISE-038: drift-before-Verify reconciles saved %s identity for Save without per-leg evidence', async (drift) => {
     const fresh = singleInventory('development');
     if (drift === 'provider') fresh.legs[0].provider = 'openai';

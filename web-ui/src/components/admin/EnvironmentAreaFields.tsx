@@ -93,6 +93,8 @@ export function environmentValues(section: ConfigurationSection, mode: Administr
       groupRouting: parsed(data, 'groupRouting', []),
       ...(data.has('fallbackRouting') && { fallbackRouting: parsed(data, 'fallbackRouting', { enabled: false }) }),
       ...(data.has('routeChecks') && { routeChecks: parsed(data, 'routeChecks', {}) }),
+      ...(data.has('nativeTargets') && { nativeTargets: parsed(data, 'nativeTargets', []) }),
+      ...(data.has('nativeChecks') && { nativeChecks: parsed(data, 'nativeChecks', {}) }),
     };
     case 'codingAgents': return { activeAgents: data.getAll('activeAgents').map(String) };
     case 'browserRendering': return { accountId: value(data, 'accountId'), replacementToken: value(data, 'replacementToken') };

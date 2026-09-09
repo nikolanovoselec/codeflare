@@ -31,11 +31,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
 import { LlmInterceptor } from '../llm-interceptor';
 import { getBuiltInProfileRef } from '../lib/reasoning-profiles';
+import { connectionFingerprint } from '../lib/reasoning-verification';
+import { createNativeTarget, nativeTargetHandle, serializeNativeAiTargets } from '../lib/native-ai-targets';
 import { routingInventoryFixtures, verifiedRoutingConfiguration } from './helpers/verified-routing';
 
 vi.mock('../lib/ai-gateway-management', async (original) => ({
   ...await original<typeof import('../lib/ai-gateway-management')>(),
   loadActiveRouteVersion: vi.fn(async (_account: string, _gateway: string, route: string) => routingInventoryFixtures.get(route)),
+  listNativeProviderConfigs: vi.fn(async () => [{ id: 'bedrock-default', provider: 'aws-bedrock', gatewayId: 'gw', defaultSelection: true }]),
 }));
 const GATEWAY = 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/gw';
 const REST_BASE = 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai';
@@ -771,6 +774,55 @@ describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD
     const sent = JSON.parse(lastFetch?.body as string);
     expect(sent.store).toBe(false);
     expect(sent.prompt_cache_key).toBe('k');
+  });
+});
+
+describe('native Bedrock authorization and compat dispatch', () => {
+  function nativeFixture(includeTarget = true) {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const handle = nativeTargetHandle(id);
+    const profileRef = getBuiltInProfileRef('bedrock-anthropic-compat');
+    const target = createNativeTarget({ id, label: 'Claude Sonnet', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, providerConfigId: 'bedrock-default', profileRef, enabled: true });
+    const verification = { schemaVersion: 1 as const, method: 'administrator' as const, targetId: id, model: target.model, providerConfigId: target.providerConfigId,
+      connectionFingerprint: connectionFingerprint({ gatewayUrl: GATEWAY, token: AIG_TOKEN })!, profileRef, transport: target.transport,
+      adapterVersion: 'bedrock-anthropic-compat-v1' as const, checkedAt: new Date().toISOString() };
+    return { id, handle, kv: {
+      'setup:dynamic_routes': '[]',
+      'setup:reasoning_configuration': JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {}, fallbackRouting: { enabled: false } }),
+      'setup:group_routing': JSON.stringify({ engineering: { routes: [], defaultRoute: '', reasoning: 'off', targets: [{ kind: 'native-target', targetId: id }], defaultTarget: { kind: 'native-target', targetId: id } } }),
+      'setup:native_ai_targets': serializeNativeAiTargets({ schemaVersion: 1, targets: includeTarget ? [{ ...target, verification }] : [] }),
+    } };
+  }
+
+  it('REQ-ENTERPRISE-050: dispatches an authorized native handle once through compat with its Worker-only model selector', async () => {
+    const fixture = nativeFixture();
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, messages: [] }) }),
+    );
+    expect(response.status).toBe(200);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(lastFetch?.url).toBe(`${GATEWAY}/compat/chat/completions`);
+    expect(JSON.parse(lastFetch!.body).model).toBe('aws-bedrock/eu.anthropic.claude-sonnet-5');
+    expect(lastFetch?.headers.get('cf-aig-authorization')).toBe(`Bearer ${AIG_TOKEN}`);
+    expect(lastFetch?.headers.get('authorization')).toBeNull();
+  });
+
+  it('REQ-ENTERPRISE-048: rejects reasoning controls for provider-default targets before upstream I/O', async () => {
+    const fixture = nativeFixture();
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'off', messages: [] }) }),
+    );
+    expect(response.status).toBe(400);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-049: revoked native handles fail before upstream I/O without fallback', async () => {
+    const fixture = nativeFixture(false);
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, messages: [] }) }),
+    );
+    expect(response.status).toBe(403);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
 

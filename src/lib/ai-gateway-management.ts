@@ -4,6 +4,8 @@ import { getAigConfig } from './aig-config';
 
 const MAX_MANAGEMENT_RESPONSE_BYTES = 1024 * 1024;
 const MANAGEMENT_REQUEST_TIMEOUT_MS = 10_000;
+const MAX_PROVIDER_CONFIG_PAGES = 10;
+const MAX_PROVIDER_CONFIGS = 1000;
 export const dynamicRouteSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/)
   .refine((value) => !['__proto__', 'prototype', 'constructor'].includes(value.toLowerCase()));
 export const gatewayDraftSchema = z.object({
@@ -155,6 +157,46 @@ export async function listDynamicRoutes(accountId: string, gatewayId: string, to
     return { id: candidate.id, name: candidate.name as string };
   });
 }
+export interface NativeProviderConfig {
+  id: string;
+  provider: string;
+  gatewayId: string;
+  defaultSelection: boolean;
+}
+
+function parseDefaultConfig(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  throw new Error('provider_config_list_malformed');
+}
+
+/** Discover gateway-scoped provider bindings while discarding all sensitive fields. */
+export async function listNativeProviderConfigs(accountId: string, gatewayId: string, token: string): Promise<NativeProviderConfig[]> {
+  const result: NativeProviderConfig[] = [];
+  for (let page = 1; page <= MAX_PROVIDER_CONFIG_PAGES; page += 1) {
+    const payload = await managementRequest(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/provider_configs?page=${page}&per_page=100`, token);
+    if (!isPlainObject(payload) || payload.success !== true || !Array.isArray(payload.result) || !isPlainObject(payload.result_info)) throw new Error('provider_config_list_malformed');
+    const info = payload.result_info;
+    if (info.page !== page || !Number.isInteger(info.count) || !Number.isInteger(info.per_page) || !Number.isInteger(info.total_count)
+      || info.count !== payload.result.length || (info.per_page as number) < 1 || (info.per_page as number) > 100
+      || (info.total_count as number) < 0 || (info.total_count as number) > MAX_PROVIDER_CONFIGS) throw new Error('provider_config_list_malformed');
+    for (const candidate of payload.result) {
+      if (!isPlainObject(candidate) || !safeString(candidate.id, 128) || !safeString(candidate.provider_slug, 64) || candidate.gateway_id !== gatewayId) throw new Error('provider_config_list_malformed');
+      result.push({ id: candidate.id, provider: candidate.provider_slug, gatewayId, defaultSelection: parseDefaultConfig(candidate.default_config) });
+    }
+    if (result.length > MAX_PROVIDER_CONFIGS) throw new Error('provider_config_list_malformed');
+    if (result.length >= (info.total_count as number)) return result;
+    if (payload.result.length === 0) throw new Error('provider_config_list_malformed');
+  }
+  throw new Error('provider_config_list_malformed');
+}
+
+export function defaultBedrockProvider(configs: NativeProviderConfig[]): NativeProviderConfig | null {
+  const defaults = configs.filter((config) => config.provider === 'aws-bedrock' && config.defaultSelection);
+  if (defaults.length > 1) throw new Error('provider_config_ambiguous');
+  return defaults[0] ?? null;
+}
+
 export async function loadActiveRouteVersion(accountId: string, gatewayId: string, route: string, token: string): Promise<{ versionId: string; elements: unknown }> {
   const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/routes`;
   const listed = (await listDynamicRoutes(accountId, gatewayId, token)).find((candidate) => candidate.name === route);

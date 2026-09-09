@@ -14,7 +14,8 @@ import { handleConfigureCustomDomain } from '../routes/setup/custom-domain';
 import { getWorkerNameFromHostname } from '../routes/setup/shared';
 import { reactivateUsageUser } from './admin-usage';
 import { REASONING_PROFILE_IDS, canonicalJson, getBuiltInProfile, getBuiltInProfileRef, parseRouteSettings, serializeRouteSettings } from './reasoning-profiles';
-import { dynamicRouteSchema, gatewayDraftSchema, parseGatewayUrl, resolveGatewayConnection } from './ai-gateway-management';
+import { defaultBedrockProvider, dynamicRouteSchema, gatewayCoordinates, gatewayDraftSchema, listNativeProviderConfigs, parseGatewayUrl, resolveGatewayConnection } from './ai-gateway-management';
+import { BEDROCK_PROFILE_ID, nativeTargetDraftSchema, nativeTargetIdFromHandle, nativeVerificationMatches, parseNativeAiTargets, readNativeTargetCheck, reconcileNativeTargets, sanitizeNativeTarget, serializeNativeAiTargets } from './native-ai-targets';
 import {
   assignmentBackendDescriptions, fallbackRoutingSchema, loadCheckedRouteInventory, readRouteCheck,
   rebindVerificationConnection, routeCheckIdSchema, verificationMatches, type FallbackRouting,
@@ -96,30 +97,34 @@ const accessSchema = z.object({
   adminAccessGroups: z.array(name).optional(),
 }).strict();
 
+const policyTargetSchema = z.union([dynamicRouteSchema, z.string().refine((value) => nativeTargetIdFromHandle(value) !== null)]);
 const aiRoutingSchema = z.object({
   gatewayUrl: gatewayDraftSchema.shape.gatewayUrl,
   gatewayId: z.union([dynamicRouteSchema, z.literal('')]).default(''),
   replacementToken: gatewayDraftSchema.shape.replacementToken.default(''),
-  dynamicRoutes: z.array(dynamicRouteSchema).min(1),
+  dynamicRoutes: z.array(dynamicRouteSchema).max(256),
   defaultRoute: z.object({ route: name, reasoning }).strict(),
   routeContextWindows: z.record(z.string(), z.unknown()),
   routeReasoningProfiles: z.record(name, z.string().max(64)).optional(),
   reasoningConfiguration: z.unknown().optional(),
   routeChecks: z.record(dynamicRouteSchema, routeCheckIdSchema.nullable()).optional(),
+  nativeTargets: z.array(nativeTargetDraftSchema).max(64).optional(),
+  nativeChecks: z.record(z.string().uuid(), z.string().uuid().nullable()).optional(),
   fallbackRouting: fallbackRoutingSchema.optional().default({ enabled: false }),
   groupRouting: z.array(z.object({
     accessGroup: name,
-    routes: z.array(name),
-    defaultRoute: z.union([name, z.literal('')]),
+    routes: z.array(policyTargetSchema),
+    defaultRoute: z.union([policyTargetSchema, z.literal('')]),
     reasoning,
   }).strict()).min(1),
 }).strict().superRefine((value, context) => {
   if (parseGatewayUrl(value.gatewayUrl)?.kind === 'account-api' && !value.gatewayId) {
     context.addIssue({ code: 'custom', message: 'AI Gateway name is required for an account API URL', path: ['gatewayId'] });
   }
-  const activeRoutes = [...new Set([...value.groupRouting.flatMap((group) => group.routes), ...(value.fallbackRouting.enabled ? value.fallbackRouting.routes : [])])];
-  if (!activeRoutes.includes(value.defaultRoute.route)) {
-    context.addIssue({ code: 'custom', message: 'Default route must be in dynamicRoutes', path: ['defaultRoute', 'route'] });
+  const policyModels = [...new Set([...value.groupRouting.flatMap((group) => group.routes), ...(value.fallbackRouting.enabled ? value.fallbackRouting.routes : [])])];
+  const activeRoutes = policyModels.filter((route) => nativeTargetIdFromHandle(route) === null);
+  if (!policyModels.includes(value.defaultRoute.route)) {
+    context.addIssue({ code: 'custom', message: 'Default model must be in the active policy catalog', path: ['defaultRoute', 'route'] });
   }
   if (value.reasoningConfiguration === undefined && activeRoutes.some((route) => !value.routeReasoningProfiles?.[route])) {
     context.addIssue({ code: 'custom', message: 'Every dynamic route requires a reasoning profile', path: ['routeReasoningProfiles'] });
@@ -135,8 +140,8 @@ const aiRoutingSchema = z.object({
       if (group.defaultRoute !== '' || group.reasoning !== 'off') context.addIssue({ code: 'custom', message: 'Empty group policies must use an empty default and Off', path: ['groupRouting', index] });
       continue;
     }
-    if (!group.routes.includes(group.defaultRoute) || group.routes.some((route) => !value.dynamicRoutes.includes(route))) {
-      context.addIssue({ code: 'custom', message: 'Group routes must use the route catalog', path: ['groupRouting', index] });
+    if (!group.routes.includes(group.defaultRoute) || group.routes.some((route) => !value.dynamicRoutes.includes(route) && !value.nativeTargets?.some((target) => target.id === nativeTargetIdFromHandle(route)))) {
+      context.addIssue({ code: 'custom', message: 'Group models must use the submitted Dynamic Route or native target catalog', path: ['groupRouting', index] });
     }
   }
 });
@@ -258,12 +263,20 @@ function normalizeValues(section: ConfigurationSection, mode: AdministrationMode
   if (section === 'aiRouting') {
     const fallback = values.fallbackRouting as FallbackRouting;
     const groups = values.groupRouting as Array<{ routes: string[] }>;
-    const activeRoutes = [...new Set([...groups.flatMap((group) => group.routes), ...(fallback.enabled ? fallback.routes : [])])];
+    const activeModels = [...new Set([...groups.flatMap((group) => group.routes), ...(fallback.enabled ? fallback.routes : [])])];
+    const activeRoutes = activeModels.filter((route) => nativeTargetIdFromHandle(route) === null);
+    const targetRef = (value: string) => {
+      const targetId = nativeTargetIdFromHandle(value);
+      return targetId ? { kind: 'native-target' as const, targetId } : { kind: 'dynamic-route' as const, route: value };
+    };
+    const normalizedGroups = groups.map((group) => ({ ...group, targets: group.routes.map(targetRef), defaultTarget: group.defaultRoute ? targetRef(group.defaultRoute) : undefined }));
+    const normalizedFallback = fallback.enabled ? { ...fallback, targets: fallback.routes.map(targetRef), defaultTarget: targetRef(fallback.defaultRoute) } : fallback;
     return {
       ...values,
       dynamicRoutes: activeRoutes,
+      fallbackRouting: normalizedFallback,
+      groupRouting: normalizedGroups,
       routeContextWindows: parseRouteSettings(values.routeContextWindows).contextWindows,
-      groupRouting: [...groups],
     };
   }
   if (section === 'usageReports') {
@@ -345,7 +358,9 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
   if (dynamicRoutes.some((route) => !configuration.routeAssignments[route])) throw new Error('Every active route requires an exact profile assignment');
   configuration = { ...configuration, fallbackRouting: values.fallbackRouting as FallbackRouting };
   const validateDefault = (scope: string, route: string, level: string): void => {
+    if (nativeTargetIdFromHandle(route)) return;
     const profile = getRouteReasoningProfile(configuration, route);
+    if (profile.reasoningMode === 'provider-default') return;
     if (!profile.supportedLevels.includes(level as never)) throw new Error(`${scope} default reasoning level is not mapped by its default route profile`);
   };
   validateDefault('Global', defaultRoute.route, defaultRoute.reasoning);
@@ -437,10 +452,18 @@ async function readCurrentConfigurationValues(
         reasoningConfiguration = migration.proposed;
         reasoningMigration = { persisted: false, errors: migration.errors };
       }
+      const nativeTargets = parseNativeAiTargets(await env.KV.get(SETUP_KEYS.NATIVE_AI_TARGETS));
+      const gateway = await resolveGatewayConnection(env);
+      let currentProviderId: string | null = null;
+      try {
+        const coordinates = gatewayCoordinates(gateway);
+        if (coordinates && gateway.token) currentProviderId = defaultBedrockProvider(await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token))?.id ?? null;
+      } catch { /* Provider status is reported as stale without hiding Dynamic Routes. */ }
       return {
         gatewayUrl: (await env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL)) || env.AIG_GATEWAY_URL || '',
         gatewayId: (await env.KV.get(SETUP_KEYS.AIG_GATEWAY_ID)) || env.AIG_GATEWAY_ID || '',
         dynamicRoutes: parseJson(await env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES), []),
+        nativeTargets: nativeTargets.targets.map((target) => sanitizeNativeTarget(target, target.providerConfigId === currentProviderId && nativeVerificationMatches(target, gateway))),
         defaultRoute,
         routeContextWindows: routeSettings.contextWindows,
         routeReasoningProfiles: Object.fromEntries(Object.entries(reasoningConfiguration.routeAssignments).map(([route, assignment]) => [route, assignment.activeProfile.id])),
@@ -524,6 +547,37 @@ export async function validateConfigurationValues(
       const routeContextWindows = Object.fromEntries(Object.keys(reasoningConfiguration.routeAssignments).flatMap((route) => windows[route] ? [[route, windows[route]]] : []));
       values = { ...values, reasoningConfiguration, routeContextWindows };
       delete values.routeReasoningProfiles;
+      if (values.nativeTargets !== undefined) {
+        const drafts = values.nativeTargets as unknown[];
+        const current = parseNativeAiTargets(await env.KV.get(SETUP_KEYS.NATIVE_AI_TARGETS));
+        if (drafts.length === 0) values.nativeTargets = { schemaVersion: 1, targets: [] };
+        else {
+          const gateway = await resolveGatewayConnection(env, { gatewayUrl: values.gatewayUrl as string, gatewayId: (values.gatewayId as string) || undefined, replacementToken: values.replacementToken as string });
+          const coordinates = gatewayCoordinates(gateway);
+          if (!coordinates || !gateway.token) throw new Error('Native targets require a connected account AI Gateway');
+          const provider = defaultBedrockProvider(await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token));
+          if (!provider) throw new Error('A default Amazon Bedrock provider configuration was not found');
+          const checks = (values.nativeChecks ?? {}) as Record<string, string | null>;
+          const receipts = new Map<string, Awaited<ReturnType<typeof readNativeTargetCheck>>>();
+          for (const checkId of Object.values(checks)) if (typeof checkId === 'string') {
+            const receipt = await readNativeTargetCheck(env.KV, checkId);
+            receipts.set(receipt.targetId, receipt);
+          }
+          let document = reconcileNativeTargets(drafts, current, provider.id, getBuiltInProfileRef(BEDROCK_PROFILE_ID), new Set(receipts.keys()));
+          document = { ...document, targets: document.targets.map((target) => {
+            const checkId = checks[target.id];
+            if (checkId === null) return { ...target, verification: undefined };
+            const receipt = receipts.get(target.id);
+            if (!receipt) return target;
+            const candidate = { ...target, verification: receipt.verification };
+            if (!nativeVerificationMatches(candidate, gateway)) throw new Error('Native target check receipt is stale');
+            return candidate;
+          }) };
+          for (const target of document.targets) if (target.enabled && !nativeVerificationMatches(target, gateway)) throw new Error(`Native target ${target.label} must be verified before it can be enabled`);
+          values.nativeTargets = document;
+        }
+      }
+      delete values.nativeChecks;
     } catch (error) {
       return { fieldErrors: { reasoningConfiguration: [error instanceof Error ? error.message : 'Invalid reasoning configuration'] } };
     }
@@ -601,8 +655,9 @@ export async function buildConfigurationPreview(
   for (const [field, after] of Object.entries(values)) {
     if (secretFields.has(field)) {
       changes.push({ field, secret: { willReplace: typeof after === 'string' && after.trim().length > 0 } });
-    } else if (!same(current[field], after)) {
-      changes.push({ field, ...(current[field] !== undefined && { before: current[field] }), after });
+    } else {
+      const safeAfter = field === 'nativeTargets' ? parseNativeAiTargets(after).targets.map((target) => sanitizeNativeTarget(target, Boolean(target.verification))) : after;
+      if (!same(current[field], safeAfter)) changes.push({ field, ...(current[field] !== undefined && { before: current[field] }), after: safeAfter });
     }
   }
 
@@ -731,27 +786,43 @@ export async function executeConfigurationTask(
       return;
     }
     case 'configure_model_routing': {
-      await env.KV.put(SETUP_KEYS.DYNAMIC_ROUTES, JSON.stringify(values.dynamicRoutes));
-      if (values.defaultRoute) await env.KV.put(SETUP_KEYS.DEFAULT_ROUTE, JSON.stringify(values.defaultRoute));
-      else await env.KV.delete(SETUP_KEYS.DEFAULT_ROUTE);
+      const dynamicRoutesJson = JSON.stringify(values.dynamicRoutes);
+      const defaultRouteJson = values.defaultRoute ? JSON.stringify(values.defaultRoute) : null;
       const windows = values.routeContextWindows as Record<string, number>;
       const routeSettings = serializeRouteSettings(windows);
-      if (Object.keys(routeSettings).length) await env.KV.put(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, JSON.stringify(routeSettings));
-      else await env.KV.delete(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS);
-      if (values.reasoningConfiguration !== undefined) {
-        await env.KV.put(
-          SETUP_KEYS.REASONING_CONFIGURATION,
-          serializeReasoningConfiguration(values.reasoningConfiguration),
-        );
+      const routeSettingsJson = Object.keys(routeSettings).length ? JSON.stringify(routeSettings) : null;
+      let nativeTargetsJson: string | undefined;
+      if (values.nativeTargets !== undefined) {
+        const document = parseNativeAiTargets(values.nativeTargets);
+        const gateway = await resolveGatewayConnection(env);
+        const coordinates = gatewayCoordinates(gateway);
+        if (!coordinates || !gateway.token) throw new Error('Native targets require a connected account AI Gateway');
+        const provider = defaultBedrockProvider(await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token));
+        if (!provider) throw new Error('A default Amazon Bedrock provider configuration was not found');
+        for (const target of document.targets) if (target.enabled && (target.providerConfigId !== provider.id || !nativeVerificationMatches(target, gateway))) {
+          throw new Error(`Native target ${target.label} is no longer authorized`);
+        }
+        nativeTargetsJson = serializeNativeAiTargets(document);
       }
       const submittedGroups = values.groupRouting;
       const groups = Array.isArray(submittedGroups)
         ? Object.fromEntries((submittedGroups as Array<Record<string, unknown>>).map((group) => [
             group.accessGroup as string,
-            { routes: group.routes, defaultRoute: group.defaultRoute, reasoning: group.reasoning },
+            { routes: group.routes, defaultRoute: group.defaultRoute, reasoning: group.reasoning,
+              ...(Array.isArray(group.targets) && { targets: group.targets }), ...(group.defaultTarget && { defaultTarget: group.defaultTarget }) },
           ]))
         : submittedGroups as Record<string, unknown>;
-      if (Object.keys(groups).length) await env.KV.put(SETUP_KEYS.GROUP_ROUTING, JSON.stringify(groups));
+      const groupsJson = Object.keys(groups).length ? JSON.stringify(groups) : null;
+      const reasoningJson = values.reasoningConfiguration !== undefined ? serializeReasoningConfiguration(values.reasoningConfiguration) : undefined;
+
+      await env.KV.put(SETUP_KEYS.DYNAMIC_ROUTES, dynamicRoutesJson);
+      if (defaultRouteJson) await env.KV.put(SETUP_KEYS.DEFAULT_ROUTE, defaultRouteJson);
+      else await env.KV.delete(SETUP_KEYS.DEFAULT_ROUTE);
+      if (routeSettingsJson) await env.KV.put(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, routeSettingsJson);
+      else await env.KV.delete(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS);
+      if (nativeTargetsJson !== undefined) await env.KV.put(SETUP_KEYS.NATIVE_AI_TARGETS, nativeTargetsJson);
+      if (reasoningJson !== undefined) await env.KV.put(SETUP_KEYS.REASONING_CONFIGURATION, reasoningJson);
+      if (groupsJson) await env.KV.put(SETUP_KEYS.GROUP_ROUTING, groupsJson);
       else await env.KV.delete(SETUP_KEYS.GROUP_ROUTING);
       return;
     }
