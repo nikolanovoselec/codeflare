@@ -834,9 +834,10 @@ COPY --from=builder /app/host/node_modules /app/host/node_modules
 COPY --from=builder /app/host/dist /app/host/dist
 COPY host/package.json /app/host/
 
-# Copy entrypoint script
+# Copy entrypoint script and its phase-oriented Vault compaction helper.
 COPY entrypoint.sh /entrypoint.sh
 COPY transcript-retention.mjs /transcript-retention.mjs
+COPY --chmod=0755 scripts/compact-session-captures.mjs /opt/codeflare/scripts/compact-session-captures.mjs
 RUN chmod +x /entrypoint.sh /transcript-retention.mjs && echo "Build timestamp $(date)" > /build-timestamp.txt
 
 # Reset working directory
