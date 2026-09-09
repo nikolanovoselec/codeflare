@@ -436,6 +436,17 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     expect(text).not.toContain('private-management-payload');
   });
 
+  it('REQ-ENTERPRISE-047: provider discovery failure leaves Dynamic Routes usable', async () => {
+    const { app } = await createApp();
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(Response.json({ result: { routes: [{ id: 'route-id', name: 'codeflare-mesh' }] } }))
+      .mockResolvedValueOnce(Response.json({ error: 'provider unavailable' }, { status: 503 }));
+
+    const result = await app.request('/admin/reasoning/catalog');
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ routes: ['codeflare-mesh'], routeCatalogStatus: 'ready', providers: [], providerCatalogStatus: 'unavailable' });
+  });
+
   it('REQ-ENTERPRISE-033: rejects a malformed active route version with the sanitized inventory contract', async () => {
     const { app } = await createApp();
     vi.spyOn(globalThis, 'fetch')

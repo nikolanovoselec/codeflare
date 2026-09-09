@@ -14,13 +14,12 @@ function concat(left: Uint8Array, right: Uint8Array): Uint8Array {
   return joined;
 }
 
-function suppressNameMembers(line: string, names: Map<string, number>): string {
-  return line.replace(/("name"\s*:\s*)("(?:\\.|[^"\\])*")/g, (match, prefix: string, literal: string) => {
-    let value: unknown;
-    try { value = JSON.parse(literal); } catch { return match; }
-    if (typeof value !== 'string' || (names.get(value) ?? 0) < 1) return match;
-    names.set(value, names.get(value)! - 1);
-    return `${prefix}""`;
+function suppressNameMembers(line: string, suppressions: readonly boolean[]): string {
+  let index = 0;
+  return line.replace(/"function"\s*:\s*\{(?:(?:"(?:\\.|[^"\\])*")|[^{}])*\}/g, (block) => {
+    if (!/("name"\s*:\s*)("(?:\\.|[^"\\])*")/.test(block)) return block;
+    const suppress = suppressions[index++] === true;
+    return suppress ? block.replace(/("name"\s*:\s*)("(?:\\.|[^"\\])*")/, '$1""') : block;
   });
 }
 
@@ -31,7 +30,7 @@ function suppressNameMembers(line: string, names: Map<string, number>): string {
 export function repairRepeatedCompleteToolNames(declaredNames: readonly string[]): TransformStream<Uint8Array, Uint8Array> {
   const declared = new Set(declaredNames.filter((name) => name.length > 0 && encoder.encode(name).byteLength <= MAX_NAME_BYTES));
   const accumulated = new Map<string, string>();
-  let buffer = new Uint8Array();
+  let buffer: Uint8Array<ArrayBufferLike> = new Uint8Array();
   let passthrough = false;
 
   const repairLine = (bytes: Uint8Array): Uint8Array => {
@@ -41,7 +40,7 @@ export function repairRepeatedCompleteToolNames(declaredNames: readonly string[]
     let event: unknown;
     try { event = JSON.parse(match[2]); } catch { return bytes; }
     if (!isRecord(event) || !Array.isArray(event.choices)) return bytes;
-    const suppressed = new Map<string, number>();
+    const suppressions: boolean[] = [];
     for (const rawChoice of event.choices) {
       if (!isRecord(rawChoice)) continue;
       const choice = Number.isInteger(rawChoice.index) ? String(rawChoice.index) : '0';
@@ -54,13 +53,14 @@ export function repairRepeatedCompleteToolNames(declaredNames: readonly string[]
         if (!fn || typeof fn.name !== 'string' || !fn.name) continue;
         const key = `${choice}:${call}`;
         const prior = accumulated.get(key) ?? '';
+        const repeated = declared.has(prior) && fn.name === prior;
+        suppressions.push(repeated);
         if (!accumulated.has(key) && accumulated.size >= MAX_CALL_STATES) continue;
         if (encoder.encode(prior + fn.name).byteLength > MAX_NAME_BYTES) continue;
-        if (declared.has(prior) && fn.name === prior) suppressed.set(fn.name, (suppressed.get(fn.name) ?? 0) + 1);
-        else accumulated.set(key, prior + fn.name);
+        if (!repeated) accumulated.set(key, prior + fn.name);
       }
     }
-    return suppressed.size ? encoder.encode(suppressNameMembers(line, suppressed)) : bytes;
+    return suppressions.some(Boolean) ? encoder.encode(suppressNameMembers(line, suppressions)) : bytes;
   };
 
   const emitCompleteLines = (controller: TransformStreamDefaultController<Uint8Array>) => {

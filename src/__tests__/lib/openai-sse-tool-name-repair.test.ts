@@ -27,9 +27,11 @@ describe('REQ-ENTERPRISE-050 Bedrock tool-name repair', () => {
   });
 
   it('keeps parallel choice and tool-call state independent', async () => {
-    const event = 'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"name":"lookup"}},{"index":1,"function":{"name":"lookup"}}]}},{"index":1,"delta":{"tool_calls":[{"index":0,"function":{"name":"lookup"}}]}}]}\n\n';
-    const output = await run([event, event], ['lookup']);
-    expect(output.match(/lookup/g)).toHaveLength(3);
+    const first = 'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"name":"lookup"}}]}}]}\n\n';
+    const parallel = 'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"name":"lookup"}},{"index":0,"function":{"name":"lookup"}}]}}]}\n\n';
+    const output = await run([first, parallel], ['lookup']);
+    expect(output).toContain('{"index":1,"function":{"name":"lookup"}}');
+    expect(output).toContain('{"index":0,"function":{"name":""}}');
   });
 
   it('passes malformed, truncated, and already-repaired framing through unchanged', async () => {

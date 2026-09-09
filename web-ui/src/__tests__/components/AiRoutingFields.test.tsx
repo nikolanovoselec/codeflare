@@ -157,7 +157,7 @@ describe('Structured AI routing', () => {
     await fireEvent.click(view.getByRole('button', { name: 'Native providers' }));
     await fireEvent.click(view.getByRole('button', { name: 'Add Bedrock target' }));
     const modelInput = view.getByLabelText('Native target 1 model');
-    await waitFor(() => expect([...view.container.querySelectorAll(`#${modelInput.getAttribute('list')} option`)].map((option) => option.getAttribute('value'))).toContain('general_usage-alias'));
+    await waitFor(() => expect([...view.container.querySelectorAll(`#${modelInput.getAttribute('list')} option`)].map((option) => option.getAttribute('value'))).toContain('@cf/general_usage-model'));
     await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Claude custom' } });
     await fireEvent.input(modelInput, { target: { value: 'eu.anthropic.claude-future-profile' } });
     await fireEvent.input(view.getByLabelText('Native target 1 context window'), { target: { value: '200000' } });

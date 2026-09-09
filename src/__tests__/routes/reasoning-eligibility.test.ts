@@ -107,7 +107,7 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
       target: { label: 'Claude automated', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileId: 'bedrock-anthropic-compat', enabled: true },
       maxCompletionTokens: 32,
     })).json() as any;
-    expect(checked).toMatchObject({ classification: 'Verified', assignable: true, verification: { capabilities: { streaming: true, tools: true, replay: true } } });
+    expect(checked).toMatchObject({ classification: 'Verified', assignable: true, verification: { method: 'automated', current: true } });
     const handle = nativeTargetHandle(checked.targetId);
     const proposed = values({
       nativeTargets: [{ id: checked.targetId, label: 'Claude automated', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileId: 'bedrock-anthropic-compat', enabled: true }],
@@ -118,6 +118,7 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', proposed);
     expect(validated.fieldErrors).toBeUndefined();
     await executeConfigurationTask(f.env, 'configure_model_routing', validated.values!, { mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 1 });
+    expect(parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS)).targets[0].verification?.capabilities).toEqual({ streaming: true, tools: true, replay: true });
     expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toContain(handle);
   });
 
