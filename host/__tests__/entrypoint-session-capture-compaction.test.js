@@ -39,6 +39,7 @@ function harness(fx, body, invocation, { fail = '', mode = 'advanced', noop = fa
   const source = join(fx.sessions, '2026-01-01T00-00-00Z-old.md');
   return `
 set +e
+unset VAULT_SESSION_COMPACTION_ENABLED
 SESSION_MODE=${JSON.stringify(mode)}
 CODEFLARE_RUNTIME_ROOT=${JSON.stringify(fx.runtime)}
 SYNC_RUNTIME_DIR=${JSON.stringify(join(fx.runtime, 'sync'))}
