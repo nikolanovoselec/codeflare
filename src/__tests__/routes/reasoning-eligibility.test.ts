@@ -102,6 +102,7 @@ afterEach(() => vi.restoreAllMocks());
 describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
   it('administrator confirmation issues server identity, persists exact authority, and route-only Save leaves it untouched', async () => {
     const f = setup();
+    await activate(f);
     const checked = await (await f.post('native/discover', {
       target: { label: 'Claude exact', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, profileId: 'bedrock-anthropic-compat', enabled: true },
       administratorConfirmed: true, maxCompletionTokens: 32,
