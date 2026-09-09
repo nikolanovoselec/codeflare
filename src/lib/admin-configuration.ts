@@ -323,6 +323,11 @@ function configurationFromProfileIds(
   return parseReasoningConfiguration({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: assignments });
 }
 
+async function readReasoningConfiguration(kv: KVNamespace): Promise<ReasoningConfiguration> {
+  const raw = await kv.get(SETUP_KEYS.REASONING_CONFIGURATION);
+  return parseReasoningConfiguration(raw ?? { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} });
+}
+
 async function normalizeAiReasoningConfiguration(env: Env, values: ConfigurationValues): Promise<ReasoningConfiguration> {
   const dynamicRoutes = values.dynamicRoutes as string[];
   const defaultRoute = values.defaultRoute as { route: string; reasoning: string };

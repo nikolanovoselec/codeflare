@@ -209,7 +209,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     expect(Object.keys(body).sort()).toEqual(['connection', 'notices', 'profiles', 'providerCatalogStatus', 'providers', 'routeCatalogStatus', 'routes', 'schemaVersion', 'usage']);
     expect(body.schemaVersion).toBe(1);
     expect(body.profiles.map((profile: any) => profile.id)).toEqual(BUILTIN_IDS);
-    expect(body.profiles).toHaveLength(7);
+    expect(body.profiles).toHaveLength(10);
     expect(body.notices).toHaveLength(4);
     expect(body.notices.every((notice: any) => notice.assignable === false)).toBe(true);
     expect(body.routes).toEqual(['codeflare-mesh']);
@@ -248,7 +248,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     const body = JSON.parse(text);
     expect(body.routes).toEqual([]);
     expect(body.routeCatalogStatus).toBe('unavailable');
-    expect(body.profiles).toHaveLength(7);
+    expect(body.profiles).toHaveLength(10);
     expect(text).not.toContain('private management error');
   });
 
@@ -435,7 +435,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     const body = JSON.parse(text);
     expect(result.status).toBe(200);
     expect(body).toMatchObject({ routeCatalogStatus: 'unavailable', routes: [], schemaVersion: 1 });
-    expect(body.profiles).toHaveLength(7);
+    expect(body.profiles).toHaveLength(10);
     expect(text).not.toContain('private-management-payload');
   });
 

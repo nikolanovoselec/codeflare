@@ -46,11 +46,11 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     const openai = profiles.getBuiltInProfile('native-openai-compat');
     const mesh = profiles.getBuiltInProfile('native-codeflare-inference-mesh-compat');
     expect(gemini).toMatchObject({ reasoningMode: 'provider-default', supportedLevels: [], validatedTransports: ['compat'], classification: 'Verified' });
-    expect(gemini.originallyCreatedAgainst?.modelIds).toEqual(['gemini-3.1-pro-preview', 'gemini-3.7-flash', 'gemini-3.8-flash']);
-    expect(openai).toMatchObject({ supportedLevels: ['off'], levels: { off: { mapping: { reasoning_effort: 'none' } } }, classification: 'Verified' });
-    expect(openai.originallyCreatedAgainst?.modelIds).toEqual(['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']);
-    expect(mesh.originallyCreatedAgainst?.modelIds).toEqual(['ornith-1-5-9b-gguf-q8-0']);
-    expect(openai.limitations).toContain('GPT-6 Astra rejected tools on Chat Completions and is not covered by this profile.');
+    expect(gemini!.originallyCreatedAgainst?.modelIds).toEqual(['gemini-3.1-pro-preview', 'gemini-3.7-flash', 'gemini-3.8-flash']);
+    expect(openai).toMatchObject({ supportedLevels: ['off'], levels: { off: [{ path: 'reasoning_effort', value: 'none' }] }, classification: 'Verified' });
+    expect(openai!.originallyCreatedAgainst?.modelIds).toEqual(['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']);
+    expect(mesh!.originallyCreatedAgainst?.modelIds).toEqual(['ornith-1-5-9b-gguf-q8-0']);
+    expect(openai!.limitations).toContain('GPT-6 Astra rejected tools on Chat Completions and is not covered by this profile.');
   });
 
   it('ships exactly the ten executable built-ins and keeps failed families as notices', () => {

@@ -616,7 +616,7 @@ reasoningRoutes.post('/native/discover', requireAdmin, discoveryRateLimiter, asy
       report = await discoverPiCompatibility({ accountId: coordinates.accountId, gatewayId: coordinates.gatewayId, apiToken: gateway.token,
         route: `${nativeProviderSelector(target.provider, Boolean(target.customProvider))}/${target.model}`, profile,
         maxCompletionTokens: request.data.maxCompletionTokens, compatOnly: true, ...(providerConfigAlias && { byokAlias: providerConfigAlias }) });
-      if (!completedProfileCheck(report, profile)) return c.json({ ...report, assignable: false });
+      if (!completedProfileCheck(report, profile as unknown as NormalizedReasoningProfile)) return c.json({ ...report, assignable: false });
       verification.capabilities = { streaming: true, tools: true, replay: true };
     }
     const checkId = await issueNativeTargetCheck(c.env.KV, target.id, verification);

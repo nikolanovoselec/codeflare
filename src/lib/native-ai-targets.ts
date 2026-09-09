@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { canonicalJson, type ProfileRevisionRef } from './reasoning-profiles';
+import { canonicalJson, type ProfileRevisionRef, type ReasoningProfileId } from './reasoning-profiles';
 import type { GatewayConnection } from './ai-gateway-management';
 import { connectionFingerprint } from './reasoning-verification';
 
@@ -13,7 +13,7 @@ export const GEMINI_COMPAT_ADAPTER_VERSION = 'gemini-openai-compat-v1';
 const NATIVE_MODEL_MAX_TOKENS = 16_384;
 
 const nativeModelSchema = z.string().trim().min(1).max(256)
-  .regex(/^[A-Za-z0-9@][A-Za-z0-9@._:\/-]*$/)
+  .regex(/^[A-Za-z0-9@][A-Za-z0-9@._:/-]*$/)
   .refine((value) => !value.includes('..') && !['__proto__', 'prototype', 'constructor'].includes(value.toLowerCase()));
 const providerSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
   .refine((value) => !['__proto__', 'prototype', 'constructor'].includes(value));
@@ -23,7 +23,7 @@ const hashSchema = z.string().regex(/^[a-f0-9]{64}$/);
 export const nativeProfileRefSchema = z.object({ id: z.string().min(1).max(64), revision: z.number().int().positive(), hash: hashSchema }).strict();
 const adapterVersionSchema = z.enum([BEDROCK_COMPAT_ADAPTER_VERSION, NATIVE_COMPAT_ADAPTER_VERSION, GEMINI_COMPAT_ADAPTER_VERSION]);
 
-export function defaultNativeProfileId(provider: string): string {
+export function defaultNativeProfileId(provider: string): ReasoningProfileId {
   if (provider === 'aws-bedrock') return BEDROCK_PROFILE_ID;
   if (provider === 'google-ai-studio') return GEMINI_NATIVE_PROFILE_ID;
   if (provider === 'openai') return OPENAI_NATIVE_PROFILE_ID;

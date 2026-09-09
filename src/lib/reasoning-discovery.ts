@@ -722,6 +722,7 @@ interface CommonRequest {
   timeoutMs: number;
   maxResponseBytes: number;
   compatOnly?: boolean;
+  byokAlias?: string;
   repairToolNames?: boolean;
 }
 

@@ -30,7 +30,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
 import { LlmInterceptor } from '../llm-interceptor';
-import { getBuiltInProfileRef } from '../lib/reasoning-profiles';
+import { getBuiltInProfileRef, type ReasoningProfileId } from '../lib/reasoning-profiles';
 import { connectionFingerprint } from '../lib/reasoning-verification';
 import { createNativeTarget, nativeTargetHandle, serializeNativeAiTargets } from '../lib/native-ai-targets';
 import { routingInventoryFixtures, verifiedRoutingConfiguration } from './helpers/verified-routing';
@@ -784,7 +784,7 @@ describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD
 });
 
 describe('native provider authorization and compat dispatch', () => {
-  function nativeFixture(includeTarget = true, fixture: { provider?: string; customProvider?: boolean; model?: string; profileId?: string; providerConfigId?: string; providerConfigAlias?: string; adapterVersion?: 'bedrock-anthropic-compat-v1' | 'native-openai-compat-v1' | 'gemini-openai-compat-v1' } = {}) {
+  function nativeFixture(includeTarget = true, fixture: { provider?: string; customProvider?: boolean; model?: string; profileId?: ReasoningProfileId; providerConfigId?: string; providerConfigAlias?: string; adapterVersion?: 'bedrock-anthropic-compat-v1' | 'native-openai-compat-v1' | 'gemini-openai-compat-v1' } = {}) {
     const id = '11111111-1111-4111-8111-111111111111';
     const handle = nativeTargetHandle(id); const provider = fixture.provider ?? 'aws-bedrock';
     const profileRef = getBuiltInProfileRef(fixture.profileId ?? 'bedrock-anthropic-compat');
