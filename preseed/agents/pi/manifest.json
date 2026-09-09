@@ -59,6 +59,12 @@
       "advanced"
     ]
   },
+  "extensions/classic-session-binding.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/codeflare-commands.ts": {
     "modes": [
       "advanced"

@@ -766,10 +766,11 @@ Multi-agent support, preseed system, and session modes.
 3. Restoring that Codeflare session starts its immutable tab-1 agent with the same UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-AGENT-211 AC3: persists only the current classic agent-session binding) -->
 4. The restored native agent resumes its synced transcript. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) -->
 5. A different Codeflare session receives a different native conversation UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC5: a different Codeflare session starts empty under a different native ID) -->
+6. Every successful Classic Pi `/resume` switch atomically replaces that Codeflare session's binding with the selected root transcript UUID, including repeated switches. <!-- @impl: preseed/agents/pi/extensions/classic-session-binding.ts::adoptClassicResumedSession --> <!-- @test: src/__tests__/lib/pi-classic-session-binding.test.ts (REQ-AGENT-211 AC6: Classic Pi adopts every explicit resumed transcript) -->
 
 **Constraints:**
 
-- The binding is scoped only by the immutable Codeflare session ID; selecting another conversation inside the agent does not replace it.
+- The binding is scoped only by the immutable Codeflare session ID and changes only after initial creation or an explicit successful Pi resume.
 - Historical Classic sessions without a binding start empty rather than guessing from the newest transcript.
 - Herdr keeps its own native session-reference lifecycle and does not use this Classic bootstrap.
 
