@@ -33,12 +33,11 @@ function saved(kv = createMockKV()) {
 describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
   it('REQ-ENTERPRISE-049: resolves mixed typed targets under first-match policy and current provider authority', async () => {
     const { kv, env } = saved();
-    env.AIG_TOKEN = 'native-fixture-token';
     const id = '11111111-1111-4111-8111-111111111111';
     const profileRef = getBuiltInProfileRef('bedrock-anthropic-compat');
     const base = createNativeTarget({ id, label: 'Claude Sonnet', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, providerConfigId: 'bedrock-default', profileRef, enabled: true });
     const verification = { schemaVersion: 1 as const, method: 'administrator' as const, targetId: id, model: base.model, providerConfigId: base.providerConfigId,
-      connectionFingerprint: connectionFingerprint({ gatewayUrl: routingGatewayUrl, token: 'native-fixture-token' })!, profileRef, transport: base.transport,
+      connectionFingerprint: connectionFingerprint({ gatewayUrl: routingGatewayUrl, token: 'fixture-token' })!, profileRef, transport: base.transport,
       adapterVersion: 'bedrock-anthropic-compat-v1' as const, checkedAt: new Date().toISOString() };
     kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, serializeNativeAiTargets({ schemaVersion: 1, targets: [{ ...base, verification }] }));
     kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: ['general_usage'], defaultRoute: 'general_usage', reasoning: 'medium',

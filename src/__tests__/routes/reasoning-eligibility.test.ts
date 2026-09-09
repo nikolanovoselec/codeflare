@@ -109,7 +109,7 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(checked).toMatchObject({ classification: 'Administrator-confirmed', assignable: true });
     const handle = nativeTargetHandle(checked.targetId);
     const proposed = values({
-      nativeTargets: [{ id: checked.targetId, label: 'Claude exact', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, enabled: true }],
+      nativeTargets: [{ id: checked.targetId, label: 'Claude exact', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, profileId: 'bedrock-anthropic-compat', enabled: true }],
       nativeChecks: { [checked.targetId]: checked.checkId },
       groupRouting: [{ accessGroup: 'engineering', routes: ['working', handle], defaultRoute: handle, reasoning: 'off' }],
       defaultRoute: { route: handle, reasoning: 'off' },
