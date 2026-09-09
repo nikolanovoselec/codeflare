@@ -189,6 +189,27 @@ describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-
     }
   });
 
+  it('REQ-AGENT-211 AC6: restarts Classic Pi with its last explicitly resumed named session', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'classic-pi-named-resume-'));
+    mkdirSync(join(dir, 'workspace'), { recursive: true });
+    const codeflareSessionId = 'namedpi1';
+    const nativeId = 'last-active.session';
+    const bindingDir = join(dir, '.codeflare/classic/sessions', `cf-${codeflareSessionId}`);
+    const transcriptDir = join(dir, '.pi/agent/sessions', '--home-user-workspace--');
+    mkdirSync(bindingDir, { recursive: true });
+    mkdirSync(transcriptDir, { recursive: true });
+    writeFileSync(join(bindingDir, 'agent-session-id'), `${nativeId}\n`);
+    writeFileSync(
+      join(transcriptDir, `2026-09-09T00-00-00-000Z_${nativeId}.jsonl`),
+      `${JSON.stringify({ type: 'session', version: 3, id: nativeId, cwd: join(dir, 'workspace') })}\n`,
+    );
+
+    const tabConfig = JSON.stringify([{ id: '1', command: 'pi', label: 'Terminal 1' }]);
+    const restored = runHarness({ dir, tabConfig, env: { SESSION_ID: codeflareSessionId } });
+    assert.equal(restored.result.status, 0, restored.result.stderr);
+    assert.deepEqual(runGeneratedBashrc(dir, 'pi').args, ['--session', nativeId]);
+  });
+
   it('REQ-AGENT-211 AC5: a different Codeflare session starts empty under a different native ID', () => {
     const dir = mkdtempSync(join(tmpdir(), 'classic-session-isolation-'));
     mkdirSync(join(dir, 'workspace'), { recursive: true });

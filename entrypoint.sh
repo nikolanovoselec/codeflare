@@ -2064,7 +2064,10 @@ configure_tab_autostart() {
             classic_binding_file="$classic_binding_dir/agent-session-id"
             if [ -f "$classic_binding_file" ]; then
                 classic_agent_id=$(cat "$classic_binding_file" 2>/dev/null || true)
-                if [[ "$classic_agent_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
+                if { [ "$classic_agent_kind" = "pi" ] \
+                        && [[ "$classic_agent_id" =~ ^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$ ]]; } \
+                    || { [ "$classic_agent_kind" = "claude" ] \
+                        && [[ "$classic_agent_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; }; then
                     if { [ "$classic_agent_kind" = "pi" ] \
                             && find "$USER_HOME/.pi/agent/sessions" -type f -name "*_${classic_agent_id}.jsonl" -print -quit 2>/dev/null | grep -q .; } \
                         || { [ "$classic_agent_kind" = "claude" ] \
