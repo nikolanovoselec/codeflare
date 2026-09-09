@@ -24,42 +24,59 @@ function quotedEnd(text: string, start: number): number {
   return -1;
 }
 
+function compositeEnd(text: string, start: number, open: string, close: string): number {
+  let depth = 1;
+  for (let index = start + 1; index < text.length; index += 1) {
+    if (text[index] === '"') { const next = quotedEnd(text, index); if (next < 0) return -1; index = next - 1; }
+    else if (text[index] === open) depth += 1;
+    else if (text[index] === close && --depth === 0) return index + 1;
+  }
+  return -1;
+}
+
 function functionNameSpans(line: string): Array<[number, number]> {
   const spans: Array<[number, number]> = [];
-  let from = 0;
-  while ((from = line.indexOf('"function"', from)) >= 0) {
-    if (line[from - 1] === '\\') { from += 10; continue; }
-    let cursor = from + 10;
-    while (/\s/.test(line[cursor] ?? '')) cursor += 1;
-    if (line[cursor++] !== ':') { from += 10; continue; }
-    while (/\s/.test(line[cursor] ?? '')) cursor += 1;
-    if (line[cursor] !== '{') { from += 10; continue; }
-    let depth = 1; let end = cursor + 1;
-    for (; end < line.length && depth > 0; end += 1) {
-      if (line[end] === '"') { const next = quotedEnd(line, end); if (next < 0) return spans; end = next - 1; }
-      else if (line[end] === '{') depth += 1;
-      else if (line[end] === '}') depth -= 1;
-    }
-    let objectDepth = 1;
-    for (let name = cursor + 1; name < end && objectDepth > 0; name += 1) {
-      if (line[name] === '{') { objectDepth += 1; continue; }
-      if (line[name] === '}') { objectDepth -= 1; continue; }
-      if (line[name] !== '"') continue;
-      const keyEnd = quotedEnd(line, name);
-      if (keyEnd < 0) return spans;
-      let previous = name - 1;
-      while (/\s/.test(line[previous] ?? '')) previous -= 1;
-      if (objectDepth === 1 && (line[previous] === '{' || line[previous] === ',') && line.slice(name, keyEnd) === '"name"') {
-        let value = keyEnd;
-        while (/\s/.test(line[value] ?? '')) value += 1;
-        if (line[value++] === ':') {
+  let search = line.indexOf('"choices"');
+  while (search >= 0 && (search = line.indexOf('"tool_calls"', search)) >= 0) {
+    let arrayStart = search + 12;
+    while (/\s/.test(line[arrayStart] ?? '')) arrayStart += 1;
+    if (line[arrayStart++] !== ':') { search += 12; continue; }
+    while (/\s/.test(line[arrayStart] ?? '')) arrayStart += 1;
+    if (line[arrayStart] !== '[') { search += 12; continue; }
+    const arrayEnd = compositeEnd(line, arrayStart, '[', ']');
+    if (arrayEnd < 0) return spans;
+    let from = arrayStart + 1;
+    while ((from = line.indexOf('"function"', from)) >= 0 && from < arrayEnd) {
+      if (line[from - 1] === '\\') { from += 10; continue; }
+      let cursor = from + 10;
+      while (/\s/.test(line[cursor] ?? '')) cursor += 1;
+      if (line[cursor++] !== ':') { from += 10; continue; }
+      while (/\s/.test(line[cursor] ?? '')) cursor += 1;
+      if (line[cursor] !== '{') { from += 10; continue; }
+      const end = compositeEnd(line, cursor, '{', '}');
+      if (end < 0 || end > arrayEnd) return spans;
+      let objectDepth = 1;
+      for (let name = cursor + 1; name < end && objectDepth > 0; name += 1) {
+        if (line[name] === '{') { objectDepth += 1; continue; }
+        if (line[name] === '}') { objectDepth -= 1; continue; }
+        if (line[name] !== '"') continue;
+        const keyEnd = quotedEnd(line, name);
+        if (keyEnd < 0) return spans;
+        let previous = name - 1;
+        while (/\s/.test(line[previous] ?? '')) previous -= 1;
+        if (objectDepth === 1 && (line[previous] === '{' || line[previous] === ',') && line.slice(name, keyEnd) === '"name"') {
+          let value = keyEnd;
           while (/\s/.test(line[value] ?? '')) value += 1;
-          if (line[value] === '"') { const valueEnd = quotedEnd(line, value); if (valueEnd > 0 && valueEnd <= end) spans.push([value, valueEnd]); }
+          if (line[value++] === ':') {
+            while (/\s/.test(line[value] ?? '')) value += 1;
+            if (line[value] === '"') { const valueEnd = quotedEnd(line, value); if (valueEnd > 0 && valueEnd <= end) spans.push([value, valueEnd]); }
+          }
         }
+        name = keyEnd - 1;
       }
-      name = keyEnd - 1;
+      from = end;
     }
-    from = end;
+    search = arrayEnd;
   }
   return spans;
 }
