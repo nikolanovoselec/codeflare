@@ -44,7 +44,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 - **Recovery archives stay outside normal sync** (REQ-STOR-011 AC4–AC7). The home-cache exclusion precedes positive path rules so flat S3 listings cannot admit nested `.codeflare` keys from recovery backups. Initial restore and bisync leave local and remote archives untouched while preserving live-path policy in all session/workspace modes. Existing archived objects are not automatically deleted.
 
-- **Bisync preserves fast listings and per-side timestamps** (REQ-STOR-003, REQ-STOR-041–044, REQ-SESSION-011). The pinned rclone patch records completed destination metadata, rejects uncertain upload identity, and is gated by source/version compatibility plus real S3 regressions. Disk-full failures suppress automatic resync until explicit cloud Sync now recovery. Conflict copies are retained rather than blindly deleted.
+- **Bisync preserves fast listings and per-side timestamps** (REQ-STOR-003, REQ-STOR-041–044, REQ-SESSION-011). The pinned rclone patch records completed destination metadata and rejects uncertain upload identity. PR CI checks exact source compatibility and compiles a focused completion-metadata behavior probe; the deployment image runs the focused Go regression, and the real S3 regression remains available for release diagnosis. Disk-full failures suppress automatic resync until explicit cloud Sync now recovery. Conflict copies are retained rather than blindly deleted.
 
 ## 2026-09-06
 

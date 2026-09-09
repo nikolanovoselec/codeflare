@@ -1102,7 +1102,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Verify the pinned bookkeeping patch against exact source
+      - name: Verify the pinned patch source and completion behavior
         run: python3 scripts/ci/rclone-bookkeeping-source.py
 
   summary:

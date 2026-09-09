@@ -58,8 +58,105 @@ def extract_sources(archive: bytes, destination: Path) -> None:
             target.write_bytes(stream.read())
 
 
+def completed_copy_source(patched: Path) -> str:
+    source = (patched / "cmd/bisync/queue.go").read_text()
+    start = source.index("func (b *bisyncRun) WriteCompletedCopy(")
+    marker = "\n}\n\n// ReadResults"
+    if source.count(marker, start) != 1:
+        raise ValueError("Patched completion callback boundary is missing or ambiguous")
+    function = source[start:source.index(marker, start) + 2]
+    function = function.replace("fs.Object", "Object")
+    function = function.replace("operations.GetLoggerOpt", "GetLoggerOpt")
+    function = function.replace("operations.Winner", "Winner")
+    return function
+
+
+def compile_behavior_probe(patched: Path, output: Path) -> None:
+    function = completed_copy_source(patched)
+    harness = f'''package main
+
+import (
+ "bytes"
+ "context"
+ "encoding/json"
+ "fmt"
+ "sync"
+ "time"
+)
+
+var TZ = time.UTC
+
+type objectFs struct{{ name string }}
+func (f *objectFs) Name() string {{ return f.name }}
+type Object interface {{
+ Remote() string
+ Size() int64
+ ModTime(context.Context) time.Time
+ Hash(context.Context, string) (string, error)
+ Fs() *objectFs
+}}
+type fixtureObject struct{{ remote string; size int64; modified time.Time; hash string; fs *objectFs }}
+func (o fixtureObject) Remote() string {{ return o.remote }}
+func (o fixtureObject) Size() int64 {{ return o.size }}
+func (o fixtureObject) ModTime(context.Context) time.Time {{ return o.modified }}
+func (o fixtureObject) Hash(context.Context, string) (string, error) {{ return o.hash, nil }}
+func (o fixtureObject) Fs() *objectFs {{ return o.fs }}
+type Winner struct{{ Obj Object; Side string; Err error }}
+type Results struct {{
+ Name, AltName, Src, Dst string
+ Size int64
+ Modtime time.Time
+ Hash, Flags string
+ IsSrc, IsDst, IsWinner bool
+ Winner Winner
+ Origin string
+ Err error
+}}
+type queueOptions struct{{ lock sync.Mutex; ignoreListingChecksum bool }}
+type bisyncRun struct{{ queueOpt queueOptions }}
+func (b *bisyncRun) getHashType(string) string {{ return "sha256" }}
+func altName(string, Object, Object) string {{ return "" }}
+func FsPathIfAny(Object) string {{ return "fixture" }}
+type loggerOptions struct{{ JSON *bytes.Buffer }}
+type loggerKey struct{{}}
+func GetLoggerOpt(ctx context.Context) loggerOptions {{ return ctx.Value(loggerKey{{}}).(loggerOptions) }}
+var fs = struct{{ Errorf func(Object, string, ...any) }}{{
+ Errorf: func(_ Object, format string, args ...any) {{ panic(fmt.Sprintf(format, args...)) }},
+}}
+
+{function}
+
+func main() {{
+ sourceTime := time.Unix(100, 100)
+ destinationTime := time.Unix(200, 200)
+ fixtureFs := &objectFs{{name: "fixture"}}
+ src := fixtureObject{{remote: "session.jsonl", size: 9, modified: sourceTime, hash: "source", fs: fixtureFs}}
+ dst := fixtureObject{{remote: "session.jsonl", size: 9, modified: destinationTime, hash: "destination", fs: fixtureFs}}
+ var encoded bytes.Buffer
+ ctx := context.WithValue(context.Background(), loggerKey{{}}, loggerOptions{{JSON: &encoded}})
+ b := &bisyncRun{{queueOpt: queueOptions{{ignoreListingChecksum: false}}}}
+ b.WriteCompletedCopy(ctx, src, dst)
+ decoder := json.NewDecoder(&encoded)
+ type projection struct {{ Modtime time.Time; Hash, Origin string; IsWinner bool; Winner struct{{ Side string }} }}
+ var sourceResult, destinationResult projection
+ if decoder.Decode(&sourceResult) != nil || decoder.Decode(&destinationResult) != nil {{ panic("completion records were not encoded") }}
+ if !sourceResult.Modtime.Equal(sourceTime) || !destinationResult.Modtime.Equal(destinationTime) {{ panic("source and destination metadata were conflated") }}
+ if sourceResult.IsWinner || !destinationResult.IsWinner || destinationResult.Winner.Side != "dst" {{ panic("destination was not the completed winner") }}
+ if sourceResult.Origin != "copy-completed" || destinationResult.Origin != "copy-completed" {{ panic("completion provenance was lost") }}
+ if sourceResult.Hash != "source" || destinationResult.Hash != "destination" {{ panic("per-side hashes were conflated") }}
+ fmt.Println("patched completion callback preserved independent metadata")
+}}
+'''
+    source = output.with_suffix(".go")
+    source.write_text(harness)
+    subprocess.run(["go", "build", "-trimpath", "-o", str(output), str(source)], check=True, timeout=15)
+    subprocess.run([str(output)], check=True, timeout=5)
+
+
 def main() -> None:
     root = Path(__file__).resolve().parents[2]
+    if shutil.which("go") is None:
+        raise RuntimeError("The CI runner must provide Go")
     archive = read_archive()
     with tempfile.TemporaryDirectory(prefix="rclone-source-") as directory:
         upstream = Path(directory) / "upstream"
@@ -80,8 +177,9 @@ def main() -> None:
         }
         if changed != PATCHED_PATHS:
             raise ValueError(f"rclone patch changed an unexpected source set: {sorted(changed ^ PATCHED_PATHS)}")
+        compile_behavior_probe(patched, Path(directory) / "completion-probe")
 
-    print(f"rclone v{VERSION} source identity and bookkeeping patch compatibility passed")
+    print(f"rclone v{VERSION} source identity, patch compatibility, and completion behavior passed")
 
 
 if __name__ == "__main__":
