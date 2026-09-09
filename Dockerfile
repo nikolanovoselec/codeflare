@@ -840,6 +840,7 @@ COPY host/package.json /app/host/
 COPY entrypoint.sh /entrypoint.sh
 COPY transcript-retention.mjs /transcript-retention.mjs
 COPY --chmod=0755 scripts/compact-session-captures.mjs /opt/codeflare/scripts/compact-session-captures.mjs
+COPY --chmod=0555 preseed/agents/pi/scripts/merge-vault-graph.py /opt/codeflare/scripts/merge-vault-graph.py
 RUN chmod +x /entrypoint.sh /transcript-retention.mjs && echo "Build timestamp $(date)" > /build-timestamp.txt
 
 # Reset working directory

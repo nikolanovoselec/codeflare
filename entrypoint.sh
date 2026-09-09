@@ -1137,7 +1137,7 @@ bisync_with_r2() {
 run_daily_vault_session_compaction() {
     local today stamp state_dir sessions_dir manifest prepare_result prepare_status
     local compactor="/opt/codeflare/scripts/compact-session-captures.mjs"
-    local merge_script="$USER_HOME/.pi/agent/scripts/merge-vault-graph.py"
+    local merge_script="/opt/codeflare/scripts/merge-vault-graph.py"
     local vault_graph="$USER_HOME/Vault/graphify-out/vault-graph.json"
     local graph_copy="$USER_HOME/Vault/graphify-out/graph.json"
     today="$(date -u +%F)" || return 1

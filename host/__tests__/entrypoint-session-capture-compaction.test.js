@@ -104,7 +104,7 @@ flock() {
   [ "$FAIL_STAGE" != lock ]
 }
 python3() {
-  printf 'RELOCATE\\n' >> "$CALLS"
+  printf 'RELOCATE:%s\\n' "$1" >> "$CALLS"
   [ "$FAIL_STAGE" != relocate ]
 }
 graphify() {
@@ -129,7 +129,7 @@ function calls(fx) {
 const expectedOrder = [
   'PREPARE',
   'LOCK',
-  'RELOCATE',
+  'RELOCATE:/opt/codeflare/scripts/merge-vault-graph.py',
   'GLOBAL_ADD:global add',
   'DELETE',
   'BISYNC_1',
