@@ -103,7 +103,7 @@ const aiRoutingSchema = z.object({
   gatewayId: z.union([dynamicRouteSchema, z.literal('')]).default(''),
   replacementToken: gatewayDraftSchema.shape.replacementToken.default(''),
   dynamicRoutes: z.array(dynamicRouteSchema).max(256),
-  defaultRoute: z.object({ route: name, reasoning }).strict(),
+  defaultRoute: z.object({ route: policyTargetSchema, reasoning }).strict(),
   routeContextWindows: z.record(z.string(), z.unknown()),
   routeReasoningProfiles: z.record(name, z.string().max(64)).optional(),
   reasoningConfiguration: z.unknown().optional(),
@@ -262,14 +262,16 @@ function normalizeValues(section: ConfigurationSection, mode: AdministrationMode
   }
   if (section === 'aiRouting') {
     const fallback = values.fallbackRouting as FallbackRouting;
-    const groups = values.groupRouting as Array<{ routes: string[] }>;
+    const groups = values.groupRouting as Array<{ accessGroup: string; routes: string[]; defaultRoute: string; reasoning: string }>;
     const activeModels = [...new Set([...groups.flatMap((group) => group.routes), ...(fallback.enabled ? fallback.routes : [])])];
     const activeRoutes = activeModels.filter((route) => nativeTargetIdFromHandle(route) === null);
     const targetRef = (value: string) => {
       const targetId = nativeTargetIdFromHandle(value);
       return targetId ? { kind: 'native-target' as const, targetId } : { kind: 'dynamic-route' as const, route: value };
     };
-    const normalizedGroups = groups.map((group) => ({ ...group, targets: group.routes.map(targetRef), defaultTarget: group.defaultRoute ? targetRef(group.defaultRoute) : undefined }));
+    const normalizedGroups = groups.map((group) => group.routes.some((route) => nativeTargetIdFromHandle(route) !== null)
+      ? { ...group, targets: group.routes.map(targetRef), defaultTarget: group.defaultRoute ? targetRef(group.defaultRoute) : undefined }
+      : group);
     const normalizedFallback = fallback.enabled ? { ...fallback, targets: fallback.routes.map(targetRef), defaultTarget: targetRef(fallback.defaultRoute) } : fallback;
     return {
       ...values,
@@ -397,7 +399,7 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
     if (!verificationMatches(verification, profile, connection, inventory)) {
       const saved = current?.routeAssignments[route];
       const unchanged = saved && canonicalJson(identity(saved)) === canonicalJson(identity(assignment));
-      verification = unchanged ? rebindVerificationConnection(saved.verification, profile, connection, inventory) ?? undefined : undefined;
+      verification = checkId !== null && unchanged ? rebindVerificationConnection(saved.verification, profile, connection, inventory) ?? undefined : undefined;
     }
     if (!verification) throw new Error(`Route ${route} requires a successful check for its exact profile, gateway, and inventory`);
     if (assignment.routeVersion && assignment.routeVersion !== inventory.inventory.versionId) throw new Error(`Route ${route} inventory is stale`);
@@ -809,7 +811,7 @@ export async function executeConfigurationTask(
         ? Object.fromEntries((submittedGroups as Array<Record<string, unknown>>).map((group) => [
             group.accessGroup as string,
             { routes: group.routes, defaultRoute: group.defaultRoute, reasoning: group.reasoning,
-              ...(Array.isArray(group.targets) && { targets: group.targets }), ...(group.defaultTarget && { defaultTarget: group.defaultTarget }) },
+              ...(Array.isArray(group.targets) ? { targets: group.targets } : {}), ...(group.defaultTarget ? { defaultTarget: group.defaultTarget } : {}) },
           ]))
         : submittedGroups as Record<string, unknown>;
       const groupsJson = Object.keys(groups).length ? JSON.stringify(groups) : null;

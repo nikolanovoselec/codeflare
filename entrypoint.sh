@@ -3353,6 +3353,8 @@ CA_TRUST_EOF
     # LLM traffic still flows to the gateway. Deterministic fallback if a deploy
     # ever shows Copilot using GitHub-hosted models anyway: `export
     # COPILOT_OFFLINE=true` (gateway-only; that also disables the GitHub features above).
+    ENTERPRISE_COPILOT_PROMPT="${ENTERPRISE_COPILOT_PROMPT:-920000}"
+    ENTERPRISE_COPILOT_OUTPUT="${ENTERPRISE_COPILOT_OUTPUT:-128000}"
     export COPILOT_PROVIDER_BASE_URL="https://api.openai.com/v1"
     export COPILOT_PROVIDER_API_KEY="$ENTERPRISE_PLACEHOLDER_TOKEN"
     export COPILOT_MODEL="$ENTERPRISE_DEFAULT_ROUTE"

@@ -85,10 +85,10 @@ function bounded(value: unknown, label: string, max = MAX_REFERENCE_TEXT): strin
   return value;
 }
 
-function routeName(value: string): string {
-  bounded(value, 'route name', MAX_ROUTE_NAME);
-  if (value.includes('/') || ['__proto__', 'prototype', 'constructor'].includes(value.toLowerCase())) throw new Error('route name must be a safe slash-free handle');
-  return value;
+function routeName(value: unknown): string {
+  const route = bounded(value, 'route name', MAX_ROUTE_NAME);
+  if (route.includes('/') || ['__proto__', 'prototype', 'constructor'].includes(route.toLowerCase())) throw new Error('route name must be a safe slash-free handle');
+  return route;
 }
 
 function scalar(value: unknown, label: string, maxString = 512): ScalarValue {

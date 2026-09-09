@@ -347,7 +347,7 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
       gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'rotated-token',
     }));
     expect(result.fieldErrors).toBeUndefined();
-    const verification = (result.values?.reasoningConfiguration as any).routeAssignments.working.verification;
+    const verification = (result.values!.reasoningConfiguration as any).routeAssignments.working.verification;
     expect(verification.connectionFingerprint).not.toBe((JSON.parse(f.kv._store.get(SETUP_KEYS.REASONING_CONFIGURATION)!) as any).routeAssignments.working.verification.connectionFingerprint);
     expect(verification.inventoryDigest).toBe((JSON.parse(f.kv._store.get(SETUP_KEYS.REASONING_CONFIGURATION)!) as any).routeAssignments.working.verification.inventoryDigest);
     expect(providerCalls).toBe(3);

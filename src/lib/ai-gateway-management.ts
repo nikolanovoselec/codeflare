@@ -40,7 +40,7 @@ export function parseGatewayUrl(raw: string | undefined): ParsedGatewayUrl | nul
   if (url.hostname === 'gateway.ai.cloudflare.com') {
     if (url.search || url.hash) return null;
     const match = /^\/v1\/([a-f0-9]{32})\/([A-Za-z0-9][A-Za-z0-9_-]{0,63})(?:\/|\/compat\/?)?$/i.exec(url.pathname);
-    return match ? { accountId: match[1], gatewayId: match[2], kind: 'legacy', canonicalUrl: `https://gateway.ai.cloudflare.com/v1/${match[1]}/${match[2]}/` } : null;
+    return match ? { accountId: match[1], gatewayId: match[2], kind: 'legacy', canonicalUrl: `https://gateway.ai.cloudflare.com/v1/${match[1]}/${match[2]}` } : null;
   }
   if (url.hostname === 'api.cloudflare.com') {
     const match = /^\/client\/v4\/accounts\/([a-f0-9]{32})(\/.*)?$/i.exec(url.pathname);

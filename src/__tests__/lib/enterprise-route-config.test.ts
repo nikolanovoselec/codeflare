@@ -37,7 +37,7 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
     const profileRef = getBuiltInProfileRef('bedrock-anthropic-compat');
     const base = createNativeTarget({ id, label: 'Claude Sonnet', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, providerConfigId: 'bedrock-default', profileRef, enabled: true });
     const verification = { schemaVersion: 1 as const, method: 'administrator' as const, targetId: id, model: base.model, providerConfigId: base.providerConfigId,
-      connectionFingerprint: connectionFingerprint({ gatewayUrl: routingGatewayUrl, token: 'fixture-token' })!, profileRef, transport: base.transport,
+      connectionFingerprint: connectionFingerprint({ gatewayUrl: routingGatewayUrl, gatewayId: 'gateway', token: 'fixture-token' })!, profileRef, transport: base.transport,
       adapterVersion: 'bedrock-anthropic-compat-v1' as const, checkedAt: new Date().toISOString() };
     kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, serializeNativeAiTargets({ schemaVersion: 1, targets: [{ ...base, verification }] }));
     kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: ['general_usage'], defaultRoute: 'general_usage', reasoning: 'medium',
@@ -48,7 +48,7 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
     expect(cfg.routeReasoningLevels[nativeTargetHandle(id)]).toEqual([]);
     expect(cfg.modelDisplayNames[nativeTargetHandle(id)]).toBe('Claude Sonnet');
     expect(cfg.routeContextWindows[nativeTargetHandle(id)]).toBe(200000);
-    expect(cfg.nativeTargets).toBeUndefined();
+    expect(cfg).not.toHaveProperty('nativeTargets');
   });
 
   it('REQ-ENTERPRISE-049: expired native provider refresh fails closed without denying Dynamic Routes', async () => {

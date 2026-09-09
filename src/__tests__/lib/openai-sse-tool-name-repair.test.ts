@@ -31,4 +31,16 @@ describe('REQ-ENTERPRISE-050 Bedrock tool-name repair', () => {
     const output = await run([event, event], ['lookup']);
     expect(output.match(/lookup/g)).toHaveLength(3);
   });
+
+  it('passes malformed, truncated, and already-repaired framing through unchanged', async () => {
+    const input = ['data: {not-json}\n\n', 'data: {"choices":[]}', '\n\n'];
+    expect(await run(input, ['lookup'])).toBe(input.join(''));
+    expect(await run([await run(input, ['lookup'])], ['lookup'])).toBe(input.join(''));
+  });
+
+  it('bounds one incomplete event without rejecting a large chunk of complete events', async () => {
+    const complete = 'data: {"choices":[]}\n\n'.repeat(14_000);
+    expect(await run([complete], ['lookup'])).toBe(complete);
+    await expect(run([`data: ${'x'.repeat(256 * 1024)}`], ['lookup'])).rejects.toThrow('sse_event_too_large');
+  });
 });

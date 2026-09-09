@@ -136,7 +136,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const effectiveGatewayUrl = () => gatewayKind() === 'account-api' ? accountApiBase(gatewayUrl()) ?? gatewayUrl().trim() : gatewayUrl().trim();
   const effectiveGatewayId = () => gatewayKind() === 'account-api' ? gatewayId().trim() : '';
   const connectionKey = () => JSON.stringify([effectiveGatewayUrl(), effectiveGatewayId() || legacyGatewayId(gatewayUrl()), replacementToken().trim()]);
-  const gatewayDraft = (): ReasoningGatewayDraft | undefined => effectiveGatewayUrl() !== text(current.savedGatewayUrl ?? current.gatewayUrl).trim() || effectiveGatewayId() !== text(current.gatewayId).trim() || replacementToken().trim()
+  const gatewayDraft = (): ReasoningGatewayDraft | undefined => effectiveGatewayUrl() !== text(current.savedGatewayUrl ?? current.gatewayUrl).trim() || effectiveGatewayId() !== (gatewayKind() === 'account-api' ? text(current.gatewayId).trim() : '') || replacementToken().trim()
     ? { gatewayUrl: effectiveGatewayUrl(), ...(effectiveGatewayId() && { gatewayId: effectiveGatewayId() }), ...(replacementToken().trim() && { replacementToken: replacementToken().trim() }) } : undefined;
   const [catalog, setCatalog] = createSignal<ReasoningCatalog>({ schemaVersion: 1, profiles: [], notices: [], usage: [], routes: [], routeCatalogStatus: 'unavailable' });
   const [catalogBusy, setCatalogBusy] = createSignal(true);
@@ -409,9 +409,9 @@ const AiRoutingFields: Component<Props> = (props) => {
       <h3 id="connection-heading">AI Gateway connection</h3><p>Check that Codeflare can read your routes. Profile verification separately checks model requests and tool calling.</p>
       <div class="admin-route-controls">
         <label class="admin-form-field"><span>Gateway URL format</span><select aria-label="Gateway URL format" value={gatewayKind()} disabled={checksBusy()} onChange={(event) => changeConnection('kind', event.currentTarget.value)}><option value="account-api">Account API (v4)</option><option value="legacy">Legacy gateway URL (v1)</option></select></label>
-        <label class="admin-form-field"><span>AI Gateway URL</span><input name="gatewayUrl" type="url" value={gatewayUrl()} disabled={checksBusy()} onInput={(event) => changeConnection('url', event.currentTarget.value)} /><small>{gatewayKind() === 'account-api' ? 'Paste any account API URL. Codeflare keeps only the URL through the account ID.' : 'Use the full legacy URL including account ID and gateway name.'}</small></label>
+        <label class="admin-form-field"><span>AI Gateway URL</span><input aria-label="AI Gateway URL" name="gatewayUrl" type="url" value={gatewayUrl()} disabled={checksBusy()} onInput={(event) => changeConnection('url', event.currentTarget.value)} /><small>{gatewayKind() === 'account-api' ? 'Paste any account API URL. Codeflare keeps only the URL through the account ID.' : 'Use the full legacy URL including account ID and gateway name.'}</small></label>
         <Show when={gatewayKind() === 'account-api'}><label class="admin-form-field"><span>AI Gateway name</span><input aria-label="AI Gateway name" name="gatewayId" value={gatewayId()} disabled={checksBusy()} onInput={(event) => changeConnection('gateway', event.currentTarget.value)} /><small>Used for Dynamic Route discovery and the cf-aig-gateway-id request header.</small></label></Show>
-        <Show when={gatewayKind() === 'legacy'}><input type="hidden" name="gatewayId" value={effectiveGatewayId()} /></Show>
+
         <label class="admin-form-field"><span>Replacement API token</span><input aria-label="Replacement API token" name="replacementToken" type="password" value={replacementToken()} autocomplete="new-password" disabled={checksBusy()} onInput={(event) => changeConnection('token', event.currentTarget.value)} /><small>Leave blank to keep the saved token. Token permissions must allow route reads and gateway requests.</small></label>
       </div>
       <button type="button" class="admin-secondary-button" disabled={catalogBusy() || checksBusy()} onClick={() => void checkConnection()}>Check connection</button>

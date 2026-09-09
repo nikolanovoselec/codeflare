@@ -106,9 +106,10 @@ describe('REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)', () => {
     expect(vars.ENTERPRISE_DEFAULT_REASONING).toBe('medium');
   });
 
-  it('omits the route vars when enterprise but the route config is unset (empty catalog)', () => {
+  it('fans an authoritative empty catalog when enterprise routing is unset', () => {
     const vars = buildEnvVars(baseState(), { ENTERPRISE_MODE: 'active' } as Env);
-    expect('ENTERPRISE_ROUTE_CATALOG' in vars).toBe(false);
+    expect(vars.ENTERPRISE_ROUTE_CATALOG).toBe('[]');
+    expect(vars.ENTERPRISE_MODEL_DISPLAY_NAMES).toBe('{}');
     expect('ENTERPRISE_DEFAULT_ROUTE' in vars).toBe(false);
     expect('ENTERPRISE_DEFAULT_REASONING' in vars).toBe(false);
   });
@@ -120,14 +121,11 @@ describe('REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)', () => {
     expect('ENTERPRISE_ROUTE_REASONING_LEVELS' in buildEnvVars(state, {} as Env)).toBe(false);
   });
 
-  it('fans the per-route context-window map when enterprise + present, omits it when empty or non-enterprise', () => {
-    // REQ-ENTERPRISE-012: the map is fanned as ENTERPRISE_ROUTE_CONTEXT_WINDOWS for
-    // entrypoint's Pi models.json; empty map => omitted (entrypoint applies the default);
-    // present-but-non-enterprise => omitted (byte-identical).
+  it('fans the per-route context-window map and an authoritative empty enterprise map', () => {
     const withWindows = { ...baseState(), _routeContextWindows: { development: 262144, opus: 1048576 } };
     const vars = buildEnvVars(withWindows, { ENTERPRISE_MODE: 'active' } as Env);
     expect(vars.ENTERPRISE_ROUTE_CONTEXT_WINDOWS).toBe(JSON.stringify({ development: 262144, opus: 1048576 }));
-    expect('ENTERPRISE_ROUTE_CONTEXT_WINDOWS' in buildEnvVars(baseState(), { ENTERPRISE_MODE: 'active' } as Env)).toBe(false);
+    expect(buildEnvVars(baseState(), { ENTERPRISE_MODE: 'active' } as Env).ENTERPRISE_ROUTE_CONTEXT_WINDOWS).toBe('{}');
     expect('ENTERPRISE_ROUTE_CONTEXT_WINDOWS' in buildEnvVars(withWindows, {} as Env)).toBe(false);
   });
 });
