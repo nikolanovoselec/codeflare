@@ -30,8 +30,9 @@ const model = { id: 'model', type: 'model', properties: { provider: 'openai', mo
 const topology = [{ id: 'start', type: 'start', outputs: { next: { elementId: 'model' } } }, model];
 let version: string;
 let elements: unknown[];
-let providerMode: 'ok' | 'partial' | 'failed' | 'off-reasons' | 'empty-replay' | 'non-sse-replay' | 'error-replay';
+let providerMode: 'ok' | 'partial' | 'failed' | 'off-reasons' | 'empty-replay' | 'non-sse-replay' | 'error-replay' | 'unsupported' | 'candidates-unsupported';
 let managementStatus: number;
+let customProviderStatus: number;
 let providerCalls: number;
 let driftDuringCheck: boolean;
 
@@ -71,11 +72,13 @@ async function activate(fixture: ReturnType<typeof setup>, extra: Record<string,
 }
 
 beforeEach(() => {
-  version = 'version-1'; elements = structuredClone(topology); providerMode = 'ok'; managementStatus = 200; providerCalls = 0; driftDuringCheck = false;
+  version = 'version-1'; elements = structuredClone(topology); providerMode = 'ok'; managementStatus = 200; customProviderStatus = 200;
+  providerCalls = 0; driftDuringCheck = false;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const method = input instanceof Request ? input.method : init?.method ?? 'GET';
     const url = input instanceof Request ? input.url : String(input);
     if (method === 'GET') {
+      if (url.includes('/custom-providers?') && customProviderStatus !== 200) return Response.json({ secret: 'private custom-provider error' }, { status: customProviderStatus });
       if (managementStatus !== 200) return Response.json({ secret: 'private error' }, { status: managementStatus });
       if (url.endsWith('/ai-gateway/gateways')) return Response.json({ result: [{ id: 'gateway' }] });
       if (url.includes('/provider_configs?')) return Response.json({ success: true, result: [{ id: 'bedrock-default', provider_slug: 'aws-bedrock', gateway_id: 'gateway', default_config: true }], result_info: { page: 1, count: 1, per_page: 100, total_count: 1 } });
@@ -89,6 +92,8 @@ beforeEach(() => {
     if (providerMode === 'failed') return Response.json({}, { status: 503 });
     const body = JSON.parse(input instanceof Request ? await input.text() : String(init?.body));
     if (!body.tools) return stream({ content: '2399', ...(providerMode === 'off-reasons' ? { reasoning_content: 'thinking' } : {}) });
+    if (providerMode === 'unsupported' || (providerMode === 'candidates-unsupported'
+      && !String(body.prompt_cache_key).startsWith('bedrock-anthropic-compat-'))) return stream({ content: 'no tool call' });
     if (providerMode === 'partial') return stream({ content: 'unfinished' }, 'length');
     if (body.messages.some((message: any) => message.role === 'tool')) {
       if (providerMode === 'empty-replay') return new Response('');
@@ -102,9 +107,10 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
-  it('automated native verification persists and authorizes the exact checked target', async () => {
+  it('keeps built-in discovery, validation, and reauthorization available when custom-provider lookup fails', async () => {
     const f = setup();
     await activate(f);
+    customProviderStatus = 503;
     const checked = await (await f.post('native/discover', {
       target: { label: 'Claude automated', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true },
       maxCompletionTokens: 32,
@@ -120,8 +126,31 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', proposed);
     expect(validated.fieldErrors).toBeUndefined();
     await executeConfigurationTask(f.env, 'configure_model_routing', validated.values!, { mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 1 });
-    expect(parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS)).targets[0].verification?.capabilities).toEqual({ streaming: true, tools: true, replay: true });
+    const savedTarget = parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS)).targets[0];
+    expect(savedTarget.customProvider).toBeUndefined();
+    expect(savedTarget.verification?.capabilities).toEqual({ streaming: true, tools: true, replay: true });
     expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toContain(handle);
+  });
+
+  it.each([
+    ['completed', 'candidates-unsupported', 2],
+    ['unsupported', 'unsupported', 1],
+  ] as const)('combines candidate and prepared-profile accounting for %s native profile discovery', async (_case, mode, preparedAttempts) => {
+    const f = setup();
+    customProviderStatus = 503;
+    providerMode = mode;
+
+    const response = await f.post('native/profile-discovery', {
+      target: { label: 'Claude profile', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, enabled: true },
+      maxCompletionTokens: 32,
+    });
+    const body = await response.json() as any;
+
+    expect(response.status).toBe(200);
+    expect(body.route).toBe('aws-bedrock/eu.anthropic.claude-sonnet-5');
+    expect(body.outcome).toBe(mode === 'candidates-unsupported' ? 'existing-profile' : 'unsupported');
+    expect(body.accounting.logicalProbes).toBeGreaterThan(1);
+    expect(body.accounting.httpAttempts).toBeGreaterThan(preparedAttempts);
   });
 
   it('administrator confirmation issues server identity, persists exact authority, and route-only Save leaves it untouched', async () => {

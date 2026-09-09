@@ -3,10 +3,10 @@ import { canonicalJson, type ProfileRevisionRef, type ReasoningProfileId } from 
 import type { GatewayConnection } from './ai-gateway-management';
 import { connectionFingerprint } from './reasoning-verification';
 
-export const BEDROCK_PROFILE_ID = 'bedrock-anthropic-compat';
-export const OPENAI_NATIVE_PROFILE_ID = 'native-openai-compat';
-export const GEMINI_NATIVE_PROFILE_ID = 'native-google-ai-studio-compat';
-export const MESH_NATIVE_PROFILE_ID = 'native-codeflare-inference-mesh-compat';
+const BEDROCK_PROFILE_ID = 'bedrock-anthropic-compat';
+const OPENAI_NATIVE_PROFILE_ID = 'native-openai-compat';
+const GEMINI_NATIVE_PROFILE_ID = 'native-google-ai-studio-compat';
+const MESH_NATIVE_PROFILE_ID = 'native-codeflare-inference-mesh-compat';
 export const BEDROCK_COMPAT_ADAPTER_VERSION = 'bedrock-anthropic-compat-v1';
 export const NATIVE_COMPAT_ADAPTER_VERSION = 'native-openai-compat-v1';
 export const GEMINI_COMPAT_ADAPTER_VERSION = 'gemini-openai-compat-v1';
@@ -20,7 +20,7 @@ const providerSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
 const providerAliasSchema = z.string().min(1).max(128).regex(/^[^\u0000-\u001f\u007f]+$/);
 const labelSchema = z.string().trim().min(1).max(128).regex(/^[^\u0000-\u001f\u007f]+$/);
 const hashSchema = z.string().regex(/^[a-f0-9]{64}$/);
-export const nativeProfileRefSchema = z.object({ id: z.string().min(1).max(64), revision: z.number().int().positive(), hash: hashSchema }).strict();
+const nativeProfileRefSchema = z.object({ id: z.string().min(1).max(64), revision: z.number().int().positive(), hash: hashSchema }).strict();
 const adapterVersionSchema = z.enum([BEDROCK_COMPAT_ADAPTER_VERSION, NATIVE_COMPAT_ADAPTER_VERSION, GEMINI_COMPAT_ADAPTER_VERSION]);
 
 export function defaultNativeProfileId(provider: string): ReasoningProfileId {

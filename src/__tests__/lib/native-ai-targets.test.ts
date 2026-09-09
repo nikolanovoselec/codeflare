@@ -3,7 +3,7 @@ import {
   createNativeTarget, nativeProfileRefKey, nativeProviderSelector, nativeTargetHandle, nativeVerificationMatches,
   parseNativeAiTargets, reconcileNativeTargets, sanitizeNativeTarget,
 } from '../../lib/native-ai-targets';
-import { defaultBedrockProvider, listCustomProviderSlugs, listNativeProviderConfigs, selectNativeProviderConfig } from '../../lib/ai-gateway-management';
+import { defaultBedrockProvider, listCustomProviderSlugs, listCustomProviderSlugsForProviders, listNativeProviderConfigs, selectNativeProviderConfig } from '../../lib/ai-gateway-management';
 import { connectionFingerprint } from '../../lib/reasoning-verification';
 import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
 
@@ -32,6 +32,16 @@ describe('native AI targets', () => {
   it('REQ-ENTERPRISE-047: discovers sanitized custom-provider slugs independently', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(envelope([{ slug: 'codeflare-inference-mesh', endpoint: 'secret' }, { slug: 'ollama' }])))));
     expect(await listCustomProviderSlugs('a'.repeat(32), 'secret-token')).toEqual(new Set(['codeflare-inference-mesh', 'ollama']));
+  });
+
+  it('uses failed custom-provider lookup only as a built-in classification fallback', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response(null, { status: 503 })));
+    for (const provider of ['aws-bedrock', 'google-ai-studio', 'openai']) {
+      await expect(listCustomProviderSlugsForProviders('a'.repeat(32), 'secret-token', [provider])).resolves.toEqual(new Set());
+    }
+    for (const provider of ['codeflare-inference-mesh', 'unknown-provider']) {
+      await expect(listCustomProviderSlugsForProviders('a'.repeat(32), 'secret-token', [provider])).rejects.toThrow('management_request_failed');
+    }
   });
 
   it('REQ-ENTERPRISE-047: rejects malformed, over-budget, cross-gateway and ambiguous provider discovery', async () => {

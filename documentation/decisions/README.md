@@ -93,7 +93,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD71](#ad71-preseed-corpus-statically-imported-into-the-worker-bundle-bound-by-compressed-bundle-size-ci-guarded) | Bundle the preseed corpus with a compressed-size guard | The Worker statically imports the agent preseed corpus while CI guards compressed bundle size, retaining a simple synchronous seed path until headroom shrinks. | Architecture | Active |
 | [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) | Intercept enterprise LLM traffic at container egress | A WorkerEntrypoint intercepts provider HTTPS and forwards with Worker-held AI Gateway credentials, keeping secrets out of containers and avoiding a public proxy route. | Architecture, Security | Active |
 | [AD73](#ad73-workersdev-enabled-on-every-deployment-for-setup-wizard-bootstrap) | Keep workers.dev enabled as the bootstrap host | Every deployment exposes its `workers.dev` URL so fresh accounts can run setup before a custom domain exists, with operators responsible for post-setup Access protection. | Security | Active |
-| [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) | Route enterprise LLM calls through AI Gateway APIs | Dynamic Routes use REST first with a 404 compat replay; authorized native Bedrock targets use direct compat with Worker-held model identity and narrow stream repair. | Architecture, Security | Active |
+| [AD74](#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api) | Route enterprise LLM calls through AI Gateway APIs | Dynamic Routes retain REST-first transport; [AD152](#ad152-generalize-native-and-custom-provider-compat-dispatch) governs generalized native/custom-provider dispatch. | Architecture, Security | Partially superseded |
 | [AD75](#ad75-pi-graphify-tools-replaced-by-a-first-party-native-extension) | Replace Pi's Graphify wrapper with a native extension | Pi registers first-party Graphify tools that call the same CLI engine as Claude, removing divergent query behavior and two npm dependencies. | Architecture | Active |
 | ~~[AD76](#ad76-durable-review-lanes-run-as-detached-headless-pi-processes)~~ | ~~Replace detached review lanes with visible agents~~ | Visible session-scoped agents in [AD98](#ad98-pi-pr-review-uses-visible-session-scoped-agents) replaced detached headless Pi lanes and their disk-backed recovery machinery. | Agents | Superseded |
 | [AD77](#ad77-enterprise-vault-service-worker-reached-via-a-higher-precedence-access-bypass-app) | Bypass Access only for the Vault worker script | Enterprise setup creates a higher-precedence Access bypass for the non-sensitive Vault service-worker path so script fetches reach the Worker without credentials. | Architecture, Security | Active |
@@ -170,6 +170,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD149](#ad149-herdr-semantic-status-owns-completion-notification-timing) | Let Herdr status own completion notification timing | A ten-minute timer starts when every tracked agent pane becomes ready; renewed work cancels timing and queued completion. | Architecture, Agents | Active |
 | [AD150](#ad150-d1-owns-historical-usage-and-report-delivery-records) | Keep live quota state in Timekeeper and historical set queries in D1 | One database owns historical periods, report claims, and retention while live quota enforcement remains independent. | Architecture, Usage, Operations | Active |
 | [AD151](#ad151-container-lifecycle-and-terminal-transport-outrank-negative-eventual-kv-evidence) | Resolve lifecycle ownership outside eventual KV | Persisted container state governs terminal and managed-mutation admission while local startup and transport ownership guard dashboard projections. | Architecture, Session lifecycle, Storage | Active |
+| [AD152](#ad152-generalize-native-and-custom-provider-compat-dispatch) | Generalize native and custom provider compat dispatch | Authorized opaque targets use exact Worker-owned selectors and immutable profiles, with provider-specific wire adapters only where evidence requires them. | Architecture, Security | Active |
 ---
 
 ## Decisions
@@ -2136,7 +2137,7 @@ turning on Cloudflare Access for the `*.workers.dev` hostname is the operator's 
 
 **Category:** Architecture, Security
 
-**Status:** Accepted (2026-06-05)
+**Status:** Accepted (2026-06-05); partially superseded by [AD152](#ad152-generalize-native-and-custom-provider-compat-dispatch) for native/custom-provider dispatch. Dynamic Route transport remains active.
 
 **Context:** [AD72](#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing) established platform outbound-HTTPS interception as the enterprise LLM transport, forwarding intercepted provider traffic to the customer's AI Gateway. The original implementation targeted the gateway's legacy endpoints on `gateway.ai.cloudflare.com` — the OpenAI-compatible `/compat/chat/completions` path and the provider-native `/anthropic/v1/messages` path, authenticated with the `cf-aig-authorization` header. Cloudflare has since **deprecated** those paths (they "continue to work for existing integrations") and recommends the REST API at `api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/*` (standard `Authorization` header) for new integrations.
 
@@ -4171,5 +4172,21 @@ Terminal admission reads persisted Container SDK state without waking the contai
 **Consequences:** Terminal-owned sessions cannot be falsely kicked by stale KV. Confirmed SDK stop reaches the session store directly instead of waiting for KV propagation. Managed updates begin after persisted states stop even if LIST metadata still says running; active or unavailable state fails closed. No coordinator, new storage key, or container wake path is added. Explicit stop, configurable idle timeout, multi-tick exit confirmation, and durable `shutdownRequested` protection remain intact.
 
 **Related REQs:** [REQ-SESSION-010](../../sdd/spec/session-lifecycle.md#req-session-010-session-status-observable-from-dashboard), [REQ-SESSION-030](../../sdd/spec/session-lifecycle.md#req-session-030-negative-kv-evidence-preserves-lifecycle-owned-sessions), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit), [REQ-SEC-020](../../sdd/spec/security.md#req-sec-020-ws-upgrade-rate-limit-short-circuits), [REQ-STOR-022](../../sdd/spec/storage.md#req-stor-022-managed-reconciliation-admission).
+
+---
+
+### AD152: Generalize native and custom provider compat dispatch
+
+**Category:** Architecture, Security
+
+**Status:** Accepted (2026-09-09)
+
+**Context:** AD74 remains the Dynamic Route transport decision, but its later Bedrock-only native amendment no longer describes the configured native and custom providers supported by the interceptor.
+
+**Decision:** Keep Dynamic Routes on AD74's REST-first path with bounded 404 compat replay. Resolve each authorized opaque native/custom target Worker-side to `<provider>/<exact-model>` or `custom-<slug>/<exact-model>`, then issue one direct compat request governed by its selected immutable profile. Apply repeated-complete tool-name repair only to Bedrock and thought-signature exposure/replay only to Gemini; other providers receive no provider-specific wire repair.
+
+**Consequences:** Provider authority, aliases, credentials, and dispatch selectors remain outside browser and container projections; exact model IDs appear only in administration and stay outside containers. New configured providers reuse exact identity-bound verification and must be OpenAI Chat Completions compatible; they do not alter Dynamic Route history or dispatch.
+
+**Related REQs:** [REQ-ENTERPRISE-047](../../sdd/spec/enterprise-mode.md#req-enterprise-047-native-ai-gateway-target-administration), [REQ-ENTERPRISE-048](../../sdd/spec/enterprise-mode.md#req-enterprise-048-native-provider-capability-verification), [REQ-ENTERPRISE-049](../../sdd/spec/enterprise-mode.md#req-enterprise-049-unified-enterprise-model-authorization-and-publication), [REQ-ENTERPRISE-050](../../sdd/spec/enterprise-mode.md#req-enterprise-050-native-provider-compat-dispatch-and-wire-repair).
 
 ---

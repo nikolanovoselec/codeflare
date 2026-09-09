@@ -6,6 +6,7 @@ const MAX_MANAGEMENT_RESPONSE_BYTES = 1024 * 1024;
 const MANAGEMENT_REQUEST_TIMEOUT_MS = 10_000;
 const MAX_PROVIDER_CONFIG_PAGES = 10;
 const MAX_PROVIDER_CONFIGS = 1000;
+const KNOWN_NATIVE_PROVIDERS = new Set(['aws-bedrock', 'google-ai-studio', 'openai']);
 const providerSlugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 const providerAliasSchema = z.string().min(1).max(128).regex(/^[^\u0000-\u001f\u007f]+$/);
 export const dynamicRouteSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/)
@@ -227,6 +228,20 @@ export async function listCustomProviderSlugs(accountId: string, token: string):
     if (payload.result.length === 0) throw new Error('custom_provider_list_malformed');
   }
   throw new Error('custom_provider_list_malformed');
+}
+
+export async function listCustomProviderSlugsForProviders(
+  accountId: string,
+  token: string,
+  providers: Iterable<string>,
+): Promise<Set<string>> {
+  const requested = [...providers];
+  try {
+    return await listCustomProviderSlugs(accountId, token);
+  } catch (error) {
+    if (requested.every((provider) => KNOWN_NATIVE_PROVIDERS.has(provider))) return new Set();
+    throw error;
+  }
 }
 
 export async function loadActiveRouteVersion(accountId: string, gatewayId: string, route: string, token: string): Promise<{ versionId: string; elements: unknown }> {

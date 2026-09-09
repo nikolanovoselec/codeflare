@@ -784,7 +784,17 @@ describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD
 });
 
 describe('native provider authorization and compat dispatch', () => {
-  function nativeFixture(includeTarget = true, fixture: { provider?: string; customProvider?: boolean; model?: string; profileId?: ReasoningProfileId; providerConfigId?: string; providerConfigAlias?: string; adapterVersion?: 'bedrock-anthropic-compat-v1' | 'native-openai-compat-v1' | 'gemini-openai-compat-v1' } = {}) {
+  type NativeFixtureOptions = {
+    provider?: string;
+    customProvider?: boolean;
+    model?: string;
+    profileId?: ReasoningProfileId;
+    providerConfigId?: string;
+    providerConfigAlias?: string;
+    adapterVersion?: 'bedrock-anthropic-compat-v1' | 'native-openai-compat-v1' | 'gemini-openai-compat-v1';
+  };
+
+  function nativeFixture(includeTarget = true, fixture: NativeFixtureOptions = {}) {
     const id = '11111111-1111-4111-8111-111111111111';
     const handle = nativeTargetHandle(id); const provider = fixture.provider ?? 'aws-bedrock';
     const profileRef = getBuiltInProfileRef(fixture.profileId ?? 'bedrock-anthropic-compat');
@@ -815,9 +825,9 @@ describe('native provider authorization and compat dispatch', () => {
     expect(lastFetch?.headers.get('authorization')).toBeNull();
   });
 
-  it.each([
-    [{ provider: 'openai', model: 'gpt-5.6-sol', profileId: 'native-openai-compat', providerConfigId: 'openai-default', providerConfigAlias: 'default', adapterVersion: 'native-openai-compat-v1' as const }, 'openai/gpt-5.6-sol', 'none'],
-    [{ provider: 'codeflare-inference-mesh', customProvider: true, model: 'ornith-1-5-9b-gguf-q8-0', profileId: 'native-codeflare-inference-mesh-compat', providerConfigId: 'mesh-default', providerConfigAlias: 'default', adapterVersion: 'native-openai-compat-v1' as const }, 'custom-codeflare-inference-mesh/ornith-1-5-9b-gguf-q8-0', undefined],
+  it.each<[NativeFixtureOptions, string, string | undefined]>([
+    [{ provider: 'openai', model: 'gpt-5.6-sol', profileId: 'native-openai-compat', providerConfigId: 'openai-default', providerConfigAlias: 'default', adapterVersion: 'native-openai-compat-v1' }, 'openai/gpt-5.6-sol', 'none'],
+    [{ provider: 'codeflare-inference-mesh', customProvider: true, model: 'ornith-1-5-9b-gguf-q8-0', profileId: 'native-codeflare-inference-mesh-compat', providerConfigId: 'mesh-default', providerConfigAlias: 'default', adapterVersion: 'native-openai-compat-v1' }, 'custom-codeflare-inference-mesh/ornith-1-5-9b-gguf-q8-0', undefined],
   ])('REQ-ENTERPRISE-050: dispatches %s through its exact Worker-owned selector', async (input, selector, effort) => {
     const fixture = nativeFixture(true, input);
     const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(

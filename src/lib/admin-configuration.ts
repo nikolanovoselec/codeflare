@@ -14,7 +14,7 @@ import { handleConfigureCustomDomain } from '../routes/setup/custom-domain';
 import { getWorkerNameFromHostname } from '../routes/setup/shared';
 import { reactivateUsageUser } from './admin-usage';
 import { REASONING_PROFILE_IDS, canonicalJson, getBuiltInProfile, getBuiltInProfileRef, parseRouteSettings, serializeRouteSettings } from './reasoning-profiles';
-import { dynamicRouteSchema, gatewayCoordinates, gatewayDraftSchema, listCustomProviderSlugs, listNativeProviderConfigs, parseGatewayUrl, resolveGatewayConnection, selectNativeProviderConfig } from './ai-gateway-management';
+import { dynamicRouteSchema, gatewayCoordinates, gatewayDraftSchema, listCustomProviderSlugs, listCustomProviderSlugsForProviders, listNativeProviderConfigs, parseGatewayUrl, resolveGatewayConnection, selectNativeProviderConfig } from './ai-gateway-management';
 import { nativeProfileRefKey, nativeTargetDraftSchema, nativeTargetIdFromHandle, nativeVerificationMatches, parseNativeAiTargets, readNativeTargetCheck, reconcileNativeTargets, sanitizeNativeTarget, serializeNativeAiTargets, type NativeProviderAuthority } from './native-ai-targets';
 import {
   assignmentBackendDescriptions, fallbackRoutingSchema, loadCheckedRouteInventory, readRouteCheck,
@@ -589,12 +589,13 @@ export async function validateConfigurationValues(
           const coordinates = gatewayCoordinates(gateway);
           if (!coordinates || !gateway.token) throw new Error('Native targets require a connected account AI Gateway');
           const parsedDrafts = z.array(nativeTargetDraftSchema).max(64).parse(drafts);
+          const providerNames = new Set(parsedDrafts.map((draft) => draft.provider));
           const [providerConfigs, customProviders] = await Promise.all([
             listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token),
-            listCustomProviderSlugs(coordinates.accountId, gateway.token),
+            listCustomProviderSlugsForProviders(coordinates.accountId, gateway.token, providerNames),
           ]);
           const authorities: Record<string, NativeProviderAuthority> = {};
-          for (const providerName of new Set(parsedDrafts.map((draft) => draft.provider))) {
+          for (const providerName of providerNames) {
             const provider = selectNativeProviderConfig(providerConfigs, providerName);
             if (!provider) throw new Error(`Native provider ${providerName} was not found`);
             authorities[providerName] = {
@@ -847,7 +848,11 @@ export async function executeConfigurationTask(
         if (!coordinates || !gateway.token) throw new Error('Native targets require a connected account AI Gateway');
         const [providerConfigs, customProviders] = await Promise.all([
           listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token),
-          listCustomProviderSlugs(coordinates.accountId, gateway.token),
+          listCustomProviderSlugsForProviders(
+            coordinates.accountId,
+            gateway.token,
+            new Set(document.targets.map((target) => target.provider)),
+          ),
         ]);
         const reasoningConfiguration = values.reasoningConfiguration !== undefined
           ? parseReasoningConfiguration(values.reasoningConfiguration) : await readReasoningConfiguration(env.KV);

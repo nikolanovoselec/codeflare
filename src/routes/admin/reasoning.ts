@@ -19,8 +19,8 @@ import {
 import { discoverPiCompatibility, PI_WIRE_CANARY_VERSION } from '../../lib/reasoning-discovery';
 import {
   backendDescriptionsSchema, connectionStatus, dynamicRouteSchema, gatewayDraftSchema,
-  gatewayCoordinates, listCustomProviderSlugs, listDynamicRoutes, listNativeProviderConfigs, resolveGatewayConnection,
-  selectNativeProviderConfig, type GatewayDraft,
+  gatewayCoordinates, listCustomProviderSlugs, listCustomProviderSlugsForProviders, listDynamicRoutes, listNativeProviderConfigs,
+  resolveGatewayConnection, selectNativeProviderConfig, type GatewayDraft,
 } from '../../lib/ai-gateway-management';
 import {
   assignmentBackendDescriptions, completedProfileCheck, connectionFingerprint, issueRouteCheck,
@@ -525,19 +525,23 @@ async function discoverNativeProfile(input: {
       accountId: input.accountId, gatewayId: input.gatewayId, apiToken: input.token, route: input.selector,
       profile: prepared, maxCompletionTokens: input.maxCompletionTokens, compatOnly: true, ...(input.alias && { byokAlias: input.alias }),
     });
+    const combinedAccounting = {
+      logicalProbes: accounting.logicalProbes + Number(report.accounting?.logicalProbes ?? 0),
+      httpAttempts: accounting.httpAttempts + Number(report.accounting?.httpAttempts ?? 0),
+    };
     if (completedProfileCheck(report, prepared)) {
       const known = ['aws-bedrock', 'google-ai-studio', 'openai', 'codeflare-inference-mesh'].includes(input.provider);
       return {
         schemaVersion: 1, route: input.selector, outcome: known ? 'existing-profile' : 'custom-profile', classification: 'Verified', assignable: true,
         matchedProfiles: known ? [{ profileRef: getBuiltInProfileRef(preparedId), name: prepared.name, supportedLevels: prepared.supportedLevels }] : [],
-        diagnostics: report.diagnostics ?? [], accounting: report.accounting,
+        diagnostics: report.diagnostics ?? [], accounting: combinedAccounting,
         ...(!known && { profileDraft: {
           ...generatedProfileDraft(prepared as unknown as Record<string, unknown>, report, input.selector, 'native provider target'),
           reasoningMode: 'provider-default', supportedLevels: [], levels: {}, aliases: {}, unsupportedLevels: [...(prepared.unsupportedLevels ?? [])],
         } }),
       };
     }
-    return { ...report, route: input.selector, outcome: 'unsupported', assignable: false };
+    return { ...report, route: input.selector, outcome: 'unsupported', assignable: false, accounting: combinedAccounting };
   }
   return {
     schemaVersion: 1, route: input.selector, outcome: 'inconclusive', classification: 'Inconclusive', assignable: false,
@@ -554,7 +558,7 @@ reasoningRoutes.post('/native/profile-discovery', requireAdmin, discoveryRateLim
   try {
     const [configs, customProviders, configuration] = await Promise.all([
       listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token),
-      listCustomProviderSlugs(coordinates.accountId, gateway.token),
+      listCustomProviderSlugsForProviders(coordinates.accountId, gateway.token, [request.data.target.provider]),
       readReasoningConfiguration(c.env.KV),
     ]);
     const provider = selectNativeProviderConfig(configs, request.data.target.provider);
@@ -579,7 +583,7 @@ reasoningRoutes.post('/native/discover', requireAdmin, discoveryRateLimiter, asy
   try {
     const [configs, customProviders] = await Promise.all([
       listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token),
-      listCustomProviderSlugs(coordinates.accountId, gateway.token),
+      listCustomProviderSlugsForProviders(coordinates.accountId, gateway.token, [request.data.target.provider]),
     ]);
     const provider = selectNativeProviderConfig(configs, request.data.target.provider);
     if (!provider) return c.json({ error: 'Native provider configuration not found', code: 'provider_unavailable' }, 409);
