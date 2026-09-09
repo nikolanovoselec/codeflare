@@ -100,6 +100,27 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
+  it('automated native verification persists and authorizes the exact checked target', async () => {
+    const f = setup();
+    await activate(f);
+    const checked = await (await f.post('native/discover', {
+      target: { label: 'Claude automated', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileId: 'bedrock-anthropic-compat', enabled: true },
+      maxCompletionTokens: 32,
+    })).json() as any;
+    expect(checked).toMatchObject({ classification: 'Verified', assignable: true, verification: { capabilities: { streaming: true, tools: true, replay: true } } });
+    const handle = nativeTargetHandle(checked.targetId);
+    const proposed = values({
+      nativeTargets: [{ id: checked.targetId, label: 'Claude automated', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileId: 'bedrock-anthropic-compat', enabled: true }],
+      nativeChecks: { [checked.targetId]: checked.checkId },
+      groupRouting: [{ accessGroup: 'engineering', routes: ['working', handle], defaultRoute: handle, reasoning: 'off' }],
+      defaultRoute: { route: handle, reasoning: 'off' },
+    });
+    const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', proposed);
+    expect(validated.fieldErrors).toBeUndefined();
+    await executeConfigurationTask(f.env, 'configure_model_routing', validated.values!, { mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 1 });
+    expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toContain(handle);
+  });
+
   it('administrator confirmation issues server identity, persists exact authority, and route-only Save leaves it untouched', async () => {
     const f = setup();
     await activate(f);

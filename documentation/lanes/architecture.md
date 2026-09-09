@@ -130,9 +130,9 @@ The registry below keeps one stable evidence-bearing dossier per runtime compone
 
 **Responsibility:** Route configured enterprise LLM traffic through the customer's AI Gateway without exposing its credential to the container.
 
-**Inputs:** Intercepted OpenAI-wire requests, the configured route catalogue, each route's finite reasoning profile, the canonical reasoning level, matched configured user-access groups, and Worker-held gateway configuration.
+**Inputs:** Intercepted OpenAI-wire requests, the authorized catalog of Dynamic Route and opaque native handles, route capability profiles, matched configured user-access groups, and Worker-held gateway configuration.
 
-**Outputs:** Authenticated gateway requests with profile-specific reasoning fields, normalized streamed responses, or bounded fail-closed configuration errors before gateway fetch.
+**Outputs:** Authenticated REST-first Dynamic Route requests with supported reasoning translation, direct compat native Bedrock requests with provider-default reasoning, normalized streamed responses, or bounded fail-closed configuration errors before gateway fetch.
 
 **State owned:** No durable state; it receives request-scoped and session-scoped props from the Container DO.
 
@@ -587,18 +587,20 @@ sequenceDiagram
     participant G as Customer AI Gateway
     participant P as Selected backend
     C->>I: HTTPS with placeholder credential and canonical reasoning level
-    alt Route has a valid reasoning profile and level
-        I->>G: Worker-held auth, route, metadata, and translated reasoning fields
-        G->>P: Gateway-selected backend
-        P-->>G: Response stream
-        G-->>I: Response
-        I-->>C: Transparent normalized response
-    else Profile missing or configuration/level invalid
-        I-->>C: Bounded 400 configuration error
+    alt Dynamic Route has a valid profile and level
+        I->>G: REST-first request with dynamic/route and translated reasoning
+    else Native Bedrock handle is currently authorized
+        I->>G: Direct compat request with Worker-held aws-bedrock/model
+    else Profile, capability, or authorization is invalid
+        I-->>C: Bounded configuration or authorization error
     end
+    G->>P: Gateway-selected backend
+    P-->>G: Response stream
+    G-->>I: Response
+    I-->>C: Profile-scoped normalized response
 ```
 
-Interception is wired before container start so the platform CA is available to the workload. Gateway URL and token remain Worker-side. For chat-completion requests, the interceptor removes conflicting reasoning controls and translates Pi's canonical level through the selected route profile. Missing mandatory routing, a missing or unreadable profile, and unsupported levels fail closed before gateway fetch. Detailed transport, route, and streaming behavior belongs to [Security](security.md), [Configuration](configuration.md), and [Architecture Internals](architecture-internals.md).
+Interception is wired before container start so the platform CA is available to the workload. Gateway URL, token, provider binding, and exact native model remain Worker-side. Dynamic Routes retain REST-first dispatch and translate Pi's canonical level through the selected route profile. Authorized native Bedrock handles use direct compat dispatch, provider-default reasoning, and only the Bedrock-profile stream repair. Missing routing, stale authorization, unsupported controls, and invalid profiles fail closed before gateway fetch. Detailed transport, route, and streaming behavior belongs to [Security](security.md), [Configuration](configuration.md), and [Architecture Internals](architecture-internals.md).
 
 **Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering), [REQ-ENTERPRISE-032](../../sdd/spec/enterprise-mode.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation)
 

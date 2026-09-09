@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { loadEnterpriseRouteConfig } from '../../lib/access';
 import { listNativeProviderConfigs, loadActiveRouteVersion } from '../../lib/ai-gateway-management';
 import { connectionFingerprint } from '../../lib/reasoning-verification';
-import { createNativeTarget, nativeTargetHandle, serializeNativeAiTargets } from '../../lib/native-ai-targets';
+import { createNativeTarget, nativeTargetHandle } from '../../lib/native-ai-targets';
 import { createMockKV, type MockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
 import { getBuiltInProfileRef, normalizeCustomProfile } from '../../lib/reasoning-profiles';
@@ -41,7 +41,7 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
     const verification = { schemaVersion: 1 as const, method: 'administrator' as const, targetId: id, model: base.model, providerConfigId: base.providerConfigId,
       connectionFingerprint: connectionFingerprint({ gatewayUrl: routingGatewayUrl, token: 'native-fixture-token' })!, profileRef, transport: base.transport,
       adapterVersion: 'bedrock-anthropic-compat-v1' as const, checkedAt: new Date().toISOString() };
-    kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, serializeNativeAiTargets({ schemaVersion: 1, targets: [{ ...base, verification }] }));
+    kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [{ ...base, verification }] });
     kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: ['general_usage'], defaultRoute: 'general_usage', reasoning: 'medium',
       targets: [{ kind: 'dynamic-route', route: 'general_usage' }, { kind: 'native-target', targetId: id }], defaultTarget: { kind: 'native-target', targetId: id } } });
     const cfg = await loadEnterpriseRouteConfig(env, ['engineering']);
@@ -54,10 +54,23 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
   });
 
   it('REQ-ENTERPRISE-049: expired native provider refresh fails closed without denying Dynamic Routes', async () => {
-    const { env } = saved();
-    vi.mocked(listNativeProviderConfigs).mockRejectedValueOnce(new Error('unavailable'));
-    const cfg = await loadEnterpriseRouteConfig(env);
-    expect(cfg.routeCatalog).toEqual(['general_usage', 'development', 'code_review']);
+    vi.useFakeTimers({ now: new Date('2026-09-09T12:00:00Z') });
+    try {
+      const { kv, env } = saved();
+      const id = '22222222-2222-4222-8222-222222222222';
+      const profileRef = getBuiltInProfileRef('bedrock-anthropic-compat');
+      const target = createNativeTarget({ id, label: 'Claude Sonnet', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, providerConfigId: 'bedrock-default', profileRef, enabled: true });
+      const verification = { schemaVersion: 1 as const, method: 'administrator' as const, targetId: id, model: target.model, providerConfigId: target.providerConfigId,
+        connectionFingerprint: connectionFingerprint({ gatewayUrl: routingGatewayUrl, token: 'fixture-token' })!, profileRef, transport: target.transport,
+        adapterVersion: 'bedrock-anthropic-compat-v1' as const, checkedAt: new Date().toISOString() };
+      kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [{ ...target, verification }] });
+      kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: ['general_usage'], defaultRoute: 'general_usage', reasoning: 'medium',
+        targets: [{ kind: 'dynamic-route', route: 'general_usage' }, { kind: 'native-target', targetId: id }], defaultTarget: { kind: 'dynamic-route', route: 'general_usage' } } });
+      expect((await loadEnterpriseRouteConfig(env, ['engineering'])).routeCatalog).toEqual(['general_usage', nativeTargetHandle(id)]);
+      vi.advanceTimersByTime(60_001);
+      vi.mocked(listNativeProviderConfigs).mockRejectedValueOnce(new Error('unavailable'));
+      expect((await loadEnterpriseRouteConfig(env, ['engineering'])).routeCatalog).toEqual(['general_usage']);
+    } finally { vi.useRealTimers(); }
   });
   it('AC5: returns empty config when ENTERPRISE_MODE is not active', async () => {
     const cfg = await loadEnterpriseRouteConfig(makeEnv(createMockKV(), false));

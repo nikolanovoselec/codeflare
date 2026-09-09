@@ -38,10 +38,20 @@ describe('REQ-ENTERPRISE-050 Bedrock tool-name repair', () => {
     expect(await run([await run(input, ['lookup'])], ['lookup'])).toBe(input.join(''));
   });
 
-  it('bounds one incomplete event without rejecting a large chunk of complete events', async () => {
+  it('preserves unrelated event bytes while suppressing a repeated name', async () => {
+    const first = 'data: {"choices":[{"delta":{"tool_calls":[{"function":{"name":"lookup"}}]}}]}\n';
+    const repeated = 'data: { "choices" : [{"delta":{"tool_calls":[{"function":{"name" : "lookup", "arguments":"\\u263a\\/x"},"id":"call"}]}}], "usage" : null }\r\n';
+    expect(await run([first, repeated], ['lookup'])).toBe(first + repeated.replace('"lookup",', '"",'));
+  });
+
+  it('bounds one incomplete event without rejecting a large chunk of complete events or split UTF-8', async () => {
     const complete = 'data: {"choices":[]}\n\n'.repeat(14_000);
     expect(await run([complete], ['lookup'])).toBe(complete);
-    const oversized = `data: ${'x'.repeat(256 * 1024)}`;
-    expect(await run([oversized], ['lookup'])).toBe(oversized);
+    const oversized = `data: ${'x'.repeat(256 * 1024)}🙂`;
+    const bytes = new TextEncoder().encode(oversized);
+    const input = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(bytes.slice(0, bytes.length - 3)); controller.enqueue(bytes.slice(bytes.length - 3)); controller.close();
+    } });
+    expect(new Uint8Array(await new Response(input.pipeThrough(repairRepeatedCompleteToolNames(['lookup']))).arrayBuffer())).toEqual(bytes);
   });
 });

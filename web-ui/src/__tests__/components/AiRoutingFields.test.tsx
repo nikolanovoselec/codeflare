@@ -156,8 +156,10 @@ describe('Structured AI routing', () => {
     await waitFor(() => expect(view.getByRole('button', { name: 'Native providers' })).toBeEnabled());
     await fireEvent.click(view.getByRole('button', { name: 'Native providers' }));
     await fireEvent.click(view.getByRole('button', { name: 'Add Bedrock target' }));
+    const modelInput = view.getByLabelText('Native target 1 model');
+    await waitFor(() => expect([...view.container.querySelectorAll(`#${modelInput.getAttribute('list')} option`)].map((option) => option.getAttribute('value'))).toContain('general_usage-alias'));
     await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Claude custom' } });
-    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-future-profile' } });
+    await fireEvent.input(modelInput, { target: { value: 'eu.anthropic.claude-future-profile' } });
     await fireEvent.input(view.getByLabelText('Native target 1 context window'), { target: { value: '200000' } });
     await fireEvent.click(view.getByRole('button', { name: 'Mark as verified' }));
     await waitFor(() => expect(api.native).toHaveBeenCalledWith(expect.objectContaining({ target: expect.objectContaining({ model: 'eu.anthropic.claude-future-profile' }), administratorConfirmed: true })));
