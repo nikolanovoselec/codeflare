@@ -2112,7 +2112,7 @@ configure_tab_autostart() {
 
             case "$classic_agent_kind:$classic_agent_state" in
                 pi:fresh) classic_agent_launch="pi --session-id $classic_agent_id" ;;
-                pi:resume) classic_agent_launch="pi --session $classic_agent_id" ;;
+                pi:resume) classic_agent_launch="pi --session-id $classic_agent_id" ;;
                 claude:fresh) classic_agent_launch="claude --dangerously-skip-permissions --session-id $classic_agent_id" ;;
                 claude:resume) classic_agent_launch="claude --dangerously-skip-permissions --resume $classic_agent_id" ;;
                 *:unavailable) classic_agent_launch="printf '%s\\n' 'Codeflare: saved Classic agent transcript is unavailable; start or resume it manually.' >&2" ;;

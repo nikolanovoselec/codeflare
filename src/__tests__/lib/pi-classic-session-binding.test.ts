@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import registerClassicSessionBinding from '../../../preseed/agents/pi/extensions/classic-session-binding';
+import registerClassicSessionBinding, {
+  adoptClassicResumedSession,
+} from '../../../preseed/agents/pi/extensions/classic-session-binding';
 
 type SessionStart = (event: { reason: string }, ctx: {
   sessionManager: {
@@ -21,6 +23,21 @@ function sessionFile(home: string, id: string, stamp: string): string {
     type: 'session', version: 3, id, timestamp: '2026-09-09T00:00:00.000Z', cwd: join(home, 'workspace'),
   })}\n`);
   return path;
+}
+
+function adopt(home: string, path: string, nativeSessionId: string): boolean {
+  return adoptClassicResumedSession({ reason: 'resume' }, {
+    sessionManager: {
+      getSessionFile: () => path,
+      getSessionId: () => nativeSessionId,
+    },
+    ui: { notify: () => undefined },
+  }, {
+    HOME: home,
+    SESSION_ID: 'session12345678',
+    CODEFLARE_TERMINAL_MODE: 'classic',
+    TERMINAL_ID: '1',
+  });
 }
 
 function harness(home: string, overrides: Record<string, string> = {}) {
@@ -58,19 +75,18 @@ describe('REQ-AGENT-211 AC6: Classic Pi adopts every explicit resumed transcript
   it('persists the last active transcript across repeated /resume switches', () => {
     const home = mkdtempSync(join(tmpdir(), 'classic-binding-'));
     const firstId = '11111111-1111-4111-8111-111111111111';
-    const secondId = 'last-active.session';
+    const secondId = 'last-active.jsonl';
     const first = sessionFile(home, firstId, '2026-09-09T00-00-00-000Z');
     const second = sessionFile(home, secondId, '2026-09-09T00-01-00-000Z');
-    const runtime = harness(home);
+    const bindingDirectory = join(home, '.codeflare', 'classic', 'sessions', 'cf-session12345678');
+    const binding = join(bindingDirectory, 'agent-session-id');
 
-    runtime.resume(first, firstId);
-    expect(readFileSync(runtime.binding, 'utf8')).toBe(`${firstId}\n`);
+    expect(adopt(home, first, firstId)).toBe(true);
+    expect(readFileSync(binding, 'utf8')).toBe(`${firstId}\n`);
 
-    runtime.resume(second, secondId);
-    expect(readFileSync(runtime.binding, 'utf8')).toBe(`${secondId}\n`);
-    expect(readdirSync(join(home, '.codeflare', 'classic', 'sessions', 'cf-session12345678')))
-      .toEqual(['agent-session-id']);
-    expect(runtime.notices).toEqual([]);
+    expect(adopt(home, second, secondId)).toBe(true);
+    expect(readFileSync(binding, 'utf8')).toBe(`${secondId}\n`);
+    expect(readdirSync(bindingDirectory)).toEqual(['agent-session-id']);
   });
 
   it('does not rewrite bindings for startup, Herdr, child, or malformed sessions', () => {
