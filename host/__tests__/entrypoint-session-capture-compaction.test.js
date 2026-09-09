@@ -147,6 +147,10 @@ describe('entrypoint session-capture compaction orchestration', () => {
     const actual = calls(fx);
     assert.equal(actual.length, expectedOrder.length);
     expectedOrder.forEach((entry, index) => assert.match(actual[index], new RegExp(`^${entry}`)));
+    assert.equal(
+      actual[7],
+      `GLOBAL_ADD:global add ${join(fx.home, 'Vault/graphify-out/vault-graph.json')} --as user_vault`,
+    );
     assert.equal(readFileSync(join(fx.runtime, 'sync/vault-session-compaction.utc-day'), 'utf8'), '2026-03-31\n');
     assert.equal(existsSync(join(fx.runtime, 'sync/vault-session-compaction')), false);
   });

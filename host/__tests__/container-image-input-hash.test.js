@@ -151,13 +151,18 @@ describe('deployment container image input hash', () => {
     const retentionTag = imageHashResult().tag;
     assert.notEqual(retentionTag, productionTag);
 
+    write('scripts/compact-session-captures.mjs', 'compactor change\n');
+    commit('compactor script change');
+    const compactorTag = imageHashResult().tag;
+    assert.notEqual(compactorTag, retentionTag);
+
     write(
       'scripts/ci/coding-agent-selection-core.mjs',
       `${readFileSync(join(root, 'scripts/ci/coding-agent-selection-core.mjs'), 'utf8')}\n// selection core change\n`,
     );
     commit('selection core change');
     const selectionCoreTag = imageHashResult().tag;
-    assert.notEqual(selectionCoreTag, retentionTag);
+    assert.notEqual(selectionCoreTag, compactorTag);
 
     write('scripts/verify-pi-lockstep.mjs', 'image script change\n');
     commit('image script change');
