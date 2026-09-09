@@ -41,6 +41,7 @@ describe('REQ-ENTERPRISE-050 Bedrock tool-name repair', () => {
   it('bounds one incomplete event without rejecting a large chunk of complete events', async () => {
     const complete = 'data: {"choices":[]}\n\n'.repeat(14_000);
     expect(await run([complete], ['lookup'])).toBe(complete);
-    await expect(run([`data: ${'x'.repeat(256 * 1024)}`], ['lookup'])).rejects.toThrow('sse_event_too_large');
+    const oversized = `data: ${'x'.repeat(256 * 1024)}`;
+    expect(await run([oversized], ['lookup'])).toBe(oversized);
   });
 });

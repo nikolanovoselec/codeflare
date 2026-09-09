@@ -15,6 +15,7 @@ export function repairRepeatedCompleteToolNames(declaredNames: readonly string[]
   const accumulated = new Map<string, string>();
   const decoder = new TextDecoder();
   let buffer = '';
+  let passthrough = false;
 
   const repairLine = (line: string): string => {
     const match = /^(\s*data:\s*)(.*?)(\r?\n)$/.exec(line);
@@ -35,8 +36,8 @@ export function repairRepeatedCompleteToolNames(declaredNames: readonly string[]
         if (!fn || typeof fn.name !== 'string' || !fn.name) continue;
         const key = `${choice}:${call}`;
         const prior = accumulated.get(key) ?? '';
-        if (!accumulated.has(key) && accumulated.size >= MAX_CALL_STATES) throw new Error('too_many_tool_call_states');
-        if (encoder.encode(prior + fn.name).byteLength > MAX_NAME_BYTES) throw new Error('tool_name_too_large');
+        if (!accumulated.has(key) && accumulated.size >= MAX_CALL_STATES) continue;
+        if (encoder.encode(prior + fn.name).byteLength > MAX_NAME_BYTES) continue;
         if (declared.has(prior) && fn.name === prior) {
           delete fn.name;
           changed = true;
@@ -53,21 +54,25 @@ export function repairRepeatedCompleteToolNames(declaredNames: readonly string[]
     while ((index = buffer.indexOf('\n')) >= 0) {
       const line = buffer.slice(0, index + 1);
       buffer = buffer.slice(index + 1);
-      if (encoder.encode(line).byteLength > MAX_EVENT_BYTES) throw new Error('sse_event_too_large');
-      controller.enqueue(encoder.encode(repairLine(line)));
+      controller.enqueue(encoder.encode(encoder.encode(line).byteLength > MAX_EVENT_BYTES ? line : repairLine(line)));
     }
   };
 
   return new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
+      if (passthrough) { controller.enqueue(chunk); return; }
       buffer += decoder.decode(chunk, { stream: true });
       emitCompleteLines(controller);
-      if (encoder.encode(buffer).byteLength > MAX_EVENT_BYTES) throw new Error('sse_event_too_large');
+      if (encoder.encode(buffer).byteLength > MAX_EVENT_BYTES) {
+        controller.enqueue(encoder.encode(buffer));
+        buffer = '';
+        passthrough = true;
+      }
     },
     flush(controller) {
+      if (passthrough) return;
       buffer += decoder.decode();
-      if (encoder.encode(buffer).byteLength > MAX_EVENT_BYTES) throw new Error('sse_event_too_large');
-      if (buffer) controller.enqueue(encoder.encode(repairLine(buffer)));
+      if (buffer) controller.enqueue(encoder.encode(encoder.encode(buffer).byteLength > MAX_EVENT_BYTES ? buffer : repairLine(buffer)));
     },
   });
 }

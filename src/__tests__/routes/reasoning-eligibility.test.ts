@@ -10,6 +10,7 @@ import { loadEnterpriseRouteConfig } from '../../lib/access';
 import { getAigConfig } from '../../lib/aig-config';
 import { encryptForKV, importEncryptionKey } from '../../lib/kv-crypto';
 import { LlmInterceptor } from '../../llm-interceptor';
+import { nativeTargetHandle, parseNativeAiTargets } from '../../lib/native-ai-targets';
 import reasoningRoutes from '../../routes/admin/reasoning';
 import setupRoutes from '../../routes/setup';
 import { AppError } from '../../lib/error-types';
@@ -76,6 +77,7 @@ beforeEach(() => {
     if (method === 'GET') {
       if (managementStatus !== 200) return Response.json({ secret: 'private error' }, { status: managementStatus });
       if (url.endsWith('/ai-gateway/gateways')) return Response.json({ result: [{ id: 'gateway' }] });
+      if (url.includes('/provider_configs?')) return Response.json({ success: true, result: [{ id: 'bedrock-default', provider_slug: 'aws-bedrock', gateway_id: 'gateway', default_config: true }], result_info: { page: 1, count: 1, per_page: 100, total_count: 1 } });
       return url.endsWith('/routes')
         ? Response.json({ result: { routes: ['working', 'other'].map((name) => ({ id: name, name })) } })
         : Response.json({ result: { version: { id: version, active: true, data: elements } } });
@@ -96,6 +98,32 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.restoreAllMocks());
+
+describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
+  it('administrator confirmation issues server identity, persists exact authority, and route-only Save leaves it untouched', async () => {
+    const f = setup();
+    const checked = await (await f.post('native/discover', {
+      target: { label: 'Claude exact', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, enabled: true },
+      administratorConfirmed: true, maxCompletionTokens: 32,
+    })).json() as any;
+    expect(checked).toMatchObject({ classification: 'Administrator-confirmed', assignable: true });
+    const handle = nativeTargetHandle(checked.targetId);
+    const proposed = values({
+      nativeTargets: [{ id: checked.targetId, label: 'Claude exact', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, enabled: true }],
+      nativeChecks: { [checked.targetId]: checked.checkId },
+      groupRouting: [{ accessGroup: 'engineering', routes: ['working', handle], defaultRoute: handle, reasoning: 'off' }],
+      defaultRoute: { route: handle, reasoning: 'off' },
+    });
+    const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', proposed);
+    expect(validated.fieldErrors).toBeUndefined();
+    const context = { mode: 'enterprise' as const, requestUrl: 'https://codeflare.example.com', resultingRevision: 1 };
+    await executeConfigurationTask(f.env, 'configure_model_routing', validated.values!, context);
+    const saved = parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS));
+    expect(saved.targets[0]).toMatchObject({ id: checked.targetId, providerConfigId: 'bedrock-default', model: 'eu.anthropic.claude-future-profile', verification: { method: 'administrator' } });
+    await executeConfigurationTask(f.env, 'configure_model_routing', values(), context);
+    expect(parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS))).toEqual(saved);
+  });
+});
 
 describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
   it.each([401, 403])('reports sanitized permission-denied for management %s without asserting the exact missing scope', async (status) => {

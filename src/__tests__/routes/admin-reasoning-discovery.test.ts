@@ -226,13 +226,13 @@ describe('REQ-ENTERPRISE-035 actionable route discovery', () => {
     expect(JSON.stringify(body)).not.toContain('private-invalid-json');
   });
 
-  it('offers every distinct complete built-in and enabled custom revision without choosing a runtime mapping', async () => {
+  it('offers every compatible Dynamic Route profile and enabled custom revision without choosing a runtime mapping', async () => {
     const saved = partialProfile();
     const { app, kv } = appWithProfiles([saved]);
     provider((body) => lifecycle(body, false));
     const body = await discover(app);
     expect(body).toMatchObject({ outcome: 'existing-profile', assignable: true });
-    expect(body.matchedProfiles).toEqual([...BUILT_IN_REASONING_PROFILES, saved].map((profile) => ({
+    expect(body.matchedProfiles).toEqual([...BUILT_IN_REASONING_PROFILES.filter((profile) => profile.reasoningMode !== 'provider-default'), saved].map((profile) => ({
       profileRef: { id: profile.id, revision: profile.revision, hash: profile.hash },
       name: profile.name, supportedLevels: profile.supportedLevels,
     })));

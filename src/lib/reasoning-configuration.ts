@@ -26,7 +26,7 @@ export interface RouteVerification {
   scope: 'single-model' | 'observed-path';
   checkedAt: string;
 }
-export type RoutingTargetRef = { kind: 'dynamic-route'; route: string } | { kind: 'native-target'; targetId: string };
+type RoutingTargetRef = { kind: 'dynamic-route'; route: string } | { kind: 'native-target'; targetId: string };
 export type FallbackRouting = { enabled: false } | {
   enabled: true; routes: string[]; defaultRoute: string; reasoning: PiReasoningLevel;
   targets?: RoutingTargetRef[]; defaultTarget?: RoutingTargetRef;

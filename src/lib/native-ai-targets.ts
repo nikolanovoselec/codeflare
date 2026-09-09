@@ -5,9 +5,9 @@ import { connectionFingerprint } from './reasoning-verification';
 
 export const BEDROCK_PROFILE_ID = 'bedrock-anthropic-compat';
 export const BEDROCK_COMPAT_ADAPTER_VERSION = 'bedrock-anthropic-compat-v1';
-export const NATIVE_MODEL_MAX_TOKENS = 16_384;
+const NATIVE_MODEL_MAX_TOKENS = 16_384;
 
-export const nativeModelSchema = z.string().trim().min(1).max(256)
+const nativeModelSchema = z.string().trim().min(1).max(256)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/)
   .refine((value) => !value.includes('..') && !['__proto__', 'prototype', 'constructor'].includes(value.toLowerCase()));
 const labelSchema = z.string().trim().min(1).max(128).regex(/^[^\u0000-\u001f\u007f]+$/);
@@ -19,9 +19,9 @@ export const nativeTargetDraftSchema = z.object({
   contextWindow: z.number().int().gt(NATIVE_MODEL_MAX_TOKENS).max(4_000_000),
   profileId: z.literal(BEDROCK_PROFILE_ID), enabled: z.boolean(),
 }).strict();
-export type NativeTargetDraft = z.infer<typeof nativeTargetDraftSchema>;
+type NativeTargetDraft = z.infer<typeof nativeTargetDraftSchema>;
 
-export const nativeVerificationSchema = z.object({
+const nativeVerificationSchema = z.object({
   schemaVersion: z.literal(1), method: z.literal('administrator').optional(), targetId: z.string().uuid(),
   model: nativeModelSchema, providerConfigId: z.string().min(1).max(128), connectionFingerprint: hashSchema,
   profileRef: profileRefSchema, transport: z.literal('aig-legacy-compat'), adapterVersion: z.literal(BEDROCK_COMPAT_ADAPTER_VERSION),

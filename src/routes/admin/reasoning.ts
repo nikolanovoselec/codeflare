@@ -180,7 +180,6 @@ function profileDiscoveryContract(profile: Record<string, unknown>): Record<stri
 function distinctDiscoveryCandidates(): Record<string, unknown>[] {
   const seen = new Set<string>();
   return (BUILT_IN_REASONING_PROFILES as unknown as readonly Record<string, unknown>[]).filter((profile) => {
-    if (profile.reasoningMode === 'provider-default') return false;
     const digest = canonicalHash(profileDiscoveryContract(profile));
     if (seen.has(digest)) return false;
     seen.add(digest);

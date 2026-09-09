@@ -376,8 +376,14 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
     legs: assignment.legs?.map(({ evidence: _advisory, ...leg }) => leg),
   });
   const routeAssignments = Object.fromEntries(Object.entries(configuration.routeAssignments).map(([route, assignment]) => {
-    const { verification: _untrusted, ...draft } = assignment;
+    const { verification: _untrusted, ...submitted } = assignment;
     const saved = current?.routeAssignments[route];
+    const sameProfile = saved && canonicalJson(saved.activeProfile) === canonicalJson(submitted.activeProfile);
+    const draft = sameProfile ? {
+      ...submitted,
+      ...(submitted.routeVersion ? {} : saved.routeVersion ? { routeVersion: saved.routeVersion } : {}),
+      ...(submitted.legs ? {} : saved.legs ? { legs: saved.legs } : {}),
+    } : submitted;
     const verification = routeChecks[route] !== null && saved && canonicalJson(identity(saved)) === canonicalJson(identity(draft)) ? saved.verification : undefined;
     return [route, { ...draft, ...(verification && { verification }) }];
   }));

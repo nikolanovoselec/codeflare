@@ -45,6 +45,15 @@ function extractEnterpriseBlock() {
   return entrypoint.slice(start, end + '\nfi\n'.length);
 }
 
+function extractEmptyCatalogBody() {
+  const startMarker = '    if [ "$ENTERPRISE_CATALOG_COUNT" = "0" ]; then\n';
+  const start = entrypoint.indexOf(startMarker);
+  if (start === -1) throw new Error('empty catalog branch not found');
+  const end = entrypoint.indexOf('    elif [ "$ENTERPRISE_CATALOG_COUNT" -gt 0 ]; then', start);
+  if (end === -1) throw new Error('empty catalog branch end not found');
+  return entrypoint.slice(start + startMarker.length, end);
+}
+
 // Extract the settings.json merge block (defaultProvider/defaultModel/
 // defaultThinkingLevel overwrite) by its stable comment markers.
 function extractSettingsBlock() {
@@ -75,7 +84,7 @@ function runSettingsBlock(defaultRoute, reasoning, existingSettings) {
 }
 
 // Run the extracted block with the given catalog and return { code, modelsJson }.
-function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevelsJson, defaultReasoning = 'off') {
+function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevelsJson, defaultReasoning = 'off', displayNamesJson = '{}') {
   const block = extractModelsBlock();
   const fixtureCatalog = JSON.parse(catalogJson);
   const fixtureRoutes = fixtureCatalog.length > 0 ? fixtureCatalog : [defaultRoute];
@@ -91,6 +100,7 @@ function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevels
     `ENTERPRISE_DEFAULT_REASONING='${defaultReasoning}'`,
     ...(contextWindowsJson !== undefined ? [`ENTERPRISE_ROUTE_CONTEXT_WINDOWS='${contextWindowsJson}'`] : []),
     `ENTERPRISE_ROUTE_REASONING_LEVELS='${effectiveReasoningLevels}'`,
+    `ENTERPRISE_MODEL_DISPLAY_NAMES='${displayNamesJson}'`,
     "ENTERPRISE_PLACEHOLDER_TOKEN='codeflare-enterprise'",
     "PI_GATEWAY_BASE_URL='https://api.openai.com/v1'",
     `PI_MODELS_JSON='${modelsPath}'`,
@@ -174,6 +184,21 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     });
   });
 
+  it('REQ-ENTERPRISE-049: emits honest Pi metadata for a provider-default native model', () => {
+    const handle = 'cf-native-11111111-1111-4111-8111-111111111111';
+    const { code, stderr, modelsJson } = runBlock(
+      JSON.stringify([handle]), handle, JSON.stringify({ [handle]: 200000 }), JSON.stringify({ [handle]: [] }), '', JSON.stringify({ [handle]: 'Claude Sonnet' }),
+    );
+    assert.equal(code, 0, `entrypoint block exited non-zero: ${stderr}`);
+    const provider = modelsJson.providers['codeflare-gateway'];
+    const native = provider.models[0];
+    assert.deepEqual(native, {
+      id: handle, name: 'Claude Sonnet', reasoning: false, compat: { supportsReasoningEffort: false },
+      input: ['text', 'image'], contextWindow: 200000, maxTokens: 16384,
+    });
+    assert.equal('thinkingLevelMap' in native, false);
+  });
+
   it('REQ-ENTERPRISE-032 AC3: fails closed when any allowed route lacks supported levels', () => {
     const { code } = runBlock('["general_usage","development"]', 'general_usage', undefined, JSON.stringify({
       general_usage: ['off', 'medium'],
@@ -239,7 +264,27 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     assert.deepEqual(authJson, {}, 'auth.json must be emptied so no built-in provider stays authed');
   });
 
-  it('falls back to the default route when the catalog is empty (provider never has zero models)', () => {
+  it('REQ-ENTERPRISE-049: authoritative empty enterprise catalog removes managed Pi configuration', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ent-pi-empty-'));
+    const agentDir = join(dir, '.pi/agent');
+    const script = [
+      'set -euo pipefail', `USER_HOME='${dir}'`, 'mkdir -p "$USER_HOME/.pi/agent"',
+      `printf '%s' '{"providers":{"codeflare-gateway":{"models":[]},"other":{"models":[]}}}' > "$USER_HOME/.pi/agent/models.json"`,
+      `printf '%s' '{"defaultProvider":"codeflare-gateway","defaultModel":"stale","defaultThinkingLevel":"high","packages":["keep"]}' > "$USER_HOME/.pi/agent/settings.json"`,
+      `printf '%s\\n' '# enterprise-copilot-byok' 'export COPILOT_MODEL="stale"' '# end-enterprise-copilot-byok' 'keep-me' > "$USER_HOME/.bashrc"`,
+      extractEmptyCatalogBody(),
+    ].join('\n');
+    const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    assert.equal(res.status, 0, `empty catalog branch exited non-zero: ${res.stderr}`);
+    const models = JSON.parse(readFileSync(join(agentDir, 'models.json'), 'utf8'));
+    const settings = JSON.parse(readFileSync(join(agentDir, 'settings.json'), 'utf8'));
+    assert.equal('codeflare-gateway' in models.providers, false);
+    assert.ok(models.providers.other);
+    assert.deepEqual(settings, { packages: ['keep'] });
+    assert.equal(readFileSync(join(dir, '.bashrc'), 'utf8'), 'keep-me\n');
+  });
+
+  it('keeps the inner model builder nonempty when invoked independently', () => {
     const { code, modelsJson } = runBlock('[]', 'codeflare');
     assert.equal(code, 0);
     const models = modelsJson.providers['codeflare-gateway'].models;
