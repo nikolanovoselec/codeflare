@@ -292,8 +292,9 @@ describe('Structured AI routing', () => {
   });
 
   it('REQ-ENTERPRISE-054: removes a native target from the editable draft', async () => {
-    const view = mount(checkedCurrent());
-    await addNativeTarget(view);
+    const saved = checkedCurrent();
+    const view = mount({ ...saved, nativeTargets: [{ id: '11111111-1111-4111-8111-111111111111', label: 'Saved target', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false }] });
+    await openNative(view);
     expect(formValues(view.container).nativeTargets).toHaveLength(1);
     await fireEvent.click(view.getByRole('button', { name: 'Remove target' }));
     expect(formValues(view.container).nativeTargets).toEqual([]);
