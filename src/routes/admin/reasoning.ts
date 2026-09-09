@@ -626,7 +626,9 @@ reasoningRoutes.post('/native/discover', requireAdmin, discoveryRateLimiter, asy
     const checkId = await issueNativeTargetCheck(c.env.KV, target.id, verification);
     return c.json({ targetId: target.id, classification: request.data.administratorConfirmed ? 'Administrator-confirmed' : 'Verified', assignable: true,
       checkId, verification: { method: verification.method ?? 'automated', checkedAt: verification.checkedAt, current: true }, ...(report && { report }) });
-  } catch {
+  } catch (error) {
+    const code = error instanceof Error && /^[a-z0-9_]{1,64}$/.test(error.message) ? error.message : 'unexpected_failure';
+    logger.warn('Native target check failed', { code });
     return c.json({ error: 'Native target check unavailable', code: 'discovery_unavailable' }, 502);
   }
 });

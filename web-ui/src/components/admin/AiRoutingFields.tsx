@@ -367,8 +367,11 @@ const AiRoutingFields: Component<Props> = (props) => {
         ...(administratorConfirmed && { administratorConfirmed: true as const }), ...(gatewayDraft() && { gateway: gatewayDraft()! }) });
       setNativeChecks((checks) => ({ ...checks, [result.targetId]: result.checkId }));
       setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, id: result.targetId, handle: `cf-native-${result.targetId}`, busy: false, verification: result.verification } : item));
-    } catch {
-      setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, busy: false, enabled: false, verification: undefined, error: 'Target check failed. Check the exact model, provider readiness, and connection.' } : item));
+    } catch (error) {
+      const message = error instanceof Error && error.message.trim()
+        ? error.message
+        : 'Target check failed. Check the exact model, provider readiness, and connection.';
+      setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, busy: false, enabled: false, verification: undefined, error: message } : item));
     }
   };
 
@@ -522,7 +525,12 @@ const AiRoutingFields: Component<Props> = (props) => {
                 }}><For each={assignableProfiles()}>{(profile) => <option value={refKey(profile)}>{profileDisplayName(profile)}</option>}</For></select><small>{selectedProfile()?.supportedLevels.length ? `Pi levels: ${selectedProfile()!.supportedLevels.map(levelLabel).join(', ')}.` : 'Provider-default reasoning; no Pi effort level is claimed.'}</small></label>
               </div>
               <Show when={!Number.isSafeInteger(target().contextWindow) || target().contextWindow <= 16384}><p class="admin-inline-error">Enter a whole-number context window greater than 16,384.</p></Show>
-              <label class="admin-toggle-field"><input type="checkbox" aria-label={`Enable ${target().label} native target`} checked={target().enabled} disabled={!target().verification?.current} onChange={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, enabled: event.currentTarget.checked } : item))} /><span>Enabled</span></label>
+              <p class="admin-status-text" role="status">{target().enabled
+                ? 'Available for routing. Assign this target to an Access group before saving.'
+                : target().verification?.current
+                  ? `${target().verification.method === 'administrator' ? 'Administrator-confirmed' : 'Verified'}. This target can now be made available for routing.`
+                  : 'Verify or confirm this exact target before making it available for routing.'}</p>
+              <label class="admin-toggle-field"><input type="checkbox" aria-label={`Enable ${target().label} native target`} checked={target().enabled} disabled={!target().verification?.current} onChange={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, enabled: event.currentTarget.checked } : item))} /><span>Available for routing</span></label>
               <Show when={target().error}><p role="alert" class="admin-inline-error">{target().error}</p></Show>
               <div class="admin-route-actions"><button type="button" class="admin-secondary-button" aria-label={`Discover Profile for native target ${index + 1}`} disabled={!connectionReady() || target().busy || !target().model || nativeProfileEditor() !== undefined} onClick={() => setNativeProfileEditor(index)}>Discover Profile</button><button type="button" class="admin-secondary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index)}>{target().busy ? 'Verifying…' : 'Verify Profile'}</button><button type="button" class="admin-primary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index, true)}>Mark as verified</button><button type="button" class="admin-link-button admin-danger-link" onClick={() => setNativeTargets((items) => items.filter((_, at) => at !== index))}>Remove target</button></div>
               <Show when={nativeProfileEditor() === index}><ReasoningProfileEditor route={`${target().provider}/${target().model}`} discoverCompatibility={() => discoverNativeCompatibility({ target: nativeSubmission()[index], ...(gatewayDraft() && { gateway: gatewayDraft()! }), maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS })} onBusyChange={setProfileEditorBusy} existingRevisions={customRevisions()} onCancel={() => setNativeProfileEditor(undefined)} onSelectProfile={(ref) => { setNativeProfileEditor(undefined); clearProof({ profileRef: ref }); }} onSave={(revision) => { const ref = profileRef(revision); if (!ref) return; setNativeProfileEditor(undefined); setCustomRevisions((items) => [...items, revision]); clearProof({ profileRef: ref }); setPendingProfileName(String(revision.name ?? 'New profile')); }} /></Show>

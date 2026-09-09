@@ -34,6 +34,8 @@ let providerMode: 'ok' | 'partial' | 'failed' | 'off-reasons' | 'empty-replay' |
 let managementStatus: number;
 let customProviderStatus: number;
 let providerCalls: number;
+let providerConfigAlias: string | undefined;
+let observedProviderAliases: Array<string | null>;
 let driftDuringCheck: boolean;
 
 function stream(delta: unknown, finish_reason = 'stop') {
@@ -73,7 +75,7 @@ async function activate(fixture: ReturnType<typeof setup>, extra: Record<string,
 
 beforeEach(() => {
   version = 'version-1'; elements = structuredClone(topology); providerMode = 'ok'; managementStatus = 200; customProviderStatus = 200;
-  providerCalls = 0; driftDuringCheck = false;
+  providerCalls = 0; providerConfigAlias = undefined; observedProviderAliases = []; driftDuringCheck = false;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const method = input instanceof Request ? input.method : init?.method ?? 'GET';
     const url = input instanceof Request ? input.url : String(input);
@@ -81,13 +83,14 @@ beforeEach(() => {
       if (url.includes('/custom-providers?') && customProviderStatus !== 200) return Response.json({ secret: 'private custom-provider error' }, { status: customProviderStatus });
       if (managementStatus !== 200) return Response.json({ secret: 'private error' }, { status: managementStatus });
       if (url.endsWith('/ai-gateway/gateways')) return Response.json({ result: [{ id: 'gateway' }] });
-      if (url.includes('/provider_configs?')) return Response.json({ success: true, result: [{ id: 'bedrock-default', provider_slug: 'aws-bedrock', gateway_id: 'gateway', default_config: true }], result_info: { page: 1, count: 1, per_page: 100, total_count: 1 } });
+      if (url.includes('/provider_configs?')) return Response.json({ success: true, result: [{ id: 'bedrock-default', provider_slug: 'aws-bedrock', gateway_id: 'gateway', default_config: true, ...(providerConfigAlias && { alias: providerConfigAlias }) }], result_info: { page: 1, count: 1, per_page: 100, total_count: 1 } });
       if (url.includes('/custom-providers?')) return Response.json({ success: true, result: [], result_info: { page: 1, count: 0, per_page: 100, total_count: 0 } });
       return url.endsWith('/routes')
         ? Response.json({ result: { routes: ['working', 'other'].map((name) => ({ id: name, name })) } })
         : Response.json({ result: { version: { id: version, active: true, data: elements } } });
     }
     providerCalls++;
+    observedProviderAliases.push(new Headers(input instanceof Request ? input.headers : init?.headers).get('cf-aig-byok-alias'));
     if (driftDuringCheck) version = 'version-2';
     if (providerMode === 'failed') return Response.json({}, { status: 503 });
     const body = JSON.parse(input instanceof Request ? await input.text() : String(init?.body));
@@ -107,6 +110,35 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
+  it('REQ-ENTERPRISE-055: applies the discovered provider alias during native verification', async () => {
+    const f = setup();
+    providerConfigAlias = 'bedrock-live';
+    const response = await f.post('native/discover', {
+      target: { label: 'Claude aliased', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: false },
+      maxCompletionTokens: 32,
+    });
+    expect(response.status).toBe(200);
+    expect(observedProviderAliases.length).toBeGreaterThan(0);
+    expect(new Set(observedProviderAliases)).toEqual(new Set(['bedrock-live']));
+  });
+
+  it('REQ-ENTERPRISE-055: rejects invalid native target data before any routing write', async () => {
+    const f = setup();
+    const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      nativeTargets: [{ label: 'Invalid target', provider: 'aws-bedrock', model: 'valid-model', contextWindow: 16384, profileRef: bedrockProfileRef, enabled: false }],
+      nativeChecks: {},
+    }));
+    expect(validated.values).toBeUndefined();
+    expect(validated.fieldErrors).toBeDefined();
+    const unavailable = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      nativeTargets: [{ label: 'Unavailable target', provider: 'openai', model: 'gpt-5.6-sol', contextWindow: 200000, profileRef: getBuiltInProfileRef('native-openai-compat'), enabled: false }],
+      nativeChecks: {},
+    }));
+    expect(unavailable.values).toBeUndefined();
+    expect(unavailable.fieldErrors).toBeDefined();
+    expect(f.kv.put).not.toHaveBeenCalled();
+  });
+
   it('keeps built-in discovery, validation, and reauthorization available when custom-provider lookup fails', async () => {
     const f = setup();
     await activate(f);
@@ -153,9 +185,10 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(body.accounting.httpAttempts).toBeGreaterThan(preparedAttempts);
   });
 
-  it('administrator confirmation issues server identity, persists exact authority, and route-only Save leaves it untouched', async () => {
+  it('REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save', async () => {
     const f = setup();
     await activate(f);
+    providerConfigAlias = 'bedrock-live';
     const checked = await (await f.post('native/discover', {
       target: { label: 'Claude exact', provider: 'aws-bedrock', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true },
       administratorConfirmed: true, maxCompletionTokens: 32,
@@ -173,7 +206,7 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     const context = { mode: 'enterprise' as const, requestUrl: 'https://codeflare.example.com', resultingRevision: 1 };
     await executeConfigurationTask(f.env, 'configure_model_routing', validated.values!, context);
     const saved = parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS));
-    expect(saved.targets[0]).toMatchObject({ id: checked.targetId, providerConfigId: 'bedrock-default', model: 'eu.anthropic.claude-future-profile', verification: { method: 'administrator' } });
+    expect(saved.targets[0]).toMatchObject({ id: checked.targetId, providerConfigId: 'bedrock-default', providerConfigAlias: 'bedrock-live', model: 'eu.anthropic.claude-future-profile', verification: { method: 'administrator', providerConfigAlias: 'bedrock-live' } });
     await executeConfigurationTask(f.env, 'configure_model_routing', values(), context);
     expect(parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS))).toEqual(saved);
   });

@@ -188,8 +188,10 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
         ? await props.discoverCompatibility()
         : await discoverReasoningCompatibility({ route: props.route, ...props.context, maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS });
       if (!disposed) setResult(result);
-    } catch {
-      if (!disposed) setError('Compatibility check failed. Check the AI Gateway connection and try again.');
+    } catch (error) {
+      if (!disposed) setError(error instanceof Error && error.message.trim()
+        ? error.message
+        : 'Compatibility check failed. Check the AI Gateway connection and try again.');
     } finally {
       if (!disposed) { setBusy(false); props.onBusyChange?.(false); }
     }

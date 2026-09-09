@@ -64,7 +64,7 @@ describe('native AI targets', () => {
     ['google-ai-studio', false, 'gemini-2.5-pro', 'google-ai-studio/gemini-2.5-pro'],
     ['openai', false, 'gpt-5', 'openai/gpt-5'],
     ['codeflare-inference-mesh', true, 'codeflare-mesh', 'custom-codeflare-inference-mesh/codeflare-mesh'],
-  ])('REQ-ENTERPRISE-047: preserves generic provider identity for %s', (provider, customProvider, model, selector) => {
+  ])('REQ-ENTERPRISE-053: derives an opaque UUID handle while preserving generic provider identity for %s', (provider, customProvider, model, selector) => {
     const ref = getBuiltInProfileRef(provider === 'aws-bedrock' ? 'bedrock-anthropic-compat' : provider === 'google-ai-studio' ? 'native-google-ai-studio-compat' : provider === 'codeflare-inference-mesh' ? 'native-codeflare-inference-mesh-compat' : 'native-openai-compat');
     const target = createNativeTarget({ id: '11111111-1111-4111-8111-111111111111', label: provider, provider, customProvider, model, contextWindow: 200000, providerConfigId: 'raw-provider', profileRef: ref });
     expect(target).toMatchObject({ provider, ...(customProvider && { customProvider: true }), model, profileRef: ref });
@@ -72,12 +72,12 @@ describe('native AI targets', () => {
     expect(nativeTargetHandle(target.id)).toBe('cf-native-11111111-1111-4111-8111-111111111111');
   });
 
-  it('REQ-ENTERPRISE-047: rejects unsafe exact model and undersized context window', () => {
+  it('REQ-ENTERPRISE-053: rejects unsafe exact model and undersized context window', () => {
     expect(() => createNativeTarget({ label: 'Bad', model: '../escape', contextWindow: 200000, providerConfigId: 'raw-provider', profileRef })).toThrow();
     expect(() => createNativeTarget({ label: 'Small', model: 'valid.model', contextWindow: 16384, providerConfigId: 'raw-provider', profileRef })).toThrow();
   });
 
-  it('REQ-ENTERPRISE-047: browser projection excludes exact provider authority and aliases', () => {
+  it('REQ-ENTERPRISE-053: browser projection excludes exact provider authority and aliases', () => {
     const target = createNativeTarget({ id: '11111111-1111-4111-8111-111111111111', label: 'Claude', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, providerConfigId: 'raw-provider', providerConfigAlias: 'private-alias', profileRef });
     const projected = sanitizeNativeTarget(target);
     expect(projected).toMatchObject({ handle: nativeTargetHandle(target.id), label: 'Claude', provider: 'aws-bedrock', model: target.model, profileRef });
@@ -85,7 +85,7 @@ describe('native AI targets', () => {
     expect(JSON.stringify(projected)).not.toContain('private-alias');
   });
 
-  it('REQ-ENTERPRISE-048: provider, alias, model, profile, adapter, target and connection bind verification', () => {
+  it('REQ-ENTERPRISE-055: changed target or connection authority fails verification matching', () => {
     const target = createNativeTarget({ id: '11111111-1111-4111-8111-111111111111', label: 'GPT', provider: 'openai', model: 'gpt-5', contextWindow: 200000, providerConfigId: 'raw-provider', providerConfigAlias: 'openai-live', profileRef: getBuiltInProfileRef('native-openai-compat') });
     const verification = { schemaVersion: 1 as const, targetId: target.id, provider: 'openai', model: target.model, providerConfigId: target.providerConfigId, providerConfigAlias: 'openai-live', connectionFingerprint: fingerprint, profileRef: target.profileRef, transport: 'aig-legacy-compat' as const, adapterVersion: 'native-openai-compat-v1' as const, checkedAt: new Date().toISOString(), capabilities: { streaming: true as const, tools: true as const, replay: true as const } };
     const verified = { ...target, verification };
@@ -93,18 +93,27 @@ describe('native AI targets', () => {
     for (const changed of [
       { ...verified, provider: 'google-ai-studio' }, { ...verified, model: 'gpt-6' }, { ...verified, providerConfigId: 'new-provider' },
       { ...verified, providerConfigAlias: 'other' }, { ...verified, id: '22222222-2222-4222-8222-222222222222' },
-      { ...verified, profileRef },
+      { ...verified, profileRef }, { ...verified, transport: 'other-transport' },
+      { ...verified, verification: { ...verification, adapterVersion: 'bedrock-anthropic-compat-v1' } },
     ]) expect(nativeVerificationMatches(changed as typeof verified, connection)).toBe(false);
+    expect(nativeVerificationMatches(verified, { ...connection, token: 'rotated-token' })).toBe(false);
   });
 
-  it('REQ-ENTERPRISE-047: label and context edits preserve identity while provider authority or profile drift clears proof', () => {
-    const current = parseNativeAiTargets({ schemaVersion: 1, targets: [{
-      ...createNativeTarget({ id: '11111111-1111-4111-8111-111111111111', label: 'Old', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, providerConfigId: 'raw-provider', profileRef }),
-      verification: { schemaVersion: 1, method: 'administrator', targetId: '11111111-1111-4111-8111-111111111111', model: 'eu.anthropic.claude-sonnet-5', providerConfigId: 'raw-provider', connectionFingerprint: 'b'.repeat(64), profileRef, transport: 'aig-legacy-compat', adapterVersion: 'bedrock-anthropic-compat-v1', checkedAt: new Date().toISOString() },
-    }] });
+  const savedVerifiedTarget = () => parseNativeAiTargets({ schemaVersion: 1, targets: [{
+    ...createNativeTarget({ id: '11111111-1111-4111-8111-111111111111', label: 'Old', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, providerConfigId: 'raw-provider', profileRef }),
+    verification: { schemaVersion: 1, method: 'administrator', targetId: '11111111-1111-4111-8111-111111111111', model: 'eu.anthropic.claude-sonnet-5', providerConfigId: 'raw-provider', connectionFingerprint: 'b'.repeat(64), profileRef, transport: 'aig-legacy-compat', adapterVersion: 'bedrock-anthropic-compat-v1', checkedAt: new Date().toISOString() },
+  }] });
+
+  it('REQ-ENTERPRISE-055: unchanged provider authority retains identity and proof across label and context edits', () => {
+    const current = savedVerifiedTarget();
     const edited = reconcileNativeTargets([{ id: current.targets[0].id, label: 'New', provider: 'aws-bedrock', model: current.targets[0].model, contextWindow: 240000, profileRef, enabled: false }], current, authority, validRefs);
     expect(edited.targets[0]).toMatchObject({ id: current.targets[0].id, label: 'New', contextWindow: 240000, verification: current.targets[0].verification });
+  });
+
+  it('REQ-ENTERPRISE-055: changed provider authority invalidates proof', () => {
+    const current = savedVerifiedTarget();
     const drifted = reconcileNativeTargets([{ id: current.targets[0].id, label: 'New', provider: 'aws-bedrock', model: current.targets[0].model, contextWindow: 240000, profileRef, enabled: false }], current, { 'aws-bedrock': { id: 'new-provider', customProvider: false } }, validRefs);
+    expect(drifted.targets[0]).toMatchObject({ id: current.targets[0].id, providerConfigId: 'raw-provider' });
     expect(drifted.targets[0].verification).toBeUndefined();
   });
 });
