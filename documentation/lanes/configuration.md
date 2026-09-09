@@ -404,6 +404,7 @@ Users connect their Cloudflare account by creating an API token. Codeflare offer
 | **Access: Orgs, IdPs, and Groups: Edit** | `access-acct.write` | - | yes | yes | Access identity (combined; advanced also carries the granular scopes below) |
 | **Cloudflare Pages: Edit** | `page.write` | - | - | yes | Deploy static sites and full-stack apps |
 | **Containers: Edit** | `containers.write` | - | - | yes | Container lifecycle management |
+| **Cloudchamber: Edit** | `cloudchamber.write` | - | - | yes | Container SSH-key management |
 | **Queues: Edit** | `queues.write` | - | - | yes | Message queue management |
 | **Workers Pipelines: Edit** | `pipelines.write` | - | - | yes | Streaming ETL pipelines |
 | **Workers R2 Data Catalog: Edit** | `r2-catalog.write` | - | - | yes | R2 bucket metadata and catalog |
