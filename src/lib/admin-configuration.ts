@@ -14,13 +14,14 @@ import { handleConfigureCustomDomain } from '../routes/setup/custom-domain';
 import { getWorkerNameFromHostname } from '../routes/setup/shared';
 import { reactivateUsageUser } from './admin-usage';
 import { REASONING_PROFILE_IDS, canonicalJson, getBuiltInProfile, getBuiltInProfileRef, parseRouteSettings, serializeRouteSettings } from './reasoning-profiles';
-import { defaultBedrockProvider, dynamicRouteSchema, gatewayCoordinates, gatewayDraftSchema, listNativeProviderConfigs, parseGatewayUrl, resolveGatewayConnection } from './ai-gateway-management';
-import { BEDROCK_PROFILE_ID, nativeTargetDraftSchema, nativeTargetIdFromHandle, nativeVerificationMatches, parseNativeAiTargets, readNativeTargetCheck, reconcileNativeTargets, sanitizeNativeTarget, serializeNativeAiTargets } from './native-ai-targets';
+import { dynamicRouteSchema, gatewayCoordinates, gatewayDraftSchema, listCustomProviderSlugs, listNativeProviderConfigs, parseGatewayUrl, resolveGatewayConnection, selectNativeProviderConfig } from './ai-gateway-management';
+import { nativeProfileRefKey, nativeTargetDraftSchema, nativeTargetIdFromHandle, nativeVerificationMatches, parseNativeAiTargets, readNativeTargetCheck, reconcileNativeTargets, sanitizeNativeTarget, serializeNativeAiTargets, type NativeProviderAuthority } from './native-ai-targets';
 import {
   assignmentBackendDescriptions, fallbackRoutingSchema, loadCheckedRouteInventory, readRouteCheck,
   rebindVerificationConnection, routeCheckIdSchema, verificationMatches, type FallbackRouting,
 } from './reasoning-verification';
 import {
+  getProfileForRef,
   getRouteReasoningProfile,
   migrateLegacyReasoningAssignments,
   parseReasoningConfiguration,
@@ -462,16 +463,35 @@ async function readCurrentConfigurationValues(
       }
       const nativeTargets = parseNativeAiTargets(await env.KV.get(SETUP_KEYS.NATIVE_AI_TARGETS));
       const gateway = await resolveGatewayConnection(env);
-      let currentProviderId: string | null = null;
+      let currentProviders: Awaited<ReturnType<typeof listNativeProviderConfigs>> = [];
+      let customProviders = new Set<string>();
+      let customProviderCatalogReady = false;
       try {
         const coordinates = gatewayCoordinates(gateway);
-        if (coordinates && gateway.token) currentProviderId = defaultBedrockProvider(await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token))?.id ?? null;
+        if (coordinates && gateway.token) {
+          currentProviders = await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token);
+          try { customProviders = await listCustomProviderSlugs(coordinates.accountId, gateway.token); customProviderCatalogReady = true; } catch { /* Custom targets remain stale. */ }
+        }
       } catch { /* Provider status is reported as stale without hiding Dynamic Routes. */ }
       return {
         gatewayUrl: (await env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL)) || env.AIG_GATEWAY_URL || '',
         gatewayId: (await env.KV.get(SETUP_KEYS.AIG_GATEWAY_ID)) || env.AIG_GATEWAY_ID || '',
         dynamicRoutes: parseJson(await env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES), []),
-        nativeTargets: nativeTargets.targets.map((target) => sanitizeNativeTarget(target, target.providerConfigId === currentProviderId && nativeVerificationMatches(target, gateway))),
+        nativeTargets: nativeTargets.targets.map((target) => {
+          let current = false;
+          try {
+            const selected = selectNativeProviderConfig(currentProviders, target.provider);
+            const alias = selected?.alias;
+            getProfileForRef(reasoningConfiguration, target.profileRef);
+            const builtInProvider = ['aws-bedrock', 'google-ai-studio', 'openai'].includes(target.provider);
+            const classificationCurrent = customProviderCatalogReady
+              ? customProviders.has(target.provider) === Boolean(target.customProvider)
+              : builtInProvider && !target.customProvider;
+            current = Boolean(selected && selected.id === target.providerConfigId && alias === target.providerConfigAlias
+              && classificationCurrent && nativeVerificationMatches(target, gateway));
+          } catch { /* Missing profile or ambiguous provider keeps this target stale. */ }
+          return sanitizeNativeTarget(target, current);
+        }),
         defaultRoute,
         routeContextWindows: routeSettings.contextWindows,
         routeReasoningProfiles: Object.fromEntries(Object.entries(reasoningConfiguration.routeAssignments).map(([route, assignment]) => [route, assignment.activeProfile.id])),
@@ -563,15 +583,30 @@ export async function validateConfigurationValues(
           const gateway = await resolveGatewayConnection(env, { gatewayUrl: values.gatewayUrl as string, gatewayId: (values.gatewayId as string) || undefined, replacementToken: values.replacementToken as string });
           const coordinates = gatewayCoordinates(gateway);
           if (!coordinates || !gateway.token) throw new Error('Native targets require a connected account AI Gateway');
-          const provider = defaultBedrockProvider(await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token));
-          if (!provider) throw new Error('A default Amazon Bedrock provider configuration was not found');
+          const parsedDrafts = z.array(nativeTargetDraftSchema).max(64).parse(drafts);
+          const [providerConfigs, customProviders] = await Promise.all([
+            listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token),
+            listCustomProviderSlugs(coordinates.accountId, gateway.token),
+          ]);
+          const authorities: Record<string, NativeProviderAuthority> = {};
+          for (const providerName of new Set(parsedDrafts.map((draft) => draft.provider))) {
+            const provider = selectNativeProviderConfig(providerConfigs, providerName);
+            if (!provider) throw new Error(`Native provider ${providerName} was not found`);
+            authorities[providerName] = {
+              id: provider.id, ...(provider.alias && { alias: provider.alias }), customProvider: customProviders.has(providerName),
+            };
+          }
+          const validProfileRefs = new Set(parsedDrafts.map((draft) => {
+            const profile = getProfileForRef(reasoningConfiguration, draft.profileRef);
+            return nativeProfileRefKey({ id: profile.id, revision: profile.revision, hash: profile.hash });
+          }));
           const checks = (values.nativeChecks ?? {}) as Record<string, string | null>;
           const receipts = new Map<string, Awaited<ReturnType<typeof readNativeTargetCheck>>>();
           for (const checkId of Object.values(checks)) if (typeof checkId === 'string') {
             const receipt = await readNativeTargetCheck(env.KV, checkId);
             receipts.set(receipt.targetId, receipt);
           }
-          let document = reconcileNativeTargets(drafts, current, provider.id, getBuiltInProfileRef(BEDROCK_PROFILE_ID), new Set(receipts.keys()));
+          let document = reconcileNativeTargets(parsedDrafts, current, authorities, validProfileRefs, new Set(receipts.keys()));
           document = { ...document, targets: document.targets.map((target) => {
             const checkId = checks[target.id];
             if (checkId === null) return { ...target, verification: undefined };
@@ -805,10 +840,20 @@ export async function executeConfigurationTask(
         const gateway = await resolveGatewayConnection(env);
         const coordinates = gatewayCoordinates(gateway);
         if (!coordinates || !gateway.token) throw new Error('Native targets require a connected account AI Gateway');
-        const provider = defaultBedrockProvider(await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token));
-        if (!provider) throw new Error('A default Amazon Bedrock provider configuration was not found');
-        for (const target of document.targets) if (target.enabled && (target.providerConfigId !== provider.id || !nativeVerificationMatches(target, gateway))) {
-          throw new Error(`Native target ${target.label} is no longer authorized`);
+        const [providerConfigs, customProviders] = await Promise.all([
+          listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token),
+          listCustomProviderSlugs(coordinates.accountId, gateway.token),
+        ]);
+        const reasoningConfiguration = values.reasoningConfiguration !== undefined
+          ? parseReasoningConfiguration(values.reasoningConfiguration) : await readReasoningConfiguration(env.KV);
+        for (const target of document.targets) if (target.enabled) {
+          const provider = selectNativeProviderConfig(providerConfigs, target.provider);
+          const alias = provider?.alias;
+          try { getProfileForRef(reasoningConfiguration, target.profileRef); } catch { throw new Error(`Native target ${target.label} profile is unavailable`); }
+          if (!provider || target.providerConfigId !== provider.id || target.providerConfigAlias !== alias
+            || customProviders.has(target.provider) !== Boolean(target.customProvider) || !nativeVerificationMatches(target, gateway)) {
+            throw new Error(`Native target ${target.label} is no longer authorized`);
+          }
         }
         nativeTargetsJson = serializeNativeAiTargets(document);
       }

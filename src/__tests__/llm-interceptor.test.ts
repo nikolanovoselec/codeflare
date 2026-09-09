@@ -38,7 +38,13 @@ import { routingInventoryFixtures, verifiedRoutingConfiguration } from './helper
 vi.mock('../lib/ai-gateway-management', async (original) => ({
   ...await original<typeof import('../lib/ai-gateway-management')>(),
   loadActiveRouteVersion: vi.fn(async (_account: string, _gateway: string, route: string) => routingInventoryFixtures.get(route)),
-  listNativeProviderConfigs: vi.fn(async () => [{ id: 'bedrock-default', provider: 'aws-bedrock', gatewayId: 'gw', defaultSelection: true }]),
+  listNativeProviderConfigs: vi.fn(async () => [
+    { id: 'bedrock-default', provider: 'aws-bedrock', gatewayId: 'gw', defaultSelection: true },
+    { id: 'gemini-default', provider: 'google-ai-studio', gatewayId: 'gw', alias: 'default', defaultSelection: false },
+    { id: 'openai-default', provider: 'openai', gatewayId: 'gw', alias: 'default', defaultSelection: false },
+    { id: 'mesh-default', provider: 'codeflare-inference-mesh', gatewayId: 'gw', alias: 'default', defaultSelection: false },
+  ]),
+  listCustomProviderSlugs: vi.fn(async () => new Set(['codeflare-inference-mesh'])),
 }));
 const GATEWAY = 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/gw';
 const REST_BASE = 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai';
@@ -777,15 +783,17 @@ describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD
   });
 });
 
-describe('native Bedrock authorization and compat dispatch', () => {
-  function nativeFixture(includeTarget = true) {
+describe('native provider authorization and compat dispatch', () => {
+  function nativeFixture(includeTarget = true, fixture: { provider?: string; customProvider?: boolean; model?: string; profileId?: string; providerConfigId?: string; providerConfigAlias?: string; adapterVersion?: 'bedrock-anthropic-compat-v1' | 'native-openai-compat-v1' | 'gemini-openai-compat-v1' } = {}) {
     const id = '11111111-1111-4111-8111-111111111111';
-    const handle = nativeTargetHandle(id);
-    const profileRef = getBuiltInProfileRef('bedrock-anthropic-compat');
-    const target = createNativeTarget({ id, label: 'Claude Sonnet', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, providerConfigId: 'bedrock-default', profileRef, enabled: true });
-    const verification = { schemaVersion: 1 as const, method: 'administrator' as const, targetId: id, model: target.model, providerConfigId: target.providerConfigId,
+    const handle = nativeTargetHandle(id); const provider = fixture.provider ?? 'aws-bedrock';
+    const profileRef = getBuiltInProfileRef(fixture.profileId ?? 'bedrock-anthropic-compat');
+    const target = createNativeTarget({ id, label: provider, provider, customProvider: fixture.customProvider, model: fixture.model ?? 'eu.anthropic.claude-sonnet-5', contextWindow: 200000,
+      providerConfigId: fixture.providerConfigId ?? 'bedrock-default', providerConfigAlias: fixture.providerConfigAlias, profileRef, enabled: true });
+    const verification = { schemaVersion: 1 as const, method: 'administrator' as const, targetId: id, provider, ...(fixture.customProvider && { customProvider: true }), model: target.model,
+      providerConfigId: target.providerConfigId, ...(target.providerConfigAlias && { providerConfigAlias: target.providerConfigAlias }),
       connectionFingerprint: connectionFingerprint({ gatewayUrl: GATEWAY, token: AIG_TOKEN })!, profileRef, transport: target.transport,
-      adapterVersion: 'bedrock-anthropic-compat-v1' as const, checkedAt: new Date().toISOString() };
+      adapterVersion: fixture.adapterVersion ?? 'bedrock-anthropic-compat-v1', checkedAt: new Date().toISOString() };
     return { id, handle, kv: {
       'setup:dynamic_routes': '[]',
       'setup:reasoning_configuration': JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {}, fallbackRouting: { enabled: false } }),
@@ -805,6 +813,36 @@ describe('native Bedrock authorization and compat dispatch', () => {
     expect(JSON.parse(lastFetch!.body).model).toBe('aws-bedrock/eu.anthropic.claude-sonnet-5');
     expect(lastFetch?.headers.get('cf-aig-authorization')).toBe(`Bearer ${AIG_TOKEN}`);
     expect(lastFetch?.headers.get('authorization')).toBeNull();
+  });
+
+  it.each([
+    [{ provider: 'openai', model: 'gpt-5.6-sol', profileId: 'native-openai-compat', providerConfigId: 'openai-default', providerConfigAlias: 'default', adapterVersion: 'native-openai-compat-v1' as const }, 'openai/gpt-5.6-sol', 'none'],
+    [{ provider: 'codeflare-inference-mesh', customProvider: true, model: 'ornith-1-5-9b-gguf-q8-0', profileId: 'native-codeflare-inference-mesh-compat', providerConfigId: 'mesh-default', providerConfigAlias: 'default', adapterVersion: 'native-openai-compat-v1' as const }, 'custom-codeflare-inference-mesh/ornith-1-5-9b-gguf-q8-0', undefined],
+  ])('REQ-ENTERPRISE-050: dispatches %s through its exact Worker-owned selector', async (input, selector, effort) => {
+    const fixture = nativeFixture(true, input);
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, messages: [] }) }),
+    );
+    expect(response.status).toBe(200);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(lastFetch!.body)).toMatchObject({ model: selector, ...(effort && { reasoning_effort: effort }) });
+    expect(lastFetch?.headers.get('cf-aig-byok-alias')).toBe('default');
+  });
+
+  it('REQ-ENTERPRISE-048/-050: round-trips Gemini thought signatures through Pi replay metadata', async () => {
+    const fixture = nativeFixture(true, { provider: 'google-ai-studio', model: 'gemini-3.1-pro-preview', profileId: 'native-google-ai-studio-compat', providerConfigId: 'gemini-default', providerConfigAlias: 'default', adapterVersion: 'gemini-openai-compat-v1' });
+    let sent: Record<string, any> | undefined;
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      const request = input as Request; sent = JSON.parse(await request.text());
+      return new Response(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{}' }, extra_content: { google: { thought_signature: 'opaque-state' } } }] }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`, { headers: { 'content-type': 'text/event-stream' } });
+    });
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, messages: [{ role: 'assistant', tool_calls: [{ id: 'call_0', type: 'function', function: { name: 'lookup', arguments: '{}' } }], reasoning_details: [{ type: 'reasoning.encrypted', id: 'call_0', format: 'codeflare.google.thought_signature.v1', data: 'prior-state' }] }, { role: 'tool', tool_call_id: 'call_0', content: 'ok' }] }) }),
+    );
+    expect(sent?.model).toBe('google-ai-studio/gemini-3.1-pro-preview');
+    expect(sent?.messages[0].tool_calls[0].extra_content.google.thought_signature).toBe('prior-state');
+    expect(sent?.messages[0].reasoning_details).toBeUndefined();
+    expect(await response.text()).toContain('"format":"codeflare.google.thought_signature.v1"');
   });
 
   it('REQ-ENTERPRISE-048: rejects reasoning controls for provider-default targets before upstream I/O', async () => {

@@ -48,11 +48,13 @@ import type { Env } from './types';
 import { resolveRouteCatalog } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
 import { isPiReasoningLevel, translateReasoningRequest } from './lib/reasoning-profiles';
-import { getRouteReasoningProfile, parseReasoningConfigurationWithLegacyFallback } from './lib/reasoning-configuration';
+import { getProfileForRef, getRouteReasoningProfile, parseReasoningConfigurationWithLegacyFallback } from './lib/reasoning-configuration';
 import { preferredReasoningLevel, verificationMatches } from './lib/reasoning-verification';
 import { getAigConfig } from './lib/aig-config';
 import { gatewayCoordinates } from './lib/ai-gateway-management';
 import { repairRepeatedCompleteToolNames } from './lib/openai-sse-tool-name-repair';
+import { nativeProviderSelector } from './lib/native-ai-targets';
+import { exposeGeminiThoughtSignatures, restoreGeminiThoughtSignatures } from './lib/gemini-thought-signature-adapter';
 
 /**
  * Hosts the DO must intercept for enterprise LLM routing. Only the OpenAI host
@@ -452,10 +454,27 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
             if (request.method !== 'POST' || !url.pathname.endsWith('/chat/completions')) {
               return new Response(JSON.stringify({ error: 'Native targets support POST Chat Completions only', code: 'UNSUPPORTED_NATIVE_ENDPOINT' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
             }
-            if (['reasoning_effort',  'reasoning', 'thinking', 'chat_template_kwargs'].some((key) => Object.hasOwn(payload!, key))) {
-              return new Response(JSON.stringify({ error: 'Reasoning controls are unsupported for this provider-default model', code: 'UNSUPPORTED_REASONING_CONTROL' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+            let profile;
+            try { profile = getProfileForRef(await this.loadReasoningConfiguration(), native.profileRef); } catch {
+              return new Response(JSON.stringify({ error: 'Native profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
             }
-            payload.model = `aws-bedrock/${native.model}`;
+            if (profile.reasoningMode === 'provider-default') {
+              if (['reasoning_effort', 'reasoning', 'thinking', 'chat_template_kwargs'].some((key) => Object.hasOwn(payload!, key))) {
+                return new Response(JSON.stringify({ error: 'Reasoning controls are unsupported for this provider-default model', code: 'UNSUPPORTED_REASONING_CONTROL' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+              }
+            } else {
+              const canonicalLevel = payload.reasoning_effort ?? (isPiReasoningLevel(catalog.defaultReasoning) && profile.supportedLevels.includes(catalog.defaultReasoning)
+                ? catalog.defaultReasoning : preferredReasoningLevel(profile.supportedLevels));
+              if (!isPiReasoningLevel(canonicalLevel) || !profile.supportedLevels.includes(canonicalLevel)) {
+                return new Response(JSON.stringify({ error: 'Unsupported reasoning level', code: 'UNSUPPORTED_REASONING_LEVEL' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+              }
+              try { payload = translateReasoningRequest(payload, profile, canonicalLevel); } catch {
+                return new Response(JSON.stringify({ error: 'Native profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+              }
+            }
+            payload.model = `${nativeProviderSelector(native.provider, native.customProvider)}/${native.model}`;
+            if (native.provider === 'google-ai-studio') restoreGeminiThoughtSignatures(payload);
+            if (native.byokAlias) compatHeaders.set('cf-aig-byok-alias', native.byokAlias);
             nativeRequest = true;
             effectiveAdapter = native.adapter;
           } else if (url.pathname.endsWith('/chat/completions')) {
@@ -547,6 +566,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // reaches the container. Returning upstream.body (the ReadableStream) WITHOUT
     // reading it preserves text/event-stream + chunked transfer — tokens reach
     // the agent as they arrive.
+    if (nativeRequest && effectiveAdapter === 'gemini-openai-compat') upstream = exposeGeminiThoughtSignatures(upstream);
     const responseHeaders = new Headers(upstream.headers);
     for (const h of RESPONSE_STRIPPED_HEADERS) responseHeaders.delete(h);
 
@@ -574,7 +594,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
    * here can never drift from it. The first matched policy wins before filtering;
    * unmatched users need explicit fallback. No eligible catalog denies inference.
    */
-  private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string; defaultReasoning: string; nativeTargets: Record<string, { model: string; targetId: string; adapter: string; label: string; contextWindow: number }> }> {
+  private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string; defaultReasoning: string; nativeTargets: Record<string, { model: string; provider: string; customProvider: boolean; byokAlias?: string; targetId: string; adapter: string; profileRef: import('./lib/reasoning-profiles').ProfileRevisionRef; reasoningLevels: import('./lib/reasoning-profiles').PiReasoningLevel[]; label: string; contextWindow: number }> }> {
     if (!this.env.KV) return { routes: [], defaultRoute: '', defaultReasoning: 'off', nativeTargets: {} };
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
     const { routeCatalog, defaultRoute, defaultReasoning, nativeTargets } = await resolveRouteCatalog(this.env.KV, groups, {

@@ -8,6 +8,9 @@ const BUILTIN_IDS = [
   'workers-ai-kimi-k-thinking',
   'workers-ai-glm-thinking',
   'codeflare-inference-mesh-binary-thinking',
+  'native-google-ai-studio-compat',
+  'native-openai-compat',
+  'native-codeflare-inference-mesh-compat',
   'bedrock-anthropic-compat',
 ];
 
@@ -38,7 +41,19 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     expect(profile).toMatchObject({ id: 'bedrock-anthropic-compat', name: 'AWS Bedrock · Anthropic Claude', reasoningMode: 'provider-default', supportedLevels: [], levels: {}, validatedTransports: ['compat'] });
     expect((profile as unknown as Record<string, unknown>)?.thinkingLevelMap).toBeUndefined();
   });
-  it('ships exactly the seven executable built-ins and keeps failed families as notices', () => {
+  it('REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls', () => {
+    const gemini = profiles.getBuiltInProfile('native-google-ai-studio-compat');
+    const openai = profiles.getBuiltInProfile('native-openai-compat');
+    const mesh = profiles.getBuiltInProfile('native-codeflare-inference-mesh-compat');
+    expect(gemini).toMatchObject({ reasoningMode: 'provider-default', supportedLevels: [], validatedTransports: ['compat'], classification: 'Verified' });
+    expect(gemini.originallyCreatedAgainst?.modelIds).toEqual(['gemini-3.1-pro-preview', 'gemini-3.7-flash', 'gemini-3.8-flash']);
+    expect(openai).toMatchObject({ supportedLevels: ['off'], levels: { off: { mapping: { reasoning_effort: 'none' } } }, classification: 'Verified' });
+    expect(openai.originallyCreatedAgainst?.modelIds).toEqual(['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']);
+    expect(mesh.originallyCreatedAgainst?.modelIds).toEqual(['ornith-1-5-9b-gguf-q8-0']);
+    expect(openai.limitations).toContain('GPT-6 Astra rejected tools on Chat Completions and is not covered by this profile.');
+  });
+
+  it('ships exactly the ten executable built-ins and keeps failed families as notices', () => {
     expect(profiles.REASONING_PROFILE_IDS).toEqual(BUILTIN_IDS);
     expect((profiles as any).COMPATIBILITY_NOTICES.map((notice: any) => notice.id)).toEqual(NOTICE_IDS);
   });

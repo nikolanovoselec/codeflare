@@ -95,6 +95,13 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
     expect(replay.at(-1)).toEqual({ role: 'tool', content: 'ok', tool_call_id: 'call-private' });
   });
 
+  it('REQ-ENTERPRISE-048: preserves Gemini thought signatures on the verification replay', async () => {
+    const parsed = await parsePiSseText(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'gemini-call', type: 'function', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' }, extra_content: { google: { thought_signature: 'opaque-state' } } }] }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
+    expect(buildPiReplayMessages([{ role: 'user', content: 'test' }], parsed).at(-2)).toEqual({
+      role: 'assistant', tool_calls: [{ id: 'gemini-call', type: 'function', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' }, extra_content: { google: { thought_signature: 'opaque-state' } } }],
+    });
+  });
+
   it('REQ-ENTERPRISE-048: provider-default verification requires a complete tool lifecycle', async () => {
     const requests: Array<{ url: string; body: Record<string, unknown>; headers: Headers }> = [];
     const report = await discoverPiCompatibility({ accountId: ACCOUNT_ID, gatewayId: 'gateway', apiToken: 'secret-token',

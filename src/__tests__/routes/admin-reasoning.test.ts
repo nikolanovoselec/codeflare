@@ -16,6 +16,9 @@ const { PROFILE_HASH, BUILTIN_IDS } = vi.hoisted(() => ({
     'workers-ai-kimi-k-thinking',
     'workers-ai-glm-thinking',
     'codeflare-inference-mesh-binary-thinking',
+    'native-google-ai-studio-compat',
+    'native-openai-compat',
+    'native-codeflare-inference-mesh-compat',
     'bedrock-anthropic-compat',
   ],
 }));

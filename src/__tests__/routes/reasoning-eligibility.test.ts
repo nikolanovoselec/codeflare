@@ -25,6 +25,7 @@ const gatewayUrl = 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456
 const accountApiUrl = 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/';
 const token = 'test-gateway-token';
 const profileRef = getBuiltInProfileRef('openai-gpt-chat-tools-off');
+const bedrockProfileRef = getBuiltInProfileRef('bedrock-anthropic-compat');
 const model = { id: 'model', type: 'model', properties: { provider: 'openai', model: 'test-model' }, outputs: { success: { elementId: 'end' } } };
 const topology = [{ id: 'start', type: 'start', outputs: { next: { elementId: 'model' } } }, model];
 let version: string;
@@ -78,6 +79,7 @@ beforeEach(() => {
       if (managementStatus !== 200) return Response.json({ secret: 'private error' }, { status: managementStatus });
       if (url.endsWith('/ai-gateway/gateways')) return Response.json({ result: [{ id: 'gateway' }] });
       if (url.includes('/provider_configs?')) return Response.json({ success: true, result: [{ id: 'bedrock-default', provider_slug: 'aws-bedrock', gateway_id: 'gateway', default_config: true }], result_info: { page: 1, count: 1, per_page: 100, total_count: 1 } });
+      if (url.includes('/custom-providers?')) return Response.json({ success: true, result: [], result_info: { page: 1, count: 0, per_page: 100, total_count: 0 } });
       return url.endsWith('/routes')
         ? Response.json({ result: { routes: ['working', 'other'].map((name) => ({ id: name, name })) } })
         : Response.json({ result: { version: { id: version, active: true, data: elements } } });
@@ -104,13 +106,13 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     const f = setup();
     await activate(f);
     const checked = await (await f.post('native/discover', {
-      target: { label: 'Claude automated', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileId: 'bedrock-anthropic-compat', enabled: true },
+      target: { label: 'Claude automated', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true },
       maxCompletionTokens: 32,
     })).json() as any;
     expect(checked).toMatchObject({ classification: 'Verified', assignable: true, verification: { method: 'automated', current: true } });
     const handle = nativeTargetHandle(checked.targetId);
     const proposed = values({
-      nativeTargets: [{ id: checked.targetId, label: 'Claude automated', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileId: 'bedrock-anthropic-compat', enabled: true }],
+      nativeTargets: [{ id: checked.targetId, label: 'Claude automated', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true }],
       nativeChecks: { [checked.targetId]: checked.checkId },
       groupRouting: [{ accessGroup: 'engineering', routes: ['working', handle], defaultRoute: handle, reasoning: 'off' }],
       defaultRoute: { route: handle, reasoning: 'off' },
@@ -126,13 +128,13 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     const f = setup();
     await activate(f);
     const checked = await (await f.post('native/discover', {
-      target: { label: 'Claude exact', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, profileId: 'bedrock-anthropic-compat', enabled: true },
+      target: { label: 'Claude exact', provider: 'aws-bedrock', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true },
       administratorConfirmed: true, maxCompletionTokens: 32,
     })).json() as any;
     expect(checked).toMatchObject({ classification: 'Administrator-confirmed', assignable: true });
     const handle = nativeTargetHandle(checked.targetId);
     const proposed = values({
-      nativeTargets: [{ id: checked.targetId, label: 'Claude exact', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, profileId: 'bedrock-anthropic-compat', enabled: true }],
+      nativeTargets: [{ id: checked.targetId, label: 'Claude exact', provider: 'aws-bedrock', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true }],
       nativeChecks: { [checked.targetId]: checked.checkId },
       groupRouting: [{ accessGroup: 'engineering', routes: ['working', handle], defaultRoute: handle, reasoning: 'off' }],
       defaultRoute: { route: handle, reasoning: 'off' },

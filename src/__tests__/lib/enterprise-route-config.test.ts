@@ -13,6 +13,7 @@ vi.mock('../../lib/ai-gateway-management', async (original) => ({
   ...await original<typeof import('../../lib/ai-gateway-management')>(),
   loadActiveRouteVersion: vi.fn(async (_account: string, _gateway: string, route: string) => routingInventoryFixtures.get(route)),
   listNativeProviderConfigs: vi.fn(async () => [{ id: 'bedrock-default', provider: 'aws-bedrock', gatewayId: 'gateway', defaultSelection: true }]),
+  listCustomProviderSlugs: vi.fn(async () => new Set<string>()),
 }));
 function makeEnv(kv: MockKV, enterprise = true): Env {
   return { KV: kv, ENTERPRISE_MODE: enterprise ? 'active' : undefined, AIG_GATEWAY_URL: routingGatewayUrl, AIG_TOKEN: 'fixture-token' } as unknown as Env;

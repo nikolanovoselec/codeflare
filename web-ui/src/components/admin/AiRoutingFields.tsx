@@ -1,7 +1,7 @@
 /* v8 ignore start -- administration UI exercised by component fixtures */
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type Component } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
-import { checkNativeTarget, discoverReasoningCompatibility, getReasoningCatalog, getReasoningRouteInventory } from '../../api/client';
+import { checkNativeTarget, discoverNativeCompatibility, discoverReasoningCompatibility, getReasoningCatalog, getReasoningRouteInventory } from '../../api/client';
 import type {
   FallbackRouting, NativeAiTargetDraft, PiReasoningLevel, ProfileRevisionRef, ReasoningCatalog, ReasoningConfiguration,
   ReasoningDiscoveryResult, ReasoningGatewayDraft, ReasoningManagementContext, ReasoningProfileCatalogEntry,
@@ -102,12 +102,14 @@ const AiRoutingFields: Component<Props> = (props) => {
   const storedRoutes = [...new Set([...stringList(current.dynamicRoutes), ...Object.keys(assignments)])];
   const [routeState, setRouteState] = createStore<RouteDraft[]>(storedRoutes.map((name) => ({ name, contextWindow: typeof contextWindows[name] === 'number' ? contextWindows[name] as number : DEFAULT_CONTEXT_WINDOW, assignment: routeAssignment(assignments[name]) })));
   const routes = () => routeState;
-  const [nativeTargets, setNativeTargets] = createSignal<NativeDraft[]>((Array.isArray(current.nativeTargets) ? current.nativeTargets : []).map((item) => {
-    const target = record(item); const verification = record(target.verification);
-    return { id: text(target.id) || undefined, handle: text(target.handle) || undefined, label: text(target.label), model: text(target.model),
-      contextWindow: typeof target.contextWindow === 'number' ? target.contextWindow : 200000, profileId: 'bedrock-anthropic-compat', enabled: target.enabled === true,
+  const [nativeTargets, setNativeTargets] = createSignal<NativeDraft[]>((Array.isArray(current.nativeTargets) ? current.nativeTargets : []).flatMap((item) => {
+    const target = record(item); const verification = record(target.verification); const selectedProfile = profileRef(target.profileRef);
+    if (!selectedProfile) return [];
+    return [{ id: text(target.id) || undefined, handle: text(target.handle) || undefined, label: text(target.label), model: text(target.model),
+      provider: text(target.provider) || 'aws-bedrock', contextWindow: typeof target.contextWindow === 'number' ? target.contextWindow : 200000,
+      profileRef: selectedProfile, enabled: target.enabled === true,
       ...(text(verification.checkedAt) && { verification: { method: verification.method === 'administrator' ? 'administrator' as const : 'automated' as const, checkedAt: text(verification.checkedAt), current: verification.current === true } }),
-    };
+    }];
   }));
   const [nativeChecks, setNativeChecks] = createSignal<Record<string, string | null>>({});
   const nativeSubmission = () => nativeTargets().map(({ handle: _handle, verification: _verification, busy: _busy, error: _error, ...target }) => target);
@@ -155,6 +157,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const [customRevisions, setCustomRevisions] = createSignal<Array<Record<string, unknown>>>(Array.isArray(configuration.customProfileRevisions) ? configuration.customProfileRevisions.map(record) : []);
   const [routeChecks, setRouteChecks] = createSignal<Record<string, string | null>>(Object.fromEntries(Object.entries(record(current.routeChecks)).filter((entry): entry is [string, string | null] => typeof entry[1] === 'string' || entry[1] === null)));
   const [profileEditorRoute, setProfileEditorRoute] = createSignal<string>();
+  const [nativeProfileEditor, setNativeProfileEditor] = createSignal<number>();
   const [profileEditorBusy, setProfileEditorBusy] = createSignal(false);
   const [pendingProfileName, setPendingProfileName] = createSignal('');
   const [pendingRemoval, setPendingRemoval] = createSignal<string>();
@@ -186,7 +189,19 @@ const AiRoutingFields: Component<Props> = (props) => {
       return ref ? [{ ...revision, ...ref, name: text(revision.name), enabled: revision.enabled !== false, supportedLevels: stringList(revision.supportedLevels).filter(isLevel) }] : [];
     })].filter((profile) => profile.enabled !== false && profile.assignable !== false));
   const findProfile = (ref?: ProfileRevisionRef) => assignableProfiles().find((profile) => refKey(profile) === refKey(ref));
-  const supportedLevels = (name: string) => name.startsWith('cf-native-') ? [] : findProfile(routeByName(name)?.assignment.activeProfile)?.supportedLevels ?? [];
+  const configuredProviders = createMemo(() => (catalog().providers ?? []).filter((provider) => provider.configured));
+  const selectableProviders = createMemo(() => configuredProviders().filter((provider) => provider.supported));
+  const preparedProfileId = (provider: string) => provider === 'aws-bedrock' ? 'bedrock-anthropic-compat'
+    : provider === 'google-ai-studio' ? 'native-google-ai-studio-compat'
+      : provider === 'openai' ? 'native-openai-compat' : 'native-codeflare-inference-mesh-compat';
+  const preparedProfileRef = (provider: string): ProfileRevisionRef | undefined => {
+    const profile = assignableProfiles().find((candidate) => candidate.id === preparedProfileId(provider));
+    return profile ? profileRefFromEntry(profile) : undefined;
+  };
+  const supportedLevels = (name: string) => {
+    if (name.startsWith('cf-native-')) return findProfile(nativeTargets().find((target) => nativeHandle(target) === name)?.profileRef)?.supportedLevels ?? [];
+    return findProfile(routeByName(name)?.assignment.activeProfile)?.supportedLevels ?? [];
+  };
   const preferredLevel = (name: string): PiReasoningLevel => {
     const levels = supportedLevels(name);
     return levels.includes('medium') ? 'medium' : levels.includes('off') ? 'off' : levels[0] ?? 'off';
@@ -207,7 +222,8 @@ const AiRoutingFields: Component<Props> = (props) => {
   const eligibleRoutes = createMemo(() => routes().filter((route) => gatewayRoutes().includes(route.name) && verifiedAssignment(route) && validContext(route)));
   const nativeHandle = (target: NativeDraft) => target.handle ?? (target.id ? `cf-native-${target.id}` : '');
   const eligibleNativeTargets = createMemo(() => nativeTargets().filter((target) => target.enabled && target.verification?.current && nativeHandle(target) && Number.isSafeInteger(target.contextWindow) && target.contextWindow > 16384));
-  const nativeModelSuggestions = createMemo(() => [...new Set(routes().flatMap((route) => route.inventory?.legs.map((leg) => leg.declaredModel) ?? []))].sort());
+  const nativeModelSuggestions = (provider: string) => [...new Set(routes().flatMap((route) => route.inventory?.legs
+    .filter((leg) => leg.provider.replace(/^custom-/, '') === provider).map((leg) => leg.declaredModel) ?? []))].sort();
   const eligiblePolicyOptions = createMemo<PolicyOption[]>(() => [
     ...eligibleRoutes().map((route) => ({ name: route.name, administratorConfirmed: route.assignment.verification?.method === 'administrator', observedPath: route.assignment.verification?.scope === 'observed-path' })),
     ...eligibleNativeTargets().map((target) => ({ name: nativeHandle(target), administratorConfirmed: target.verification?.method === 'administrator' })),
@@ -228,7 +244,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const policyInventoryPending = () => [...groups().flatMap((group) => group.routes), ...(fallbackEnabled() ? fallbackPolicy().routes : [])]
     .some((name) => gatewayRoutes().includes(name) && Boolean(routeByName(name)?.inventoryBusy));
   const canSave = () => connectionReady() && !policyInventoryPending() && !checksBusy() && activeGroups().length > 0 && (!fallbackEnabled() || normalizedFallback().routes.length > 0);
-  const saveHelp = () => !connectionReady() ? 'Check the AI Gateway connection before saving.' : policyInventoryPending() ? 'Wait for selected route models to finish loading.' : checksBusy() ? 'Wait for the current profile check to finish.' : !eligibleRoutes().length ? 'Verify or confirm at least one profile before assigning access and saving.' : !activeGroups().length ? 'Assign an available route to at least one group before saving.' : fallbackEnabled() && !normalizedFallback().routes.length ? 'Choose an available route for fallback access, or turn fallback off.' : '';
+  const saveHelp = () => !connectionReady() ? 'Check the AI Gateway connection before saving.' : policyInventoryPending() ? 'Wait for selected route models to finish loading.' : checksBusy() ? 'Wait for the current profile check to finish.' : !eligiblePolicyOptions().length ? 'Verify or confirm at least one profile before assigning access and saving.' : !activeGroups().length ? 'Assign an available route to at least one group before saving.' : fallbackEnabled() && !normalizedFallback().routes.length ? 'Choose an available route for fallback access, or turn fallback off.' : '';
   createEffect(() => props.onReadyChange?.(canSave()));
 
   const clearRouteVerification = (name: string) => {
@@ -340,11 +356,14 @@ const AiRoutingFields: Component<Props> = (props) => {
   };
   const verifyNativeTarget = async (index: number, administratorConfirmed = false) => {
     const original = nativeTargets()[index];
-    if (!original || original.busy || !connectionReady()) return;
+    if (!original || original.busy || !connectionReady() || !findProfile(original.profileRef)) return;
     const target = { ...original, enabled: false };
+    const profileDraft = customRevisions().find((profile) => refKey(profileRef(profile)) === refKey(target.profileRef)
+      && !catalog().profiles.some((saved) => refKey(saved) === refKey(target.profileRef)));
     setNativeTargets((items) => items.map((item, at) => at === index ? { ...target, busy: true, error: undefined } : item));
     try {
-      const result = await checkNativeTarget({ target: { ...(target.id && { id: target.id }), label: target.label, model: target.model, contextWindow: target.contextWindow, profileId: target.profileId, enabled: false },
+      const result = await checkNativeTarget({ target: { ...(target.id && { id: target.id }), label: target.label, model: target.model, provider: target.provider,
+        contextWindow: target.contextWindow, profileRef: target.profileRef, enabled: false }, ...(profileDraft && { profileDraft }),
         ...(administratorConfirmed && { administratorConfirmed: true as const }), ...(gatewayDraft() && { gateway: gatewayDraft()! }) });
       setNativeChecks((checks) => ({ ...checks, [result.targetId]: result.checkId }));
       setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, id: result.targetId, handle: `cf-native-${result.targetId}`, busy: false, verification: result.verification } : item));
@@ -474,22 +493,46 @@ const AiRoutingFields: Component<Props> = (props) => {
     </section>
 
     <section hidden={section() !== 'native'} class="admin-routing-pane" aria-labelledby="native-heading">
-      <div class="admin-subsection-heading"><div><h3 id="native-heading">Native providers</h3><p>Add exact Amazon Bedrock model or inference-profile identifiers. Suggestions from routes are optional and are not an allowlist.</p></div><span class="admin-status">{nativeTargets().length} targets</span></div>
-      <Show when={catalog().providerCatalogStatus === 'ready' && catalog().providers?.some((provider) => provider.provider === 'aws-bedrock' && provider.configured)} fallback={<p class="admin-status-text">No default Amazon Bedrock configuration was found, or provider configuration discovery is unavailable.</p>}>
-        <p class="admin-status-text">Amazon Bedrock configuration found. Readiness is unverified until each exact target passes a check or an administrator marks it verified.</p>
-        <Index each={nativeTargets()}>{(target, index) => <article class="admin-route-entry" aria-label={`${target().label || 'New'} native target`}><div class="admin-route-panel">
-          <div class="admin-route-controls">
-            <label class="admin-form-field"><span>Label</span><input aria-label={`Native target ${index + 1} label`} value={target().label} onInput={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, label: event.currentTarget.value } : item))} /></label>
-            <label class="admin-form-field"><span>Exact Bedrock model or inference profile</span><input aria-label={`Native target ${index + 1} model`} list={`native-model-suggestions-${index}`} value={target().model} onInput={(event) => { if (target().id) setNativeChecks((checks) => ({ ...checks, [target().id!]: null })); setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, model: event.currentTarget.value, enabled: false, verification: undefined } : item)); }} /><datalist id={`native-model-suggestions-${index}`}><For each={nativeModelSuggestions()}>{(model) => <option value={model} />}</For></datalist><small>Enter the exact provider identifier. Route-derived model names are suggestions only.</small></label>
-            <label class="admin-form-field"><span>Context window</span><input type="text" inputmode="numeric" aria-label={`Native target ${index + 1} context window`} value={target().contextWindow} onInput={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, contextWindow: Number(event.currentTarget.value) } : item))} /><small>Must be greater than 16,384 tokens.</small></label>
-            <label class="admin-form-field"><span>Capability profile</span><select aria-label={`Native target ${index + 1} profile`} value="bedrock-anthropic-compat" disabled><option value="bedrock-anthropic-compat">AWS Bedrock · Anthropic Claude</option></select><small>Provider-default reasoning. No Off, Medium, or High behavior is claimed.</small></label>
-          </div>
-          <Show when={!Number.isSafeInteger(target().contextWindow) || target().contextWindow <= 16384}><p class="admin-inline-error">Enter a whole-number context window greater than 16,384.</p></Show>
-          <label class="admin-toggle-field"><input type="checkbox" aria-label={`Enable ${target().label} native target`} checked={target().enabled} disabled={!target().verification?.current} onChange={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, enabled: event.currentTarget.checked } : item))} /><span>Enabled</span></label>
-          <Show when={target().error}><p role="alert" class="admin-inline-error">{target().error}</p></Show>
-          <div class="admin-route-actions"><button type="button" class="admin-secondary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index)}>{target().busy ? 'Verifying…' : 'Verify Profile'}</button><button type="button" class="admin-primary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index, true)}>Mark as verified</button><button type="button" class="admin-link-button admin-danger-link" onClick={() => setNativeTargets((items) => items.filter((_, at) => at !== index))}>Remove target</button></div>
-        </div></article>}</Index>
-        <button type="button" class="admin-secondary-button" onClick={() => setNativeTargets((items) => [...items, { label: '', model: '', contextWindow: 200000, profileId: 'bedrock-anthropic-compat', enabled: false }])}>Add Bedrock target</button>
+      <div class="admin-subsection-heading"><div><h3 id="native-heading">Native providers</h3><p>Add an exact model for any configured provider. Discovery can match an existing profile or prepare a custom profile without redeployment.</p></div><span class="admin-status">{nativeTargets().length} targets</span></div>
+      <Show when={catalog().providerCatalogStatus === 'ready'} fallback={<p class="admin-status-text">Provider configuration discovery is unavailable. Dynamic Routes remain available.</p>}>
+        <Show when={configuredProviders().length} fallback={<p class="admin-status-text">No native provider configurations were found for this gateway.</p>}>
+          <section class="admin-route-models" aria-label="Configured native providers">
+            <strong>Configured providers</strong>
+            <ul class="admin-model-list"><For each={configuredProviders()}>{(provider) => <li><strong>{provider.label}</strong><span>{provider.supported ? `${provider.custom ? 'Custom provider' : 'Native provider'} · available for targets` : 'Binding is ambiguous or provider classification is unavailable'}</span></li>}</For></ul>
+            <p class="admin-field-help">Configuration presence does not prove model readiness. Verify each exact target before assigning access.</p>
+          </section>
+          <Index each={nativeTargets()}>{(target, index) => {
+            const clearProof = (update: Partial<NativeDraft>) => {
+              if (target().id) setNativeChecks((checks) => ({ ...checks, [target().id!]: null }));
+              setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, ...update, enabled: false, verification: undefined } : item));
+            };
+            const selectedProfile = () => findProfile(target().profileRef);
+            return <article class="admin-route-entry" aria-label={`${target().label || 'New'} native target`}><div class="admin-route-panel">
+              <div class="admin-route-controls">
+                <label class="admin-form-field"><span>Provider</span><select aria-label={`Native target ${index + 1} provider`} value={target().provider} onChange={(event) => {
+                  const provider = event.currentTarget.value; const profile = preparedProfileRef(provider);
+                  if (profile) clearProof({ provider, profileRef: profile, model: '' });
+                }}><For each={selectableProviders()}>{(provider) => <option value={provider.provider}>{provider.label}</option>}</For></select><small>Only uniquely selectable provider bindings are available.</small></label>
+                <label class="admin-form-field"><span>Label</span><input aria-label={`Native target ${index + 1} label`} value={target().label} onInput={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, label: event.currentTarget.value } : item))} /></label>
+                <label class="admin-form-field"><span>Exact model identifier</span><input aria-label={`Native target ${index + 1} model`} list={`native-model-suggestions-${index}`} value={target().model} onInput={(event) => clearProof({ model: event.currentTarget.value })} /><datalist id={`native-model-suggestions-${index}`}><For each={nativeModelSuggestions(target().provider)}>{(model) => <option value={model} />}</For></datalist><small>Route-derived names for this provider are suggestions only.</small></label>
+                <label class="admin-form-field"><span>Context window</span><input type="text" inputmode="numeric" aria-label={`Native target ${index + 1} context window`} value={target().contextWindow} onInput={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, contextWindow: Number(event.currentTarget.value) } : item))} /><small>Must be greater than 16,384 tokens.</small></label>
+                <label class="admin-form-field"><span>Capability profile</span><select aria-label={`Native target ${index + 1} profile`} value={refKey(target().profileRef)} onChange={(event) => {
+                  const profile = assignableProfiles().find((candidate) => refKey(candidate) === event.currentTarget.value);
+                  if (profile) clearProof({ profileRef: profileRefFromEntry(profile) });
+                }}><For each={assignableProfiles()}>{(profile) => <option value={refKey(profile)}>{profileDisplayName(profile)}</option>}</For></select><small>{selectedProfile()?.supportedLevels.length ? `Pi levels: ${selectedProfile()!.supportedLevels.map(levelLabel).join(', ')}.` : 'Provider-default reasoning; no Pi effort level is claimed.'}</small></label>
+              </div>
+              <Show when={!Number.isSafeInteger(target().contextWindow) || target().contextWindow <= 16384}><p class="admin-inline-error">Enter a whole-number context window greater than 16,384.</p></Show>
+              <label class="admin-toggle-field"><input type="checkbox" aria-label={`Enable ${target().label} native target`} checked={target().enabled} disabled={!target().verification?.current} onChange={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, enabled: event.currentTarget.checked } : item))} /><span>Enabled</span></label>
+              <Show when={target().error}><p role="alert" class="admin-inline-error">{target().error}</p></Show>
+              <div class="admin-route-actions"><button type="button" class="admin-secondary-button" aria-label={`Discover Profile for native target ${index + 1}`} disabled={!connectionReady() || target().busy || !target().model || nativeProfileEditor() !== undefined} onClick={() => setNativeProfileEditor(index)}>Discover Profile</button><button type="button" class="admin-secondary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index)}>{target().busy ? 'Verifying…' : 'Verify Profile'}</button><button type="button" class="admin-primary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index, true)}>Mark as verified</button><button type="button" class="admin-link-button admin-danger-link" onClick={() => setNativeTargets((items) => items.filter((_, at) => at !== index))}>Remove target</button></div>
+              <Show when={nativeProfileEditor() === index}><ReasoningProfileEditor route={`${target().provider}/${target().model}`} discoverCompatibility={() => discoverNativeCompatibility({ target: nativeSubmission()[index], ...(gatewayDraft() && { gateway: gatewayDraft()! }), maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS })} onBusyChange={setProfileEditorBusy} existingRevisions={customRevisions()} onCancel={() => setNativeProfileEditor(undefined)} onSelectProfile={(ref) => { setNativeProfileEditor(undefined); clearProof({ profileRef: ref }); }} onSave={(revision) => { const ref = profileRef(revision); if (!ref) return; setNativeProfileEditor(undefined); setCustomRevisions((items) => [...items, revision]); clearProof({ profileRef: ref }); setPendingProfileName(String(revision.name ?? 'New profile')); }} /></Show>
+            </div></article>;
+          }}</Index>
+          <Show when={selectableProviders().length}><button type="button" class="admin-secondary-button" onClick={() => {
+            const provider = selectableProviders()[0]; const profile = provider && preparedProfileRef(provider.provider);
+            if (provider && profile) setNativeTargets((items) => [...items, { label: '', model: '', provider: provider.provider, contextWindow: 200000, profileRef: profile, enabled: false }]);
+          }}>Add native target</button></Show>
+        </Show>
       </Show>
     </section>
 

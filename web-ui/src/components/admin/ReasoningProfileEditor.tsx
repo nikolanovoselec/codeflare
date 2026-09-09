@@ -8,6 +8,7 @@ import { profileDisplayName } from './pi-profile-presentation';
 interface Props {
   route: string;
   context?: ReasoningManagementContext;
+  discoverCompatibility?: () => Promise<ReasoningDiscoveryResult>;
   onBusyChange?: (busy: boolean) => void;
   existingRevisions: Array<Record<string, unknown>>;
   onSave: (revision: Record<string, unknown>) => void;
@@ -183,7 +184,9 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
     setError('');
     setResult(undefined);
     try {
-      const result = await discoverReasoningCompatibility({ route: props.route, ...props.context, maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS });
+      const result = props.discoverCompatibility
+        ? await props.discoverCompatibility()
+        : await discoverReasoningCompatibility({ route: props.route, ...props.context, maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS });
       if (!disposed) setResult(result);
     } catch {
       if (!disposed) setError('Compatibility check failed. Check the AI Gateway connection and try again.');

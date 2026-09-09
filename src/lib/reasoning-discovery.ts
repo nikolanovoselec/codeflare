@@ -73,12 +73,13 @@ export interface DiscoveryInput {
   timeoutMs?: number;
   maxResponseBytes?: number;
   compatOnly?: boolean;
+  byokAlias?: string;
 }
 
 export interface ParsedPiSse {
   content: string;
   reasoningBlocks: Array<{ signature: string; text: string }>;
-  toolCalls: Array<{ id: string; type: string; name: string; argumentsText: string }>;
+  toolCalls: Array<{ id: string; type: string; name: string; argumentsText: string; thoughtSignature?: string }>;
   rawFinishReason: string | null;
   effectiveFinishReason: string | null;
   finishReasonRepaired: boolean;
@@ -99,6 +100,7 @@ interface ChatCompletionsAttemptInput {
   timeoutMs?: number;
   maxResponseBytes?: number;
   compatOnly?: boolean;
+  byokAlias?: string;
 }
 
 interface ChatCompletionsAttempt {
@@ -409,6 +411,9 @@ function consumeSseData(payload: string, state: ParsedPiSse): void {
       const fn = isPlainObject(rawToolCall.function) ? rawToolCall.function : {};
       if (typeof fn.name === 'string') current.name += fn.name;
       if (typeof fn.arguments === 'string') current.argumentsText += fn.arguments;
+      const extra = isPlainObject(rawToolCall.extra_content) && isPlainObject(rawToolCall.extra_content.google)
+        ? rawToolCall.extra_content.google.thought_signature : undefined;
+      if (typeof extra === 'string' && extra.length > 0 && extra.length <= 32_768) current.thoughtSignature = extra;
     }
   }
 }
@@ -484,6 +489,7 @@ export function buildPiReplayMessages(initialMessages: unknown, parsed: ParsedPi
     id: call.id,
     type: 'function',
     function: { name: call.name, arguments: JSON.stringify(parsedToolArguments(call)) },
+    ...(call.thoughtSignature && { extra_content: { google: { thought_signature: call.thoughtSignature } } }),
   }];
   return [
     ...(clone(initialMessages) as Array<Record<string, unknown>>),
@@ -619,7 +625,7 @@ async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInp
     delete compatBody.prompt_cache_key;
     return {
       response: await fetchWithTimeout(fetcher, compatUrl, {
-        method: 'POST', headers: { 'cf-aig-authorization': `Bearer ${input.apiToken}`, 'content-type': 'application/json' }, body: JSON.stringify(compatBody),
+        method: 'POST', headers: { 'cf-aig-authorization': `Bearer ${input.apiToken}`, ...(input.byokAlias && { 'cf-aig-byok-alias': input.byokAlias }), 'content-type': 'application/json' }, body: JSON.stringify(compatBody),
       }, timeoutMs, 1), attempts: 1, transport: 'compat',
     };
   }
@@ -647,6 +653,7 @@ async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInp
     method: 'POST',
     headers: {
       'cf-aig-authorization': `Bearer ${input.apiToken}`,
+      ...(input.byokAlias && { 'cf-aig-byok-alias': input.byokAlias }),
       'cf-aig-metadata': metadata,
       'content-type': 'application/json',
     },
@@ -967,6 +974,7 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxResponseBytes: input.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
     compatOnly: input.compatOnly,
+    byokAlias: input.byokAlias,
     repairToolNames: profile.id === 'bedrock-anthropic-compat',
   };
   const groups = groupMappings(profile);

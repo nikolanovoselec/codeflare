@@ -78,11 +78,15 @@ export async function getReasoningRouteInventory(route: string, context?: Reason
   return fetchApi(`/admin/reasoning/routes/${encodeURIComponent(route)}/inventory`, context ? { method: 'POST', body: JSON.stringify(context) } : {}, ReasoningRouteInventorySchema) as Promise<ReasoningRouteInventory>;
 }
 
-export async function checkNativeTarget(request: { target: NativeAiTargetDraft; administratorConfirmed?: true; gateway?: ReasoningGatewayDraft; maxCompletionTokens?: number }): Promise<NativeTargetCheckResult> {
+export async function checkNativeTarget(request: { target: NativeAiTargetDraft; profileDraft?: unknown; administratorConfirmed?: true; gateway?: ReasoningGatewayDraft; maxCompletionTokens?: number }): Promise<NativeTargetCheckResult> {
   return fetchApi('/admin/reasoning/native/discover', { method: 'POST', body: JSON.stringify(request) }, z.object({
     targetId: z.string().uuid(), classification: z.enum(['Verified', 'Administrator-confirmed']), assignable: z.literal(true), checkId: z.string().uuid(),
     verification: z.object({ method: z.enum(['automated', 'administrator']), checkedAt: z.string(), current: z.literal(true) }),
   })) as Promise<NativeTargetCheckResult>;
+}
+
+export async function discoverNativeCompatibility(request: { target: NativeAiTargetDraft; gateway?: ReasoningGatewayDraft; maxCompletionTokens?: number }): Promise<ReasoningDiscoveryResult> {
+  return fetchApi('/admin/reasoning/native/profile-discovery', { method: 'POST', body: JSON.stringify(request) }, ReasoningDiscoveryResultSchema) as Promise<ReasoningDiscoveryResult>;
 }
 
 export async function discoverReasoningCompatibility(request: ReasoningDiscoveryRequest): Promise<ReasoningDiscoveryResult> {

@@ -93,14 +93,14 @@ export interface ReasoningCatalog {
   usage: Array<{ profileRef: ProfileRevisionRef; routes: string[] }>;
   routes: string[];
   routeCatalogStatus: 'ready' | 'unavailable';
-  providers?: Array<{ provider: string; label: string; configured: boolean; defaultSelection: boolean; supported: boolean }>;
+  providers?: Array<{ provider: string; label: string; configured: boolean; defaultSelection: boolean; supported: boolean; custom?: boolean }>;
   providerCatalogStatus?: 'ready' | 'unavailable';
   connection?: { status: 'ready' | 'missing' | 'permission-denied' | 'unavailable'; message: string };
 }
 
 export interface NativeAiTargetDraft {
-  id?: string; handle?: string; label: string; model: string; contextWindow: number;
-  profileId: 'bedrock-anthropic-compat'; enabled: boolean;
+  id?: string; handle?: string; label: string; model: string; contextWindow: number; provider: string;
+  profileRef: ProfileRevisionRef; enabled: boolean;
   verification?: { method: 'automated' | 'administrator'; checkedAt: string; current: boolean };
 }
 export interface NativeTargetCheckResult {

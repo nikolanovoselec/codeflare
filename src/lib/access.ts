@@ -9,28 +9,31 @@ import { isEnterpriseMode } from './subscription';
 import { parseUserRecord } from './user-record';
 import { listAllKvKeys, SETUP_KEYS } from './kv-keys';
 import { reactivateUsageUser } from './admin-usage';
-import { parseRouteSettings, type PiReasoningLevel } from './reasoning-profiles';
-import { getRouteReasoningProfile, parseReasoningConfiguration } from './reasoning-configuration';
+import { parseRouteSettings, type PiReasoningLevel, type ProfileRevisionRef } from './reasoning-profiles';
+import { getProfileForRef, getRouteReasoningProfile, parseReasoningConfiguration } from './reasoning-configuration';
 import { getAigConfig } from './aig-config';
-import { defaultBedrockProvider, gatewayCoordinates, listNativeProviderConfigs, type GatewayConnection } from './ai-gateway-management';
+import { gatewayCoordinates, listCustomProviderSlugs, listNativeProviderConfigs, selectNativeProviderConfig, type GatewayConnection, type NativeProviderConfig } from './ai-gateway-management';
 import { nativeTargetHandle, nativeVerificationMatches, parseNativeAiTargets } from './native-ai-targets';
 import { connectionFingerprint, preferredReasoningLevel, verificationMatches } from './reasoning-verification';
 
 const logger = createLogger('access');
 const NATIVE_PROVIDER_CACHE_TTL_MS = 60_000;
-const nativeProviderCache = new Map<string, { id: string | null; checkedAt: number }>();
+interface NativeProviderState { configs: NativeProviderConfig[]; customProviders: Set<string> | null; checkedAt: number }
+const nativeProviderCache = new Map<string, NativeProviderState>();
 
-async function currentBedrockProvider(connection: GatewayConnection): Promise<string | null> {
+async function currentNativeProviders(connection: GatewayConnection): Promise<NativeProviderState | null> {
   const coordinates = gatewayCoordinates(connection);
   const fingerprint = connectionFingerprint(connection);
   if (!coordinates || !connection.token || !fingerprint) return null;
   const key = `${coordinates.accountId}\u001f${coordinates.gatewayId}\u001f${fingerprint}`;
   const cached = nativeProviderCache.get(key);
-  if (cached && Date.now() - cached.checkedAt < NATIVE_PROVIDER_CACHE_TTL_MS) return cached.id;
-  const provider = defaultBedrockProvider(await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, connection.token));
-  const id = provider?.id ?? null;
-  nativeProviderCache.set(key, { id, checkedAt: Date.now() });
-  return id;
+  if (cached && Date.now() - cached.checkedAt < NATIVE_PROVIDER_CACHE_TTL_MS) return cached;
+  const configs = await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, connection.token);
+  let customProviders: Set<string> | null = null;
+  try { customProviders = await listCustomProviderSlugs(coordinates.accountId, connection.token); } catch { /* Built-in providers remain authorizable. */ }
+  const state = { configs, customProviders, checkedAt: Date.now() };
+  nativeProviderCache.set(key, state);
+  return state;
 }
 
 // Internal provenance: only identities produced by successful cryptographic or
@@ -764,7 +767,7 @@ export async function loadEnterpriseRouteConfig(
     if (assignment) routeReasoningLevels[route] = [...getRouteReasoningProfile(configuration, route).supportedLevels];
     else {
       const target = resolved.nativeTargets[route];
-      if (target) { routeReasoningLevels[route] = []; modelDisplayNames[route] = target.label; }
+      if (target) { routeReasoningLevels[route] = [...target.reasoningLevels]; modelDisplayNames[route] = target.label; }
     }
   }
   const routeContextWindows = (() => {
@@ -820,12 +823,17 @@ function applyDefaultDrift(
  * runtime management requests. No matching group uses
  * explicitly enabled fallback, never the historical global default mirror.
  */
+interface ResolvedNativeTarget {
+  model: string; provider: string; customProvider: boolean; byokAlias?: string; targetId: string; adapter: string;
+  profileRef: ProfileRevisionRef; reasoningLevels: PiReasoningLevel[]; label: string; contextWindow: number;
+}
+
 export async function resolveRouteCatalog(
   kv: KVNamespace,
   groups?: string[],
   effectiveGateway?: GatewayConnection,
-): Promise<{ routeCatalog: string[]; defaultRoute: string; defaultReasoning: string; nativeTargets: Record<string, { model: string; targetId: string; adapter: string; label: string; contextWindow: number }> }> {
-  const empty = { routeCatalog: [] as string[], defaultRoute: '', defaultReasoning: '', nativeTargets: {} as Record<string, { model: string; targetId: string; adapter: string; label: string; contextWindow: number }> };
+): Promise<{ routeCatalog: string[]; defaultRoute: string; defaultReasoning: string; nativeTargets: Record<string, ResolvedNativeTarget> }> {
+  const empty = { routeCatalog: [] as string[], defaultRoute: '', defaultReasoning: '', nativeTargets: {} as Record<string, ResolvedNativeTarget> };
   try {
     const [rawConfiguration, rawGroups, rawCatalog, rawNative] = await Promise.all([
       kv.get(SETUP_KEYS.REASONING_CONFIGURATION), kv.get(SETUP_KEYS.GROUP_ROUTING), kv.get(SETUP_KEYS.DYNAMIC_ROUTES), kv.get(SETUP_KEYS.NATIVE_AI_TARGETS),
@@ -847,10 +855,10 @@ export async function resolveRouteCatalog(
       ? policy.targets
       : policy.routes.map((route) => ({ kind: 'dynamic-route' as const, route }));
     const eligible: string[] = [];
-    const nativeTargets: Record<string, { model: string; targetId: string; adapter: string; label: string; contextWindow: number }> = {};
+    const nativeTargets: Record<string, ResolvedNativeTarget> = {};
     let nativeDocument: ReturnType<typeof parseNativeAiTargets> = { schemaVersion: 1, targets: [] };
     try { nativeDocument = parseNativeAiTargets(rawNative); } catch { /* Malformed native state cannot deny valid Dynamic Routes. */ }
-    let currentProviderId: string | null | undefined;
+    let currentProviderState: NativeProviderState | null | undefined;
     for (const ref of refs) {
       if (ref?.kind === 'dynamic-route') {
         const route = ref.route;
@@ -865,13 +873,27 @@ export async function resolveRouteCatalog(
       } else if (ref?.kind === 'native-target' && typeof ref.targetId === 'string') {
         const target = nativeDocument.targets.find((candidate) => candidate.id === ref.targetId);
         if (!target?.enabled || !nativeVerificationMatches(target, connection)) continue;
-        if (currentProviderId === undefined) {
-          try { currentProviderId = await currentBedrockProvider(connection); } catch { currentProviderId = null; }
+        if (currentProviderState === undefined) {
+          try { currentProviderState = await currentNativeProviders(connection); } catch { currentProviderState = null; }
         }
-        if (!currentProviderId || currentProviderId !== target.providerConfigId) continue;
+        if (!currentProviderState) continue;
+        let selected;
+        try { selected = selectNativeProviderConfig(currentProviderState.configs, target.provider); } catch { continue; }
+        const alias = selected?.alias;
+        const customCurrent = currentProviderState.customProviders?.has(target.provider);
+        const builtInProvider = ['aws-bedrock', 'google-ai-studio', 'openai'].includes(target.provider);
+        if (!selected || selected.id !== target.providerConfigId || alias !== target.providerConfigAlias
+          || (target.customProvider ? customCurrent !== true : (customCurrent === true || (!currentProviderState.customProviders && !builtInProvider)))) continue;
+        let profile;
+        try { profile = getProfileForRef(configuration, target.profileRef); } catch { continue; }
         const handle = nativeTargetHandle(target.id);
         eligible.push(handle);
-        nativeTargets[handle] = { model: target.model, targetId: target.id, adapter: target.profileRef.id, label: target.label, contextWindow: target.contextWindow };
+        nativeTargets[handle] = {
+          model: target.model, provider: target.provider, customProvider: Boolean(target.customProvider), ...(alias && { byokAlias: alias }),
+          targetId: target.id, adapter: target.provider === 'aws-bedrock' ? 'bedrock-anthropic-compat'
+            : target.provider === 'google-ai-studio' ? 'gemini-openai-compat' : 'native-openai-compat',
+          profileRef: target.profileRef, reasoningLevels: [...profile.supportedLevels], label: target.label, contextWindow: target.contextWindow,
+        };
       }
     }
     const defaultRef = policy.defaultTarget;
@@ -879,7 +901,11 @@ export async function resolveRouteCatalog(
       : defaultRef?.kind === 'dynamic-route' ? defaultRef.route : typeof policy.defaultRoute === 'string' ? policy.defaultRoute : null;
     const resolved = applyDefaultDrift(eligible, configuredDefault, typeof policy.reasoning === 'string' ? policy.reasoning : '');
     if (!resolved.defaultRoute) return empty;
-    if (nativeTargets[resolved.defaultRoute]) return { ...resolved, defaultReasoning: '', nativeTargets };
+    const nativeDefault = nativeTargets[resolved.defaultRoute];
+    if (nativeDefault) {
+      const levels = nativeDefault.reasoningLevels;
+      return { ...resolved, defaultReasoning: levels.includes(resolved.defaultReasoning as PiReasoningLevel) ? resolved.defaultReasoning : preferredReasoningLevel(levels) ?? '', nativeTargets };
+    }
     const levels = getRouteReasoningProfile(configuration, resolved.defaultRoute).supportedLevels;
     return { ...resolved, nativeTargets, defaultReasoning: levels.includes(resolved.defaultReasoning as PiReasoningLevel) ? resolved.defaultReasoning : preferredReasoningLevel(levels) ?? '' };
   } catch { return empty; }

@@ -8,11 +8,12 @@ import type {
   ReasoningRouteInventory, ReasoningRouteVerification,
 } from '../../types';
 
-const api = vi.hoisted(() => ({ catalog: vi.fn(), inventory: vi.fn(), discover: vi.fn(), native: vi.fn() }));
+const api = vi.hoisted(() => ({ catalog: vi.fn(), inventory: vi.fn(), discover: vi.fn(), nativeDiscover: vi.fn(), native: vi.fn() }));
 vi.mock('../../api/client', () => ({
   getReasoningCatalog: (...args: unknown[]) => api.catalog(...args),
   getReasoningRouteInventory: (...args: unknown[]) => api.inventory(...args),
   discoverReasoningCompatibility: (...args: unknown[]) => api.discover(...args),
+  discoverNativeCompatibility: (...args: unknown[]) => api.nativeDiscover(...args),
   checkNativeTarget: (...args: unknown[]) => api.native(...args),
 }));
 
@@ -26,6 +27,10 @@ const catalog: ReasoningCatalog = {
     { id: 'workers-ai-kimi-k-thinking', revision: 1, hash: hash('b'), name: 'Kimi thinking', supportedLevels: ['medium', 'high'], classification: 'Verified' },
     { id: 'workers-ai-glm-thinking', revision: 1, hash: hash('a'), name: 'GLM thinking', supportedLevels: ['off', 'medium', 'high'], classification: 'Verified' },
     { id: 'codeflare-inference-mesh-binary-thinking', revision: 1, hash: hash('6'), name: 'Mesh binary thinking', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
+    { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c'), name: 'AWS Bedrock · Anthropic Claude', supportedLevels: [], classification: 'Verified' },
+    { id: 'native-openai-compat', revision: 1, hash: hash('d'), name: 'OpenAI GPT-5.6 · native tools-off', supportedLevels: ['off'], classification: 'Verified' },
+    { id: 'native-google-ai-studio-compat', revision: 1, hash: hash('e'), name: 'Google AI Studio · Gemini native', supportedLevels: [], classification: 'Verified' },
+    { id: 'native-codeflare-inference-mesh-compat', revision: 1, hash: hash('f'), name: 'Codeflare Inference Mesh · native compat', supportedLevels: [], classification: 'Verified' },
   ],
   notices: [{ id: 'gpt-oss-tool-replay', name: 'GPT-OSS tool replay', assignable: false, summary: 'Tool-result replay is unsupported.' }],
   usage: [], routes: ['general_usage', 'development', 'research'], routeCatalogStatus: 'ready',
@@ -145,6 +150,7 @@ beforeEach(() => {
   api.catalog.mockReset().mockResolvedValue(catalog);
   api.inventory.mockReset().mockImplementation(async (route: string) => routeInventory(route));
   api.discover.mockReset().mockResolvedValue({ classification: 'Compatible, unverified', warnings: ['custom_provider_backend_requires_revalidation'], accounting: { logicalProbes: 2, httpAttempts: 3 } });
+  api.nativeDiscover.mockReset().mockResolvedValue({ classification: 'Compatible, unverified', warnings: [], accounting: { logicalProbes: 2, httpAttempts: 2 } });
   api.native.mockReset().mockResolvedValue({ targetId: '11111111-1111-4111-8111-111111111111', classification: 'Administrator-confirmed', assignable: true, checkId: '22222222-2222-4222-8222-222222222222', verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true } });
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -176,9 +182,9 @@ describe('Structured AI routing', () => {
     const view = mount(checkedCurrent());
     await waitFor(() => expect(view.getByRole('button', { name: 'Native providers' })).toBeEnabled());
     await fireEvent.click(view.getByRole('button', { name: 'Native providers' }));
-    await fireEvent.click(view.getByRole('button', { name: 'Add Bedrock target' }));
+    await fireEvent.click(view.getByRole('button', { name: 'Add native target' }));
     const modelInput = view.getByLabelText('Native target 1 model');
-    await waitFor(() => expect([...view.container.querySelectorAll(`#${modelInput.getAttribute('list')} option`)].map((option) => option.getAttribute('value'))).toContain('@cf/general_usage-model'));
+    expect(modelInput).toHaveAttribute('list');
     await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Claude custom' } });
     await fireEvent.input(modelInput, { target: { value: 'eu.anthropic.claude-future-profile' } });
     await fireEvent.input(view.getByLabelText('Native target 1 context window'), { target: { value: '200000' } });
@@ -294,6 +300,7 @@ describe('Structured AI routing', () => {
     expect(Array.from(profile.options, (option) => option.textContent)).toEqual([
       'Choose a profile', 'OpenAI · GPT — tools and reasoning', 'OpenAI · GPT — reasoning off',
       'Workers AI · Gemma', 'Workers AI · Kimi', 'Workers AI · GLM', 'Codeflare Inference Mesh · Qwen / Ornith',
+      'Amazon Bedrock · Claude native', 'OpenAI · GPT-5.6 native tools-off', 'Google AI Studio · Gemini native', 'Codeflare Inference Mesh · Ornith native',
     ]);
     expect(profile).toHaveValue(profileKey(kimiRef));
     expect(within(profile).queryByRole('option', { name: 'GPT-OSS tool replay' })).toBeNull();

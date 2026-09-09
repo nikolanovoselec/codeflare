@@ -69,7 +69,7 @@ export const ReasoningCatalogSchema = z.object({
   usage: z.array(z.object({ profileRef: ProfileRevisionRefSchema, routes: z.array(z.string()) })),
   routes: z.array(z.string()),
   routeCatalogStatus: z.enum(['ready', 'unavailable']),
-  providers: z.array(z.object({ provider: z.string(), label: z.string(), configured: z.boolean(), defaultSelection: z.boolean(), supported: z.boolean() })).optional(),
+  providers: z.array(z.object({ provider: z.string(), label: z.string(), configured: z.boolean(), defaultSelection: z.boolean(), supported: z.boolean(), custom: z.boolean().optional() })).optional(),
   providerCatalogStatus: z.enum(['ready', 'unavailable']).optional(),
   connection: z.object({ status: z.enum(['ready', 'missing', 'permission-denied', 'unavailable']), message: z.string() }).optional(),
 });

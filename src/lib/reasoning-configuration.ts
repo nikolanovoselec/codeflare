@@ -322,7 +322,7 @@ export function serializeReasoningConfiguration(input: unknown): string {
   return serialized;
 }
 
-function getProfileForRef(configuration: ReasoningConfiguration, ref: ProfileRevisionRef): NormalizedReasoningProfile {
+export function getProfileForRef(configuration: ReasoningConfiguration, ref: ProfileRevisionRef): NormalizedReasoningProfile {
   const customMap = new Map(configuration.customProfileRevisions.map((profile) => [`${profile.id}:${profile.revision}`, profile]));
   return resolveRef(ref, customMap, 'profile reference');
 }

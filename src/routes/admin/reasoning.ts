@@ -11,6 +11,7 @@ import {
   COMPATIBILITY_NOTICES,
   canonicalHash,
   canonicalJson,
+  getBuiltInProfileRef,
   isPiReasoningLevel,
   normalizeCustomProfile,
   type NormalizedReasoningProfile,
@@ -18,7 +19,8 @@ import {
 import { discoverPiCompatibility, PI_WIRE_CANARY_VERSION } from '../../lib/reasoning-discovery';
 import {
   backendDescriptionsSchema, connectionStatus, dynamicRouteSchema, gatewayDraftSchema,
-  defaultBedrockProvider, gatewayCoordinates, listDynamicRoutes, listNativeProviderConfigs, resolveGatewayConnection, type GatewayDraft,
+  gatewayCoordinates, listCustomProviderSlugs, listDynamicRoutes, listNativeProviderConfigs, resolveGatewayConnection,
+  selectNativeProviderConfig, type GatewayDraft,
 } from '../../lib/ai-gateway-management';
 import {
   assignmentBackendDescriptions, completedProfileCheck, connectionFingerprint, issueRouteCheck,
@@ -27,7 +29,8 @@ import {
 } from '../../lib/reasoning-verification';
 import type { RouteReasoningAssignment } from '../../lib/reasoning-configuration';
 import {
-  BEDROCK_COMPAT_ADAPTER_VERSION, BEDROCK_PROFILE_ID, createNativeTarget, issueNativeTargetCheck, nativeTargetDraftSchema, parseNativeAiTargets,
+  createNativeTarget, defaultNativeProfileId, issueNativeTargetCheck, nativeProviderSelector, nativeTargetAdapterVersion,
+  nativeTargetDraftSchema, parseNativeAiTargets,
 } from '../../lib/native-ai-targets';
 import {
   DynamicRouteInventoryError,
@@ -42,8 +45,12 @@ const profileRefSchema = profileRevisionRefSchema;
 const catalogSchema = z.object({ gateway: gatewayDraftSchema.optional() }).strict();
 const inventorySchema = catalogSchema.extend({ backendDescriptions: backendDescriptionsSchema.optional() }).strict();
 const nativeDiscoverySchema = z.object({
-  target: nativeTargetDraftSchema, administratorConfirmed: z.literal(true).optional(),
+  target: nativeTargetDraftSchema, profileDraft: z.unknown().optional(), administratorConfirmed: z.literal(true).optional(),
   gateway: gatewayDraftSchema.optional(), maxCompletionTokens: z.number().int().min(32).max(16_384).default(4096),
+}).strict();
+const nativeProfileDiscoverySchema = z.object({
+  target: nativeTargetDraftSchema.omit({ profileRef: true }).extend({ profileRef: profileRefSchema.optional() }), gateway: gatewayDraftSchema.optional(),
+  maxCompletionTokens: z.number().int().min(32).max(16_384).default(4096),
 }).strict();
 const discoverySchema = z.object({
   route: routeSchema,
@@ -249,7 +256,7 @@ export function selectUnambiguousCandidateMatch(reports: DiscoveryCandidateRepor
   return maximal.length === 1 ? maximal[0] : null;
 }
 
-function generatedProfileDraft(profile: Record<string, unknown>, report: Record<string, any>, route: string): Record<string, unknown> {
+function generatedProfileDraft(profile: Record<string, unknown>, report: Record<string, any>, route: string, source = 'dynamic route'): Record<string, unknown> {
   const observedAt = new Date().toISOString();
   const verifiedLevels = Array.isArray(report.piCompatibility?.verifiedLevels)
     ? report.piCompatibility.verifiedLevels.filter(isPiReasoningLevel)
@@ -264,7 +271,7 @@ function generatedProfileDraft(profile: Record<string, unknown>, report: Record<
     schemaVersion: 1,
     enabled: true,
     family: 'Discovered',
-    description: `Deterministically discovered from dynamic route ${route}.`,
+    description: `Deterministically discovered from ${source} ${route}.`,
     ingressContract: 'ai-gateway-chat-completions',
     supportedLevels: verifiedLevels,
     removePaths: Array.isArray(profile.removePaths) ? profile.removePaths : [],
@@ -372,6 +379,11 @@ reasoningRoutes.use('*', authMiddleware);
 
 type ReasoningContext = Context<{ Bindings: Env; Variables: AuthVariables }>;
 
+function providerLabel(provider: string): string {
+  const known: Record<string, string> = { 'aws-bedrock': 'Amazon Bedrock', 'google-ai-studio': 'Google AI Studio', openai: 'OpenAI' };
+  return known[provider] ?? provider.split('-').map((word) => word ? word[0].toUpperCase() + word.slice(1) : '').join(' ');
+}
+
 async function catalog(c: ReasoningContext, draft?: GatewayDraft) {
   let configuration: ReasoningConfigurationView;
   try { configuration = await readReasoningConfiguration(c.env.KV); } catch {
@@ -395,12 +407,18 @@ async function catalog(c: ReasoningContext, draft?: GatewayDraft) {
     }
     try {
       const configs = await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token!);
-      const bedrock = defaultBedrockProvider(configs);
-      providers = [
-        ...(bedrock ? [{ provider: 'aws-bedrock', label: 'Amazon Bedrock', configured: true, defaultSelection: true, supported: true }] : []),
-        ...[...new Set(configs.filter((item) => item.provider !== 'aws-bedrock').map((item) => item.provider))]
-          .map((provider) => ({ provider, label: provider, configured: true, defaultSelection: false, supported: false })),
-      ];
+      let customProviders: Set<string> | null = null;
+      try { customProviders = await listCustomProviderSlugs(coordinates.accountId, gateway.token!); }
+      catch { logger.warn('Custom provider catalog discovery failed'); }
+      providers = [...new Set(configs.map((item) => item.provider))].sort().map((provider) => {
+        let selected = null;
+        try { selected = selectNativeProviderConfig(configs, provider); } catch { /* Ambiguous bindings remain visible but unavailable. */ }
+        const builtInProvider = ['aws-bedrock', 'google-ai-studio', 'openai'].includes(provider);
+        return {
+          provider, label: providerLabel(provider), configured: true, defaultSelection: selected?.defaultSelection ?? false,
+          supported: selected !== null && (builtInProvider || customProviders !== null), custom: customProviders?.has(provider) ?? false,
+        };
+      });
       providerCatalogStatus = 'ready';
     } catch { logger.warn('Native provider catalog discovery failed'); }
   }
@@ -466,6 +484,91 @@ reasoningRoutes.post('/routes/:route/inventory', requireAdmin, async (c) => {
   return routeInventory(c, request.data);
 });
 
+async function discoverNativeProfile(input: {
+  accountId: string; gatewayId: string; token: string; selector: string; provider: string; alias?: string;
+  configuration: ReasoningConfigurationView; maxCompletionTokens: number;
+}): Promise<Record<string, unknown>> {
+  const reports: DiscoveryCandidateReport[] = [];
+  for (const candidate of distinctDiscoveryCandidates().filter((profile) => Array.isArray(profile.supportedLevels) && profile.supportedLevels.length > 0)) {
+    const report = await discoverPiCompatibility({
+      accountId: input.accountId, gatewayId: input.gatewayId, apiToken: input.token, route: input.selector,
+      profile: candidate, maxCompletionTokens: input.maxCompletionTokens, compatOnly: true, ...(input.alias && { byokAlias: input.alias }),
+    });
+    reports.push({ profile: candidate, report });
+    if (report.stopDiscovery) break;
+  }
+  const stopped = reports.some(({ report }) => report.stopDiscovery === true);
+  const observed = reports.map(observedCandidate).filter((candidate): candidate is DiscoveryCandidateReport => candidate !== null);
+  const matches = stopped ? [] : allProfiles(input.configuration).filter((profile) => profile.enabled !== false).flatMap((profile) => {
+    const observation = observed.find((candidate) => coversProfile(candidate.profile, profile));
+    return observation ? [{ profile, report: observation.report }] : [];
+  });
+  const selected = stopped || matches.length > 0 ? null : selectUnambiguousCandidateMatch(distinctCandidateReports(observed));
+  const accounting = reports.reduce((total, item) => ({
+    logicalProbes: total.logicalProbes + Number(item.report.accounting?.logicalProbes ?? 0),
+    httpAttempts: total.httpAttempts + Number(item.report.accounting?.httpAttempts ?? 0),
+  }), { logicalProbes: 0, httpAttempts: 0 });
+  if (matches.length > 0) return {
+    schemaVersion: 1, route: input.selector, outcome: 'existing-profile', classification: 'Verified', assignable: true,
+    matchedProfiles: matches.map(({ profile }) => ({ profileRef: profileRefFor(profile), name: profile.name, supportedLevels: profile.supportedLevels })),
+    diagnostics: reports.flatMap(({ report }) => report.diagnostics ?? []), accounting,
+  };
+  if (selected) return {
+    schemaVersion: 1, route: input.selector, outcome: 'custom-profile', classification: selected.report.classification,
+    assignable: true, matchedProfiles: [], diagnostics: selected.report.diagnostics ?? [], accounting,
+    profileDraft: generatedProfileDraft(selected.profile, selected.report, input.selector, 'native provider target'),
+  };
+  if (!stopped) {
+    const preparedId = defaultNativeProfileId(input.provider);
+    const prepared = BUILT_IN_REASONING_PROFILES.find((profile) => profile.id === preparedId)!;
+    const report = await discoverPiCompatibility({
+      accountId: input.accountId, gatewayId: input.gatewayId, apiToken: input.token, route: input.selector,
+      profile: prepared, maxCompletionTokens: input.maxCompletionTokens, compatOnly: true, ...(input.alias && { byokAlias: input.alias }),
+    });
+    if (completedProfileCheck(report, prepared)) {
+      const known = ['aws-bedrock', 'google-ai-studio', 'openai', 'codeflare-inference-mesh'].includes(input.provider);
+      return {
+        schemaVersion: 1, route: input.selector, outcome: known ? 'existing-profile' : 'custom-profile', classification: 'Verified', assignable: true,
+        matchedProfiles: known ? [{ profileRef: getBuiltInProfileRef(preparedId), name: prepared.name, supportedLevels: prepared.supportedLevels }] : [],
+        diagnostics: report.diagnostics ?? [], accounting: report.accounting,
+        ...(!known && { profileDraft: {
+          ...generatedProfileDraft(prepared as unknown as Record<string, unknown>, report, input.selector, 'native provider target'),
+          reasoningMode: 'provider-default', supportedLevels: [], levels: {}, aliases: {}, unsupportedLevels: [...(prepared.unsupportedLevels ?? [])],
+        } }),
+      };
+    }
+    return { ...report, route: input.selector, outcome: 'unsupported', assignable: false };
+  }
+  return {
+    schemaVersion: 1, route: input.selector, outcome: 'inconclusive', classification: 'Inconclusive', assignable: false,
+    diagnostics: reports.flatMap(({ report }) => report.diagnostics ?? []), accounting,
+  };
+}
+
+reasoningRoutes.post('/native/profile-discovery', requireAdmin, discoveryRateLimiter, async (c) => {
+  const request = nativeProfileDiscoverySchema.safeParse(await c.req.json().catch(() => null));
+  if (!request.success) return c.json({ error: 'Invalid native profile discovery request', code: 'validation_error' }, 400);
+  const gateway = await resolveGatewayConnection(c.env, request.data.gateway);
+  const coordinates = gatewayCoordinates(gateway);
+  if (!coordinates || !gateway.token || !connectionFingerprint(gateway)) return c.json({ error: 'AI Gateway credentials unavailable', code: 'gateway_unavailable' }, 503);
+  try {
+    const [configs, customProviders, configuration] = await Promise.all([
+      listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token),
+      listCustomProviderSlugs(coordinates.accountId, gateway.token),
+      readReasoningConfiguration(c.env.KV),
+    ]);
+    const provider = selectNativeProviderConfig(configs, request.data.target.provider);
+    if (!provider) return c.json({ error: 'Native provider configuration not found', code: 'provider_unavailable' }, 409);
+    const selector = `${nativeProviderSelector(provider.provider, customProviders.has(provider.provider))}/${request.data.target.model}`;
+    return c.json(await discoverNativeProfile({
+      accountId: coordinates.accountId, gatewayId: coordinates.gatewayId, token: gateway.token, selector, provider: provider.provider,
+      alias: provider.alias, configuration, maxCompletionTokens: request.data.maxCompletionTokens,
+    }));
+  } catch {
+    return c.json({ error: 'Native profile discovery unavailable', code: 'discovery_unavailable' }, 502);
+  }
+});
+
 reasoningRoutes.post('/native/discover', requireAdmin, discoveryRateLimiter, async (c) => {
   const request = nativeDiscoverySchema.safeParse(await c.req.json().catch(() => null));
   if (!request.success) return c.json({ error: 'Invalid native target check', code: 'validation_error' }, 400);
@@ -474,22 +577,45 @@ reasoningRoutes.post('/native/discover', requireAdmin, discoveryRateLimiter, asy
   const fingerprint = connectionFingerprint(gateway);
   if (!coordinates || !gateway.token || !fingerprint) return c.json({ error: 'AI Gateway credentials unavailable', code: 'gateway_unavailable' }, 503);
   try {
-    const provider = defaultBedrockProvider(await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token));
-    if (!provider) return c.json({ error: 'Default Amazon Bedrock configuration not found', code: 'provider_unavailable' }, 409);
-    const profile = BUILT_IN_REASONING_PROFILES.find((candidate) => candidate.id === BEDROCK_PROFILE_ID)!;
+    const [configs, customProviders] = await Promise.all([
+      listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token),
+      listCustomProviderSlugs(coordinates.accountId, gateway.token),
+    ]);
+    const provider = selectNativeProviderConfig(configs, request.data.target.provider);
+    if (!provider) return c.json({ error: 'Native provider configuration not found', code: 'provider_unavailable' }, 409);
+    const customProvider = customProviders.has(provider.provider);
+    const providerConfigAlias = provider.alias;
+    const configuration = await readReasoningConfiguration(c.env.KV);
+    let profile = resolveProfile(configuration, request.data.target.profileRef);
+    if (request.data.profileDraft !== undefined) {
+      const draft = normalizeCustomProfile(request.data.profileDraft);
+      if (!draft.enabled || !sameProfileRef(draft, request.data.target.profileRef)) throw new Error('Invalid native profile draft');
+      const prior = allProfiles(configuration).find((candidate) => candidate.id === draft.id && candidate.revision === draft.revision);
+      if (prior && (prior.enabled === false || prior.hash !== draft.hash)) throw new Error('Existing revision is immutable');
+      profile = draft as unknown as Record<string, unknown>;
+    }
+    if (!profile) return c.json({ error: 'Native profile revision not found', code: 'not_found' }, 404);
     const current = parseNativeAiTargets(await c.env.KV.get(SETUP_KEYS.NATIVE_AI_TARGETS));
     const existing = request.data.target.id ? current.targets.find((candidate) => candidate.id === request.data.target.id) : undefined;
-    if (existing && existing.providerConfigId !== provider.id) return c.json({ error: 'Default Amazon Bedrock configuration changed', code: 'provider_changed' }, 409);
-    const target = createNativeTarget({ ...request.data.target, id: existing?.id, providerConfigId: provider.id, profileRef: { id: profile.id, revision: profile.revision, hash: profile.hash } });
+    if (existing && existing.provider === provider.provider && (existing.providerConfigId !== provider.id
+      || existing.providerConfigAlias !== providerConfigAlias || Boolean(existing.customProvider) !== customProvider)) {
+      return c.json({ error: 'Native provider configuration changed', code: 'provider_changed' }, 409);
+    }
+    const target = createNativeTarget({
+      ...request.data.target, id: existing?.id, customProvider, providerConfigId: provider.id, providerConfigAlias,
+      profileRef: request.data.target.profileRef,
+    });
     const verification: import('../../lib/native-ai-targets').NativeTargetVerification = {
       schemaVersion: 1, ...(request.data.administratorConfirmed && { method: 'administrator' as const }), targetId: target.id,
-      model: target.model, providerConfigId: provider.id, connectionFingerprint: fingerprint, profileRef: target.profileRef,
-      transport: target.transport, adapterVersion: BEDROCK_COMPAT_ADAPTER_VERSION, checkedAt: new Date().toISOString(),
+      provider: target.provider, ...(target.customProvider && { customProvider: true }), model: target.model,
+      providerConfigId: provider.id, ...(providerConfigAlias && { providerConfigAlias }), connectionFingerprint: fingerprint, profileRef: target.profileRef,
+      transport: target.transport, adapterVersion: nativeTargetAdapterVersion(target.provider), checkedAt: new Date().toISOString(),
     };
     let report: Record<string, any> | undefined;
     if (!request.data.administratorConfirmed) {
       report = await discoverPiCompatibility({ accountId: coordinates.accountId, gatewayId: coordinates.gatewayId, apiToken: gateway.token,
-        route: `aws-bedrock/${target.model}`, profile, maxCompletionTokens: request.data.maxCompletionTokens, compatOnly: true });
+        route: `${nativeProviderSelector(target.provider, Boolean(target.customProvider))}/${target.model}`, profile,
+        maxCompletionTokens: request.data.maxCompletionTokens, compatOnly: true, ...(providerConfigAlias && { byokAlias: providerConfigAlias }) });
       if (!completedProfileCheck(report, profile)) return c.json({ ...report, assignable: false });
       verification.capabilities = { streaming: true, tools: true, replay: true };
     }
