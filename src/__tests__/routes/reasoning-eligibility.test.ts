@@ -35,7 +35,10 @@ let managementStatus: number;
 let customProviderStatus: number;
 let providerCalls: number;
 let providerConfigAlias: string | undefined;
+let nativeProviderSlug: string;
 let observedProviderAliases: Array<string | null>;
+let observedProviderModels: string[];
+let observedProviderUrls: string[];
 let driftDuringCheck: boolean;
 
 function stream(delta: unknown, finish_reason = 'stop') {
@@ -75,7 +78,8 @@ async function activate(fixture: ReturnType<typeof setup>, extra: Record<string,
 
 beforeEach(() => {
   version = 'version-1'; elements = structuredClone(topology); providerMode = 'ok'; managementStatus = 200; customProviderStatus = 200;
-  providerCalls = 0; providerConfigAlias = undefined; observedProviderAliases = []; driftDuringCheck = false;
+  providerCalls = 0; providerConfigAlias = undefined; nativeProviderSlug = 'aws-bedrock';
+  observedProviderAliases = []; observedProviderModels = []; observedProviderUrls = []; driftDuringCheck = false;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const method = input instanceof Request ? input.method : init?.method ?? 'GET';
     const url = input instanceof Request ? input.url : String(input);
@@ -83,7 +87,7 @@ beforeEach(() => {
       if (url.includes('/custom-providers?') && customProviderStatus !== 200) return Response.json({ secret: 'private custom-provider error' }, { status: customProviderStatus });
       if (managementStatus !== 200) return Response.json({ secret: 'private error' }, { status: managementStatus });
       if (url.endsWith('/ai-gateway/gateways')) return Response.json({ result: [{ id: 'gateway' }] });
-      if (url.includes('/provider_configs?')) return Response.json({ success: true, result: [{ id: 'bedrock-default', provider_slug: 'aws-bedrock', gateway_id: 'gateway', default_config: true, ...(providerConfigAlias && { alias: providerConfigAlias }) }], result_info: { page: 1, count: 1, per_page: 100, total_count: 1 } });
+      if (url.includes('/provider_configs?')) return Response.json({ success: true, result: [{ id: nativeProviderSlug === 'aws-bedrock' ? 'bedrock-default' : 'provider-default', provider_slug: nativeProviderSlug, gateway_id: 'gateway', default_config: true, ...(providerConfigAlias && { alias: providerConfigAlias }) }], result_info: { page: 1, count: 1, per_page: 100, total_count: 1 } });
       if (url.includes('/custom-providers?')) return Response.json({ success: true, result: [], result_info: { page: 1, count: 0, per_page: 100, total_count: 0 } });
       return url.endsWith('/routes')
         ? Response.json({ result: { routes: ['working', 'other'].map((name) => ({ id: name, name })) } })
@@ -91,9 +95,11 @@ beforeEach(() => {
     }
     providerCalls++;
     observedProviderAliases.push(new Headers(input instanceof Request ? input.headers : init?.headers).get('cf-aig-byok-alias'));
+    observedProviderUrls.push(url);
     if (driftDuringCheck) version = 'version-2';
     if (providerMode === 'failed') return Response.json({}, { status: 503 });
     const body = JSON.parse(input instanceof Request ? await input.text() : String(init?.body));
+    observedProviderModels.push(String(body.model));
     if (!body.tools) return stream({ content: '2399', ...(providerMode === 'off-reasons' ? { reasoning_content: 'thinking' } : {}) });
     const candidateToolProbe = Object.hasOwn(body, 'reasoning_effort') || Object.hasOwn(body, 'chat_template_kwargs');
     if (providerMode === 'unsupported' || (providerMode === 'candidates-unsupported' && candidateToolProbe)) return stream({ content: 'no tool call' });
@@ -120,6 +126,46 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(response.status).toBe(200);
     expect(observedProviderAliases.length).toBeGreaterThan(0);
     expect(new Set(observedProviderAliases)).toEqual(new Set(['bedrock-live']));
+  });
+
+  it('REQ-ENTERPRISE-052: discovers and verifies an OpenAI native selector through the real compat helper', async () => {
+    const f = setup();
+    nativeProviderSlug = 'openai';
+    const openaiProfileRef = getBuiltInProfileRef('native-openai-compat');
+    const target = {
+      label: 'GPT-5.6 Terra',
+      provider: 'openai',
+      model: 'gpt-5.6-terra',
+      contextWindow: 200000,
+      enabled: false,
+    };
+
+    const discovered = await f.post('native/profile-discovery', {
+      target,
+      maxCompletionTokens: 32,
+    });
+    expect(discovered.status).toBe(200);
+    expect(observedProviderModels.length).toBeGreaterThan(0);
+    expect(new Set(observedProviderModels)).toEqual(new Set(['openai/gpt-5.6-terra']));
+    expect(observedProviderUrls.every((url) => url.includes('/compat/chat/completions'))).toBe(true);
+
+    observedProviderModels = [];
+    observedProviderUrls = [];
+    const verified = await f.post('native/discover', {
+      target: { ...target, profileRef: openaiProfileRef },
+      maxCompletionTokens: 32,
+    });
+    const body = await verified.json() as any;
+    expect(verified.status).toBe(200);
+    expect(body).toMatchObject({
+      classification: 'Verified',
+      assignable: true,
+      verification: { method: 'automated', current: true },
+    });
+    expect(body.targetId).toEqual(expect.any(String));
+    expect(body.checkId).toEqual(expect.any(String));
+    expect(new Set(observedProviderModels)).toEqual(new Set(['openai/gpt-5.6-terra']));
+    expect(observedProviderUrls.every((url) => url.includes('/compat/chat/completions'))).toBe(true);
   });
 
   it('REQ-ENTERPRISE-055: rejects invalid native target data before any routing write', async () => {

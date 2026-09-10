@@ -8,6 +8,7 @@ import {
   parsePiSseText,
 } from '../../lib/reasoning-discovery';
 import { deriveCommonMapping, inventoryDynamicRoute } from '../../lib/dynamic-route-inventory';
+import { getBuiltInProfile } from '../../lib/reasoning-profiles';
 
 const ACCOUNT_ID = '0123456789abcdef0123456789abcdef';
 const PROFILE = {
@@ -129,8 +130,34 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
       gatewayId: 'gateway',
       apiToken: 'secret-token',
       route: 'openai/gpt-5.6-terra',
+      profile: getBuiltInProfile('native-openai-compat')!,
+      maxCompletionTokens: 32,
+      compatOnly: true,
+      fetcher: successfulFetcher(requests),
+    });
+
+    expect(requests).toHaveLength(3);
+    expect(requests.every((request) => request.url.includes('/compat/chat/completions'))).toBe(true);
+    expect(requests.every((request) => request.body.model === 'openai/gpt-5.6-terra')).toBe(true);
+    expect(report).toMatchObject({
+      classification: 'Verified',
+      assignable: true,
+      accounting: { logicalProbes: 2, httpAttempts: 3 },
+    });
+  });
+
+  it.each([
+    'custom-private-provider/https://models.example/v1',
+    `custom-${'a'.repeat(64)}/family/model:tag`,
+  ])('REQ-ENTERPRISE-052: preserves the bounded native selector %s through compat', async (route) => {
+    const requests: Array<{ url: string; body: Record<string, unknown>; headers: Headers }> = [];
+    const report = await discoverPiCompatibility({
+      accountId: ACCOUNT_ID,
+      gatewayId: 'gateway',
+      apiToken: 'secret-token',
+      route,
       profile: {
-        id: 'native-openai-compat',
+        id: 'native-custom-compat',
         reasoningMode: 'provider-default',
         supportedLevels: [],
         removePaths: [],
@@ -143,12 +170,22 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
 
     expect(requests).toHaveLength(2);
     expect(requests.every((request) => request.url.includes('/compat/chat/completions'))).toBe(true);
-    expect(requests.every((request) => request.body.model === 'openai/gpt-5.6-terra')).toBe(true);
-    expect(report).toMatchObject({
-      classification: 'Verified',
-      assignable: true,
-      accounting: { logicalProbes: 1, httpAttempts: 2 },
-    });
+    expect(requests.every((request) => request.body.model === route)).toBe(true);
+    expect(report).toMatchObject({ classification: 'Verified', assignable: true });
+  });
+
+  it('REQ-ENTERPRISE-052: rejects an oversized Dynamic Route before provider I/O', async () => {
+    const fetcher = vi.fn();
+    await expect(discoverPiCompatibility({
+      accountId: ACCOUNT_ID,
+      gatewayId: 'gateway',
+      apiToken: 'secret-token',
+      route: `dynamic/${'a'.repeat(181)}`,
+      profile: getBuiltInProfile('native-openai-compat')!,
+      maxCompletionTokens: 32,
+      fetcher,
+    })).rejects.toThrow('Route must be a bounded model selector');
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it('counts one reasoning probe and one complete tool lifecycle per distinct semantic mapping', async () => {
