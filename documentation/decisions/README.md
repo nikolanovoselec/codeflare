@@ -170,7 +170,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD149](#ad149-herdr-semantic-status-owns-completion-notification-timing) | Let Herdr status own completion notification timing | A ten-minute timer starts when every tracked agent pane becomes ready; renewed work cancels timing and queued completion. | Architecture, Agents | Active |
 | [AD150](#ad150-d1-owns-historical-usage-and-report-delivery-records) | Keep live quota state in Timekeeper and historical set queries in D1 | One database owns historical periods, report claims, and retention while live quota enforcement remains independent. | Architecture, Usage, Operations | Active |
 | [AD151](#ad151-container-lifecycle-and-terminal-transport-outrank-negative-eventual-kv-evidence) | Resolve lifecycle ownership outside eventual KV | Persisted container state governs terminal and managed-mutation admission while local startup and transport ownership guard dashboard projections. | Architecture, Session lifecycle, Storage | Active |
-| [AD152](#ad152-session-capture-compaction-preserves-durable-memory) | Compact cold session captures through the existing sync lifecycle | Daily compaction keeps a filename-derived one-month hot set, relocates graph provenance, deletes exact local sources, and publishes the result with one bisync. | Architecture, Memory, Storage | Active |
+| [AD153](#ad153-session-capture-compaction-preserves-durable-memory) | Compact cold session captures through the existing sync lifecycle | Daily compaction keeps a filename-derived one-month hot set, relocates graph provenance, deletes exact local sources, and publishes the result with one bisync. | Architecture, Memory, Storage | Active |
 ---
 
 ## Decisions
@@ -4173,7 +4173,7 @@ Terminal admission reads persisted Container SDK state without waking the contai
 
 ---
 
-### AD152: Session capture compaction preserves durable memory
+### AD153: Session capture compaction preserves durable memory
 
 **Category:** Architecture, Memory, Storage
 

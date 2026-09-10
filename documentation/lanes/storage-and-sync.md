@@ -102,7 +102,7 @@ The generated writes in step 2 settle before the baseline so they do not create 
 
 The entrypoint's existing bisync lifecycle always owns the daily UTC compaction sequence; no agent, feature flag, or second scheduler controls it. `scripts/compact-session-captures.mjs` writes deterministic `Vault/Raw/Sessions/Archive.md`, then removes only the exact unchanged cold captures recorded in its local manifest. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @impl: scripts/compact-session-captures.mjs::main -->
 
-The cumulative Vault graph then relocates provenance and republishes `user_vault` before exact source deletion. One final bisync publishes the archive, graph update, and source deletions together. A failed step leaves the UTC day unstamped for later synchronization and compaction attempts ([AD152](../decisions/README.md#ad152-session-capture-compaction-preserves-durable-memory)).
+The cumulative Vault graph then relocates provenance and republishes `user_vault` before exact source deletion. One final bisync publishes the archive, graph update, and source deletions together. A failed step leaves the UTC day unstamped for later synchronization and compaction attempts ([AD153](../decisions/README.md#ad153-session-capture-compaction-preserves-durable-memory)).
 
 All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verification. rclone v1.73+ treats hash mismatches as fatal ("corrupted on transfer"), which aborts bisync when files change during transfer (e.g., coding agents modifying workspace files). Change detection still uses modtime + size; files that change mid-transfer are caught in the next 15-minute cycle (or sooner via a manual Sync-now trigger).
 
