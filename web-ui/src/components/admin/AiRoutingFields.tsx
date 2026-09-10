@@ -24,7 +24,7 @@ interface RouteDraft {
   inventoryError?: string;
 }
 interface VerificationDraft { busy?: boolean; administratorConfirmed?: boolean; result?: ReasoningDiscoveryResult; error?: string; routeChanged?: boolean }
-interface NativeDraft extends NativeAiTargetDraft { handle?: string; busy?: boolean; error?: string }
+interface NativeDraft extends NativeAiTargetDraft { handle?: string; busy?: boolean; error?: string; verificationRequest?: string }
 const LEVELS: PiReasoningLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const DEFAULT_CONTEXT_WINDOW = 256000;
 const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -114,7 +114,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   });
   const [nativeTargets, setNativeTargets] = createSignal<NativeDraft[]>(initialNativeDrafts.map((target) => ({ ...target, enabled: target.verification?.current === true })));
   const [nativeChecks, setNativeChecks] = createSignal<Record<string, string | null>>({});
-  const nativeSubmissionOf = (targets: NativeDraft[]) => targets.map(({ handle: _handle, verification: _verification, busy: _busy, error: _error, ...target }) => target);
+  const nativeSubmissionOf = (targets: NativeDraft[]) => targets.map(({ handle: _handle, verification: _verification, busy: _busy, error: _error, verificationRequest: _request, ...target }) => target);
   const nativeSubmission = () => nativeSubmissionOf(nativeTargets());
   const initialNativeSubmission = JSON.stringify(nativeSubmissionOf(initialNativeDrafts));
   const nativeDirty = () => JSON.stringify(nativeSubmission()) !== initialNativeSubmission || Object.keys(nativeChecks()).length > 0;
@@ -365,18 +365,20 @@ const AiRoutingFields: Component<Props> = (props) => {
     const original = nativeTargets()[index];
     if (!original || original.busy || !connectionReady() || !findProfile(original.profileRef)) return;
     const target = { ...original, enabled: false };
+    const requestId = crypto.randomUUID();
     const profileDraft = customRevisions().find((profile) => refKey(profileRef(profile)) === refKey(target.profileRef)
       && !catalog().profiles.some((saved) => refKey(saved) === refKey(target.profileRef)));
-    setNativeTargets((items) => items.map((item, at) => at === index ? { ...target, busy: true, error: undefined } : item));
+    setNativeTargets((items) => items.map((item, at) => at === index ? { ...target, busy: true, error: undefined, verificationRequest: requestId } : item));
     try {
       const result = await checkNativeTarget({ target: { ...(target.id && { id: target.id }), label: target.label, model: target.model, provider: target.provider,
         contextWindow: target.contextWindow, profileRef: target.profileRef, enabled: false }, ...(profileDraft && { profileDraft }),
         ...(administratorConfirmed && { administratorConfirmed: true as const }), ...(gatewayDraft() && { gateway: gatewayDraft()! }) });
+      if (!nativeTargets().some((item) => item.verificationRequest === requestId)) return;
       setNativeChecks((checks) => ({ ...checks, [result.targetId]: result.checkId }));
-      setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, id: result.targetId, handle: `cf-native-${result.targetId}`, busy: false, enabled: result.verification?.current === true, verification: result.verification } : item));
+      setNativeTargets((items) => items.map((item) => item.verificationRequest === requestId ? { ...item, id: result.targetId, handle: `cf-native-${result.targetId}`, busy: false, enabled: result.verification?.current === true, verification: result.verification, verificationRequest: undefined } : item));
     } catch (error) {
       const message = apiErrorMessage(error, 'Target check failed. Check the exact model, provider readiness, and connection.');
-      setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, busy: false, enabled: false, verification: undefined, error: message } : item));
+      setNativeTargets((items) => items.map((item) => item.verificationRequest === requestId ? { ...item, busy: false, enabled: false, verification: undefined, verificationRequest: undefined, error: message } : item));
     }
   };
 
@@ -515,21 +517,21 @@ const AiRoutingFields: Component<Props> = (props) => {
               <span><strong>{title()}</strong><small>{target().label || 'New target'}</small></span>
               <span class="admin-check-pill" data-state={nativeReady(target()) ? 'passed' : 'unclear'}>{nativeReady(target()) ? 'Ready' : 'Not ready'}</span><span class="admin-route-chevron" aria-hidden="true">›</span>
             </button>
-            <button type="button" class="admin-link-button admin-danger-link" aria-label={`Remove ${target().label || title()}`} onClick={() => {
+            <button type="button" class="admin-link-button admin-danger-link" aria-label={`Remove ${target().label || title()}`} disabled={target().busy} onClick={() => {
               if (target().id) setNativeChecks((checks) => Object.fromEntries(Object.entries(checks).filter(([id]) => id !== target().id)));
               setNativeTargets((items) => items.filter((_, at) => at !== index)); setExpandedNative(undefined); setNativeProfileEditor(undefined);
             }}>Remove</button>
           </div>
           <div hidden={expandedNative() !== index} id={`native-panel-${index}`} class="admin-route-panel">
               <div class="admin-route-controls">
-                <label class="admin-form-field"><span>Provider</span><select aria-label={`Native target ${index + 1} provider`} value={target().provider} onChange={(event) => {
+                <label class="admin-form-field"><span>Provider</span><select aria-label={`Native target ${index + 1} provider`} value={target().provider} disabled={target().busy} onChange={(event) => {
                   const provider = event.currentTarget.value; const profile = preparedProfileRef(provider);
                   if (profile) clearProof({ provider, profileRef: profile, model: '' });
                 }}><For each={selectableProviders()}>{(provider) => <option value={provider.provider}>{provider.label}</option>}</For></select><small>Only uniquely selectable provider bindings are available.</small></label>
-                <label class="admin-form-field"><span>Label</span><input aria-label={`Native target ${index + 1} label`} value={target().label} onInput={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, label: event.currentTarget.value } : item))} /></label>
-                <label class="admin-form-field"><span>Exact model identifier</span><input aria-label={`Native target ${index + 1} model`} list={`native-model-suggestions-${index}`} value={target().model} onInput={(event) => clearProof({ model: event.currentTarget.value })} /><datalist id={`native-model-suggestions-${index}`}><For each={nativeModelSuggestions(target().provider)}>{(model) => <option value={model} />}</For></datalist><small>Route-derived names for this provider are suggestions only.</small></label>
-                <label class="admin-form-field"><span>Context window</span><input type="text" inputmode="numeric" aria-label={`Native target ${index + 1} context window`} value={target().contextWindow} onInput={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, contextWindow: Number(event.currentTarget.value) } : item))} /><small>Must be greater than 16,384 tokens.</small></label>
-                <label class="admin-form-field"><span>Pi compatibility profile</span><select aria-label={`Native target ${index + 1} profile`} value={refKey(target().profileRef)} onChange={(event) => {
+                <label class="admin-form-field"><span>Label</span><input aria-label={`Native target ${index + 1} label`} value={target().label} disabled={target().busy} onInput={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, label: event.currentTarget.value } : item))} /></label>
+                <label class="admin-form-field"><span>Exact model identifier</span><input aria-label={`Native target ${index + 1} model`} list={`native-model-suggestions-${index}`} value={target().model} disabled={target().busy} onInput={(event) => clearProof({ model: event.currentTarget.value })} /><datalist id={`native-model-suggestions-${index}`}><For each={nativeModelSuggestions(target().provider)}>{(model) => <option value={model} />}</For></datalist><small>Route-derived names for this provider are suggestions only.</small></label>
+                <label class="admin-form-field"><span>Context window</span><input type="text" inputmode="numeric" aria-label={`Native target ${index + 1} context window`} value={target().contextWindow} disabled={target().busy} onInput={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, contextWindow: Number(event.currentTarget.value) } : item))} /><small>Must be greater than 16,384 tokens.</small></label>
+                <label class="admin-form-field"><span>Pi compatibility profile</span><select aria-label={`Native target ${index + 1} profile`} value={refKey(target().profileRef)} disabled={target().busy} onChange={(event) => {
                   const profile = assignableProfiles().find((candidate) => refKey(candidate) === event.currentTarget.value);
                   if (profile) clearProof({ profileRef: profileRefFromEntry(profile) });
                 }}><For each={assignableProfiles()}>{(profile) => <option value={refKey(profile)}>{profileDisplayName(profile)}</option>}</For></select><small>{selectedProfile()?.supportedLevels.length ? `Pi levels: ${selectedProfile()!.supportedLevels.map(levelLabel).join(', ')}.` : 'Provider-default reasoning; no Pi effort level is claimed.'}</small></label>

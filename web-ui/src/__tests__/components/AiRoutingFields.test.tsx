@@ -300,11 +300,35 @@ describe('Structured AI routing', () => {
     await fireEvent.click(verify);
     await waitFor(() => expect(api.native).toHaveBeenCalledExactlyOnceWith({ target: expect.objectContaining({ label: 'Automated target', model: 'eu.anthropic.claude-sonnet-5', profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false }) }));
     expect(within(article).getByRole('button', { name: 'Verifying…' })).toBeDisabled();
+    expect(within(article).getByLabelText('Native target 1 provider')).toBeDisabled();
+    expect(within(article).getByLabelText('Native target 1 model')).toBeDisabled();
+    expect(within(article).getByLabelText('Native target 1 profile')).toBeDisabled();
+    expect(within(article).getByRole('button', { name: 'Remove Automated target' })).toBeDisabled();
     complete({ targetId: '11111111-1111-4111-8111-111111111111', classification: 'Verified', assignable: true, checkId: '22222222-2222-4222-8222-222222222222', verification: { method: 'automated', checkedAt: '2026-09-09T12:00:00.000Z', current: true } });
     await waitFor(() => expect(formValues(view.container).nativeChecks).toEqual({ '11111111-1111-4111-8111-111111111111': '22222222-2222-4222-8222-222222222222' }));
     expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id: '11111111-1111-4111-8111-111111111111', enabled: true });
     expect(within(article).getByText('Ready')).toHaveAttribute('data-state', 'passed');
     expect(view.queryByLabelText('Enable Automated target native target')).toBeNull();
+  });
+
+  it('keeps a pending native verification attached to its target when another target is removed', async () => {
+    let complete!: (value: unknown) => void;
+    api.native.mockReturnValueOnce(new Promise((resolve) => { complete = resolve; }));
+    const nativeTarget = (id: string, label: string, model: string) => ({ id, label, provider: 'aws-bedrock', model, contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false });
+    const view = mount({ ...checkedCurrent(), nativeTargets: [
+      nativeTarget('11111111-1111-4111-8111-111111111111', 'First', 'eu.anthropic.claude-haiku'),
+      nativeTarget('22222222-2222-4222-8222-222222222222', 'Pending', 'eu.anthropic.claude-sonnet-5'),
+      nativeTarget('33333333-3333-4333-8333-333333333333', 'Third', 'eu.anthropic.claude-opus-5'),
+    ] });
+    await openNative(view);
+    await fireEvent.click(view.getByRole('button', { name: 'Configure Amazon Bedrock · eu.anthropic.claude-sonnet-5' }));
+    await fireEvent.click(within(view.getByRole('article', { name: 'Pending native target' })).getByRole('button', { name: 'Verify Profile' }));
+    await fireEvent.click(view.getByRole('button', { name: 'Remove First' }));
+    complete({ targetId: '44444444-4444-4444-8444-444444444444', classification: 'Verified', assignable: true, checkId: '55555555-5555-4555-8555-555555555555', verification: { method: 'automated', checkedAt: '2026-09-09T12:00:00.000Z', current: true } });
+    await waitFor(() => expect(formValues(view.container).nativeTargets).toEqual([
+      expect.objectContaining({ id: '44444444-4444-4444-8444-444444444444', label: 'Pending', enabled: true }),
+      expect.objectContaining({ id: '33333333-3333-4333-8333-333333333333', label: 'Third', enabled: false }),
+    ]));
   });
 
   it('REQ-ENTERPRISE-054: verification automatically enables the native target draft', async () => {
