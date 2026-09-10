@@ -55,11 +55,17 @@ export function exposeGeminiThoughtSignatures(response: Response): Response {
         }
         controller.enqueue(encoder.encode(`${adaptLine(line)}\n`));
       }
-      if (encoder.encode(buffer).byteLength > MAX_SSE_LINE_BYTES) throw new Error('Gemini SSE line exceeds adapter limit');
+      if (encoder.encode(buffer).byteLength > MAX_SSE_LINE_BYTES) {
+        controller.error(new Error('Gemini SSE line exceeds adapter limit'));
+        return;
+      }
     },
     flush(controller) {
       buffer += decoder.decode();
-      if (encoder.encode(buffer).byteLength > MAX_SSE_LINE_BYTES) throw new Error('Gemini SSE line exceeds adapter limit');
+      if (encoder.encode(buffer).byteLength > MAX_SSE_LINE_BYTES) {
+        controller.error(new Error('Gemini SSE line exceeds adapter limit'));
+        return;
+      }
       if (buffer) controller.enqueue(encoder.encode(adaptLine(buffer)));
     },
   }));
