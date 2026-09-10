@@ -370,14 +370,14 @@ export class container extends Container<Env> implements ContainerEnvState {
     // Reject non-internal requests when the container is not running.
     // This prevents WebSocket reconnect attempts from waking a hibernated
     // container via super.fetch() (which triggers the SDK's startIfNotRunning).
-    // The DO knows the container state authoritatively - no KV read needed.
+    // The in-memory running flag can transiently read false for a live workload,
+    // so only the Worker's persisted-state admission gate may emit authoritative
+    // 4503. Keep this inner gate retryable without forwarding to super.fetch().
     if (!this.ctx.container?.running) {
-      // WS upgrade: accept then close with custom code 4503 so the client
-      // can distinguish "container stopped" from network errors (1006).
       if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
         const pair = new WebSocketPair();
         pair[1].accept();
-        pair[1].close(4503, 'container-stopped');
+        pair[1].close(1013, 'container-state-transient');
         return new Response(null, { status: 101, webSocket: pair[0] });
       }
       return new Response(JSON.stringify({ error: 'Container not running' }), {

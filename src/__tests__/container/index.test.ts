@@ -647,7 +647,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     });
   });
 
-  describe('fetch gate — 503 when container not running / REQ-SESSION-009 (DO fetch gates on container.running, returns 503 for non-internal routes) / REQ-SESSION-012 (wake-loop prevention: 503 on HTTP + 4503 close code on WS prevent client reconnect storms from waking hibernated containers)', () => {
+  describe('fetch gate — 503 when container not running / REQ-SESSION-009 (DO fetch gates on container.running, returns 503 for non-internal routes) / REQ-SESSION-012 (wake-loop prevention: HTTP remains gated while volatile WS state stays retryable)', () => {
     it('should return 503 for non-internal routes when container is not running', async () => {
       mockContainerRuntime.running = false;
 
@@ -659,6 +659,29 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(503);
+    });
+
+    it('REQ-SESSION-012 AC4: returns retryable 1013 when volatile runtime state reads not-running', async () => {
+      mockContainerRuntime.running = false;
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      const proto = Object.getPrototypeOf(Object.getPrototypeOf(instance));
+      const superFetchSpy = vi.spyOn(proto, 'fetch');
+
+      try {
+        const response = await instance.fetch(new Request('http://container/terminal', {
+          headers: { Upgrade: 'websocket' },
+        }));
+        const ws = response.webSocket!;
+        const closeCode = new Promise<number>((resolve) => {
+          ws.addEventListener('close', (event) => resolve((event as unknown as { code: number }).code));
+        });
+        ws.accept();
+
+        expect(await closeCode).toBe(1013);
+        expect(superFetchSpy).not.toHaveBeenCalled();
+      } finally {
+        superFetchSpy.mockRestore();
+      }
     });
 
     it('should allow internal routes when container is not running', async () => {

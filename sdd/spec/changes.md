@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-10
+
+- **Transient Durable Object state cannot falsely stop a live terminal** ([REQ-SESSION-012](session-lifecycle.md#req-session-012-wake-loop-prevention) AC1, AC2, and AC4 amended; remains Implemented). The no-wake inner forwarding gate now sends retryable 1013 when its volatile running flag is false; authoritative 4503 remains reserved for stopped persisted Container SDK state.
+
 ## 2026-09-09
 
 - **Advanced Cloudflare OAuth enables container SSH-key management** ([REQ-AGENT-079](agents.md#req-agent-079-advanced-cloudflare-oauth-tier-scope-catalog) AC1 amended; remains Implemented). The advanced tier adds the live-catalog `cloudchamber.write` scope while retaining every existing scope, enabling Wrangler to register account SSH keys for container debugging.
