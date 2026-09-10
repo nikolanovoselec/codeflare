@@ -116,7 +116,7 @@ async function openNative(view: View) {
 }
 async function addNativeTarget(view: View) {
   await openNative(view);
-  await fireEvent.click(view.getByRole('button', { name: 'Add native target' }));
+  await fireEvent.click(view.getByRole('button', { name: 'Add provider-model' }));
 }
 async function openRoute(view: View, route: string) {
   await section(view, 'Routes');
@@ -168,7 +168,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Behavioral fixtures are execution-pending; CI owns RED/GREEN verification.
 describe('Structured AI routing', () => {
-  it('REQ-ENTERPRISE-051: displays configured providers, updates provider selection, and keeps an unverified target inactive', async () => {
+  it('REQ-ENTERPRISE-051: renders native targets as collapsed provider-model rows with expanded-only controls', async () => {
     api.catalog.mockResolvedValueOnce({
       ...catalog,
       providers: [
@@ -177,19 +177,40 @@ describe('Structured AI routing', () => {
         { provider: 'openai', label: 'OpenAI', configured: true, defaultSelection: false, supported: true },
       ],
     });
-    const view = mount(checkedCurrent());
+    const view = mount({ ...checkedCurrent(), nativeTargets: [{ id: '11111111-1111-4111-8111-111111111111', label: 'Gemini', provider: 'google-ai-studio', model: 'gemini-3.1-pro-preview', contextWindow: 200000, profileRef: { id: 'native-google-ai-studio-compat', revision: 1, hash: hash('e') }, enabled: false }] });
     await openNative(view);
-    expect(view.getByText('Google AI Studio')).toBeVisible();
-    expect(view.getByText('Codeflare Inference Mesh')).toBeVisible();
-    expect(view.getByText('OpenAI')).toBeVisible();
-    await fireEvent.click(view.getByRole('button', { name: 'Add native target' }));
-    const provider = view.getByLabelText('Native target 1 provider') as HTMLSelectElement;
+    expect(view.queryByText('Configured providers')).toBeNull();
+    const article = view.getByRole('article', { name: 'Gemini native target' });
+    const toggle = within(article).getByRole('button', { name: 'Configure Google AI Studio · gemini-3.1-pro-preview' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(within(article).getByText('Not ready')).toHaveAttribute('data-state', 'unclear');
+    expect(within(article).getByLabelText('Native target 1 provider')).not.toBeVisible();
+    expect(within(article).queryByRole('button', { name: 'Verify Profile' })).toBeNull();
+    await fireEvent.click(toggle);
+    const provider = within(article).getByLabelText('Native target 1 provider') as HTMLSelectElement;
+    expect(provider).toBeVisible();
     expect(Array.from(provider.options, (option) => option.value)).toEqual(['google-ai-studio', 'openai']);
-    await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Unverified target' } });
-    expect(view.getByLabelText('Enable Unverified target native target')).toBeDisabled();
     await fireEvent.change(provider, { target: { value: 'openai' } });
-    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ provider: 'openai', enabled: false });
-    expect(formValues(view.container).nativeChecks).toEqual({});
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ provider: 'openai', model: '', enabled: false });
+    expect(within(article).getByRole('button', { name: 'Discover Profile for native target 1' })).toBeVisible();
+    expect(within(article).getByRole('button', { name: 'Verify Profile' })).toBeVisible();
+    expect(within(article).getByRole('button', { name: 'Mark as verified' })).toBeVisible();
+    expect(within(article).queryByLabelText('Enable Gemini native target')).toBeNull();
+  });
+
+  it('REQ-ENTERPRISE-051: derives orange and green native readiness without an enable control', async () => {
+    const readyId = '11111111-1111-4111-8111-111111111111';
+    const view = mount({ ...checkedCurrent(), nativeTargets: [
+      { id: readyId, label: 'Ready Claude', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: true, verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true } },
+      { id: '33333333-3333-4333-8333-333333333333', label: 'Draft Claude', provider: 'aws-bedrock', model: 'eu.anthropic.claude-opus-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false },
+    ] });
+    await openNative(view);
+    expect(within(view.getByRole('article', { name: 'Ready Claude native target' })).getByText('Ready')).toHaveAttribute('data-state', 'passed');
+    expect(within(view.getByRole('article', { name: 'Draft Claude native target' })).getByText('Not ready')).toHaveAttribute('data-state', 'unclear');
+    expect(view.queryByText('Available for routing')).toBeNull();
+    await openGroup(view, 'developers');
+    expect(view.getByRole('checkbox', { name: `developers cf-native-${readyId} route` })).toBeVisible();
+    expect(view.queryByRole('checkbox', { name: 'developers cf-native-33333333-3333-4333-8333-333333333333 route' })).toBeNull();
   });
 
   it('REQ-ENTERPRISE-051: edits the target label and context window in the native draft', async () => {
@@ -230,6 +251,7 @@ describe('Structured AI routing', () => {
     const saved = checkedCurrent();
     const view = mount({ ...saved, reasoningConfiguration: { ...saved.reasoningConfiguration, customProfileRevisions: custom ? [custom] : [] }, nativeTargets: [{ id: '11111111-1111-4111-8111-111111111111', label: 'Native target', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false }] });
     await openNative(view);
+    await fireEvent.click(view.getByRole('button', { name: 'Configure Amazon Bedrock · eu.anthropic.claude-sonnet-5' }));
     await fireEvent.change(view.getByLabelText('Native target 1 profile'), { target: { value: profileKey(ref) } });
     expect(formValues(view.container).nativeTargets[0].profileRef).toEqual(ref);
   });
@@ -267,27 +289,25 @@ describe('Structured AI routing', () => {
     expect(within(article).getByRole('button', { name: 'Verifying…' })).toBeDisabled();
     complete({ targetId: '11111111-1111-4111-8111-111111111111', classification: 'Verified', assignable: true, checkId: '22222222-2222-4222-8222-222222222222', verification: { method: 'automated', checkedAt: '2026-09-09T12:00:00.000Z', current: true } });
     await waitFor(() => expect(formValues(view.container).nativeChecks).toEqual({ '11111111-1111-4111-8111-111111111111': '22222222-2222-4222-8222-222222222222' }));
-    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id: '11111111-1111-4111-8111-111111111111', enabled: false });
-    expect(view.getByLabelText('Enable Automated target native target')).toBeEnabled();
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id: '11111111-1111-4111-8111-111111111111', enabled: true });
+    expect(within(article).getByText('Ready')).toHaveAttribute('data-state', 'passed');
+    expect(view.queryByLabelText('Enable Automated target native target')).toBeNull();
   });
 
-  it('REQ-ENTERPRISE-054: permits administrator confirmation after failure and edits enabled state', async () => {
+  it('REQ-ENTERPRISE-054: verification automatically enables the native target draft', async () => {
     api.native.mockRejectedValueOnce(new ApiError('Rate limit exceeded. Try again in 44 seconds.', 429, 'Too Many Requests'));
     const view = mount(checkedCurrent());
     await addNativeTarget(view);
     await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Claude custom' } });
     await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-future-profile' } });
     const article = view.getByRole('article', { name: 'Claude custom native target' });
-    expect(within(article).getByRole('status')).toHaveTextContent('Verify or confirm this exact target before making it available for routing.');
+    expect(within(article).getByText('Not ready')).toHaveAttribute('data-state', 'unclear');
     await fireEvent.click(within(article).getByRole('button', { name: 'Verify Profile' }));
     expect(await within(article).findByRole('alert')).toHaveTextContent('Rate limit exceeded. Try again in 44 seconds.');
     await fireEvent.click(within(article).getByRole('button', { name: 'Mark as verified' }));
     await waitFor(() => expect(api.native).toHaveBeenLastCalledWith(expect.objectContaining({ target: expect.objectContaining({ model: 'eu.anthropic.claude-future-profile' }), administratorConfirmed: true })));
-    expect(within(article).getByRole('status')).toHaveTextContent('Administrator-confirmed. This target can now be made available for routing.');
-    const enabled = view.getByLabelText('Enable Claude custom native target');
-    await waitFor(() => expect(enabled).toBeEnabled());
-    await fireEvent.click(enabled);
-    expect(within(article).getByRole('status')).toHaveTextContent('Available for routing. Assign this target to an Access group before saving.');
+    expect(within(article).getByText('Ready')).toHaveAttribute('data-state', 'passed');
+    expect(view.queryByLabelText('Enable Claude custom native target')).toBeNull();
     expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id: '11111111-1111-4111-8111-111111111111', model: 'eu.anthropic.claude-future-profile', enabled: true });
   });
 
@@ -296,7 +316,7 @@ describe('Structured AI routing', () => {
     const view = mount({ ...saved, nativeTargets: [{ id: '11111111-1111-4111-8111-111111111111', label: 'Saved target', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false }] });
     await openNative(view);
     expect(view.getByRole('article', { name: 'Saved target native target' })).toBeVisible();
-    await fireEvent.click(view.getByRole('button', { name: 'Remove target' }));
+    await fireEvent.click(view.getByRole('button', { name: 'Remove Saved target' }));
     expect(formValues(view.container).nativeTargets).toEqual([]);
   });
   it.each(['provider', 'model', 'node'] as const)('REQ-ENTERPRISE-038: drift-before-Verify reconciles saved %s identity for Save without per-leg evidence', async (drift) => {

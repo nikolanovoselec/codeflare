@@ -147,6 +147,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const connectionReady = () => !catalogBusy() && !catalogError() && catalog().routeCatalogStatus === 'ready' && checkedConnection() === connectionKey();
   const [section, setSection] = createSignal<'connection' | 'routes' | 'native' | 'access'>('routes');
   const [expandedRoute, setExpandedRoute] = createSignal<string>();
+  const [expandedNative, setExpandedNative] = createSignal<number>();
   const [groups, setGroups] = createSignal<GroupDraft[]>(groupDrafts(current.groupRouting));
   const [expandedGroup, setExpandedGroup] = createSignal<string | undefined>(groups()[0]?.accessGroup);
   const availableAccessGroups = stringList(current.availableAccessGroups);
@@ -192,6 +193,9 @@ const AiRoutingFields: Component<Props> = (props) => {
   const findProfile = (ref?: ProfileRevisionRef) => assignableProfiles().find((profile) => refKey(profile) === refKey(ref));
   const configuredProviders = createMemo(() => (catalog().providers ?? []).filter((provider) => provider.configured));
   const selectableProviders = createMemo(() => configuredProviders().filter((provider) => provider.supported));
+  const providerLabel = (provider: string) => configuredProviders().find((candidate) => candidate.provider === provider)?.label ?? provider;
+  const nativeReady = (target: NativeDraft) => target.enabled && target.verification?.current === true && Boolean(target.handle || target.id)
+    && Number.isSafeInteger(target.contextWindow) && target.contextWindow > 16384;
   const preparedProfileId = (provider: string) => provider === 'aws-bedrock' ? 'bedrock-anthropic-compat'
     : provider === 'google-ai-studio' ? 'native-google-ai-studio-compat'
       : provider === 'openai' ? 'native-openai-compat' : 'native-codeflare-inference-mesh-compat';
@@ -367,7 +371,7 @@ const AiRoutingFields: Component<Props> = (props) => {
         contextWindow: target.contextWindow, profileRef: target.profileRef, enabled: false }, ...(profileDraft && { profileDraft }),
         ...(administratorConfirmed && { administratorConfirmed: true as const }), ...(gatewayDraft() && { gateway: gatewayDraft()! }) });
       setNativeChecks((checks) => ({ ...checks, [result.targetId]: result.checkId }));
-      setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, id: result.targetId, handle: `cf-native-${result.targetId}`, busy: false, verification: result.verification } : item));
+      setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, id: result.targetId, handle: `cf-native-${result.targetId}`, busy: false, enabled: result.verification?.current === true, verification: result.verification } : item));
     } catch (error) {
       const message = apiErrorMessage(error, 'Target check failed. Check the exact model, provider readiness, and connection.');
       setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, busy: false, enabled: false, verification: undefined, error: message } : item));
@@ -495,21 +499,26 @@ const AiRoutingFields: Component<Props> = (props) => {
     </section>
 
     <section hidden={section() !== 'native'} class="admin-routing-pane" aria-labelledby="native-heading">
-      <div class="admin-subsection-heading"><div><h3 id="native-heading">Native providers</h3><p>Add an exact model for any configured provider. Discovery can match an existing profile or prepare a custom profile without redeployment.</p></div><span class="admin-status">{nativeTargets().length} targets</span></div>
-      <Show when={catalog().providerCatalogStatus === 'ready'} fallback={<p class="admin-status-text">Provider configuration discovery is unavailable. Dynamic Routes remain available.</p>}>
-        <Show when={configuredProviders().length} fallback={<p class="admin-status-text">No native provider configurations were found for this gateway.</p>}>
-          <section class="admin-route-models" aria-label="Configured native providers">
-            <strong>Configured providers</strong>
-            <ul class="admin-model-list"><For each={configuredProviders()}>{(provider) => <li><strong>{provider.label}</strong><span>{provider.supported ? `${provider.custom ? 'Custom provider' : 'Native provider'} · available for targets` : 'Binding is ambiguous or provider classification is unavailable'}</span></li>}</For></ul>
-            <p class="admin-field-help">Configuration presence does not prove model readiness. Verify each exact target before assigning access.</p>
-          </section>
-          <Index each={nativeTargets()}>{(target, index) => {
-            const clearProof = (update: Partial<NativeDraft>) => {
-              if (target().id) setNativeChecks((checks) => ({ ...checks, [target().id!]: null }));
-              setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, ...update, enabled: false, verification: undefined } : item));
-            };
-            const selectedProfile = () => findProfile(target().profileRef);
-            return <article class="admin-route-entry" aria-label={`${target().label || 'New'} native target`}><div class="admin-route-panel">
+      <div class="admin-subsection-heading"><div><h3 id="native-heading">Native providers</h3><p>Add an exact provider-model target, then open it to assign and verify its Pi compatibility profile.</p></div><span class="admin-status">{nativeTargets().length} targets</span></div>
+      <div class="admin-route-overview"><Index each={nativeTargets()}>{(target, index) => {
+        const clearProof = (update: Partial<NativeDraft>) => {
+          if (target().id) setNativeChecks((checks) => ({ ...checks, [target().id!]: null }));
+          setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, ...update, enabled: false, verification: undefined } : item));
+        };
+        const selectedProfile = () => findProfile(target().profileRef);
+        const title = () => `${providerLabel(target().provider)} · ${target().model || 'Add model'}`;
+        return <article class="admin-route-entry" aria-label={`${target().label || 'New'} native target`}>
+          <div class="admin-native-target-heading">
+            <button type="button" class="admin-route-toggle" aria-label={`Configure ${title()}`} aria-expanded={expandedNative() === index} aria-controls={`native-panel-${index}`} onClick={() => setExpandedNative(expandedNative() === index ? undefined : index)}>
+              <span><strong>{title()}</strong><small>{target().label || 'New target'}</small></span>
+              <span class="admin-check-pill" data-state={nativeReady(target()) ? 'passed' : 'unclear'}>{nativeReady(target()) ? 'Ready' : 'Not ready'}</span><span class="admin-route-chevron" aria-hidden="true">›</span>
+            </button>
+            <button type="button" class="admin-link-button admin-danger-link" aria-label={`Remove ${target().label || title()}`} onClick={() => {
+              if (target().id) setNativeChecks((checks) => Object.fromEntries(Object.entries(checks).filter(([id]) => id !== target().id)));
+              setNativeTargets((items) => items.filter((_, at) => at !== index)); setExpandedNative(undefined); setNativeProfileEditor(undefined);
+            }}>Remove</button>
+          </div>
+          <div hidden={expandedNative() !== index} id={`native-panel-${index}`} class="admin-route-panel">
               <div class="admin-route-controls">
                 <label class="admin-form-field"><span>Provider</span><select aria-label={`Native target ${index + 1} provider`} value={target().provider} onChange={(event) => {
                   const provider = event.currentTarget.value; const profile = preparedProfileRef(provider);
@@ -518,29 +527,21 @@ const AiRoutingFields: Component<Props> = (props) => {
                 <label class="admin-form-field"><span>Label</span><input aria-label={`Native target ${index + 1} label`} value={target().label} onInput={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, label: event.currentTarget.value } : item))} /></label>
                 <label class="admin-form-field"><span>Exact model identifier</span><input aria-label={`Native target ${index + 1} model`} list={`native-model-suggestions-${index}`} value={target().model} onInput={(event) => clearProof({ model: event.currentTarget.value })} /><datalist id={`native-model-suggestions-${index}`}><For each={nativeModelSuggestions(target().provider)}>{(model) => <option value={model} />}</For></datalist><small>Route-derived names for this provider are suggestions only.</small></label>
                 <label class="admin-form-field"><span>Context window</span><input type="text" inputmode="numeric" aria-label={`Native target ${index + 1} context window`} value={target().contextWindow} onInput={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, contextWindow: Number(event.currentTarget.value) } : item))} /><small>Must be greater than 16,384 tokens.</small></label>
-                <label class="admin-form-field"><span>Capability profile</span><select aria-label={`Native target ${index + 1} profile`} value={refKey(target().profileRef)} onChange={(event) => {
+                <label class="admin-form-field"><span>Pi compatibility profile</span><select aria-label={`Native target ${index + 1} profile`} value={refKey(target().profileRef)} onChange={(event) => {
                   const profile = assignableProfiles().find((candidate) => refKey(candidate) === event.currentTarget.value);
                   if (profile) clearProof({ profileRef: profileRefFromEntry(profile) });
                 }}><For each={assignableProfiles()}>{(profile) => <option value={refKey(profile)}>{profileDisplayName(profile)}</option>}</For></select><small>{selectedProfile()?.supportedLevels.length ? `Pi levels: ${selectedProfile()!.supportedLevels.map(levelLabel).join(', ')}.` : 'Provider-default reasoning; no Pi effort level is claimed.'}</small></label>
               </div>
               <Show when={!Number.isSafeInteger(target().contextWindow) || target().contextWindow <= 16384}><p class="admin-inline-error">Enter a whole-number context window greater than 16,384.</p></Show>
-              <p class="admin-status-text" role="status">{target().enabled
-                ? 'Available for routing. Assign this target to an Access group before saving.'
-                : target().verification?.current
-                  ? `${target().verification?.method === 'administrator' ? 'Administrator-confirmed' : 'Verified'}. This target can now be made available for routing.`
-                  : 'Verify or confirm this exact target before making it available for routing.'}</p>
-              <label class="admin-toggle-field"><input type="checkbox" aria-label={`Enable ${target().label} native target`} checked={target().enabled} disabled={!target().verification?.current} onChange={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, enabled: event.currentTarget.checked } : item))} /><span>Available for routing</span></label>
               <Show when={target().error}><p role="alert" class="admin-inline-error">{target().error}</p></Show>
-              <div class="admin-route-actions"><button type="button" class="admin-secondary-button" aria-label={`Discover Profile for native target ${index + 1}`} disabled={!connectionReady() || target().busy || !target().model || nativeProfileEditor() !== undefined} onClick={() => setNativeProfileEditor(index)}>Discover Profile</button><button type="button" class="admin-secondary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index)}>{target().busy ? 'Verifying…' : 'Verify Profile'}</button><button type="button" class="admin-primary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index, true)}>Mark as verified</button><button type="button" class="admin-link-button admin-danger-link" onClick={() => setNativeTargets((items) => items.filter((_, at) => at !== index))}>Remove target</button></div>
+              <div class="admin-route-actions"><button type="button" class="admin-secondary-button" aria-label={`Discover Profile for native target ${index + 1}`} disabled={!connectionReady() || target().busy || !target().model || nativeProfileEditor() !== undefined} onClick={() => setNativeProfileEditor(index)}>Discover Profile</button><button type="button" class="admin-secondary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index)}>{target().busy ? 'Verifying…' : 'Verify Profile'}</button><button type="button" class="admin-primary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index, true)}>Mark as verified</button></div>
               <Show when={nativeProfileEditor() === index}><ReasoningProfileEditor route={`${target().provider}/${target().model}`} discoverCompatibility={() => discoverNativeCompatibility({ target: nativeSubmission()[index], ...(gatewayDraft() && { gateway: gatewayDraft()! }), maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS })} onBusyChange={setProfileEditorBusy} existingRevisions={customRevisions()} onCancel={() => setNativeProfileEditor(undefined)} onSelectProfile={(ref) => { setNativeProfileEditor(undefined); clearProof({ profileRef: ref }); }} onSave={(revision) => { const ref = profileRef(revision); if (!ref) return; setNativeProfileEditor(undefined); setCustomRevisions((items) => [...items, revision]); clearProof({ profileRef: ref }); setPendingProfileName(String(revision.name ?? 'New profile')); }} /></Show>
             </div></article>;
-          }}</Index>
-          <Show when={selectableProviders().length}><button type="button" class="admin-secondary-button" onClick={() => {
-            const provider = selectableProviders()[0]; const profile = provider && preparedProfileRef(provider.provider);
-            if (provider && profile) setNativeTargets((items) => [...items, { label: '', model: '', provider: provider.provider, contextWindow: 200000, profileRef: profile, enabled: false }]);
-          }}>Add native target</button></Show>
-        </Show>
-      </Show>
+          }}</Index></div>
+      <Show when={selectableProviders().length}><div class="admin-route-actions"><button type="button" class="admin-secondary-button" onClick={() => {
+        const provider = selectableProviders()[0]; const profile = provider && preparedProfileRef(provider.provider);
+        if (provider && profile) { const index = nativeTargets().length; setNativeTargets((items) => [...items, { label: '', model: '', provider: provider.provider, contextWindow: 200000, profileRef: profile, enabled: false }]); setExpandedNative(index); }
+      }}>Add provider-model</button></div></Show>
     </section>
 
     <section hidden={section() !== 'access'} class="admin-routing-pane" aria-labelledby="groups-heading">

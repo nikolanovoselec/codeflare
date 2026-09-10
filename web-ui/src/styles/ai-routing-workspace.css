@@ -19,6 +19,8 @@
 .admin-routing-workspace .admin-route-controls { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--space-4); margin: var(--space-4) 0; }
 .admin-route-overview { border-top: 1px solid var(--color-border-default); }
 .admin-route-entry { border-bottom: 1px solid var(--color-border-default); min-width: 0; }
+.admin-native-target-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); }
+.admin-native-target-heading > .admin-link-button { margin-right: var(--space-2); }
 .admin-route-toggle { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-4); width: 100%; padding: var(--space-4) var(--space-2); border: 0; background: transparent; color: var(--color-text-primary); text-align: left; font: inherit; cursor: pointer; }
 .admin-route-toggle > span:first-child { display: grid; min-width: 0; gap: var(--space-1); overflow-wrap: anywhere; }
 .admin-route-toggle small { color: var(--color-text-secondary); font-weight: 400; }
@@ -66,6 +68,8 @@
   .admin-route-action-row { flex-direction: column; align-items: stretch; }
   .admin-route-action-row > .admin-route-actions { margin-left: 0; }
   .admin-routing-workspace .admin-route-controls { grid-template-columns: minmax(0, 1fr); }
+  .admin-native-target-heading { grid-template-columns: minmax(0, 1fr); gap: 0; padding-bottom: var(--space-2); }
+  .admin-native-target-heading > .admin-link-button { justify-self: start; margin: 0 0 0 var(--space-2); }
   .admin-route-toggle { grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); }
   .admin-route-toggle .admin-check-pill { grid-row: 2; justify-self: start; }
   .admin-route-chevron { grid-column: 2; grid-row: 1 / span 2; }
