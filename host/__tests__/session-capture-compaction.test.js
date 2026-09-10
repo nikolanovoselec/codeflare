@@ -78,7 +78,7 @@ describe('session capture compaction', () => {
     assert.deepEqual(selected.map(({ filename }) => filename), cold);
   });
 
-  it('REQ-MEM-023 AC2/AC3: builds a deterministic idempotent archive with recoverable source boundaries', () => {
+  it('REQ-MEM-024 AC1-AC4: builds a deterministic idempotent archive with recoverable source boundaries', () => {
     const names = [
       '2026-01-03T00-00-00+0000-charlie.md',
       '2026-01-01T01-00-00+0000-beta.md',

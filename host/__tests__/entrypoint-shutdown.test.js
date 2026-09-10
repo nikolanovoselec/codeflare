@@ -36,6 +36,44 @@ function extractFunction(name) {
   return lines.slice(start, end + 1).join('\n');
 }
 
+/** Execute a real sync function with rclone stubbed to record its argv. */
+function runRcloneArgs(functionName) {
+  const fixture = mkdtempSync(join(tmpdir(), 'rclone-args-'));
+  const runtimeRoot = join(fixture, 'runtime');
+  const syncRuntimeDir = join(runtimeRoot, 'sync');
+  const recoveryFilter = join(syncRuntimeDir, 'recovery-filters.txt');
+  const argsFile = join(fixture, 'rclone.args');
+  mkdirSync(join(syncRuntimeDir, 'rclone'), { recursive: true });
+  writeFileSync(recoveryFilter, '');
+
+  const script = [
+    'set -euo pipefail',
+    `USER_HOME='${fixture}'`,
+    "R2_BUCKET_NAME='bucket'",
+    `RCLONE_CONFIG='${join(fixture, 'rclone.conf')}'`,
+    `RECOVERY_FILTER_FILE='${recoveryFilter}'`,
+    `CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
+    `SYNC_RUNTIME_DIR='${syncRuntimeDir}'`,
+    `RCLONE_ARGS_FILE='${argsFile}'`,
+    'RCLONE_FILTERS=()',
+    'rclone() { printf "%s\\n" "$@" > "$RCLONE_ARGS_FILE"; }',
+    'timeout() { shift; "$@"; }',
+    'pgrep() { return 1; }',
+    'cleanup_main_transcripts() { :; }',
+    'record_sync_disk_failure() { :; }',
+    'repair_hook_exec_bits() { :; }',
+    'recover_vanished_files() { return 1; }',
+    extractFunction(functionName),
+    `${functionName} ''`,
+  ].join('\n');
+
+  const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  const args = existsSync(argsFile) ? readFileSync(argsFile, 'utf8').split('\n').filter(Boolean) : [];
+  rmSync(fixture, { recursive: true, force: true });
+  assert.equal(result.status, 0, result.stderr);
+  return args;
+}
+
 /** Exercise the real baseline function with a controlled timeout result. */
 function runBaselineTimeout() {
   const fixture = mkdtempSync(join(tmpdir(), 'baseline-timeout-'));
@@ -182,11 +220,14 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     ]);
   });
 
-  it('REQ-OPS-010 AC4: final rclone bisync with --ignore-checksum --max-delete 5000 runs to R2 before exit', () => {
-    // The rclone flags live in bisync_with_r2 (stubbed in the harness), so
-    // they stay structural assertions on the real function.
-    assert.ok(entrypoint.includes('--ignore-checksum'), 'entrypoint.sh must pass --ignore-checksum to rclone bisync');
-    assert.ok(entrypoint.includes('--max-delete 5000'), 'entrypoint.sh must pass --max-delete 5000 to rclone bisync');
+  it('REQ-OPS-010 AC4 / REQ-STOR-003 AC6: final, periodic, and baseline bisync use the 5000-file deletion limit', () => {
+    for (const functionName of ['establish_bisync_baseline', 'bisync_with_r2']) {
+      const args = runRcloneArgs(functionName);
+      const maxDelete = args.indexOf('--max-delete');
+      assert.notEqual(maxDelete, -1, `${functionName} must pass --max-delete to rclone`);
+      assert.equal(args[maxDelete + 1], '5000', `${functionName} must bound deletion at 5000 files`);
+      assert.ok(args.includes('--ignore-checksum'), `${functionName} must pass --ignore-checksum to rclone`);
+    }
 
     // Behavioral: with the baseline sentinel present, the handler runs the
     // final bisync and classifies a zero exit as success.

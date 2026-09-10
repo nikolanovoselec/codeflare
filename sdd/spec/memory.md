@@ -606,12 +606,10 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Acceptance Criteria:**
 
 1. For each daily UTC compaction run, capture recency is derived from the leading calendar date in each session filename; files dated before the same UTC calendar date in the prior month are cold, while newer or unrecognized names remain hot. <!-- @impl: scripts/compact-session-captures.mjs::selectColdCaptures --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-023 AC1: accepts only actual capture timestamp shapes and compares their calendar days) -->
-2. Cold captures form one date-and-name-ordered archive whose boundaries recover every original filename and byte sequence. <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-023 AC2/AC3: builds a deterministic idempotent archive with recoverable source boundaries) -->
-3. Identical capture input produces identical output without duplicate records. <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-023 AC2/AC3: builds a deterministic idempotent archive with recoverable source boundaries) -->
-4. Cumulative provenance moves to the archive without changing graph identities or evidence, and separate captures remain distinct. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::relocate_node_link_provenance --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::relocate_node_link_provenance --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009: archived edge evidence survives relocation, repetition, and later merges) -->
-5. The complete cumulative Vault contribution is relocated and republished before source deletion and bisync. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (archives, relocates, deletes, and bisyncs once per UTC day) -->
-6. Agent retrieval checks individual hot captures before archived history; agents never edit the machine archive or delete captures themselves. <!-- @impl: preseed/agents/claude/skills/vault-operations/SKILL.md::Reading --> <!-- @impl: preseed/agents/pi/skills/vault-operations/SKILL.md::Reading --> <!-- @manual -->
-7. Daily compaction runs in every session mode without an enable flag. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (runs in the default session mode without a feature flag) -->
+2. Cumulative provenance moves to the archive without changing graph identities or evidence, and separate captures remain distinct. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::relocate_node_link_provenance --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::relocate_node_link_provenance --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009: archived edge evidence survives relocation, repetition, and later merges) -->
+3. The complete cumulative Vault contribution is relocated and republished before source deletion and bisync. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (archives, relocates, deletes, and bisyncs once per UTC day) -->
+4. Agent retrieval checks individual hot captures before archived history; agents never edit the machine archive or delete captures themselves. <!-- @impl: preseed/agents/claude/skills/vault-operations/SKILL.md::Reading --> <!-- @impl: preseed/agents/pi/skills/vault-operations/SKILL.md::Reading --> <!-- @manual -->
+5. Daily compaction runs in every session mode without an enable flag. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (runs in the default session mode without a feature flag) -->
 
 **Constraints:**
 
@@ -625,6 +623,31 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Dependencies:** [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions)
 
 **Verification:** Automated compaction and graph-relocation tests plus manual instruction review
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-024: Session archive serialization is deterministic and lossless
+
+**Intent:** Compacted session text retains a stable archive representation that can recover each original source.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Cold captures appear in date-and-name order. <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-024 AC1-AC4: builds a deterministic idempotent archive with recoverable source boundaries) -->
+2. Archive boundaries recover each original filename and byte sequence. <!-- @impl: scripts/compact-session-captures.mjs::parseSessionArchive --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-024 AC1-AC4: builds a deterministic idempotent archive with recoverable source boundaries) -->
+3. Identical capture input produces byte-identical archive output. <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-024 AC1-AC4: builds a deterministic idempotent archive with recoverable source boundaries) -->
+4. Repeating compaction produces no duplicate source records. <!-- @impl: scripts/compact-session-captures.mjs::prepareArchive --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-024 AC1-AC4: builds a deterministic idempotent archive with recoverable source boundaries) -->
+
+**Constraints:** Archive serialization preserves source bytes without semantic rewriting.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-023](#req-mem-023-cold-session-captures-compact-without-losing-memory)
+
+**Verification:** Automated test ([session-capture-compaction](../../host/__tests__/session-capture-compaction.test.js))
 
 **Status:** Implemented
 
