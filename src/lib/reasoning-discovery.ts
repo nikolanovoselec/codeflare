@@ -267,7 +267,7 @@ function isBoundedModelSelector(value: unknown): value is string {
   const model = value.slice(separator + 1);
   if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(provider)
     || !/^[A-Za-z0-9@][A-Za-z0-9@._:/-]{0,255}$/.test(model)
-    || model.includes('..') || model.includes('://')
+    || model.includes('..')
     || ['__proto__', 'prototype', 'constructor'].includes(model.toLowerCase())) return false;
   return provider !== 'aws-bedrock' || !model.includes('/');
 }

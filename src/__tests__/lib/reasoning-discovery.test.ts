@@ -122,7 +122,7 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
     expect(failed.assignable).toBe(false);
   });
 
-  it('REQ-ENTERPRISE-054: verifies a generalized native provider selector directly through compat', async () => {
+  it('REQ-ENTERPRISE-052: verifies a generalized native provider selector directly through compat', async () => {
     const requests: Array<{ url: string; body: Record<string, unknown>; headers: Headers }> = [];
     const report = await discoverPiCompatibility({
       accountId: ACCOUNT_ID,
