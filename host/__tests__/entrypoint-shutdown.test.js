@@ -182,11 +182,11 @@ describe('REQ-OPS-010: Graceful container shutdown preserves data', () => {
     ]);
   });
 
-  it('REQ-OPS-010 AC4: final rclone bisync with --ignore-checksum --max-delete 100 runs to R2 before exit', () => {
+  it('REQ-OPS-010 AC4: final rclone bisync with --ignore-checksum --max-delete 5000 runs to R2 before exit', () => {
     // The rclone flags live in bisync_with_r2 (stubbed in the harness), so
     // they stay structural assertions on the real function.
     assert.ok(entrypoint.includes('--ignore-checksum'), 'entrypoint.sh must pass --ignore-checksum to rclone bisync');
-    assert.ok(entrypoint.includes('--max-delete 100'), 'entrypoint.sh must pass --max-delete 100 to rclone bisync');
+    assert.ok(entrypoint.includes('--max-delete 5000'), 'entrypoint.sh must pass --max-delete 5000 to rclone bisync');
 
     // Behavioral: with the baseline sentinel present, the handler runs the
     // final bisync and classifies a zero exit as success.

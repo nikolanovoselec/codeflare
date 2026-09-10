@@ -1417,7 +1417,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. The daily UTC path prepares the deterministic local archive from the selected cold captures. <!-- @impl: scripts/compact-session-captures.mjs::prepareArchive --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-023 AC2: builds a deterministic idempotent archive with recoverable source boundaries) -->
+1. The daily UTC path prepares the deterministic local archive from the selected cold captures. <!-- @impl: scripts/compact-session-captures.mjs::prepareArchive --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-023 AC2/AC3: builds a deterministic idempotent archive with recoverable source boundaries) -->
 2. Graph provenance is relocated and the complete cumulative contribution is republished before source deletion. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (archives, relocates, deletes, and bisyncs once per UTC day) -->
 3. The compactor deletes only recorded cold sources whose current content still matches its manifest. <!-- @impl: scripts/compact-session-captures.mjs::deleteVerifiedSources --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-STOR-052 AC3: deletes only exact unchanged archived sources) -->
 4. One bisync publishes the archive, graph update, and source deletions together before the UTC-day completion stamp is written. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (archives, relocates, deletes, and bisyncs once per UTC day) -->

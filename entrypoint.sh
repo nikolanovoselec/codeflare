@@ -979,7 +979,7 @@ establish_bisync_baseline() {
             --recover \
             --check-sync=false \
             --ignore-checksum \
-            --max-delete 100 \
+            --max-delete 5000 \
             --retries 3 --retries-sleep 10s \
             --transfers 32 --checkers 64 -v > "$BASELINE_OUTPUT" 2>&1; then
             SYNC_RESULT=0
@@ -1108,7 +1108,7 @@ bisync_with_r2() {
         --recover \
         --check-sync=false \
         --ignore-checksum \
-        --max-delete 100 \
+        --max-delete 5000 \
         --retries 3 --retries-sleep 10s \
         --transfers 32 --checkers 64 "${verbose_args[@]}" > "$SYNC_OUTPUT" 2>&1; then
         RESULT=0

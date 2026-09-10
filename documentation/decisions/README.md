@@ -1544,7 +1544,7 @@ The daemon's SIGUSR1 trap is coalescing: signals received during a running bisyn
 
 - bisync uses `--conflict-resolve newer`. Newest-mtime-wins is commutative and associative on absolute mtime: for any file with versions across N sessions, the final R2 state is always `max(mtime_1, ..., mtime_N)` regardless of order.
 - The system already runs in this concurrent mode every 60 seconds today for any user with multiple active sessions.
-- The existing `--check-sync=false / --resilient / --recover / --ignore-checksum / --max-delete 100` flag set already hardens bisync against listing divergence from concurrent writers. Manual fan-out introduces no new concurrency model.
+- The existing `--check-sync=false / --resilient / --recover / --ignore-checksum / --max-delete 5000` flag set already hardens bisync against listing divergence from concurrent writers. Manual fan-out introduces no new concurrency model.
 - R2 (S3-compatible) guarantees atomic per-object writes. Concurrent LISTs from different sessions see slightly different snapshots, but each individual file is either fully old or fully new -- never partial.
 - Serial fan-out would be ~Nx slower with no different outcome. Worse, the "winner" under serial would depend on which session the Worker happened to schedule first, replacing a mathematically deterministic max-mtime outcome with an arbitrary one.
 
