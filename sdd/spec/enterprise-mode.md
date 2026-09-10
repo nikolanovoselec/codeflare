@@ -748,25 +748,49 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 <a id="req-enterprise-051-native-ai-gateway-target-administration-workspace"></a>
 ### REQ-ENTERPRISE-051: Native AI Gateway Provider and Model Workspace
 
-**Intent:** Administrators manage exact native and custom AI Gateway provider/model drafts in the established Routes disclosure pattern without treating route-derived suggestions as authority.
+**Intent:** Administrators edit exact native and custom AI Gateway provider/model drafts without treating route-derived suggestions as authority.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. Administration lists each added target as one collapsed provider-model row. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051: renders native targets as collapsed provider-model rows with expanded-only controls) -->
-2. Opening a target row exposes its target fields and profile actions. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051: renders native targets as collapsed provider-model rows with expanded-only controls) -->
-3. Administrators can select any uniquely selectable provider, and the selection updates the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051: renders native targets as collapsed provider-model rows with expanded-only controls) -->
-4. Administrators can enter an exact model identifier that is absent from the suggestions, and that exact value remains in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051: accepts an exact model independently of provider-scoped optional suggestions) -->
-5. Administrators can edit a target context window, and the numeric value remains in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051: edits the target label and context window in the native draft) -->
-6. Targets without current proof show orange Not ready status; targets with current verification or administrator confirmation show green Ready status. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051: derives orange and green native readiness without an enable control) -->
-7. Only Ready targets are available to access policies. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051: derives orange and green native readiness without an enable control) -->
+1. Administrators can select any uniquely selectable provider, and the selection updates the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051/056: renders native targets as collapsed provider-model rows with expanded-only controls) -->
+2. Administrators can edit a target label, and the edited label remains in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051: edits the target label and context window in the native draft) -->
+3. Administrators can enter an exact model identifier that is absent from the suggestions, and that exact value remains in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051: accepts an exact model independently of provider-scoped optional suggestions) -->
+4. Administrators can edit a target context window, and the numeric value remains in the target draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051: edits the target label and context window in the native draft) -->
+5. Route-derived model suggestions contain only models for the selected provider and do not constrain the exact-model input. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051: accepts an exact model independently of provider-scoped optional suggestions) -->
 
 **Constraints:** Administration is sequential and retryable, not transactional. Profile selection and target lifecycle are owned by [REQ-ENTERPRISE-054](#req-enterprise-054-native-target-profile-and-lifecycle-administration); Worker identity and Save authority are owned by [REQ-ENTERPRISE-053](#req-enterprise-053-native-target-identity-and-document) and [REQ-ENTERPRISE-055](#req-enterprise-055-native-target-authority-and-save).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-ENTERPRISE-047](#req-enterprise-047-native-ai-gateway-provider-discovery-and-selection), [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-053](#req-enterprise-053-native-target-identity-and-document)
+
+**Verification:** Anchored behavioral fixtures and CI.
+
+**Status:** Implemented
+
+---
+
+<a id="req-enterprise-056-native-target-disclosure-and-readiness"></a>
+### REQ-ENTERPRISE-056: Native Target Disclosure and Readiness
+
+**Intent:** Administration presents added native targets compactly and communicates their proof-derived policy availability.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Administration lists each added target as one collapsed provider-model row. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051/056: renders native targets as collapsed provider-model rows with expanded-only controls) -->
+2. Opening a target row exposes its target fields and profile actions. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-051/056: renders native targets as collapsed provider-model rows with expanded-only controls) -->
+3. Targets without current proof show orange Not ready status; targets with current verification or administrator confirmation show green Ready status. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-056: derives orange and green native readiness without an enable control) -->
+4. Only Ready targets are available to access policies. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-056: derives orange and green native readiness without an enable control) -->
+
+**Constraints:** Readiness is derived from current proof and has no separate administrator toggle. Editing and profile lifecycle remain owned by [REQ-ENTERPRISE-051](#req-enterprise-051-native-ai-gateway-provider-and-model-workspace) and [REQ-ENTERPRISE-054](#req-enterprise-054-native-target-profile-and-lifecycle-administration).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-051](#req-enterprise-051-native-ai-gateway-provider-and-model-workspace), [REQ-ENTERPRISE-054](#req-enterprise-054-native-target-profile-and-lifecycle-administration)
 
 **Verification:** Anchored behavioral fixtures and CI.
 

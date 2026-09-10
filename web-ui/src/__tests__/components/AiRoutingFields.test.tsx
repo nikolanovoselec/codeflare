@@ -168,7 +168,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Behavioral fixtures are execution-pending; CI owns RED/GREEN verification.
 describe('Structured AI routing', () => {
-  it('REQ-ENTERPRISE-051: renders native targets as collapsed provider-model rows with expanded-only controls', async () => {
+  it('REQ-ENTERPRISE-051/056: renders native targets as collapsed provider-model rows with expanded-only controls', async () => {
     api.catalog.mockResolvedValueOnce({
       ...catalog,
       providers: [
@@ -198,7 +198,7 @@ describe('Structured AI routing', () => {
     expect(within(article).queryByLabelText('Enable Gemini native target')).toBeNull();
   });
 
-  it('REQ-ENTERPRISE-051: derives orange and green native readiness without an enable control', async () => {
+  it('REQ-ENTERPRISE-056: derives orange and green native readiness without an enable control', async () => {
     const readyId = '11111111-1111-4111-8111-111111111111';
     const view = mount({ ...checkedCurrent(), nativeTargets: [
       { id: readyId, label: 'Ready Claude', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false, verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true } },
