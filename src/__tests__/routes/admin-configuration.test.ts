@@ -191,17 +191,19 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     expect(JSON.stringify(body)).not.toContain('private-provider-binding');
   });
 
-  it('does not call provider management when no native targets are saved', async () => {
-    const { app } = createApp({
+  it('keeps configuration available when persisted native targets are malformed', async () => {
+    const { app, kv } = createApp({
       ENTERPRISE_MODE: 'active',
       AIG_GATEWAY_URL: 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/gateway',
       AIG_TOKEN: 'deployment-token',
     });
+    await kv.put(SETUP_KEYS.NATIVE_AI_TARGETS, '{not-json');
     const fetcher = vi.spyOn(globalThis, 'fetch');
 
     const response = await app.request('/admin/configuration');
 
     expect(response.status).toBe(200);
+    expect((await response.json() as any).sections.aiRouting.nativeTargets).toEqual([]);
     expect(fetcher).not.toHaveBeenCalled();
     fetcher.mockRestore();
   });
