@@ -450,7 +450,24 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_ai_gateway', status: 'success' }));
       });
 
-      it('REQ-ENTERPRISE-017: a blank AI Gateway token leaves the stored token untouched (no clobber)', async () => {
+      it('REQ-ENTERPRISE-062: a blank AI Gateway URL preserves the stored URL', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: ENC_KEY });
+        mockFullSuccessFlow();
+        await mockKV.put('setup:aig_gateway_url', 'https://gateway.ai.cloudflare.com/v1/acct/saved');
+        mockKV.put.mockClear();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ aigGatewayUrl: '', aigToken: '' })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:aig_gateway_url', 'https://gateway.ai.cloudflare.com/v1/acct/saved');
+      });
+
+      it('REQ-ENTERPRISE-062: a blank AI Gateway token leaves the stored token untouched (no clobber)', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: ENC_KEY });
         mockFullSuccessFlow();
 
@@ -467,7 +484,7 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:aig_token', expect.anything());
       });
 
-      it('REQ-ENTERPRISE-017: never writes the AI Gateway keys in non-enterprise mode (regression)', async () => {
+      it('REQ-ENTERPRISE-062: never writes the AI Gateway keys in non-enterprise mode (regression)', async () => {
         const app = createTestApp();
         mockFullSuccessFlow();
 

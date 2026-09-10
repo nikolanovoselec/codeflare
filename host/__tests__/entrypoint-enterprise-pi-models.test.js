@@ -264,7 +264,7 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     assert.deepEqual(authJson, {}, 'auth.json must be emptied so no built-in provider stays authed');
   });
 
-  it('REQ-ENTERPRISE-058: authoritative empty enterprise catalog removes managed Pi configuration', () => {
+  it('REQ-ENTERPRISE-058: authoritative empty enterprise catalog removes managed Pi and Copilot configuration', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ent-pi-empty-'));
     const agentDir = join(dir, '.pi/agent');
     const script = [
