@@ -3366,16 +3366,53 @@ CA_TRUST_EOF
     ENTERPRISE_ROUTE_CATALOG="${ENTERPRISE_ROUTE_CATALOG:-[]}"
     ENTERPRISE_DEFAULT_ROUTE="${ENTERPRISE_DEFAULT_ROUTE:-}"        # resolved Worker-side
     ENTERPRISE_DEFAULT_REASONING="${ENTERPRISE_DEFAULT_REASONING:-off}"
-    # Fallback default if the Worker sent none: first catalog entry, else "codeflare".
+    # Fallback default if the Worker sent none: first authorized catalog entry.
     if [ -z "$ENTERPRISE_DEFAULT_ROUTE" ]; then
-        ENTERPRISE_DEFAULT_ROUTE="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -r 'if type=="array" and length>0 then .[0] else "codeflare" end')"
+        ENTERPRISE_DEFAULT_ROUTE="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -r 'if type=="array" and length>0 then .[0] else "" end')"
     fi
+    ENTERPRISE_CATALOG_COUNT="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -r 'if type=="array" then length else -1 end' 2>/dev/null || echo -1)"
+
+    if [ "$ENTERPRISE_CATALOG_COUNT" = "0" ]; then
+        # An explicit empty catalog is authoritative revocation, not an invitation
+        # to synthesize a model. Remove only Codeflare-managed Pi/Copilot state.
+        BASHRC_FILE="$USER_HOME/.bashrc"
+        touch "$BASHRC_FILE"
+        EMPTY_TMP=$(mktemp)
+        sed '/^# enterprise-copilot-byok$/,/^# end-enterprise-copilot-byok$/d' "$BASHRC_FILE" > "$EMPTY_TMP"
+        mv "$EMPTY_TMP" "$BASHRC_FILE"
+        PI_MODELS_JSON="$USER_HOME/.pi/agent/models.json"
+        PI_SETTINGS_JSON="$USER_HOME/.pi/agent/settings.json"
+        if [ -f "$PI_MODELS_JSON" ]; then
+            EMPTY_TMP=$(mktemp)
+            jq 'del(.providers["codeflare-gateway"])' "$PI_MODELS_JSON" > "$EMPTY_TMP" 2>/dev/null && mv "$EMPTY_TMP" "$PI_MODELS_JSON" || rm -f "$EMPTY_TMP"
+        fi
+        if [ -f "$PI_SETTINGS_JSON" ]; then
+            EMPTY_TMP=$(mktemp)
+            jq 'if .defaultProvider == "codeflare-gateway" then del(.defaultProvider,.defaultModel,.defaultThinkingLevel) else . end' "$PI_SETTINGS_JSON" > "$EMPTY_TMP" 2>/dev/null && mv "$EMPTY_TMP" "$PI_SETTINGS_JSON" || rm -f "$EMPTY_TMP"
+        fi
+        unset COPILOT_PROVIDER_BASE_URL COPILOT_PROVIDER_API_KEY COPILOT_MODEL COPILOT_PROVIDER_MAX_PROMPT_TOKENS COPILOT_PROVIDER_MAX_OUTPUT_TOKENS
+        echo "[entrypoint] Enterprise Mode: authoritative empty model catalog applied"
+    elif [ "$ENTERPRISE_CATALOG_COUNT" -gt 0 ]; then
 
     # NOTE: Claude Code is intentionally NOT configured here. It speaks the
     # Anthropic-native wire format, which the AI Gateway REST transport does not
     # carry, so it is excluded from the enterprise agent set (REQ-ENTERPRISE-003,
     # AD74). Only the OpenAI-wire-format agents (Copilot, Pi) are routed; bash
     # needs no LLM.
+
+    ENTERPRISE_ROUTE_CONTEXT_WINDOWS="${ENTERPRISE_ROUTE_CONTEXT_WINDOWS:-}"
+    [ -n "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" ] || ENTERPRISE_ROUTE_CONTEXT_WINDOWS='{}'
+    ENTERPRISE_ROUTE_REASONING_LEVELS="${ENTERPRISE_ROUTE_REASONING_LEVELS:-}"
+    [ -n "$ENTERPRISE_ROUTE_REASONING_LEVELS" ] || ENTERPRISE_ROUTE_REASONING_LEVELS='{}'
+    ENTERPRISE_DEFAULT_CONTEXT="$(echo "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" | jq -r --arg model "$ENTERPRISE_DEFAULT_ROUTE" '.[$model] // 256000' 2>/dev/null || echo 256000)"
+    ENTERPRISE_DEFAULT_LEVEL_COUNT="$(echo "$ENTERPRISE_ROUTE_REASONING_LEVELS" | jq -r --arg model "$ENTERPRISE_DEFAULT_ROUTE" 'if (.[$model] | type) == "array" then (.[$model] | length) else -1 end' 2>/dev/null || echo -1)"
+    if [ "$ENTERPRISE_DEFAULT_LEVEL_COUNT" = "0" ]; then
+        ENTERPRISE_COPILOT_OUTPUT=16384
+        ENTERPRISE_COPILOT_PROMPT=$((ENTERPRISE_DEFAULT_CONTEXT > ENTERPRISE_COPILOT_OUTPUT ? ENTERPRISE_DEFAULT_CONTEXT - ENTERPRISE_COPILOT_OUTPUT : 1))
+    else
+        ENTERPRISE_COPILOT_OUTPUT=128000
+        ENTERPRISE_COPILOT_PROMPT=920000
+    fi
 
     # --- GitHub Copilot ----------------------------------------------------
     # BYOK against the real OpenAI host (intercepted -> gateway REST API). BYOK is
@@ -3398,6 +3435,8 @@ CA_TRUST_EOF
     # LLM traffic still flows to the gateway. Deterministic fallback if a deploy
     # ever shows Copilot using GitHub-hosted models anyway: `export
     # COPILOT_OFFLINE=true` (gateway-only; that also disables the GitHub features above).
+    ENTERPRISE_COPILOT_PROMPT="${ENTERPRISE_COPILOT_PROMPT:-920000}"
+    ENTERPRISE_COPILOT_OUTPUT="${ENTERPRISE_COPILOT_OUTPUT:-128000}"
     export COPILOT_PROVIDER_BASE_URL="https://api.openai.com/v1"
     export COPILOT_PROVIDER_API_KEY="$ENTERPRISE_PLACEHOLDER_TOKEN"
     export COPILOT_MODEL="$ENTERPRISE_DEFAULT_ROUTE"
@@ -3407,8 +3446,8 @@ CA_TRUST_EOF
     # max output; prompt = ctx - output headroom) so context is not under-sized.
     # codeflare is a dynamic route — gpt-5.5 is the primary Copilot always hits (it
     # cannot send reasoning_effort to trigger the gemini fallback, which supports more).
-    export COPILOT_PROVIDER_MAX_PROMPT_TOKENS="920000"
-    export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="128000"
+    export COPILOT_PROVIDER_MAX_PROMPT_TOKENS="$ENTERPRISE_COPILOT_PROMPT"
+    export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="$ENTERPRISE_COPILOT_OUTPUT"
     echo "[entrypoint] Enterprise Mode: Copilot BYOK active (base_url + key + model=$ENTERPRISE_DEFAULT_ROUTE) via interception"
 
     # Persist the Copilot BYOK env into .bashrc so the COPILOT AGENT inherits it.
@@ -3436,8 +3475,8 @@ CA_TRUST_EOF
 export COPILOT_PROVIDER_BASE_URL="https://api.openai.com/v1"
 export COPILOT_PROVIDER_API_KEY="$ENTERPRISE_PLACEHOLDER_TOKEN"
 export COPILOT_MODEL="$ENTERPRISE_DEFAULT_ROUTE"
-export COPILOT_PROVIDER_MAX_PROMPT_TOKENS="920000"
-export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="128000"
+export COPILOT_PROVIDER_MAX_PROMPT_TOKENS="$ENTERPRISE_COPILOT_PROMPT"
+export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="$ENTERPRISE_COPILOT_OUTPUT"
 # end-enterprise-copilot-byok
 
 COPILOT_BYOK_EOF
@@ -3522,11 +3561,14 @@ COPILOT_BYOK_EOF
     [ -n "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" ] || ENTERPRISE_ROUTE_CONTEXT_WINDOWS='{}'
     ENTERPRISE_ROUTE_REASONING_LEVELS="${ENTERPRISE_ROUTE_REASONING_LEVELS:-}"
     [ -n "$ENTERPRISE_ROUTE_REASONING_LEVELS" ] || ENTERPRISE_ROUTE_REASONING_LEVELS='{}'
+    ENTERPRISE_MODEL_DISPLAY_NAMES="${ENTERPRISE_MODEL_DISPLAY_NAMES:-}"
+    [ -n "$ENTERPRISE_MODEL_DISPLAY_NAMES" ] || ENTERPRISE_MODEL_DISPLAY_NAMES='{}'
     PI_MODELS_ARRAY="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -c \
         --arg defroute "$ENTERPRISE_DEFAULT_ROUTE" \
         --arg defaultreasoning "$ENTERPRISE_DEFAULT_REASONING" \
         --argjson cw "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" \
         --argjson routelevels "$ENTERPRISE_ROUTE_REASONING_LEVELS" \
+        --argjson displaynames "$ENTERPRISE_MODEL_DISPLAY_NAMES" \
         --argjson dflt 256000 '
         def canonical_levels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
         (if type=="array" and length>0 then . else [$defroute] end)
@@ -3534,19 +3576,22 @@ COPILOT_BYOK_EOF
           then error("default reasoning is not supported by the default route")
           else .
           end
-        | map(. as $route | {
-            id: $route,
-            reasoning: true,
-            thinkingLevelMap: (($routelevels[$route]) as $levels
-                | if (($levels | type) != "array") or (($levels | length) == 0)
-                    or ($levels | any(. as $level | (canonical_levels | index($level)) == null))
-                    or (($levels | unique | length) != ($levels | length))
-                  then error("missing or invalid route reasoning levels for \($route)")
-                  else ($levels | map({key: ., value: .}) | from_entries)
-                  end),
-            input: ["text", "image"],
-            contextWindow: ($cw[$route] // $dflt)
-        })' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
+        | map(. as $route | (($routelevels[$route]) as $levels
+            | if (($levels | type) != "array")
+                or ($levels | any(. as $level | (canonical_levels | index($level)) == null))
+                or (($levels | unique | length) != ($levels | length))
+              then error("missing or invalid route reasoning levels for \($route)")
+              elif ($levels | length) == 0 then {
+                id: $route, name: ($displaynames[$route] // $route), reasoning: false,
+                compat: {supportsReasoningEffort: false}, input: ["text", "image"],
+                contextWindow: ($cw[$route] // $dflt), maxTokens: 16384
+              }
+              else {
+                id: $route, name: ($displaynames[$route] // $route), reasoning: true,
+                thinkingLevelMap: ($levels | map({key: ., value: .}) | from_entries),
+                input: ["text", "image"], contextWindow: ($cw[$route] // $dflt)
+              }
+              end))' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
     PI_PROVIDER_CONFIG=""
     if [ "$PI_GATEWAY_CONFIG_OK" = "1" ]; then
         PI_PROVIDER_CONFIG="$(jq -n \
@@ -3602,6 +3647,9 @@ COPILOT_BYOK_EOF
         echo "$PI_SETTINGS_CFG" | jq '.' > "$PI_SETTINGS_JSON"
     fi
     echo "[entrypoint] Enterprise Mode: Pi pinned to codeflare-gateway/$ENTERPRISE_DEFAULT_ROUTE (default provider + model; catalog has all routes)"
+    else
+        echo "[entrypoint] WARNING: malformed enterprise model catalog; leaving managed model configuration unchanged"
+    fi
 
     # Routes-only model picker: clear ~/.pi/agent/auth.json so NO built-in provider is
     # authenticated. Pi only lists a provider in /model when it has auth; codeflare-gateway

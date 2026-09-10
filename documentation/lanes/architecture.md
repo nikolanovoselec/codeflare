@@ -130,9 +130,9 @@ The registry below keeps one stable evidence-bearing dossier per runtime compone
 
 **Responsibility:** Route configured enterprise LLM traffic through the customer's AI Gateway without exposing its credential to the container.
 
-**Inputs:** Intercepted OpenAI-wire requests, the configured route catalogue, each route's finite reasoning profile, the canonical reasoning level, matched configured user-access groups, and Worker-held gateway configuration.
+**Inputs:** Intercepted OpenAI-wire requests, the authorized catalog of Dynamic Route and opaque native handles, route capability profiles, matched configured user-access groups, and Worker-held gateway configuration.
 
-**Outputs:** Authenticated gateway requests with profile-specific reasoning fields, normalized streamed responses, or bounded fail-closed configuration errors before gateway fetch.
+**Outputs:** Authenticated REST-first Dynamic Route requests with supported reasoning translation, direct compat native/custom-provider requests governed by selected immutable profiles and provider-specific adapters, normalized streamed responses, or bounded fail-closed configuration errors before gateway fetch.
 
 **State owned:** No durable state; it receives request-scoped and session-scoped props from the Container DO.
 
@@ -140,9 +140,9 @@ The registry below keeps one stable evidence-bearing dossier per runtime compone
 
 **Source:** `src/llm-interceptor.ts`, `src/container/container-interception.ts`.
 
-**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-032](../../sdd/spec/enterprise-mode.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation)
+**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-007](../../sdd/spec/enterprise-mode.md#req-enterprise-007-gateway-route-pinning), [REQ-ENTERPRISE-013](../../sdd/spec/enterprise-mode.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-032](../../sdd/spec/enterprise-mode.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-047](../../sdd/spec/enterprise-mode.md#req-enterprise-047-native-ai-gateway-provider-discovery-and-selection), [REQ-ENTERPRISE-048](../../sdd/spec/enterprise-mode.md#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-049](../../sdd/spec/enterprise-mode.md#req-enterprise-049-unified-enterprise-model-authorization-and-publication), [REQ-ENTERPRISE-050](../../sdd/spec/enterprise-mode.md#req-enterprise-050-native-provider-compat-dispatch-and-wire-repair), [REQ-ENTERPRISE-052](../../sdd/spec/enterprise-mode.md#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](../../sdd/spec/enterprise-mode.md#req-enterprise-053-native-target-identity-and-document), [REQ-ENTERPRISE-055](../../sdd/spec/enterprise-mode.md#req-enterprise-055-native-target-authority-and-save)
 
-**Decisions:** [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing), [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api)
+**Decisions:** [AD72](../decisions/README.md#ad72-outbound-https-interception-over-a-worker-side-llm-proxy-for-enterprise-gateway-routing), [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api), [AD152](../decisions/README.md#ad152-generalize-native-and-custom-provider-compat-dispatch)
 
 **Detailed documentation:** [Security](security.md#enterprise-mode-credential-containment-and-ca-trust), [Configuration](configuration.md#enterprise-access-group-configuration), [Architecture Internals](architecture-internals.md)
 
@@ -578,29 +578,26 @@ A session created from a repository keeps its clone directive in session metadat
 
 **Requirements:** [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](../../sdd/spec/github.md#req-github-014-clone-created-session-resume)
 
-### Enterprise LLM Routing
+### Enterprise LLM Routing <!-- @impl: src/llm-interceptor.ts::LlmInterceptor -->
 
 ```mermaid
-sequenceDiagram
-    participant C as Container agent
-    participant I as LlmInterceptor
-    participant G as Customer AI Gateway
-    participant P as Selected backend
-    C->>I: HTTPS with placeholder credential and canonical reasoning level
-    alt Route has a valid reasoning profile and level
-        I->>G: Worker-held auth, route, metadata, and translated reasoning fields
-        G->>P: Gateway-selected backend
-        P-->>G: Response stream
-        G-->>I: Response
-        I-->>C: Transparent normalized response
-    else Profile missing or configuration/level invalid
-        I-->>C: Bounded 400 configuration error
-    end
+flowchart LR
+    C["Container agent"] -->|"Placeholder credential + canonical level"| I["LlmInterceptor"]
+    I -->|"Valid Dynamic Route"| D["REST-first dynamic/route"]
+    I -->|"Authorized native/custom handle"| N["Direct compat native/custom"]
+    I -->|"Invalid profile, capability, or authorization"| F["Bounded failure"]
+    F --> C
+    D --> G["Customer AI Gateway"]
+    N --> G
+    G --> P["Selected backend"]
+    P --> G
+    G --> I
+    I --> C
 ```
 
-Interception is wired before container start so the platform CA is available to the workload. Gateway URL and token remain Worker-side. For chat-completion requests, the interceptor removes conflicting reasoning controls and translates Pi's canonical level through the selected route profile. Missing mandatory routing, a missing or unreadable profile, and unsupported levels fail closed before gateway fetch. Detailed transport, route, and streaming behavior belongs to [Security](security.md), [Configuration](configuration.md), and [Architecture Internals](architecture-internals.md).
+Interception is wired before container start so the platform CA is available to the workload. Gateway URL, token, provider binding, and runtime selectors remain Worker-side; administration accepts exact model IDs, while containers receive only opaque handles. Dynamic Routes retain REST-first dispatch and translate Pi's canonical level through the selected route profile. Authorized native/custom-provider handles use direct compat dispatch governed by their selected immutable profiles. Bedrock alone receives repeated-complete tool-name repair, Gemini alone receives thought-signature exposure and replay, and other providers receive no provider-specific wire repair. Missing routing, stale authorization, unsupported controls, and invalid profiles fail closed before gateway fetch. Detailed transport, route, and streaming behavior belongs to [Security](security.md), [Configuration](configuration.md), and [Architecture Internals](architecture-internals.md).
 
-**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering), [REQ-ENTERPRISE-032](../../sdd/spec/enterprise-mode.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation)
+**Requirements:** [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-011](../../sdd/spec/enterprise-mode.md#req-enterprise-011-container-start-interception-ordering), [REQ-ENTERPRISE-032](../../sdd/spec/enterprise-mode.md#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-048](../../sdd/spec/enterprise-mode.md#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-049](../../sdd/spec/enterprise-mode.md#req-enterprise-049-unified-enterprise-model-authorization-and-publication), [REQ-ENTERPRISE-050](../../sdd/spec/enterprise-mode.md#req-enterprise-050-native-provider-compat-dispatch-and-wire-repair), [REQ-ENTERPRISE-051](../../sdd/spec/enterprise-mode.md#req-enterprise-051-native-ai-gateway-provider-and-model-workspace), [REQ-ENTERPRISE-052](../../sdd/spec/enterprise-mode.md#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](../../sdd/spec/enterprise-mode.md#req-enterprise-053-native-target-identity-and-document), [REQ-ENTERPRISE-054](../../sdd/spec/enterprise-mode.md#req-enterprise-054-native-target-profile-and-lifecycle-administration), [REQ-ENTERPRISE-055](../../sdd/spec/enterprise-mode.md#req-enterprise-055-native-target-authority-and-save)
 
 ### Strict Gateway Egress
 
@@ -758,7 +755,7 @@ This table is navigational. Requirement status and acceptance criteria remain au
 | Session topology and authority | System at a Glance; Container DO; state matrix | [REQ-SESSION-002](../../sdd/spec/session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-018](../../sdd/spec/session-lifecycle.md#req-session-018-persisted-status-is-authoritative-on-container-exit) | [AD1](../decisions/README.md#ad1-one-container-per-session), [AD70](../decisions/README.md#ad70-container-exit-writes-kv-stopped-no-read-side-reconciliation) | [Container](container.md) |
 | Persistence | R2; state matrix; lifecycle flow | [REQ-STOR-002](../../sdd/spec/storage.md#req-stor-002-file-persistence-across-sessions), [REQ-STOR-003](../../sdd/spec/storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) | [AD56](../decisions/README.md#ad56-15-minute-bisync-cadence-with-manual-triggers), [AD125](../decisions/README.md#ad125-bounded-automatic-resync-after-exhausted-recovery) | [Storage & Sync](storage-and-sync.md) |
 | Browser IDE | Browser IDE component | [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle) | [AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration), [AD120](../decisions/README.md#ad120-browser-ide-uses-fixed-public-workspace-selection-and-exported-ui-state-continuity) | [Container](container.md), [Security](security.md) |
-| Enterprise routing | LLM and egress components/flows | [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) | [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api), [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network) | [Security](security.md), [Configuration](configuration.md) |
+| Enterprise routing | LLM and egress components/flows | [REQ-ENTERPRISE-004](../../sdd/spec/enterprise-mode.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-016](../../sdd/spec/enterprise-mode.md#req-enterprise-016-strict-gateway-egress) | [AD74](../decisions/README.md#ad74-enterprise-llm-transport-on-the-ai-gateway-rest-api), [AD86](../decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network), [AD152](../decisions/README.md#ad152-generalize-native-and-custom-provider-compat-dispatch) | [Security](security.md), [Configuration](configuration.md) |
 | GitHub | GitHub component/clone flow | [REQ-GITHUB-001](../../sdd/spec/github.md#req-github-001-github-token-capture-and-storage), [REQ-GITHUB-004](../../sdd/spec/github.md#req-github-004-clone-a-repository-into-a-session), [REQ-GITHUB-014](../../sdd/spec/github.md#req-github-014-clone-created-session-resume) | [AD81](../decisions/README.md#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens) | [API Reference](api-reference.md), [Security](security.md) |
 | Landing | Landing component/contact flow | [REQ-LANDING-001](../../sdd/spec/landing.md#req-landing-001-mode-aware-public-landing-serving), [REQ-LANDING-002](../../sdd/spec/landing.md#req-landing-002-demo-request-contact-pipeline), [REQ-LANDING-004](../../sdd/spec/landing.md#req-landing-004-first-paint-stability-and-immutable-asset-caching) | [AD18](../decisions/README.md#ad18-vendored-creativewebgl-code-uses-untyped-patterns) | [Architecture Internals](architecture-internals.md), [Security](security.md) |
 | Governed agents | Memory, review, and CI flows | [REQ-AGENT-055](../../sdd/spec/agents.md#req-agent-055-pi-session-scoped-review-window), [REQ-AGENT-068](../../sdd/spec/agents.md#req-agent-068-independent-pi-ci-monitoring), [REQ-VAULT-027](../../sdd/spec/vault.md#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional) | [AD98](../decisions/README.md#ad98-pi-pr-review-uses-visible-session-scoped-agents), [AD99](../decisions/README.md#ad99-pi-ci-monitoring-uses-one-attached-native-background-subagent), [AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional) | [Preseed](preseed.md), [Vault](vault.md), [CI/CD](ci-cd.md) |

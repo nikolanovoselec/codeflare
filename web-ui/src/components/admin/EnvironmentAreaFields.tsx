@@ -84,6 +84,7 @@ export function environmentValues(section: ConfigurationSection, mode: Administr
     case 'domain': return { customDomain: value(data, 'customDomain') };
     case 'aiRouting': return {
       gatewayUrl: value(data, 'gatewayUrl'),
+      ...(value(data, 'gatewayId') && { gatewayId: value(data, 'gatewayId') }),
       replacementToken: value(data, 'replacementToken'),
       dynamicRoutes: data.getAll('dynamicRoutes').map(String),
       defaultRoute: { route: value(data, 'defaultRoute'), reasoning: value(data, 'reasoning') },
@@ -92,6 +93,8 @@ export function environmentValues(section: ConfigurationSection, mode: Administr
       groupRouting: parsed(data, 'groupRouting', []),
       ...(data.has('fallbackRouting') && { fallbackRouting: parsed(data, 'fallbackRouting', { enabled: false }) }),
       ...(data.has('routeChecks') && { routeChecks: parsed(data, 'routeChecks', {}) }),
+      ...(data.has('nativeTargets') && { nativeTargets: parsed(data, 'nativeTargets', []) }),
+      ...(data.has('nativeChecks') && { nativeChecks: parsed(data, 'nativeChecks', {}) }),
     };
     case 'codingAgents': return { activeAgents: data.getAll('activeAgents').map(String) };
     case 'browserRendering': return { accountId: value(data, 'accountId'), replacementToken: value(data, 'replacementToken') };

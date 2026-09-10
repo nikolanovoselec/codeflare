@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { canonicalHash, canonicalJson, type NormalizedReasoningProfile, type PiReasoningLevel } from './reasoning-profiles';
 import { PI_WIRE_CANARY_VERSION } from './reasoning-discovery';
 import { inventoryDynamicRoute, type DynamicRouteInventory, type DynamicRouteVersionInput } from './dynamic-route-inventory';
-import { backendDescriptionsSchema, dynamicRouteSchema, loadActiveRouteVersion, parseGatewayUrl, type GatewayConnection } from './ai-gateway-management';
+import { backendDescriptionsSchema, dynamicRouteSchema, gatewayCoordinates, loadActiveRouteVersion, parseGatewayUrl, type GatewayConnection } from './ai-gateway-management';
 
 import { parseFallbackRouting, parseRouteVerification, type RouteVerification } from './reasoning-configuration';
 export type { FallbackRouting, RouteVerification } from './reasoning-configuration';
@@ -29,8 +29,9 @@ const receiptSchema = z.object({ route: dynamicRouteSchema, verification: routeV
 export const routeCheckIdSchema = z.string().uuid();
 
 export function connectionFingerprint(connection: GatewayConnection): string | null {
-  const gateway = parseGatewayUrl(connection.gatewayUrl);
-  if (!gateway || !connection.token || /[\u0000-\u001f\u007f]/.test(connection.token)) return null;
+  const parsed = parseGatewayUrl(connection.gatewayUrl);
+  const gateway = gatewayCoordinates(connection);
+  if (!parsed || !gateway || !connection.token || /[\u0000-\u001f\u007f]/.test(connection.token)) return null;
   return canonicalHash({ gateway, token: connection.token });
 }
 export function assignmentBackendDescriptions(assignment?: { legs?: Array<{ nodeId: string; customProviderBackend?: string }> }): Record<string, string> {
@@ -66,7 +67,7 @@ export function checkedRouteInventory(active: DynamicRouteVersionInput, descript
 export async function loadCheckedRouteInventory(connection: GatewayConnection, route: string, descriptions: Record<string, string> = {}): Promise<CheckedRouteInventory> {
   dynamicRouteSchema.parse(route);
   backendDescriptionsSchema.parse(descriptions);
-  const gateway = parseGatewayUrl(connection.gatewayUrl);
+  const gateway = gatewayCoordinates(connection);
   if (!gateway || !connectionFingerprint(connection)) throw new Error('AI Gateway credentials unavailable');
   const active = await loadActiveRouteVersion(gateway.accountId, gateway.gatewayId, route, connection.token!);
   return checkedRouteInventory(active, descriptions);
@@ -85,11 +86,27 @@ export function verificationMatches(
     && verification.routeVersion === current.inventory.versionId
     && verification.inventoryDigest === current.inventoryDigest && verification.scope === current.scope);
 }
+export function rebindVerificationConnection(
+  verification: RouteVerification | undefined,
+  profile: NormalizedReasoningProfile,
+  connection: GatewayConnection,
+  current: CheckedRouteInventory,
+): RouteVerification | null {
+  const fingerprint = connectionFingerprint(connection);
+  if (!verification || !fingerprint || current.inventory.models.length === 0
+    || verification.canaryVersion !== PI_WIRE_CANARY_VERSION
+    || canonicalJson(verification.profileRef) !== canonicalJson({ id: profile.id, revision: profile.revision, hash: profile.hash })
+    || canonicalJson(verification.supportedLevels) !== canonicalJson(profile.supportedLevels)
+    || verification.routeVersion !== current.inventory.versionId
+    || verification.inventoryDigest !== current.inventoryDigest || verification.scope !== current.scope) return null;
+  return { ...verification, connectionFingerprint: fingerprint, checkedAt: new Date().toISOString() };
+}
 export function completedProfileCheck(report: Record<string, any>, profile: { supportedLevels: readonly PiReasoningLevel[] }): boolean {
   const levels = profile.supportedLevels;
   return report.canaryVersion === PI_WIRE_CANARY_VERSION && report.stopDiscovery === false
     && report.piCompatibility?.status === 'verified' && report.piCompatibility.failedLevels?.length === 0
     && report.reasoningConfiguration?.routeHealthVerified === true
+    && report.distinctMappings?.some((mapping: Record<string, any>) => mapping.toolLifecycle?.passed === true && mapping.toolLifecycle.stage === 'complete')
     && (!levels.includes('off') || report.reasoningConfiguration?.off === 'verified-disabled')
     && levels.every((level) => report.compatibleLevels?.includes(level) && report.piCompatibility.verifiedLevels?.includes(level)
       && report.distinctMappings?.some((mapping: Record<string, any>) => mapping.levels?.includes(level)

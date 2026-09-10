@@ -48,8 +48,10 @@ export const SetBucketNameBodySchema = z.object({
   defaultReasoning: z.string().optional(),
   /** REQ-ENTERPRISE-012: per-route context window map (route name -> positive token count). */
   routeContextWindows: z.record(z.string(), z.number().int().positive()).optional(),
-  /** Non-secret profile-supported canonical levels for each allowed route. */
+  /** Non-secret profile-supported canonical levels for each allowed model; [] means provider-default. */
   routeReasoningLevels: z.record(z.string(), z.array(z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']))).optional(),
+  /** Safe administrator labels keyed by opaque native handles. */
+  modelDisplayNames: z.record(z.string().regex(/^cf-native-[0-9a-f-]{36}$/i), z.string().trim().min(1).max(128)).optional(),
   /** REQ-MEM-001 AC4: forward the user's IANA timezone to the container. */
   userTimezone: z.string().optional(),
   /** REQ-GITHUB-004: one-shot GitHub clone directive (repo owner/name + optional ref). */

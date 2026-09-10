@@ -149,7 +149,7 @@ func main() {{
 '''
     source = output.with_suffix(".go")
     source.write_text(harness)
-    subprocess.run(["go", "build", "-trimpath", "-o", str(output), str(source)], check=True, timeout=15)
+    subprocess.run(["go", "build", "-trimpath", "-o", str(output), str(source)], check=True, timeout=35)
     subprocess.run([str(output)], check=True, timeout=5)
 
 

@@ -4,18 +4,29 @@ import { getAigConfig } from './aig-config';
 
 const MAX_MANAGEMENT_RESPONSE_BYTES = 1024 * 1024;
 const MANAGEMENT_REQUEST_TIMEOUT_MS = 10_000;
+const MAX_PROVIDER_CONFIG_PAGES = 10;
+const MAX_PROVIDER_CONFIGS = 1000;
+const KNOWN_NATIVE_PROVIDERS = new Set(['aws-bedrock', 'google-ai-studio', 'openai']);
+const providerSlugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
+const providerAliasSchema = z.string().min(1).max(128).regex(/^[^\u0000-\u001f\u007f]+$/);
 export const dynamicRouteSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/)
   .refine((value) => !['__proto__', 'prototype', 'constructor'].includes(value.toLowerCase()));
 export const gatewayDraftSchema = z.object({
   gatewayUrl: z.string().trim().max(512).refine((value) => parseGatewayUrl(value) !== null),
+  gatewayId: dynamicRouteSchema.optional(),
   replacementToken: z.string().trim().max(2048).regex(/^[^\u0000-\u001f\u007f]*$/).optional(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (parseGatewayUrl(value.gatewayUrl)?.kind === 'account-api' && !value.gatewayId) {
+    context.addIssue({ code: 'custom', message: 'AI Gateway name is required for an account API URL', path: ['gatewayId'] });
+  }
+});
 export const backendDescriptionsSchema = z.record(
   z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/).refine((value) => !['__proto__', 'prototype', 'constructor'].includes(value.toLowerCase())),
   z.string().trim().min(1).max(256).regex(/^[^\u0000-\u001f\u007f]+$/),
 ).refine((value) => Object.keys(value).length <= 256);
 export type GatewayDraft = z.infer<typeof gatewayDraftSchema>;
-export interface GatewayConnection { gatewayUrl?: string; token?: string }
+export interface GatewayConnection { gatewayUrl?: string; gatewayId?: string; token?: string }
+export interface ParsedGatewayUrl { accountId: string; gatewayId?: string; kind: 'legacy' | 'account-api'; canonicalUrl: string }
 export interface ConnectionStatus { status: 'ready' | 'missing' | 'permission-denied' | 'unavailable'; message: string }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -24,18 +35,41 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function safeString(value: unknown, maxLength = 512): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maxLength && !/[\u0000-\u001f\u007f]/.test(value);
 }
-export function parseGatewayUrl(raw: string | undefined): { accountId: string; gatewayId: string } | null {
+export function parseGatewayUrl(raw: string | undefined): ParsedGatewayUrl | null {
   if (!raw) return null;
   let url: URL;
   try { url = new URL(raw); } catch { return null; }
-  if (url.protocol !== 'https:' || url.hostname !== 'gateway.ai.cloudflare.com' || url.port || url.username || url.password || url.search || url.hash) return null;
-  const match = /^\/v1\/([a-f0-9]{32})\/([A-Za-z0-9][A-Za-z0-9_-]{0,63})(?:\/|\/compat\/?)?$/i.exec(url.pathname);
-  return match ? { accountId: match[1], gatewayId: match[2] } : null;
+  if (url.protocol !== 'https:' || url.port || url.username || url.password) return null;
+  if (url.hostname === 'gateway.ai.cloudflare.com') {
+    if (url.search || url.hash) return null;
+    const match = /^\/v1\/([a-f0-9]{32})\/([A-Za-z0-9][A-Za-z0-9_-]{0,63})(?:\/|\/compat\/?)?$/i.exec(url.pathname);
+    return match ? { accountId: match[1], gatewayId: match[2], kind: 'legacy', canonicalUrl: `https://gateway.ai.cloudflare.com/v1/${match[1]}/${match[2]}` } : null;
+  }
+  if (url.hostname === 'api.cloudflare.com') {
+    const match = /^\/client\/v4\/accounts\/([a-f0-9]{32})(\/.*)?$/i.exec(url.pathname);
+    if (!match) return null;
+    const suffix = match[2] ?? '';
+    if (!/^\/?$|^\/ai\/?$|^\/ai\/run\/?$|^\/ai\/v1(?:\/(?:chat\/completions|responses|messages|models))?\/?$/i.test(suffix)) return null;
+    return { accountId: match[1], kind: 'account-api', canonicalUrl: `https://api.cloudflare.com/client/v4/accounts/${match[1]}/` };
+  }
+  return null;
+}
+export function gatewayCoordinates(connection: GatewayConnection): { accountId: string; gatewayId: string } | null {
+  const parsed = parseGatewayUrl(connection.gatewayUrl);
+  if (!parsed) return null;
+  const gatewayId = parsed.gatewayId ?? connection.gatewayId;
+  return gatewayId && dynamicRouteSchema.safeParse(gatewayId).success ? { accountId: parsed.accountId, gatewayId } : null;
 }
 export async function resolveGatewayConnection(env: Env, draft?: GatewayDraft): Promise<GatewayConnection> {
   // The incumbent source remains the sole owner of stored encrypted credentials.
   const saved = await getAigConfig(env);
-  return { gatewayUrl: draft?.gatewayUrl ?? saved.gatewayUrl, token: draft?.replacementToken?.trim() || saved.token };
+  const gatewayUrl = draft?.gatewayUrl ?? saved.gatewayUrl;
+  const parsed = parseGatewayUrl(gatewayUrl);
+  return {
+    gatewayUrl: parsed?.canonicalUrl ?? gatewayUrl,
+    gatewayId: parsed?.kind === 'legacy' ? undefined : draft?.gatewayId ?? saved.gatewayId,
+    token: draft?.replacementToken?.trim() || saved.token,
+  };
 }
 class GatewayManagementError extends Error {
   constructor(public readonly status: number) { super('management_request_failed'); }
@@ -126,6 +160,90 @@ export async function listDynamicRoutes(accountId: string, gatewayId: string, to
     return { id: candidate.id, name: candidate.name as string };
   });
 }
+export interface NativeProviderConfig {
+  id: string;
+  provider: string;
+  gatewayId: string;
+  alias?: string;
+  defaultSelection: boolean;
+}
+
+function parseDefaultConfig(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  throw new Error('provider_config_list_malformed');
+}
+
+/** Discover gateway-scoped provider bindings while discarding all sensitive fields. */
+export async function listNativeProviderConfigs(accountId: string, gatewayId: string, token: string): Promise<NativeProviderConfig[]> {
+  const result: NativeProviderConfig[] = [];
+  for (let page = 1; page <= MAX_PROVIDER_CONFIG_PAGES; page += 1) {
+    const payload = await managementRequest(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/provider_configs?page=${page}&per_page=100`, token);
+    if (!isPlainObject(payload) || payload.success !== true || !Array.isArray(payload.result) || !isPlainObject(payload.result_info)) throw new Error('provider_config_list_malformed');
+    const info = payload.result_info;
+    if (info.page !== page || !Number.isInteger(info.count) || !Number.isInteger(info.per_page) || !Number.isInteger(info.total_count)
+      || info.count !== payload.result.length || (info.per_page as number) < 1 || (info.per_page as number) > 100
+      || (info.total_count as number) < 0 || (info.total_count as number) > MAX_PROVIDER_CONFIGS) throw new Error('provider_config_list_malformed');
+    for (const candidate of payload.result) {
+      if (!isPlainObject(candidate) || !safeString(candidate.id, 128) || !providerSlugSchema.safeParse(candidate.provider_slug).success
+        || !providerAliasSchema.optional().safeParse(candidate.alias).success || candidate.gateway_id !== gatewayId) throw new Error('provider_config_list_malformed');
+      result.push({ id: candidate.id, provider: candidate.provider_slug as string, gatewayId,
+        ...(typeof candidate.alias === 'string' && { alias: candidate.alias }), defaultSelection: parseDefaultConfig(candidate.default_config) });
+    }
+    if (result.length > MAX_PROVIDER_CONFIGS) throw new Error('provider_config_list_malformed');
+    if (result.length >= (info.total_count as number)) return result;
+    if (payload.result.length === 0) throw new Error('provider_config_list_malformed');
+  }
+  throw new Error('provider_config_list_malformed');
+}
+
+export function selectNativeProviderConfig(configs: NativeProviderConfig[], provider: string): NativeProviderConfig | null {
+  providerSlugSchema.parse(provider);
+  const candidates = configs.filter((config) => config.provider === provider);
+  const defaults = candidates.filter((config) => config.defaultSelection);
+  if (defaults.length > 1 || (defaults.length === 0 && candidates.length > 1)) throw new Error('provider_config_ambiguous');
+  return defaults[0] ?? candidates[0] ?? null;
+}
+
+/** Preserve the established Bedrock helper while using the generic selection rule. */
+export function defaultBedrockProvider(configs: NativeProviderConfig[]): NativeProviderConfig | null {
+  return selectNativeProviderConfig(configs, 'aws-bedrock');
+}
+
+/** Discover only custom-provider slugs; base URLs, headers, names, and examples are discarded. */
+export async function listCustomProviderSlugs(accountId: string, token: string): Promise<Set<string>> {
+  const result = new Set<string>();
+  for (let page = 1; page <= MAX_PROVIDER_CONFIG_PAGES; page += 1) {
+    const payload = await managementRequest(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/custom-providers?page=${page}&per_page=100`, token);
+    if (!isPlainObject(payload) || payload.success !== true || !Array.isArray(payload.result) || !isPlainObject(payload.result_info)) throw new Error('custom_provider_list_malformed');
+    const info = payload.result_info;
+    if (info.page !== page || !Number.isInteger(info.count) || !Number.isInteger(info.per_page) || !Number.isInteger(info.total_count)
+      || info.count !== payload.result.length || (info.per_page as number) < 1 || (info.per_page as number) > 100
+      || (info.total_count as number) < 0 || (info.total_count as number) > MAX_PROVIDER_CONFIGS) throw new Error('custom_provider_list_malformed');
+    for (const candidate of payload.result) {
+      if (!isPlainObject(candidate) || !providerSlugSchema.safeParse(candidate.slug).success) throw new Error('custom_provider_list_malformed');
+      result.add(candidate.slug as string);
+    }
+    if (result.size >= (info.total_count as number)) return result;
+    if (payload.result.length === 0) throw new Error('custom_provider_list_malformed');
+  }
+  throw new Error('custom_provider_list_malformed');
+}
+
+export async function listCustomProviderSlugsForProviders(
+  accountId: string,
+  token: string,
+  providers: Iterable<string>,
+): Promise<Set<string>> {
+  const requested = [...providers];
+  try {
+    return await listCustomProviderSlugs(accountId, token);
+  } catch (error) {
+    if (requested.every((provider) => KNOWN_NATIVE_PROVIDERS.has(provider))) return new Set();
+    throw error;
+  }
+}
+
 export async function loadActiveRouteVersion(accountId: string, gatewayId: string, route: string, token: string): Promise<{ versionId: string; elements: unknown }> {
   const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai-gateway/gateways/${encodeURIComponent(gatewayId)}/routes`;
   const listed = (await listDynamicRoutes(accountId, gatewayId, token)).find((candidate) => candidate.name === route);

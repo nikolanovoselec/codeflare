@@ -20,6 +20,7 @@ const storeState = vi.hoisted(() => ({
   cloudflareBrowserTokenSet: false,
   cloudflareBrowserAccountId: '',
   aigGatewayUrl: '',
+  aigGatewayId: '',
   aigToken: '',
   aigTokenSet: false,
   strictGatewayEgress: false,
@@ -67,6 +68,7 @@ const storeMethods = vi.hoisted(() => ({
   setCloudflareBrowserToken: vi.fn((val: string) => { storeState.cloudflareBrowserToken = val; }),
   setCloudflareBrowserAccountId: vi.fn((val: string) => { storeState.cloudflareBrowserAccountId = val; }),
   setAigGatewayUrl: vi.fn((val: string) => { storeState.aigGatewayUrl = val; }),
+  setAigGatewayId: vi.fn((val: string) => { storeState.aigGatewayId = val; }),
   setAigToken: vi.fn((val: string) => { storeState.aigToken = val; }),
   setStrictGatewayEgress: vi.fn((v: boolean) => { storeState.strictGatewayEgress = v; }),
   setR2SseDisabled: vi.fn((v: boolean) => { storeState.r2SseDisabled = v; }),
@@ -105,6 +107,7 @@ vi.mock('../../stores/setup', () => ({
     get cloudflareBrowserTokenSet() { return storeState.cloudflareBrowserTokenSet; },
     get cloudflareBrowserAccountId() { return storeState.cloudflareBrowserAccountId; },
     get aigGatewayUrl() { return storeState.aigGatewayUrl; },
+    get aigGatewayId() { return storeState.aigGatewayId; },
     get aigToken() { return storeState.aigToken; },
     get aigTokenSet() { return storeState.aigTokenSet; },
     get strictGatewayEgress() { return storeState.strictGatewayEgress; },
@@ -165,6 +168,7 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
     storeState.cloudflareBrowserTokenSet = false;
     storeState.cloudflareBrowserAccountId = '';
     storeState.aigGatewayUrl = '';
+    storeState.aigGatewayId = '';
     storeState.aigToken = '';
     storeState.aigTokenSet = false;
     storeState.strictGatewayEgress = false;
@@ -535,23 +539,32 @@ describe('ConfigureStep / REQ-ENTERPRISE-015', () => {
     it('renders the AI Gateway URL + token fields in enterprise mode', () => {
       storeState.enterpriseMode = true;
       render(() => <ConfigureStep />);
-      expect(screen.getByPlaceholderText('https://gateway.ai.cloudflare.com/v1/<account>/<gateway>')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('https://api.cloudflare.com/client/v4/accounts/<account>/')).toBeInTheDocument();
       expect(screen.getByPlaceholderText('AI Gateway API token...')).toBeInTheDocument();
     });
 
     it('does not render the AI Gateway fields outside enterprise mode', () => {
       storeState.enterpriseMode = false;
       render(() => <ConfigureStep />);
-      expect(screen.queryByPlaceholderText('https://gateway.ai.cloudflare.com/v1/<account>/<gateway>')).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText('https://api.cloudflare.com/client/v4/accounts/<account>/')).not.toBeInTheDocument();
       expect(screen.queryByPlaceholderText('AI Gateway API token...')).not.toBeInTheDocument();
     });
 
     it('routes URL input to setAigGatewayUrl', () => {
       storeState.enterpriseMode = true;
       render(() => <ConfigureStep />);
-      const urlInput = screen.getByPlaceholderText('https://gateway.ai.cloudflare.com/v1/<account>/<gateway>');
+      const urlInput = screen.getByPlaceholderText('https://api.cloudflare.com/client/v4/accounts/<account>/');
       fireEvent.input(urlInput, { target: { value: 'https://gateway.ai.cloudflare.com/v1/a/g' } });
       expect(storeMethods.setAigGatewayUrl).toHaveBeenCalledWith('https://gateway.ai.cloudflare.com/v1/a/g');
+    });
+
+    it('requests and stores the gateway name for an account API URL', () => {
+      storeState.enterpriseMode = true;
+      storeState.aigGatewayUrl = 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/run';
+      render(() => <ConfigureStep />);
+      const gateway = screen.getByPlaceholderText('codeflare-enterprise');
+      fireEvent.input(gateway, { target: { value: 'enterprise-gateway' } });
+      expect(storeMethods.setAigGatewayId).toHaveBeenCalledWith('enterprise-gateway');
     });
 
     it('routes token input to setAigToken', () => {
