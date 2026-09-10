@@ -31,7 +31,15 @@ describe('Gemini compat thought-signature adapter', () => {
     const text = `${'x'.repeat(1_048_577)}\n`;
     const body = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode(text)); controller.close(); } });
     const adapted = exposeGeminiThoughtSignatures(new Response(body, { headers: { 'content-type': 'text/event-stream' } }));
-    await expect(adapted.text()).rejects.toThrow('Gemini SSE line exceeds adapter limit');
+    const reader = adapted.body!.getReader();
+    let failure: unknown;
+    try {
+      while (!(await reader.read()).done) { /* drain */ }
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe('Gemini SSE line exceeds adapter limit');
   });
 
   it('REQ-ENTERPRISE-059: thought-signature restoration preserves unrelated request data', () => {
