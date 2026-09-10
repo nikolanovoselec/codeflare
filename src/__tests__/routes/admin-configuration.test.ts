@@ -191,6 +191,21 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     expect(JSON.stringify(body)).not.toContain('private-provider-binding');
   });
 
+  it('does not call provider management when no native targets are saved', async () => {
+    const { app } = createApp({
+      ENTERPRISE_MODE: 'active',
+      AIG_GATEWAY_URL: 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/gateway',
+      AIG_TOKEN: 'deployment-token',
+    });
+    const fetcher = vi.spyOn(globalThis, 'fetch');
+
+    const response = await app.request('/admin/configuration');
+
+    expect(response.status).toBe(200);
+    expect(fetcher).not.toHaveBeenCalled();
+    fetcher.mockRestore();
+  });
+
   it('surfaces malformed legacy reasoning storage as a non-persisted migration error', async () => {
     const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
     await kv.put(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, '{not-json');
