@@ -693,9 +693,6 @@ CVE-2026-27136
 # accepted here for rclone, so the global scan no longer detects recurrence
 # of this ID in other binaries. The bounded validator itself is unchanged.
 CVE-2026-56852
-# google.golang.org/grpc v1.79.3 -> 1.83.1
-CVE-2026-84304
-
 # Browser IDE migration note (AD119): the OpenVSCode-specific vulnerability
 # acceptance was removed with that runtime. Fixable code-server findings must
 # surface in the deployment-gating Trivy scan and receive fresh, evidence-backed review before

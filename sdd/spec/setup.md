@@ -519,6 +519,31 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 
 ---
 
+### REQ-SETUP-027: Native target configuration projection
+
+**Intent:** Administration reloads saved native targets without exposing provider authority or hiding unrelated configuration.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. A valid saved native target reloads through the sanitized Administration configuration projection. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (reloads a persisted native target through the sanitized Administration projection) -->
+2. Absent native-target storage yields an empty projection. <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (does not call provider management when no native targets are saved) -->
+3. Malformed native-target storage yields an empty projection. <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (keeps configuration available when persisted native targets are malformed) -->
+4. Failure to read native-target storage fails the authoritative configuration request rather than appearing as an empty catalog. <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (fails closed when persisted native-target storage cannot be read) -->
+
+**Constraints:** Raw provider configuration identity remains Worker-only.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-ENTERPRISE-053](enterprise-mode.md#req-enterprise-053-native-target-identity-and-document)
+
+**Verification:** Automated Administration configuration route tests
+
+**Status:** Implemented
+
+---
+
 ### REQ-SETUP-018: Stateless Environment preview and bounded execution
 
 **Intent:** An administrator can review and apply one known Environment area without rerunning unrelated Setup work.

@@ -42,6 +42,7 @@ const PAGE_COPY: Record<Exclude<SetupJourneyPage, 'readiness' | 'apply'>, { titl
 
 const ConfigureStep: Component = () => {
   const [page, setPage] = createSignal<Exclude<SetupJourneyPage, 'readiness' | 'apply'>>('access');
+  const [aigUrlFormat, setAigUrlFormat] = createSignal<'legacy' | 'account-api'>(!setupStore.aigGatewayUrl || setupStore.aigGatewayUrl.includes('/client/v4/accounts/') ? 'account-api' : 'legacy');
   const pages = createMemo<Array<Exclude<SetupJourneyPage, 'readiness' | 'apply'>>>(() => setupStore.enterpriseMode
     ? ['access', 'ai', 'platform', 'managed', 'integrations', 'review']
     : ['access', 'managed', 'integrations', 'review']);
@@ -51,6 +52,7 @@ const ConfigureStep: Component = () => {
   onMount(async () => {
     try {
       await setupStore.loadExistingConfig();
+      setAigUrlFormat(!setupStore.aigGatewayUrl || setupStore.aigGatewayUrl.includes('/client/v4/accounts/') ? 'account-api' : 'legacy');
     } catch {
       // Best-effort pre-fill
     }
@@ -121,6 +123,7 @@ const ConfigureStep: Component = () => {
       return setupStore.dynamicRoutes.length > 0
         && setupStore.dynamicRoutes.every((route) => setupStore.routeReasoningProfiles[route])
         && Boolean(setupStore.aigGatewayUrl.trim())
+        && (aigUrlFormat() !== 'account-api' || Boolean(setupStore.aigGatewayId.trim()))
         && (setupStore.aigTokenSet || Boolean(setupStore.aigToken.trim()));
     }
     if (page() === 'platform') return setupStore.activeAgents.length > 0;
@@ -236,16 +239,27 @@ const ConfigureStep: Component = () => {
           {/* REQ-ENTERPRISE-017: AI Gateway URL (non-secret) — KV-configured, with the
               deploy-time AIG_GATEWAY_URL secret as an optional fallback. */}
           <div class="setup-field">
+            <label class="setup-field-label">Gateway URL format</label>
+            <select aria-label="Gateway URL format" value={aigUrlFormat()} onChange={(event) => { setAigUrlFormat(event.currentTarget.value as 'legacy' | 'account-api'); setupStore.setAigGatewayUrl(''); setupStore.setAigGatewayId(''); }}>
+              <option value="account-api">Account API (v4)</option><option value="legacy">Legacy gateway URL (v1)</option>
+            </select>
+          </div>
+          <div class="setup-field">
             <label class="setup-field-label">AI Gateway URL</label>
             <p class="setup-field-description">
-              Your Cloudflare AI Gateway endpoint, e.g. https://gateway.ai.cloudflare.com/v1/&lt;account&gt;/&lt;gateway&gt;. Configured here instead of a deploy secret; a deploy-time secret still works as a fallback.
+              Paste either the account API URL or the deprecated full gateway URL. Account API suffixes after the account ID are removed automatically.
             </p>
             <Input
               value={setupStore.aigGatewayUrl}
               onInput={(value) => setupStore.setAigGatewayUrl(value)}
-              placeholder="https://gateway.ai.cloudflare.com/v1/<account>/<gateway>"
+              placeholder={aigUrlFormat() === 'account-api' ? 'https://api.cloudflare.com/client/v4/accounts/<account>/' : 'https://gateway.ai.cloudflare.com/v1/<account>/<gateway>'}
             />
           </div>
+          <Show when={aigUrlFormat() === 'account-api'}><div class="setup-field">
+            <label class="setup-field-label">AI Gateway name</label>
+            <p class="setup-field-description">Required for account API URLs. Used for Dynamic Route discovery and the cf-aig-gateway-id request header.</p>
+            <Input value={setupStore.aigGatewayId} onInput={(value) => setupStore.setAigGatewayId(value)} placeholder="codeflare-enterprise" />
+          </div></Show>
 
           {/* REQ-ENTERPRISE-017: AI Gateway token (secret) — stored encrypted, masked on
               prefill, no-clobber on blank. */}

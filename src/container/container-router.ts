@@ -44,6 +44,7 @@ interface SetBucketNameBody {
   // the Worker; applyBucketName persists it and buildEnvVars fans ENTERPRISE_ROUTE_CONTEXT_WINDOWS.
   routeContextWindows?: Record<string, number>;
   routeReasoningLevels?: Record<string, string[]>;
+  modelDisplayNames?: Record<string, string>;
   r2AccessKeyId?: string;
   r2SecretAccessKey?: string;
   r2AccountId?: string;
@@ -166,7 +167,7 @@ export function dispatchInternalRoute(
 /** Handle POST /_internal/setBucketName. */
 async function handleSetBucketName(host: ContainerHost, request: Request): Promise<Response> {
   try {
-    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, terminalMode, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
+    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, terminalMode, userTimezone, gitCloneRepo, gitCloneRef, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
 
     const resourceIdentityError = managedResourcePolicy === undefined && managedResourcePathsDigest !== undefined
@@ -181,7 +182,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
           : null;
     const validationError = resourceIdentityError ?? validateBucketNameInput({
       bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint,
-      workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels,
+      workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels, modelDisplayNames,
     });
     if (validationError) {
       return new Response(JSON.stringify({ error: validationError }), {
@@ -226,7 +227,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       // Update user preferences on restart even though bucket is already set.
       // Without this, preference changes made between sessions are lost.
       const prefsChanged = await applyPrefsOnRestart(host, host.ctx.storage, {
-        sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels,
+        sessionId, userEmail, userGroups, routeCatalog, defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames,
         workspaceSyncEnabled, fastStartEnabled, tabConfig,
         openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
         encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest,
@@ -279,7 +280,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
     // writes are nested under catalog presence. This self-guards the non-enterprise
     // path: with no catalog on the wire, a stray empty-string default cannot write
     // enterprise route state into a non-enterprise container.
-    if (routeCatalog && routeCatalog.length > 0) {
+    if (routeCatalog !== undefined) {
       await host.ctx.storage.put('routeCatalog', routeCatalog);
       host._routeCatalog = routeCatalog;
       // `!== undefined`, not truthiness: an empty-string default route/reasoning is the
@@ -303,6 +304,10 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       if (routeReasoningLevels !== undefined) {
         await host.ctx.storage.put('routeReasoningLevels', routeReasoningLevels);
         host._routeReasoningLevels = routeReasoningLevels;
+      }
+      if (modelDisplayNames !== undefined) {
+        await host.ctx.storage.put('modelDisplayNames', modelDisplayNames);
+        host._modelDisplayNames = modelDisplayNames;
       }
     }
 

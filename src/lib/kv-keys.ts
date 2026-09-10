@@ -328,6 +328,8 @@ export const SETUP_KEYS = {
   // DEFAULT_ROUTE is a JSON { route, reasoning } the container applies on start
   // (entrypoint writes Pi defaultThinkingLevel); absent ⇒ no default pinned.
   DYNAMIC_ROUTES: 'setup:dynamic_routes',
+  /** Worker-only direct-provider definitions and verification authority. */
+  NATIVE_AI_TARGETS: 'setup:native_ai_targets',
   DEFAULT_ROUTE: 'setup:default_route',
   // REQ-ENTERPRISE-012: per-route context window. A JSON map keyed by dynamic-route
   // name -> token count (e.g. { "development": 262144 }). The admin sets it in the
@@ -349,6 +351,7 @@ export const SETUP_KEYS = {
   // Browser Rendering token). Deploy-time env AIG_GATEWAY_URL/AIG_TOKEN remain as an
   // OPTIONAL fallback. Resolved KV-first via getAigConfig (src/lib/aig-config.ts).
   AIG_GATEWAY_URL: 'setup:aig_gateway_url',
+  AIG_GATEWAY_ID: 'setup:aig_gateway_id',
   AIG_TOKEN: 'setup:aig_token',
   IDP_LIST: 'setup:idp_list',
   MAX_USERS: 'setup:max_users',

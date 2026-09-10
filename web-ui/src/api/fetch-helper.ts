@@ -20,6 +20,10 @@ export class ApiError extends Error {
   }
 }
 
+export function apiErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof ApiError && error.message.trim() ? error.message : fallback;
+}
+
 interface BaseFetchOptions {
   credentials?: RequestCredentials;
   schema?: ZodType;

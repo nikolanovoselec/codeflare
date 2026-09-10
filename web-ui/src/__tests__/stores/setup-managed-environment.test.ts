@@ -35,6 +35,7 @@ function state(): SetupState {
     cloudflareBrowserTokenSet: false,
     cloudflareBrowserAccountId: '',
     aigGatewayUrl: '',
+    aigGatewayId: '',
     aigToken: '',
     aigTokenSet: false,
     strictGatewayEgress: false,

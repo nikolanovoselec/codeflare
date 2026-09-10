@@ -48,6 +48,7 @@ const initialState: SetupState = {
   cloudflareBrowserTokenSet: false,
   cloudflareBrowserAccountId: '',
   aigGatewayUrl: '',
+  aigGatewayId: '',
   aigToken: '',
   aigTokenSet: false,
   strictGatewayEgress: false,
@@ -354,6 +355,9 @@ function setCloudflareBrowserAccountId(accountId: string): void {
 function setAigGatewayUrl(url: string): void {
   setState('aigGatewayUrl', url);
 }
+function setAigGatewayId(id: string): void {
+  setState('aigGatewayId', id);
+}
 function setAigToken(token: string): void {
   setState('aigToken', token);
 }
@@ -651,6 +655,7 @@ export const setupStore = {
   get cloudflareBrowserTokenSet() { return state.cloudflareBrowserTokenSet; },
   get cloudflareBrowserAccountId() { return state.cloudflareBrowserAccountId; },
   get aigGatewayUrl() { return state.aigGatewayUrl; },
+  get aigGatewayId() { return state.aigGatewayId; },
   get aigToken() { return state.aigToken; },
   get aigTokenSet() { return state.aigTokenSet; },
   get strictGatewayEgress() { return state.strictGatewayEgress; },
@@ -709,6 +714,7 @@ export const setupStore = {
   setCloudflareBrowserToken,
   setCloudflareBrowserAccountId,
   setAigGatewayUrl,
+  setAigGatewayId,
   setAigToken,
   setStrictGatewayEgress,
   setR2SseDisabled,

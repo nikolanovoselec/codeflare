@@ -39,6 +39,7 @@ function baseState(overrides: Partial<SetupState> = {}): SetupState {
     cloudflareBrowserTokenSet: false,
     cloudflareBrowserAccountId: '',
     aigGatewayUrl: '',
+    aigGatewayId: '',
     aigToken: '',
     aigTokenSet: false,
     strictGatewayEgress: false,
@@ -124,7 +125,7 @@ describe('buildConfigurePayload (setup store split)', () => {
   it('omits every enterprise-only key outside enterprise mode (byte-identical body guarantee)', () => {
     const payload = buildConfigurePayload(baseState({ enterpriseMode: false }));
     for (const key of ['enterpriseAccessGroup', 'adminAccessGroup', 'dynamicRoutes', 'defaultRoute',
-      'routeContextWindows', 'routeReasoningProfiles', 'browserRenderToken', 'aigGatewayUrl', 'groupRouting',
+      'routeContextWindows', 'routeReasoningProfiles', 'browserRenderToken', 'aigGatewayUrl', 'aigGatewayId', 'groupRouting',
       'strictGatewayEgress', 'r2SseDisabled', 'downloadsDisabled', 'activeAgents']) {
       expect(payload).not.toHaveProperty(key);
     }

@@ -4,6 +4,7 @@
 // Its validation fixture is SHA-256 a5ccaea163d5920eb2ece172b8b7048751a383467272ad704c39bdabc0a0405b.
 
 import { validateRequestPath } from './reasoning-profiles';
+import { repairRepeatedCompleteToolNames } from './openai-sse-tool-name-repair';
 
 export const PI_WIRE_CANARY_VERSION = 'pi-openai-completions-0.84.4-canary-v1';
 
@@ -48,6 +49,7 @@ interface SemanticMapping {
 
 interface DiscoveryProfile {
   id: string;
+  reasoningMode: 'pi-levels' | 'provider-default';
   supportedLevels: ReasoningLevel[];
   levels: Partial<Record<ReasoningLevel, SemanticMapping>>;
 }
@@ -70,12 +72,14 @@ export interface DiscoveryInput {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   maxResponseBytes?: number;
+  compatOnly?: boolean;
+  byokAlias?: string;
 }
 
 export interface ParsedPiSse {
   content: string;
   reasoningBlocks: Array<{ signature: string; text: string }>;
-  toolCalls: Array<{ id: string; type: string; name: string; argumentsText: string }>;
+  toolCalls: Array<{ id: string; type: string; name: string; argumentsText: string; thoughtSignature?: string }>;
   rawFinishReason: string | null;
   effectiveFinishReason: string | null;
   finishReasonRepaired: boolean;
@@ -95,6 +99,8 @@ interface ChatCompletionsAttemptInput {
   fetcher?: typeof fetch;
   timeoutMs?: number;
   maxResponseBytes?: number;
+  compatOnly?: boolean;
+  byokAlias?: string;
 }
 
 interface ChatCompletionsAttempt {
@@ -225,7 +231,8 @@ function normalizeProfile(raw: unknown): DiscoveryProfile {
   if (!isPlainObject(raw) || typeof raw.id !== 'string' || raw.id.length === 0 || raw.id.length > 128) {
     throw new TypeError('Invalid profile');
   }
-  if (!Array.isArray(raw.supportedLevels) || raw.supportedLevels.length === 0) throw new TypeError('Profile requires supportedLevels');
+  const reasoningMode = raw.reasoningMode === 'provider-default' ? 'provider-default' : 'pi-levels';
+  if (!Array.isArray(raw.supportedLevels) || (raw.supportedLevels.length === 0 && reasoningMode !== 'provider-default')) throw new TypeError('Profile requires supportedLevels');
   const supportedLevels = raw.supportedLevels.map((level) => {
     if (typeof level !== 'string' || !(LEVELS as readonly string[]).includes(level)) throw new TypeError(`Unknown level: ${String(level)}`);
     return level as ReasoningLevel;
@@ -239,7 +246,7 @@ function normalizeProfile(raw: unknown): DiscoveryProfile {
     if (!(level in rawLevels)) throw new TypeError(`Missing mapping for level: ${level}`);
     levels[level] = normalizeLevelMapping(rawLevels[level], profileRemovePaths);
   }
-  return { id: raw.id, supportedLevels, levels };
+  return { id: raw.id, reasoningMode, supportedLevels, levels };
 }
 
 function normalizeStandaloneMapping(raw: unknown): SemanticMapping {
@@ -251,9 +258,24 @@ function normalizeStandaloneMapping(raw: unknown): SemanticMapping {
   return semantic;
 }
 
+function isBoundedModelSelector(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  if (value.startsWith('dynamic/')) return /^dynamic\/[A-Za-z0-9._/-]{1,180}$/.test(value);
+  const separator = value.indexOf('/');
+  if (separator < 1) return false;
+  const selectorProvider = value.slice(0, separator);
+  const provider = selectorProvider.startsWith('custom-') ? selectorProvider.slice('custom-'.length) : selectorProvider;
+  const model = value.slice(separator + 1);
+  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(provider)
+    || !/^[A-Za-z0-9@][A-Za-z0-9@._:/-]{0,255}$/.test(model)
+    || model.includes('..')
+    || ['__proto__', 'prototype', 'constructor'].includes(model.toLowerCase())) return false;
+  return selectorProvider !== 'aws-bedrock' || !model.includes('/');
+}
+
 function validateInput(input: DiscoveryInput): { profile: DiscoveryProfile; offCandidate?: SemanticMapping } {
   if (!isPlainObject(input)) throw new TypeError('Discovery input is required');
-  if (!/^dynamic\/[A-Za-z0-9._/-]{1,180}$/.test(input.route)) throw new TypeError('Route must be a bounded dynamic route');
+  if (!isBoundedModelSelector(input.route)) throw new TypeError('Route must be a bounded model selector');
   if (!Number.isInteger(input.maxCompletionTokens)
     || input.maxCompletionTokens < 32
     || input.maxCompletionTokens > MAX_COMPLETION_CEILING) {
@@ -404,6 +426,9 @@ function consumeSseData(payload: string, state: ParsedPiSse): void {
       const fn = isPlainObject(rawToolCall.function) ? rawToolCall.function : {};
       if (typeof fn.name === 'string') current.name += fn.name;
       if (typeof fn.arguments === 'string') current.argumentsText += fn.arguments;
+      const extra = isPlainObject(rawToolCall.extra_content) && isPlainObject(rawToolCall.extra_content.google)
+        ? rawToolCall.extra_content.google.thought_signature : undefined;
+      if (typeof extra === 'string' && extra.length > 0 && extra.length <= 32_768) current.thoughtSignature = extra;
     }
   }
 }
@@ -479,6 +504,7 @@ export function buildPiReplayMessages(initialMessages: unknown, parsed: ParsedPi
     id: call.id,
     type: 'function',
     function: { name: call.name, arguments: JSON.stringify(parsedToolArguments(call)) },
+    ...(call.thoughtSignature && { extra_content: { google: { thought_signature: call.thoughtSignature } } }),
   }];
   return [
     ...(clone(initialMessages) as Array<Record<string, unknown>>),
@@ -608,6 +634,16 @@ async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInp
     ?? `https://api.cloudflare.com/client/v4/accounts/${input.accountId}/ai/v1/chat/completions`;
   const compatUrl = input.endpoint?.compat
     ?? `https://gateway.ai.cloudflare.com/v1/${input.accountId}/${input.gatewayId}/compat/chat/completions`;
+  if (input.compatOnly) {
+    const compatBody = clone(input.body);
+    delete compatBody.store;
+    delete compatBody.prompt_cache_key;
+    return {
+      response: await fetchWithTimeout(fetcher, compatUrl, {
+        method: 'POST', headers: { 'cf-aig-authorization': `Bearer ${input.apiToken}`, ...(input.byokAlias && { 'cf-aig-byok-alias': input.byokAlias }), 'content-type': 'application/json' }, body: JSON.stringify(compatBody),
+      }, timeoutMs, 1), attempts: 1, transport: 'compat',
+    };
+  }
   let response = await fetchWithTimeout(fetcher, restUrl, {
     method: 'POST',
     headers: {
@@ -632,6 +668,7 @@ async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInp
     method: 'POST',
     headers: {
       'cf-aig-authorization': `Bearer ${input.apiToken}`,
+      ...(input.byokAlias && { 'cf-aig-byok-alias': input.byokAlias }),
       'cf-aig-metadata': metadata,
       'content-type': 'application/json',
     },
@@ -699,6 +736,9 @@ interface CommonRequest {
   fetcher: typeof fetch;
   timeoutMs: number;
   maxResponseBytes: number;
+  compatOnly?: boolean;
+  byokAlias?: string;
+  repairToolNames?: boolean;
 }
 
 function transportFailure(error: unknown): ProbeResult {
@@ -784,7 +824,10 @@ async function executeToolLifecycle(common: CommonRequest, initialRequest: Plain
   }
 
   let firstParsed: ParsedPiSse;
-  try { firstParsed = await parsePiSseStream(firstAttempt.response.body, common.maxResponseBytes); } catch (error) {
+  try {
+    const body = common.repairToolNames && firstAttempt.response.body ? firstAttempt.response.body.pipeThrough(repairRepeatedCompleteToolNames([CANARY_TOOL_NAME])) : firstAttempt.response.body;
+    firstParsed = await parsePiSseStream(body, common.maxResponseBytes);
+  } catch (error) {
     if (error instanceof DiscoveryAttemptError) return { passed: false, stage: 'tool-call', first: publicProbe(transportFailure(error)), replay: null, stop: true };
     return {
       passed: false,
@@ -817,7 +860,10 @@ async function executeToolLifecycle(common: CommonRequest, initialRequest: Plain
       };
     }
     let replayParsed: ParsedPiSse;
-    try { replayParsed = await parsePiSseStream(replayAttempt.response.body, common.maxResponseBytes); } catch (error) {
+    try {
+      const body = common.repairToolNames && replayAttempt.response.body ? replayAttempt.response.body.pipeThrough(repairRepeatedCompleteToolNames([CANARY_TOOL_NAME])) : replayAttempt.response.body;
+      replayParsed = await parsePiSseStream(body, common.maxResponseBytes);
+    } catch (error) {
       if (error instanceof DiscoveryAttemptError) return { passed: false, stage: 'tool-replay', first, replay: publicProbe(transportFailure(error)), stop: true };
       return {
         passed: false,
@@ -846,6 +892,7 @@ async function executeToolLifecycle(common: CommonRequest, initialRequest: Plain
 }
 
 function groupMappings(profile: DiscoveryProfile): Array<{ levels: ReasoningLevel[]; semantic: SemanticMapping }> {
+  if (profile.reasoningMode === 'provider-default') return [{ levels: [], semantic: { mapping: {}, removePaths: [] } }];
   const groups = new Map<string, { levels: ReasoningLevel[]; semantic: SemanticMapping }>();
   for (const level of profile.supportedLevels) {
     const semantic = profile.levels[level] as SemanticMapping;
@@ -942,6 +989,9 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
     fetcher,
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxResponseBytes: input.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
+    compatOnly: input.compatOnly,
+    byokAlias: input.byokAlias,
+    repairToolNames: profile.id === 'bedrock-anthropic-compat',
   };
   const groups = groupMappings(profile);
   const accounting: Accounting = { logicalProbes: 0, httpAttempts: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
@@ -958,10 +1008,13 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
     }), group.semantic);
     // The paid canary budget belongs to the caller, not the profile mapping.
     reasoningRequest.max_completion_tokens = input.maxCompletionTokens;
-    accounting.logicalProbes += 1;
-    const reasoningProbe = await executeReasoningProbe(common, reasoningRequest);
-    addEvidence(accounting, reasoningProbe);
-    if (reasoningProbe.stop) {
+    let reasoningProbe: ProbeResult | null = null;
+    if (profile.reasoningMode !== 'provider-default') {
+      accounting.logicalProbes += 1;
+      reasoningProbe = await executeReasoningProbe(common, reasoningRequest);
+      addEvidence(accounting, reasoningProbe);
+    }
+    if (reasoningProbe?.stop) {
       distinctMappings.push({
         levels: group.levels,
         reasoningProbe: publicProbe(reasoningProbe),
@@ -984,7 +1037,7 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
     addEvidence(accounting, toolLifecycle.replay);
     distinctMappings.push({
       levels: group.levels,
-      reasoningProbe: publicProbe(reasoningProbe),
+      reasoningProbe: reasoningProbe ? publicProbe(reasoningProbe) : null,
       toolLifecycle: publicProbe(toolLifecycle),
     });
     if (toolLifecycle.stop) {
@@ -1012,12 +1065,13 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
   const verifiedLevels = distinctMappings.filter((item) => item.toolLifecycle.passed).flatMap((item) => item.levels) as ReasoningLevel[];
   const attemptedLevels = new Set(distinctMappings.flatMap((item) => item.levels as ReasoningLevel[]));
   const failedLevels = profile.supportedLevels.filter((level) => !verifiedLevels.includes(level) || !attemptedLevels.has(level));
-  const allToolsPassed = verifiedLevels.length === profile.supportedLevels.length;
+  const allToolsPassed = distinctMappings.length > 0 && distinctMappings.every((item) => item.toolLifecycle.passed === true && item.toolLifecycle.stage === 'complete')
+    && verifiedLevels.length === profile.supportedLevels.length;
   const replayUnsupported = distinctMappings.some((item) => item.toolLifecycle.stage === 'tool-replay'
     && typeof item.toolLifecycle.replay?.status === 'number'
     && item.toolLifecycle.replay.status >= 400
     && item.toolLifecycle.replay.status < 500);
-  const reasoningTransportFailures = distinctMappings.some((item) => item.reasoningProbe.status !== 200 || item.reasoningProbe.malformedEvents > 0);
+  const reasoningTransportFailures = distinctMappings.some((item) => item.reasoningProbe && (item.reasoningProbe.status !== 200 || item.reasoningProbe.malformedEvents > 0));
   const offItem = distinctMappings.find((item) => (item.levels as ReasoningLevel[]).includes('off'));
   const off = profile.supportedLevels.includes('off')
     ? offItem?.reasoningProbe.status === 200 && offItem.reasoningProbe.reasoningLength === 0

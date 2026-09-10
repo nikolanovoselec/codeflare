@@ -192,7 +192,7 @@ describe('REQ-ENTERPRISE-005 AC3: Copilot BYOK env prepended to .bashrc (entrypo
    *
    * Returns { code, stderr, bashrc }.
    */
-  function runCopilotByok({ defaultRoute = 'codeflare', existingBashrc = '' } = {}) {
+  function runCopilotByok({ defaultRoute = 'codeflare', existingBashrc = '', promptTokens, outputTokens } = {}) {
     const dir = mkdtempSync(join(tmpdir(), 'ent-copilot-byok-'));
     const bashrcPath = join(dir, '.bashrc');
     writeFileSync(bashrcPath, existingBashrc);
@@ -203,6 +203,8 @@ describe('REQ-ENTERPRISE-005 AC3: Copilot BYOK env prepended to .bashrc (entrypo
       `USER_HOME='${dir}'`,
       `ENTERPRISE_DEFAULT_ROUTE='${defaultRoute}'`,
       `ENTERPRISE_PLACEHOLDER_TOKEN='codeflare-enterprise'`,
+      `ENTERPRISE_COPILOT_PROMPT='${promptTokens ?? 920000}'`,
+      `ENTERPRISE_COPILOT_OUTPUT='${outputTokens ?? 128000}'`,
       block,
     ].join('\n');
 
@@ -259,6 +261,16 @@ describe('REQ-ENTERPRISE-005 AC3: Copilot BYOK env prepended to .bashrc (entrypo
     // context window for gpt-5.5 (1,050,000 ctx / 128,000 output; prompt = ctx - headroom).
     assert.match(bashrc, /export COPILOT_PROVIDER_MAX_PROMPT_TOKENS="920000"/, 'MAX_PROMPT_TOKENS not set to 920000 in .bashrc');
     assert.match(bashrc, /export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="128000"/, 'MAX_OUTPUT_TOKENS not set to 128000 in .bashrc');
+  });
+
+  it('REQ-ENTERPRISE-049: bounds Copilot output for a provider-default native model', () => {
+    const { code, stderr, bashrc } = runCopilotByok({
+      defaultRoute: 'cf-native-11111111-1111-4111-8111-111111111111', promptTokens: 183616, outputTokens: 16384,
+    });
+    assert.equal(code, 0, `Copilot BYOK block exited non-zero: ${stderr}`);
+    assert.match(bashrc, /COPILOT_MODEL="cf-native-11111111-1111-4111-8111-111111111111"/);
+    assert.match(bashrc, /COPILOT_PROVIDER_MAX_PROMPT_TOKENS="183616"/);
+    assert.match(bashrc, /COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="16384"/);
   });
 
   it('REQ-ENTERPRISE-005 AC3: re-running with a changed default route overwrites the stale COPILOT_MODEL', () => {
