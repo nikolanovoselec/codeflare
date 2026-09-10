@@ -576,7 +576,8 @@ const AiRoutingFields: Component<Props> = (props) => {
     <input type="hidden" name="defaultRoute" value={compatibilityDefault()?.defaultRoute ?? ''} /><input type="hidden" name="reasoning" value={compatibilityDefault()?.reasoning ?? 'off'} />
     <input type="hidden" name="groupRouting" value={JSON.stringify(configuredGroups())} /><input type="hidden" name="fallbackRouting" value={JSON.stringify(fallbackRouting())} /><input type="hidden" name="routeChecks" value={JSON.stringify(routeChecks())} />
     <input type="hidden" name="reasoningConfiguration" value={JSON.stringify(serializedConfiguration())} />
-    <Show when={nativeDirty()}><input type="hidden" name="nativeTargets" value={JSON.stringify(nativeSubmission())} /><input type="hidden" name="nativeChecks" value={JSON.stringify(nativeChecks())} /></Show>
+    <input type="hidden" name="nativeTargets" value={JSON.stringify(nativeSubmission())} />
+    <Show when={nativeDirty()}><input type="hidden" name="nativeChecks" value={JSON.stringify(nativeChecks())} /></Show>
   </div>;
 };
 export default AiRoutingFields;
