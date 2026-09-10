@@ -208,6 +208,20 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     fetcher.mockRestore();
   });
 
+  it('fails closed when persisted native-target storage cannot be read', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
+    const read = kv.get.getMockImplementation()!;
+    kv.get.mockImplementation(async (key, type) => {
+      if (key === SETUP_KEYS.NATIVE_AI_TARGETS) throw new Error('native target storage unavailable');
+      return read(key, type);
+    });
+
+    const response = await app.request('/admin/configuration');
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'Error: native target storage unavailable' });
+  });
+
   it('does not call provider management when no native targets are saved', async () => {
     const { app } = createApp({
       ENTERPRISE_MODE: 'active',
