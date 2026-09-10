@@ -122,6 +122,35 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
     expect(failed.assignable).toBe(false);
   });
 
+  it('REQ-ENTERPRISE-054: verifies a generalized native provider selector directly through compat', async () => {
+    const requests: Array<{ url: string; body: Record<string, unknown>; headers: Headers }> = [];
+    const report = await discoverPiCompatibility({
+      accountId: ACCOUNT_ID,
+      gatewayId: 'gateway',
+      apiToken: 'secret-token',
+      route: 'openai/gpt-5.6-terra',
+      profile: {
+        id: 'native-openai-compat',
+        reasoningMode: 'provider-default',
+        supportedLevels: [],
+        removePaths: [],
+        levels: {},
+      },
+      maxCompletionTokens: 32,
+      compatOnly: true,
+      fetcher: successfulFetcher(requests),
+    });
+
+    expect(requests).toHaveLength(2);
+    expect(requests.every((request) => request.url.includes('/compat/chat/completions'))).toBe(true);
+    expect(requests.every((request) => request.body.model === 'openai/gpt-5.6-terra')).toBe(true);
+    expect(report).toMatchObject({
+      classification: 'Verified',
+      assignable: true,
+      accounting: { logicalProbes: 1, httpAttempts: 2 },
+    });
+  });
+
   it('counts one reasoning probe and one complete tool lifecycle per distinct semantic mapping', async () => {
     const requests: Array<{ url: string; body: Record<string, unknown>; headers: Headers }> = [];
     const fetcher = successfulFetcher(requests);
