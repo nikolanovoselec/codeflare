@@ -27,6 +27,13 @@ describe('Gemini compat thought-signature adapter', () => {
     expect(await adapted.text()).toBe(text);
   });
 
+  it('REQ-ENTERPRISE-059: rejects an oversized newline-terminated SSE line', async () => {
+    const text = `${'x'.repeat(1_048_577)}\n`;
+    const body = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode(text)); controller.close(); } });
+    const adapted = exposeGeminiThoughtSignatures(new Response(body, { headers: { 'content-type': 'text/event-stream' } }));
+    await expect(adapted.text()).rejects.toThrow('Gemini SSE line exceeds adapter limit');
+  });
+
   it('REQ-ENTERPRISE-059: thought-signature restoration preserves unrelated request data', () => {
     const payload = { messages: [{ role: 'assistant', tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' } }], reasoning_details: [
       { type: 'reasoning.encrypted', id: 'call_1', format: 'codeflare.google.thought_signature.v1', data: 'opaque-signed-state' },
