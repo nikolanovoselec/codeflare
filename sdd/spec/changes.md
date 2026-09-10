@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-10
 
-- **Transient Durable Object state cannot falsely stop a live terminal** ([REQ-SESSION-012](session-lifecycle.md#req-session-012-wake-loop-prevention) AC1, AC2, and AC4 amended; remains Implemented). The no-wake inner forwarding gate now sends retryable 1013 when its volatile running flag is false; authoritative 4503 remains reserved for stopped persisted Container SDK state.
+- **Transient Durable Object state cannot falsely stop a live terminal** ([REQ-SESSION-012](session-lifecycle.md#req-session-012-wake-loop-prevention) AC1, AC2, and AC4 amended; remains Implemented). Live terminals now retry transient forwarding failures instead of being treated as stopped; confirmed stopped sessions remain disconnected.
 
 ## 2026-09-09
 
