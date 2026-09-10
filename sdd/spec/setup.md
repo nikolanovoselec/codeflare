@@ -501,20 +501,44 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Acceptance Criteria:**
 
 1. `GET /api/admin/configuration` requires shared authentication and administrator authorization in every deployment mode. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (rejects unauthenticated and non-admin requests) -->
-2. The response returns effective mode, revision, applicable closed sections, non-secret values, active run identity, and direct latest terminal summaries. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @impl: src/lib/admin-configuration.ts::applicableConfigurationSections --> <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns one non-enterprise mode contract for %s) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (prefers Administration secret state and reads direct latest summaries without listing Activity) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (reloads a persisted native target through the sanitized Administration projection) -->
+2. The response returns effective mode, revision, applicable closed sections, non-secret values, active run identity, and direct latest terminal summaries. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @impl: src/lib/admin-configuration.ts::applicableConfigurationSections --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns one non-enterprise mode contract for %s) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (prefers Administration secret state and reads direct latest summaries without listing Activity) -->
 3. Secret fields return only `administration`, `deployment`, or `none`; no secret bytes, expiry claims, or submitted values are returned. <!-- @impl: src/routes/admin/configuration.ts::secretState --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) -->
 4. Enterprise AI Gateway reports effective URL and API-token source, resolving Administration values independently before deployment fallbacks. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (prefers Administration secret state and reads direct latest summaries without listing Activity) -->
 5. Browser Run remains optional with no enable flag: no stored pair is valid, while a configured state requires account ID plus saved token. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (prefers Administration secret state and reads direct latest summaries without listing Activity) -->
 6. Default, Onboarding, and SaaS preserve existing Users behavior; SaaS preserves Subscription Tiers; Enterprise continues rejecting both backend resources. <!-- @impl: src/routes/users.ts::app --> <!-- @impl: src/routes/admin/tiers.ts::app --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC1: /api/users fails closed in enterprise mode) --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC5: admin tier config routes 403 in enterprise mode) -->
-7. Absent or malformed persisted native-target data yields an empty native-target projection without provider-management I/O. <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (does not call provider management when no native targets are saved) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (keeps configuration available when persisted native targets are malformed) -->
 
-**Constraints:** Reuse Setup readers and existing mode owners. Configuration reads do not list Activity records. Storage read failures remain errors and are not classified as malformed documents.
+**Constraints:** Reuse Setup readers and existing mode owners. Configuration reads do not list Activity records.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SETUP-005](#req-setup-005-post-setup-reconfiguration-requires-admin-auth), [REQ-ENTERPRISE-017](enterprise-mode.md#req-enterprise-017-ai-gateway-configured-in-the-setup-wizard), [REQ-BROWSER-007](browser-run.md#req-browser-007-enterprise-admin-configured-browser-rendering-token)
 
 **Verification:** Automated route and mode-hardening tests
+
+**Status:** Implemented
+
+---
+
+### REQ-SETUP-027: Native target configuration projection
+
+**Intent:** Administration reloads saved native targets without exposing provider authority or hiding unrelated configuration.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. A valid saved native target reloads through the sanitized Administration configuration projection. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (reloads a persisted native target through the sanitized Administration projection) -->
+2. Absent native-target storage yields an empty projection without provider-management I/O. <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (does not call provider management when no native targets are saved) -->
+3. Malformed native-target storage yields an empty projection without provider-management I/O. <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (keeps configuration available when persisted native targets are malformed) -->
+4. Failure to read native-target storage fails the authoritative configuration request rather than appearing as an empty catalog. <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (fails closed when persisted native-target storage cannot be read) -->
+
+**Constraints:** Raw provider configuration identity remains Worker-only.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-ENTERPRISE-053](enterprise-mode.md#req-enterprise-053-native-target-identity-and-document)
+
+**Verification:** Automated Administration configuration route tests
 
 **Status:** Implemented
 

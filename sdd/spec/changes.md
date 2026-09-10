@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-10
 
-- **Administration reloads saved native targets** ([REQ-SETUP-017](setup.md#req-setup-017-mode-aware-administration-configuration-read) AC2 traceability clarified and AC7 added; remains Implemented). The authoritative configuration response now includes the existing sanitized native-target projection, so a successful AI-routing Save remains visible after reloading current settings without exposing provider binding identity. Malformed target documents degrade to an empty projection without provider-management I/O, while storage read failures remain errors.
+- **Administration reloads saved native targets** ([REQ-SETUP-027](setup.md#req-setup-027-native-target-configuration-projection)). The authoritative configuration response now includes the existing sanitized native-target projection, so a successful AI-routing Save remains visible after reloading current settings without exposing provider binding identity. Absent or malformed target documents produce an empty projection without provider-management I/O, while storage read failures remain errors.
 
 ## 2026-09-09
 
