@@ -434,8 +434,9 @@ export async function readNativeTargetViews(
   env: Env,
   reasoningConfiguration: ReasoningConfiguration,
 ): Promise<Array<Record<string, unknown>>> {
-  const nativeTargets = parseNativeAiTargets(await env.KV.get(SETUP_KEYS.NATIVE_AI_TARGETS));
-  if (nativeTargets.targets.length === 0) return [];
+  let nativeTargets;
+  try { nativeTargets = parseNativeAiTargets(await env.KV.get(SETUP_KEYS.NATIVE_AI_TARGETS)); }
+  catch { return []; }
   const gateway = await resolveGatewayConnection(env);
   let currentProviders: Awaited<ReturnType<typeof listNativeProviderConfigs>> = [];
   let customProviders = new Set<string>();
