@@ -103,7 +103,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const storedRoutes = [...new Set([...stringList(current.dynamicRoutes), ...Object.keys(assignments)])];
   const [routeState, setRouteState] = createStore<RouteDraft[]>(storedRoutes.map((name) => ({ name, contextWindow: typeof contextWindows[name] === 'number' ? contextWindows[name] as number : DEFAULT_CONTEXT_WINDOW, assignment: routeAssignment(assignments[name]) })));
   const routes = () => routeState;
-  const [nativeTargets, setNativeTargets] = createSignal<NativeDraft[]>((Array.isArray(current.nativeTargets) ? current.nativeTargets : []).flatMap((item) => {
+  const initialNativeDrafts: NativeDraft[] = (Array.isArray(current.nativeTargets) ? current.nativeTargets : []).flatMap((item) => {
     const target = record(item); const verification = record(target.verification); const selectedProfile = profileRef(target.profileRef);
     if (!selectedProfile) return [];
     return [{ id: text(target.id) || undefined, handle: text(target.handle) || undefined, label: text(target.label), model: text(target.model),
@@ -111,10 +111,12 @@ const AiRoutingFields: Component<Props> = (props) => {
       profileRef: selectedProfile, enabled: target.enabled === true,
       ...(text(verification.checkedAt) && { verification: { method: verification.method === 'administrator' ? 'administrator' as const : 'automated' as const, checkedAt: text(verification.checkedAt), current: verification.current === true } }),
     }];
-  }));
+  });
+  const [nativeTargets, setNativeTargets] = createSignal<NativeDraft[]>(initialNativeDrafts.map((target) => ({ ...target, enabled: target.verification?.current === true })));
   const [nativeChecks, setNativeChecks] = createSignal<Record<string, string | null>>({});
-  const nativeSubmission = () => nativeTargets().map(({ handle: _handle, verification: _verification, busy: _busy, error: _error, ...target }) => target);
-  const initialNativeSubmission = JSON.stringify(nativeSubmission());
+  const nativeSubmissionOf = (targets: NativeDraft[]) => targets.map(({ handle: _handle, verification: _verification, busy: _busy, error: _error, ...target }) => target);
+  const nativeSubmission = () => nativeSubmissionOf(nativeTargets());
+  const initialNativeSubmission = JSON.stringify(nativeSubmissionOf(initialNativeDrafts));
   const nativeDirty = () => JSON.stringify(nativeSubmission()) !== initialNativeSubmission || Object.keys(nativeChecks()).length > 0;
   const setRoutes = (update: (items: RouteDraft[]) => RouteDraft[]) => setRouteState(reconcile(update(routeState), { key: 'name' }));
   const updateRoute = (name: string, update: (route: RouteDraft) => RouteDraft) => setRoutes((items) => items.map((route) => route.name === name ? update(route) : route));
@@ -538,6 +540,9 @@ const AiRoutingFields: Component<Props> = (props) => {
               <Show when={nativeProfileEditor() === index}><ReasoningProfileEditor route={`${target().provider}/${target().model}`} discoverCompatibility={() => discoverNativeCompatibility({ target: nativeSubmission()[index], ...(gatewayDraft() && { gateway: gatewayDraft()! }), maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS })} onBusyChange={setProfileEditorBusy} existingRevisions={customRevisions()} onCancel={() => setNativeProfileEditor(undefined)} onSelectProfile={(ref) => { setNativeProfileEditor(undefined); clearProof({ profileRef: ref }); }} onSave={(revision) => { const ref = profileRef(revision); if (!ref) return; setNativeProfileEditor(undefined); setCustomRevisions((items) => [...items, revision]); clearProof({ profileRef: ref }); setPendingProfileName(String(revision.name ?? 'New profile')); }} /></Show>
             </div></article>;
           }}</Index></div>
+      <Show when={!selectableProviders().length}><p class="admin-status-text">{catalog().providerCatalogStatus === 'ready'
+        ? 'No provider configurations are available to add.'
+        : 'Provider discovery is unavailable. Check the connection to add a provider-model.'}</p></Show>
       <Show when={selectableProviders().length}><div class="admin-route-actions"><button type="button" class="admin-secondary-button" onClick={() => {
         const provider = selectableProviders()[0]; const profile = provider && preparedProfileRef(provider.provider);
         if (provider && profile) { const index = nativeTargets().length; setNativeTargets((items) => [...items, { label: '', model: '', provider: provider.provider, contextWindow: 200000, profileRef: profile, enabled: false }]); setExpandedNative(index); }

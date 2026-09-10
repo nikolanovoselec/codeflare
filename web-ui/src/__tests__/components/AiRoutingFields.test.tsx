@@ -201,16 +201,29 @@ describe('Structured AI routing', () => {
   it('REQ-ENTERPRISE-051: derives orange and green native readiness without an enable control', async () => {
     const readyId = '11111111-1111-4111-8111-111111111111';
     const view = mount({ ...checkedCurrent(), nativeTargets: [
-      { id: readyId, label: 'Ready Claude', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: true, verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true } },
-      { id: '33333333-3333-4333-8333-333333333333', label: 'Draft Claude', provider: 'aws-bedrock', model: 'eu.anthropic.claude-opus-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false },
+      { id: readyId, label: 'Ready Claude', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false, verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true } },
+      { id: '33333333-3333-4333-8333-333333333333', label: 'Draft Claude', provider: 'aws-bedrock', model: 'eu.anthropic.claude-opus-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: true },
     ] });
     await openNative(view);
     expect(within(view.getByRole('article', { name: 'Ready Claude native target' })).getByText('Ready')).toHaveAttribute('data-state', 'passed');
     expect(within(view.getByRole('article', { name: 'Draft Claude native target' })).getByText('Not ready')).toHaveAttribute('data-state', 'unclear');
     expect(view.queryByText('Available for routing')).toBeNull();
+    expect(formValues(view.container).nativeTargets.map((target: { enabled: boolean }) => target.enabled)).toEqual([true, false]);
     await openGroup(view, 'developers');
     expect(view.getByRole('checkbox', { name: `developers cf-native-${readyId} route` })).toBeVisible();
     expect(view.queryByRole('checkbox', { name: 'developers cf-native-33333333-3333-4333-8333-333333333333 route' })).toBeNull();
+  });
+
+  it.each([
+    ['unavailable', { ...catalog, providerCatalogStatus: 'unavailable' as const, providers: [] }, 'Provider discovery is unavailable. Check the connection to add a provider-model.'],
+    ['empty', { ...catalog, providerCatalogStatus: 'ready' as const, providers: [] }, 'No provider configurations are available to add.'],
+  ])('keeps the native provider %s state actionable without restoring the provider catalogue', async (_case, providerCatalog, message) => {
+    api.catalog.mockResolvedValueOnce(providerCatalog);
+    const view = mount(checkedCurrent());
+    await openNative(view);
+    expect(view.getByText(message)).toBeVisible();
+    expect(view.queryByText('Configured providers')).toBeNull();
+    expect(view.queryByRole('button', { name: 'Add provider-model' })).toBeNull();
   });
 
   it('REQ-ENTERPRISE-051: edits the target label and context window in the native draft', async () => {
