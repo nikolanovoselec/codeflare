@@ -3,6 +3,7 @@ import type { Env } from '../../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
 import {
   applicableConfigurationSections,
+  readNativeTargetViews,
   resolveAdministrationMode,
   type ConfigurationSection,
 } from '../../lib/admin-configuration';
@@ -187,6 +188,7 @@ app.get('/', requireAdmin, async (c) => {
       gatewayId: aigGatewayId || c.env.AIG_GATEWAY_ID || '',
       tokenState: secretState(aigToken, c.env.AIG_TOKEN),
       dynamicRoutes: parseArray(dynamicRoutes),
+      nativeTargets: await readNativeTargetViews(c.env, reasoningConfiguration),
       defaultRoute: parsedDefaultRoute,
       routeContextWindows: routeSettings.contextWindows,
       routeReasoningProfiles: Object.fromEntries(Object.entries(reasoningConfiguration.routeAssignments).map(([route, assignment]) => [route, assignment.activeProfile.id])),

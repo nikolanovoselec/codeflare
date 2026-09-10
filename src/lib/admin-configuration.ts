@@ -430,6 +430,42 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
   return parseReasoningConfiguration({ ...configuration, routeAssignments });
 }
 
+export async function readNativeTargetViews(
+  env: Env,
+  reasoningConfiguration: ReasoningConfiguration,
+): Promise<Array<Record<string, unknown>>> {
+  let nativeTargets;
+  try { nativeTargets = parseNativeAiTargets(await env.KV.get(SETUP_KEYS.NATIVE_AI_TARGETS)); }
+  catch { return []; }
+  const gateway = await resolveGatewayConnection(env);
+  let currentProviders: Awaited<ReturnType<typeof listNativeProviderConfigs>> = [];
+  let customProviders = new Set<string>();
+  let customProviderCatalogReady = false;
+  try {
+    const coordinates = gatewayCoordinates(gateway);
+    if (coordinates && gateway.token) {
+      currentProviders = await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token);
+      try { customProviders = await listCustomProviderSlugs(coordinates.accountId, gateway.token); customProviderCatalogReady = true; }
+      catch { /* Custom targets remain stale. */ }
+    }
+  } catch { /* Provider status is reported as stale without hiding saved targets. */ }
+  return nativeTargets.targets.map((target) => {
+    let current = false;
+    try {
+      const selected = selectNativeProviderConfig(currentProviders, target.provider);
+      const alias = selected?.alias;
+      getProfileForRef(reasoningConfiguration, target.profileRef);
+      const builtInProvider = ['aws-bedrock', 'google-ai-studio', 'openai'].includes(target.provider);
+      const classificationCurrent = customProviderCatalogReady
+        ? customProviders.has(target.provider) === Boolean(target.customProvider)
+        : builtInProvider && !target.customProvider;
+      current = Boolean(selected && selected.id === target.providerConfigId && alias === target.providerConfigAlias
+        && classificationCurrent && nativeVerificationMatches(target, gateway));
+    } catch { /* Missing profile or ambiguous provider keeps this target stale. */ }
+    return sanitizeNativeTarget(target, current);
+  });
+}
+
 async function readCurrentConfigurationValues(
   env: Env,
   section: ConfigurationSection,
@@ -472,37 +508,11 @@ async function readCurrentConfigurationValues(
         reasoningConfiguration = migration.proposed;
         reasoningMigration = { persisted: false, errors: migration.errors };
       }
-      const nativeTargets = parseNativeAiTargets(await env.KV.get(SETUP_KEYS.NATIVE_AI_TARGETS));
-      const gateway = await resolveGatewayConnection(env);
-      let currentProviders: Awaited<ReturnType<typeof listNativeProviderConfigs>> = [];
-      let customProviders = new Set<string>();
-      let customProviderCatalogReady = false;
-      try {
-        const coordinates = gatewayCoordinates(gateway);
-        if (coordinates && gateway.token) {
-          currentProviders = await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token);
-          try { customProviders = await listCustomProviderSlugs(coordinates.accountId, gateway.token); customProviderCatalogReady = true; } catch { /* Custom targets remain stale. */ }
-        }
-      } catch { /* Provider status is reported as stale without hiding Dynamic Routes. */ }
       return {
         gatewayUrl: (await env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL)) || env.AIG_GATEWAY_URL || '',
         gatewayId: (await env.KV.get(SETUP_KEYS.AIG_GATEWAY_ID)) || env.AIG_GATEWAY_ID || '',
         dynamicRoutes: parseJson(await env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES), []),
-        nativeTargets: nativeTargets.targets.map((target) => {
-          let current = false;
-          try {
-            const selected = selectNativeProviderConfig(currentProviders, target.provider);
-            const alias = selected?.alias;
-            getProfileForRef(reasoningConfiguration, target.profileRef);
-            const builtInProvider = ['aws-bedrock', 'google-ai-studio', 'openai'].includes(target.provider);
-            const classificationCurrent = customProviderCatalogReady
-              ? customProviders.has(target.provider) === Boolean(target.customProvider)
-              : builtInProvider && !target.customProvider;
-            current = Boolean(selected && selected.id === target.providerConfigId && alias === target.providerConfigAlias
-              && classificationCurrent && nativeVerificationMatches(target, gateway));
-          } catch { /* Missing profile or ambiguous provider keeps this target stale. */ }
-          return sanitizeNativeTarget(target, current);
-        }),
+        nativeTargets: await readNativeTargetViews(env, reasoningConfiguration),
         defaultRoute,
         routeContextWindows: routeSettings.contextWindows,
         routeReasoningProfiles: Object.fromEntries(Object.entries(reasoningConfiguration.routeAssignments).map(([route, assignment]) => [route, assignment.activeProfile.id])),
