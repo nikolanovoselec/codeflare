@@ -19,6 +19,14 @@ describe('Gemini compat thought-signature adapter', () => {
     expect(text).toContain('data: [DONE]');
   });
 
+  it('REQ-ENTERPRISE-052: accepts one large transport chunk containing bounded SSE lines', async () => {
+    const line = 'data: {}\n';
+    const text = line.repeat(Math.ceil(1_048_576 / line.length) + 1);
+    const body = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode(text)); controller.close(); } });
+    const adapted = exposeGeminiThoughtSignatures(new Response(body, { headers: { 'content-type': 'text/event-stream' } }));
+    expect(await adapted.text()).toBe(text);
+  });
+
   it('REQ-ENTERPRISE-052: thought-signature restoration preserves unrelated request data', () => {
     const payload = { messages: [{ role: 'assistant', tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' } }], reasoning_details: [
       { type: 'reasoning.encrypted', id: 'call_1', format: 'codeflare.google.thought_signature.v1', data: 'opaque-signed-state' },
