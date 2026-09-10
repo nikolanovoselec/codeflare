@@ -8,6 +8,7 @@ import { createMockKV } from '../helpers/mock-kv';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
 import { serializeReasoningConfiguration } from '../../lib/reasoning-configuration';
+import { createNativeTarget, serializeNativeAiTargets } from '../../lib/native-ai-targets';
 
 let mockRole = 'admin';
 let mockAuthReject = false;
@@ -155,6 +156,39 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     const body = await response.json() as any;
     expect(body.sections.aiRouting.reasoningConfiguration).toEqual(reasoningConfiguration);
     expect(body.sections.aiRouting.routeReasoningProfiles).toEqual({ development: 'workers-ai-glm-thinking' });
+  });
+
+  it('reloads a persisted native target through the sanitized Administration projection', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
+    const profileRef = getBuiltInProfileRef('native-openai-compat');
+    await kv.put(SETUP_KEYS.NATIVE_AI_TARGETS, serializeNativeAiTargets({
+      schemaVersion: 1,
+      targets: [createNativeTarget({
+        id: '6af8fc3b-5352-4d52-ac55-0c342673960d',
+        label: 'GPT-5.6 Terra',
+        model: 'gpt-5.6-terra',
+        contextWindow: 200000,
+        provider: 'openai',
+        providerConfigId: 'private-provider-binding',
+        profileRef,
+        enabled: true,
+      })],
+    }));
+
+    const response = await app.request('/admin/configuration');
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.sections.aiRouting.nativeTargets).toEqual([
+      expect.objectContaining({
+        id: '6af8fc3b-5352-4d52-ac55-0c342673960d',
+        label: 'GPT-5.6 Terra',
+        model: 'gpt-5.6-terra',
+        provider: 'openai',
+        profileRef,
+      }),
+    ]);
+    expect(JSON.stringify(body)).not.toContain('private-provider-binding');
   });
 
   it('surfaces malformed legacy reasoning storage as a non-persisted migration error', async () => {
