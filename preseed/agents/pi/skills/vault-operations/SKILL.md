@@ -1,7 +1,8 @@
 ---
 name: vault-operations
-description: Operational knowledge for working with /home/user/Vault/ - the persistent user-curated note store. Layout, who-writes-where, wikilink convention, hard rules. Invoked when the agent touches vault files or the user references vault contents.
+description: "Operate the persistent /home/user/Vault layout, sync, and graph safely."
 version: 1.0.0
+disable-model-invocation: true
 ---
 
 # Vault Operations
@@ -29,7 +30,7 @@ Vault/
 
 ## Reading
 
-Prefer the unified graph (`mcp__graphify__*`) for any cross-session lookup; it ingests every vault file plus every active repo's graphify-out, so one query returns vault + code side by side. Use `query_graph` for free-text, `get_node` when you know the concept name. Read raw vault files only when the graph points at a specific path. For session-memory lookup, search current `Raw/Sessions/*.md` capture files first (excluding `Archive.md`), then search `Raw/Sessions/Archive.md` only when the hot files do not answer the question.
+Prefer the unified graph (`Pi graphify tools`) for any cross-session lookup; it ingests every vault file plus every active repo's graphify-out, so one query returns vault + code side by side. Use `query_graph` for free-text, `get_node` when you know the concept name. Read raw vault files only when the graph points at a specific path. For session-memory lookup, search current `Raw/Sessions/*.md` capture files first (excluding `Archive.md`), then search `Raw/Sessions/Archive.md` only when the hot files do not answer the question.
 
 ## Writing (who writes where)
 

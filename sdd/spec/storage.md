@@ -1408,3 +1408,33 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Status:** Implemented
 
 ---
+
+### REQ-STOR-052: Session capture compaction converges through bisync
+
+**Intent:** Cold session captures are archived and removed locally, then the existing bisync publishes the complete result to R2.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The daily UTC path prepares the deterministic local archive from the selected cold captures. <!-- @impl: scripts/compact-session-captures.mjs::prepareArchive --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-023 AC2: builds a deterministic idempotent archive with recoverable source boundaries) -->
+2. Graph provenance is relocated and the complete cumulative contribution is republished before source deletion. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (archives, relocates, deletes, and bisyncs once per UTC day) -->
+3. The compactor deletes only recorded cold sources whose current content still matches its manifest. <!-- @impl: scripts/compact-session-captures.mjs::deleteVerifiedSources --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-STOR-052 AC3: deletes only exact unchanged archived sources) -->
+4. One bisync publishes the archive, graph update, and source deletions together before the UTC-day completion stamp is written. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (archives, relocates, deletes, and bisyncs once per UTC day) -->
+5. A failed step leaves the UTC day unstamped so later synchronization and compaction attempts can continue. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (stops at the first failed step without stamping completion) -->
+
+**Constraints:**
+
+- Compaction reuses the existing rclone remote, filters, lock, and bisync owner; it introduces no direct R2 credential, scheduler service, or parallel sync authority.
+- Compaction performs no independent remote reads or verification.
+- The final bisync waits for graph provenance relocation and cumulative `user_vault` publication under [REQ-MEM-023](memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers), [REQ-STOR-042](#req-stor-042-per-side-sync-change-tracking), [REQ-MEM-023](memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory)
+
+**Verification:** Automated compactor and entrypoint orchestration tests
+
+**Status:** Implemented
+
+---

@@ -7,7 +7,7 @@ async function run(events: string[], names: string[]): Promise<string> {
 }
 
 describe('REQ-ENTERPRISE-050 Bedrock tool-name repair', () => {
-  it('REQ-ENTERPRISE-050: suppresses only repeated complete Bedrock tool names', async () => {
+  it('REQ-ENTERPRISE-059: suppresses only repeated complete Bedrock tool names', async () => {
     const first = 'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call","function":{"name":"lookup","arguments":""}}]}}]}\n\n';
     const repeated = 'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"name":"lookup","arguments":"{\\"x\\":1}"}}]}}]}\n\n';
     const output = await run([first, repeated, 'data: [DONE]\n\n'], ['lookup']);
@@ -16,7 +16,7 @@ describe('REQ-ENTERPRISE-050 Bedrock tool-name repair', () => {
     expect(output).toContain('"id":"call"');
   });
 
-  it('REQ-ENTERPRISE-050: leaves ordinary fragmented tool names and Dynamic Route streams unchanged', async () => {
+  it('REQ-ENTERPRISE-059: leaves ordinary fragmented tool names and Dynamic Route streams unchanged', async () => {
     const fragments = [
       'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"name":"look","arguments":"a"}}]}}]}\n\n',
       'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"name":"up","arguments":"b"}}]}}]}\n\n',

@@ -214,6 +214,21 @@ describe('Structured AI routing', () => {
     expect(view.queryByRole('checkbox', { name: 'developers cf-native-33333333-3333-4333-8333-333333333333 route' })).toBeNull();
   });
 
+  it('REQ-ENTERPRISE-055: submits saved native identity during a policy-only edit', async () => {
+    const targetId = '11111111-1111-4111-8111-111111111111';
+    const view = mount({ ...checkedCurrent(), nativeTargets: [{
+      id: targetId, label: 'Ready Claude', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5',
+      contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') },
+      enabled: true, verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true },
+    }] });
+    await openGroup(view, 'developers');
+    await fireEvent.click(view.getByRole('checkbox', { name: `developers cf-native-${targetId} route` }));
+    expect(formValues(view.container).groupRouting[0].routes).toContain(`cf-native-${targetId}`);
+    expect(formValues(view.container).nativeTargets).toEqual([
+      expect.objectContaining({ id: targetId, provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', enabled: true }),
+    ]);
+  });
+
   it.each([
     ['unavailable', { ...catalog, providerCatalogStatus: 'unavailable' as const, providers: [] }, 'Provider discovery is unavailable. Check the connection to add a provider-model.'],
     ['empty', { ...catalog, providerCatalogStatus: 'ready' as const, providers: [] }, 'No provider configurations are available to add.'],
@@ -869,7 +884,7 @@ describe('Structured AI routing', () => {
     expect(view.getByLabelText('support default reasoning')).toBeDisabled();
   });
 
-  it('REQ-ENTERPRISE-042: a successfully checked credential change preserves saved route authority for Review changes', async () => {
+  it('REQ-ENTERPRISE-057: a successfully checked credential change preserves saved route authority for Review changes', async () => {
     const view = mount(checkedCurrent());
     await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
     await section(view, 'Connection');

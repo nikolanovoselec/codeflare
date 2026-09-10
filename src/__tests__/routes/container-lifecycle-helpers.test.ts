@@ -503,7 +503,7 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
       });
     });
 
-    it('REQ-ENTERPRISE-049: publishes opaque mixed and authoritative empty enterprise model snapshots', async () => {
+    it('REQ-ENTERPRISE-058: publishes opaque mixed and authoritative empty enterprise model snapshots', async () => {
       mockGetStoredBucketName.mockResolvedValue('test-bucket');
       await configureContainerDO({ ...baseParams,
         routeCatalog: ['general_usage', 'cf-native-11111111-1111-4111-8111-111111111111'], defaultRoute: 'cf-native-11111111-1111-4111-8111-111111111111',

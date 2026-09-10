@@ -69,6 +69,16 @@ function extractCopilotByokBashrcBlock() {
   return entrypoint.slice(start, endOfLine + 1);
 }
 
+function extractCopilotLimitBlock() {
+  const startMarker = '    ENTERPRISE_ROUTE_CONTEXT_WINDOWS="${ENTERPRISE_ROUTE_CONTEXT_WINDOWS:-}"';
+  const start = entrypoint.indexOf(startMarker);
+  if (start === -1) throw new Error('Copilot token-limit block start not found in entrypoint.sh');
+  const endMarker = '    fi\n\n    # --- GitHub Copilot';
+  const end = entrypoint.indexOf(endMarker, start);
+  if (end === -1) throw new Error('Copilot token-limit block end not found in entrypoint.sh');
+  return entrypoint.slice(start, end + '    fi\n'.length);
+}
+
 // ---------------------------------------------------------------------------
 // AC2: CA trust → .bashrc
 // ---------------------------------------------------------------------------
@@ -263,7 +273,7 @@ describe('REQ-ENTERPRISE-005 AC3: Copilot BYOK env prepended to .bashrc (entrypo
     assert.match(bashrc, /export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="128000"/, 'MAX_OUTPUT_TOKENS not set to 128000 in .bashrc');
   });
 
-  it('REQ-ENTERPRISE-049: bounds Copilot output for a provider-default native model', () => {
+  it('REQ-ENTERPRISE-058: bounds Copilot output for a provider-default native model', () => {
     const { code, stderr, bashrc } = runCopilotByok({
       defaultRoute: 'cf-native-11111111-1111-4111-8111-111111111111', promptTokens: 183616, outputTokens: 16384,
     });
@@ -271,6 +281,21 @@ describe('REQ-ENTERPRISE-005 AC3: Copilot BYOK env prepended to .bashrc (entrypo
     assert.match(bashrc, /COPILOT_MODEL="cf-native-11111111-1111-4111-8111-111111111111"/);
     assert.match(bashrc, /COPILOT_PROVIDER_MAX_PROMPT_TOKENS="183616"/);
     assert.match(bashrc, /COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="16384"/);
+  });
+
+  it('REQ-ENTERPRISE-058: derives bounded Copilot limits for an off-only native profile', () => {
+    const route = 'cf-native-11111111-1111-4111-8111-111111111111';
+    const script = [
+      'set -euo pipefail',
+      `ENTERPRISE_DEFAULT_ROUTE='${route}'`,
+      `ENTERPRISE_ROUTE_CONTEXT_WINDOWS='{"${route}":200000}'`,
+      `ENTERPRISE_ROUTE_REASONING_LEVELS='{"${route}":["off"]}'`,
+      extractCopilotLimitBlock(),
+      'printf "%s %s" "$ENTERPRISE_COPILOT_PROMPT" "$ENTERPRISE_COPILOT_OUTPUT"',
+    ].join('\n');
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, '183616 16384');
   });
 
   it('REQ-ENTERPRISE-005 AC3: re-running with a changed default route overwrites the stale COPILOT_MODEL', () => {

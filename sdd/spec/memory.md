@@ -14,7 +14,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 ### Out of Scope
 
 - Cross-user memory sharing (each user's vault is isolated to their R2 bucket).
-- Automated graph compaction (the user prunes captured sessions manually via the editor when needed).
+- Semantic graph pruning remains out of scope. Deterministic session-file compaction may relocate graph provenance, but it never removes graph identities or evidence as a relevance judgment.
 - Legacy MCP server-memory migration (the subsystem has been removed; no historical graph is read or written).
 - Bulk memory export (vault files are plain markdown and can be copied with rclone or git).
 
@@ -236,10 +236,11 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 1. Successive vault graph merges preserve nodes from prior passes. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1/AC2: successive merges preserve prior nodes and deduplicate IDs) -->
 2. Each pass emits at most one graph node for each node ID. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC1/AC2: successive merges preserve prior nodes and deduplicate IDs) -->
-3. Edge evidence is keyed by `(source, target, relation, source_file)`, preserving distinct tuples across persisted, prior, and new graph data while collapsing identical tuples. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::merge_node_link_evidence --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC3: edge evidence is keyed by semantic tuple) -->
+3. Duplicate ordinary edge evidence collapses. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC3: edge evidence is keyed by semantic tuple) -->
 4. Structurally malformed edge entries are ignored without aborting the merge. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::node_link_edges --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::node_link_edges --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009 AC4: malformed edge entries are ignored without crashing) -->
 5. The boot seed publishes the cumulative vault graph under the `user_vault` tag, never the derived sibling graph that is empty until the first extraction. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (publishes vault-graph.json under the user_vault tag, never the empty scaffold (REQ-MEM-009)) -->
 6. A first boot with no captures yet, and therefore no cumulative vault graph on disk, publishes nothing to the global graph and reports no failure. <!-- @impl: entrypoint.sh::init_user_vault --> <!-- @test: host/__tests__/entrypoint-vault-boot.test.js (publishes nothing when no cumulative vault graph exists yet (REQ-MEM-009)) -->
+7. Evidence from separate archived captures remains distinct through later merges. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::edge_evidence_key --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009: archived edge evidence survives relocation, repetition, and later merges) -->
 
 **Constraints:**
 
@@ -591,6 +592,37 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Dependencies:** [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions)
 
 **Verification:** Automated test ([Session graph behavior and generated-seed parity](../../host/__tests__/pi-memory-graph-builder.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-023: Cold session captures compact without losing memory
+
+**Intent:** Session captures remain useful without leaving every historical batch as a separate hot file. A deterministic daily compactor keeps an approximate latest-month working set, moves older source text into one durable archive, and preserves graph evidence and retrieval order.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. For each daily UTC compaction run, capture recency is derived from the leading calendar date in each session filename; files dated before the same UTC calendar date in the prior month are cold, while newer or unrecognized names remain hot. <!-- @impl: scripts/compact-session-captures.mjs::selectColdCaptures --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-023 AC1: accepts only actual capture timestamp shapes and compares their calendar days) -->
+2. Cold captures form one deterministic date-and-name-ordered archive whose boundaries recover every original filename and byte sequence; identical input produces identical output without duplicate records. <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive --> <!-- @test: host/__tests__/session-capture-compaction.test.js (REQ-MEM-023 AC2: builds a deterministic idempotent archive with recoverable source boundaries) -->
+3. Cumulative provenance moves to the archive without changing graph identities or evidence, and separate captures remain distinct. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::relocate_node_link_provenance --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::relocate_node_link_provenance --> <!-- @test: host/__tests__/vault-extract-merge.test.js (REQ-MEM-009: archived edge evidence survives relocation, repetition, and later merges) -->
+4. The complete cumulative Vault contribution is relocated and republished before source deletion and bisync. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (archives, relocates, deletes, and bisyncs once per UTC day) -->
+5. Agent retrieval checks individual hot captures before archived history; agents never edit the machine archive or delete captures themselves. <!-- @impl: preseed/agents/claude/skills/vault-operations/SKILL.md::Reading --> <!-- @impl: preseed/agents/pi/skills/vault-operations/SKILL.md::Reading --> <!-- @manual -->
+6. Daily compaction runs in every session mode without an enable flag. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @test: host/__tests__/entrypoint-session-capture-compaction.test.js (runs in the default session mode without a feature flag) -->
+
+**Constraints:**
+
+- `Archive.md` is deterministic image-owned output, not a user-curated note or an agent-authored capture.
+- Compaction changes storage shape and provenance only. Semantic pruning, summarization, node deletion, edge deletion, and relevance-based retention remain out of scope.
+- A filename without a recognized leading calendar date is never deleted automatically.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-009](#req-mem-009-vault-graph-accumulates-monotonically-across-extractions)
+
+**Verification:** Automated compaction and graph-relocation tests plus manual instruction review
 
 **Status:** Implemented
 

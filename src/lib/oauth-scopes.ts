@@ -64,6 +64,7 @@ const CF_ADVANCED = [
   // Workers platform
   'page.write',
   'containers.write',
+  'cloudchamber.write',
   'queues.write',
   'pipelines.write',
   'r2-catalog.write',

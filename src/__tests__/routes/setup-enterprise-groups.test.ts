@@ -7,6 +7,7 @@ import { ValidationError, AuthError, SetupError, ForbiddenError } from '../../li
 import { cfApiCB } from '../../lib/circuit-breakers';
 import { resetAuthConfigCache } from '../../lib/access';
 import { createMockKV } from '../helpers/mock-kv';
+import { encryptForKV, importEncryptionKey } from '../../lib/kv-crypto';
 vi.mock('../../lib/access', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/access')>();
   return {
@@ -450,9 +451,29 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         expect(lines).toContainEqual(expect.objectContaining({ step: 'configure_ai_gateway', status: 'success' }));
       });
 
-      it('REQ-ENTERPRISE-017: a blank AI Gateway token leaves the stored token untouched (no clobber)', async () => {
+      it('REQ-ENTERPRISE-062: a blank AI Gateway URL preserves the stored URL', async () => {
         const app = createTestApp({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: ENC_KEY });
         mockFullSuccessFlow();
+        await mockKV.put('setup:aig_gateway_url', 'https://gateway.ai.cloudflare.com/v1/acct/saved');
+        mockKV.put.mockClear();
+
+        const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(enterpriseBody({ aigGatewayUrl: '', aigToken: '' })),
+        });
+
+        expect(res.status).toBe(200);
+        await readNdjson(res);
+        expect(mockKV.put).toHaveBeenCalledWith('setup:aig_gateway_url', 'https://gateway.ai.cloudflare.com/v1/acct/saved');
+      });
+
+      it('REQ-ENTERPRISE-062: a blank AI Gateway token leaves the stored token untouched (no clobber)', async () => {
+        const app = createTestApp({ ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: ENC_KEY });
+        mockFullSuccessFlow();
+        const ciphertext = await encryptForKV(JSON.stringify({ token: 'saved-token' }), await importEncryptionKey(ENC_KEY), 'setup:aig_token');
+        mockKV._store.set('setup:aig_token', ciphertext);
+        mockKV.put.mockClear();
 
         const res = await app.request('https://codeflare.test.workers.dev/api/setup/configure', {
           method: 'POST',
@@ -465,9 +486,10 @@ describe('Setup Routes / REQ-SETUP-001 (zero pre-config first-time setup) / REQ-
         // URL still written, but a blank token must not overwrite the stored one.
         expect(mockKV.put).toHaveBeenCalledWith('setup:aig_gateway_url', 'https://gateway.ai.cloudflare.com/v1/acct/gw');
         expect(mockKV.put).not.toHaveBeenCalledWith('setup:aig_token', expect.anything());
+        expect(mockKV._store.get('setup:aig_token')).toBe(ciphertext);
       });
 
-      it('REQ-ENTERPRISE-017: never writes the AI Gateway keys in non-enterprise mode (regression)', async () => {
+      it('REQ-ENTERPRISE-062: never writes the AI Gateway keys in non-enterprise mode (regression)', async () => {
         const app = createTestApp();
         mockFullSuccessFlow();
 

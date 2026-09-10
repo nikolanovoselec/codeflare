@@ -98,6 +98,12 @@ rclone bisync: all file ops on local disk (<1ms), background daemon every 15 min
 
 The generated writes in step 2 settle before the baseline so they do not create immediate post-baseline hash/mtime mismatches.
 
+### Session capture compaction (REQ-STOR-052)
+
+The entrypoint's existing bisync lifecycle always owns the daily UTC compaction sequence; no agent, feature flag, or second scheduler controls it. `scripts/compact-session-captures.mjs` writes deterministic `Vault/Raw/Sessions/Archive.md`, then removes only the exact unchanged cold captures recorded in its local manifest. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @impl: scripts/compact-session-captures.mjs::main -->
+
+The cumulative Vault graph then relocates provenance and republishes `user_vault` before exact source deletion. One final bisync publishes the archive, graph update, and source deletions together. A failed step leaves the UTC day unstamped for later synchronization and compaction attempts ([AD153](../decisions/README.md#ad153-session-capture-compaction-preserves-durable-memory)).
+
 All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verification. rclone v1.73+ treats hash mismatches as fatal ("corrupted on transfer"), which aborts bisync when files change during transfer (e.g., coding agents modifying workspace files). Change detection still uses modtime + size; files that change mid-transfer are caught in the next 15-minute cycle (or sooner via a manual Sync-now trigger).
 
 `--min-size 1B` on all rclone commands (sync, bisync baseline, bisync daemon) excludes 0-byte files from transfer. R2 SSE-C fails on empty objects - the HeadObject call returns 400 when SSE-C headers are sent for a 0-byte object, which causes rclone to abort with "encryption parameters are not applicable". Empty files (`.lock`, `__init__.py`, etc.) carry no data and are excluded entirely.
@@ -139,6 +145,7 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | `~/.graphify/**` | **NO** | Per-machine global graph store (absolute paths, machine-specific). Each container builds its own from the per-repo `graphify-out/` artefacts. |
 | `**/graphify-out/**` ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)) | **NO** | Knowledge-graph artifacts live in the repo, not in R2: owners commit `graphify-out/` to git and clones receive it. Repos without push permission keep the graph local-only and ephemeral. R2 bisync is not in the graphify persistence path. |
 | `Vault/graphify-out/vault-graph.json`, `Vault/graphify-out/vault-extract-manifest.json` (advanced mode) | Yes | Cumulative graph source and committed extraction high-water mark persist despite the blanket graphify exclude. |
+| `Vault/Raw/Sessions/Archive.md` (advanced mode) | Yes | Deterministic image-owned cold-capture archive; ordinary Vault inclusion persists it, while semantic extraction excludes all of `Raw/Sessions/`. |
 | `Vault/graphify-out/vault-extract-manifest.*.pending.json`, `.graphify_chunk_*.json` | **NO** | Pi request-specific staging/chunks are ephemeral; only hash-validated success promotes the canonical manifest. |
 | `Vault/graphify-out/graph.html` | **NO** | Derived visualization; the served durable copy is `Vault/Raw/Graphs/vault-graph.html`. |
 
@@ -311,7 +318,7 @@ return an error response (4xx) rather than any listing.
 |---|---|---|---|
 | Persistent workspace and restore | REQ-STOR-002/004/011 | entrypoint sync functions and storage mode resolver | Startup/baseline and scope tests |
 | Final persistence drain | [REQ-STOR-005](../../sdd/spec/storage.md#req-stor-005-graceful-shutdown-performs-final-sync) | `Container.destroy()` → `drainFinalSync`; entrypoint is backstop | Final-sync endpoint/result and lifecycle tests |
-| Seed/transcript policy | REQ-STOR-010/012 | seed generator and cleanup scripts | Generated inventory and cleanup behavior |
+| Seed/transcript policy | REQ-STOR-010/012/052 | seed generator, transcript cleanup, and session compactor | Generated inventory, deterministic archive, and cleanup behavior |
 | Explicit sync | [REQ-STOR-015](../../sdd/spec/storage.md#req-stor-015-explicit-sync-trigger-from-ui) | storage route, host endpoint, sync daemon | Trigger/result contract tests |
 | File browser | REQ-STOR-016/018 | storage routes and UI browser state | Traversal, pagination, and recovery tests |
 | Encryption regime | Enterprise/Vault SDD | governed migration engine and R2 configuration | Mode/status evidence; private rollout values stay private |

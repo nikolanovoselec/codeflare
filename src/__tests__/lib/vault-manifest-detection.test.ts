@@ -83,9 +83,10 @@ describe('vault-manifest content-hash detection', () => {
     expect(changed).toEqual(['Notes/new.md']);
   });
 
-  it('never reports excluded subtrees (agent-owned / derived / manifest itself)', () => {
+  it('REQ-VAULT-032 AC3: excludes individual captures and Archive.md from semantic extraction', () => {
     commitVaultManifestTo(vault, manifest);
     write('Raw/Sessions/2026-07-05-foo.md', 'agent-owned capture');
+    write('Raw/Sessions/Archive.md', 'machine-owned archive');
     write('graphify-out/graph.json', '{"nodes":[]}');
     write('Library/Codeflare/treeview.plug.js', 'bundle');
     // The manifest lives under graphify-out/, so writing it must not self-trigger.
@@ -116,6 +117,7 @@ describe('vault-manifest content-hash detection', () => {
     const piManifest = join(vault, 'graphify-out', 'pi-manifest.json');
     write('Index.md', 'excluded root page');
     write('Raw/Sessions/generated.md', 'excluded generated note');
+    write('Raw/Sessions/Archive.md', 'excluded machine archive');
     execFileSync('python3', [
       resolve('preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py'),
       'commit',
@@ -128,6 +130,7 @@ describe('vault-manifest content-hash detection', () => {
     expect(piContent).toEqual(JSON.parse(readFileSync(claudeManifest, 'utf8')));
     expect(Object.keys(piContent.files)).not.toContain('Index.md');
     expect(Object.keys(piContent.files)).not.toContain('Raw/Sessions/generated.md');
+    expect(Object.keys(piContent.files)).not.toContain('Raw/Sessions/Archive.md');
   });
 
   it('REQ-VAULT-026/027: returns the SHA of the exact atomically written manifest bytes', () => {

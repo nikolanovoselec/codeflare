@@ -839,7 +839,7 @@ describe('native provider authorization and compat dispatch', () => {
     expect(lastFetch?.headers.get('cf-aig-byok-alias')).toBe('default');
   });
 
-  it('REQ-ENTERPRISE-048/-050: round-trips Gemini thought signatures through Pi replay metadata', async () => {
+  it('REQ-ENTERPRISE-059: round-trips Gemini thought signatures through Pi replay metadata', async () => {
     const fixture = nativeFixture(true, { provider: 'google-ai-studio', model: 'gemini-3.1-pro-preview', profileId: 'native-google-ai-studio-compat', providerConfigId: 'gemini-default', providerConfigAlias: 'default', adapterVersion: 'gemini-openai-compat-v1' });
     let sent: Record<string, any> | undefined;
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {

@@ -9,6 +9,7 @@ You are the bounded Vault extraction worker. Read only the immutable request inp
 - Normal work uses two Bash calls: one evidence read, then one write/commit call. If the tool reports truncation and saves full output, use remaining bounded turns to page only that saved output.
 - Do not read skills, project documentation, the active pointer, the committed/staged manifests, or any file outside `PROMPT_FILE`, `VARS_FILE`, and the frozen `changedFiles` list.
 - Never walk the Vault, run `find`/`grep` discovery passes, reread a live input, or inventory every inline code span. The request already defines the complete scope.
+- `Raw/Sessions/` is never semantic extraction input. Reject a snapshot that names an individual capture or its image-owned `Archive.md`; those facts entered the graph at capture time.
 - Do not use context-mode or Graphify query tools. Required graph publication uses the exact shell command below.
 
 ## Request variables
@@ -80,6 +81,8 @@ flock -w 300 /run/codeflare/locks/graphify-global.lock bash -c '
     --as user_vault
 ' _ "$WORK_CHUNK"
 ```
+
+The cumulative graph may contain compactor-relocated `source_file` provenance pointing to `Raw/Sessions/Archive.md`. Preserve those node IDs, edges, and attributes; never reconstruct them by reading the archive.
 
 A lock timeout, merge error, or publication error fails the task. Only after that command succeeds, atomically rename `WORK_CHUNK` to `CHUNK`. Do not delete `CHUNK`: its post-commit presence qualifies native completion, and the root removes it after manifest promotion.
 

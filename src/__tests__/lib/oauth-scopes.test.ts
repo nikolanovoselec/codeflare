@@ -56,7 +56,9 @@ describe('REQ-AGENT-079: cloudflareScopeForTier advanced-tier scope catalog', ()
     expect(advanced.split(' ').length).toBeGreaterThan(recommended.split(' ').length);
     // Advanced unlocks AI; minimal does not.
     expect(advanced).toContain('ai.write');
+    expect(advanced).toContain('cloudchamber.write');
     expect(minimal).not.toContain('ai.write');
+    expect(minimal).not.toContain('cloudchamber.write');
     expect(cloudflareScopeForTier(undefined)).toBe(recommended);
   });
 });
@@ -99,6 +101,7 @@ describe('REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token templ
     // workers platform
     'page.write',
     'containers.write',
+    'cloudchamber.write',
     'queues.write',
     'pipelines.write',
     'r2-catalog.write',

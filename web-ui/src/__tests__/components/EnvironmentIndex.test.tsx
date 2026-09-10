@@ -344,7 +344,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     const savedValues = saved();
     expect(savedValues).toEqual({
       gatewayUrl: aiRouting().gatewayUrl, replacementToken: '', dynamicRoutes: ['development'], routeContextWindows: { development: 262144 },
-      defaultRoute: aiRouting().defaultRoute, groupRouting: [group], fallbackRouting: { enabled: false }, routeChecks: { development: 'selected-revision-check' },
+      nativeTargets: [], defaultRoute: aiRouting().defaultRoute, groupRouting: [group], fallbackRouting: { enabled: false }, routeChecks: { development: 'selected-revision-check' },
       reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], fallbackRouting: { enabled: false }, routeAssignments: { development: { activeProfile: nextRef, routeVersion: 'development-v1', verification: proof('development', nextRef) } } },
     });
     api.configuration.mockResolvedValueOnce(configuration(persisted(savedValues), 8));
