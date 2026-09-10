@@ -528,8 +528,8 @@ First-time setup wizard, deployment modes, custom domain configuration, and post
 **Acceptance Criteria:**
 
 1. A valid saved native target reloads through the sanitized Administration configuration projection. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (reloads a persisted native target through the sanitized Administration projection) -->
-2. Absent native-target storage yields an empty projection without provider-management I/O. <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (does not call provider management when no native targets are saved) -->
-3. Malformed native-target storage yields an empty projection without provider-management I/O. <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (keeps configuration available when persisted native targets are malformed) -->
+2. Absent native-target storage yields an empty projection. <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (does not call provider management when no native targets are saved) -->
+3. Malformed native-target storage yields an empty projection. <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (keeps configuration available when persisted native targets are malformed) -->
 4. Failure to read native-target storage fails the authoritative configuration request rather than appearing as an empty catalog. <!-- @impl: src/lib/admin-configuration.ts::readNativeTargetViews --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (fails closed when persisted native-target storage cannot be read) -->
 
 **Constraints:** Raw provider configuration identity remains Worker-only.

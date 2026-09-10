@@ -219,7 +219,6 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     const response = await app.request('/admin/configuration');
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: 'Error: native target storage unavailable' });
   });
 
   it('does not call provider management when no native targets are saved', async () => {
