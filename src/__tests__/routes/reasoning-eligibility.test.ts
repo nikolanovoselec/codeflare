@@ -317,6 +317,16 @@ describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
       expect.objectContaining({ method: 'GET' }),
     );
   });
+  it('REQ-ENTERPRISE-057/063: accepts the legacy gateway URL for Dynamic Route inspection', async () => {
+    const f = setup();
+    const response = await f.post('catalog', { gateway: { gatewayUrl, replacementToken: 'draft-token' } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ routeCatalogStatus: 'ready', routes: ['working', 'other'] });
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai-gateway/gateways/gateway/routes',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
   it('reuses the saved encrypted token for draft inspection without changing storage', async () => {
     const f = setup();
     f.env.ENCRYPTION_KEY = Buffer.alloc(32, 1).toString('base64');
@@ -388,6 +398,16 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
   it('REQ-ENTERPRISE-057/063: discovers and verifies a Dynamic Route profile through the account API URL', async () => {
     const f = setup();
     const response = await f.check({ gateway: { gatewayUrl: `${accountApiUrl}ai/v1/chat/completions`, gatewayId: 'gateway', replacementToken: 'draft-token' } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ classification: 'Verified', verification: { profileRef } });
+    const providerRequests = vi.mocked(fetch).mock.calls.filter(([input, init]) => (input instanceof Request ? input.method : init?.method) === 'POST');
+    expect(providerRequests).toHaveLength(3);
+    expect(providerRequests.every(([input]) => String(input instanceof Request ? input.url : input) === `${accountApiUrl}ai/v1/chat/completions`)).toBe(true);
+    expect(providerRequests.every(([input, init]) => new Headers(input instanceof Request ? input.headers : init?.headers).get('cf-aig-gateway-id') === 'gateway')).toBe(true);
+  });
+  it('REQ-ENTERPRISE-057/063: discovers and verifies a Dynamic Route profile through the legacy URL', async () => {
+    const f = setup();
+    const response = await f.check({ gateway: { gatewayUrl, replacementToken: 'draft-token' } });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ classification: 'Verified', verification: { profileRef } });
     const providerRequests = vi.mocked(fetch).mock.calls.filter(([input, init]) => (input instanceof Request ? input.method : init?.method) === 'POST');
