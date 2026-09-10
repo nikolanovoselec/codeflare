@@ -258,9 +258,23 @@ function normalizeStandaloneMapping(raw: unknown): SemanticMapping {
   return semantic;
 }
 
+function isBoundedModelSelector(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  if (/^dynamic\/[A-Za-z0-9._/-]{1,180}$/.test(value)) return true;
+  const separator = value.indexOf('/');
+  if (separator < 1) return false;
+  const provider = value.slice(0, separator);
+  const model = value.slice(separator + 1);
+  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(provider)
+    || !/^[A-Za-z0-9@][A-Za-z0-9@._:/-]{0,255}$/.test(model)
+    || model.includes('..') || model.includes('://')
+    || ['__proto__', 'prototype', 'constructor'].includes(model.toLowerCase())) return false;
+  return provider !== 'aws-bedrock' || !model.includes('/');
+}
+
 function validateInput(input: DiscoveryInput): { profile: DiscoveryProfile; offCandidate?: SemanticMapping } {
   if (!isPlainObject(input)) throw new TypeError('Discovery input is required');
-  if (!/^(?:dynamic\/[A-Za-z0-9._/-]{1,180}|aws-bedrock\/[A-Za-z0-9][A-Za-z0-9._:-]{0,255})$/.test(input.route)) throw new TypeError('Route must be a bounded model selector');
+  if (!isBoundedModelSelector(input.route)) throw new TypeError('Route must be a bounded model selector');
   if (!Number.isInteger(input.maxCompletionTokens)
     || input.maxCompletionTokens < 32
     || input.maxCompletionTokens > MAX_COMPLETION_CEILING) {
