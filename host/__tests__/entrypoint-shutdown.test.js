@@ -10,9 +10,9 @@
 // bisync ran, how its exit code was classified, and that the EXIT-trap
 // re-entry is a no-op — so gutting the handler fails these tests.
 //
-// Declarative wiring that cannot be executed (STOPSIGNAL in the Dockerfile,
-// the trap registration line, bisync_with_r2's rclone flags) keeps small
-// structural assertions.
+// Declarative wiring that cannot be executed (STOPSIGNAL in the Dockerfile
+// and the trap registration line) keeps small structural assertions. Rclone
+// flags run through the real sync functions with an argv-recording stub.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
