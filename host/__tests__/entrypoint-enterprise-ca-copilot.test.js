@@ -273,7 +273,7 @@ describe('REQ-ENTERPRISE-005 AC3: Copilot BYOK env prepended to .bashrc (entrypo
     assert.match(bashrc, /export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="128000"/, 'MAX_OUTPUT_TOKENS not set to 128000 in .bashrc');
   });
 
-  it('REQ-ENTERPRISE-049: bounds Copilot output for a provider-default native model', () => {
+  it('REQ-ENTERPRISE-058: bounds Copilot output for a provider-default native model', () => {
     const { code, stderr, bashrc } = runCopilotByok({
       defaultRoute: 'cf-native-11111111-1111-4111-8111-111111111111', promptTokens: 183616, outputTokens: 16384,
     });
@@ -283,7 +283,7 @@ describe('REQ-ENTERPRISE-005 AC3: Copilot BYOK env prepended to .bashrc (entrypo
     assert.match(bashrc, /COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="16384"/);
   });
 
-  it('REQ-ENTERPRISE-049: derives bounded Copilot limits for an off-only native profile', () => {
+  it('REQ-ENTERPRISE-058: derives bounded Copilot limits for an off-only native profile', () => {
     const route = 'cf-native-11111111-1111-4111-8111-111111111111';
     const script = [
       'set -euo pipefail',

@@ -184,7 +184,7 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     });
   });
 
-  it('REQ-ENTERPRISE-049: emits honest Pi metadata for a provider-default native model', () => {
+  it('REQ-ENTERPRISE-058: emits honest Pi metadata for a provider-default native model', () => {
     const handle = 'cf-native-11111111-1111-4111-8111-111111111111';
     const { code, stderr, modelsJson } = runBlock(
       JSON.stringify([handle]), handle, JSON.stringify({ [handle]: 200000 }), JSON.stringify({ [handle]: [] }), '', JSON.stringify({ [handle]: 'Claude Sonnet' }),
@@ -264,7 +264,7 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     assert.deepEqual(authJson, {}, 'auth.json must be emptied so no built-in provider stays authed');
   });
 
-  it('REQ-ENTERPRISE-049: authoritative empty enterprise catalog removes managed Pi configuration', () => {
+  it('REQ-ENTERPRISE-058: authoritative empty enterprise catalog removes managed Pi configuration', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ent-pi-empty-'));
     const agentDir = join(dir, '.pi/agent');
     const script = [

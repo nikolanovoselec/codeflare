@@ -72,7 +72,7 @@ describe('native AI targets', () => {
     expect(nativeTargetHandle(target.id)).toBe('cf-native-11111111-1111-4111-8111-111111111111');
   });
 
-  it('REQ-ENTERPRISE-053: enforces the Bedrock model boundary without restricting custom-provider model syntax', () => {
+  it('REQ-ENTERPRISE-060: enforces the Bedrock model boundary without restricting custom-provider model syntax', () => {
     for (const model of ['../escape', 'family/model', 'https://example.com/model', 'arn:aws:bedrock:eu-central-1:123456789012:inference-profile/example', 'model%2Fchild', 'model?query', 'model#fragment', 'model*']) {
       expect(() => createNativeTarget({ label: 'Bad', model, contextWindow: 200000, providerConfigId: 'raw-provider', profileRef })).toThrow();
     }
@@ -81,7 +81,7 @@ describe('native AI targets', () => {
     expect(() => createNativeTarget({ label: 'Small', model: 'valid.model', contextWindow: 16384, providerConfigId: 'raw-provider', profileRef })).toThrow();
   });
 
-  it('REQ-ENTERPRISE-053: browser projection excludes exact provider authority and aliases', () => {
+  it('REQ-ENTERPRISE-061: browser projection excludes exact provider authority and aliases', () => {
     const target = createNativeTarget({ id: '11111111-1111-4111-8111-111111111111', label: 'Claude', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, providerConfigId: 'raw-provider', providerConfigAlias: 'private-alias', profileRef });
     const projected = sanitizeNativeTarget(target);
     expect(projected).toMatchObject({ handle: nativeTargetHandle(target.id), label: 'Claude', provider: 'aws-bedrock', model: target.model, profileRef });

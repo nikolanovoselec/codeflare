@@ -307,7 +307,7 @@ describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
     expect((await f.post('routes/working/inventory', { backendDescriptions: { model: 'bad\nvalue' } })).status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
   });
-  it('accepts the account API base URL and configured gateway name for Dynamic Route inspection', async () => {
+  it('REQ-ENTERPRISE-057: accepts the account API base URL and configured gateway name for Dynamic Route inspection', async () => {
     const f = setup();
     const response = await f.post('catalog', { gateway: { gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'draft-token' } });
     expect(response.status).toBe(200);
@@ -385,7 +385,7 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
     expect(result.fieldErrors).toBeDefined();
     expect(providerCalls).toBe(0);
   });
-  it('discovers and verifies a Dynamic Route profile through the account API URL', async () => {
+  it('REQ-ENTERPRISE-057: discovers and verifies a Dynamic Route profile through the account API URL', async () => {
     const f = setup();
     const response = await f.check({ gateway: { gatewayUrl: `${accountApiUrl}ai/v1/chat/completions`, gatewayId: 'gateway', replacementToken: 'draft-token' } });
     expect(response.status).toBe(200);
@@ -531,7 +531,7 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
     const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ routeChecks: { working: checked.checkId } }));
     expect(JSON.stringify(result.fieldErrors)).toMatch(/retry.*without.*check/i); expect(providerCalls).toBe(calls);
   });
-  it('rebinds saved route authority after a replacement connection passes management topology validation', async () => {
+  it('REQ-ENTERPRISE-057: rebinds saved route authority after a replacement connection passes management topology validation', async () => {
     const f = setup(); await activate(f);
     f.env.ENCRYPTION_KEY = Buffer.alloc(32, 1).toString('base64');
     const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({

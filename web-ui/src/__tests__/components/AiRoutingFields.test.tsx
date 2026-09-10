@@ -884,7 +884,7 @@ describe('Structured AI routing', () => {
     expect(view.getByLabelText('support default reasoning')).toBeDisabled();
   });
 
-  it('REQ-ENTERPRISE-042: a successfully checked credential change preserves saved route authority for Review changes', async () => {
+  it('REQ-ENTERPRISE-057: a successfully checked credential change preserves saved route authority for Review changes', async () => {
     const view = mount(checkedCurrent());
     await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
     await section(view, 'Connection');
