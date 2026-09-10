@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-10
+
+- **Transient Durable Object state cannot falsely stop a live terminal** ([REQ-SESSION-012](session-lifecycle.md#req-session-012-wake-loop-prevention) AC1 and AC4 amended; remains Implemented). The no-wake inner forwarding gate now sends retryable 1013 when its volatile running flag is false; authoritative 4503 remains reserved for stopped persisted Container SDK state.
+
 ## 2026-09-09
 
 - **Classic Pi preserves the last explicitly resumed transcript** ([REQ-AGENT-211](agents.md#req-agent-211-classic-agent-transcript-resume) AC6 added; remains Implemented). Every successful root `/resume` switch atomically replaces the current Codeflare session binding, including repeated switches. Startup, Herdr, child sessions, malformed transcripts, and inferred latest-session selection cannot replace it.
