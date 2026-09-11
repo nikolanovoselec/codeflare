@@ -737,6 +737,28 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
+### REQ-ENTERPRISE-069: Dynamic Route Profile Persistence Before Access
+
+**Intent:** Administrators can save verified Dynamic Route configuration before granting runtime access.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. A verified Dynamic Route profile assignment can reach Review without a group assignment or fallback route. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-069: enables Review for a verified Dynamic Route profile without an access policy) -->
+
+**Constraints:** Saving an inactive route assignment does not grant runtime access.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-043](#req-enterprise-043-enterprise-pi-verified-route-activation), [REQ-ENTERPRISE-044](#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies)
+
+**Verification:** Anchored behavioral fixture; execution is CI-only.
+
+**Status:** Implemented
+
+---
+
 ### REQ-ENTERPRISE-045: Pi Compatibility Profile Communication
 
 **Intent:** Administrators understand profiles as Pi-to-AI-Gateway translation for tool calling and reasoning, including their tested provider basis.
@@ -749,6 +771,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 2. Built-in profile presentation identifies the tested provider and model family without changing the active profile reference. <!-- @impl: web-ui/src/components/admin/pi-profile-presentation.ts::profileDisplayName --> <!-- @impl: web-ui/src/components/admin/pi-profile-presentation.ts::profileValidationBasis --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-045: explains the tested provider basis without changing the active profile) -->
 3. Custom profile names remain user-owned and do not acquire an invented tested provider. <!-- @impl: web-ui/src/components/admin/pi-profile-presentation.ts::profileDisplayName --> <!-- @test: web-ui/src/__tests__/components/pi-profile-presentation.test.ts (preserves a custom name without inventing a tested provider) -->
 4. Successful mapping with no existing fit offers named custom Create & Assign at the end of the mapping workflow. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (Discover Profile starts exactly once and creates a canonical route draft without submitting Save) -->
+5. A provider-controlled profile presents its policy reasoning as Provider default rather than Off. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyCard --> <!-- @manual: Assign a provider-controlled Native Route in Enterprise Integration and confirm its disabled reasoning control reads Provider default. -->
 
 **Constraints:**
 

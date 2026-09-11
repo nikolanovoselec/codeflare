@@ -394,6 +394,22 @@ describe('Structured AI routing', () => {
     expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
   });
 
+  it('REQ-ENTERPRISE-069: enables Review for a verified Dynamic Route profile without an access policy', async () => {
+    api.inventory.mockImplementation(async (route: string) => singleInventory(route));
+    api.discover.mockResolvedValueOnce(verifiedReport('general_usage', glmRef));
+    const view = mount({
+      ...current,
+      dynamicRoutes: [], groupRouting: [], fallbackRouting: { enabled: false },
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} },
+    });
+    await ready(view, 'general_usage');
+    await fireEvent.change(view.getByLabelText('general_usage Pi compatibility profile'), { target: { value: profileKey(glmRef) } });
+    await fireEvent.click(view.getByRole('button', { name: 'Mark general_usage as verified' }));
+    await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
+    expect(formValues(view.container)).toMatchObject({ dynamicRoutes: [], groupRouting: [], fallbackRouting: { enabled: false } });
+    expect(draftConfiguration(view.container).routeAssignments.general_usage.activeProfile).toEqual(glmRef);
+  });
+
   it('REQ-ENTERPRISE-054: verification automatically enables the native target draft', async () => {
     api.native.mockRejectedValueOnce(new ApiError('Rate limit exceeded. Try again in 44 seconds.', 429, 'Too Many Requests'));
     const view = mount(checkedCurrent());

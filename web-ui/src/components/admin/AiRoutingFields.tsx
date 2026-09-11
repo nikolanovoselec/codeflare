@@ -93,8 +93,9 @@ const PolicyFields: Component<PolicyFieldsProps> = (props) => {
       <For each={props.policy.routes}>{(route) => <option value={route} selected={route === props.policy.defaultRoute}>{optionLabel(route)}</option>}</For>
     </select><small>The route Pi starts with for this policy.</small></label>
     <label class="admin-form-field"><span>Default reasoning</span><select aria-label={`${props.label} default reasoning`} aria-describedby={`${encodeURIComponent(props.label)}-reasoning-help`} value={props.policy.reasoning} disabled={props.levels.length <= 1} onChange={(event) => props.onReasoning(event.currentTarget.value as PiReasoningLevel)}>
+      <Show when={props.policy.defaultRoute && props.levels.length === 0}><option value="off">Provider default</option></Show>
       <For each={props.levels}>{(level) => <option value={level} selected={level === props.policy.reasoning}>{levelLabel(level)}</option>}</For>
-    </select><small id={`${encodeURIComponent(props.label)}-reasoning-help`}>{!props.policy.defaultRoute ? 'Choose an available route first.' : props.levels.length === 1 ? `This profile supports only ${levelLabel(props.levels[0])}.` : `Only options supported by this route's Pi compatibility profile are available.${props.levels.includes('off') ? '' : ' Off is not supported.'}`}</small></label>
+    </select><small id={`${encodeURIComponent(props.label)}-reasoning-help`}>{!props.policy.defaultRoute ? 'Choose an available route first.' : props.levels.length === 0 ? 'The provider controls reasoning for this route.' : props.levels.length === 1 ? `This profile supports only ${levelLabel(props.levels[0])}.` : `Only options supported by this route's Pi compatibility profile are available.${props.levels.includes('off') ? '' : ' Off is not supported.'}`}</small></label>
   </div>
 </div>;
 };
@@ -259,7 +260,8 @@ const AiRoutingFields: Component<Props> = (props) => {
     && Boolean(findProfile(target.profileRef)));
   const canSave = () => connectionReady() && !policyInventoryPending() && !checksBusy()
     && (!fallbackEnabled() || normalizedFallback().routes.length > 0)
-    && (activeGroups().length > 0 || normalizedFallback().routes.length > 0 || gatewayDraft() !== undefined || nativeConfigurationReady());
+    && (activeGroups().length > 0 || normalizedFallback().routes.length > 0 || gatewayDraft() !== undefined || nativeConfigurationReady()
+      || (draftKey() !== initialDraftKey && (!nativeDirty() || nativeConfigurationReady())));
   const saveHelp = () => !connectionReady() ? 'Check the AI Gateway connection before saving.' : policyInventoryPending() ? 'Wait for selected route models to finish loading.' : checksBusy() ? 'Wait for the current profile check to finish.' : fallbackEnabled() && !normalizedFallback().routes.length ? 'Choose an available route for fallback access, or turn fallback off.' : '';
   createEffect(() => props.onReadyChange?.(canSave()));
 
