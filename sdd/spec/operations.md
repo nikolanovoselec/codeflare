@@ -1593,17 +1593,39 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Without optional operator authorization, deployments keep SSH disabled and install no authorized identity. <!-- @impl: scripts/ci/configure-container-ssh.mjs::configureContainerSsh --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-ssh-config.test.js (keeps SSH disabled when the repository secret is absent) -->
 3. Valid shared public authorization enables exactly one fixed operator identity in each selected deployment. <!-- @impl: scripts/ci/configure-container-ssh.mjs::normalizeEd25519PublicKey --> <!-- @impl: scripts/ci/configure-container-ssh.mjs::configureContainerSsh --> <!-- @test: host/__tests__/container-ssh-config.test.js (enables SSH with exactly the validated repository public key) -->
 4. Invalid authorization material leaves deployment configuration unchanged and is not disclosed. <!-- @impl: scripts/ci/configure-container-ssh.mjs::normalizeEd25519PublicKey --> <!-- @test: host/__tests__/container-ssh-config.test.js (rejects malformed or non-Ed25519 keys without changing the config) -->
-5. Authorization configuration receives only public material and completes before Worker promotion. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-ssh-config.test.js (wires only the public key before Worker promotion) -->
-6. Changing the authorized identity requires a reviewed deployment. <!-- @manual -->
-7. Later connections to a running authorized instance require no configuration deployment. <!-- @manual -->
+5. Authorization configuration receives only public material. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-ssh-config.test.js (wires only the public key before Worker promotion) -->
+6. Authorization configuration completes before Worker promotion. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-ssh-config.test.js (wires only the public key before Worker promotion) -->
 
-**Constraints:** The private credential remains under operator-controlled client custody. Cloudflare account write authorization and possession of the matching private key are independent connection requirements. SSH exposes no public container port.
+**Constraints:** The private credential remains under operator-controlled client custody; Cloudflare account write authorization and possession of the matching private key are independent connection requirements; SSH exposes no public container port.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image)
 
-**Verification:** Automated configuration mutation and pinned-Wrangler parse tests; manual connection and revocation evidence
+**Verification:** Automated configuration mutation and pinned-Wrangler parse tests
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-061: Persistent container SSH identity lifecycle
+
+**Intent:** A provisioned operator identity remains available for incident inspection while authorization changes stay deployment-controlled.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Adding, rotating, or removing the authorized identity requires a reviewed deployment. <!-- @manual -->
+2. Later connections to a running authorized instance require no configuration deployment. <!-- @manual -->
+
+**Constraints:** Private-key custody and Cloudflare account authorization remain independent of deployment.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-060](#req-ops-060-optional-persistent-container-ssh-authorization)
+
+**Verification:** Manual connection, rotation, and revocation evidence
 
 **Status:** Implemented
 
