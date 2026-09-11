@@ -191,7 +191,7 @@ export async function previewConfiguration(section: ConfigurationSection, baseRe
     }, ConfigurationPreviewSchema);
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
-    let body: Record<string, unknown> = {};
+    let body: Record<string, unknown> = { error: error.message };
     try {
       const parsed = typeof error.body === 'string' ? JSON.parse(error.body) : error.body;
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) body = parsed as Record<string, unknown>;

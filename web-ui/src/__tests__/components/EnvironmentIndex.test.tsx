@@ -138,7 +138,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
-  it('shows the authoritative AI routing validation reason when Review is rejected', async () => {
+  it('REQ-ENTERPRISE-081: shows the authoritative AI routing validation reason when Review is rejected', async () => {
     api.preview.mockRejectedValueOnce(new ConfigurationRequestError(400, {
       error: 'Environment values are invalid',
       fields: { reasoningConfiguration: ['Route development requires a successful check for its exact profile, gateway, and inventory'] },
@@ -147,7 +147,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     await section('Connection');
     await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: 'replacement-token' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Route development requires a successful check for its exact profile, gateway, and inventory');
+    expect(await screen.findByText('Route development requires a successful check for its exact profile, gateway, and inventory', { exact: true })).toBeVisible();
   });
 
   it.each(['developers', 'Fallback'])('REQ-ENTERPRISE-044: reverting %s route membership disables review', async (policy) => {

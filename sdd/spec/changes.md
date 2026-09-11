@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-11
 
+- **Rejected AI routing Review shows its authoritative validation reason** ([REQ-ENTERPRISE-081](enterprise-mode.md#req-enterprise-081-authoritative-review-validation-feedback) added; Implemented). Structured field-level preview errors are preserved and displayed once, while non-JSON failures retain their actionable server message instead of collapsing to a generic error.
+
 - **Pi transcript conflict cleanup now converges with R2** ([REQ-STOR-051](storage.md#req-stor-051-pi-transcript-conflict-cleanup) AC2-AC3 added; remains Implemented). Regular bisync purges stale conflict objects from the remote Pi session prefix, and the shared sync filter prevents failed purges from restoring or nesting disposable conflict copies.
 
 - **Transient bisync failures retry after two minutes** ([REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) AC4 amended; remains Implemented). Healthy periodic sync keeps its 15-minute cadence, while a failed cycle requests its next retry after two minutes; manual triggers remain immediate.

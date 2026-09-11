@@ -1406,7 +1406,7 @@ describe('API Client', () => {
       expect(mockFetch).toHaveBeenNthCalledWith(3, '/api/admin/usage-report-tests', expect.objectContaining({ method: 'POST' }));
     });
 
-    it('preserves authoritative preview validation fields in a typed request error', async () => {
+    it('REQ-ENTERPRISE-081: preserves authoritative preview validation fields in a typed request error', async () => {
       const body = {
         error: 'Environment values are invalid',
         fields: { reasoningConfiguration: ['Route development requires an exact verification'] },
@@ -1419,6 +1419,20 @@ describe('API Client', () => {
       });
 
       await expect(previewConfiguration('aiRouting', 7, {})).rejects.toMatchObject({ status: 400, body });
+    });
+
+    it('REQ-ENTERPRISE-081: preserves a plain-text preview failure message', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        statusText: 'Bad Gateway',
+        text: () => Promise.resolve('Gateway validation is temporarily unavailable'),
+      });
+
+      await expect(previewConfiguration('aiRouting', 7, {})).rejects.toMatchObject({
+        status: 502,
+        message: 'Gateway validation is temporarily unavailable',
+      });
     });
 
     it('submits explicit warning confirmations with the reviewed revision', async () => {
