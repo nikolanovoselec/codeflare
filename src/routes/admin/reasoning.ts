@@ -170,7 +170,9 @@ function allProfiles(configuration: ReasoningConfigurationView): Record<string, 
 
 function supportsCompatibilityDiscovery(profile: Record<string, unknown>): boolean {
   const transports = Array.isArray(profile.validatedTransports) ? profile.validatedTransports : [];
-  return Array.isArray(profile.supportedLevels) && profile.supportedLevels.length > 0
+  const hasDiscoverableContract = Array.isArray(profile.supportedLevels) && (profile.supportedLevels.length > 0
+    || profile.id === 'dynamic-bedrock-anthropic-provider-default');
+  return hasDiscoverableContract
     && !transports.some((transport) => transport === 'bedrock-invoke' || transport === 'bedrock-eventstream');
 }
 
@@ -208,6 +210,9 @@ interface DiscoveryCandidateReport {
 }
 
 function coversProfile(observed: Record<string, unknown>, requested: Record<string, unknown>): boolean {
+  if (requested.id === 'dynamic-bedrock-anthropic-provider-default') {
+    return observed.id === requested.id && observed.hash === requested.hash;
+  }
   const observedLevels = Array.isArray(observed.supportedLevels) ? observed.supportedLevels.filter(isPiReasoningLevel) : [];
   const requestedLevels = Array.isArray(requested.supportedLevels) ? requested.supportedLevels.filter(isPiReasoningLevel) : [];
   if (requestedLevels.length === 0 || !requestedLevels.every((level) => observedLevels.includes(level))) return false;
@@ -235,6 +240,7 @@ function distinctCandidateReports(reports: DiscoveryCandidateReport[]): Discover
 }
 
 function observedCandidate({ profile, report }: DiscoveryCandidateReport): DiscoveryCandidateReport | null {
+  if (profile.id === 'dynamic-bedrock-anthropic-provider-default') return report.assignable ? { profile, report } : null;
   const supportedLevels = Array.isArray(report.compatibleLevels) ? report.compatibleLevels.filter(isPiReasoningLevel) : [];
   if (supportedLevels.length === 0 || !isPlainObject(profile.levels)) return null;
   const mappings = profile.levels;

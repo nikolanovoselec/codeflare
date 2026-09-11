@@ -226,13 +226,30 @@ describe('REQ-ENTERPRISE-035 actionable route discovery', () => {
     expect(JSON.stringify(body)).not.toContain('private-invalid-json');
   });
 
+  it('REQ-ENTERPRISE-070: discovers the provider-default Bedrock Dynamic Route profile from tool replay without inventing reasoning levels', async () => {
+    const { app } = appWithProfiles();
+    provider((body) => lifecycle(body, false));
+    const body = await discover(app);
+    expect(body).toMatchObject({ outcome: 'existing-profile', assignable: true });
+    expect(body.matchedProfiles).toContainEqual({
+      profileRef: expect.objectContaining({ id: 'dynamic-bedrock-anthropic-provider-default' }),
+      name: 'AWS Bedrock Dynamic Route Anthropic Claude',
+      supportedLevels: [],
+    });
+    expect(body.candidateResults).toContainEqual(expect.objectContaining({
+      profileId: 'dynamic-bedrock-anthropic-provider-default', assignable: true, verifiedLevels: [], diagnostics: [],
+    }));
+    expect(body.matchedProfiles.map((profile: { profileRef: { id: string } }) => profile.profileRef.id)).not.toContain('bedrock-anthropic-native-sonnet');
+  });
+
   it('offers every compatible Dynamic Route profile and enabled custom revision without choosing a runtime mapping', async () => {
     const saved = partialProfile();
     const { app, kv } = appWithProfiles([saved]);
     provider((body) => lifecycle(body, false));
     const body = await discover(app);
     expect(body).toMatchObject({ outcome: 'existing-profile', assignable: true });
-    const compatibilityProfiles = BUILT_IN_REASONING_PROFILES.filter((profile) => profile.reasoningMode !== 'provider-default'
+    const compatibilityProfiles = BUILT_IN_REASONING_PROFILES.filter((profile) => (profile.reasoningMode !== 'provider-default'
+      || profile.id === 'dynamic-bedrock-anthropic-provider-default')
       && !profile.validatedTransports.some((transport) => transport === 'bedrock-invoke' || transport === 'bedrock-eventstream'));
     expect(body.matchedProfiles).toEqual([...compatibilityProfiles, saved].map((profile) => ({
       profileRef: { id: profile.id, revision: profile.revision, hash: profile.hash },
