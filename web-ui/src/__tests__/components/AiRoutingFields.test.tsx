@@ -182,9 +182,15 @@ describe('Structured AI routing', () => {
     expect(within(article).queryByRole('button', { name: 'Verify Profile' })).toBeNull();
     await fireEvent.click(within(article).getByRole('button', { name: 'Mark as verified' }));
     await waitFor(() => expect(api.native).toHaveBeenCalledWith(expect.objectContaining({ administratorConfirmed: true })));
-    expect(within(article).getByLabelText('Native target 1 profile')).toHaveValue(profileKey({ id: 'bedrock-anthropic-native-opus-stream', revision: 1, hash: hash('8') }));
+    const profile = within(article).getByLabelText('Native target 1 profile') as HTMLSelectElement;
+    expect(profile).toHaveValue(profileKey({ id: 'bedrock-anthropic-native-opus-stream', revision: 1, hash: hash('8') }));
+    expect(Array.from(profile.options, (option) => option.text)).toEqual(['Native Route - AWS Bedrock - Claude Opus']);
     const target = formValues(view.container).nativeTargets[0];
     expect(target).toMatchObject({ transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', profileRef: { id: 'bedrock-anthropic-native-opus-stream' } });
+    await fireEvent.change(within(article).getByLabelText('Native target 1 transport'), { target: { value: 'aig-bedrock-anthropic-invoke' } });
+    expect(profile).toHaveValue(profileKey({ id: 'bedrock-anthropic-native-opus-invoke', revision: 1, hash: hash('9') }));
+    expect(Array.from(profile.options, (option) => option.text)).toEqual(['Native Route - AWS Bedrock - Claude Opus']);
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', profileRef: { id: 'bedrock-anthropic-native-opus-invoke' } });
   });
 
   it('REQ-ENTERPRISE-051/056/064: renders named native target rows with expanded-only controls', async () => {
@@ -559,8 +565,11 @@ describe('Structured AI routing', () => {
     await openRoute(view, 'development');
     const profile = view.getByLabelText('development Pi compatibility profile') as HTMLSelectElement;
     expect(Array.from(profile.options, (option) => option.value)).toEqual([
-      '', ...catalog.profiles.map(profileKey),
+      '', ...catalog.profiles.filter((candidate) => !candidate.id.startsWith('bedrock-anthropic-native-')).map(profileKey),
     ]);
+    expect(Array.from(profile.options, (option) => option.text)).toContain('Dynamic Route - AWS Bedrock - Claude');
+    expect(Array.from(profile.options, (option) => option.text)).not.toContain('Native Route - AWS Bedrock - Claude Sonnet');
+    expect(Array.from(profile.options, (option) => option.text)).not.toContain('Native Route - AWS Bedrock - Claude Opus');
     expect(profile).toHaveValue(profileKey(kimiRef));
     expect(within(profile).queryByRole('option', { name: 'GPT-OSS tool replay' })).toBeNull();
   });

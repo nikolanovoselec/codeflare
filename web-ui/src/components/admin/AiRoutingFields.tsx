@@ -202,6 +202,7 @@ const AiRoutingFields: Component<Props> = (props) => {
       const ref = profileRef(revision);
       return ref ? [{ ...revision, ...ref, name: text(revision.name), enabled: revision.enabled !== false, supportedLevels: stringList(revision.supportedLevels).filter(isLevel) }] : [];
     })].filter((profile) => profile.enabled !== false && profile.assignable !== false));
+  const dynamicRouteProfiles = createMemo(() => assignableProfiles().filter((profile) => !profile.id.startsWith('bedrock-anthropic-native-')));
   const findProfile = (ref?: ProfileRevisionRef) => assignableProfiles().find((profile) => refKey(profile) === refKey(ref));
   const configuredProviders = createMemo(() => (catalog().providers ?? []).filter((provider) => provider.configured));
   const selectableProviders = createMemo(() => configuredProviders().filter((provider) => provider.supported));
@@ -345,7 +346,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   onMount(() => { void checkConnection(); });
 
   const setRouteProfile = (name: string, key: string) => {
-    const selected = assignableProfiles().find((profile) => refKey(profile) === key);
+    const selected = dynamicRouteProfiles().find((profile) => refKey(profile) === key);
     clearRouteVerification(name);
     updateRoute(name, (route) => ({ ...route, assignment: { ...route.assignment, activeProfile: selected ? profileRefFromEntry(selected) : undefined,
       ...(route.assignment.legs && { legs: route.assignment.legs.map((leg) => ({ ...leg, ...(selected && { profileRef: profileRefFromEntry(selected) }) })) }),
@@ -506,7 +507,7 @@ const AiRoutingFields: Component<Props> = (props) => {
             </section>
             <div class="admin-route-controls">
               <label class="admin-form-field"><span>Pi compatibility profile</span><select aria-label={`${route.name} Pi compatibility profile`} value={refKey(route.assignment.activeProfile)} disabled={catalogBusy() || check().busy || profileEditorBusy()} onChange={(event) => { setProfileEditorRoute(undefined); setRouteProfile(route.name, event.currentTarget.value); }}>
-                <option value="" selected={!route.assignment.activeProfile}>Choose a profile</option><For each={assignableProfiles()}>{(option) => <option value={refKey(option)} selected={refKey(option) === refKey(route.assignment.activeProfile)}>{profileDisplayName(option)}</option>}</For>
+                <option value="" selected={!route.assignment.activeProfile}>Choose a profile</option><For each={dynamicRouteProfiles()}>{(option) => <option value={refKey(option)} selected={refKey(option) === refKey(route.assignment.activeProfile)}>{profileDisplayName(option)}</option>}</For>
               </select><small>Mapping translates request settings; it does not identify the model behind a route.</small></label>
               <label class="admin-form-field"><span>Context window</span><input type="text" inputmode="numeric" aria-label={`${route.name} context window`} value={route.contextWindow} onInput={(event) => updateRoute(route.name, (item) => ({ ...item, contextWindow: Number(event.currentTarget.value) }))} /><small>Maximum conversation size, in tokens.</small></label>
             </div>
