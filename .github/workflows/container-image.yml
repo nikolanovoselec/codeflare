@@ -495,7 +495,8 @@ jobs:
           IMAGE: ${{ steps.docker-build.outputs.local_ref }}
         run: |
           set -euo pipefail
-          docker run --rm --entrypoint /bin/sh "$IMAGE" -c '
+          HERDR_VERSION=$(jq -er '.version | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' image/herdr/provenance.json)
+          docker run --rm -e EXPECTED_HERDR_VERSION="$HERDR_VERSION" --entrypoint /bin/sh "$IMAGE" -c '
             set -eu
             test "$(stat -c %a /usr/local/bin/herdr)" = 755
             command -v flock >/dev/null
@@ -504,7 +505,7 @@ jobs:
             test -s /usr/share/licenses/herdr/LICENSE
             test -s /usr/share/licenses/herdr/provenance.json
             test -f /etc/codeflare/herdr/config.toml
-            HERDR_DISABLE_SOUND=1 /usr/local/bin/herdr --version | grep -F "0.8.2"
+            HERDR_DISABLE_SOUND=1 /usr/local/bin/herdr --version | grep -F "$EXPECTED_HERDR_VERSION"
             HERDR_CONFIG_PATH=/etc/codeflare/herdr/config.toml HERDR_DISABLE_SOUND=1 /usr/local/bin/herdr config check
             grep -Fx "onboarding = false" /etc/codeflare/herdr/config.toml
             grep -Fx "default_shell = \"/bin/bash\"" /etc/codeflare/herdr/config.toml
@@ -592,7 +593,7 @@ jobs:
                   | ($s.subscription_event."$defs".AgentStatus.enum | index($status)) != null
                 ))
             ' >/dev/null
-          printf 'herdr_version=0.8.2 config=managed attribution=present\n' \
+          printf 'herdr_version=%s config=managed attribution=present\n' "$HERDR_VERSION" \
             | tee -a /tmp/browser-ide-image-evidence.txt
 
       - name: Verify real code-server through the session proxy

@@ -73,13 +73,23 @@ describe('native AI targets', () => {
     expect(nativeTargetHandle(target.id)).toBe('cf-native-11111111-1111-4111-8111-111111111111');
   });
 
-  it('REQ-ENTERPRISE-066: keeps browser and API draft validation aligned for defaults and unknown fields', () => {
-    const draft = { label: 'Legacy Bedrock draft', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef, enabled: false };
-    expect(nativeTargetDraftShapeValid(draft)).toBe(true);
-    expect(nativeTargetDraftSchema.safeParse(draft).success).toBe(true);
-    const draftWithUnknownField = { ...draft, unexpected: true };
-    expect(nativeTargetDraftShapeValid(draftWithUnknownField)).toBe(false);
-    expect(nativeTargetDraftSchema.safeParse(draftWithUnknownField).success).toBe(false);
+  const legacyDraft = { label: 'Legacy Bedrock draft', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef, enabled: false };
+
+  it('REQ-ENTERPRISE-066: browser validation treats an omitted provider as AWS Bedrock', () => {
+    expect(nativeTargetDraftShapeValid(legacyDraft)).toBe(true);
+    expect(nativeTargetDraftShapeValid({ ...legacyDraft, model: 'arn:aws:bedrock:eu-central-1:123456789012:inference-profile/example' })).toBe(false);
+  });
+
+  it('REQ-ENTERPRISE-066: API validation defaults an omitted provider to AWS Bedrock', () => {
+    expect(nativeTargetDraftSchema.parse(legacyDraft).provider).toBe('aws-bedrock');
+  });
+
+  it('REQ-ENTERPRISE-066: browser validation rejects undeclared native draft fields', () => {
+    expect(nativeTargetDraftShapeValid({ ...legacyDraft, unexpected: true })).toBe(false);
+  });
+
+  it('REQ-ENTERPRISE-066: API validation rejects undeclared native draft fields', () => {
+    expect(nativeTargetDraftSchema.safeParse({ ...legacyDraft, unexpected: true }).success).toBe(false);
   });
 
   it('REQ-ENTERPRISE-060: enforces the Bedrock model boundary without restricting custom-provider model syntax', () => {
