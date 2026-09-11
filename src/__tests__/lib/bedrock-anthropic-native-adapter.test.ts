@@ -85,6 +85,20 @@ describe('Bedrock Anthropic native adapter', () => {
     expect(JSON.stringify(result)).toContain('opaque-signed-state');
   });
 
+  it('REQ-ENTERPRISE-073: rejects signed replay state above the 64 KiB serialized limit', async () => {
+    const replay = state({ call_1: [
+      { type: 'thinking', thinking: '', signature: 'x'.repeat(64 * 1024) },
+      { type: 'tool_use', id: 'call_1', name: 'lookup', input: {} },
+    ] });
+    await expect(buildBedrockAnthropicRequest({
+      thinking: { type: 'adaptive' }, output_config: { effort: 'low' },
+      messages: [
+        { role: 'assistant', tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+        { role: 'tool', tool_call_id: 'call_1', content: 'found' },
+      ],
+    }, replay)).rejects.toThrow('signed thinking state');
+  });
+
   it('REQ-ENTERPRISE-073: fails closed when signed replay does not match the tool name and arguments', async () => {
     const replay = state({ call_1: [
       { type: 'thinking', thinking: '', signature: 'opaque-signed-state' },
@@ -180,9 +194,11 @@ describe('Bedrock Anthropic native adapter', () => {
     const corrupt = eventstreamFrame({ type: 'message_start', message: { id: 'trailing' } });
     corrupt[corrupt.length - 1] ^= 1;
     const chunks = [eventstreamFrame({ type: 'message_stop' }), corrupt];
+    const replay = state();
     const body = new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) controller.enqueue(chunk); controller.close(); } });
-    const text = await (await adaptBedrockAnthropicResponse(new Response(body), 'eventstream', state())).text();
+    const text = await (await adaptBedrockAnthropicResponse(new Response(body), 'eventstream', replay)).text();
     expect(text).toContain('NATIVE_BEDROCK_STREAM_ERROR');
+    expect(replay.save).not.toHaveBeenCalled();
     expect(text).not.toContain('"finish_reason":"stop"');
     expect(text.match(/data: \[DONE\]/g)).toHaveLength(1);
   });

@@ -309,18 +309,18 @@ async function adaptEventstream(response: Response, state: BedrockReplayState): 
           if (plain(event.usage)) usage = { ...usage, ...event.usage };
         } else if (event.type === 'message_stop') {
           sawStop = true;
-          await persistReplay([...blocks.entries()].sort(([a], [b]) => a - b).map(([, block]) => block), state);
         }
         }
       } catch {
         emitTerminalError(controller);
       }
     },
-    flush(controller) {
+    async flush(controller) {
       if (streamFailed) return;
       try {
         if (frameBuffer.length) throw new Error('Truncated Bedrock eventstream frame');
         if (!sawStop) throw new Error('Incomplete Bedrock eventstream');
+        await persistReplay([...blocks.entries()].sort(([a], [b]) => a - b).map(([, block]) => block), state);
         controller.enqueue(sse({ id, object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: {}, finish_reason: stopReason === 'tool_use' ? 'tool_calls' : 'stop' }], ...(openAiUsage(usage) && { usage: openAiUsage(usage) }) }));
         controller.enqueue(sse('[DONE]'));
       } catch {
