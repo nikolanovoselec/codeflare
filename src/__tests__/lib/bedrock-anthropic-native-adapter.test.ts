@@ -1,0 +1,151 @@
+import { describe, expect, it, vi } from 'vitest';
+import {
+  adaptBedrockAnthropicResponse,
+  buildBedrockAnthropicRequest,
+  bedrockAnthropicGatewayPath,
+  selectBedrockAnthropicTransport,
+  type BedrockReplayState,
+} from '../../lib/bedrock-anthropic-native-adapter';
+
+const state = (entries: Record<string, unknown[]> = {}): BedrockReplayState => ({
+  load: vi.fn(async (toolId: string) => entries[toolId] ?? null),
+  save: vi.fn(async () => undefined),
+});
+
+function crc32(bytes: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function eventstreamFrame(payload: unknown): Uint8Array {
+  const body = new TextEncoder().encode(JSON.stringify(payload));
+  const headers = new Uint8Array(0);
+  const total = 16 + headers.length + body.length;
+  const bytes = new Uint8Array(total);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, total);
+  view.setUint32(4, headers.length);
+  view.setUint32(8, crc32(bytes.subarray(0, 8)));
+  bytes.set(headers, 12);
+  bytes.set(body, 12 + headers.length);
+  view.setUint32(total - 4, crc32(bytes.subarray(0, total - 4)));
+  return bytes;
+}
+
+describe('Bedrock Anthropic native adapter', () => {
+  it('REQ-ENTERPRISE-072: builds the region-scoped provider-native transport path', () => {
+    expect(bedrockAnthropicGatewayPath('eu-central-1', 'eu.anthropic.claude-sonnet-5', 'eventstream')).toBe(
+      '/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-sonnet-5/invoke-with-response-stream',
+    );
+    expect(bedrockAnthropicGatewayPath('eu-central-1', 'eu.anthropic.claude-opus-5', 'invoke')).toBe(
+      '/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke',
+    );
+    expect(selectBedrockAnthropicTransport('eventstream', false)).toBe('eventstream');
+    expect(selectBedrockAnthropicTransport('eventstream', true)).toBe('invoke');
+  });
+
+  it('REQ-ENTERPRISE-072: translates OpenAI tools and restores the exact server-held signed assistant blocks', async () => {
+    const signed = [
+      { type: 'thinking', thinking: '', signature: 'opaque-signed-state' },
+      { type: 'tool_use', id: 'call_1', name: 'lookup', input: { q: 'x' } },
+    ];
+    const replay = state({ call_1: signed });
+    const result = await buildBedrockAnthropicRequest({
+      model: 'ignored', max_tokens: 700, stream: true,
+      thinking: { type: 'adaptive' }, output_config: { effort: 'high' },
+      messages: [
+        { role: 'system', content: 'Be useful.' },
+        { role: 'user', content: 'Find x.' },
+        { role: 'assistant', tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' } }] },
+        { role: 'tool', tool_call_id: 'call_1', content: 'found' },
+      ],
+      tools: [{ type: 'function', function: { name: 'lookup', description: 'Lookup', parameters: { type: 'object' } } }],
+      tool_choice: 'auto',
+    }, replay);
+
+    expect(result).toEqual({
+      anthropic_version: 'bedrock-2023-05-31',
+      max_tokens: 700,
+      system: 'Be useful.',
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'Find x.' }] },
+        { role: 'assistant', content: signed },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'found' }] },
+      ],
+      tools: [{ name: 'lookup', description: 'Lookup', input_schema: { type: 'object' } }],
+      tool_choice: { type: 'auto' },
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'high' },
+    });
+    expect(replay.load).toHaveBeenCalledWith('call_1');
+    expect(JSON.stringify(result)).toContain('opaque-signed-state');
+  });
+
+  it('REQ-ENTERPRISE-072: fails closed when a thinking-enabled tool replay has no server-held signed state', async () => {
+    await expect(buildBedrockAnthropicRequest({
+      thinking: { type: 'adaptive' }, output_config: { effort: 'low' },
+      messages: [
+        { role: 'assistant', tool_calls: [{ id: 'call_missing', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+        { role: 'tool', tool_call_id: 'call_missing', content: 'found' },
+      ],
+    }, state())).rejects.toThrow('signed thinking state');
+  });
+
+  it('REQ-ENTERPRISE-072: converts Invoke responses and stores signed thinking without exposing it downstream', async () => {
+    const replay = state();
+    const upstream = new Response(JSON.stringify({
+      id: 'msg_1', model: 'claude', role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: '', signature: 'opaque-signed-state' },
+        { type: 'tool_use', id: 'call_1', name: 'lookup', input: { q: 'x' } },
+      ],
+      stop_reason: 'tool_use', usage: { input_tokens: 4, output_tokens: 9 },
+    }), { headers: { 'content-type': 'application/json' } });
+
+    const response = await adaptBedrockAnthropicResponse(upstream, 'invoke', replay);
+    const body = await response.json() as any;
+    expect(body.choices[0].message.tool_calls[0]).toEqual({
+      id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' },
+    });
+    expect(JSON.stringify(body)).not.toContain('opaque-signed-state');
+    expect(replay.save).toHaveBeenCalledWith('call_1', [
+      { type: 'thinking', thinking: '', signature: 'opaque-signed-state' },
+      { type: 'tool_use', id: 'call_1', name: 'lookup', input: { q: 'x' } },
+    ]);
+  });
+
+  it('REQ-ENTERPRISE-072: decodes eventstream blocks into OpenAI SSE and stores exact signed replay state', async () => {
+    const replay = state();
+    const events = [
+      { type: 'message_start', message: { id: 'msg_stream', model: 'claude', usage: { input_tokens: 2 } } },
+      { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'opaque-' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'signed-state' } },
+      { type: 'content_block_stop', index: 0 },
+      { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'call_2', name: 'lookup', input: {} } },
+      { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"q":"x"}' } },
+      { type: 'content_block_stop', index: 1 },
+      { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 8 } },
+      { type: 'message_stop' },
+    ];
+    const chunks = events.map(eventstreamFrame);
+    const body = new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) controller.enqueue(chunk); controller.close(); } });
+    const upstream = new Response(body, { headers: { 'content-type': 'application/vnd.amazon.eventstream' } });
+
+    const response = await adaptBedrockAnthropicResponse(upstream, 'eventstream', replay);
+    const text = await response.text();
+    expect(response.headers.get('content-type')).toContain('text/event-stream');
+    expect(text).toContain('"index":0,"id":"call_2"');
+    expect(text).toContain('"name":"lookup"');
+    expect(text).toContain('"arguments":"{\\"q\\":\\"x\\"}"');
+    expect(text).not.toContain('opaque-signed-state');
+    expect(replay.save).toHaveBeenCalledWith('call_2', [
+      { type: 'thinking', thinking: '', signature: 'opaque-signed-state' },
+      { type: 'tool_use', id: 'call_2', name: 'lookup', input: { q: 'x' } },
+    ]);
+  });
+});

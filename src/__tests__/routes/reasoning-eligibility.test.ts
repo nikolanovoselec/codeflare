@@ -169,6 +169,26 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(observedProviderUrls.every((url) => url.includes('/compat/chat/completions'))).toBe(true);
   });
 
+  it('REQ-ENTERPRISE-072: offers evidence-backed native Bedrock profiles without a paid probe and requires explicit administrator confirmation', async () => {
+    const f = setup();
+    const profileRef = getBuiltInProfileRef('bedrock-anthropic-native-opus-invoke');
+    const target = { label: 'Native Opus', provider: 'aws-bedrock', model: 'eu.anthropic.claude-opus-5', contextWindow: 200000,
+      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', enabled: false };
+    const discovery = await f.post('native/profile-discovery', { target, maxCompletionTokens: 32 });
+    expect(discovery.status).toBe(200);
+    expect(await discovery.json()).toMatchObject({ outcome: 'existing-profile', accounting: { logicalProbes: 0, httpAttempts: 0 }, matchedProfiles: [{ profileRef }] });
+    expect(observedProviderModels).toEqual([]);
+
+    const denied = await f.post('native/discover', { target: { ...target, profileRef }, maxCompletionTokens: 32 });
+    expect(denied.status).toBe(400);
+    expect(await denied.json()).toMatchObject({ code: 'administrator_confirmation_required' });
+    expect(observedProviderModels).toEqual([]);
+
+    const confirmed = await f.post('native/discover', { target: { ...target, profileRef }, administratorConfirmed: true, maxCompletionTokens: 32 });
+    expect(confirmed.status).toBe(200);
+    expect(await confirmed.json()).toMatchObject({ classification: 'Administrator-confirmed', assignable: true, verification: { method: 'administrator', current: true } });
+  });
+
   it('REQ-ENTERPRISE-066: accepts a disabled native provider target before routes or access policies exist', async () => {
     const f = setup();
     const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({

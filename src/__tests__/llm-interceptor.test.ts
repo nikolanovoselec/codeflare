@@ -72,7 +72,7 @@ function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string;
   const env = { AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN, KV: { get: async (k: string, type?: string) => {
     const raw = kvStore[k];
     return raw !== undefined && type === 'json' ? JSON.parse(raw) : raw ?? null;
-  } }, ...envOverrides } as unknown as Env;
+  }, put: async (k: string, value: string) => { kvStore[k] = value; } }, ...envOverrides } as unknown as Env;
   // The DO instantiates this via ctx.exports.LlmInterceptor({ props }); props
   // land on ctx.props. A minimal ctx stub mirrors that shape for the unit test.
   const ctx = { props } as unknown as ExecutionContext;
@@ -816,7 +816,9 @@ describe('native provider authorization and compat dispatch', () => {
     profileId?: ReasoningProfileId;
     providerConfigId?: string;
     providerConfigAlias?: string;
-    adapterVersion?: 'bedrock-anthropic-compat-v1' | 'native-openai-compat-v1' | 'gemini-openai-compat-v1';
+    adapterVersion?: 'bedrock-anthropic-compat-v1' | 'bedrock-anthropic-native-v1' | 'native-openai-compat-v1' | 'gemini-openai-compat-v1';
+    transport?: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream';
+    region?: string;
   };
 
   function nativeFixture(includeTarget = true, fixture: NativeFixtureOptions = {}) {
@@ -824,10 +826,11 @@ describe('native provider authorization and compat dispatch', () => {
     const handle = nativeTargetHandle(id); const provider = fixture.provider ?? 'aws-bedrock';
     const profileRef = getBuiltInProfileRef(fixture.profileId ?? 'bedrock-anthropic-compat');
     const target = createNativeTarget({ id, label: provider, provider, customProvider: fixture.customProvider, model: fixture.model ?? 'eu.anthropic.claude-sonnet-5', contextWindow: 200000,
-      providerConfigId: fixture.providerConfigId ?? 'bedrock-default', providerConfigAlias: fixture.providerConfigAlias, profileRef, enabled: true });
+      providerConfigId: fixture.providerConfigId ?? 'bedrock-default', providerConfigAlias: fixture.providerConfigAlias, profileRef, enabled: true,
+      transport: fixture.transport, region: fixture.region });
     const verification = { schemaVersion: 1 as const, method: 'administrator' as const, targetId: id, provider, ...(fixture.customProvider && { customProvider: true }), model: target.model,
       providerConfigId: target.providerConfigId, ...(target.providerConfigAlias && { providerConfigAlias: target.providerConfigAlias }),
-      connectionFingerprint: connectionFingerprint({ gatewayUrl: GATEWAY, token: AIG_TOKEN })!, profileRef, transport: target.transport,
+      connectionFingerprint: connectionFingerprint({ gatewayUrl: GATEWAY, token: AIG_TOKEN })!, profileRef, transport: target.transport, ...(target.region && { region: target.region }),
       adapterVersion: fixture.adapterVersion ?? 'bedrock-anthropic-compat-v1', checkedAt: new Date().toISOString() };
     return { id, handle, kv: {
       'setup:dynamic_routes': '[]',
@@ -862,6 +865,35 @@ describe('native provider authorization and compat dispatch', () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     expect(JSON.parse(lastFetch!.body)).toMatchObject({ model: selector, ...(effort && { reasoning_effort: effort }) });
     expect(lastFetch?.headers.get('cf-aig-byok-alias')).toBe('default');
+  });
+
+  it('REQ-ENTERPRISE-072: rejects Opus eventstream levels above High before provider I/O', async () => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'xhigh', stream: true, messages: [] }) }),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'UNSUPPORTED_REASONING_LEVEL' });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-072: dispatches provider-native Bedrock Invoke with exact reasoning controls and hides signed replay state', async () => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-invoke',
+      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
+      return Response.json({ id: 'msg', model: 'claude', content: [{ type: 'thinking', thinking: '', signature: 'private-signature' },
+        { type: 'tool_use', id: 'call_1', name: 'lookup', input: { q: 'x' } }], stop_reason: 'tool_use', usage: { input_tokens: 4, output_tokens: 8 } });
+    });
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'xhigh', stream: false, messages: [{ role: 'user', content: 'Use a tool' }], tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }] }) }),
+    );
+    expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke`);
+    expect(JSON.parse(lastFetch!.body)).toMatchObject({ thinking: { type: 'adaptive' }, output_config: { effort: 'xhigh' }, anthropic_version: 'bedrock-2023-05-31' });
+    const body = await response.text();
+    expect(body).toContain('"name":"lookup"');
+    expect(body).not.toContain('private-signature');
   });
 
   it('REQ-ENTERPRISE-059: round-trips Gemini thought signatures through Pi replay metadata', async () => {

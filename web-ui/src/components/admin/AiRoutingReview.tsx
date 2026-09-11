@@ -133,8 +133,8 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
     </section>
     <Show when={nativeTargets().length}><section class="ai-routing-review-section" aria-labelledby={`${id}-native`}>
       <h3 id={`${id}-native`}>Native providers</h3>
-      <table class="ai-routing-review-routes" aria-labelledby={`${id}-native`}><thead><tr><th scope="col">Target</th><th scope="col">Exact model</th><th scope="col">Context window</th><th scope="col">State</th></tr></thead>
-        <tbody><For each={nativeTargets()}>{(target) => <tr><th scope="row">{safe()(text(target.label) || 'Unnamed target')}</th><td>{safe()(text(target.model))}</td><td>{typeof target.contextWindow === 'number' ? `${target.contextWindow.toLocaleString('en-US')} tokens` : 'Not configured'}</td><td>{target.enabled === true ? 'Enabled' : 'Inactive'}</td></tr>}</For></tbody>
+      <table class="ai-routing-review-routes" aria-labelledby={`${id}-native`}><thead><tr><th scope="col">Target</th><th scope="col">Exact model</th><th scope="col">Transport</th><th scope="col">Context window</th><th scope="col">State</th></tr></thead>
+        <tbody><For each={nativeTargets()}>{(target) => <tr><th scope="row">{safe()(text(target.label) || 'Unnamed target')}</th><td>{safe()(text(target.model))}</td><td>{target.transport === 'aig-bedrock-anthropic-eventstream' ? `Native eventstream · ${safe()(text(target.region))}` : target.transport === 'aig-bedrock-anthropic-invoke' ? `Native Invoke · ${safe()(text(target.region))}` : 'Compatibility'}</td><td>{typeof target.contextWindow === 'number' ? `${target.contextWindow.toLocaleString('en-US')} tokens` : 'Not configured'}</td><td>{target.enabled === true ? 'Enabled' : 'Inactive'}</td></tr>}</For></tbody>
       </table>
     </section></Show>
     <section class="ai-routing-review-section" aria-labelledby={`${id}-groups`}>

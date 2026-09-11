@@ -11,6 +11,7 @@ import {
   COMPATIBILITY_NOTICES,
   canonicalHash,
   canonicalJson,
+  getBuiltInProfile,
   getBuiltInProfileRef,
   isPiReasoningLevel,
   normalizeCustomProfile,
@@ -563,6 +564,16 @@ reasoningRoutes.post('/native/profile-discovery', requireAdmin, discoveryRateLim
     ]);
     const provider = selectNativeProviderConfig(configs, request.data.target.provider);
     if (!provider) return c.json({ error: 'Native provider configuration not found', code: 'provider_unavailable' }, 409);
+    if (request.data.target.transport && request.data.target.transport !== 'aig-legacy-compat') {
+      const sonnet = request.data.target.model.includes('.claude-sonnet-5');
+      const opus = request.data.target.model.includes('.claude-opus-5');
+      if (!sonnet && !opus) return c.json({ error: 'No validated provider-native Bedrock profile covers this model', code: 'unsupported_model' }, 409);
+      const profileId = sonnet ? 'bedrock-anthropic-native-sonnet'
+        : request.data.target.transport === 'aig-bedrock-anthropic-eventstream' ? 'bedrock-anthropic-native-opus-stream' : 'bedrock-anthropic-native-opus-invoke';
+      const profile = getBuiltInProfile(profileId)!;
+      return c.json({ schemaVersion: 1, route: `${provider.provider}/${request.data.target.model}`, outcome: 'existing-profile', classification: 'Verified', assignable: true,
+        matchedProfiles: [{ profileRef: profileRefFor(profile), name: profile.name, supportedLevels: profile.supportedLevels }], diagnostics: [], accounting: { logicalProbes: 0, httpAttempts: 0 } });
+    }
     const selector = `${nativeProviderSelector(provider.provider, customProviders.has(provider.provider))}/${request.data.target.model}`;
     return c.json(await discoverNativeProfile({
       accountId: coordinates.accountId, gatewayId: coordinates.gatewayId, token: gateway.token, selector, provider: provider.provider,
@@ -613,9 +624,12 @@ reasoningRoutes.post('/native/discover', requireAdmin, discoveryRateLimiter, asy
       schemaVersion: 1, ...(request.data.administratorConfirmed && { method: 'administrator' as const }), targetId: target.id,
       provider: target.provider, ...(target.customProvider && { customProvider: true }), model: target.model,
       providerConfigId: provider.id, ...(providerConfigAlias && { providerConfigAlias }), connectionFingerprint: fingerprint, profileRef: target.profileRef,
-      transport: target.transport, adapterVersion: nativeTargetAdapterVersion(target.provider), checkedAt: new Date().toISOString(),
+      transport: target.transport, ...(target.region && { region: target.region }), adapterVersion: nativeTargetAdapterVersion(target.provider, target.transport), checkedAt: new Date().toISOString(),
     };
     let report: Record<string, any> | undefined;
+    if (target.transport !== 'aig-legacy-compat' && !request.data.administratorConfirmed) {
+      return c.json({ error: 'Provider-native Bedrock targets require administrator confirmation of the recorded validation evidence', code: 'administrator_confirmation_required' }, 400);
+    }
     if (!request.data.administratorConfirmed) {
       report = await discoverPiCompatibility({ accountId: coordinates.accountId, gatewayId: coordinates.gatewayId, apiToken: gateway.token,
         route: `${nativeProviderSelector(target.provider, Boolean(target.customProvider))}/${target.model}`, profile,

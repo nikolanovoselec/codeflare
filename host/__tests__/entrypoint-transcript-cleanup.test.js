@@ -51,6 +51,16 @@ function extractShellFragment(startMarker, endMarker) {
   return body.slice(start, end + endMarker.length);
 }
 
+function extractShellArray(name) {
+  const body = readFileSync(ENTRYPOINT, 'utf8');
+  const startMarker = `${name}=(`;
+  const start = body.indexOf(startMarker);
+  assert.notEqual(start, -1, `${name} must exist in entrypoint.sh`);
+  const end = body.indexOf('\n)', start);
+  assert.notEqual(end, -1, `${name} must have a closing parenthesis`);
+  return body.slice(start, end + 2);
+}
+
 function makeScratch() {
   const dir = mkdtempSync(join(tmpdir(), 'transcript retention '));
   const runtimeRoot = mkdtempSync(join(tmpdir(), 'transcript-cleanup-runtime-'));
@@ -261,7 +271,8 @@ REMOTE="$2"
 R2_BUCKET_NAME=test
 RCLONE_CONFIG=/dev/null
 RECOVERY_FILTER_FILE=/dev/null
-RCLONE_FILTERS=(--filter "- .pi/agent/sessions/**.conflict*")
+${extractShellArray('RCLONE_FILTERS_COMMON')}
+RCLONE_FILTERS=("\${RCLONE_FILTERS_COMMON[@]}")
 cleanup_main_transcripts() { find "$USER_HOME/.pi/agent/sessions" -type f -name '*.conflict*' -delete; }
 repair_hook_exec_bits() { :; }
 pgrep() { return 1; }

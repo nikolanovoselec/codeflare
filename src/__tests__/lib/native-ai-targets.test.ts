@@ -101,6 +101,23 @@ describe('native AI targets', () => {
     expect(() => createNativeTarget({ label: 'Small', model: 'valid.model', contextWindow: 16384, providerConfigId: 'raw-provider', profileRef })).toThrow();
   });
 
+  it('REQ-ENTERPRISE-072: binds provider-native Bedrock profiles to the validated model, region, and transport', () => {
+    const sonnetRef = getBuiltInProfileRef('bedrock-anthropic-native-sonnet');
+    const native = createNativeTarget({ label: 'Native Sonnet', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000,
+      providerConfigId: 'raw-provider', profileRef: sonnetRef, transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1' });
+    expect(native).toMatchObject({ transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', profileRef: sonnetRef });
+    expect(nativeTargetDraftShapeValid({ label: native.label, provider: native.provider, model: native.model, contextWindow: native.contextWindow,
+      profileRef: native.profileRef, transport: native.transport, region: native.region, enabled: false })).toBe(true);
+    expect(() => createNativeTarget({ ...native, id: undefined, model: 'eu.anthropic.claude-opus-5', providerConfigId: 'raw-provider' })).toThrow();
+    expect(() => createNativeTarget({ ...native, id: undefined, region: undefined, providerConfigId: 'raw-provider' })).toThrow();
+    expect(() => createNativeTarget({ ...native, id: undefined, transport: 'aig-legacy-compat', providerConfigId: 'raw-provider' })).toThrow();
+    const verified = { ...native, verification: { schemaVersion: 1 as const, method: 'administrator' as const, targetId: native.id, provider: native.provider,
+      model: native.model, providerConfigId: native.providerConfigId, connectionFingerprint: fingerprint, profileRef: native.profileRef,
+      transport: native.transport, region: native.region, adapterVersion: 'bedrock-anthropic-native-v1' as const, checkedAt: new Date().toISOString() } };
+    expect(nativeVerificationMatches(verified, connection)).toBe(true);
+    expect(nativeVerificationMatches({ ...verified, region: 'us-east-1' }, connection)).toBe(false);
+  });
+
   it('REQ-ENTERPRISE-061: browser projection excludes exact provider authority and aliases', () => {
     const target = createNativeTarget({ id: '11111111-1111-4111-8111-111111111111', label: 'Claude', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, providerConfigId: 'raw-provider', providerConfigAlias: 'private-alias', profileRef });
     const projected = sanitizeNativeTarget(target);

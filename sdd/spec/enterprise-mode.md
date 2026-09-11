@@ -209,7 +209,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. The catalog exposes the ten approved executable built-ins and keeps failed families as non-assignable notices. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @impl: src/lib/reasoning-profiles.ts::COMPATIBILITY_NOTICES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (ships exactly the ten executable built-ins and keeps failed families as notices) -->
+1. The catalog exposes the fourteen approved executable built-ins and keeps failed families as non-assignable notices. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @impl: src/lib/reasoning-profiles.ts::COMPATIBILITY_NOTICES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (ships exactly the fourteen executable built-ins and keeps failed families as notices) -->
 2. Custom revisions accept bounded scalar mappings and reject protected request fields or executable transforms. <!-- @impl: src/lib/reasoning-profiles.ts::normalizeCustomProfile --> <!-- @impl: src/lib/reasoning-discovery.ts::mappingFromWrites --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (normalizes bounded scalar mappings and rejects protected request roots) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-031: verifies canonical custom scalar paths beyond discovery candidate roots) --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-031: rejects unsafe write and removal path %s without mutating the request) -->
 3. Profile assignments reference immutable revisions, and referenced custom revisions cannot be disabled or collected. <!-- @impl: src/lib/reasoning-configuration.ts::validateReasoningConfigurationUpdate --> <!-- @test: src/__tests__/lib/reasoning-configuration.test.ts (rejects disabling or collecting a custom revision while a route or leg references it) -->
 4. Legacy migration proposes GLM and Kimi assignments but leaves GPT-OSS unresolved. <!-- @impl: src/lib/reasoning-configuration.ts::migrateLegacyReasoningAssignments --> <!-- @test: src/__tests__/lib/reasoning-configuration.test.ts (proposes GLM and Kimi migration in preview without persisting it) --> <!-- @test: src/__tests__/lib/reasoning-configuration.test.ts (leaves GPT-OSS unresolved and requires correction for a Kimi off startup default) -->
@@ -806,6 +806,32 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
+### REQ-ENTERPRISE-072: Provider-native Bedrock Anthropic Transport
+
+**Intent:** Verified AWS Bedrock Claude targets use provider-native reasoning, tool calling, and signed-thinking replay without changing compatibility targets or Dynamic Routes.
+
+**Applies To:** Admin, Worker
+
+**Acceptance Criteria:**
+
+1. Native-target identity binds the exact Bedrock model, AWS region, profile revision, and either Invoke or eventstream transport; existing compatibility targets remain `aig-legacy-compat`. <!-- @impl: src/lib/native-ai-targets.ts::createNativeTarget --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-072: binds provider-native Bedrock profiles to the validated model, region, and transport) -->
+2. Sonnet exposes every Pi level using validated Minimal→Low and XHigh/Max→High aliases; Opus eventstream exposes Off through High with Minimal→Low and fails closed above High; the separate Opus Invoke profile exposes distinct XHigh and Max. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-072: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-072: rejects Opus eventstream levels above High before provider I/O) -->
+3. Administration offers the exact evidence-backed profile without a paid discovery probe and requires explicit administrator confirmation before issuing target authority. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-072: offers evidence-backed native Bedrock profiles without a paid probe and requires explicit administrator confirmation) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-072: binds native Bedrock transport and region to the evidence-backed profile draft) -->
+4. Runtime translates OpenAI Chat Completions messages and tools to Bedrock Anthropic, calls the region-scoped Invoke or eventstream operation once, uses non-streaming Invoke for an eventstream profile's signed continuation, and translates the response back to Pi's OpenAI protocol. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-072: builds the region-scoped provider-native transport path) --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-072: decodes eventstream blocks into OpenAI SSE and stores exact signed replay state) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-072: dispatches provider-native Bedrock Invoke with exact reasoning controls and hides signed replay state) -->
+5. Signed thinking and its assistant tool block are bounded, encrypted in Worker KV, restored byte-for-byte only for matching tool IDs, omitted from downstream responses and logs, and missing or mismatched state fails closed before provider I/O. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-072: translates OpenAI tools and restores the exact server-held signed assistant blocks) --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-072: fails closed when a thinking-enabled tool replay has no server-held signed state) --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-072: converts Invoke responses and stores signed thinking without exposing it downstream) -->
+
+**Constraints:** Unsupported levels never map downward. Requests above a profile's highest validated level fail closed. Native evidence never changes Dynamic Route or `/compat` behavior, and runtime performs no provider fallback or paid retry.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-059](#req-enterprise-059-native-provider-wire-adaptation)
+
+**Verification:** Anchored behavioral fixtures and CI.
+
+**Status:** Implemented
+
+---
+
 ### REQ-ENTERPRISE-045: Pi Compatibility Profile Communication
 
 **Intent:** Administrators understand profiles as Pi-to-AI-Gateway translation for tool calling and reasoning, including their tested provider basis.
@@ -1057,7 +1083,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Acceptance Criteria:**
 
 1. Evidence-backed built-ins cover Bedrock Claude Sonnet/Opus, Google AI Studio Gemini 3.1 Pro and 3.7/3.8 Flash, OpenAI GPT-5.6 Sol/Terra/Luna, and Codeflare Inference Mesh Ornith. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
-2. Bedrock, Gemini, and Mesh use provider-default reasoning. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: Bedrock Anthropic uses provider-default opaque reasoning without Pi levels) -->
+2. Compatibility-mode Bedrock, Gemini, and Mesh use provider-default reasoning; provider-native Bedrock controls are specified separately. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: Bedrock Anthropic uses provider-default opaque reasoning without Pi levels) -->
 3. OpenAI GPT-5.6 exposes only the verified `off` mapping `reasoning_effort: none`. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
 4. GPT-6 Astra remains excluded after live Chat Completions tool failure. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls) -->
 

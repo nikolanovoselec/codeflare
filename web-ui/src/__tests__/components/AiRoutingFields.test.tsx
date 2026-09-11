@@ -29,6 +29,9 @@ const catalog: ReasoningCatalog = {
     { id: 'workers-ai-glm-thinking', revision: 1, hash: hash('a'), name: 'GLM thinking', supportedLevels: ['off', 'medium', 'high'], classification: 'Verified' },
     { id: 'codeflare-inference-mesh-binary-thinking', revision: 1, hash: hash('6'), name: 'Mesh binary thinking', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
     { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c'), name: 'AWS Bedrock · Anthropic Claude', supportedLevels: [], classification: 'Verified' },
+    { id: 'bedrock-anthropic-native-sonnet', revision: 1, hash: hash('7'), name: 'AWS Bedrock Claude Sonnet · native', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
+    { id: 'bedrock-anthropic-native-opus-stream', revision: 1, hash: hash('8'), name: 'AWS Bedrock Claude Opus · native stream', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high'], classification: 'Verified' },
+    { id: 'bedrock-anthropic-native-opus-invoke', revision: 1, hash: hash('9'), name: 'AWS Bedrock Claude Opus · native Invoke', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
     { id: 'native-openai-compat', revision: 1, hash: hash('d'), name: 'OpenAI GPT-5.6 · native tools-off', supportedLevels: ['off'], classification: 'Verified' },
     { id: 'native-google-ai-studio-compat', revision: 1, hash: hash('e'), name: 'Google AI Studio · Gemini native', supportedLevels: [], classification: 'Verified' },
     { id: 'native-codeflare-inference-mesh-compat', revision: 1, hash: hash('f'), name: 'Codeflare Inference Mesh · native compat', supportedLevels: [], classification: 'Verified' },
@@ -168,6 +171,18 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Behavioral fixtures are execution-pending; CI owns RED/GREEN verification.
 describe('Structured AI routing', () => {
+  it('REQ-ENTERPRISE-072: binds native Bedrock transport and region to the evidence-backed profile draft', async () => {
+    const view = mount();
+    await addNativeTarget(view);
+    const article = view.getByRole('article', { name: 'New native target' });
+    await fireEvent.input(within(article).getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-opus-5' } });
+    await fireEvent.change(within(article).getByLabelText('Native target 1 transport'), { target: { value: 'aig-bedrock-anthropic-eventstream' } });
+    expect(within(article).getByLabelText('Native target 1 region')).toHaveValue('eu-central-1');
+    expect(within(article).getByLabelText('Native target 1 profile')).toHaveValue(profileKey({ id: 'bedrock-anthropic-native-opus-stream', revision: 1, hash: hash('8') }));
+    const target = formValues(view.container).nativeTargets[0];
+    expect(target).toMatchObject({ transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', profileRef: { id: 'bedrock-anthropic-native-opus-stream' } });
+  });
+
   it('REQ-ENTERPRISE-051/056/064: renders named native target rows with expanded-only controls', async () => {
     api.catalog.mockResolvedValueOnce({
       ...catalog,

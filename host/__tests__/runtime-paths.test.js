@@ -53,6 +53,7 @@ function captureRcloneArgs(functionName) {
     `rclone() { printf '%s\\n' "$*" >> '${argsFile}'; }`,
     'timeout() { shift; "$@"; }',
     'cleanup_main_transcripts() { :; }',
+    'cleanup_remote_pi_transcript_conflicts() { :; }',
     'repair_hook_exec_bits() { :; }',
     'recover_vanished_files() { return 1; }',
     'pgrep() { return 1; }',

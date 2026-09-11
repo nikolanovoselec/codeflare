@@ -9,6 +9,9 @@ const BUILTIN_IDS = [
   'workers-ai-glm-thinking',
   'codeflare-inference-mesh-binary-thinking',
   'dynamic-bedrock-anthropic-provider-default',
+  'bedrock-anthropic-native-sonnet',
+  'bedrock-anthropic-native-opus-stream',
+  'bedrock-anthropic-native-opus-invoke',
   'native-google-ai-studio-compat',
   'native-openai-compat',
   'native-codeflare-inference-mesh-compat',
@@ -51,6 +54,20 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     expect(profile).toMatchObject({ id: 'bedrock-anthropic-compat', name: 'AWS Bedrock · Anthropic Claude', reasoningMode: 'provider-default', supportedLevels: [], levels: {}, validatedTransports: ['compat'] });
     expect((profile as unknown as Record<string, unknown>)?.thinkingLevelMap).toBeUndefined();
   });
+  it('REQ-ENTERPRISE-072: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High', () => {
+    const sonnet = profiles.getBuiltInProfile('bedrock-anthropic-native-sonnet')!;
+    const opusStream = profiles.getBuiltInProfile('bedrock-anthropic-native-opus-stream')!;
+    const opusInvoke = profiles.getBuiltInProfile('bedrock-anthropic-native-opus-invoke')!;
+    expect(sonnet.supportedLevels).toEqual(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(sonnet.levels.minimal).toEqual(sonnet.levels.low);
+    expect(sonnet.levels.xhigh).toEqual(sonnet.levels.high);
+    expect(sonnet.levels.max).toEqual(sonnet.levels.high);
+    expect(opusStream.supportedLevels).toEqual(['off', 'minimal', 'low', 'medium', 'high']);
+    expect(opusStream.unsupportedLevels).toEqual(['xhigh', 'max']);
+    expect(opusInvoke.levels.xhigh).toContainEqual({ path: 'output_config.effort', value: 'xhigh' });
+    expect(opusInvoke.levels.max).toContainEqual({ path: 'output_config.effort', value: 'max' });
+  });
+
   it('REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls', () => {
     const gemini = profiles.getBuiltInProfile('native-google-ai-studio-compat');
     const openai = profiles.getBuiltInProfile('native-openai-compat');
@@ -63,7 +80,7 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     expect(openai!.limitations).toContain('GPT-6 Astra rejected tools on Chat Completions and is not covered by this profile.');
   });
 
-  it('ships exactly the eleven executable built-ins and keeps failed families as notices', () => {
+  it('ships exactly the fourteen executable built-ins and keeps failed families as notices', () => {
     expect(profiles.REASONING_PROFILE_IDS).toEqual(BUILTIN_IDS);
     expect((profiles as any).COMPATIBILITY_NOTICES.map((notice: any) => notice.id)).toEqual(NOTICE_IDS);
   });

@@ -100,6 +100,7 @@ export interface ReasoningCatalog {
 
 export interface NativeAiTargetDraft {
   id?: string; handle?: string; label: string; model: string; contextWindow: number; provider: string;
+  transport?: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream'; region?: string;
   profileRef: ProfileRevisionRef; enabled: boolean;
   verification?: { method: 'automated' | 'administrator'; checkedAt: string; current: boolean };
 }
