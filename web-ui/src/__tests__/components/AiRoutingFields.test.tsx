@@ -214,6 +214,25 @@ describe('Structured AI routing', () => {
     expect(view.queryByRole('checkbox', { name: 'developers cf-native-33333333-3333-4333-8333-333333333333 route' })).toBeNull();
   });
 
+  it('REQ-ENTERPRISE-056: presents native group assignments by provider and model while preserving their opaque handles', async () => {
+    const targetId = '6af8fc3b-5352-4d52-ac55-0c342673960d';
+    const handle = `cf-native-${targetId}`;
+    api.catalog.mockResolvedValueOnce({ ...catalog, providers: [{ provider: 'openai', label: 'OpenAI', configured: true, defaultSelection: true, supported: true }] });
+    const view = mount({ ...checkedCurrent(), groupRouting: [
+      { accessGroup: 'developers', routes: [handle], defaultRoute: handle, reasoning: 'off' },
+      { accessGroup: 'support', routes: [], defaultRoute: '', reasoning: 'off' },
+    ], nativeTargets: [{
+      id: targetId, label: 'GPT 5.6 Terra', provider: 'openai', model: 'gpt-5.6-terra',
+      contextWindow: 200000, profileRef: { id: 'native-openai-compat', revision: 1, hash: hash('d') },
+      enabled: true, verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true },
+    }] });
+    await openGroup(view, 'developers');
+    const assignment = view.getByRole('checkbox', { name: 'developers OpenAI · gpt-5.6-terra route' });
+    expect(assignment).toBeChecked();
+    expect(view.getByRole('option', { name: 'OpenAI · gpt-5.6-terra' })).toHaveValue(handle);
+    expect(formValues(view.container).groupRouting[0]).toEqual({ accessGroup: 'developers', routes: [handle], defaultRoute: handle, reasoning: 'off' });
+  });
+
   it('REQ-ENTERPRISE-055: submits saved native identity during a policy-only edit', async () => {
     const targetId = '11111111-1111-4111-8111-111111111111';
     const view = mount({ ...checkedCurrent(), nativeTargets: [{

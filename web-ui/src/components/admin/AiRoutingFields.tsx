@@ -62,7 +62,7 @@ function completeVerification(result: ReasoningDiscoveryResult): boolean {
     && !result.diagnostics?.length && !result.candidateResults?.some((candidate) => candidate.diagnostics?.length);
 }
 
-interface PolicyOption { name: string; administratorConfirmed?: boolean; observedPath?: boolean }
+interface PolicyOption { name: string; label?: string; administratorConfirmed?: boolean; observedPath?: boolean }
 interface PolicyFieldsProps {
   label: string;
   options: PolicyOption[];
@@ -72,14 +72,16 @@ interface PolicyFieldsProps {
   onDefault: (route: string) => void;
   onReasoning: (level: PiReasoningLevel) => void;
 }
-const PolicyFields: Component<PolicyFieldsProps> = (props) => <div class="admin-policy-fields">
+const PolicyFields: Component<PolicyFieldsProps> = (props) => {
+  const optionLabel = (name: string) => props.options.find((option) => option.name === name)?.label ?? name;
+  return <div class="admin-policy-fields">
   <fieldset class="admin-fieldset" aria-label={`${props.label} allowed routes`}>
     <legend>Available routes</legend>
     <p class="admin-field-help">Live-verified and administrator-confirmed routes are available here.</p>
     <Show when={props.options.length} fallback={<p class="admin-status-text">Verify or confirm a profile in Routes before assigning access.</p>}>
       <div class="admin-policy-routes"><For each={props.options}>{(route) => <label>
-        <input type="checkbox" aria-label={`${props.label} ${route.name} route`} checked={props.policy.routes.includes(route.name)} onChange={() => props.onToggle(route.name)} />
-        <span>{route.name}</span>
+        <input type="checkbox" aria-label={`${props.label} ${optionLabel(route.name)} route`} checked={props.policy.routes.includes(route.name)} onChange={() => props.onToggle(route.name)} />
+        <span>{optionLabel(route.name)}</span>
         <Show when={route.observedPath && !route.administratorConfirmed}><small>Backup untested</small></Show>
       </label>}</For></div>
     </Show>
@@ -87,13 +89,14 @@ const PolicyFields: Component<PolicyFieldsProps> = (props) => <div class="admin-
   <div class="admin-route-controls">
     <label class="admin-form-field"><span>Default route</span><select aria-label={`${props.label} default route`} value={props.policy.defaultRoute} disabled={!props.policy.routes.length} onChange={(event) => props.onDefault(event.currentTarget.value)}>
       <Show when={!props.policy.routes.length}><option value="">Select an available route</option></Show>
-      <For each={props.policy.routes}>{(route) => <option value={route} selected={route === props.policy.defaultRoute}>{route}</option>}</For>
+      <For each={props.policy.routes}>{(route) => <option value={route} selected={route === props.policy.defaultRoute}>{optionLabel(route)}</option>}</For>
     </select><small>The route Pi starts with for this policy.</small></label>
     <label class="admin-form-field"><span>Default reasoning</span><select aria-label={`${props.label} default reasoning`} aria-describedby={`${encodeURIComponent(props.label)}-reasoning-help`} value={props.policy.reasoning} disabled={props.levels.length <= 1} onChange={(event) => props.onReasoning(event.currentTarget.value as PiReasoningLevel)}>
       <For each={props.levels}>{(level) => <option value={level} selected={level === props.policy.reasoning}>{levelLabel(level)}</option>}</For>
     </select><small id={`${encodeURIComponent(props.label)}-reasoning-help`}>{!props.policy.defaultRoute ? 'Choose an available route first.' : props.levels.length === 1 ? `This profile supports only ${levelLabel(props.levels[0])}.` : `Only options supported by this route's Pi compatibility profile are available.${props.levels.includes('off') ? '' : ' Off is not supported.'}`}</small></label>
   </div>
 </div>;
+};
 
 const AiRoutingFields: Component<Props> = (props) => {
   const current = record(props.current);
@@ -233,7 +236,7 @@ const AiRoutingFields: Component<Props> = (props) => {
     .filter((leg) => leg.provider.replace(/^custom-/, '') === provider).map((leg) => leg.declaredModel) ?? []))].sort();
   const eligiblePolicyOptions = createMemo<PolicyOption[]>(() => [
     ...eligibleRoutes().map((route) => ({ name: route.name, administratorConfirmed: route.assignment.verification?.method === 'administrator', observedPath: route.assignment.verification?.scope === 'observed-path' })),
-    ...eligibleNativeTargets().map((target) => ({ name: nativeHandle(target), administratorConfirmed: target.verification?.method === 'administrator' })),
+    ...eligibleNativeTargets().map((target) => ({ name: nativeHandle(target), label: `${providerLabel(target.provider)} · ${target.model}`, administratorConfirmed: target.verification?.method === 'administrator' })),
   ]);
   const eligibleNames = () => eligiblePolicyOptions().map((route) => route.name);
   const normalizedPolicy = <T extends Pick<GroupDraft, 'routes' | 'defaultRoute' | 'reasoning'>>(policy: T): T => {
