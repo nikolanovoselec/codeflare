@@ -666,7 +666,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Acceptance Criteria:**
 
 1. Preview transport preserves structured field-level validation reasons from the server. <!-- @impl: web-ui/src/api/client.ts::previewConfiguration --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-ENTERPRISE-081: preserves authoritative preview validation fields in a typed request error) -->
-2. Rejected Review displays each non-empty field-level reason once. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::configurationErrorMessage --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-081: shows the authoritative AI routing validation reason when Review is rejected) -->
+2. Rejected Review displays each non-empty field-level reason once. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::configurationErrorMessage --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-081: shows each non-empty authoritative validation reason once when Review is rejected) -->
 3. A non-JSON preview failure retains its actionable server message. <!-- @impl: web-ui/src/api/client.ts::previewConfiguration --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-ENTERPRISE-081: preserves a plain-text preview failure message) -->
 
 **Constraints:** Feedback exposes only server-returned error messages, never submitted configuration values or credentials.
