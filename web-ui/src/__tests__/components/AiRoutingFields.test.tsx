@@ -154,7 +154,7 @@ async function expectDevelopmentInactive(view: View) {
     { accessGroup: 'support', routes: [], defaultRoute: '', reasoning: 'off' },
   ]);
   await openGroup(view, 'developers');
-  expect(within(view.getByRole('group', { name: 'developers allowed routes' })).queryByRole('checkbox', { name: 'developers development route' })).toBeNull();
+  expect(within(view.getByRole('group', { name: 'developers allowed routes' })).queryByRole('checkbox', { name: 'developers Dynamic Route - development route' })).toBeNull();
 }
 
 beforeEach(() => {
@@ -168,7 +168,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Behavioral fixtures are execution-pending; CI owns RED/GREEN verification.
 describe('Structured AI routing', () => {
-  it('REQ-ENTERPRISE-051/056: renders native targets as collapsed provider-model rows with expanded-only controls', async () => {
+  it('REQ-ENTERPRISE-051/056/064: renders named native target rows with expanded-only controls', async () => {
     api.catalog.mockResolvedValueOnce({
       ...catalog,
       providers: [
@@ -181,7 +181,7 @@ describe('Structured AI routing', () => {
     await openNative(view);
     expect(view.queryByText('Configured providers')).toBeNull();
     const article = view.getByRole('article', { name: 'Gemini native target' });
-    const toggle = within(article).getByRole('button', { name: 'Configure Google AI Studio · gemini-3.1-pro-preview' });
+    const toggle = within(article).getByRole('button', { name: 'Configure Native Route - Google AI Studio - gemini-3.1-pro-preview' });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(within(article).getByText('Not ready')).toHaveAttribute('data-state', 'unclear');
     expect(within(article).getByLabelText('Native target 1 provider')).not.toBeVisible();
@@ -210,11 +210,11 @@ describe('Structured AI routing', () => {
     expect(view.queryByText('Available for routing')).toBeNull();
     expect(formValues(view.container).nativeTargets.map((target: { enabled: boolean }) => target.enabled)).toEqual([true, false]);
     await openGroup(view, 'developers');
-    expect(view.getByRole('checkbox', { name: 'developers Amazon Bedrock · eu.anthropic.claude-sonnet-5 route' })).toBeVisible();
-    expect(view.queryByRole('checkbox', { name: 'developers Amazon Bedrock · eu.anthropic.claude-opus-5 route' })).toBeNull();
+    expect(view.getByRole('checkbox', { name: 'developers Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5 route' })).toBeVisible();
+    expect(view.queryByRole('checkbox', { name: 'developers Native Route - AWS Bedrock - eu.anthropic.claude-opus-5 route' })).toBeNull();
   });
 
-  it('REQ-ENTERPRISE-056: presents native group assignments by provider and model while preserving their opaque handles', async () => {
+  it('REQ-ENTERPRISE-056/064: presents named native group assignments while preserving their opaque handles', async () => {
     const targetId = '6af8fc3b-5352-4d52-ac55-0c342673960d';
     const handle = `cf-native-${targetId}`;
     api.catalog.mockResolvedValueOnce({ ...catalog, providers: [{ provider: 'openai', label: 'OpenAI', configured: true, defaultSelection: true, supported: true }] });
@@ -227,9 +227,9 @@ describe('Structured AI routing', () => {
       enabled: true, verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true },
     }] });
     await openGroup(view, 'developers');
-    const assignment = view.getByRole('checkbox', { name: 'developers OpenAI · gpt-5.6-terra route' });
+    const assignment = view.getByRole('checkbox', { name: 'developers Native Route - OpenAI - gpt-5.6-terra route' });
     expect(assignment).toBeChecked();
-    expect(view.getByRole('option', { name: 'OpenAI · gpt-5.6-terra' })).toHaveValue(handle);
+    expect(view.getByRole('option', { name: 'Native Route - OpenAI - gpt-5.6-terra' })).toHaveValue(handle);
     expect(formValues(view.container).groupRouting[0]).toEqual({ accessGroup: 'developers', routes: [handle], defaultRoute: handle, reasoning: 'off' });
   });
 
@@ -241,7 +241,7 @@ describe('Structured AI routing', () => {
       enabled: true, verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true },
     }] });
     await openGroup(view, 'developers');
-    await fireEvent.click(view.getByRole('checkbox', { name: 'developers Amazon Bedrock · eu.anthropic.claude-sonnet-5 route' }));
+    await fireEvent.click(view.getByRole('checkbox', { name: 'developers Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5 route' }));
     expect(formValues(view.container).groupRouting[0].routes).toContain(`cf-native-${targetId}`);
     expect(formValues(view.container).nativeTargets).toEqual([
       expect.objectContaining({ id: targetId, provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', enabled: true }),
@@ -298,7 +298,7 @@ describe('Structured AI routing', () => {
     const saved = checkedCurrent();
     const view = mount({ ...saved, reasoningConfiguration: { ...saved.reasoningConfiguration, customProfileRevisions: custom ? [custom] : [] }, nativeTargets: [{ id: '11111111-1111-4111-8111-111111111111', label: 'Native target', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false }] });
     await openNative(view);
-    await fireEvent.click(view.getByRole('button', { name: 'Configure Amazon Bedrock · eu.anthropic.claude-sonnet-5' }));
+    await fireEvent.click(view.getByRole('button', { name: 'Configure Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5' }));
     await fireEvent.change(view.getByLabelText('Native target 1 profile'), { target: { value: profileKey(ref) } });
     expect(formValues(view.container).nativeTargets[0].profileRef).toEqual(ref);
   });
@@ -355,7 +355,7 @@ describe('Structured AI routing', () => {
       nativeTarget('33333333-3333-4333-8333-333333333333', 'Third', 'eu.anthropic.claude-opus-5'),
     ] });
     await openNative(view);
-    await fireEvent.click(view.getByRole('button', { name: 'Configure Amazon Bedrock · eu.anthropic.claude-sonnet-5' }));
+    await fireEvent.click(view.getByRole('button', { name: 'Configure Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5' }));
     await fireEvent.click(within(view.getByRole('article', { name: 'Pending native target' })).getByRole('button', { name: 'Verify Profile' }));
     await fireEvent.click(view.getByRole('button', { name: 'Remove First' }));
     complete({ targetId: '44444444-4444-4444-8444-444444444444', classification: 'Verified', assignable: true, checkId: '55555555-5555-4555-8555-555555555555', verification: { method: 'automated', checkedAt: '2026-09-09T12:00:00.000Z', current: true } });
@@ -406,21 +406,21 @@ describe('Structured AI routing', () => {
     expect(formValues(view.container).routeChecks.development).toBe('development-check');
     expect(saved.reasoningConfiguration.routeAssignments.development).toEqual(legacyDevelopmentAssignment());
   });
-  it('REQ-ENTERPRISE-034: preserves checked many-to-many group routes with one scope default route and reasoning', async () => {
+  it('REQ-ENTERPRISE-034/064: presents and preserves named Dynamic Routes in many-to-many group policies', async () => {
     const view = mount(checkedCurrent());
     await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
     await openGroup(view, 'developers');
-    expect(view.getByRole('checkbox', { name: 'developers general_usage route' })).toBeChecked();
-    expect(view.getByRole('checkbox', { name: 'developers development route' })).toBeChecked();
+    expect(view.getByRole('checkbox', { name: 'developers Dynamic Route - general_usage route' })).toBeChecked();
+    expect(view.getByRole('checkbox', { name: 'developers Dynamic Route - development route' })).toBeChecked();
     expect(view.getByLabelText('developers default route')).toHaveValue('development');
     expect(view.getByLabelText('developers default reasoning')).toHaveValue('medium');
     await openGroup(view, 'support');
-    expect(view.getByRole('checkbox', { name: 'support general_usage route' })).toBeChecked();
-    expect(view.getByRole('checkbox', { name: 'support development route' })).not.toBeChecked();
+    expect(view.getByRole('checkbox', { name: 'support Dynamic Route - general_usage route' })).toBeChecked();
+    expect(view.getByRole('checkbox', { name: 'support Dynamic Route - development route' })).not.toBeChecked();
     await fireEvent.change(view.getByLabelText('Unconfigured access group'), { target: { value: 'research-team' } });
     await fireEvent.click(view.getByRole('button', { name: 'Add group policy' }));
-    expect(view.getByRole('checkbox', { name: 'research-team general_usage route' })).not.toBeChecked();
-    await fireEvent.click(view.getByRole('checkbox', { name: 'research-team development route' }));
+    expect(view.getByRole('checkbox', { name: 'research-team Dynamic Route - general_usage route' })).not.toBeChecked();
+    await fireEvent.click(view.getByRole('checkbox', { name: 'research-team Dynamic Route - development route' }));
     expect(formValues(view.container).groupRouting[2]).toEqual({ accessGroup: 'research-team', routes: ['development'], defaultRoute: 'development', reasoning: 'medium' });
     await fireEvent.click(view.getByRole('button', { name: 'Remove research-team policy' }));
     expect(view.queryByLabelText('research-team allowed routes')).toBeNull();
@@ -468,7 +468,7 @@ describe('Structured AI routing', () => {
     expect(view.getByText(/positive whole-number context window/)).toBeVisible();
     await fireEvent.input(view.getByLabelText('research context window'), { target: { value: '65536' } });
     await openGroup(view, 'developers');
-    await fireEvent.click(view.getByRole('checkbox', { name: 'developers research route' }));
+    await fireEvent.click(view.getByRole('checkbox', { name: 'developers Dynamic Route - research route' }));
     expect(formValues(view.container).routeContextWindows.research).toBe(65536);
     expect(formValues(view.container).dynamicRoutes).toEqual([...current.dynamicRoutes, 'research']);
     expect(view.onReadyChange).toHaveBeenLastCalledWith(true);
@@ -493,10 +493,8 @@ describe('Structured AI routing', () => {
     expect(api.discover).not.toHaveBeenCalled();
     await openRoute(view, 'development');
     const profile = view.getByLabelText('development Pi compatibility profile') as HTMLSelectElement;
-    expect(Array.from(profile.options, (option) => option.textContent)).toEqual([
-      'Choose a profile', 'OpenAI · GPT — tools and reasoning', 'OpenAI · GPT — reasoning off',
-      'Workers AI · Gemma', 'Workers AI · Kimi', 'Workers AI · GLM', 'Codeflare Inference Mesh · Qwen / Ornith',
-      'Amazon Bedrock · Claude native', 'OpenAI · GPT-5.6 native tools-off', 'Google AI Studio · Gemini native', 'Codeflare Inference Mesh · Ornith native',
+    expect(Array.from(profile.options, (option) => option.value)).toEqual([
+      '', ...catalog.profiles.map(profileKey),
     ]);
     expect(profile).toHaveValue(profileKey(kimiRef));
     expect(within(profile).queryByRole('option', { name: 'GPT-OSS tool replay' })).toBeNull();
@@ -591,7 +589,7 @@ describe('Structured AI routing', () => {
     expect(formValues(view.container).dynamicRoutes).toEqual(['development']);
     expect(formValues(view.container).routeChecks.development).toBe('development-check');
     await openGroup(view, 'developers');
-    expect(view.getByRole('checkbox', { name: 'developers development route' })).toBeChecked();
+    expect(view.getByRole('checkbox', { name: 'developers Dynamic Route - development route' })).toBeChecked();
     expect(within(view.getByRole('group', { name: 'developers allowed routes' })).getByText('Backup untested')).toBeVisible();
   });
 
@@ -955,7 +953,7 @@ describe('Structured AI routing', () => {
     expect(formValues(view.container).routeContextWindows).toEqual(current.routeContextWindows);
     expect(draftConfiguration(view.container)).toEqual({ ...saved.reasoningConfiguration, fallbackRouting: { enabled: false } });
     await openGroup(view, 'developers');
-    expect(view.queryByLabelText('developers research route')).toBeNull();
+    expect(view.queryByLabelText('developers Dynamic Route - research route')).toBeNull();
     await fireEvent.change(view.getByLabelText('Unconfigured access group'), { target: { value: 'research-team' } });
     await fireEvent.click(view.getByRole('button', { name: 'Add group policy' }));
     expect(view.getByLabelText('research-team default route')).toHaveValue('');
@@ -991,7 +989,7 @@ describe('Structured AI routing', () => {
     await fireEvent.click(view.getByRole('button', { name: 'Remove developers policy' }));
     expect(formValues(view.container).groupRouting).toEqual([current.groupRouting[1]]);
     await openGroup(view, 'support');
-    await fireEvent.click(view.getByRole('checkbox', { name: 'support general_usage route' }));
+    await fireEvent.click(view.getByRole('checkbox', { name: 'support Dynamic Route - general_usage route' }));
     expect(formValues(view.container).groupRouting).toEqual([{ accessGroup: 'support', routes: [], defaultRoute: '', reasoning: 'off' }]);
     expect(formValues(view.container).dynamicRoutes).toEqual([]);
     expect(formValues(view.container).routeContextWindows).toEqual(current.routeContextWindows);
@@ -1040,13 +1038,13 @@ describe('Structured AI routing', () => {
     expect(formValues(view.container).dynamicRoutes).toEqual(current.dynamicRoutes);
     expect(formValues(view.container).routeContextWindows.research).toBe(65536);
     await openGroup(view, 'developers');
-    expect(view.queryByLabelText('developers research route')).toBeNull();
+    expect(view.queryByLabelText('developers Dynamic Route - research route')).toBeNull();
     api.discover.mockResolvedValueOnce(verifiedReport('research'));
     await verifyProfile(view, 'research');
     await waitFor(() => expect(formValues(view.container).routeChecks.research).toBe('research-check'));
     expect(formValues(view.container).dynamicRoutes).toEqual(current.dynamicRoutes);
     await openGroup(view, 'developers');
-    await fireEvent.click(view.getByRole('checkbox', { name: 'developers research route' }));
+    await fireEvent.click(view.getByRole('checkbox', { name: 'developers Dynamic Route - research route' }));
     await fireEvent.change(view.getByLabelText('developers default route'), { target: { value: 'research' } });
     await fireEvent.change(view.getByLabelText('developers default reasoning'), { target: { value: 'high' } });
     await fireEvent.click(view.getByRole('button', { name: 'Apply to all groups' }));

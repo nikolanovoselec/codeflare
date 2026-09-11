@@ -198,7 +198,8 @@ const AiRoutingFields: Component<Props> = (props) => {
   const findProfile = (ref?: ProfileRevisionRef) => assignableProfiles().find((profile) => refKey(profile) === refKey(ref));
   const configuredProviders = createMemo(() => (catalog().providers ?? []).filter((provider) => provider.configured));
   const selectableProviders = createMemo(() => configuredProviders().filter((provider) => provider.supported));
-  const providerLabel = (provider: string) => configuredProviders().find((candidate) => candidate.provider === provider)?.label ?? provider;
+  const providerLabel = (provider: string) => provider === 'aws-bedrock' ? 'AWS Bedrock'
+    : configuredProviders().find((candidate) => candidate.provider === provider)?.label ?? provider;
   const nativeReady = (target: NativeDraft) => target.enabled && target.verification?.current === true && Boolean(target.handle || target.id)
     && Number.isSafeInteger(target.contextWindow) && target.contextWindow > 16384;
   const preparedProfileId = (provider: string) => provider === 'aws-bedrock' ? 'bedrock-anthropic-compat'
@@ -235,8 +236,8 @@ const AiRoutingFields: Component<Props> = (props) => {
   const nativeModelSuggestions = (provider: string) => [...new Set(routes().flatMap((route) => route.inventory?.legs
     .filter((leg) => leg.provider.replace(/^custom-/, '') === provider).map((leg) => leg.declaredModel) ?? []))].sort();
   const eligiblePolicyOptions = createMemo<PolicyOption[]>(() => [
-    ...eligibleRoutes().map((route) => ({ name: route.name, administratorConfirmed: route.assignment.verification?.method === 'administrator', observedPath: route.assignment.verification?.scope === 'observed-path' })),
-    ...eligibleNativeTargets().map((target) => ({ name: nativeHandle(target), label: `${providerLabel(target.provider)} · ${target.model}`, administratorConfirmed: target.verification?.method === 'administrator' })),
+    ...eligibleRoutes().map((route) => ({ name: route.name, label: `Dynamic Route - ${route.name}`, administratorConfirmed: route.assignment.verification?.method === 'administrator', observedPath: route.assignment.verification?.scope === 'observed-path' })),
+    ...eligibleNativeTargets().map((target) => ({ name: nativeHandle(target), label: `Native Route - ${providerLabel(target.provider)} - ${target.model}`, administratorConfirmed: target.verification?.method === 'administrator' })),
   ]);
   const eligibleNames = () => eligiblePolicyOptions().map((route) => route.name);
   const normalizedPolicy = <T extends Pick<GroupDraft, 'routes' | 'defaultRoute' | 'reasoning'>>(policy: T): T => {
@@ -460,7 +461,7 @@ const AiRoutingFields: Component<Props> = (props) => {
         const legs = () => route.inventory?.legs ?? [];
         return <article class="admin-route-entry" aria-label={`${route.name} route`}>
           <button type="button" class="admin-route-toggle" aria-label={`Configure ${route.name}`} aria-expanded={expandedRoute() === route.name} aria-controls={`route-panel-${encodeURIComponent(route.name)}`} onClick={() => setExpandedRoute(expandedRoute() === route.name ? undefined : route.name)}>
-            <span><strong>{route.name}</strong><small>{activeNames().includes(route.name) ? 'Assigned to access policy' : 'Not active in a policy'}</small></span>
+            <span><strong>Dynamic Route - {route.name}</strong><small>{activeNames().includes(route.name) ? 'Assigned to access policy' : 'Not active in a policy'}</small></span>
             <span class="admin-check-pill" data-state={routeStatus(route).state}>{routeStatus(route).label}</span><span class="admin-route-chevron" aria-hidden="true">›</span>
           </button>
           <div hidden={expandedRoute() !== route.name} id={`route-panel-${encodeURIComponent(route.name)}`} class="admin-route-panel">
@@ -513,7 +514,7 @@ const AiRoutingFields: Component<Props> = (props) => {
           setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, ...update, enabled: false, verification: undefined } : item));
         };
         const selectedProfile = () => findProfile(target().profileRef);
-        const title = () => `${providerLabel(target().provider)} · ${target().model || 'Add model'}`;
+        const title = () => `Native Route - ${providerLabel(target().provider)} - ${target().model || 'Add model'}`;
         return <article class="admin-route-entry" aria-label={`${target().label || 'New'} native target`}>
           <div class="admin-native-target-heading">
             <button type="button" class="admin-route-toggle" aria-label={`Configure ${title()}`} aria-expanded={expandedNative() === index} aria-controls={`native-panel-${index}`} onClick={() => setExpandedNative(expandedNative() === index ? undefined : index)}>

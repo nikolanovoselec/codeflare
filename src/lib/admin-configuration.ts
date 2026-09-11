@@ -15,7 +15,7 @@ import { getWorkerNameFromHostname } from '../routes/setup/shared';
 import { reactivateUsageUser } from './admin-usage';
 import { REASONING_PROFILE_IDS, canonicalJson, getBuiltInProfile, getBuiltInProfileRef, parseRouteSettings, serializeRouteSettings } from './reasoning-profiles';
 import { dynamicRouteSchema, gatewayCoordinates, gatewayDraftSchema, listCustomProviderSlugs, listCustomProviderSlugsForProviders, listNativeProviderConfigs, parseGatewayUrl, resolveGatewayConnection, selectNativeProviderConfig } from './ai-gateway-management';
-import { nativeProfileRefKey, nativeTargetDraftSchema, nativeTargetHandle, nativeTargetIdFromHandle, nativeVerificationMatches, parseNativeAiTargets, readNativeTargetCheck, reconcileNativeTargets, sanitizeNativeTarget, serializeNativeAiTargets, type NativeProviderAuthority } from './native-ai-targets';
+import { nativeProfileRefKey, nativeTargetDraftSchema, nativeTargetHandle, nativeTargetIdFromHandle, nativeVerificationMatches, parseNativeAiTargets, readNativeTargetCheck, rebindNativeVerificationConnection, reconcileNativeTargets, sanitizeNativeTarget, serializeNativeAiTargets, type NativeProviderAuthority } from './native-ai-targets';
 import {
   assignmentBackendDescriptions, fallbackRoutingSchema, loadCheckedRouteInventory, readRouteCheck,
   rebindVerificationConnection, routeCheckIdSchema, verificationMatches, type FallbackRouting,
@@ -606,6 +606,8 @@ export async function validateConfigurationValues(
           const gateway = await resolveGatewayConnection(env, { gatewayUrl: values.gatewayUrl as string, gatewayId: (values.gatewayId as string) || undefined, replacementToken: values.replacementToken as string });
           const coordinates = gatewayCoordinates(gateway);
           if (!coordinates || !gateway.token) throw new Error('Native targets require a connected account AI Gateway');
+          const savedCoordinates = gatewayCoordinates(await resolveGatewayConnection(env));
+          const equivalentCoordinates = Boolean(savedCoordinates && canonicalJson(savedCoordinates) === canonicalJson(coordinates));
           const parsedDrafts = z.array(nativeTargetDraftSchema).max(64).parse(drafts);
           const providerNames = new Set(parsedDrafts.map((draft) => draft.provider));
           const [providerConfigs, customProviders] = await Promise.all([
@@ -640,7 +642,12 @@ export async function validateConfigurationValues(
             if (!nativeVerificationMatches(candidate, gateway)) throw new Error('Native target check receipt is stale');
             return candidate;
           }) };
-          for (const target of document.targets) if (target.enabled && !nativeVerificationMatches(target, gateway)) throw new Error(`Native target ${target.label} must be verified before it can be enabled`);
+          document = { ...document, targets: document.targets.map((target) => {
+            if (!target.enabled || nativeVerificationMatches(target, gateway)) return target;
+            const verification = equivalentCoordinates ? rebindNativeVerificationConnection(target, gateway) : null;
+            if (!verification) throw new Error(`Native target ${target.label} must be verified before it can be enabled`);
+            return { ...target, verification };
+          }) };
           values.nativeTargets = document;
         }
       }

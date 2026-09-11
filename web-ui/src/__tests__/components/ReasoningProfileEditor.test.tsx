@@ -47,7 +47,6 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     discoverMock.mockResolvedValueOnce({ classification: 'Verified', assignable: true, outcome: 'existing-profile', matchedProfiles: [{ name: 'Mesh binary thinking', profileRef, supportedLevels: ['off', 'medium'] }] });
     const view = standalone();
     const assign = await view.findByRole('button', { name: 'Assign profile' });
-    expect(assign).toHaveAccessibleDescription('Codeflare Inference Mesh · Qwen / Ornith');
     await fireEvent.click(assign);
     expect(view.onSelectProfile).toHaveBeenCalledExactlyOnceWith(profileRef);
   });

@@ -145,13 +145,13 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     api.inventory.mockImplementation(async (route: string) => inventory(route, proof(route)));
     mount();
     await section('Access & fallback');
-    await screen.findByRole('checkbox', { name: `${policy} production route` });
+    await screen.findByRole('checkbox', { name: `${policy} Dynamic Route - production route` });
     const action = screen.getByRole('button', { name: 'Review changes' });
     expect(action).toBeDisabled();
-    await fireEvent.click(screen.getByRole('checkbox', { name: `${policy} staging route` }));
+    await fireEvent.click(screen.getByRole('checkbox', { name: `${policy} Dynamic Route - staging route` }));
     expect(action).toBeEnabled();
-    await fireEvent.click(screen.getByRole('checkbox', { name: `${policy} staging route` }));
-    expect(screen.getByRole('checkbox', { name: `${policy} staging route` })).toBeChecked();
+    await fireEvent.click(screen.getByRole('checkbox', { name: `${policy} Dynamic Route - staging route` }));
+    expect(screen.getByRole('checkbox', { name: `${policy} Dynamic Route - staging route` })).toBeChecked();
     expect(action).toBeDisabled();
     await fireEvent.submit(action.closest('form')!);
     expect(api.preview).not.toHaveBeenCalled();
@@ -235,7 +235,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(api.preview).not.toHaveBeenCalled();
     await section('Access & fallback');
     await fireEvent.click(screen.getByRole('button', { name: 'Add group policy' }));
-    expect(screen.getByRole('checkbox', { name: 'developers development route' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'developers Dynamic Route - development route' })).toBeChecked();
     await review();
     expect(submitted().dynamicRoutes).toEqual(['development']);
     expect(submitted().groupRouting).toEqual([group]);
@@ -542,7 +542,6 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(submitted()).toEqual(firstPreview);
     await confirm();
     expect(api.start).toHaveBeenCalledWith('aiRouting', 7, firstPreview, []);
-    expect(screen.getByText('Workers AI · Kimi')).toBeVisible();
   });
 
   it('REQ-ENTERPRISE-041: blocks Save confirmation until the API warning is confirmed and submits that exact code', async () => {

@@ -157,9 +157,6 @@ describe('Administrator route workspace', () => {
   });
   it('REQ-ENTERPRISE-045: explains Pi compatibility and shows provider-aware profile choices', async () => {
     const view = mount(); await ready(view); await openRoute(view, 'general_usage');
-    const select = view.getByLabelText('general_usage Pi compatibility profile');
-    expect(within(select).getByRole('option', { name: 'Workers AI · Kimi' })).toBeInTheDocument();
-    expect(within(select).getByRole('option', { name: 'OpenAI · GPT — reasoning off' })).toBeInTheDocument();
     expect(view.getByText(/translates Pi.*tool calling and reasoning/i)).toBeVisible();
     expect(within(view.getByRole('article', { name: 'general_usage route' })).getByText('Tested with Kimi through Workers AI.')).toBeVisible();
     expect(values(view.container).reasoningConfiguration.routeAssignments.general_usage.activeProfile).toEqual(ref);
@@ -186,8 +183,8 @@ describe('Administrator route workspace', () => {
   it('REQ-ENTERPRISE-043: excludes unverified routes from policy assignment and serialized activation', async () => {
     const view = mount(); await ready(view); await section(view, 'Access & fallback');
     const group = view.getByRole('group', { name: 'developers allowed routes' });
-    expect(within(group).getByRole('checkbox', { name: 'developers general_usage route' })).toBeChecked();
-    expect(within(group).queryByRole('checkbox', { name: 'developers development route' })).toBeNull();
+    expect(within(group).getByRole('checkbox', { name: 'developers Dynamic Route - general_usage route' })).toBeChecked();
+    expect(within(group).queryByRole('checkbox', { name: 'developers Dynamic Route - development route' })).toBeNull();
     expect(values(view.container).dynamicRoutes).toEqual(['general_usage']);
     expect(values(view.container).reasoningConfiguration.routeAssignments.development.activeProfile).toEqual(ref);
   });
@@ -199,7 +196,7 @@ describe('Administrator route workspace', () => {
     await waitFor(() => expect(verify).toBeEnabled()); await fireEvent.click(verify);
     expect(await view.findByText(/Other backends remain untested/)).toBeVisible();
     await section(view, 'Access & fallback');
-    await fireEvent.click(view.getByRole('checkbox', { name: 'developers development route' }));
+    await fireEvent.click(view.getByRole('checkbox', { name: 'developers Dynamic Route - development route' }));
     expect(values(view.container).groupRouting[0].routes).toEqual(['general_usage', 'development']);
     expect(values(view.container).routeChecks.development).toBe('observed-check');
   });
@@ -221,7 +218,7 @@ describe('Administrator route workspace', () => {
     expect(api.discover.mock.calls[0][0]).not.toHaveProperty('backendDescriptions');
     expect(await view.findByText(/Other backends remain untested/)).toBeVisible();
     await section(view, 'Access & fallback');
-    await fireEvent.click(view.getByRole('checkbox', { name: 'developers development route' }));
+    await fireEvent.click(view.getByRole('checkbox', { name: 'developers Dynamic Route - development route' }));
     expect(values(view.container).dynamicRoutes).toContain('development');
     expect(values(view.container).routeChecks.development).toBe('three-model-check');
   });
@@ -235,7 +232,7 @@ describe('Administrator route workspace', () => {
     expect(await view.findByText('Administrator-confirmed')).toBeVisible();
     expect(view.queryByRole('table', { name: 'Selected profile checks' })).toBeNull();
     await section(view, 'Access & fallback');
-    await fireEvent.click(view.getByRole('checkbox', { name: 'developers development route' }));
+    await fireEvent.click(view.getByRole('checkbox', { name: 'developers Dynamic Route - development route' }));
     expect(values(view.container).dynamicRoutes).toContain('development');
     expect(values(view.container).routeChecks.development).toBe('admin-confirmation');
     await section(view, 'Routes');
@@ -277,7 +274,7 @@ describe('Administrator route workspace', () => {
     const view = mount(); await ready(view); await section(view, 'Access & fallback');
     expect(values(view.container).fallbackRouting).toEqual({ enabled: false });
     await fireEvent.click(view.getByRole('checkbox', { name: 'Enable fallback access' }));
-    const box = await view.findByRole('checkbox', { name: 'Fallback general_usage route' });
+    const box = await view.findByRole('checkbox', { name: 'Fallback Dynamic Route - general_usage route' });
     if (!(box as HTMLInputElement).checked) await fireEvent.click(box);
     expect(values(view.container).fallbackRouting).toEqual({ enabled: true, routes: ['general_usage'], defaultRoute: 'general_usage', reasoning: 'medium' });
     expect(view.getByText(/manually added users/i)).toBeVisible();

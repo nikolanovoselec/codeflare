@@ -147,6 +147,18 @@ export function nativeVerificationMatches(target: NativeAiTarget, connection: Ga
     && proof.adapterVersion === nativeTargetAdapterVersion(target.provider));
 }
 
+export function rebindNativeVerificationConnection(target: NativeAiTarget, connection: GatewayConnection): NativeTargetVerification | null {
+  const proof = target.verification;
+  const fingerprint = connectionFingerprint(connection);
+  if (!proof || !fingerprint || proof.targetId !== target.id
+    || (proof.provider ?? 'aws-bedrock') !== target.provider || Boolean(proof.customProvider) !== Boolean(target.customProvider)
+    || proof.model !== target.model || proof.providerConfigId !== target.providerConfigId
+    || proof.providerConfigAlias !== target.providerConfigAlias
+    || canonicalJson(proof.profileRef) !== canonicalJson(target.profileRef) || proof.transport !== target.transport
+    || proof.adapterVersion !== nativeTargetAdapterVersion(target.provider)) return null;
+  return { ...proof, connectionFingerprint: fingerprint, checkedAt: new Date().toISOString() };
+}
+
 export async function issueNativeTargetCheck(kv: KVNamespace, targetId: string, verification: NativeTargetVerification): Promise<string> {
   const receipt = checkReceiptSchema.parse({ targetId, verification });
   const checkId = crypto.randomUUID();

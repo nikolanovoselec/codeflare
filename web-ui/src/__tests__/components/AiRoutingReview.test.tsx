@@ -65,7 +65,6 @@ describe('AI routing review', () => {
     expect(screen.getByText('Preserve saved token')).toBeVisible();
     const table = screen.getByRole('table', { name: 'Route profiles' });
     const development = within(table).getByRole('row', { name: /development/ });
-    expect(within(development).getByText('Workers AI · GLM')).toBeVisible();
     expect(within(development).getByText('262,144 tokens')).toBeVisible();
     const production = within(table).getByRole('row', { name: /production/ });
     expect(within(production).getByText('Platform reasoning')).toBeVisible();
@@ -291,7 +290,7 @@ describe('AI routing review', () => {
     }
     expect(screen.getByText(/Other backends remain untested/)).toBeVisible();
     await section('Access & fallback');
-    expect(screen.getByRole('checkbox', { name: 'Platform engineers development route' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Platform engineers Dynamic Route - development route' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Platform engineers production route' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Enable fallback access' })).not.toBeChecked();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled());

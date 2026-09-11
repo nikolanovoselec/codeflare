@@ -857,7 +857,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 2. Native runtime dispatch applies the identical stored validated BYOK alias. <!-- @impl: src/lib/access.ts::resolveRouteCatalog --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-050: dispatches %s through its exact Worker-owned selector) -->
 3. Save validates current provider discovery and submitted target data, including Dynamic Route/native-target name collisions, before any routing KV write. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-055: rejects invalid native target data before any routing write) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-055: rejects a Dynamic Route that collides with a submitted native handle before any routing write) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-055: submits saved native identity during a policy-only edit) -->
 4. Label and context edits retain the server identity and proof when provider, model, binding, profile, transport, and adapter authority are unchanged. <!-- @impl: src/lib/native-ai-targets.ts::reconcileNativeTargets --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-055: unchanged provider authority retains identity and proof across label and context edits) -->
-5. A changed provider, model, binding, profile, transport, adapter, target, or connection identity invalidates proof. <!-- @impl: src/lib/native-ai-targets.ts::reconcileNativeTargets --> <!-- @impl: src/lib/native-ai-targets.ts::nativeVerificationMatches --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-055: changed provider authority invalidates proof) --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-055: changed target or connection authority fails verification matching) -->
+5. A changed provider, model, binding, profile, transport, adapter, target, or gateway identity invalidates proof; equivalent coordinates with replacement credentials may rebind under REQ-ENTERPRISE-057. <!-- @impl: src/lib/native-ai-targets.ts::reconcileNativeTargets --> <!-- @impl: src/lib/native-ai-targets.ts::nativeVerificationMatches --> <!-- @impl: src/lib/native-ai-targets.ts::rebindNativeVerificationConnection --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-055: changed provider authority invalidates proof) --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-055: changed target or connection authority fails verification matching) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057: rebinds saved native authority after replacement credentials preserve provider identity) -->
 6. A route-only Save that omits native targets neither creates nor rewrites the native-target document. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save) -->
 7. A route name is classified as native only when a submitted native target owns it; an unowned native-shaped name remains a Dynamic Route. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-055: validates a native-shaped Dynamic Route as a Dynamic Route when no native target owns it) -->
 
@@ -985,9 +985,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 4. Account API gateway URLs require the gateway name. <!-- @impl: src/lib/ai-gateway-management.ts::parseGatewayUrl --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: accepts the account API base URL and configured gateway name for Dynamic Route inspection) -->
 5. Account API suffixes after the account ID are removed before storage and use. <!-- @impl: src/lib/ai-gateway-management.ts::parseGatewayUrl --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: discovers and verifies a Dynamic Route profile through the account API URL) -->
 6. Routine Administration returns either saved URL form and its conditional gateway name. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) -->
-7. Checking equivalent gateway coordinates or replacement credentials preserves a saved native-only policy in the browser draft so Review changes can submit it for authoritative server revalidation. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-057: keeps Review changes available after checking equivalent gateway coordinates for a native-only policy) -->
+7. Checking equivalent gateway coordinates or replacement credentials preserves a saved native-only policy in the browser draft, while preview rebinds its proof only when gateway, provider, target, and profile identity remain unchanged. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/lib/native-ai-targets.ts::rebindNativeVerificationConnection --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-057: keeps Review changes available after checking equivalent gateway coordinates for a native-only policy) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057: rebinds saved native authority after replacement credentials preserve provider identity) -->
 
-**Constraints:** Rotation does not persist checks or invoke paid model probes. Saved native authority is not trusted from the browser and remains subject to provider and gateway validation during preview.
+**Constraints:** Rotation neither persists checks nor invokes paid model probes; preview revalidates browser-retained native authority against provider and gateway state.
 
 **Priority:** P1
 
@@ -1017,6 +1017,30 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Dependencies:** [REQ-ENTERPRISE-057](#req-enterprise-057-ai-gateway-connection-rotation)
 
 **Verification:** Anchored behavioral fixtures and CI.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-064: Route and Compatibility Profile Presentation
+
+**Intent:** Administrators can distinguish Dynamic Routes from Native Routes wherever they configure profiles or grant access.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Configured and assignable Dynamic Routes display as `Dynamic Route - <route name>`. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034/064: presents and preserves named Dynamic Routes in many-to-many group policies) -->
+2. Configured and assignable native targets display as `Native Route - <provider> - <exact model>` while policy submission retains the opaque handle. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-056/064: presents named native group assignments while preserving their opaque handles) -->
+3. Built-in compatibility profile labels begin with `Dynamic Route` or `Native Route` and identify the provider and supported model family. <!-- @impl: web-ui/src/components/admin/pi-profile-presentation.ts::profileDisplayName -->
+
+**Constraints:** Presentation labels do not change route names, profile references, native target identities, or submitted policy values.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration), [REQ-ENTERPRISE-056](#req-enterprise-056-native-target-disclosure-and-readiness)
+
+**Verification:** Behavioral route-selection and submitted-identity fixtures, exact-head CI, and deployed Administration acceptance.
 
 **Status:** Implemented
 

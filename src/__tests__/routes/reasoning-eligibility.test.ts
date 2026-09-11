@@ -261,6 +261,58 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(body.accounting.httpAttempts).toBeGreaterThan(preparedAttempts);
   });
 
+  it('REQ-ENTERPRISE-057: rebinds saved native authority after replacement credentials preserve provider identity', async () => {
+    const f = setup();
+    f.env.ENCRYPTION_KEY = Buffer.alloc(32, 1).toString('base64');
+    await activate(f);
+    const checked = await (await f.post('native/discover', {
+      target: { label: 'Claude rotated', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true },
+      administratorConfirmed: true, maxCompletionTokens: 32,
+    })).json() as any;
+    const handle = nativeTargetHandle(checked.targetId);
+    const nativeDraft = { id: checked.targetId, label: 'Claude rotated', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true };
+    const initial = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      nativeTargets: [nativeDraft], nativeChecks: { [checked.targetId]: checked.checkId },
+      groupRouting: [{ accessGroup: 'engineering', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
+      defaultRoute: { route: handle, reasoning: 'off' },
+    }));
+    expect(initial.fieldErrors).toBeUndefined();
+    await executeConfigurationTask(f.env, 'configure_model_routing', initial.values!, { mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 2 });
+    const before = parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS)).targets[0].verification!;
+
+    const otherGateway = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/account/other-gateway/', replacementToken: 'rotated-token', dynamicRoutes: [], routeContextWindows: {},
+      nativeTargets: [nativeDraft], nativeChecks: {},
+      groupRouting: [{ accessGroup: 'engineering', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
+      defaultRoute: { route: handle, reasoning: 'off' },
+    }));
+    expect(otherGateway.fieldErrors?.nativeTargets).toContain('must be verified');
+    const changedProvider = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'rotated-token', dynamicRoutes: [], routeContextWindows: {},
+      nativeTargets: [{ ...nativeDraft, provider: 'openai', model: 'gpt-5.6-terra', profileRef: getBuiltInProfileRef('native-openai-compat') }], nativeChecks: {},
+      groupRouting: [{ accessGroup: 'engineering', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
+      defaultRoute: { route: handle, reasoning: 'off' },
+    }));
+    expect(changedProvider.fieldErrors?.nativeTargets).toContain('must be verified');
+
+    const rotated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'rotated-token', dynamicRoutes: [], routeContextWindows: {},
+      nativeTargets: [nativeDraft], nativeChecks: {},
+      groupRouting: [{ accessGroup: 'engineering', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
+      defaultRoute: { route: handle, reasoning: 'off' },
+    }));
+    expect(rotated.fieldErrors).toBeUndefined();
+    const rebound = parseNativeAiTargets(rotated.values?.nativeTargets).targets[0].verification!;
+    expect(rebound).toMatchObject({ targetId: checked.targetId, providerConfigId: 'bedrock-default', model: nativeDraft.model, profileRef: bedrockProfileRef });
+    expect(rebound.connectionFingerprint).not.toBe(before.connectionFingerprint);
+    expect(Date.parse(rebound.checkedAt)).toBeGreaterThanOrEqual(Date.parse(before.checkedAt));
+    const preview = await buildConfigurationPreview(f.env, 'aiRouting', 'enterprise', 2, 2, rotated.values!);
+    expect(preview.tasks.map((task) => task.id)).toEqual(['configure_ai_gateway', 'configure_model_routing']);
+    await executeConfigurationTask(f.env, 'configure_ai_gateway', rotated.values!, { mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 3 });
+    await executeConfigurationTask(f.env, 'configure_model_routing', rotated.values!, { mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 3 });
+    expect(parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS)).targets[0].verification).toEqual(rebound);
+  });
+
   it('REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save', async () => {
     const f = setup();
     await activate(f);
