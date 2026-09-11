@@ -351,7 +351,7 @@ describe('manual deploys cannot skip tests', () => {
 describe('REQ-OPS-014 AC5: Wrangler container SSH', () => {
   it('explicitly enables authenticated SSH for running container instances', () => {
     const config = unstable_readConfig({ config: wranglerConfigPath }, { hideWarnings: true });
-    assert.equal(config.containers?.[0]?.ssh?.enabled, true);
+    assert.equal(config.containers?.[0]?.wrangler_ssh?.enabled, true);
   });
 });
 
