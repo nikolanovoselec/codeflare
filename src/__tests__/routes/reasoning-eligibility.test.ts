@@ -286,14 +286,18 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
       groupRouting: [{ accessGroup: 'engineering', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
       defaultRoute: { route: handle, reasoning: 'off' },
     }));
-    expect(otherGateway.fieldErrors?.reasoningConfiguration).toContain('must be verified');
+    expect(otherGateway.values).toBeUndefined();
+    expect(otherGateway.fieldErrors?.reasoningConfiguration).toHaveLength(1);
+    nativeProviderSlug = 'openai';
     const changedProvider = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
       gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'rotated-token', dynamicRoutes: [], routeContextWindows: {},
       nativeTargets: [{ ...nativeDraft, provider: 'openai', model: 'gpt-5.6-terra', profileRef: getBuiltInProfileRef('native-openai-compat') }], nativeChecks: {},
       groupRouting: [{ accessGroup: 'engineering', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
       defaultRoute: { route: handle, reasoning: 'off' },
     }));
-    expect(changedProvider.fieldErrors?.reasoningConfiguration).toContain('must be verified');
+    expect(changedProvider.values).toBeUndefined();
+    expect(changedProvider.fieldErrors?.reasoningConfiguration).toHaveLength(1);
+    nativeProviderSlug = 'aws-bedrock';
 
     const rotated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
       gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'rotated-token', dynamicRoutes: [], routeContextWindows: {},
