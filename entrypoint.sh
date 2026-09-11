@@ -2917,7 +2917,7 @@ const required = [
   'npm:@juicesharp/rpiv-ask-user-question@2.8.0',
   'npm:@juicesharp/rpiv-todo@2.8.0',
   'npm:pi-web-access@0.27.0',
-  'npm:pi-mcp-adapter@2.31.0',
+  'npm:pi-mcp-adapter@2.32.1',
   'npm:pi-evaluate@0.1.5',
   'npm:@narumitw/pi-goal@0.54.4',
   'npm:@narumitw/pi-plan-mode@0.56.0',
