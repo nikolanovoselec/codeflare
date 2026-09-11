@@ -242,13 +242,17 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(api.start).not.toHaveBeenCalled();
   });
 
-  it('REQ-ENTERPRISE-044/057: reviews a replacement token without client-side readiness blocking', async () => {
-    const initial = { ...aiRouting(), routeChecks: { development: 'saved-check' } };
+  it.each(['token-first', 'url-first'] as const)('REQ-ENTERPRISE-044/057: replacement credentials preserve saved policies regardless of connection edit order (%s)', async (order) => {
+    const initial = { ...aiRouting(), routeChecks: { development: 'saved-check' },
+      fallbackRouting: { enabled: true, routes: ['development'], defaultRoute: 'development', reasoning: 'medium' as const } };
     api.configuration.mockResolvedValueOnce(configuration(initial));
     mount();
 
     await section('Connection');
-    await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: 'rotated-token' } });
+    const editToken = () => fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: 'rotated-token' } });
+    const editUrl = () => fireEvent.input(screen.getByLabelText('AI Gateway URL'), { target: { value: 'https://gateway.ai.cloudflare.com/v1/account/rotated-gateway' } });
+    if (order === 'token-first') { await editToken(); await editUrl(); }
+    else { await editUrl(); await editToken(); }
     const save = screen.getByRole('button', { name: 'Review changes' });
     expect(save).toBeEnabled();
     await fireEvent.click(save);
@@ -257,6 +261,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(submitted().replacementToken).toBe('rotated-token');
     expect(submitted().dynamicRoutes).toEqual(['development']);
     expect(submitted().groupRouting).toEqual([group]);
+    expect(submitted().fallbackRouting).toEqual({ enabled: true, routes: ['development'], defaultRoute: 'development', reasoning: 'medium' });
     expect(submitted().routeChecks).toEqual({ development: 'saved-check' });
     expect(submitted().reasoningConfiguration.routeAssignments.development.verification).toEqual(proof());
   });

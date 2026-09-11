@@ -144,7 +144,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const [gatewayId, setGatewayId] = createSignal(text(current.gatewayId) || legacyGatewayId(initialGatewayUrl));
   const [replacementToken, setReplacementToken] = createSignal(text(current.replacementToken));
   const [checkedConnection, setCheckedConnection] = createSignal<string>();
-  const [replacementCredentialDraft, setReplacementCredentialDraft] = createSignal(false);
+  const replacementCredentialDraft = () => Boolean(replacementToken().trim());
   const effectiveGatewayUrl = () => gatewayKind() === 'account-api' ? accountApiBase(gatewayUrl()) ?? gatewayUrl().trim() : gatewayUrl().trim();
   const effectiveGatewayId = () => gatewayKind() === 'account-api' ? gatewayId().trim() : '';
   const connectionKey = () => JSON.stringify([effectiveGatewayUrl(), effectiveGatewayId() || legacyGatewayId(gatewayUrl()), replacementToken().trim()]);
@@ -295,7 +295,6 @@ const AiRoutingFields: Component<Props> = (props) => {
     else if (field === 'url') setGatewayUrl(value);
     else if (field === 'gateway') setGatewayId(value);
     else setReplacementToken(value);
-    setReplacementCredentialDraft(field === 'token');
     setCheckedConnection(undefined);
     if (field !== 'token') for (const route of routes()) {
       if (routeChecks()[route.name]) clearRouteVerification(route.name);
