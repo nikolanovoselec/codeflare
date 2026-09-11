@@ -2,6 +2,19 @@ import { z } from 'zod';
 import { canonicalJson, type ProfileRevisionRef, type ReasoningProfileId } from './reasoning-profiles';
 import type { GatewayConnection } from './ai-gateway-management';
 import { connectionFingerprint } from './reasoning-verification';
+import {
+  NATIVE_MODEL_MAX_TOKENS,
+  enforceProviderModel,
+  hashSchema,
+  labelSchema,
+  nativeModelSchema,
+  nativeProfileRefSchema,
+  nativeTargetDraftSchema,
+  nativeTargetProfileDiscoveryDraftSchema,
+  providerAliasSchema,
+  providerSchema,
+} from './native-ai-target-draft';
+export { nativeTargetDraftSchema, nativeTargetProfileDiscoveryDraftSchema };
 
 const BEDROCK_PROFILE_ID = 'bedrock-anthropic-compat';
 const OPENAI_NATIVE_PROFILE_ID = 'native-openai-compat';
@@ -10,22 +23,6 @@ const MESH_NATIVE_PROFILE_ID = 'native-codeflare-inference-mesh-compat';
 export const BEDROCK_COMPAT_ADAPTER_VERSION = 'bedrock-anthropic-compat-v1';
 export const NATIVE_COMPAT_ADAPTER_VERSION = 'native-openai-compat-v1';
 export const GEMINI_COMPAT_ADAPTER_VERSION = 'gemini-openai-compat-v1';
-const NATIVE_MODEL_MAX_TOKENS = 16_384;
-
-const nativeModelSchema = z.string().trim().min(1).max(256)
-  .regex(/^[A-Za-z0-9@][A-Za-z0-9@._:/-]*$/)
-  .refine((value) => !value.includes('..') && !['__proto__', 'prototype', 'constructor'].includes(value.toLowerCase()));
-function enforceProviderModel(value: { provider?: string; model: string }, context: z.RefinementCtx): void {
-  if ((value.provider ?? 'aws-bedrock') === 'aws-bedrock' && (value.model.includes('/') || /^arn:/i.test(value.model))) {
-    context.addIssue({ code: 'custom', message: 'Bedrock model identifiers cannot be URLs, paths, or ARNs', path: ['model'] });
-  }
-}
-const providerSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
-  .refine((value) => !['__proto__', 'prototype', 'constructor'].includes(value));
-const providerAliasSchema = z.string().min(1).max(128).regex(/^[^\u0000-\u001f\u007f]+$/);
-const labelSchema = z.string().trim().min(1).max(128).regex(/^[^\u0000-\u001f\u007f]+$/);
-const hashSchema = z.string().regex(/^[a-f0-9]{64}$/);
-const nativeProfileRefSchema = z.object({ id: z.string().min(1).max(64), revision: z.number().int().positive(), hash: hashSchema }).strict();
 const adapterVersionSchema = z.enum([BEDROCK_COMPAT_ADAPTER_VERSION, NATIVE_COMPAT_ADAPTER_VERSION, GEMINI_COMPAT_ADAPTER_VERSION]);
 
 export function defaultNativeProfileId(provider: string): ReasoningProfileId {
@@ -43,14 +40,6 @@ export function nativeProviderSelector(provider: string, customProvider = false)
 }
 export function nativeProfileRefKey(ref: ProfileRevisionRef): string { return `${ref.id}\u001f${ref.revision}\u001f${ref.hash}`; }
 
-const nativeTargetDraftObjectSchema = z.object({
-  id: z.string().uuid().optional(), label: labelSchema, model: nativeModelSchema,
-  contextWindow: z.number().int().gt(NATIVE_MODEL_MAX_TOKENS).max(4_000_000),
-  provider: providerSchema.default('aws-bedrock'), profileRef: nativeProfileRefSchema, enabled: z.boolean(),
-}).strict();
-export const nativeTargetDraftSchema = nativeTargetDraftObjectSchema.superRefine(enforceProviderModel);
-export const nativeTargetProfileDiscoveryDraftSchema = nativeTargetDraftObjectSchema
-  .extend({ profileRef: nativeProfileRefSchema.optional() }).superRefine(enforceProviderModel);
 const nativeVerificationSchema = z.object({
   schemaVersion: z.literal(1), method: z.literal('administrator').optional(), targetId: z.string().uuid(),
   provider: providerSchema.optional(), customProvider: z.boolean().optional(), model: nativeModelSchema,

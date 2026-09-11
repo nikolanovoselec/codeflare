@@ -10,7 +10,7 @@ import type {
 } from '../../types';
 import ReasoningProfileEditor, { DISCOVERY_COMPLETION_TOKENS, ReasoningCheckDetails, ReasoningCheckOverview, reasoningCheckSummary } from './ReasoningProfileEditor';
 import { profileDisplayName, profileValidationBasis } from './pi-profile-presentation';
-import { nativeTargetDraftSchema } from '../../../../src/lib/native-ai-targets';
+import { nativeTargetDraftSchema } from '../../../../src/lib/native-ai-target-draft';
 import '../../styles/ai-routing-workspace.css';
 
 interface Props { current: unknown; onReadyChange?: (ready: boolean) => void; onDirtyChange?: (dirty: boolean) => void }
