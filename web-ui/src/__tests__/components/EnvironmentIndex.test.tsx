@@ -210,36 +210,33 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(completed.closest('details')).toBeNull();
     expect(api.start).toHaveBeenCalledWith('aiRouting', 7, submitted(), []);
   });
-  it('REQ-ENTERPRISE-044: Save and direct submission wait for a checked route assigned to a group', async () => {
+  it('REQ-ENTERPRISE-044: reviews a checked connection change before routes or access policies exist', async () => {
     const initial = aiRouting();
+    initial.dynamicRoutes = [];
+    initial.defaultRoute = { route: '', reasoning: 'off' };
+    initial.routeContextWindows = {};
     initial.groupRouting = [];
-    initial.reasoningConfiguration.routeAssignments.development = { activeProfile: ref, routeVersion: 'development-v1', legs: [{
-      nodeId: 'development-model', provider: 'workers-ai', declaredModel: '@cf/development', profileRef: ref,
-      evidence: { current: true, toolReplay: true, ingress: 'ai-gateway-chat-completions', status: 'Verified' },
-    }] };
+    initial.reasoningConfiguration.routeAssignments = {};
     api.configuration.mockResolvedValueOnce(configuration(initial));
-    api.inventory.mockImplementation(async (route: string) => inventory(route));
-    api.discover.mockResolvedValueOnce(verified());
+    api.catalog.mockResolvedValue({ ...catalog(), routes: [] });
     mount();
-    await openRoute('development');
-    await screen.findByText('@cf/development');
+
+    await section('Connection');
     const save = screen.getByRole('button', { name: 'Review changes' });
     expect(save).toBeDisabled();
-    await fireEvent.submit(save.closest('form')!);
-    expect(api.preview).not.toHaveBeenCalled();
-    expect(screen.queryByRole('heading', { name: 'Confirm Save' })).not.toBeInTheDocument();
-    await verifyRoute();
+    await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: 'replacement-token' } });
     expect(save).toBeDisabled();
-    expect(screen.getByText('Assign an available route to at least one group before saving.')).toBeVisible();
-    await fireEvent.submit(save.closest('form')!);
-    expect(api.preview).not.toHaveBeenCalled();
-    await section('Access & fallback');
-    await fireEvent.click(screen.getByRole('button', { name: 'Add group policy' }));
-    expect(screen.getByRole('checkbox', { name: 'developers Dynamic Route - development route' })).toBeChecked();
+    await fireEvent.click(screen.getByRole('button', { name: 'Check connection' }));
     await review();
-    expect(submitted().dynamicRoutes).toEqual(['development']);
-    expect(submitted().groupRouting).toEqual([group]);
-    expect(submitted().routeChecks).toEqual({ development: 'development-check' });
+
+    expect(submitted()).toMatchObject({
+      replacementToken: 'replacement-token',
+      dynamicRoutes: [],
+      defaultRoute: { route: '', reasoning: 'off' },
+      routeContextWindows: {},
+      groupRouting: [],
+      fallbackRouting: { enabled: false },
+    });
     expect(api.start).not.toHaveBeenCalled();
   });
 

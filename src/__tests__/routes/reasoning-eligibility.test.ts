@@ -168,6 +168,27 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(observedProviderUrls.every((url) => url.includes('/compat/chat/completions'))).toBe(true);
   });
 
+  it('REQ-ENTERPRISE-055: accepts a disabled native provider target before routes or access policies exist', async () => {
+    const f = setup();
+    const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      gatewayUrl: accountApiUrl,
+      gatewayId: 'gateway',
+      dynamicRoutes: [],
+      defaultRoute: { route: '', reasoning: 'off' },
+      routeContextWindows: {},
+      groupRouting: [],
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} },
+      nativeTargets: [{ label: 'Claude draft', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: false }],
+      nativeChecks: {},
+    }));
+
+    expect(validated.fieldErrors).toBeUndefined();
+    expect(parseNativeAiTargets(validated.values?.nativeTargets).targets).toMatchObject([
+      { label: 'Claude draft', provider: 'aws-bedrock', enabled: false },
+    ]);
+    expect(f.kv.put).not.toHaveBeenCalled();
+  });
+
   it('REQ-ENTERPRISE-055: rejects invalid native target data before any routing write', async () => {
     const f = setup();
     const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
@@ -704,10 +725,11 @@ describe('REQ-ENTERPRISE-044 minimum routing and optional fallback', () => {
     expect(saved.routeAssignments.working.verification).toEqual(checked.verification);
     expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toEqual(['working']);
   });
-  it('requires a group assignment rather than fallback alone', async () => {
+  it('accepts verified fallback access without requiring a group policy', async () => {
     const f = setup(); const body = await (await f.check()).json() as any;
     const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ routeChecks: { working: body.checkId }, groupRouting: [], fallbackRouting: { enabled: true, routes: ['working'], defaultRoute: 'working', reasoning: 'off' } }));
-    expect(result.values).toBeUndefined();
+    expect(result.fieldErrors).toBeUndefined();
+    expect(result.values?.dynamicRoutes).toEqual(['working']);
   });
   it('disabled fallback denies unmatched users and enabled fallback exposes only its allowed verified subset', async () => {
     const f = setup(); await activate(f);
@@ -730,10 +752,16 @@ describe('REQ-ENTERPRISE-044 minimum routing and optional fallback', () => {
     expect((await loadEnterpriseRouteConfig(f.env, ['deny', 'engineering'])).routeCatalog).toEqual([]);
     expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toEqual(['working']);
   });
-  it('cannot Save deny-only groups without a nonempty working group', async () => {
+  it('saves an explicit deny-only group without requiring a working group', async () => {
     const f = setup();
-    const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ groupRouting: [{ accessGroup: 'deny', routes: [], defaultRoute: '', reasoning: 'off' }] }));
-    expect(result.values).toBeUndefined();
+    const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      dynamicRoutes: [], defaultRoute: { route: '', reasoning: 'off' }, routeContextWindows: {},
+      groupRouting: [{ accessGroup: 'deny', routes: [], defaultRoute: '', reasoning: 'off' }],
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} },
+    }));
+    expect(result.fieldErrors).toBeUndefined();
+    await executeConfigurationTask(f.env, 'configure_model_routing', result.values!, { mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 1 });
+    expect(JSON.parse(f.kv._store.get(SETUP_KEYS.GROUP_ROUTING)!)).toEqual({ deny: { routes: [], defaultRoute: '', reasoning: 'off' } });
   });
   it('does not fall through from the first matching policy when its routes become ineligible', async () => {
     const f = setup(); await activate(f);

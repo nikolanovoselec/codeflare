@@ -104,7 +104,7 @@ const aiRoutingSchema = z.object({
   gatewayId: z.union([dynamicRouteSchema, z.literal('')]).default(''),
   replacementToken: gatewayDraftSchema.shape.replacementToken.default(''),
   dynamicRoutes: z.array(dynamicRouteSchema).max(256),
-  defaultRoute: z.object({ route: policyTargetSchema, reasoning }).strict(),
+  defaultRoute: z.object({ route: z.union([policyTargetSchema, z.literal('')]), reasoning }).strict(),
   routeContextWindows: z.record(z.string(), z.unknown()),
   routeReasoningProfiles: z.record(name, z.string().max(64)).optional(),
   reasoningConfiguration: z.unknown().optional(),
@@ -117,7 +117,7 @@ const aiRoutingSchema = z.object({
     routes: z.array(policyTargetSchema),
     defaultRoute: z.union([policyTargetSchema, z.literal('')]),
     reasoning,
-  }).strict()).min(1),
+  }).strict()),
 }).strict().superRefine((value, context) => {
   if (parseGatewayUrl(value.gatewayUrl)?.kind === 'account-api' && !value.gatewayId) {
     context.addIssue({ code: 'custom', message: 'AI Gateway name is required for an account API URL', path: ['gatewayId'] });
@@ -128,7 +128,7 @@ const aiRoutingSchema = z.object({
   }
   const policyModels = [...new Set([...value.groupRouting.flatMap((group) => group.routes), ...(value.fallbackRouting.enabled ? value.fallbackRouting.routes : [])])];
   const activeRoutes = policyModels.filter((route) => !nativeHandles.has(route));
-  if (!policyModels.includes(value.defaultRoute.route)) {
+  if (value.defaultRoute.route && !policyModels.includes(value.defaultRoute.route)) {
     context.addIssue({ code: 'custom', message: 'Default model must be in the active policy catalog', path: ['defaultRoute', 'route'] });
   }
   if (value.reasoningConfiguration === undefined && activeRoutes.some((route) => !value.routeReasoningProfiles?.[route])) {
@@ -136,9 +136,6 @@ const aiRoutingSchema = z.object({
   }
   if (activeRoutes.some((route) => !dynamicRouteSchema.safeParse(route).success || !z.number().int().positive().safeParse(value.routeContextWindows[route]).success)) {
     context.addIssue({ code: 'custom', message: 'Every active dynamic route requires a valid handle and positive context window', path: ['routeContextWindows'] });
-  }
-  if (!value.groupRouting.some((group) => group.routes.length > 0)) {
-    context.addIssue({ code: 'custom', message: 'At least one group requires a working route', path: ['groupRouting'] });
   }
   for (const [index, group] of value.groupRouting.entries()) {
     if (group.routes.length === 0) {
@@ -372,7 +369,7 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
   if (dynamicRoutes.some((route) => !configuration.routeAssignments[route])) throw new Error('Every active route requires an exact profile assignment');
   configuration = { ...configuration, fallbackRouting: values.fallbackRouting as FallbackRouting };
   const validateDefault = (scope: string, route: string, level: string): void => {
-    if (nativeHandles.has(route)) return;
+    if (!route || nativeHandles.has(route)) return;
     const profile = getRouteReasoningProfile(configuration, route);
     if (profile.reasoningMode === 'provider-default') return;
     if (!profile.supportedLevels.includes(level as never)) throw new Error(`${scope} default reasoning level is not mapped by its default route profile`);

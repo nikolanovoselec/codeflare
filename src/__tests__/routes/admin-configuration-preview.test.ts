@@ -116,6 +116,36 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     expect(kv.delete).not.toHaveBeenCalled();
   });
 
+  it('accepts an AI Gateway connection before routes or access policies exist', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'saved-token' });
+
+    const response = await post(app, {
+      section: 'aiRouting',
+      baseRevision: 0,
+      values: {
+        gatewayUrl: routingGatewayUrl,
+        replacementToken: '',
+        dynamicRoutes: [],
+        defaultRoute: { route: '', reasoning: 'off' },
+        routeContextWindows: {},
+        reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} },
+        fallbackRouting: { enabled: false },
+        groupRouting: [],
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      section: 'aiRouting',
+      tasks: [
+        { id: 'configure_ai_gateway' },
+        { id: 'configure_model_routing' },
+      ],
+    });
+    expect(kv.put).not.toHaveBeenCalled();
+    expect(kv.delete).not.toHaveBeenCalled();
+  });
+
   it('normalizes an Access aggregate and expands only Access work', async () => {
     const { app, kv } = createApp();
 

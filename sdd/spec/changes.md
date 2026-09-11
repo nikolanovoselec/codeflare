@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-11
 
+- **Enterprise AI Gateway setup saves before access assignment** ([REQ-ENTERPRISE-044](enterprise-mode.md#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies) AC1/AC7 amended; remains Implemented). A checked connection and disabled native-provider drafts can reach Review and Save without Dynamic Routes, group policies, or fallback access. Empty policy state is now valid at both browser and authoritative validation boundaries, while enabled fallback and route activation retain their existing readiness checks. The connection form gives compact space to URL format and gateway name, reserving primary width for the URL and replacement token.
+
 - **Multiview reconnect handoff preserves pane dimensions** ([REQ-TERM-016](terminal.md#req-term-016-terminal-pane-reconnect-and-resize-authority) AC7 added; remains Implemented). A replacement pane that connects before the old socket closes retains its fitted dimensions without stealing authority, then applies them to the PTY and headless reconnect state when authority transfers instead of retaining the departed owner's dimensions.
 
 - **Impeccable 4.3.1 refresh uses its reviewed native engine** ([REQ-AGENT-181](agents.md#req-agent-181-design-specialist-compatibility) constraint amended; remains Implemented). The vendored Claude and Pi skill trees move to 4.3.1 with image engine 0.1.5; refresh recognizes the native layout, skips the retired JavaScript-server overlay, and rejects unknown skill/engine combinations before mutating targets.
