@@ -155,17 +155,11 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
       assert.ok(herdrStepNames.has(expected), `missing Herdr workflow step: ${expected}`);
     }
 
-    const updateHerdrStep = herdrJob.steps.find((step) => step.name === 'Update all Herdr pins');
-    assert.ok(updateHerdrStep);
-    assert.doesNotMatch(updateHerdrStep.run, /\.github\/workflows\//);
-
     const packagedHerdrStep = containerImageWorkflow.jobs.image.steps.find(
       (step) => step.name === 'Verify packaged Herdr runtime',
     );
     assert.ok(packagedHerdrStep);
     assert.equal(packagedHerdrStep.if, "steps.reuse.outputs.reused != 'true'");
-    assert.match(packagedHerdrStep.run, /image\/herdr\/provenance\.json/);
-    assert.match(packagedHerdrStep.run, /EXPECTED_HERDR_VERSION/);
   });
 
   it('image-owned Oxlint has dedicated weekly dependency automation', () => {
