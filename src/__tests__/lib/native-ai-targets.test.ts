@@ -73,7 +73,7 @@ describe('native AI targets', () => {
     expect(nativeTargetHandle(target.id)).toBe('cf-native-11111111-1111-4111-8111-111111111111');
   });
 
-  it('keeps browser and API draft validation aligned for defaults and unknown fields', () => {
+  it('REQ-ENTERPRISE-066: keeps browser and API draft validation aligned for defaults and unknown fields', () => {
     const draft = { label: 'Legacy Bedrock draft', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef, enabled: false };
     expect(nativeTargetDraftShapeValid(draft)).toBe(true);
     expect(nativeTargetDraftSchema.safeParse(draft).success).toBe(true);
