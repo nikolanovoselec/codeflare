@@ -450,9 +450,12 @@ const AiRoutingFields: Component<Props> = (props) => {
   const submittedFallback = (): FallbackRouting => connectionDraft()
     ? fallbackEnabled() ? { enabled: true, ...fallbackPolicy() } : { enabled: false }
     : fallbackRouting();
-  const submittedNames = () => connectionDraft()
-    ? [...new Set([...groups().flatMap((group) => group.routes), ...(fallbackEnabled() ? fallbackPolicy().routes : [])])]
-    : activeNames().filter((name) => gatewayRoutes().includes(name));
+  const submittedNames = () => {
+    if (!connectionDraft()) return activeNames().filter((name) => gatewayRoutes().includes(name));
+    const nativeNames = new Set(nativeTargets().map(nativeHandle).filter(Boolean));
+    return [...new Set([...groups().flatMap((group) => group.routes), ...(fallbackEnabled() ? fallbackPolicy().routes : [])])]
+      .filter((name) => !nativeNames.has(name));
+  };
   const compatibilityDefault = () => connectionDraft()
     ? fallbackEnabled() && fallbackPolicy().routes.length ? fallbackPolicy() : groups().find((group) => group.routes.length > 0)
     : fallbackEnabled() && normalizedFallback().routes.length ? normalizedFallback() : activeGroups()[0];

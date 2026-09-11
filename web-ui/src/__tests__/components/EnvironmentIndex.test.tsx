@@ -409,6 +409,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     const expected = expect.objectContaining({
       gatewayUrl: 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/',
       gatewayId: 'gateway', replacementToken: 'rotated-token',
+      dynamicRoutes: [],
       nativeTargets: [expect.objectContaining({ id: targetId, enabled: true })],
       groupRouting: [{ accessGroup: 'developers', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
     });
