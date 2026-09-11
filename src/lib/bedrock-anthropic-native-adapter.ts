@@ -274,6 +274,7 @@ async function adaptEventstream(response: Response, state: BedrockReplayState): 
         frameBuffer = concat(frameBuffer, chunk);
         const parsed = parseFrames(frameBuffer); frameBuffer = parsed.remainder;
         for (const event of parsed.events) {
+        if (sawStop) throw new Error('Bedrock eventstream data follows message_stop');
         if (event.type === 'message_start' && plain(event.message)) {
           if (typeof event.message.id === 'string') id = event.message.id;
           if (typeof event.message.model === 'string') model = event.message.model;
@@ -309,8 +310,6 @@ async function adaptEventstream(response: Response, state: BedrockReplayState): 
         } else if (event.type === 'message_stop') {
           sawStop = true;
           await persistReplay([...blocks.entries()].sort(([a], [b]) => a - b).map(([, block]) => block), state);
-          controller.enqueue(sse({ id, object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: {}, finish_reason: stopReason === 'tool_use' ? 'tool_calls' : 'stop' }], ...(openAiUsage(usage) && { usage: openAiUsage(usage) }) }));
-          controller.enqueue(sse('[DONE]'));
         }
         }
       } catch {
@@ -322,6 +321,8 @@ async function adaptEventstream(response: Response, state: BedrockReplayState): 
       try {
         if (frameBuffer.length) throw new Error('Truncated Bedrock eventstream frame');
         if (!sawStop) throw new Error('Incomplete Bedrock eventstream');
+        controller.enqueue(sse({ id, object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: {}, finish_reason: stopReason === 'tool_use' ? 'tool_calls' : 'stop' }], ...(openAiUsage(usage) && { usage: openAiUsage(usage) }) }));
+        controller.enqueue(sse('[DONE]'));
       } catch {
         emitTerminalError(controller);
       }

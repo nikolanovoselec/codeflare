@@ -54,7 +54,7 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     expect(profile).toMatchObject({ id: 'bedrock-anthropic-compat', name: 'AWS Bedrock · Anthropic Claude', reasoningMode: 'provider-default', supportedLevels: [], levels: {}, validatedTransports: ['compat'] });
     expect((profile as unknown as Record<string, unknown>)?.thinkingLevelMap).toBeUndefined();
   });
-  it('REQ-ENTERPRISE-072: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High', () => {
+  it('REQ-ENTERPRISE-072/078: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High', () => {
     const sonnet = profiles.getBuiltInProfile('bedrock-anthropic-native-sonnet')!;
     const opusStream = profiles.getBuiltInProfile('bedrock-anthropic-native-opus-stream')!;
     const opusInvoke = profiles.getBuiltInProfile('bedrock-anthropic-native-opus-invoke')!;

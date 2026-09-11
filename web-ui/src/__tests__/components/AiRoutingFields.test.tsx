@@ -171,7 +171,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Behavioral fixtures are execution-pending; CI owns RED/GREEN verification.
 describe('Structured AI routing', () => {
-  it('REQ-ENTERPRISE-072: binds native Bedrock transport and region to the evidence-backed profile draft', async () => {
+  it('REQ-ENTERPRISE-075: binds native Bedrock transport and region to the evidence-backed profile draft', async () => {
     const view = mount();
     await addNativeTarget(view);
     const article = view.getByRole('article', { name: 'New native target' });

@@ -37,7 +37,7 @@ function eventstreamFrame(payload: unknown): Uint8Array {
 }
 
 describe('Bedrock Anthropic native adapter', () => {
-  it('REQ-ENTERPRISE-073: builds the region-scoped provider-native transport path', () => {
+  it('REQ-ENTERPRISE-077: builds the region-scoped provider-native transport path', () => {
     expect(bedrockAnthropicGatewayPath('eu-central-1', 'eu.anthropic.claude-sonnet-5', 'eventstream')).toBe(
       '/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-sonnet-5/invoke-with-response-stream',
     );
@@ -48,7 +48,7 @@ describe('Bedrock Anthropic native adapter', () => {
     expect(selectBedrockAnthropicTransport('eventstream', true)).toBe('invoke');
   });
 
-  it('REQ-ENTERPRISE-073: translates OpenAI tools and restores the exact server-held signed assistant blocks', async () => {
+  it('REQ-ENTERPRISE-073/076: translates OpenAI tools and restores the exact server-held signed assistant blocks', async () => {
     const signed = [
       { type: 'thinking', thinking: '', signature: 'opaque-signed-state' },
       { type: 'tool_use', id: 'call_1', name: 'lookup', input: { q: 'x' } },
@@ -99,7 +99,7 @@ describe('Bedrock Anthropic native adapter', () => {
     }, replay)).rejects.toThrow('does not match');
   });
 
-  it('REQ-ENTERPRISE-073: fails closed when a thinking-enabled tool replay has no server-held signed state', async () => {
+  it('REQ-ENTERPRISE-079: fails closed when a thinking-enabled tool replay has no server-held signed state', async () => {
     await expect(buildBedrockAnthropicRequest({
       thinking: { type: 'adaptive' }, output_config: { effort: 'low' },
       messages: [
@@ -109,7 +109,7 @@ describe('Bedrock Anthropic native adapter', () => {
     }, state())).rejects.toThrow('signed thinking state');
   });
 
-  it('REQ-ENTERPRISE-073: converts Invoke responses and stores signed thinking without exposing it downstream', async () => {
+  it('REQ-ENTERPRISE-076/079: converts Invoke responses and stores signed thinking without exposing it downstream', async () => {
     const replay = state();
     const upstream = new Response(JSON.stringify({
       id: 'msg_1', model: 'claude', role: 'assistant',
@@ -132,7 +132,7 @@ describe('Bedrock Anthropic native adapter', () => {
     ]);
   });
 
-  it('REQ-ENTERPRISE-073: decodes eventstream blocks into OpenAI SSE and stores exact signed replay state', async () => {
+  it('REQ-ENTERPRISE-073/076: decodes eventstream blocks into OpenAI SSE and stores exact signed replay state', async () => {
     const replay = state();
     const events = [
       { type: 'message_start', message: { id: 'msg_stream', model: 'claude', usage: { input_tokens: 2 } } },
@@ -166,13 +166,35 @@ describe('Bedrock Anthropic native adapter', () => {
   it.each([
     ['invalid frame checksum', (() => { const frame = eventstreamFrame({ type: 'message_stop' }); frame[frame.length - 1] ^= 1; return [frame]; })(), state()],
     ['truncated frame', [eventstreamFrame({ type: 'message_start', message: { id: 'msg' } }).subarray(0, 15)], state()],
-    ['replay persistence failure', [eventstreamFrame({ type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'call_1', name: 'lookup', input: {} } }), eventstreamFrame({ type: 'content_block_stop', index: 0 }), eventstreamFrame({ type: 'message_stop' })], { load: vi.fn(), save: vi.fn(async () => { throw new Error('storage unavailable'); }) }],
-  ])('REQ-ENTERPRISE-073: emits a terminal SSE error for %s', async (_label, chunks, replay) => {
+    ['replay persistence failure', [eventstreamFrame({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '', signature: 'opaque-state' } }), eventstreamFrame({ type: 'content_block_stop', index: 0 }), eventstreamFrame({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'call_1', name: 'lookup', input: {} } }), eventstreamFrame({ type: 'content_block_stop', index: 1 }), eventstreamFrame({ type: 'message_stop' })], { load: vi.fn(), save: vi.fn(async () => { throw new Error('storage unavailable'); }) }],
+  ])('REQ-ENTERPRISE-080: emits a terminal SSE error for %s', async (_label, chunks, replay) => {
     const body = new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks as Uint8Array[]) controller.enqueue(chunk); controller.close(); } });
     const response = await adaptBedrockAnthropicResponse(new Response(body), 'eventstream', replay as BedrockReplayState);
     const text = await response.text();
     expect(text).toContain('"error"');
     expect(text).toContain('NATIVE_BEDROCK_STREAM_ERROR');
     expect(text).toContain('data: [DONE]');
+  });
+
+  it('REQ-ENTERPRISE-080: rejects trailing corruption before emitting a successful stream terminator', async () => {
+    const corrupt = eventstreamFrame({ type: 'message_start', message: { id: 'trailing' } });
+    corrupt[corrupt.length - 1] ^= 1;
+    const chunks = [eventstreamFrame({ type: 'message_stop' }), corrupt];
+    const body = new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) controller.enqueue(chunk); controller.close(); } });
+    const text = await (await adaptBedrockAnthropicResponse(new Response(body), 'eventstream', state())).text();
+    expect(text).toContain('NATIVE_BEDROCK_STREAM_ERROR');
+    expect(text).not.toContain('"finish_reason":"stop"');
+    expect(text.match(/data: \[DONE\]/g)).toHaveLength(1);
+  });
+
+  it('REQ-ENTERPRISE-079: never logs signed-thinking replay state', async () => {
+    const spies = [vi.spyOn(console, 'log').mockImplementation(() => undefined), vi.spyOn(console, 'warn').mockImplementation(() => undefined), vi.spyOn(console, 'error').mockImplementation(() => undefined)];
+    const replay = state();
+    const upstream = new Response(JSON.stringify({ content: [
+      { type: 'thinking', thinking: '', signature: 'private-signed-state' },
+      { type: 'tool_use', id: 'call_1', name: 'lookup', input: {} },
+    ], stop_reason: 'tool_use' }));
+    await adaptBedrockAnthropicResponse(upstream, 'invoke', replay);
+    expect(JSON.stringify(spies.flatMap((spy) => spy.mock.calls))).not.toContain('private-signed-state');
   });
 });

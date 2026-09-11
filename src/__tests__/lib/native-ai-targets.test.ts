@@ -101,7 +101,7 @@ describe('native AI targets', () => {
     expect(() => createNativeTarget({ label: 'Small', model: 'valid.model', contextWindow: 16384, providerConfigId: 'raw-provider', profileRef })).toThrow();
   });
 
-  it('REQ-ENTERPRISE-072: binds provider-native Bedrock profiles to the validated model, region, and transport', () => {
+  it('REQ-ENTERPRISE-074: binds provider-native Bedrock profiles to the validated model, region, and transport', () => {
     const sonnetRef = getBuiltInProfileRef('bedrock-anthropic-native-sonnet');
     const native = createNativeTarget({ label: 'Native Sonnet', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000,
       providerConfigId: 'raw-provider', profileRef: sonnetRef, transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1' });

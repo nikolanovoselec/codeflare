@@ -806,27 +806,23 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-### REQ-ENTERPRISE-072: Provider-native Bedrock Administration
+### REQ-ENTERPRISE-072: Provider-native Bedrock Reasoning Profiles
 
-**Intent:** Administrators configure evidence-backed AWS Bedrock Claude profiles without changing existing compatibility targets or Dynamic Routes.
+**Intent:** Evidence-backed Bedrock Claude profiles expose only validated Pi reasoning levels and upward aliases.
 
-**Applies To:** Admin
+**Applies To:** System
 
 **Acceptance Criteria:**
 
-1. Native-target identity binds the exact Bedrock model, AWS region, profile revision, and either Invoke or eventstream transport. <!-- @impl: src/lib/native-ai-targets.ts::createNativeTarget --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-072: binds provider-native Bedrock profiles to the validated model, region, and transport) -->
-2. Existing compatibility targets retain their compatibility transport and reject a region. <!-- @impl: src/lib/native-ai-targets.ts::createNativeTarget --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-072: binds provider-native Bedrock profiles to the validated model, region, and transport) -->
-3. The native Sonnet profile exposes every Pi level using validated Minimal→Low and XHigh/Max→High aliases. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-072: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High) -->
-4. The native Opus eventstream profile exposes Off through High with Minimal→Low. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-072: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High) -->
-5. The separate native Opus Invoke profile exposes distinct XHigh and Max controls. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-072: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High) -->
-6. Administration offers the exact evidence-backed profile without a paid discovery probe. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-072: offers evidence-backed native Bedrock profiles without a paid probe and requires explicit administrator confirmation) -->
-7. Provider-native target authority requires explicit administrator confirmation and the interface does not offer unsupported live verification. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-072: binds native Bedrock transport and region to the evidence-backed profile draft) -->
+1. The native Sonnet profile exposes every Pi level using validated Minimal→Low and XHigh/Max→High aliases. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-072/078: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High) -->
+2. The native Opus eventstream profile exposes Off through High with Minimal→Low. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-072/078: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High) -->
+3. The separate native Opus Invoke profile exposes distinct XHigh and Max controls. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-072/078: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High) -->
 
-**Constraints:** Unsupported levels never map downward. Native evidence never changes Dynamic Route or compatibility behavior, and Administration performs no provider fallback or paid retry.
+**Constraints:** Native profile evidence changes neither Dynamic Route nor compatibility behavior.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement)
+**Dependencies:** [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog)
 
 **Verification:** Anchored behavioral fixtures and CI.
 
@@ -834,27 +830,193 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
-### REQ-ENTERPRISE-073: Provider-native Bedrock Worker Transport
+### REQ-ENTERPRISE-073: Provider-native Bedrock Replay Integrity
 
-**Intent:** The Worker carries provider-native Bedrock tool calls and signed-thinking continuations without exposing confidential replay state.
+**Intent:** Signed-thinking continuation state remains bounded, confidential at rest, conversation-isolated, and bound to its authentic tool call.
 
 **Applies To:** Worker
 
 **Acceptance Criteria:**
 
-1. Runtime translates OpenAI Chat Completions messages and tools to the Bedrock Anthropic request contract. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: translates OpenAI tools and restores the exact server-held signed assistant blocks) -->
-2. An initial request uses its configured region-scoped Invoke or eventstream operation exactly once. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::bedrockAnthropicGatewayPath --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: builds the region-scoped provider-native transport path) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-073: dispatches provider-native Bedrock Invoke with exact reasoning controls and hides signed replay state) -->
-3. A signed continuation for an eventstream profile uses non-streaming Invoke. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::selectBedrockAnthropicTransport --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: builds the region-scoped provider-native transport path) -->
-4. Runtime translates Invoke and eventstream responses back to Pi's OpenAI protocol. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: converts Invoke responses and stores signed thinking without exposing it downstream) --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: decodes eventstream blocks into OpenAI SSE and stores exact signed replay state) -->
-5. Signed-thinking state is bounded, confidential at rest, isolated by authenticated user and session, and restored only when the complete assistant tool-call identity matches. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest --> <!-- @impl: src/llm-interceptor.ts::nativeReplayStateKey --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: fails closed when signed replay does not match the tool name and arguments) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-073: isolates native replay keys by authenticated user and session) -->
-6. Signed-thinking state is omitted from downstream responses and logs. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: converts Invoke responses and stores signed thinking without exposing it downstream) -->
-7. Missing or mismatched replay state fails before provider I/O, while an eventstream decoding or persistence failure emits a terminal protocol error. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: fails closed when a thinking-enabled tool replay has no server-held signed state) --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: emits a terminal SSE error for invalid frame checksum) -->
+1. Signed-thinking replay state is bounded. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::cloneBlocks --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073/076: translates OpenAI tools and restores the exact server-held signed assistant blocks) -->
+2. Signed-thinking replay state remains confidential at rest. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-073/077: dispatches provider-native Bedrock Invoke with exact reasoning controls and hides signed replay state) -->
+3. Replay state is isolated by authenticated user and bound session. <!-- @impl: src/llm-interceptor.ts::nativeReplayStateKey --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-073: isolates native replay keys by authenticated user and session) -->
+4. Replay state is restored only when the complete assistant tool-call identity matches. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::assistantContent --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: fails closed when signed replay does not match the tool name and arguments) -->
 
-**Constraints:** Requests above a profile's highest validated level fail closed. Runtime performs no provider fallback or paid retry.
+**Constraints:** Replay state is never supplied by an untrusted client.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-059](#req-enterprise-059-native-provider-wire-adaptation), [REQ-ENTERPRISE-072](#req-enterprise-072-provider-native-bedrock-administration)
+**Dependencies:** [REQ-ENTERPRISE-059](#req-enterprise-059-native-provider-wire-adaptation)
+
+**Verification:** Anchored behavioral fixtures and CI.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-074: Provider-native Bedrock Target Identity
+
+**Intent:** Administrators bind each provider-native Bedrock target to its exact validated identity without migrating compatibility targets.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Native-target identity binds the exact Bedrock model, AWS region, profile revision, and Invoke or eventstream transport. <!-- @impl: src/lib/native-ai-targets.ts::createNativeTarget --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-074: binds provider-native Bedrock profiles to the validated model, region, and transport) -->
+2. Existing compatibility targets retain their compatibility transport. <!-- @impl: src/lib/native-ai-targets.ts::createNativeTarget --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-074: binds provider-native Bedrock profiles to the validated model, region, and transport) -->
+3. Compatibility targets reject a region. <!-- @impl: src/lib/native-ai-targets.ts::createNativeTarget --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-074: binds provider-native Bedrock profiles to the validated model, region, and transport) -->
+
+**Constraints:** Existing compatibility targets are not migrated automatically.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog)
+
+**Verification:** Anchored behavioral fixtures and CI.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-075: Provider-native Bedrock Administration Authority
+
+**Intent:** Administrators select evidence-backed native Bedrock profiles and explicitly confirm target authority without an unsupported paid check.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Administration offers the exact evidence-backed profile for a supported native Bedrock target. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-075: offers evidence-backed native Bedrock profiles without a paid probe and requires explicit administrator confirmation) -->
+2. Offering an evidence-backed native profile performs no paid discovery probe. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-075: offers evidence-backed native Bedrock profiles without a paid probe and requires explicit administrator confirmation) -->
+3. Provider-native target authority requires explicit administrator confirmation. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-075: offers evidence-backed native Bedrock profiles without a paid probe and requires explicit administrator confirmation) -->
+4. The interface does not offer unsupported live verification for provider-native targets. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-075: binds native Bedrock transport and region to the evidence-backed profile draft) -->
+
+**Constraints:** Administration performs no provider fallback or paid retry.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-074](#req-enterprise-074-provider-native-bedrock-target-identity)
+
+**Verification:** Anchored behavioral fixtures and CI.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-076: Provider-native Bedrock Protocol Translation
+
+**Intent:** Provider-native Bedrock requests and responses preserve Pi's OpenAI tool-calling protocol.
+
+**Applies To:** Worker
+
+**Acceptance Criteria:**
+
+1. Runtime translates OpenAI Chat Completions messages and tools to the Bedrock Anthropic request contract. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073/076: translates OpenAI tools and restores the exact server-held signed assistant blocks) -->
+2. Runtime translates Invoke responses back to Pi's OpenAI protocol. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-076/079: converts Invoke responses and stores signed thinking without exposing it downstream) -->
+3. Runtime translates eventstream responses back to Pi's OpenAI protocol. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073/076: decodes eventstream blocks into OpenAI SSE and stores exact signed replay state) -->
+
+**Constraints:** Provider-signed state remains outside the translated client protocol.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-059](#req-enterprise-059-native-provider-wire-adaptation), [REQ-ENTERPRISE-073](#req-enterprise-073-provider-native-bedrock-replay-integrity)
+
+**Verification:** Anchored behavioral fixtures and CI.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-077: Provider-native Bedrock Transport Dispatch
+
+**Intent:** The Worker invokes exactly the configured provider-native Bedrock operation and uses the validated continuation transport.
+
+**Applies To:** Worker
+
+**Acceptance Criteria:**
+
+1. An initial Invoke request calls its configured region-scoped operation exactly once. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::bedrockAnthropicGatewayPath --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-073/077: dispatches provider-native Bedrock Invoke with exact reasoning controls and hides signed replay state) -->
+2. An initial eventstream request calls its configured region-scoped operation exactly once. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::bedrockAnthropicGatewayPath --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-077: builds the region-scoped provider-native transport path) -->
+3. A signed continuation for an eventstream profile uses non-streaming Invoke. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::selectBedrockAnthropicTransport --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-077: builds the region-scoped provider-native transport path) -->
+4. A failed provider-native request causes no fallback or paid retry. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-073/077: dispatches provider-native Bedrock Invoke with exact reasoning controls and hides signed replay state) -->
+
+**Constraints:** Each logical request selects one provider operation.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-073](#req-enterprise-073-provider-native-bedrock-replay-integrity), [REQ-ENTERPRISE-074](#req-enterprise-074-provider-native-bedrock-target-identity)
+
+**Verification:** Anchored behavioral fixtures and CI.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-078: Provider-native Bedrock Level Enforcement
+
+**Intent:** Provider-native Bedrock requests use upward-only fallback and reject levels above validated profile authority.
+
+**Applies To:** Worker
+
+**Acceptance Criteria:**
+
+1. An unsupported requested level maps only to the next higher supported level. <!-- @impl: src/lib/reasoning-profiles.ts::translateReasoningRequest --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-072/078: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High) -->
+2. A request above the profile's highest validated level fails before provider I/O. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-078: rejects Opus eventstream levels above High before provider I/O) -->
+
+**Constraints:** Downward fallback is forbidden.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-072](#req-enterprise-072-provider-native-bedrock-reasoning-profiles)
+
+**Verification:** Anchored behavioral fixtures and CI.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-079: Provider-native Bedrock Replay Confidentiality
+
+**Intent:** Signed-thinking continuation state is never exposed and unavailable state fails closed.
+
+**Applies To:** Worker
+
+**Acceptance Criteria:**
+
+1. Signed-thinking state is omitted from downstream responses. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-076/079: converts Invoke responses and stores signed thinking without exposing it downstream) -->
+2. Signed-thinking state is omitted from logs. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-079: never logs signed-thinking replay state) -->
+3. Missing or mismatched replay state fails before provider I/O. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-079: fails closed when a thinking-enabled tool replay has no server-held signed state) -->
+
+**Constraints:** Failure responses contain no signed state.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-073](#req-enterprise-073-provider-native-bedrock-replay-integrity)
+
+**Verification:** Anchored behavioral fixtures and CI.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-080: Provider-native Bedrock Stream Completion
+
+**Intent:** Eventstream responses report decoding and persistence failures before successful completion.
+
+**Applies To:** Worker
+
+**Acceptance Criteria:**
+
+1. Eventstream decoding failure emits a terminal protocol error instead of successful completion. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-080: emits a terminal SSE error for %s) -->
+2. Replay persistence failure emits a terminal protocol error instead of successful completion. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-080: emits a terminal SSE error for %s) -->
+3. A streamed success terminator is emitted only after clean upstream EOF. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-080: rejects trailing corruption before emitting a successful stream terminator) -->
+
+**Constraints:** The response remains streaming before its terminal event.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-076](#req-enterprise-076-provider-native-bedrock-protocol-translation)
 
 **Verification:** Anchored behavioral fixtures and CI.
 

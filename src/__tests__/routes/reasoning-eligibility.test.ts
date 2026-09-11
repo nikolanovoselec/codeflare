@@ -169,7 +169,7 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(observedProviderUrls.every((url) => url.includes('/compat/chat/completions'))).toBe(true);
   });
 
-  it('REQ-ENTERPRISE-072: offers evidence-backed native Bedrock profiles without a paid probe and requires explicit administrator confirmation', async () => {
+  it('REQ-ENTERPRISE-075: offers evidence-backed native Bedrock profiles without a paid probe and requires explicit administrator confirmation', async () => {
     const f = setup();
     const profileRef = getBuiltInProfileRef('bedrock-anthropic-native-opus-invoke');
     const target = { label: 'Native Opus', provider: 'aws-bedrock', model: 'eu.anthropic.claude-opus-5', contextWindow: 200000,
