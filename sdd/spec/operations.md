@@ -490,7 +490,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Container resource sizing is applied per the configured tier (low, default/saas, or high). <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 3. All tiers default to 10 concurrent instances; the cap is overridable per deployment. <!-- @manual -->
 4. The AI agent layer can be cache-busted on demand via a build variable so a fresh layer is rolled out without a full image rebuild. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
-5. Deployed containers explicitly enable authenticated Wrangler SSH access to running instances. <!-- @impl: wrangler.toml::containers.ssh --> <!-- @test: host/__tests__/deploy-requires-tests.test.js (explicitly enables authenticated SSH for running container instances) -->
+5. Source-controlled container configuration disables SSH and contains no authorized key. <!-- @impl: wrangler.toml::containers.ssh --> <!-- @test: host/__tests__/container-ssh-config.test.js (keeps SSH disabled when the repository secret is absent) -->
 
 **Constraints:**
 
@@ -1576,6 +1576,33 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-SUB-025](subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-OPS-056](#req-ops-056-non-destructive-d1-deployment-boundary)
 
 **Verification:** Automated optional-read, logging-config, and representative-load tests; polling and exception visibility evidence remains required from Integration before goal completion
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-058: Optional persistent container SSH authorization
+
+**Intent:** An operator may provision one repository-scoped break-glass SSH identity before an incident so a running container can be inspected without a diagnostic redeployment.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Source control contains no authorized public or private SSH key and defaults container SSH to disabled. <!-- @impl: wrangler.toml::containers.ssh --> <!-- @test: host/__tests__/container-ssh-config.test.js (keeps SSH disabled when the repository secret is absent) -->
+2. An absent `CONTAINER_SSH_PUBLIC_KEY` repository secret leaves SSH disabled and installs no authorized key for every deployment environment. <!-- @impl: scripts/ci/configure-container-ssh.mjs::configureContainerSsh --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-ssh-config.test.js (keeps SSH disabled when the repository secret is absent) -->
+3. A valid single-line Ed25519 public key enables SSH and installs exactly one fixed-name operator key in the deployment configuration. <!-- @impl: scripts/ci/configure-container-ssh.mjs::normalizeEd25519PublicKey --> <!-- @impl: scripts/ci/configure-container-ssh.mjs::configureContainerSsh --> <!-- @test: host/__tests__/container-ssh-config.test.js (enables SSH with exactly the validated repository public key) -->
+4. A malformed, whitespace-padded, multiline, non-Ed25519, or structurally invalid key fails before configuration mutation or Worker promotion without logging key material. <!-- @impl: scripts/ci/configure-container-ssh.mjs::normalizeEd25519PublicKey --> <!-- @test: host/__tests__/container-ssh-config.test.js (rejects malformed or non-Ed25519 keys without changing the config) -->
+5. Deployment receives only the public key; the corresponding private key remains under operator-controlled client custody and never enters source, Wrangler configuration, Worker bindings, or the deployment workflow. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-ssh-config.test.js (wires the repository secret into deployment before Worker promotion) -->
+6. Adding, rotating, or removing the authorized key requires a reviewed deployment, while later SSH connections to a running authorized instance require no configuration deployment. <!-- @manual -->
+
+**Constraints:** Cloudflare account write authorization and possession of the matching private key are independent connection requirements. SSH exposes no public container port.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image)
+
+**Verification:** Automated configuration mutation and pinned-Wrangler parse tests; manual connection and revocation evidence
 
 **Status:** Implemented
 

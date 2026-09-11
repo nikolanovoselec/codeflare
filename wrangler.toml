@@ -101,7 +101,7 @@ memory_mib = 3072
 disk_mb = 6000
 
 [containers.ssh]
-enabled = true
+enabled = false
 
 # Durable Objects binding for the container
 [[durable_objects.bindings]]
