@@ -268,7 +268,8 @@ describe('REQ-ENTERPRISE-035 actionable route discovery', () => {
     const body = await discover(app);
     expect(body).toMatchObject({ outcome: 'existing-profile', assignable: true });
     expect(body.matchedProfiles).toEqual(BUILT_IN_REASONING_PROFILES.filter((profile) => [
-      'openai-gpt-chat-tools-reasoning', 'openai-gpt-chat-tools-off', 'workers-ai-kimi-k-thinking', 'native-openai-compat',
+      'openai-gpt-chat-tools-reasoning', 'openai-gpt-chat-tools-off', 'workers-ai-kimi-k-thinking',
+      'dynamic-bedrock-anthropic-provider-default', 'native-openai-compat',
     ].includes(profile.id)).map((profile) => ({
       profileRef: { id: profile.id, revision: profile.revision, hash: profile.hash },
       name: profile.name, supportedLevels: profile.supportedLevels,
