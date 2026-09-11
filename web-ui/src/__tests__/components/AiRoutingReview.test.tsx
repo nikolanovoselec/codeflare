@@ -291,7 +291,7 @@ describe('AI routing review', () => {
     expect(screen.getByText(/Other backends remain untested/)).toBeVisible();
     await section('Access & fallback');
     expect(screen.getByRole('checkbox', { name: 'Platform engineers Dynamic Route - development route' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'Platform engineers production route' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Platform engineers Dynamic Route - production route' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Enable fallback access' })).not.toBeChecked();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled());
     await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));

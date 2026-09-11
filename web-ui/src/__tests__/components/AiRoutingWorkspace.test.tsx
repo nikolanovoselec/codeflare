@@ -155,7 +155,7 @@ describe('Administrator route workspace', () => {
     expect(view.getByLabelText('general_usage context window')).toHaveValue('200000');
     expect(api.discover).not.toHaveBeenCalled();
   });
-  it('REQ-ENTERPRISE-045: explains Pi compatibility and shows provider-aware profile choices', async () => {
+  it('REQ-ENTERPRISE-045: explains the tested provider basis without changing the active profile', async () => {
     const view = mount(); await ready(view); await openRoute(view, 'general_usage');
     expect(view.getByText(/translates Pi.*tool calling and reasoning/i)).toBeVisible();
     expect(within(view.getByRole('article', { name: 'general_usage route' })).getByText('Tested with Kimi through Workers AI.')).toBeVisible();

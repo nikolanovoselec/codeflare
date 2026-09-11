@@ -231,6 +231,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
       assert.ok(libvipsVersions.length > 0, 'sharp libvips platform packages must be represented in each affected lock');
       assert.ok(libvipsVersions.every((version) => atLeast(version, '1.3.3')));
     }
+    assert.ok(atLeast(rootLock.packages['node_modules/@emnapi/runtime'].version, '1.11.3'), 'sharp wasm runtime must satisfy the committed sharp tree');
 
     for (const lockfile of [rootLock, browserRunLock, npmToolsLock, piLock]) {
       const versions = versionsOf(lockfile, 'hono');

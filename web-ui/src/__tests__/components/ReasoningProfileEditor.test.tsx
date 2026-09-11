@@ -42,7 +42,7 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     expect(discoverMock).toHaveBeenCalledTimes(1);
     expect(view.onSave).not.toHaveBeenCalled();
   });
-  it('REQ-ENTERPRISE-045: matched predefined profiles identify their tested provider without changing the selected ref', async () => {
+  it('REQ-ENTERPRISE-045: matched predefined profiles preserve the exact selected reference', async () => {
     const profileRef = { id: 'codeflare-inference-mesh-binary-thinking', revision: 1, hash: 'a'.repeat(64) };
     discoverMock.mockResolvedValueOnce({ classification: 'Verified', assignable: true, outcome: 'existing-profile', matchedProfiles: [{ name: 'Mesh binary thinking', profileRef, supportedLevels: ['off', 'medium'] }] });
     const view = standalone();
