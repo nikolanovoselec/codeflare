@@ -210,8 +210,8 @@ describe('Structured AI routing', () => {
     expect(view.queryByText('Available for routing')).toBeNull();
     expect(formValues(view.container).nativeTargets.map((target: { enabled: boolean }) => target.enabled)).toEqual([true, false]);
     await openGroup(view, 'developers');
-    expect(view.getByRole('checkbox', { name: `developers cf-native-${readyId} route` })).toBeVisible();
-    expect(view.queryByRole('checkbox', { name: 'developers cf-native-33333333-3333-4333-8333-333333333333 route' })).toBeNull();
+    expect(view.getByRole('checkbox', { name: 'developers Amazon Bedrock · eu.anthropic.claude-sonnet-5 route' })).toBeVisible();
+    expect(view.queryByRole('checkbox', { name: 'developers Amazon Bedrock · eu.anthropic.claude-opus-5 route' })).toBeNull();
   });
 
   it('REQ-ENTERPRISE-056: presents native group assignments by provider and model while preserving their opaque handles', async () => {
@@ -241,7 +241,7 @@ describe('Structured AI routing', () => {
       enabled: true, verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true },
     }] });
     await openGroup(view, 'developers');
-    await fireEvent.click(view.getByRole('checkbox', { name: `developers cf-native-${targetId} route` }));
+    await fireEvent.click(view.getByRole('checkbox', { name: 'developers Amazon Bedrock · eu.anthropic.claude-sonnet-5 route' }));
     expect(formValues(view.container).groupRouting[0].routes).toContain(`cf-native-${targetId}`);
     expect(formValues(view.container).nativeTargets).toEqual([
       expect.objectContaining({ id: targetId, provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', enabled: true }),

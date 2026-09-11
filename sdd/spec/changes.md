@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-11
+
+- **Native access policies show provider-model labels** ([REQ-ENTERPRISE-056](enterprise-mode.md#req-enterprise-056-native-target-disclosure-and-readiness) AC5 added; remains Implemented). Group and fallback controls present each Ready native target by its provider and exact model while the existing opaque policy identity remains unchanged.
+
 ## 2026-09-10
 
 - **Bisync retains a fixed but practical bulk-deletion boundary** ([REQ-STOR-003](storage.md#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers) AC6 added and [REQ-OPS-010](operations.md#req-ops-010-graceful-container-shutdown-preserves-data) AC4 amended; remain Implemented). Baseline, periodic, manual, recovery, and final synchronization now permit up to 5,000 deletions per run so session-capture compaction and bulk workspace removals can converge without removing the fixed safety limit.
