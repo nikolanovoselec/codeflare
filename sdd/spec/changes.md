@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-11
 
-- **Persistent container SSH authorization is optional and repository-scoped** ([REQ-OPS-014](operations.md#req-ops-014-container-binding-and-scaling-from-image) AC5 amended; remains Implemented; [REQ-OPS-058](operations.md#req-ops-058-optional-persistent-container-ssh-authorization) added as Implemented). Source control disables SSH and contains no key; a validated `CONTAINER_SSH_PUBLIC_KEY` repository secret enables one operator identity across deployment environments while the private key remains under client-side operator custody.
+- **Persistent container SSH authorization is optional and repository-scoped** ([REQ-OPS-014](operations.md#req-ops-014-container-binding-and-scaling-from-image) AC5 amended; remains Implemented; [REQ-OPS-060](operations.md#req-ops-060-optional-persistent-container-ssh-authorization) added as Implemented). Source control disables SSH and contains no key; a validated `CONTAINER_SSH_PUBLIC_KEY` repository secret enables one operator identity across deployment environments when no same-name environment secret overrides it, while the private key remains under client-side operator custody.
 
 - **Monitoring never blocks the main coding session** ([REQ-AGENT-065](agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) AC7 added; remains Implemented). Claude and Pi use background agents or processes for CI, automated tests, deployments, and log tails; only approved safe local checks run in-session.
 

@@ -1581,7 +1581,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ---
 
-### REQ-OPS-058: Optional persistent container SSH authorization
+### REQ-OPS-060: Optional persistent container SSH authorization
 
 **Intent:** An operator may provision one repository-scoped break-glass SSH identity before an incident so a running container can be inspected without a diagnostic redeployment.
 
@@ -1589,12 +1589,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Source control contains no authorized public or private SSH key and defaults container SSH to disabled. <!-- @impl: wrangler.toml::containers.ssh --> <!-- @test: host/__tests__/container-ssh-config.test.js (keeps SSH disabled when the repository secret is absent) -->
-2. An absent `CONTAINER_SSH_PUBLIC_KEY` repository secret leaves SSH disabled and installs no authorized key for every deployment environment. <!-- @impl: scripts/ci/configure-container-ssh.mjs::configureContainerSsh --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-ssh-config.test.js (keeps SSH disabled when the repository secret is absent) -->
-3. A valid single-line Ed25519 public key enables SSH and installs exactly one fixed-name operator key in the deployment configuration. <!-- @impl: scripts/ci/configure-container-ssh.mjs::normalizeEd25519PublicKey --> <!-- @impl: scripts/ci/configure-container-ssh.mjs::configureContainerSsh --> <!-- @test: host/__tests__/container-ssh-config.test.js (enables SSH with exactly the validated repository public key) -->
-4. A malformed, whitespace-padded, multiline, non-Ed25519, or structurally invalid key fails before configuration mutation or Worker promotion without logging key material. <!-- @impl: scripts/ci/configure-container-ssh.mjs::normalizeEd25519PublicKey --> <!-- @test: host/__tests__/container-ssh-config.test.js (rejects malformed or non-Ed25519 keys without changing the config) -->
-5. Deployment receives only the public key; the corresponding private key remains under operator-controlled client custody and never enters source, Wrangler configuration, Worker bindings, or the deployment workflow. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-ssh-config.test.js (wires the repository secret into deployment before Worker promotion) -->
-6. Adding, rotating, or removing the authorized key requires a reviewed deployment, while later SSH connections to a running authorized instance require no configuration deployment. <!-- @manual -->
+1. Source-controlled container configuration starts with SSH disabled and no authorized key. <!-- @impl: wrangler.toml::containers.ssh --> <!-- @test: host/__tests__/container-ssh-config.test.js (keeps SSH disabled when the repository secret is absent) -->
+2. Without optional operator authorization, deployments keep SSH disabled and install no authorized identity. <!-- @impl: scripts/ci/configure-container-ssh.mjs::configureContainerSsh --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-ssh-config.test.js (keeps SSH disabled when the repository secret is absent) -->
+3. Valid shared public authorization enables exactly one fixed operator identity in each selected deployment. <!-- @impl: scripts/ci/configure-container-ssh.mjs::normalizeEd25519PublicKey --> <!-- @impl: scripts/ci/configure-container-ssh.mjs::configureContainerSsh --> <!-- @test: host/__tests__/container-ssh-config.test.js (enables SSH with exactly the validated repository public key) -->
+4. Invalid authorization material leaves deployment configuration unchanged and is not disclosed. <!-- @impl: scripts/ci/configure-container-ssh.mjs::normalizeEd25519PublicKey --> <!-- @test: host/__tests__/container-ssh-config.test.js (rejects malformed or non-Ed25519 keys without changing the config) -->
+5. Authorization configuration completes before Worker promotion. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-ssh-config.test.js (wires only the public key before Worker promotion) -->
+6. Deployment receives only public authorization material; the corresponding private credential remains under operator-controlled client custody. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-ssh-config.test.js (wires only the public key before Worker promotion) -->
+7. Changing the authorized identity requires a reviewed deployment, while later connections to a running authorized instance require no configuration deployment. <!-- @manual -->
 
 **Constraints:** Cloudflare account write authorization and possession of the matching private key are independent connection requirements. SSH exposes no public container port.
 

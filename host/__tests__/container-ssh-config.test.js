@@ -1,4 +1,4 @@
-// REQ-OPS-058: repository-scoped break-glass SSH is optional, validated,
+// REQ-OPS-060: repository-scoped break-glass SSH is optional, validated,
 // and applied only to the deployment copy of Wrangler configuration.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -29,6 +29,7 @@ function withTemporaryConfig(run) {
   const directory = mkdtempSync(join(tmpdir(), 'codeflare-container-ssh-'));
   const configPath = join(directory, 'wrangler.toml');
   writeFileSync(configPath, readFileSync(SOURCE_CONFIG));
+  writeFileSync(join(directory, 'Dockerfile'), 'FROM scratch\n');
   try {
     return run(configPath);
   } finally {
@@ -43,7 +44,7 @@ function configure(configPath, publicKey) {
   return spawnSync(process.execPath, [SCRIPT, configPath], { encoding: 'utf8', env });
 }
 
-describe('REQ-OPS-058: optional repository-scoped container SSH', () => {
+describe('REQ-OPS-060: optional repository-scoped container SSH', () => {
   it('keeps SSH disabled when the repository secret is absent', () =>
     withTemporaryConfig((configPath) => {
       const result = configure(configPath, undefined);
@@ -88,11 +89,19 @@ describe('REQ-OPS-058: optional repository-scoped container SSH', () => {
     }
   });
 
-  it('wires the repository secret into deployment before Worker promotion', () => {
+  it('wires only the public key before Worker promotion', () => {
     const workflow = parseYaml(readFileSync(join(ROOT, '.github', 'workflows', 'deploy.yml'), 'utf8'));
-    const step = workflow.jobs.deploy.steps.find((candidate) => candidate.name === 'Configure optional container SSH');
-    assert.ok(step, 'deploy workflow must configure optional container SSH');
-    assert.equal(step.env.CONTAINER_SSH_PUBLIC_KEY, '${{ secrets.CONTAINER_SSH_PUBLIC_KEY }}');
-    assert.equal(step.run, 'node scripts/ci/configure-container-ssh.mjs wrangler.toml');
+    const steps = workflow.jobs.deploy.steps;
+    const sshStepIndex = steps.findIndex((candidate) => candidate.name === 'Configure optional container SSH');
+    const deployStepIndex = steps.findIndex((candidate) => candidate.name === 'Deploy to Cloudflare');
+    assert.notEqual(sshStepIndex, -1, 'deploy workflow must configure optional container SSH');
+    assert.notEqual(deployStepIndex, -1, 'deploy workflow must promote the Worker');
+    assert.ok(sshStepIndex < deployStepIndex, 'SSH configuration must precede Worker promotion');
+
+    const sshStep = steps[sshStepIndex];
+    assert.deepEqual(sshStep.env, {
+      CONTAINER_SSH_PUBLIC_KEY: '${{ secrets.CONTAINER_SSH_PUBLIC_KEY }}',
+    });
+    assert.equal(sshStep.run, 'node scripts/ci/configure-container-ssh.mjs wrangler.toml');
   });
 });
