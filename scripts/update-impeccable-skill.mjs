@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync, statSync, cpSync } from 'node:fs';
-import { managedImpeccableLauncher } from './impeccable-launcher.mjs';
+import { managedImpeccableLauncher, reviewedImpeccableEngine } from './impeccable-launcher.mjs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,7 +61,7 @@ function replaceOverlayAnchor(source, search, replacement, label, allowAlreadyAp
 
 export function applyCodeflareImpeccableOverlay(source, { allowAlreadyApplied = false } = {}) {
   const skillVersion = readFileSync(join(source, 'SKILL.md'), 'utf8').match(/^version:\s*(\S+)\s*$/m)?.[1];
-  const nativeEngineVersion = new Map([['4.2.2', '0.1.3'], ['4.3.1', '0.1.5']]).get(skillVersion);
+  const nativeEngineVersion = reviewedImpeccableEngine(skillVersion);
   const native = Boolean(nativeEngineVersion);
   if (native && readFileSync(join(source, 'scripts/VERSION'), 'utf8').trim() !== nativeEngineVersion) {
     throw new Error(`Unsupported Impeccable engine version; expected image-owned ${nativeEngineVersion}`);
@@ -170,7 +170,8 @@ export function applyCodeflareRoutingBoundary(text) {
     throw new Error('downloaded Impeccable skill must have exactly one frontmatter description');
   }
   const mutablePackagePermissions = match[1].match(/^[ \t]*- Bash\(npx impeccable \*\)[ \t]*$/gm) ?? [];
-  const native = /^version:\s*4\.2\.2\s*$/m.test(match[1]);
+  const skillVersion = match[1].match(/^version:\s*(\S+)\s*$/m)?.[1];
+  const native = Boolean(reviewedImpeccableEngine(skillVersion));
   if (native ? /^allowed-tools:/m.test(match[1]) : mutablePackagePermissions.length !== 1) {
     throw new Error('downloaded Impeccable skill must have exactly one mutable package permission in legacy layout, and no allowed-tools block in native layout');
   }

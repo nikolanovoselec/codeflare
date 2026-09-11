@@ -3505,7 +3505,7 @@ None.
 
 - The native Impeccable launcher uses only the reviewed image engine and refuses runtime installation or self-update. <!-- @impl: scripts/impeccable-launcher.mjs::managedImpeccableLauncher --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: native launcher uses only the image engine and refuses runtime updates) -->
 - Boot and successful sync restore executable permissions only for the known Claude and Pi Impeccable launchers. <!-- @impl: entrypoint.sh::repair_hook_exec_bits --> <!-- @test: host/__tests__/entrypoint-hook-exec-bits.test.js (REQ-AGENT-181: native Impeccable launchers remain executable after boot and bisync) -->
-- Native bundle updates accept only reviewed skill/engine pairs and reject unreviewed engine versions before mutation. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: current native bundle refresh uses its reviewed image engine without a retired JavaScript server) --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: unreviewed native engine fails before source mutation) -->
+- Native bundle updates accept only reviewed skill/engine pairs and reject unreviewed engine versions before mutation. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: current native bundle refresh dispatches through its reviewed image engine without a retired JavaScript server) --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: unreviewed native engine fails before source mutation) -->
 - Explicit specialist invocations retain their documented behavior.
 - Missing optional specialists do not block the selected owner.
 
@@ -5215,7 +5215,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-163](#req-agent-163-impeccable-browser-question-idle-lifecycle)
 
-**Verification:** Manual review ([pinned native source](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/serve_question.rs))
+**Verification:** Manual review ([pinned native source](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/serve_question.rs))
 
 **Status:** Implemented
 
@@ -5229,8 +5229,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. [Native traversal and raster selection](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L184). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
-2. Scan mode excludes nested hidden directories and installed dependency directories. [Native directory exclusions](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L179). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. [Native traversal and raster selection](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/embed_prompt.rs#L163-L184). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+2. Scan mode excludes nested hidden directories and installed dependency directories. [Native directory exclusions](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/embed_prompt.rs#L163-L179). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
 3. Scan mode never follows a nested symbolic link, including broken and cyclic links. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
 4. An explicit symbolic-link target is rejected instead of producing an unaudited clean result. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
 
@@ -5263,7 +5263,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal)
 
-**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs))
+**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/embed_prompt.rs))
 
 **Status:** Implemented
 
@@ -5286,7 +5286,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-166](#req-agent-166-impeccable-raster-prompt-recovery)
 
-**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs))
+**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/embed_prompt.rs))
 
 **Status:** Implemented
 

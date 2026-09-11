@@ -11,7 +11,7 @@ import time
 
 def verify_engine(binary, expect_idle_bug=False):
     probe = subprocess.run([binary, "engine-probe"], capture_output=True, text=True, timeout=10, check=True)
-    assert probe.stdout.strip() == "impeccable-engine 0.1.3", probe.stdout
+    assert probe.stdout.strip() == "impeccable-engine 0.1.5", probe.stdout
     with tempfile.TemporaryDirectory(prefix="impeccable-engine-") as directory:
         questions = Path(directory) / ".impeccable" / "questions"
         questions.mkdir(parents=True)

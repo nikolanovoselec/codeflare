@@ -883,7 +883,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. Replacement credentials rebind saved proof only when saved and submitted gateway coordinates are equivalent and provider, binding, model, profile, transport, adapter, and target identity remain unchanged. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/lib/native-ai-targets.ts::rebindNativeVerificationConnection --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-065: rebinds saved native authority only for equivalent coordinates and unchanged identity) -->
 
-**Constraints:** Rebinding does not persist checks or invoke a model probe; changed identity fails closed under REQ-ENTERPRISE-055.
+**Constraints:** Rebinding does not persist checks or invoke a model probe; changed identity fails closed under [REQ-ENTERPRISE-055](#req-enterprise-055-native-target-authority-and-save).
 
 **Priority:** P1
 

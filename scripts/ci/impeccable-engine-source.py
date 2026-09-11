@@ -201,7 +201,7 @@ def verify_probe(binary: Path, expect_upstream_bugs: bool) -> None:
 def main() -> None:
     root = Path(__file__).resolve().parents[2]
     pin = json.loads((root / "image/impeccable-engine.json").read_text())
-    if pin.get("version") != "0.1.3" or not re.fullmatch(r"[a-f0-9]{40}", pin.get("commit", "")):
+    if pin.get("version") != "0.1.5" or not re.fullmatch(r"[a-f0-9]{40}", pin.get("commit", "")):
         raise ValueError("Invalid Impeccable engine identity pin")
     if not re.fullmatch(r"[a-f0-9]{64}", pin.get("sha256", "")):
         raise ValueError("Invalid Impeccable engine archive pin")
@@ -216,8 +216,8 @@ def main() -> None:
         source_root = Path(directory) / "source"
         extract_sources(archive, source_root)
         cargo = source_root.joinpath("Cargo.toml").read_text()
-        if not re.search(r"(?m)^version\s*=\s*\"0\.1\.3\"\s*$", cargo):
-            raise ValueError("Pinned Impeccable source version is not 0.1.3")
+        if not re.search(r"(?m)^version\s*=\s*\"0\.1\.5\"\s*$", cargo):
+            raise ValueError("Pinned Impeccable source version is not 0.1.5")
 
         patched_root = Path(directory) / "patched-source"
         shutil.copytree(source_root, patched_root)

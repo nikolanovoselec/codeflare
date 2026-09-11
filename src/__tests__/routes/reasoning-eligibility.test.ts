@@ -281,7 +281,7 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     const before = parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS)).targets[0].verification!;
 
     const otherGateway = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
-      gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/account/other-gateway/', replacementToken: 'rotated-token', dynamicRoutes: [], routeContextWindows: {},
+      gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/other-gateway/', replacementToken: 'rotated-token', dynamicRoutes: [], routeContextWindows: {},
       nativeTargets: [nativeDraft], nativeChecks: {},
       groupRouting: [{ accessGroup: 'engineering', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
       defaultRoute: { route: handle, reasoning: 'off' },
