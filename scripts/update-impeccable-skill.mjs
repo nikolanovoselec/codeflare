@@ -60,9 +60,11 @@ function replaceOverlayAnchor(source, search, replacement, label, allowAlreadyAp
 }
 
 export function applyCodeflareImpeccableOverlay(source, { allowAlreadyApplied = false } = {}) {
-  const native = /^version:\s*4\.2\.2\s*$/m.test(readFileSync(join(source, 'SKILL.md'), 'utf8'));
-  if (native && readFileSync(join(source, 'scripts/VERSION'), 'utf8').trim() !== '0.1.3') {
-    throw new Error('Unsupported Impeccable engine version; expected image-owned 0.1.3');
+  const skillVersion = readFileSync(join(source, 'SKILL.md'), 'utf8').match(/^version:\s*(\S+)\s*$/m)?.[1];
+  const nativeEngineVersion = new Map([['4.2.2', '0.1.3'], ['4.3.1', '0.1.5']]).get(skillVersion);
+  const native = Boolean(nativeEngineVersion);
+  if (native && readFileSync(join(source, 'scripts/VERSION'), 'utf8').trim() !== nativeEngineVersion) {
+    throw new Error(`Unsupported Impeccable engine version; expected image-owned ${nativeEngineVersion}`);
   }
   const overlays = native
     ? CODEFLARE_IMPECCABLE_OVERLAY.filter(([path]) => path !== 'scripts/serve-question.mjs')

@@ -42,6 +42,16 @@ describe('Impeccable managed runtime policy', () => {
     assert.match(result.stderr, /image-owned/);
   }));
 
+  it('REQ-AGENT-181: current native bundle refresh uses its reviewed image engine without a retired JavaScript server', () => withTempDir((source) => {
+    cpSync(join(repoRoot, 'host/__fixtures__/impeccable-4.2.2'), source, { recursive: true });
+    const skillPath = join(source, 'SKILL.md');
+    writeFileSync(skillPath, readFileSync(skillPath, 'utf8').replace('version: 4.2.2', 'version: 4.3.1'));
+    writeFileSync(join(source, 'scripts/VERSION'), '0.1.5\n');
+    applyCodeflareImpeccableOverlay(source);
+    const update = spawnSync('sh', [join(source, 'scripts/impeccable'), 'update'], { encoding: 'utf8' });
+    assert.equal(update.status, 1);
+  }));
+
   it('REQ-AGENT-181: unreviewed native engine fails before source mutation', () => withTempDir((source) => {
     cpSync(join(repoRoot, 'host/__fixtures__/impeccable-4.2.2'), source, { recursive: true });
     const before = readFileSync(join(source, 'SKILL.md'), 'utf8');

@@ -261,7 +261,7 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(body.accounting.httpAttempts).toBeGreaterThan(preparedAttempts);
   });
 
-  it('REQ-ENTERPRISE-057: rebinds saved native authority after replacement credentials preserve provider identity', async () => {
+  it('REQ-ENTERPRISE-065: rebinds saved native authority only for equivalent coordinates and unchanged identity', async () => {
     const f = setup();
     f.env.ENCRYPTION_KEY = Buffer.alloc(32, 1).toString('base64');
     await activate(f);
@@ -286,14 +286,14 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
       groupRouting: [{ accessGroup: 'engineering', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
       defaultRoute: { route: handle, reasoning: 'off' },
     }));
-    expect(otherGateway.fieldErrors?.nativeTargets).toContain('must be verified');
+    expect(otherGateway.fieldErrors?.reasoningConfiguration).toContain('must be verified');
     const changedProvider = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
       gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'rotated-token', dynamicRoutes: [], routeContextWindows: {},
       nativeTargets: [{ ...nativeDraft, provider: 'openai', model: 'gpt-5.6-terra', profileRef: getBuiltInProfileRef('native-openai-compat') }], nativeChecks: {},
       groupRouting: [{ accessGroup: 'engineering', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
       defaultRoute: { route: handle, reasoning: 'off' },
     }));
-    expect(changedProvider.fieldErrors?.nativeTargets).toContain('must be verified');
+    expect(changedProvider.fieldErrors?.reasoningConfiguration).toContain('must be verified');
 
     const rotated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
       gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'rotated-token', dynamicRoutes: [], routeContextWindows: {},

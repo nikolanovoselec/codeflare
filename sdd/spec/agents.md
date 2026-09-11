@@ -3505,7 +3505,7 @@ None.
 
 - The native Impeccable launcher uses only the reviewed image engine and refuses runtime installation or self-update. <!-- @impl: scripts/impeccable-launcher.mjs::managedImpeccableLauncher --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: native launcher uses only the image engine and refuses runtime updates) -->
 - Boot and successful sync restore executable permissions only for the known Claude and Pi Impeccable launchers. <!-- @impl: entrypoint.sh::repair_hook_exec_bits --> <!-- @test: host/__tests__/entrypoint-hook-exec-bits.test.js (REQ-AGENT-181: native Impeccable launchers remain executable after boot and bisync) -->
-- Native bundle updates reject unreviewed engine versions before mutation. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: unreviewed native engine fails before source mutation) -->
+- Native bundle updates accept only reviewed skill/engine pairs and reject unreviewed engine versions before mutation. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: current native bundle refresh uses its reviewed image engine without a retired JavaScript server) --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: unreviewed native engine fails before source mutation) -->
 - Explicit specialist invocations retain their documented behavior.
 - Missing optional specialists do not block the selected owner.
 

@@ -857,7 +857,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 2. Native runtime dispatch applies the identical stored validated BYOK alias. <!-- @impl: src/lib/access.ts::resolveRouteCatalog --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-050: dispatches %s through its exact Worker-owned selector) -->
 3. Save validates current provider discovery and submitted target data, including Dynamic Route/native-target name collisions, before any routing KV write. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-055: rejects invalid native target data before any routing write) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-055: rejects a Dynamic Route that collides with a submitted native handle before any routing write) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-055: submits saved native identity during a policy-only edit) -->
 4. Label and context edits retain the server identity and proof when provider, model, binding, profile, transport, and adapter authority are unchanged. <!-- @impl: src/lib/native-ai-targets.ts::reconcileNativeTargets --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-055: unchanged provider authority retains identity and proof across label and context edits) -->
-5. Proof is rejected when provider, model, binding, profile, transport, adapter, target, or gateway identity changes; replacement credentials rebind it only when saved and submitted gateway coordinates are equivalent and every other identity remains unchanged. <!-- @impl: src/lib/native-ai-targets.ts::reconcileNativeTargets --> <!-- @impl: src/lib/native-ai-targets.ts::nativeVerificationMatches --> <!-- @impl: src/lib/native-ai-targets.ts::rebindNativeVerificationConnection --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-055: changed provider authority invalidates proof) --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-055: changed target or connection authority fails verification matching) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057: rebinds saved native authority after replacement credentials preserve provider identity) -->
+5. Proof is rejected when provider, model, binding, profile, transport, adapter, target, or gateway identity changes. <!-- @impl: src/lib/native-ai-targets.ts::reconcileNativeTargets --> <!-- @impl: src/lib/native-ai-targets.ts::nativeVerificationMatches --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-055: changed provider authority invalidates proof) --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-055: changed target or connection authority fails verification matching) -->
 6. A route-only Save that omits native targets neither creates nor rewrites the native-target document. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save) -->
 7. A route name is classified as native only when a submitted native target owns it; an unowned native-shaped name remains a Dynamic Route. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-055: validates a native-shaped Dynamic Route as a Dynamic Route when no native target owns it) -->
 
@@ -866,6 +866,28 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Priority:** P1
 
 **Dependencies:** [REQ-ENTERPRISE-047](#req-enterprise-047-native-ai-gateway-provider-discovery-and-selection), [REQ-ENTERPRISE-048](#req-enterprise-048-native-provider-capability-catalog), [REQ-ENTERPRISE-052](#req-enterprise-052-native-provider-verification-and-runtime-enforcement), [REQ-ENTERPRISE-053](#req-enterprise-053-native-target-identity-and-document)
+
+**Verification:** Anchored behavioral fixtures and CI.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-065: Native Verification Credential Rebinding
+
+**Intent:** Replacement AI Gateway credentials preserve native verification authority only for the same gateway and native target identity.
+
+**Applies To:** Worker
+
+**Acceptance Criteria:**
+
+1. Replacement credentials rebind saved proof only when saved and submitted gateway coordinates are equivalent and provider, binding, model, profile, transport, adapter, and target identity remain unchanged. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/lib/native-ai-targets.ts::rebindNativeVerificationConnection --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-065: rebinds saved native authority only for equivalent coordinates and unchanged identity) -->
+
+**Constraints:** Rebinding does not persist checks or invoke a model probe; changed identity fails closed under REQ-ENTERPRISE-055.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-055](#req-enterprise-055-native-target-authority-and-save), [REQ-ENTERPRISE-057](#req-enterprise-057-ai-gateway-connection-rotation)
 
 **Verification:** Anchored behavioral fixtures and CI.
 

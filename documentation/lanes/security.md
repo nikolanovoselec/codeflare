@@ -226,7 +226,7 @@ Per-user session admission is best effort: KV counting and the later running wri
 
 ### Artifact identity
 
-Governed dependencies/actions/images are pinned through their owning lock/manifest/workflow. Exact-tree checks, dependency review, static analysis, generated-artifact coherence, SBOM/provenance, and keyless release signing make the reviewed source and promoted artifact traceable. The reviewed GHSA-rgj7-g3m4-5g8c remediation floor is sharp 0.35.4 with its matching 1.3.3 libvips platform packages in the root and deployment Wrangler locks. Workflow procedure belongs to [CI/CD](ci-cd.md).
+Governed dependencies/actions/images are pinned through their owning lock/manifest/workflow. Exact-tree checks, dependency review, static analysis, generated-artifact coherence, SBOM/provenance, and keyless release signing make the reviewed source and promoted artifact traceable. The reviewed GHSA-rgj7-g3m4-5g8c remediation floor is sharp 0.35.4 with its matching 1.3.3 libvips platform packages in the root and deployment Wrangler locks ([REQ-OPS-054](../../sdd/spec/operations.md#req-ops-054-committed-npm-runtime-lock-integrity)). Workflow procedure belongs to [CI/CD](ci-cd.md).
 
 ### Managed curation signing and repository credentials
 
