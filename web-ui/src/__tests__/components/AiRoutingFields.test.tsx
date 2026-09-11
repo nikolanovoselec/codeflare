@@ -381,6 +381,19 @@ describe('Structured AI routing', () => {
     expect(formValues(view.container).nativeTargets).toMatchObject([{ label: 'Claude draft', enabled: false }]);
   });
 
+  it('REQ-ENTERPRISE-066: keeps Save unavailable for a native draft whose profile is unavailable', async () => {
+    const unavailableRef = { id: 'missing-native-profile', revision: 1, hash: hash('9') };
+    const view = mount({
+      ...current,
+      gatewayUrl: 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/', gatewayId: 'codeflare-enterprise',
+      dynamicRoutes: [], defaultRoute: null, groupRouting: [], reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} },
+      nativeTargets: [{ id: '11111111-1111-4111-8111-111111111111', label: 'Unavailable profile', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: unavailableRef, enabled: false }],
+    });
+    await openNative(view);
+    await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Unavailable profile draft' } });
+    expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
+  });
+
   it('REQ-ENTERPRISE-054: verification automatically enables the native target draft', async () => {
     api.native.mockRejectedValueOnce(new ApiError('Rate limit exceeded. Try again in 44 seconds.', 429, 'Too Many Requests'));
     const view = mount(checkedCurrent());

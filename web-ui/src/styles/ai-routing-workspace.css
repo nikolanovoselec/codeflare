@@ -9,7 +9,7 @@
 .admin-connection-status p { margin: var(--space-3) 0 0; line-height: 1.5; }
 .admin-connection-status[data-state="passed"] { border-left-color: var(--color-success); }
 .admin-connection-status[data-state="failed"] { border-left-color: var(--color-error); }
-.admin-routing-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-1); border-bottom: 1px solid var(--color-border-default); }
+.admin-routing-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-1); border-bottom: 1px solid var(--color-border-default); }
 .admin-routing-nav button { min-height: 44px; padding: var(--space-3) var(--space-2); border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--color-text-secondary); font: inherit; font-weight: 600; cursor: pointer; }
 .admin-routing-nav button:hover { color: var(--color-text-primary); background: var(--color-bg-tertiary); }
 .admin-routing-nav button[aria-pressed="true"] { color: var(--color-text-primary); border-bottom-color: var(--color-accent); }
@@ -68,6 +68,7 @@
 .admin-route-action-row > .admin-route-actions { margin-top: 0; margin-left: auto; }
 .admin-profile-editor > .admin-subsection-heading { align-items: center; }
 @media (max-width: 640px) {
+  .admin-routing-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-route-action-row { flex-direction: column; align-items: stretch; }
   .admin-route-action-row > .admin-route-actions { margin-left: 0; }
   .admin-routing-workspace .admin-route-controls { grid-template-columns: minmax(0, 1fr); }
