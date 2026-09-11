@@ -250,6 +250,20 @@ describe('Structured AI routing', () => {
     expect(api.native).not.toHaveBeenCalled();
   });
 
+  it('REQ-ENTERPRISE-074: preserves the selected region through successive model edits without submitting it for compatibility', async () => {
+    const view = mount();
+    await addNativeTarget(view);
+    const model = view.getByLabelText('Native target 1 model');
+    await fireEvent.input(model, { target: { value: 'eu.anthropic.claude-sonnet-5' } });
+    await fireEvent.input(view.getByLabelText('Native target 1 region'), { target: { value: 'us-east-1' } });
+    await fireEvent.input(model, { target: { value: 'eu.anthropic.claude-sonnet-' } });
+    expect(formValues(view.container).nativeTargets[0]).not.toHaveProperty('region');
+    await fireEvent.input(model, { target: { value: 'eu.anthropic.claude-sonnet-5' } });
+    expect(view.getByLabelText('Native target 1 region')).toHaveValue('us-east-1');
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ region: 'us-east-1', transport: 'aig-bedrock-anthropic-auto' });
+    expect(formValues(view.container).nativeTargets[0]).not.toHaveProperty('rememberedRegion');
+  });
+
   it('REQ-ENTERPRISE-074/078: changes a saved compatibility identity to automatic only when its model changes', async () => {
     const id = '11111111-1111-4111-8111-111111111111';
     const view = mount({ ...checkedCurrent(), nativeTargets: [{ id, label: 'Saved', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5',

@@ -404,7 +404,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
       expect(within(row).getByText('Dynamic Route - AWS Bedrock - Claude')).toBeVisible();
       expect(within(row).getByText('1,048,576 tokens')).toBeVisible();
       expect(within(row).getByText('Provider default')).toBeVisible();
-      expect(screen.getByText('No fallback access')).toBeVisible();
+      expect(within(screen.getByRole('region', { name: 'Fallback' })).getByText('No fallback access')).toBeVisible();
     };
     expectSummary();
     await confirm();
@@ -598,7 +598,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
       { accessGroup: 'archivists', routes: ['archive'], defaultRoute: 'archive', reasoning: 'off' },
     ]);
     expect(firstPreview.fallbackRouting).toEqual({ enabled: false });
-    expect(within(screen.getByRole('region', { name: 'Other profiles pending save' })).getByText('Development custom')).toBeVisible();
+    expect(within(screen.getByRole('table', { name: 'Route profiles' })).getByText('Development custom')).toBeVisible();
     await fireEvent.click(screen.getByRole('button', { name: 'Back to edit' }));
     await openRoute('archive');
     expect(screen.getByLabelText('archive Pi compatibility profile')).toHaveValue(key(customRef(archived)));

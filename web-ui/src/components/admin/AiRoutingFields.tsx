@@ -25,7 +25,7 @@ interface RouteDraft {
   inventoryError?: string;
 }
 interface VerificationDraft { busy?: boolean; administratorConfirmed?: boolean; result?: ReasoningDiscoveryResult; error?: string; routeChanged?: boolean }
-interface NativeDraft extends NativeAiTargetDraft { handle?: string; busy?: boolean; error?: string; verificationRequest?: string }
+interface NativeDraft extends NativeAiTargetDraft { handle?: string; busy?: boolean; error?: string; verificationRequest?: string; rememberedRegion?: string }
 const LEVELS: PiReasoningLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const DEFAULT_CONTEXT_WINDOW = 256000;
 const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -125,7 +125,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   });
   const [nativeTargets, setNativeTargets] = createSignal<NativeDraft[]>(initialNativeDrafts.map((target) => ({ ...target, enabled: target.verification?.current === true })));
   const [nativeChecks, setNativeChecks] = createSignal<Record<string, string | null>>({});
-  const nativeSubmissionOf = (targets: NativeDraft[]) => targets.map(({ handle: _handle, verification: _verification, busy: _busy, error: _error, verificationRequest: _request, ...target }) => target);
+  const nativeSubmissionOf = (targets: NativeDraft[]) => targets.map(({ handle: _handle, verification: _verification, busy: _busy, error: _error, verificationRequest: _request, rememberedRegion: _region, ...target }) => target);
   const nativeSubmission = () => nativeSubmissionOf(nativeTargets());
   const initialNativeSubmission = JSON.stringify(nativeSubmissionOf(initialNativeDrafts));
   const nativeDirty = () => JSON.stringify(nativeSubmission()) !== initialNativeSubmission || Object.keys(nativeChecks()).length > 0;
@@ -580,15 +580,16 @@ const AiRoutingFields: Component<Props> = (props) => {
                   const provider = event.currentTarget.value;
                   if (provider === target().provider) return;
                   const next = newNativeIdentity(provider); const profile = nativePreparedProfileRef(next);
-                  if (profile) clearProof({ ...next, profileRef: profile });
+                  if (profile) clearProof({ ...next, profileRef: profile, rememberedRegion: undefined });
                 }}><For each={selectableProviders()}>{(provider) => <option value={provider.provider}>{provider.label}</option>}</For></select><small>Only uniquely selectable provider bindings are available.</small></label>
                 <Show when={target().transport && target().transport !== 'aig-legacy-compat'}><label class="admin-form-field"><span>AWS region</span><input aria-label={`Native target ${index + 1} region`} value={target().region ?? ''} disabled={target().busy} onInput={(event) => clearProof({ region: event.currentTarget.value })} /><small>Region used in the Bedrock Runtime path.</small></label></Show>
                 <label class="admin-form-field"><span>Label</span><input aria-label={`Native target ${index + 1} label`} value={target().label} disabled={target().busy} onInput={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, label: event.currentTarget.value } : item))} /></label>
                 <label class="admin-form-field"><span>Exact model identifier</span><input aria-label={`Native target ${index + 1} model`} list={`native-model-suggestions-${index}`} value={target().model} disabled={target().busy} onInput={(event) => {
                   const model = event.currentTarget.value;
                   if (model === target().model) return;
-                  const next = newNativeIdentity(target().provider, model, target().region);
-                  const profileRef = nativePreparedProfileRef(next); clearProof({ ...next, ...(profileRef && { profileRef }) });
+                  const rememberedRegion = target().region ?? target().rememberedRegion;
+                  const next = newNativeIdentity(target().provider, model, rememberedRegion);
+                  const profileRef = nativePreparedProfileRef(next); clearProof({ ...next, rememberedRegion, ...(profileRef && { profileRef }) });
                 }} /><datalist id={`native-model-suggestions-${index}`}><For each={nativeModelSuggestions(target().provider)}>{(model) => <option value={model} />}</For></datalist><small>Route-derived names for this provider are suggestions only.</small></label>
                 <label class="admin-form-field"><span>Context window</span><input type="text" inputmode="numeric" aria-label={`Native target ${index + 1} context window`} value={target().contextWindow} disabled={target().busy} onInput={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, contextWindow: Number(event.currentTarget.value) } : item))} /><small>Must be greater than 16,384 tokens.</small></label>
                 <label class="admin-form-field"><span>Pi compatibility profile</span><select aria-label={`Native target ${index + 1} profile`} value={refKey(target().profileRef)} disabled={target().busy} onChange={(event) => {
