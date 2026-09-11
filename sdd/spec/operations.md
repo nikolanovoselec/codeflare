@@ -1625,7 +1625,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-060](#req-ops-060-optional-persistent-container-ssh-authorization)
 
-**Verification:** Manual connection, rotation, and revocation evidence
+**Verification:** Manual check
 
 **Status:** Implemented
 
