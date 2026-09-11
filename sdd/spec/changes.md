@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-11
 
+- **Multiview reconnect handoff preserves pane dimensions** ([REQ-TERM-016](terminal.md#req-term-016-terminal-pane-reconnect-and-resize-authority) AC7 added; remains Implemented). A replacement pane that connects before the old socket closes retains its fitted dimensions without stealing authority, then applies them to the PTY and headless reconnect state when authority transfers instead of retaining the departed owner's dimensions.
+
 - **Impeccable 4.3.1 refresh uses its reviewed native engine** ([REQ-AGENT-181](agents.md#req-agent-181-design-specialist-compatibility) constraint amended; remains Implemented). The vendored Claude and Pi skill trees move to 4.3.1 with image engine 0.1.5; refresh recognizes the native layout, skips the retired JavaScript-server overlay, and rejects unknown skill/engine combinations before mutating targets.
 
 - **AI Gateway routes and profiles identify their category** ([REQ-ENTERPRISE-064](enterprise-mode.md#req-enterprise-064-route-and-compatibility-profile-presentation) added; Implemented). Route rows and Access assignments use `Dynamic Route - <name>` or `Native Route - <provider> - <exact model>`, while built-in profile labels identify the route category, provider, and supported model family. Opaque native policy handles and immutable profile references remain unchanged.

@@ -118,6 +118,7 @@ export class Session {
   processNameInterval: ReturnType<typeof setInterval> | null;
   orphanTimeout: ReturnType<typeof setTimeout> | null;
   resizeAuthorityClient: WebSocket | null;
+  private readonly clientResizeRequests: Map<WebSocket, { cols: number; rows: number }>;
   private readonly agentEventParser: OscAgentEventParser;
   private readonly agentEventQueue: AgentEventQueue;
 
@@ -149,6 +150,7 @@ export class Session {
     this.processNameInterval = null;
     this.orphanTimeout = null;
     this.resizeAuthorityClient = null;
+    this.clientResizeRequests = new Map();
     this.agentEventParser = new OscAgentEventParser();
     this.agentEventQueue = new AgentEventQueue();
 
@@ -346,8 +348,13 @@ export class Session {
    */
   detach(ws: WebSocket, sessionManager: SessionManagerLike | null = null): void {
     this.clients.delete(ws);
+    this.clientResizeRequests.delete(ws);
     if (this.resizeAuthorityClient === ws) {
       this.resizeAuthorityClient = this.clients.values().next().value ?? null;
+      const requested = this.resizeAuthorityClient
+        ? this.clientResizeRequests.get(this.resizeAuthorityClient)
+        : undefined;
+      if (requested) this.applyResize(requested.cols, requested.rows);
     }
     this._log('info', 'Client detached', { session: this.id.substring(0, 8), totalClients: this.clients.size });
 
@@ -478,16 +485,23 @@ export class Session {
    * panes in another browser from shrinking the shared PTY back to 80x24.
    */
   resize(cols: number, rows: number, ws?: WebSocket): boolean {
+    if (!(cols > 0 && cols < 10000 && rows > 0 && rows < 10000)) return false;
     if (ws) {
+      if (!this.clients.has(ws)) return false;
+      this.clientResizeRequests.set(ws, { cols, rows });
       if (!this.canResize(ws)) return false;
       if (!this.resizeAuthorityClient) this.resizeAuthorityClient = ws;
     }
 
+    this.applyResize(cols, rows);
+    return true;
+  }
+
+  private applyResize(cols: number, rows: number): void {
     if (this.ptyProcess) {
       this.ptyProcess.resize(cols, rows);
     }
     this.headlessTerminal.resize(cols, rows);
-    return true;
   }
 
   /**
@@ -519,6 +533,7 @@ export class Session {
     }
     this.clients.clear();
     this.resizeAuthorityClient = null;
+    this.clientResizeRequests.clear();
     this.disconnectedAt = null;
     this._log('info', 'Session killed', { session: this.id });
   }
