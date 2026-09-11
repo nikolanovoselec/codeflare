@@ -168,6 +168,12 @@ function allProfiles(configuration: ReasoningConfigurationView): Record<string, 
   return [...(BUILT_IN_REASONING_PROFILES as unknown as readonly Record<string, unknown>[]), ...configuration.customProfileRevisions];
 }
 
+function supportsCompatibilityDiscovery(profile: Record<string, unknown>): boolean {
+  const transports = Array.isArray(profile.validatedTransports) ? profile.validatedTransports : [];
+  return Array.isArray(profile.supportedLevels) && profile.supportedLevels.length > 0
+    && !transports.some((transport) => transport === 'bedrock-invoke' || transport === 'bedrock-eventstream');
+}
+
 function resolveProfile(configuration: ReasoningConfigurationView, requested: ProfileRef): Record<string, unknown> | null {
   return allProfiles(configuration).find((profile) => {
     const reference = profileRefFor(profile);
@@ -188,6 +194,7 @@ function profileDiscoveryContract(profile: Record<string, unknown>): Record<stri
 function distinctDiscoveryCandidates(): Record<string, unknown>[] {
   const seen = new Set<string>();
   return (BUILT_IN_REASONING_PROFILES as unknown as readonly Record<string, unknown>[]).filter((profile) => {
+    if (!supportsCompatibilityDiscovery(profile)) return false;
     const digest = canonicalHash(profileDiscoveryContract(profile));
     if (seen.has(digest)) return false;
     seen.add(digest);
@@ -500,7 +507,7 @@ async function discoverNativeProfile(input: {
   }
   const stopped = reports.some(({ report }) => report.stopDiscovery === true);
   const observed = reports.map(observedCandidate).filter((candidate): candidate is DiscoveryCandidateReport => candidate !== null);
-  const matches = stopped ? [] : allProfiles(input.configuration).filter((profile) => profile.enabled !== false).flatMap((profile) => {
+  const matches = stopped ? [] : allProfiles(input.configuration).filter((profile) => profile.enabled !== false && supportsCompatibilityDiscovery(profile)).flatMap((profile) => {
     const observation = observed.find((candidate) => coversProfile(candidate.profile, profile));
     return observation ? [{ profile, report: observation.report }] : [];
   });
@@ -572,7 +579,7 @@ reasoningRoutes.post('/native/profile-discovery', requireAdmin, discoveryRateLim
         : request.data.target.transport === 'aig-bedrock-anthropic-eventstream' ? 'bedrock-anthropic-native-opus-stream' : 'bedrock-anthropic-native-opus-invoke';
       const profile = getBuiltInProfile(profileId)!;
       return c.json({ schemaVersion: 1, route: `${provider.provider}/${request.data.target.model}`, outcome: 'existing-profile', classification: 'Verified', assignable: true,
-        matchedProfiles: [{ profileRef: profileRefFor(profile), name: profile.name, supportedLevels: profile.supportedLevels }], diagnostics: [], accounting: { logicalProbes: 0, httpAttempts: 0 } });
+        matchedProfiles: [{ profileRef: profileRefFor(profile as unknown as Record<string, unknown>), name: profile.name, supportedLevels: profile.supportedLevels }], diagnostics: [], accounting: { logicalProbes: 0, httpAttempts: 0 } });
     }
     const selector = `${nativeProviderSelector(provider.provider, customProviders.has(provider.provider))}/${request.data.target.model}`;
     return c.json(await discoverNativeProfile({
@@ -751,7 +758,7 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
     const observed = reports.map(observedCandidate).filter((candidate): candidate is DiscoveryCandidateReport => candidate !== null);
     // Reuse the finite protocol observations for catalog matching. Saved custom
     // revisions do not expand the paid probe campaign or inject new request paths.
-    const matches = allProfiles(configuration).filter((profile) => profile.enabled !== false).flatMap((profile) => {
+    const matches = allProfiles(configuration).filter((profile) => profile.enabled !== false && supportsCompatibilityDiscovery(profile)).flatMap((profile) => {
       const observation = observed.find((candidate) => coversProfile(candidate.profile, profile));
       return observation ? [{ profile, report: observation.report }] : [];
     });

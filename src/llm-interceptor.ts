@@ -111,6 +111,8 @@ const RESPONSE_STRIPPED_HEADERS: readonly string[] = [
 interface InterceptorProps {
   /** The user's email — stamped into cf-aig-metadata for per-user gateway analytics. */
   user: string;
+  /** Bound container session identity used only to isolate confidential native replay state. */
+  sessionId?: string;
   /**
    * The user's matched Cloudflare Access groups, when the deployment configures
    * group gating. Each becomes one cf-aig-metadata tag (group_<sanitized>_<hash>=1) so
@@ -142,6 +144,10 @@ interface InterceptorProps {
  */
 const COMPAT_INCOMPATIBLE_FIELDS = ['store', 'prompt_cache_key'] as const;
 const NATIVE_REPLAY_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+export function nativeReplayStateKey(user: string, sessionId: string, targetId: string, toolId: string): string {
+  return `native-ai-replay:${canonicalHash({ user, sessionId, targetId, toolId })}`;
+}
 
 /** Return `raw` with COMPAT_INCOMPATIBLE_FIELDS removed; non-JSON/non-object bodies pass through unchanged. */
 function stripOpenAiOnlyFields(raw: string): string {
@@ -483,7 +489,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
               payload.model = `${nativeProviderSelector(native.provider, native.customProvider)}/${native.model}`;
               if (native.provider === 'google-ai-studio') restoreGeminiThoughtSignatures(payload);
             } else {
-              if (!this.env.KV || !native.region) {
+              if (!this.env.KV || !native.region || !props?.user || !props.sessionId) {
                 return new Response(JSON.stringify({ error: 'Native Bedrock replay state is unavailable', code: 'NATIVE_STATE_UNAVAILABLE' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
               }
               let encryptionKey: CryptoKey | null;
@@ -498,7 +504,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
               }
               const replayTurn = Array.isArray(payload.messages) && payload.messages.some((message) => message && typeof message === 'object' && !Array.isArray(message) && (message as Record<string, unknown>).role === 'tool');
               nativeBedrockTransport = selectBedrockAnthropicTransport(configuredTransport, replayTurn);
-              const stateKey = (toolId: string) => `native-ai-replay:${canonicalHash({ targetId: native.targetId, toolId })}`;
+              const stateKey = (toolId: string) => nativeReplayStateKey(props.user, props.sessionId!, native.targetId, toolId);
               nativeBedrockState = {
                 load: async (toolId) => getAndDecrypt<unknown[]>(this.env.KV!, stateKey(toolId), encryptionKey),
                 save: async (toolId, content) => {

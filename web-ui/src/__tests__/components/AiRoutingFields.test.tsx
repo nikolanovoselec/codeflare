@@ -175,9 +175,13 @@ describe('Structured AI routing', () => {
     const view = mount();
     await addNativeTarget(view);
     const article = view.getByRole('article', { name: 'New native target' });
+    await fireEvent.input(within(article).getByLabelText('Native target 1 label'), { target: { value: 'Native Opus' } });
     await fireEvent.input(within(article).getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-opus-5' } });
     await fireEvent.change(within(article).getByLabelText('Native target 1 transport'), { target: { value: 'aig-bedrock-anthropic-eventstream' } });
     expect(within(article).getByLabelText('Native target 1 region')).toHaveValue('eu-central-1');
+    expect(within(article).queryByRole('button', { name: 'Verify Profile' })).toBeNull();
+    await fireEvent.click(within(article).getByRole('button', { name: 'Mark as verified' }));
+    await waitFor(() => expect(api.native).toHaveBeenCalledWith(expect.objectContaining({ administratorConfirmed: true })));
     expect(within(article).getByLabelText('Native target 1 profile')).toHaveValue(profileKey({ id: 'bedrock-anthropic-native-opus-stream', revision: 1, hash: hash('8') }));
     const target = formValues(view.container).nativeTargets[0];
     expect(target).toMatchObject({ transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', profileRef: { id: 'bedrock-anthropic-native-opus-stream' } });

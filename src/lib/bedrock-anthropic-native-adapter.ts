@@ -24,6 +24,12 @@ function safeToolId(value: unknown): string | null {
   return id && /^[A-Za-z0-9_.:-]+$/.test(id) ? id : null;
 }
 
+function comparable(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(comparable);
+  if (plain(value)) return Object.fromEntries(Object.keys(value).sort().map((key) => [key, comparable(value[key])]));
+  return value;
+}
+
 function cloneBlocks(value: unknown): unknown[] | null {
   if (!Array.isArray(value)) return null;
   const serialized = JSON.stringify(value);
@@ -85,9 +91,10 @@ async function assistantContent(message: JsonObject, thinkingEnabled: boolean, s
   const firstId = calls[0].id as string;
   const stored = cloneBlocks(await state.load(firstId));
   if (stored) {
-    const storedIds = stored.filter((block) => plain(block) && block.type === 'tool_use').map((block: any) => block.id);
-    const requestedIds = calls.map((block) => block.id);
-    if (JSON.stringify(storedIds) !== JSON.stringify(requestedIds)) throw new Error('Native Bedrock signed thinking state does not match tool replay');
+    const storedCalls = stored.filter((block) => plain(block) && block.type === 'tool_use');
+    if (JSON.stringify(comparable(storedCalls)) !== JSON.stringify(comparable(calls))) {
+      throw new Error('Native Bedrock signed thinking state does not match tool replay');
+    }
     return stored as JsonObject[];
   }
   if (thinkingEnabled) throw new Error('Native Bedrock signed thinking state is unavailable');
@@ -244,7 +251,7 @@ function sse(data: unknown): Uint8Array {
 
 async function adaptEventstream(response: Response, state: BedrockReplayState): Promise<Response> {
   if (!response.ok || !response.body) return response;
-  let frameBuffer = new Uint8Array(0);
+  let frameBuffer: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
   const blocks = new Map<number, JsonObject>();
   const toolIndexes = new Map<number, number>();
   let replayBytes = 0; let sawStop = false;
@@ -253,11 +260,20 @@ async function adaptEventstream(response: Response, state: BedrockReplayState): 
     if (replayBytes > MAX_REPLAY_BYTES) throw new Error('Native Bedrock replay state exceeds the safe limit');
   };
   let id = 'bedrock-native'; let model = 'bedrock-anthropic'; let stopReason = 'stop'; let usage: JsonObject = {};
+  let streamFailed = false;
+  const emitTerminalError = (controller: TransformStreamDefaultController<Uint8Array>) => {
+    if (streamFailed) return;
+    streamFailed = true;
+    controller.enqueue(sse({ error: { message: 'Native Bedrock stream failed', code: 'NATIVE_BEDROCK_STREAM_ERROR' } }));
+    controller.enqueue(sse('[DONE]'));
+  };
   const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
     async transform(chunk, controller) {
-      frameBuffer = concat(frameBuffer, chunk);
-      const parsed = parseFrames(frameBuffer); frameBuffer = parsed.remainder;
-      for (const event of parsed.events) {
+      if (streamFailed) return;
+      try {
+        frameBuffer = concat(frameBuffer, chunk);
+        const parsed = parseFrames(frameBuffer); frameBuffer = parsed.remainder;
+        for (const event of parsed.events) {
         if (event.type === 'message_start' && plain(event.message)) {
           if (typeof event.message.id === 'string') id = event.message.id;
           if (typeof event.message.model === 'string') model = event.message.model;
@@ -296,11 +312,19 @@ async function adaptEventstream(response: Response, state: BedrockReplayState): 
           controller.enqueue(sse({ id, object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: {}, finish_reason: stopReason === 'tool_use' ? 'tool_calls' : 'stop' }], ...(openAiUsage(usage) && { usage: openAiUsage(usage) }) }));
           controller.enqueue(sse('[DONE]'));
         }
+        }
+      } catch {
+        emitTerminalError(controller);
       }
     },
-    flush() {
-      if (frameBuffer.length) throw new Error('Truncated Bedrock eventstream frame');
-      if (!sawStop) throw new Error('Incomplete Bedrock eventstream');
+    flush(controller) {
+      if (streamFailed) return;
+      try {
+        if (frameBuffer.length) throw new Error('Truncated Bedrock eventstream frame');
+        if (!sawStop) throw new Error('Incomplete Bedrock eventstream');
+      } catch {
+        emitTerminalError(controller);
+      }
     },
   }));
   return new Response(body, { status: response.status, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });

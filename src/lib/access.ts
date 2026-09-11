@@ -907,7 +907,7 @@ export async function resolveRouteCatalog(
     const nativeDefault = nativeTargets[resolved.defaultRoute];
     if (nativeDefault) {
       const levels = nativeDefault.reasoningLevels;
-      if (isPiReasoningLevel(resolved.defaultReasoning) && !levels.includes(resolved.defaultReasoning)) return empty;
+      if (levels.length > 0 && isPiReasoningLevel(resolved.defaultReasoning) && !levels.includes(resolved.defaultReasoning)) return empty;
       return { ...resolved, defaultReasoning: levels.includes(resolved.defaultReasoning as PiReasoningLevel) ? resolved.defaultReasoning : preferredReasoningLevel(levels) ?? '', nativeTargets };
     }
     const levels = getRouteReasoningProfile(configuration, resolved.defaultRoute).supportedLevels;

@@ -29,7 +29,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
-import { LlmInterceptor } from '../llm-interceptor';
+import { LlmInterceptor, nativeReplayStateKey } from '../llm-interceptor';
 import { getBuiltInProfileRef, type ReasoningProfileId } from '../lib/reasoning-profiles';
 import { connectionFingerprint } from '../lib/reasoning-verification';
 import { createNativeTarget, nativeTargetHandle, serializeNativeAiTargets } from '../lib/native-ai-targets';
@@ -52,7 +52,7 @@ const AIG_TOKEN = 'aig-secret-token';
 const SESSION_USER = 'nikola@novoselec.ch'; // per-session attribution: the user's email (REQ-ENTERPRISE-004 AC4)
 
 /** Construct an interceptor with the given env + per-session props. */
-function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; groups?: string[]; gatewayUrl?: string; gatewayId?: string; token?: string } = { user: SESSION_USER }) {
+function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; sessionId?: string; groups?: string[]; gatewayUrl?: string; gatewayId?: string; token?: string } = { user: SESSION_USER, sessionId: 'session-1' }) {
   // The interceptor now reads the route catalog from KV; tests pass a __kv map
   // of key -> JSON string via envOverrides, which backs a minimal KV.get stub.
   const kvStore: Record<string, string> = { ...((envOverrides as { __kv?: Record<string, string> }).__kv ?? {
@@ -867,10 +867,26 @@ describe('native provider authorization and compat dispatch', () => {
     expect(lastFetch?.headers.get('cf-aig-byok-alias')).toBe('default');
   });
 
-  it('REQ-ENTERPRISE-072: rejects Opus eventstream levels above High before provider I/O', async () => {
+  it('REQ-ENTERPRISE-073: isolates native replay keys by authenticated user and session', () => {
+    const base = nativeReplayStateKey('one@example.com', 'session-1', 'target-1', 'call_1');
+    expect(nativeReplayStateKey('two@example.com', 'session-1', 'target-1', 'call_1')).not.toBe(base);
+    expect(nativeReplayStateKey('one@example.com', 'session-2', 'target-1', 'call_1')).not.toBe(base);
+  });
+
+  it('REQ-ENTERPRISE-073: denies native Bedrock before provider I/O when session identity is absent', async () => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-invoke',
+      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'high', stream: false, messages: [] }) }),
+    );
+    expect(response.status).toBe(503);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-073: rejects Opus eventstream levels above High before provider I/O', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
       transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
-    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'xhigh', stream: true, messages: [] }) }),
     );
     expect(response.status).toBe(400);
@@ -878,7 +894,7 @@ describe('native provider authorization and compat dispatch', () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-ENTERPRISE-072: dispatches provider-native Bedrock Invoke with exact reasoning controls and hides signed replay state', async () => {
+  it('REQ-ENTERPRISE-073: dispatches provider-native Bedrock Invoke with exact reasoning controls and hides signed replay state', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-invoke',
       transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
@@ -886,7 +902,7 @@ describe('native provider authorization and compat dispatch', () => {
       return Response.json({ id: 'msg', model: 'claude', content: [{ type: 'thinking', thinking: '', signature: 'private-signature' },
         { type: 'tool_use', id: 'call_1', name: 'lookup', input: { q: 'x' } }], stop_reason: 'tool_use', usage: { input_tokens: 4, output_tokens: 8 } });
     });
-    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'xhigh', stream: false, messages: [{ role: 'user', content: 'Use a tool' }], tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }] }) }),
     );
     expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke`);
