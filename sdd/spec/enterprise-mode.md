@@ -538,8 +538,6 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. The initial route overview presents route names and status without expanding every route's controls. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: starts with a compact route overview and expands only the selected route) -->
 2. Opening another route preserves unsaved edits in the previous route. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: switching route details preserves unsaved values) -->
 3. Connection, routes, and access policies have distinct, keyboard-operable section navigation. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: section navigation retains configuration state) -->
-4. At desktop widths, gateway URL and replacement-token inputs receive the primary editing width while format and gateway-name controls remain compact. <!-- @impl: web-ui/src/styles/ai-routing-workspace.css::.admin-connection-fields --> <!-- @manual: On the protected Enterprise Integration deployment at desktop width, compare all four connection controls and confirm the compact and primary hierarchy. -->
-5. At narrow-screen widths, all four gateway connection controls stack in one column without horizontal overflow. <!-- @impl: web-ui/src/styles/ai-routing-workspace.css::.admin-connection-fields --> <!-- @manual: On the protected Enterprise Integration deployment at mobile width, confirm the four connection controls use a single-column flow without horizontal overflow. -->
 
 **Constraints:**
 
@@ -701,6 +699,29 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 - Section navigation remains keyboard-operable and preserves configuration drafts.
 - The narrow-screen layout does not use horizontal scrolling or a dropdown.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-041](#req-enterprise-041-enterprise-pi-administrator-workspace)
+
+**Verification:** Manual verification on the protected Enterprise Integration deployment.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-068: Enterprise Pi Connection Control Layout
+
+**Intent:** Administrators can edit gateway connection values through a clear width hierarchy without narrow-screen overflow.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. At desktop widths, gateway URL and replacement-token inputs receive the primary editing width while format and gateway-name controls remain compact. <!-- @impl: web-ui/src/styles/ai-routing-workspace.css::.admin-connection-fields --> <!-- @manual: On the protected Enterprise Integration deployment at desktop width, compare all four connection controls and confirm the compact and primary hierarchy. -->
+2. At narrow-screen widths, all four gateway connection controls stack in one column without horizontal overflow. <!-- @impl: web-ui/src/styles/ai-routing-workspace.css::.admin-connection-fields --> <!-- @manual: On the protected Enterprise Integration deployment at mobile width, confirm the four connection controls use a single-column flow without horizontal overflow. -->
+
+**Constraints:** Connection controls retain the incumbent Administration tokens and accessible labels.
 
 **Priority:** P1
 

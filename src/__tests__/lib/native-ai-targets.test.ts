@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  createNativeTarget, nativeProfileRefKey, nativeProviderSelector, nativeTargetHandle, nativeVerificationMatches,
+  createNativeTarget, nativeProfileRefKey, nativeProviderSelector, nativeTargetDraftSchema, nativeTargetHandle, nativeVerificationMatches,
   parseNativeAiTargets, reconcileNativeTargets, sanitizeNativeTarget,
 } from '../../lib/native-ai-targets';
 import { defaultBedrockProvider, listCustomProviderSlugs, listCustomProviderSlugsForProviders, listNativeProviderConfigs, selectNativeProviderConfig } from '../../lib/ai-gateway-management';
 import { connectionFingerprint } from '../../lib/reasoning-verification';
 import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
+import { nativeTargetDraftShapeValid } from '../../lib/native-ai-target-draft';
 
 const profileRef = getBuiltInProfileRef('bedrock-anthropic-compat');
 const connection = { gatewayUrl: `https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/`, gatewayId: 'gateway', token: 'secret-token' };
@@ -70,6 +71,15 @@ describe('native AI targets', () => {
     expect(target).toMatchObject({ provider, ...(customProvider && { customProvider: true }), model, profileRef: ref });
     expect(nativeProviderSelector(provider, customProvider)).toBe(selector.slice(0, -(model.length + 1)));
     expect(nativeTargetHandle(target.id)).toBe('cf-native-11111111-1111-4111-8111-111111111111');
+  });
+
+  it('keeps browser and API draft validation aligned for defaults and unknown fields', () => {
+    const draft = { label: 'Legacy Bedrock draft', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef, enabled: false };
+    expect(nativeTargetDraftShapeValid(draft)).toBe(true);
+    expect(nativeTargetDraftSchema.safeParse(draft).success).toBe(true);
+    const draftWithUnknownField = { ...draft, unexpected: true };
+    expect(nativeTargetDraftShapeValid(draftWithUnknownField)).toBe(false);
+    expect(nativeTargetDraftSchema.safeParse(draftWithUnknownField).success).toBe(false);
   });
 
   it('REQ-ENTERPRISE-060: enforces the Bedrock model boundary without restricting custom-provider model syntax', () => {

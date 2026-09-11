@@ -6,6 +6,7 @@ export const NATIVE_TEXT_PATTERN = /^[^\u0000-\u001f\u007f]+$/;
 export const NATIVE_HASH_PATTERN = /^[a-f0-9]{64}$/;
 
 const FORBIDDEN_IDENTIFIERS = ['__proto__', 'prototype', 'constructor'];
+const NATIVE_TARGET_DRAFT_KEYS = new Set(['id', 'label', 'provider', 'model', 'contextWindow', 'profileRef', 'enabled']);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const record = (value: unknown): Record<string, unknown> | undefined => value !== null && typeof value === 'object' && !Array.isArray(value)
   ? value as Record<string, unknown> : undefined;
@@ -28,11 +29,13 @@ export function nativeProviderModelValid(provider: string, model: string): boole
 export function nativeTargetDraftShapeValid(input: unknown): boolean {
   const value = record(input);
   const profile = record(value?.profileRef);
+  const provider = value?.provider === undefined ? 'aws-bedrock' : value.provider;
   return Boolean(value
+    && Object.keys(value).every((key) => NATIVE_TARGET_DRAFT_KEYS.has(key))
     && (value.id === undefined || typeof value.id === 'string' && UUID_PATTERN.test(value.id))
     && typeof value.label === 'string' && value.label.trim().length >= 1 && value.label.trim().length <= 128 && NATIVE_TEXT_PATTERN.test(value.label.trim())
-    && typeof value.provider === 'string' && nativeProviderIdentifierValid(value.provider)
-    && typeof value.model === 'string' && nativeProviderModelValid(value.provider, value.model)
+    && typeof provider === 'string' && nativeProviderIdentifierValid(provider)
+    && typeof value.model === 'string' && nativeProviderModelValid(provider as string, value.model)
     && typeof value.contextWindow === 'number' && Number.isInteger(value.contextWindow) && value.contextWindow > NATIVE_MODEL_MAX_TOKENS && value.contextWindow <= NATIVE_CONTEXT_WINDOW_MAX
     && typeof value.enabled === 'boolean'
     && profile && typeof profile.id === 'string' && profile.id.length >= 1 && profile.id.length <= 64
