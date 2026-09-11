@@ -985,8 +985,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 4. Account API gateway URLs require the gateway name. <!-- @impl: src/lib/ai-gateway-management.ts::parseGatewayUrl --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: accepts the account API base URL and configured gateway name for Dynamic Route inspection) -->
 5. Account API suffixes after the account ID are removed before storage and use. <!-- @impl: src/lib/ai-gateway-management.ts::parseGatewayUrl --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-057/063: discovers and verifies a Dynamic Route profile through the account API URL) -->
 6. Routine Administration returns either saved URL form and its conditional gateway name. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) -->
+7. Checking equivalent gateway coordinates or replacement credentials preserves a saved native-only policy in the browser draft so Review changes can submit it for authoritative server revalidation. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-057: keeps Review changes available after checking equivalent gateway coordinates for a native-only policy) -->
 
-**Constraints:** Rotation does not persist checks or invoke paid model probes.
+**Constraints:** Rotation does not persist checks or invoke paid model probes. Saved native authority is not trusted from the browser and remains subject to provider and gateway validation during preview.
 
 **Priority:** P1
 

@@ -274,8 +274,8 @@ const AiRoutingFields: Component<Props> = (props) => {
       if (routeChecks()[route.name]) clearRouteVerification(route.name);
       else updateRoute(route.name, (draft) => ({ ...draft, inventory: undefined, inventoryBusy: false, inventoryError: undefined }));
     }
-    setNativeChecks(Object.fromEntries(nativeTargets().flatMap((target) => target.id ? [[target.id, null]] : [])));
-    setNativeTargets((items) => items.map((target) => ({ ...target, enabled: false, verification: undefined })));
+    // Saved native authority remains a draft input while equivalent coordinates are checked.
+    // Preview revalidates it against the resolved gateway and provider configuration before Save.
   };
   const managementContext = (name: string): ReasoningManagementContext | undefined => {
     const descriptions = Object.fromEntries((routeByName(name)?.assignment.legs ?? []).filter((leg) => leg.provider.toLowerCase().startsWith('custom') && leg.customProviderBackend).map((leg) => [leg.nodeId, leg.customProviderBackend!]));
