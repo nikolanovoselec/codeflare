@@ -770,11 +770,18 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Acceptance Criteria:**
 
 1. A verified Dynamic Route profile assignment can reach Review without a group assignment or fallback route. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-069: enables Review for a verified Dynamic Route profile without an access policy) -->
-2. Review and saved summaries include inactive route profiles and context windows without granting access. <!-- @impl: web-ui/src/components/admin/AiRoutingReview.tsx::AiRoutingSummary --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-041: reviews, saves and reloads an inactive administrator-confirmed profile and context without assigning access) -->
+2. Review and saved summaries include changed inactive route profiles and context windows without granting access. <!-- @impl: web-ui/src/components/admin/AiRoutingReview.tsx::AiRoutingSummary --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-041: reviews, saves and reloads an inactive administrator-confirmed profile and context without assigning access) -->
 3. Preview reports changed inactive assignments and context windows. <!-- @impl: src/lib/admin-configuration.ts::buildConfigurationPreview --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-ENTERPRISE-043/069: previews, saves, and reloads an inactive administrator-confirmed Dynamic Bedrock assignment and changed context) -->
 4. Save persists inactive assignments and context windows without activating access. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-ENTERPRISE-043/069: previews, saves, and reloads an inactive administrator-confirmed Dynamic Bedrock assignment and changed context) -->
 
-**Constraints:** Saving an inactive route assignment does not grant runtime access.
+5. Semantically unchanged AI routing submissions produce an empty change list, excluding transient receipts and preserved secrets. <!-- @impl: src/lib/admin-configuration.ts::aiRoutingComparison --> <!-- @impl: src/lib/admin-configuration.ts::buildConfigurationPreview --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-ENTERPRISE-069: compares stored policy objects with submitted ordered policies without inventing changes) -->
+6. Review renders authoritative route-level before/after differences, including removals, rather than the whole submitted inventory. <!-- @impl: web-ui/src/components/admin/AiRoutingReview.tsx::AiRoutingSummary --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-069: shows only the authoritative changed route, not the unchanged configuration inventory) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-069: shows a removed assignment from the authoritative before state) -->
+7. Save rejects an empty AI routing diff before configuration writes or a revision increment. <!-- @impl: src/routes/admin/configuration-runs.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-ENTERPRISE-043/069: previews, saves, and reloads an inactive administrator-confirmed Dynamic Bedrock assignment and changed context) -->
+
+**Constraints:**
+
+- Saving an inactive route assignment does not grant runtime access.
+- Comparison preserves policy priority and trusted verification changes.
 
 **Priority:** P1
 

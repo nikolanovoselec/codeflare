@@ -44,7 +44,11 @@ const preview = (overrides: Partial<ConfigurationPreview> = {}): ConfigurationPr
   tasks: [{ id: 'configure_model_routing', dependsOn: [] }],
   warnings: [], exclusions: ['configure_custom_domain'], ...overrides,
 });
-const renderReview = (submitted: unknown = values(), reviewed = preview(), current: unknown = {}) => render(() => {
+// Presentation fixtures explicitly describe server-confirmed additions; raw values alone confer no changes.
+const additions = (value: unknown): ConfigurationPreview['changes'] => Object.entries(value as Record<string, unknown>)
+  .filter(([field]) => field !== 'replacementToken')
+  .map(([field, after]) => ({ field, after }));
+const renderReview = (submitted: unknown = values(), reviewed = preview({ changes: additions(submitted) }), current: unknown = {}) => render(() => {
   const [warnings, setWarnings] = createSignal<string[]>([]);
   const [outcome, setOutcome] = createSignal('');
   return <>
@@ -99,7 +103,7 @@ describe('AI routing review', () => {
   it('REQ-ENTERPRISE-041: summarizes routing changes in human-readable sections', () => {
     renderReview();
     expect(within(screen.getByRole('region', { name: 'Connection' })).getByText(gatewayUrl)).toBeVisible();
-    expect(screen.getByText('Preserve saved token')).toBeVisible();
+    expect(screen.queryByText('Preserve saved token')).toBeNull();
     const table = screen.getByRole('table', { name: 'Route profiles' });
     const development = within(table).getByRole('row', { name: /development/ });
     expect(within(development).getByText('262,144 tokens')).toBeVisible();
@@ -133,8 +137,8 @@ describe('AI routing review', () => {
     expect(within(row).getByText('Dynamic Route - AWS Bedrock - Claude')).toBeVisible();
     expect(within(row).getByText('1,048,576 tokens')).toBeVisible();
     expect(within(row).getByText('Provider default')).toBeVisible();
-    expect(screen.getByText('No group policies')).toBeVisible();
-    expect(screen.getByText('No fallback access')).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Group access' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Fallback' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'No changes detected' })).not.toBeInTheDocument();
     if (!saved) expect(screen.getByRole('button', { name: 'Confirm Save' })).toBeEnabled();
   });
@@ -167,7 +171,7 @@ describe('AI routing review', () => {
       custom,
       { ...custom, id: 'custom-unassigned', name: 'Unassigned profile' },
     ];
-    renderReview(submitted, preview(), { reasoningConfiguration: { customProfileRevisions: [{ ...custom, revision: 1 }] } });
+    renderReview(submitted, preview({ changes: additions(submitted) }), { reasoningConfiguration: { customProfileRevisions: [{ ...custom, revision: 1 }] } });
     const row = within(screen.getByRole('table', { name: 'Route profiles' })).getByRole('row', { name: /production/ });
     expect(within(row).getByText('Platform reasoning')).toBeVisible();
     expect(within(row).getByText('Pending save')).toBeVisible();
@@ -186,6 +190,7 @@ describe('AI routing review', () => {
     }, preview({ changes: [
       { field: 'replacementToken', before: previous, after: token, secret: { willReplace: true } },
       { field: 'unexpectedCredential', after: 'another-private-value', secret: { willReplace: true } },
+      { field: 'gatewayUrl', after: `https://operator:password-in-url@gateway.ai.cloudflare.com/v1/account/gateway?token=${token}#private` },
     ], warnings: [{ code: 'check_token', message: `Check the replacement ${token} before saving.` }] }));
     expect(screen.getByText('Replace saved token')).toBeVisible();
     expect(screen.getByText(gatewayUrl)).toBeVisible();
@@ -288,7 +293,7 @@ describe('AI routing review', () => {
 
   it('REQ-ENTERPRISE-041: a successful save reuses readable values without pending labels or credential values', () => {
     const { container } = render(() => <AiRoutingSummary values={{ ...values(), replacementToken: 'secret-after-save' }} current={{}}
-      changes={[{ field: 'replacementToken', secret: { willReplace: true } }]} saved />);
+      changes={[...additions(values()), { field: 'replacementToken', secret: { willReplace: true } }]} saved />);
     expect(screen.getByRole('table', { name: 'Route profiles' })).toBeVisible();
     expect(screen.getByText('Platform reasoning')).toBeVisible();
     expect(screen.getByText('Saved token replaced')).toBeVisible();
@@ -375,7 +380,7 @@ describe('AI routing review', () => {
     await screen.findByRole('heading', { name: 'Confirm Save' });
     expect(screen.getByRole('table', { name: 'Route profiles' })).toBeVisible();
     const reviewPanel = screen.getByRole('heading', { name: 'Confirm Save' }).closest('section')!;
-    expect(within(reviewPanel).getByText('No fallback access')).toBeVisible();
+    expect(within(reviewPanel).queryByRole('region', { name: 'Fallback' })).toBeNull();
     if (gateway.replacementToken) expect(document.body.textContent).not.toContain(gateway.replacementToken);
     expect(api.start).not.toHaveBeenCalled();
     const firstPreview = api.preview.mock.calls[api.preview.mock.calls.length - 1]![2];
@@ -408,7 +413,9 @@ describe('AI routing review', () => {
     await fireEvent.click(screen.getByRole('checkbox', { name: /confirm warning/i }));
     expect(api.start).not.toHaveBeenCalled();
     await fireEvent.click(screen.getByRole('button', { name: 'Confirm Save' }));
-    await screen.findByText(tokenMode === 'replacement' ? 'Saved token replaced' : 'Saved token preserved');
+    await screen.findByRole('heading', { name: 'Execution succeeded' });
+    if (tokenMode === 'replacement') expect(screen.getByText('Saved token replaced')).toBeVisible();
+    else expect(screen.queryByText('Saved token preserved')).toBeNull();
     expect(api.start).toHaveBeenCalledWith('aiRouting', 7, firstPreview, ['reasoning_observed_path']);
     expect(screen.getByRole('table', { name: 'Route profiles' })).toBeVisible();
     expect(screen.getByText('Platform reasoning')).toBeVisible();

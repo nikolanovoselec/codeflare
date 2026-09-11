@@ -86,7 +86,8 @@ interface SubmittedRouting {
 }
 const preview = (section: ConfigurationPreview['section'], baseRevision: number, values: SubmittedRouting): ConfigurationPreview => ({
   section, baseRevision, currentRevision: baseRevision,
-  changes: [{ field: 'reasoningConfiguration', after: values.reasoningConfiguration }],
+  changes: [{ field: 'reasoningConfiguration', after: values.reasoningConfiguration },
+    { field: 'routeContextWindows', after: values.routeContextWindows }],
   tasks: [{ id: 'configure_model_routing', dependsOn: [] }], warnings: [], exclusions: [],
 });
 const stream = () => new Response(`${JSON.stringify({ type: 'snapshot', run: { runId: 'saved-routing', section: 'aiRouting', state: 'succeeded', tasks: [], resultingRevision: 8 } })}\n`);
@@ -436,7 +437,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
       expect(within(row).getByText('Dynamic Route - AWS Bedrock - Claude')).toBeVisible();
       expect(within(row).getByText('1,048,576 tokens')).toBeVisible();
       expect(within(row).getByText('Provider default')).toBeVisible();
-      expect(within(screen.getByRole('region', { name: 'Fallback' })).getByText('No fallback access')).toBeVisible();
+      expect(screen.queryByRole('region', { name: 'Fallback' })).toBeNull();
     };
     expectSummary();
     await confirm();

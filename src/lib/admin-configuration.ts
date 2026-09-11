@@ -714,6 +714,28 @@ function same(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+// Compare the same editable semantics on both sides without revalidating saved authority.
+// Policy order is significant: the first matching group wins, including empty policies.
+function aiRoutingComparison(values: ConfigurationValues): ConfigurationValues {
+  const policy = (value: Record<string, unknown>) => ({
+    routes: value.routes ?? [], defaultRoute: value.defaultRoute ?? '', reasoning: value.reasoning ?? 'off',
+  });
+  const groups = Array.isArray(values.groupRouting)
+    ? values.groupRouting as Array<Record<string, unknown>>
+    : Object.entries((values.groupRouting ?? {}) as Record<string, Record<string, unknown>>)
+      .map(([accessGroup, value]) => ({ ...value, accessGroup }));
+  const configuration = values.reasoningConfiguration as Record<string, unknown>;
+  const fallback = (values.fallbackRouting ?? configuration?.fallbackRouting ?? { enabled: false }) as Record<string, unknown>;
+  const fallbackRouting = fallback.enabled ? { enabled: true, ...policy(fallback) } : { enabled: false };
+  return {
+    ...values,
+    defaultRoute: values.defaultRoute ?? { route: '', reasoning: 'off' },
+    groupRouting: groups.map((group) => ({ accessGroup: group.accessGroup, ...policy(group) })),
+    fallbackRouting,
+    ...(configuration && { reasoningConfiguration: { ...configuration, fallbackRouting } }),
+  };
+}
+
 export async function buildConfigurationPreview(
   env: Env,
   section: ConfigurationSection,
@@ -722,15 +744,20 @@ export async function buildConfigurationPreview(
   currentRevision: number,
   values: ConfigurationValues,
 ): Promise<ConfigurationPreview> {
-  const current = await readCurrentConfigurationValues(env, section, mode);
+  const saved = await readCurrentConfigurationValues(env, section, mode);
+  const current = section === 'aiRouting' ? aiRoutingComparison(saved) : saved;
+  const proposed = section === 'aiRouting' ? aiRoutingComparison(values) : values;
   const secretFields = new Set(SECRET_FIELDS[section] ?? []);
   const changes: ConfigurationChange[] = [];
-  for (const [field, after] of Object.entries(values)) {
+  for (const [field, after] of Object.entries(proposed)) {
+    if (section === 'aiRouting' && (field === 'routeChecks' || field === 'nativeChecks')) continue;
     if (secretFields.has(field)) {
-      changes.push({ field, secret: { willReplace: typeof after === 'string' && after.trim().length > 0 } });
+      const willReplace = typeof after === 'string' && after.trim().length > 0;
+      if (section !== 'aiRouting' || willReplace) changes.push({ field, secret: { willReplace } });
     } else {
       const safeAfter = field === 'nativeTargets' ? parseNativeAiTargets(after).targets.map((target) => sanitizeNativeTarget(target, Boolean(target.verification))) : after;
-      if (!same(current[field], safeAfter)) changes.push({ field, ...(current[field] !== undefined && { before: current[field] }), after: safeAfter });
+      const equal = section === 'aiRouting' ? canonicalJson(current[field]) === canonicalJson(safeAfter) : same(current[field], safeAfter);
+      if (!equal) changes.push({ field, ...(current[field] !== undefined && { before: current[field] }), after: safeAfter });
     }
   }
 

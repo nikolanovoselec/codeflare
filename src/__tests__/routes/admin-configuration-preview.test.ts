@@ -483,8 +483,8 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     expect(accepted.status).toBe(200);
     const acceptedText = await accepted.text();
     expect(acceptedText).not.toContain('deployment-token-must-not-leak');
-    expect(JSON.parse(acceptedText).changes).toEqual(expect.arrayContaining([
-      { field: 'replacementToken', secret: { willReplace: false } },
+    expect(JSON.parse(acceptedText).changes).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: 'replacementToken' }),
     ]));
     expect(kv.put).not.toHaveBeenCalled();
 

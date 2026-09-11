@@ -209,6 +209,13 @@ app.post('/', requireAdmin, async (c) => {
     return c.json({ error: 'Environment values are invalid', code: 'validation_error', fields: validation.fieldErrors ?? {} }, 400);
   }
 
+  const values = validation.values;
+  const aiPreview = section === 'aiRouting'
+    ? await buildConfigurationPreview(c.env, section, mode, baseRevision, currentRevision, values) : undefined;
+  if (aiPreview && aiPreview.changes.length === 0) {
+    return c.json({ error: 'No configuration changes to save', code: 'configuration_no_changes' }, 409);
+  }
+
   const setupLock = await c.env.KV.get(SETUP_KEYS.CONFIGURING);
   const setupStartedAt = setupLock ? Number(setupLock) : NaN;
   if (Number.isFinite(setupStartedAt) && Date.now() - setupStartedAt < 60_000) {
@@ -224,8 +231,7 @@ app.post('/', requireAdmin, async (c) => {
     await c.env.KV.delete(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN);
   }
 
-  const values = validation.values;
-  const preview = await buildConfigurationPreview(c.env, section, mode, baseRevision, currentRevision, values);
+  const preview = aiPreview ?? await buildConfigurationPreview(c.env, section, mode, baseRevision, currentRevision, values);
   const requiredWarningCodes = preview.warnings.map((warning) => warning.code);
   if (requiredWarningCodes.some((code) => !confirmedWarnings.includes(code))) {
     return c.json({

@@ -2,7 +2,7 @@ import { For, Show, createMemo, createUniqueId, type Component } from 'solid-js'
 import type { ConfigurationPreview } from '../../api/client';
 import { operatorTaskLabel } from './administration-presentation';
 import { profileDisplayName } from './pi-profile-presentation';
-import { getBuiltInProfile } from '../../../../src/lib/reasoning-profiles';
+import { canonicalJson, getBuiltInProfile } from '../../../../src/lib/reasoning-profiles';
 import './AiRoutingReview.css';
 
 type Changes = ConfigurationPreview['changes'];
@@ -55,34 +55,56 @@ function gatewayAddress(value: unknown): string {
   } catch { return 'Gateway URL unavailable'; }
 }
 
-/** REQ-ENTERPRISE-041: the same safe, grouped configuration is used for review and successful Save. */
+// Raw submitted values are used for redaction only. The server owns the review diff.
+function reviewStates(current: unknown, changes: Changes) {
+  const before = { ...record(current) };
+  const after = { ...before };
+  for (const change of changes) if (!change.secret) {
+    if ('before' in change) before[change.field] = change.before;
+    after[change.field] = change.after;
+  }
+  return { before, after };
+}
+const equal = (left: unknown, right: unknown) => canonicalJson(left) === canonicalJson(right);
+const assignmentsFor = (state: Record<string, unknown>) => record(record(state.reasoningConfiguration).routeAssignments);
+function changedRoutes(before: Record<string, unknown>, after: Record<string, unknown>): string[] {
+  const oldAssignments = assignmentsFor(before); const newAssignments = assignmentsFor(after);
+  const oldWindows = record(before.routeContextWindows); const newWindows = record(after.routeContextWindows);
+  const oldActive = list(before.dynamicRoutes); const newActive = list(after.dynamicRoutes);
+  return [...new Set([...Object.keys(newAssignments), ...Object.keys(oldAssignments), ...Object.keys(newWindows), ...Object.keys(oldWindows), ...newActive, ...oldActive])]
+    .filter((route) => !equal(oldAssignments[route], newAssignments[route]) || !equal(oldWindows[route], newWindows[route]) || oldActive.includes(route) !== newActive.includes(route));
+}
+const ValueChange: Component<{ before?: string; after: string }> = (props) => <>
+  <Show when={props.before !== undefined && props.before !== props.after}><span aria-label="Previous value">{props.before}</span><span aria-hidden="true"> → </span></Show>
+  <span>{props.after}</span>
+</>;
+
+/** REQ-ENTERPRISE-041/069: Review and successful Save display the same authoritative delta. */
 export const AiRoutingSummary: Component<SummaryProps> = (props) => {
   const id = createUniqueId();
-  const data = createMemo(() => ({ ...record(props.current), ...record(props.values) }));
+  const states = createMemo(() => reviewStates(props.current, props.changes));
+  const before = () => states().before;
+  const data = () => states().after;
+  const changed = (field: string) => props.changes.some((change) => change.field === field && (!change.secret || change.secret.willReplace));
   const safe = createMemo(() => redactor(props.values, props.current, props.changes));
   const configuration = () => record(data().reasoningConfiguration);
-  const assignments = () => record(configuration().routeAssignments);
+  const assignments = () => assignmentsFor(data());
   const profiles = () => revisions(configuration().customProfileRevisions);
-  const savedProfiles = () => revisions(record(record(props.current).reasoningConfiguration).customProfileRevisions);
-  // Profile assignments are durable even when no access policy activates the route.
-  const routes = () => [...new Set([...list(data().dynamicRoutes), ...Object.keys(assignments())])];
+  const savedProfiles = () => revisions(record(before().reasoningConfiguration).customProfileRevisions);
+  const routes = () => changedRoutes(before(), data());
   const nativeTargets = () => revisions(data().nativeTargets);
   const groups = () => revisions(data().groupRouting);
-  const explicitFallback = () => {
-    const directChange = props.changes.find((change) => change.field === 'fallbackRouting');
-    const reasoningChange = props.changes.find((change) => change.field === 'reasoningConfiguration');
-    const submitted = record(props.values);
-    const current = record(props.current);
-    return directChange?.after ?? record(reasoningChange?.after).fallbackRouting
-      ?? submitted.fallbackRouting ?? record(submitted.reasoningConfiguration).fallbackRouting
-      ?? current.fallbackRouting ?? record(current.reasoningConfiguration).fallbackRouting;
-  };
+  const explicitFallback = () => props.changes.find((change) => change.field === 'fallbackRouting')?.after
+    ?? record(props.changes.find((change) => change.field === 'reasoningConfiguration')?.after).fallbackRouting
+    ?? data().fallbackRouting ?? configuration().fallbackRouting;
   const fallback = () => record(explicitFallback() ?? data().defaultRoute);
   const fallbackEnabled = () => explicitFallback() !== undefined
     ? fallback().enabled === true : fallback().enabled !== false && Boolean(text(fallback().route));
   const fallbackRoutes = () => explicitFallback() !== undefined || Array.isArray(fallback().routes) ? list(fallback().routes) : list(data().dynamicRoutes);
   const fallbackDefault = () => explicitFallback() !== undefined ? fallback().defaultRoute : fallback().route;
-  const profileFor = (route: string) => record(record(assignments()[route]).activeProfile);
+  const fallbackChanged = () => changed('fallbackRouting') || changed('defaultRoute')
+    || !equal(record(before().reasoningConfiguration).fallbackRouting, configuration().fallbackRouting);
+  const profileFor = (route: string, state = data()) => record(record(assignmentsFor(state)[route]).activeProfile);
   const customFor = (ref: Record<string, unknown>) => profiles().find((profile) => sameRevision(profile, ref));
   const providerDefault = (route: string) => {
     const ref = profileFor(route);
@@ -92,18 +114,21 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
   const policyReasoning = (route: unknown, level: unknown) => providerDefault(text(route)) ? 'Provider default' : reasoningLabel(level);
   const nameFor = (ref: Record<string, unknown>) => {
     if (!text(ref.id)) return 'No profile assigned';
-    const custom = customFor(ref);
+    const custom = customFor(ref) ?? savedProfiles().find((profile) => sameRevision(profile, ref));
     const label = profileDisplayName({ id: text(ref.id), name: text(custom?.name) });
     return safe()(label === ref.id ? 'Profile name unavailable' : label);
   };
   const pending = (profile: Record<string, unknown>) => !props.saved && !savedProfiles().some((saved) => sameRevision(saved, profile));
-  const unassigned = () => profiles().filter((profile) => pending(profile) && !routes().some((route) => sameRevision(profileFor(route), profile)));
-  const contextWindow = (route: string) => {
-    const tokens = record(data().routeContextWindows)[route];
+  const unassigned = () => profiles().filter((profile) => !savedProfiles().some((saved) => sameRevision(saved, profile))
+    && !Object.keys(assignments()).some((route) => sameRevision(profileFor(route), profile)));
+  const contextWindow = (route: string, state = data()) => {
+    const tokens = record(state.routeContextWindows)[route];
     return typeof tokens === 'number' && Number.isFinite(tokens) ? `${tokens.toLocaleString('en-US')} tokens` : 'Not configured';
   };
+  const routeChange = (route: string) => !assignments()[route] && assignmentsFor(before())[route] ? 'Removed'
+    : !assignmentsFor(before())[route] && assignments()[route] ? 'Added' : 'Updated';
   const replacingToken = () => props.changes.find((change) => change.field === 'replacementToken')?.secret?.willReplace
-    ?? Boolean(text(record(props.values).replacementToken));
+    ?? false;
   const tokenSummary = () => props.saved
     ? (replacingToken() ? 'Saved token replaced' : 'Saved token preserved')
     : (replacingToken() ? 'Replace saved token' : 'Preserve saved token');
@@ -112,40 +137,40 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
   </Show>;
 
   return <div class="ai-routing-review-summary">
-    <section class="ai-routing-review-section" aria-labelledby={`${id}-connection`}>
+    <Show when={changed('gatewayUrl') || changed('gatewayId') || changed('replacementToken')}><section class="ai-routing-review-section" aria-labelledby={`${id}-connection`}>
       <h3 id={`${id}-connection`}>Connection</h3>
       <dl class="ai-routing-review-values">
-        <div><dt>Gateway URL</dt><dd>{safe()(gatewayAddress(data().gatewayUrl))}</dd></div>
-        <Show when={text(data().gatewayId)}><div><dt>Gateway name</dt><dd>{safe()(text(data().gatewayId))}</dd></div></Show>
-        <div><dt>API token</dt><dd>{tokenSummary()}</dd></div>
+        <Show when={changed('gatewayUrl')}><div><dt>Gateway URL</dt><dd><ValueChange before={safe()(gatewayAddress(before().gatewayUrl))} after={safe()(gatewayAddress(data().gatewayUrl))} /></dd></div></Show>
+        <Show when={changed('gatewayId')}><div><dt>Gateway name</dt><dd>{safe()(text(data().gatewayId))}</dd></div></Show>
+        <Show when={changed('replacementToken')}><div><dt>API token</dt><dd>{tokenSummary()}</dd></div></Show>
       </dl>
-    </section>
-    <section class="ai-routing-review-section" aria-labelledby={`${id}-profiles`}>
+    </section></Show>
+    <Show when={routes().length || unassigned().length}><section class="ai-routing-review-section" aria-labelledby={`${id}-profiles`}>
       <h3 id={`${id}-profiles`}>Route profiles</h3>
       <Show when={routes().length} fallback={<p>No routes configured</p>}>
         <table class="ai-routing-review-routes" aria-labelledby={`${id}-profiles`}>
           <thead><tr><th scope="col">Route</th><th scope="col">Profile</th><th scope="col">Context window</th></tr></thead>
           <tbody><For each={routes()}>{(route) => <tr>
-            <th scope="row">{safe()(route)}</th>
-            <td><span class="ai-routing-review-mobile-label" aria-hidden="true">Profile</span><span>{nameFor(profileFor(route))}<Show when={providerDefault(route)}><br /><small>Provider default</small></Show><Show when={customFor(profileFor(route)) && pending(customFor(profileFor(route))!)}><small class="ai-routing-review-pending">Pending save</small></Show></span></td>
-            <td><span class="ai-routing-review-mobile-label" aria-hidden="true">Context window</span>{contextWindow(route)}</td>
+            <th scope="row"><div>{safe()(route)}</div><small>{routeChange(route)}</small></th>
+            <td><span class="ai-routing-review-mobile-label" aria-hidden="true">Profile</span><span><ValueChange before={nameFor(profileFor(route, before()))} after={nameFor(profileFor(route))} /><Show when={providerDefault(route)}><br /><small>Provider default</small></Show><Show when={customFor(profileFor(route)) && pending(customFor(profileFor(route))!)}><small class="ai-routing-review-pending">Pending save</small></Show></span></td>
+            <td><span class="ai-routing-review-mobile-label" aria-hidden="true">Context window</span><span><ValueChange before={contextWindow(route, before())} after={contextWindow(route)} /></span></td>
           </tr>}</For></tbody>
         </table>
       </Show>
       <Show when={unassigned().length}>
         <section class="ai-routing-review-unassigned" aria-labelledby={`${id}-unassigned`}>
-          <h4 id={`${id}-unassigned`}>Other profiles pending save</h4>
+          <h4 id={`${id}-unassigned`}>{props.saved ? 'Other saved profiles' : 'Other profiles pending save'}</h4>
           <ul><For each={unassigned()}>{(profile) => <li><strong>{safe()(text(profile.name) || 'Unnamed custom profile')}</strong><span>Unassigned</span></li>}</For></ul>
         </section>
       </Show>
-    </section>
-    <Show when={nativeTargets().length}><section class="ai-routing-review-section" aria-labelledby={`${id}-native`}>
+    </section></Show>
+    <Show when={changed('nativeTargets')}><section class="ai-routing-review-section" aria-labelledby={`${id}-native`}>
       <h3 id={`${id}-native`}>Native providers</h3>
       <table class="ai-routing-review-routes" aria-labelledby={`${id}-native`}><thead><tr><th scope="col">Target</th><th scope="col">Exact model</th><th scope="col">AWS region</th><th scope="col">Context window</th><th scope="col">State</th></tr></thead>
         <tbody><For each={nativeTargets()}>{(target) => <tr><th scope="row">{safe()(text(target.label) || 'Unnamed target')}</th><td>{safe()(text(target.model))}</td><td>{safe()(text(target.region)) || 'Not applicable'}</td><td>{typeof target.contextWindow === 'number' ? `${target.contextWindow.toLocaleString('en-US')} tokens` : 'Not configured'}</td><td>{target.enabled === true ? 'Enabled' : 'Inactive'}</td></tr>}</For></tbody>
       </table>
     </section></Show>
-    <section class="ai-routing-review-section" aria-labelledby={`${id}-groups`}>
+    <Show when={changed('groupRouting')}><section class="ai-routing-review-section" aria-labelledby={`${id}-groups`}>
       <h3 id={`${id}-groups`}>Group access</h3>
       <Show when={groups().length} fallback={<p>No group policies</p>}>
         <div class="ai-routing-review-groups"><For each={groups()}>{(group) => <article aria-label={safe()(text(group.accessGroup))}>
@@ -157,8 +182,8 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
           </dl>
         </article>}</For></div>
       </Show>
-    </section>
-    <section class="ai-routing-review-section" aria-labelledby={`${id}-fallback`}>
+    </section></Show>
+    <Show when={fallbackChanged()}><section class="ai-routing-review-section" aria-labelledby={`${id}-fallback`}>
       <h3 id={`${id}-fallback`}>Fallback</h3>
       <Show when={fallbackEnabled()} fallback={<><strong>No fallback access</strong><p>Users without a matching group policy cannot use these routes.</p></>}>
         <p>Applies to users without a matching group policy.</p>
@@ -168,7 +193,7 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
           <div><dt>Default reasoning</dt><dd>{policyReasoning(fallbackDefault(), fallback().reasoning)}</dd></div>
         </dl>
       </Show>
-    </section>
+    </section></Show>
   </div>;
 };
 
@@ -179,7 +204,10 @@ const AiRoutingReview: Component<ReviewProps> = (props) => {
   const hasChanges = () => props.preview.changes.some((change) => !change.secret || change.secret.willReplace);
   const canConfirm = () => !props.busy && hasChanges()
     && props.preview.warnings.every((warning) => props.confirmedWarnings.includes(warning.code));
-  const assignments = () => Object.entries(record(record(record(props.values).reasoningConfiguration).routeAssignments));
+  const assignments = () => {
+    const { before, after } = reviewStates(props.current, props.preview.changes);
+    return changedRoutes(before, after).map((route) => [route, assignmentsFor(after)[route]] as const);
+  };
 
   return <div class="ai-routing-review">
     <Show when={props.preview.warnings.length}>
