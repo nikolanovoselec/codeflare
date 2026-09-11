@@ -140,7 +140,7 @@ The `workers.dev` URL is only the initial setup surface. After setup configures 
 
 One profile is selected per deployment through the `RESSOURCE_TIER` GitHub Actions repo variable (`low`, `high`, `saas`, or unset for default). The deployment-wide `max_instances` defaults to 10 independently of that profile; the `MAX_INSTANCES` GitHub Actions variable may override it with a positive integer. The limits are not additive pools per profile.
 
-Wrangler SSH is explicitly enabled for running container instances and exposes no public port. Connecting still requires a configured `ssh-ed25519` public key plus account-level Containers Edit (`cloudchamber.write` for OAuth). ([REQ-OPS-013](../../sdd/spec/operations.md#req-ops-013-deploy-command-and-post-deploy-hooks)) <!-- @impl: wrangler.toml::containers.ssh -->
+Wrangler SSH is explicitly enabled for running container instances. ([REQ-OPS-014](../../sdd/spec/operations.md#req-ops-014-container-binding-and-scaling-from-image)) <!-- @impl: wrangler.toml::containers.ssh --> It exposes no public port, and connecting requires a configured `ssh-ed25519` public key plus account-level Containers Edit (`cloudchamber.write` for OAuth); see Cloudflare's [SSH guide](https://developers.cloudflare.com/containers/guides/ssh/) and [account permission reference](https://developers.cloudflare.com/fundamentals/api/reference/permissions/#account-permissions).
 
 The `RESSOURCE_TIER` misspelling (French/German "ressource") is intentional and preserved across `wrangler.toml`, GitHub Actions variables, and TypeScript types for backward compatibility with deployed instances. Do not "fix" the spelling; renaming requires a coordinated change across every deployment.
 

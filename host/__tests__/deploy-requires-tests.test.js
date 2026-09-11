@@ -19,6 +19,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { parse as parseYaml } from 'yaml';
+import { unstable_readConfig } from 'wrangler';
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const WORKFLOWS = join(ROOT, '.github', 'workflows');
@@ -26,7 +27,7 @@ const OUTCOME_GATE = join(ROOT, 'scripts', 'ci', 'assert-deploy-outcome.mjs');
 const VAPID_GATE = join(ROOT, 'scripts', 'ci', 'validate-vapid-config.mjs');
 const deployYml = readFileSync(join(WORKFLOWS, 'deploy.yml'), 'utf8');
 const deployWorkflow = parseYaml(deployYml);
-const wranglerToml = readFileSync(join(ROOT, 'wrangler.toml'), 'utf8');
+const wranglerConfigPath = join(ROOT, 'wrangler.toml');
 const testYml = readFileSync(join(WORKFLOWS, 'test.yml'), 'utf8');
 const testWorkflow = parseYaml(testYml);
 
@@ -347,9 +348,10 @@ describe('manual deploys cannot skip tests', () => {
   });
 });
 
-describe('REQ-OPS-013 AC7: Wrangler container SSH', () => {
+describe('REQ-OPS-014 AC5: Wrangler container SSH', () => {
   it('explicitly enables authenticated SSH for running container instances', () => {
-    assert.match(wranglerToml, /\[containers\.ssh\]\s*\nenabled = true(?:\n|$)/);
+    const config = unstable_readConfig({ config: wranglerConfigPath }, { hideWarnings: true });
+    assert.equal(config.containers?.[0]?.ssh?.enabled, true);
   });
 });
 
