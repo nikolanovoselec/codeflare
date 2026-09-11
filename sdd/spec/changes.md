@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-11
 
+- **Running containers explicitly permit Wrangler SSH** ([REQ-OPS-013](operations.md#req-ops-013-deploy-command-and-post-deploy-hooks) AC7 added; remains Implemented). The deployment configuration enables authenticated SSH without a public container port; a matching `ssh-ed25519` public key and Containers write authority remain required to connect.
+
 - **Monitoring never blocks the main coding session** ([REQ-AGENT-065](agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) AC7 added; remains Implemented). Claude and Pi use background agents or processes for CI, automated tests, deployments, and log tails; only approved safe local checks run in-session.
 
 - **Native access policies show provider-model labels** ([REQ-ENTERPRISE-056](enterprise-mode.md#req-enterprise-056-native-target-disclosure-and-readiness) AC5 added; remains Implemented). Group and fallback controls present each Ready native target by its provider and exact model while the existing opaque policy identity remains unchanged.

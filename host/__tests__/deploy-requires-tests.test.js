@@ -26,6 +26,7 @@ const OUTCOME_GATE = join(ROOT, 'scripts', 'ci', 'assert-deploy-outcome.mjs');
 const VAPID_GATE = join(ROOT, 'scripts', 'ci', 'validate-vapid-config.mjs');
 const deployYml = readFileSync(join(WORKFLOWS, 'deploy.yml'), 'utf8');
 const deployWorkflow = parseYaml(deployYml);
+const wranglerToml = readFileSync(join(ROOT, 'wrangler.toml'), 'utf8');
 const testYml = readFileSync(join(WORKFLOWS, 'test.yml'), 'utf8');
 const testWorkflow = parseYaml(testYml);
 
@@ -346,7 +347,13 @@ describe('manual deploys cannot skip tests', () => {
   });
 });
 
-describe('REQ-OPS-013 AC6-AC7: notification deployment configuration', () => {
+describe('REQ-OPS-013 AC7: Wrangler container SSH', () => {
+  it('explicitly enables authenticated SSH for running container instances', () => {
+    assert.match(wranglerToml, /\[containers\.ssh\]\s*\nenabled = true(?:\n|$)/);
+  });
+});
+
+describe('REQ-OPS-013 AC6: notification deployment configuration', () => {
   function keyPair() {
     const ecdh = createECDH('prime256v1');
     ecdh.generateKeys();
