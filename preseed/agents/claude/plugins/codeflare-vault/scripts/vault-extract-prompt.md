@@ -71,7 +71,7 @@ the bytes against the manifest, NOT mtimes - so the R2 restore that resets
 every file's mtime to download-time does not make it re-report the whole
 vault (the old `find -newer` bug). The script owns the exclusion set:
 
-- `Raw/Sessions/` - agent-owned, already merged by the capture agent.
+- `Raw/Sessions/` - agent-owned captures plus image-owned `Archive.md`; all were already represented when captured, so neither hot files nor the archive may be semantically re-extracted.
 - `Raw/Graphs/`, `graphify-out/` - derived output, would create a feedback loop.
 - `Library/Codeflare/`, `.silverbullet/` - vendored plugs + editor config, no semantic content.
 - `Index.md`, `README.md`, `CONFIG.md`, `STYLES.md` - codeflare-authoritative preseed pages (REQ-VAULT-010 AC1); never user-edits.
@@ -216,7 +216,9 @@ The fix is to maintain a persistent `vault-graph.json` that grows
 monotonically: load it (or start fresh if missing), nx.compose the
 new chunk's nodes/edges into it via hash-keyed union, re-cluster, and
 write it back. The persistent graph is then what `graphify global add`
-consumes in step 5.
+consumes in step 5. The image compactor may already have relocated capture
+`source_file` provenance to `Raw/Sessions/Archive.md`; preserve those node IDs,
+edges, and relocated attributes exactly. Never rebuild them by extracting the archive.
 
 ```bash
 ( flock -w 5 /run/codeflare/locks/graphify-global.lock /root/.local/share/uv/tools/graphifyy/bin/python /home/user/.claude/plugins/codeflare-vault/scripts/merge-vault-graph.py ) || EXTRACT_FAILED=1

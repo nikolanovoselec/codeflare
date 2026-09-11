@@ -1,6 +1,7 @@
 /* v8 ignore start -- user-validated administration UI */
 import { For, Show, createMemo, createSignal, createUniqueId, onCleanup, onMount, type Component } from 'solid-js';
 import { discoverReasoningCompatibility } from '../../api/client';
+import { apiErrorMessage } from '../../api/fetch-helper';
 import { normalizeCustomProfile } from '../../../../src/lib/reasoning-profiles';
 import type { PiReasoningLevel, ProfileRevisionRef, ReasoningDiscoveryDiagnostic, ReasoningDiscoveryResult, ReasoningManagementContext } from '../../types';
 import { profileDisplayName } from './pi-profile-presentation';
@@ -8,6 +9,7 @@ import { profileDisplayName } from './pi-profile-presentation';
 interface Props {
   route: string;
   context?: ReasoningManagementContext;
+  discoverCompatibility?: () => Promise<ReasoningDiscoveryResult>;
   onBusyChange?: (busy: boolean) => void;
   existingRevisions: Array<Record<string, unknown>>;
   onSave: (revision: Record<string, unknown>) => void;
@@ -183,10 +185,12 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
     setError('');
     setResult(undefined);
     try {
-      const result = await discoverReasoningCompatibility({ route: props.route, ...props.context, maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS });
+      const result = props.discoverCompatibility
+        ? await props.discoverCompatibility()
+        : await discoverReasoningCompatibility({ route: props.route, ...props.context, maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS });
       if (!disposed) setResult(result);
-    } catch {
-      if (!disposed) setError('Compatibility check failed. Check the AI Gateway connection and try again.');
+    } catch (error) {
+      if (!disposed) setError(apiErrorMessage(error, 'Compatibility check failed. Check the AI Gateway connection and try again.'));
     } finally {
       if (!disposed) { setBusy(false); props.onBusyChange?.(false); }
     }

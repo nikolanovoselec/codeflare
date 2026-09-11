@@ -17,7 +17,7 @@ Vault/
 ├── CONFIG.md         <- PRESEED: SilverBullet #meta config page (overwrite each boot)
 ├── STYLES.md         <- PRESEED: codeflare editor theme (overwrite each boot)
 ├── Raw/
-│   ├── Sessions/     <- AGENT-OWNED: written by the capture agent, one .md per 20-prompt batch
+│   ├── Sessions/     <- MACHINE-OWNED: hot capture files plus deterministic Archive.md
 │   └── Pasted/       <- USER-OWNED, OPTIONAL: manual archive only; NOT the SB drag-drop target
 ├── Notes/            <- USER-OWNED: curated prose; SB attachments land next to the note
 ├── Inbox/            <- USER-OWNED: SB Quick Note lands under Inbox/YYYY-MM-DD/
@@ -29,13 +29,14 @@ Vault/
 
 ## Reading
 
-Prefer the unified graph (`mcp__graphify__*`) for any cross-session lookup; it ingests every vault file plus every active repo's graphify-out, so one query returns vault + code side by side. Use `query_graph` for free-text, `get_node` when you know the concept name. Read raw vault files only when the graph points at a specific path.
+Prefer the unified graph (`mcp__graphify__*`) for any cross-session lookup; it ingests every vault file plus every active repo's graphify-out, so one query returns vault + code side by side. Use `query_graph` for free-text, `get_node` when you know the concept name. Read raw vault files only when the graph points at a specific path. For session-memory lookup, search current `Raw/Sessions/*.md` capture files first (excluding `Archive.md`), then search `Raw/Sessions/Archive.md` only when the hot files do not answer the question.
 
 ## Writing (who writes where)
 
 | Path | Who writes | When |
 |---|---|---|
-| `Raw/Sessions/*.md` | Capture agent only | Triggered every 20 real user prompts and for an uncaptured tail on session resume. Never hand-edit. |
+| `Raw/Sessions/<capture>.md` | Capture agent only | Triggered every 20 real user prompts and for an uncaptured tail on session resume. Never hand-edit or delete. |
+| `Raw/Sessions/Archive.md` | Image-owned compactor only | Deterministic cold-capture archive. Agents may read it after hot files, but never edit or replace it. |
 | `Inbox/<YYYY-MM-DD>/*` | User via SilverBullet | Quick Note + attachments land in same date folder. |
 | `Journal/*` | User via SilverBullet | Journal: Today lands here. |
 | `Notes/**/*.md` | User (primarily) | If user asks to file a note, write here. Use `[[wikilinks]]` for concepts. |
@@ -51,8 +52,9 @@ Prefer the unified graph (`mcp__graphify__*`) for any cross-session lookup; it i
 
 ## Hard rules (NEVER)
 
-- **Never `rm` from the vault.** User-curated content is sacred; if you think a file is wrong, ask.
-- **Never edit `Raw/Sessions/`.** Agent-owned; hand-editing drifts.
+- **Never `rm` from the vault.** User-curated content and capture history are sacred; if you think a file is wrong, ask.
+- **Never edit or delete individual `Raw/Sessions/` captures.** Only the capture pipeline creates them; only the verified image compactor removes exact archived sources.
+- **Never edit, replace, or regenerate `Raw/Sessions/Archive.md`.** It is deterministic image-owned output.
 - **Never write into `graphify-out/`.** Build output; run `graphify extract` instead.
 - **Never `cd` into the vault and `git init`.** Vault syncs via rclone bisync, not git. Adding `.git/` confuses the graphify-active-repo hook + bisync filters.
 

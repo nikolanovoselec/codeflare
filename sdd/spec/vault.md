@@ -7,7 +7,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 ### Key Concepts
 
 - **Vault** -- The persistent per-user vault directory holding markdown notes, pasted assets, and derived graph output. Attachment uploads land next to the note that referenced them; the dedicated raw-pasted directory is reserved for user-owned drag-drop. The vault is bisynced to R2 so it survives across sessions and is always present in the unified global graph (tagged as the user-vault source; never pruned by the active-repo prune-on-switch logic).
-- **Capture Agent** -- The background worker that writes one markdown file per batch into the vault's raw-sessions subdirectory and merges it into the unified graph. Claude is pinned to Sonnet per AD58; Pi uses the optional provider-neutral model lever with medium reasoning and bounded one-pass input per AD103.
+- **Capture Agent** -- The background worker that writes one markdown file per batch into the vault's raw-sessions subdirectory and merges it into the unified graph. Claude is pinned to Sonnet per AD58; Pi uses the optional provider-neutral model lever with medium reasoning and bounded one-pass input per AD103. The image-owned compactor alone may fold cold captures into `Raw/Sessions/Archive.md`.
 - **Vault-monitor Daemon** -- A polling loop in the entrypoint that watches for user-curated edits anywhere under the vault except the agent-written capture directory, the derived graph-output directory, the editor's internal config directory, and the four codeflare-authoritative root pages. When changes are found, writes a trigger marker. Detects changes by comparing each file's content hash against a durable manifest (REQ-VAULT-026), not its mtime, so the R2 restore's mtime reset cannot misfire a full re-extraction.
 - **Vault-extract Agent** -- The background worker that reads only detected changed files and merges their subgraph into the unified graph. Claude is pinned to Sonnet and commits its manifest; Pi uses medium reasoning/seven turns and the root promotes staged manifest bytes only after a post-commit request chunk.
 - **Unified Global Graph** -- The merged graph that combines every per-repo graph with the vault's own graph; merges are hash-keyed and serialized under a shared multi-writer lock. The graphify MCP wrapper prefers this graph when present so structural queries return a unified view across all sources.
@@ -974,6 +974,34 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Dependencies:** [REQ-VAULT-027](#req-vault-027-pi-vault-extraction-delivery-is-visible-and-transactional)
 
 **Verification:** Automated test ([Pi extraction delivery tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-VAULT-032: Session archive ownership and extraction boundary
+
+**Intent:** The deterministic session archive must not become a second editable capture source or feed its already-extracted text back through semantic extraction.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Memory-capture workers write only the request-owned individual capture and reject the machine archive as a capture target. <!-- @impl: preseed/agents/claude/agents/memory-capture.md::capture_file --> <!-- @impl: preseed/agents/pi/agents/memory-capture.md::captureFilename --> <!-- @manual -->
+2. Vault operation guidance tells Claude and Pi to search hot captures before archived history and forbids agent edits or capture deletion. <!-- @impl: preseed/agents/claude/skills/vault-operations/SKILL.md::Hard rules (NEVER) --> <!-- @impl: preseed/agents/pi/skills/vault-operations/SKILL.md::Hard rules (NEVER) --> <!-- @manual -->
+3. Both runtime paths exclude the complete machine session-history subtree from semantic change detection. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-manifest.py::PRUNE_PREFIXES --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::VAULT_GENERATED_PREFIXES --> <!-- @test: src/__tests__/lib/vault-manifest-detection.test.ts (REQ-VAULT-032 AC3: excludes individual captures and Archive.md from semantic extraction) -->
+4. Both Vault-extract contracts treat the archive as provenance-only machine output and never author a semantic chunk from it. <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/vault-extract-prompt.md::List files changed since last successful extraction --> <!-- @impl: preseed/agents/pi/prompts/vault-extract-prompt.md::First Bash call: read each frozen file once --> <!-- @manual -->
+
+**Constraints:**
+
+- The archive remains R2-synced as ordinary Vault content and readable as a fallback source.
+- Excluding the archive from extraction does not remove or regenerate graph evidence; [REQ-MEM-023](memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory) relocates existing provenance.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-VAULT-002](#req-vault-002-conversation-captures-land-in-the-vault-as-markdown), [REQ-MEM-023](memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory)
+
+**Verification:** Automated manifest-exclusion test and manual managed-instruction review
 
 **Status:** Implemented
 

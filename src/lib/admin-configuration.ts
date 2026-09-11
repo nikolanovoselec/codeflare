@@ -14,12 +14,14 @@ import { handleConfigureCustomDomain } from '../routes/setup/custom-domain';
 import { getWorkerNameFromHostname } from '../routes/setup/shared';
 import { reactivateUsageUser } from './admin-usage';
 import { REASONING_PROFILE_IDS, canonicalJson, getBuiltInProfile, getBuiltInProfileRef, parseRouteSettings, serializeRouteSettings } from './reasoning-profiles';
-import { dynamicRouteSchema, gatewayDraftSchema, resolveGatewayConnection } from './ai-gateway-management';
+import { dynamicRouteSchema, gatewayCoordinates, gatewayDraftSchema, listCustomProviderSlugs, listCustomProviderSlugsForProviders, listNativeProviderConfigs, parseGatewayUrl, resolveGatewayConnection, selectNativeProviderConfig } from './ai-gateway-management';
+import { nativeProfileRefKey, nativeTargetDraftSchema, nativeTargetHandle, nativeTargetIdFromHandle, nativeVerificationMatches, parseNativeAiTargets, readNativeTargetCheck, reconcileNativeTargets, sanitizeNativeTarget, serializeNativeAiTargets, type NativeProviderAuthority } from './native-ai-targets';
 import {
   assignmentBackendDescriptions, fallbackRoutingSchema, loadCheckedRouteInventory, readRouteCheck,
-  routeCheckIdSchema, verificationMatches, type FallbackRouting,
+  rebindVerificationConnection, routeCheckIdSchema, verificationMatches, type FallbackRouting,
 } from './reasoning-verification';
 import {
+  getProfileForRef,
   getRouteReasoningProfile,
   migrateLegacyReasoningAssignments,
   parseReasoningConfiguration,
@@ -96,26 +98,38 @@ const accessSchema = z.object({
   adminAccessGroups: z.array(name).optional(),
 }).strict();
 
+const policyTargetSchema = z.union([dynamicRouteSchema, z.string().refine((value) => nativeTargetIdFromHandle(value) !== null)]);
 const aiRoutingSchema = z.object({
   gatewayUrl: gatewayDraftSchema.shape.gatewayUrl,
+  gatewayId: z.union([dynamicRouteSchema, z.literal('')]).default(''),
   replacementToken: gatewayDraftSchema.shape.replacementToken.default(''),
-  dynamicRoutes: z.array(dynamicRouteSchema).min(1),
-  defaultRoute: z.object({ route: name, reasoning }).strict(),
+  dynamicRoutes: z.array(dynamicRouteSchema).max(256),
+  defaultRoute: z.object({ route: policyTargetSchema, reasoning }).strict(),
   routeContextWindows: z.record(z.string(), z.unknown()),
   routeReasoningProfiles: z.record(name, z.string().max(64)).optional(),
   reasoningConfiguration: z.unknown().optional(),
   routeChecks: z.record(dynamicRouteSchema, routeCheckIdSchema.nullable()).optional(),
+  nativeTargets: z.array(nativeTargetDraftSchema).max(64).optional(),
+  nativeChecks: z.record(z.string().uuid(), z.string().uuid().nullable()).optional(),
   fallbackRouting: fallbackRoutingSchema.optional().default({ enabled: false }),
   groupRouting: z.array(z.object({
     accessGroup: name,
-    routes: z.array(name),
-    defaultRoute: z.union([name, z.literal('')]),
+    routes: z.array(policyTargetSchema),
+    defaultRoute: z.union([policyTargetSchema, z.literal('')]),
     reasoning,
   }).strict()).min(1),
 }).strict().superRefine((value, context) => {
-  const activeRoutes = [...new Set([...value.groupRouting.flatMap((group) => group.routes), ...(value.fallbackRouting.enabled ? value.fallbackRouting.routes : [])])];
-  if (!activeRoutes.includes(value.defaultRoute.route)) {
-    context.addIssue({ code: 'custom', message: 'Default route must be in dynamicRoutes', path: ['defaultRoute', 'route'] });
+  if (parseGatewayUrl(value.gatewayUrl)?.kind === 'account-api' && !value.gatewayId) {
+    context.addIssue({ code: 'custom', message: 'AI Gateway name is required for an account API URL', path: ['gatewayId'] });
+  }
+  const nativeHandles = new Set(value.nativeTargets?.flatMap((target) => target.id ? [nativeTargetHandle(target.id)] : []) ?? []);
+  if (value.dynamicRoutes.some((route) => nativeHandles.has(route))) {
+    context.addIssue({ code: 'custom', message: 'A Dynamic Route cannot use a native target handle', path: ['dynamicRoutes'] });
+  }
+  const policyModels = [...new Set([...value.groupRouting.flatMap((group) => group.routes), ...(value.fallbackRouting.enabled ? value.fallbackRouting.routes : [])])];
+  const activeRoutes = policyModels.filter((route) => !nativeHandles.has(route));
+  if (!policyModels.includes(value.defaultRoute.route)) {
+    context.addIssue({ code: 'custom', message: 'Default model must be in the active policy catalog', path: ['defaultRoute', 'route'] });
   }
   if (value.reasoningConfiguration === undefined && activeRoutes.some((route) => !value.routeReasoningProfiles?.[route])) {
     context.addIssue({ code: 'custom', message: 'Every dynamic route requires a reasoning profile', path: ['routeReasoningProfiles'] });
@@ -131,8 +145,8 @@ const aiRoutingSchema = z.object({
       if (group.defaultRoute !== '' || group.reasoning !== 'off') context.addIssue({ code: 'custom', message: 'Empty group policies must use an empty default and Off', path: ['groupRouting', index] });
       continue;
     }
-    if (!group.routes.includes(group.defaultRoute) || group.routes.some((route) => !value.dynamicRoutes.includes(route))) {
-      context.addIssue({ code: 'custom', message: 'Group routes must use the route catalog', path: ['groupRouting', index] });
+    if (!group.routes.includes(group.defaultRoute) || group.routes.some((route) => !value.dynamicRoutes.includes(route) && !nativeHandles.has(route))) {
+      context.addIssue({ code: 'custom', message: 'Group models must use the submitted Dynamic Route or native target catalog', path: ['groupRouting', index] });
     }
   }
 });
@@ -253,13 +267,24 @@ function normalizeValues(section: ConfigurationSection, mode: AdministrationMode
   }
   if (section === 'aiRouting') {
     const fallback = values.fallbackRouting as FallbackRouting;
-    const groups = values.groupRouting as Array<{ routes: string[] }>;
-    const activeRoutes = [...new Set([...groups.flatMap((group) => group.routes), ...(fallback.enabled ? fallback.routes : [])])];
+    const groups = values.groupRouting as Array<{ accessGroup: string; routes: string[]; defaultRoute: string; reasoning: string }>;
+    const nativeHandles = new Set(((values.nativeTargets as Array<{ id?: string }> | undefined) ?? []).flatMap((target) => target.id ? [nativeTargetHandle(target.id)] : []));
+    const activeModels = [...new Set([...groups.flatMap((group) => group.routes), ...(fallback.enabled ? fallback.routes : [])])];
+    const activeRoutes = activeModels.filter((route) => !nativeHandles.has(route));
+    const targetRef = (value: string) => {
+      const targetId = nativeHandles.has(value) ? nativeTargetIdFromHandle(value) : null;
+      return targetId ? { kind: 'native-target' as const, targetId } : { kind: 'dynamic-route' as const, route: value };
+    };
+    const normalizedGroups = groups.map((group) => group.routes.some((route) => nativeHandles.has(route))
+      ? { ...group, targets: group.routes.map(targetRef), defaultTarget: group.defaultRoute ? targetRef(group.defaultRoute) : undefined }
+      : group);
+    const normalizedFallback = fallback.enabled ? { ...fallback, targets: fallback.routes.map(targetRef), defaultTarget: targetRef(fallback.defaultRoute) } : fallback;
     return {
       ...values,
       dynamicRoutes: activeRoutes,
+      fallbackRouting: normalizedFallback,
+      groupRouting: normalizedGroups,
       routeContextWindows: parseRouteSettings(values.routeContextWindows).contextWindows,
-      groupRouting: [...groups],
     };
   }
   if (section === 'usageReports') {
@@ -303,8 +328,14 @@ function configurationFromProfileIds(
   return parseReasoningConfiguration({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: assignments });
 }
 
+async function readReasoningConfiguration(kv: KVNamespace): Promise<ReasoningConfiguration> {
+  const raw = await kv.get(SETUP_KEYS.REASONING_CONFIGURATION);
+  return parseReasoningConfiguration(raw ?? { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} });
+}
+
 async function normalizeAiReasoningConfiguration(env: Env, values: ConfigurationValues): Promise<ReasoningConfiguration> {
   const dynamicRoutes = values.dynamicRoutes as string[];
+  const nativeHandles = new Set(((values.nativeTargets ?? []) as Array<{ id?: string }>).flatMap((target) => target.id ? [nativeTargetHandle(target.id)] : []));
   const defaultRoute = values.defaultRoute as { route: string; reasoning: string };
   const groupRouting = values.groupRouting as Array<{ accessGroup: string; routes: string[]; defaultRoute: string; reasoning: string }>;
   const currentRaw = await env.KV.get(SETUP_KEYS.REASONING_CONFIGURATION);
@@ -341,7 +372,9 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
   if (dynamicRoutes.some((route) => !configuration.routeAssignments[route])) throw new Error('Every active route requires an exact profile assignment');
   configuration = { ...configuration, fallbackRouting: values.fallbackRouting as FallbackRouting };
   const validateDefault = (scope: string, route: string, level: string): void => {
+    if (nativeHandles.has(route)) return;
     const profile = getRouteReasoningProfile(configuration, route);
+    if (profile.reasoningMode === 'provider-default') return;
     if (!profile.supportedLevels.includes(level as never)) throw new Error(`${scope} default reasoning level is not mapped by its default route profile`);
   };
   validateDefault('Global', defaultRoute.route, defaultRoute.reasoning);
@@ -355,12 +388,18 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
     legs: assignment.legs?.map(({ evidence: _advisory, ...leg }) => leg),
   });
   const routeAssignments = Object.fromEntries(Object.entries(configuration.routeAssignments).map(([route, assignment]) => {
-    const { verification: _untrusted, ...draft } = assignment;
+    const { verification: _untrusted, ...submitted } = assignment;
     const saved = current?.routeAssignments[route];
+    const sameProfile = saved && canonicalJson(saved.activeProfile) === canonicalJson(submitted.activeProfile);
+    const draft = sameProfile ? {
+      ...submitted,
+      ...(submitted.routeVersion ? {} : saved.routeVersion ? { routeVersion: saved.routeVersion } : {}),
+      ...(submitted.legs ? {} : saved.legs ? { legs: saved.legs } : {}),
+    } : submitted;
     const verification = routeChecks[route] !== null && saved && canonicalJson(identity(saved)) === canonicalJson(identity(draft)) ? saved.verification : undefined;
     return [route, { ...draft, ...(verification && { verification }) }];
   }));
-  const connection = await resolveGatewayConnection(env, { gatewayUrl: values.gatewayUrl as string, replacementToken: values.replacementToken as string });
+  const connection = await resolveGatewayConnection(env, { gatewayUrl: values.gatewayUrl as string, gatewayId: (values.gatewayId as string) || undefined, replacementToken: values.replacementToken as string });
   if ((values.replacementToken as string).trim() && !(await getOrImportKey(env))) throw new Error('Encryption key unavailable; cannot safely replace AI Gateway credentials');
   const checkedRoutes = [...new Set([...dynamicRoutes, ...Object.keys(routeChecks).filter((route) => typeof routeChecks[route] === 'string')])];
   for (const route of checkedRoutes) {
@@ -374,9 +413,13 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
       if (receipt.route !== route) throw new Error(`Route ${route} check receipt does not match its route`);
       verification = receipt.verification;
     }
-    if (!verificationMatches(verification, profile, connection)) throw new Error(`Route ${route} requires a successful check for its exact profile and gateway`);
     const inventory = await loadCheckedRouteInventory(connection, route, assignmentBackendDescriptions(assignment));
-    if (!verificationMatches(verification, profile, connection, inventory)) throw new Error(`Route ${route} check is stale or does not match its inventory and provenance`);
+    if (!verificationMatches(verification, profile, connection, inventory)) {
+      const saved = current?.routeAssignments[route];
+      const unchanged = saved && canonicalJson(identity(saved)) === canonicalJson(identity(assignment));
+      verification = checkId !== null && unchanged ? rebindVerificationConnection(saved.verification, profile, connection, inventory) ?? undefined : undefined;
+    }
+    if (!verification) throw new Error(`Route ${route} requires a successful check for its exact profile, gateway, and inventory`);
     if (assignment.routeVersion && assignment.routeVersion !== inventory.inventory.versionId) throw new Error(`Route ${route} inventory is stale`);
     for (const leg of assignment.legs ?? []) {
       const model = inventory.inventory.models.find((model) => model.nodeId === leg.nodeId);
@@ -385,6 +428,44 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
     routeAssignments[route] = { ...assignment, routeVersion: inventory.inventory.versionId, verification };
   }
   return parseReasoningConfiguration({ ...configuration, routeAssignments });
+}
+
+export async function readNativeTargetViews(
+  env: Env,
+  reasoningConfiguration: ReasoningConfiguration,
+): Promise<Array<Record<string, unknown>>> {
+  const storedNativeTargets = await env.KV.get(SETUP_KEYS.NATIVE_AI_TARGETS);
+  let nativeTargets;
+  try { nativeTargets = parseNativeAiTargets(storedNativeTargets); }
+  catch { return []; }
+  if (nativeTargets.targets.length === 0) return [];
+  const gateway = await resolveGatewayConnection(env);
+  let currentProviders: Awaited<ReturnType<typeof listNativeProviderConfigs>> = [];
+  let customProviders = new Set<string>();
+  let customProviderCatalogReady = false;
+  try {
+    const coordinates = gatewayCoordinates(gateway);
+    if (coordinates && gateway.token) {
+      currentProviders = await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token);
+      try { customProviders = await listCustomProviderSlugs(coordinates.accountId, gateway.token); customProviderCatalogReady = true; }
+      catch { /* Custom targets remain stale. */ }
+    }
+  } catch { /* Provider status is reported as stale without hiding saved targets. */ }
+  return nativeTargets.targets.map((target) => {
+    let current = false;
+    try {
+      const selected = selectNativeProviderConfig(currentProviders, target.provider);
+      const alias = selected?.alias;
+      getProfileForRef(reasoningConfiguration, target.profileRef);
+      const builtInProvider = ['aws-bedrock', 'google-ai-studio', 'openai'].includes(target.provider);
+      const classificationCurrent = customProviderCatalogReady
+        ? customProviders.has(target.provider) === Boolean(target.customProvider)
+        : builtInProvider && !target.customProvider;
+      current = Boolean(selected && selected.id === target.providerConfigId && alias === target.providerConfigAlias
+        && classificationCurrent && nativeVerificationMatches(target, gateway));
+    } catch { /* Missing profile or ambiguous provider keeps this target stale. */ }
+    return sanitizeNativeTarget(target, current);
+  });
 }
 
 async function readCurrentConfigurationValues(
@@ -431,7 +512,9 @@ async function readCurrentConfigurationValues(
       }
       return {
         gatewayUrl: (await env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL)) || env.AIG_GATEWAY_URL || '',
+        gatewayId: (await env.KV.get(SETUP_KEYS.AIG_GATEWAY_ID)) || env.AIG_GATEWAY_ID || '',
         dynamicRoutes: parseJson(await env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES), []),
+        nativeTargets: await readNativeTargetViews(env, reasoningConfiguration),
         defaultRoute,
         routeContextWindows: routeSettings.contextWindows,
         routeReasoningProfiles: Object.fromEntries(Object.entries(reasoningConfiguration.routeAssignments).map(([route, assignment]) => [route, assignment.activeProfile.id])),
@@ -515,6 +598,53 @@ export async function validateConfigurationValues(
       const routeContextWindows = Object.fromEntries(Object.keys(reasoningConfiguration.routeAssignments).flatMap((route) => windows[route] ? [[route, windows[route]]] : []));
       values = { ...values, reasoningConfiguration, routeContextWindows };
       delete values.routeReasoningProfiles;
+      if (values.nativeTargets !== undefined) {
+        const drafts = values.nativeTargets as unknown[];
+        const current = parseNativeAiTargets(await env.KV.get(SETUP_KEYS.NATIVE_AI_TARGETS));
+        if (drafts.length === 0) values.nativeTargets = { schemaVersion: 1, targets: [] };
+        else {
+          const gateway = await resolveGatewayConnection(env, { gatewayUrl: values.gatewayUrl as string, gatewayId: (values.gatewayId as string) || undefined, replacementToken: values.replacementToken as string });
+          const coordinates = gatewayCoordinates(gateway);
+          if (!coordinates || !gateway.token) throw new Error('Native targets require a connected account AI Gateway');
+          const parsedDrafts = z.array(nativeTargetDraftSchema).max(64).parse(drafts);
+          const providerNames = new Set(parsedDrafts.map((draft) => draft.provider));
+          const [providerConfigs, customProviders] = await Promise.all([
+            listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token),
+            listCustomProviderSlugsForProviders(coordinates.accountId, gateway.token, providerNames),
+          ]);
+          const authorities: Record<string, NativeProviderAuthority> = {};
+          for (const providerName of providerNames) {
+            const provider = selectNativeProviderConfig(providerConfigs, providerName);
+            if (!provider) throw new Error(`Native provider ${providerName} was not found`);
+            authorities[providerName] = {
+              id: provider.id, ...(provider.alias && { alias: provider.alias }), customProvider: customProviders.has(providerName),
+            };
+          }
+          const validProfileRefs = new Set(parsedDrafts.map((draft) => {
+            const profile = getProfileForRef(reasoningConfiguration, draft.profileRef);
+            return nativeProfileRefKey({ id: profile.id, revision: profile.revision, hash: profile.hash });
+          }));
+          const checks = (values.nativeChecks ?? {}) as Record<string, string | null>;
+          const receipts = new Map<string, Awaited<ReturnType<typeof readNativeTargetCheck>>>();
+          for (const checkId of Object.values(checks)) if (typeof checkId === 'string') {
+            const receipt = await readNativeTargetCheck(env.KV, checkId);
+            receipts.set(receipt.targetId, receipt);
+          }
+          let document = reconcileNativeTargets(parsedDrafts, current, authorities, validProfileRefs, new Set(receipts.keys()));
+          document = { ...document, targets: document.targets.map((target) => {
+            const checkId = checks[target.id];
+            if (checkId === null) return { ...target, verification: undefined };
+            const receipt = receipts.get(target.id);
+            if (!receipt) return target;
+            const candidate = { ...target, verification: receipt.verification };
+            if (!nativeVerificationMatches(candidate, gateway)) throw new Error('Native target check receipt is stale');
+            return candidate;
+          }) };
+          for (const target of document.targets) if (target.enabled && !nativeVerificationMatches(target, gateway)) throw new Error(`Native target ${target.label} must be verified before it can be enabled`);
+          values.nativeTargets = document;
+        }
+      }
+      delete values.nativeChecks;
     } catch (error) {
       return { fieldErrors: { reasoningConfiguration: [error instanceof Error ? error.message : 'Invalid reasoning configuration'] } };
     }
@@ -592,8 +722,9 @@ export async function buildConfigurationPreview(
   for (const [field, after] of Object.entries(values)) {
     if (secretFields.has(field)) {
       changes.push({ field, secret: { willReplace: typeof after === 'string' && after.trim().length > 0 } });
-    } else if (!same(current[field], after)) {
-      changes.push({ field, ...(current[field] !== undefined && { before: current[field] }), after });
+    } else {
+      const safeAfter = field === 'nativeTargets' ? parseNativeAiTargets(after).targets.map((target) => sanitizeNativeTarget(target, Boolean(target.verification))) : after;
+      if (!same(current[field], safeAfter)) changes.push({ field, ...(current[field] !== undefined && { before: current[field] }), after: safeAfter });
     }
   }
 
@@ -722,38 +853,72 @@ export async function executeConfigurationTask(
       return;
     }
     case 'configure_model_routing': {
-      await env.KV.put(SETUP_KEYS.DYNAMIC_ROUTES, JSON.stringify(values.dynamicRoutes));
-      if (values.defaultRoute) await env.KV.put(SETUP_KEYS.DEFAULT_ROUTE, JSON.stringify(values.defaultRoute));
-      else await env.KV.delete(SETUP_KEYS.DEFAULT_ROUTE);
+      const dynamicRoutesJson = JSON.stringify(values.dynamicRoutes);
+      const defaultRouteJson = values.defaultRoute ? JSON.stringify(values.defaultRoute) : null;
       const windows = values.routeContextWindows as Record<string, number>;
       const routeSettings = serializeRouteSettings(windows);
-      if (Object.keys(routeSettings).length) await env.KV.put(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, JSON.stringify(routeSettings));
-      else await env.KV.delete(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS);
-      if (values.reasoningConfiguration !== undefined) {
-        await env.KV.put(
-          SETUP_KEYS.REASONING_CONFIGURATION,
-          serializeReasoningConfiguration(values.reasoningConfiguration),
-        );
+      const routeSettingsJson = Object.keys(routeSettings).length ? JSON.stringify(routeSettings) : null;
+      let nativeTargetsJson: string | undefined;
+      if (values.nativeTargets !== undefined) {
+        const document = parseNativeAiTargets(values.nativeTargets);
+        const gateway = await resolveGatewayConnection(env);
+        const coordinates = gatewayCoordinates(gateway);
+        if (!coordinates || !gateway.token) throw new Error('Native targets require a connected account AI Gateway');
+        const [providerConfigs, customProviders] = await Promise.all([
+          listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token),
+          listCustomProviderSlugsForProviders(
+            coordinates.accountId,
+            gateway.token,
+            new Set(document.targets.map((target) => target.provider)),
+          ),
+        ]);
+        const reasoningConfiguration = values.reasoningConfiguration !== undefined
+          ? parseReasoningConfiguration(values.reasoningConfiguration) : await readReasoningConfiguration(env.KV);
+        for (const target of document.targets) if (target.enabled) {
+          const provider = selectNativeProviderConfig(providerConfigs, target.provider);
+          const alias = provider?.alias;
+          try { getProfileForRef(reasoningConfiguration, target.profileRef); } catch { throw new Error(`Native target ${target.label} profile is unavailable`); }
+          if (!provider || target.providerConfigId !== provider.id || target.providerConfigAlias !== alias
+            || customProviders.has(target.provider) !== Boolean(target.customProvider) || !nativeVerificationMatches(target, gateway)) {
+            throw new Error(`Native target ${target.label} is no longer authorized`);
+          }
+        }
+        nativeTargetsJson = serializeNativeAiTargets(document);
       }
       const submittedGroups = values.groupRouting;
       const groups = Array.isArray(submittedGroups)
         ? Object.fromEntries((submittedGroups as Array<Record<string, unknown>>).map((group) => [
             group.accessGroup as string,
-            { routes: group.routes, defaultRoute: group.defaultRoute, reasoning: group.reasoning },
+            { routes: group.routes, defaultRoute: group.defaultRoute, reasoning: group.reasoning,
+              ...(Array.isArray(group.targets) ? { targets: group.targets } : {}), ...(group.defaultTarget ? { defaultTarget: group.defaultTarget } : {}) },
           ]))
         : submittedGroups as Record<string, unknown>;
-      if (Object.keys(groups).length) await env.KV.put(SETUP_KEYS.GROUP_ROUTING, JSON.stringify(groups));
+      const groupsJson = Object.keys(groups).length ? JSON.stringify(groups) : null;
+      const reasoningJson = values.reasoningConfiguration !== undefined ? serializeReasoningConfiguration(values.reasoningConfiguration) : undefined;
+
+      await env.KV.put(SETUP_KEYS.DYNAMIC_ROUTES, dynamicRoutesJson);
+      if (defaultRouteJson) await env.KV.put(SETUP_KEYS.DEFAULT_ROUTE, defaultRouteJson);
+      else await env.KV.delete(SETUP_KEYS.DEFAULT_ROUTE);
+      if (routeSettingsJson) await env.KV.put(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, routeSettingsJson);
+      else await env.KV.delete(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS);
+      if (nativeTargetsJson !== undefined) await env.KV.put(SETUP_KEYS.NATIVE_AI_TARGETS, nativeTargetsJson);
+      if (reasoningJson !== undefined) await env.KV.put(SETUP_KEYS.REASONING_CONFIGURATION, reasoningJson);
+      if (groupsJson) await env.KV.put(SETUP_KEYS.GROUP_ROUTING, groupsJson);
       else await env.KV.delete(SETUP_KEYS.GROUP_ROUTING);
       return;
     }
     case 'configure_ai_gateway': {
+      const parsedGateway = parseGatewayUrl(values.gatewayUrl as string);
+      if (parsedGateway?.kind === 'account-api' && !dynamicRouteSchema.safeParse(values.gatewayId).success) throw new Error('AI Gateway name is required for an account API URL');
       const token = (values.replacementToken as string).trim();
       if (token) {
         const key = await getOrImportKey(env);
         if (!key) throw new Error('Encryption key unavailable');
         await encryptAndStore(env.KV, SETUP_KEYS.AIG_TOKEN, { token }, key);
       }
-      await env.KV.put(SETUP_KEYS.AIG_GATEWAY_URL, values.gatewayUrl as string);
+      await env.KV.put(SETUP_KEYS.AIG_GATEWAY_URL, parsedGateway?.canonicalUrl ?? values.gatewayUrl as string);
+      if (parsedGateway?.kind === 'account-api') await env.KV.put(SETUP_KEYS.AIG_GATEWAY_ID, values.gatewayId as string);
+      else await env.KV.delete(SETUP_KEYS.AIG_GATEWAY_ID);
       return;
     }
     case 'configure_active_agents': {

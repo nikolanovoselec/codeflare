@@ -16,6 +16,10 @@ const { PROFILE_HASH, BUILTIN_IDS } = vi.hoisted(() => ({
     'workers-ai-kimi-k-thinking',
     'workers-ai-glm-thinking',
     'codeflare-inference-mesh-binary-thinking',
+    'native-google-ai-studio-compat',
+    'native-openai-compat',
+    'native-codeflare-inference-mesh-compat',
+    'bedrock-anthropic-compat',
   ],
 }));
 
@@ -202,10 +206,10 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     expect(response.status).toBe(200);
     const text = await response.text();
     const body = JSON.parse(text);
-    expect(Object.keys(body).sort()).toEqual(['connection', 'notices', 'profiles', 'routeCatalogStatus', 'routes', 'schemaVersion', 'usage']);
+    expect(Object.keys(body).sort()).toEqual(['connection', 'notices', 'profiles', 'providerCatalogStatus', 'providers', 'routeCatalogStatus', 'routes', 'schemaVersion', 'usage']);
     expect(body.schemaVersion).toBe(1);
     expect(body.profiles.map((profile: any) => profile.id)).toEqual(BUILTIN_IDS);
-    expect(body.profiles).toHaveLength(6);
+    expect(body.profiles).toHaveLength(10);
     expect(body.notices).toHaveLength(4);
     expect(body.notices.every((notice: any) => notice.assignable === false)).toBe(true);
     expect(body.routes).toEqual(['codeflare-mesh']);
@@ -244,7 +248,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     const body = JSON.parse(text);
     expect(body.routes).toEqual([]);
     expect(body.routeCatalogStatus).toBe('unavailable');
-    expect(body.profiles).toHaveLength(6);
+    expect(body.profiles).toHaveLength(10);
     expect(text).not.toContain('private management error');
   });
 
@@ -431,8 +435,19 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     const body = JSON.parse(text);
     expect(result.status).toBe(200);
     expect(body).toMatchObject({ routeCatalogStatus: 'unavailable', routes: [], schemaVersion: 1 });
-    expect(body.profiles).toHaveLength(6);
+    expect(body.profiles).toHaveLength(10);
     expect(text).not.toContain('private-management-payload');
+  });
+
+  it('REQ-ENTERPRISE-047: provider discovery failure leaves Dynamic Routes usable', async () => {
+    const { app } = await createApp();
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(Response.json({ result: { routes: [{ id: 'route-id', name: 'codeflare-mesh' }] } }))
+      .mockResolvedValueOnce(Response.json({ error: 'provider unavailable' }, { status: 503 }));
+
+    const result = await app.request('/admin/reasoning/catalog');
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ routes: ['codeflare-mesh'], routeCatalogStatus: 'ready', providers: [], providerCatalogStatus: 'unavailable' });
   });
 
   it('REQ-ENTERPRISE-033: rejects a malformed active route version with the sanitized inventory contract', async () => {

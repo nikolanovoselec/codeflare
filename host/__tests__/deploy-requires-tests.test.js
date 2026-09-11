@@ -346,13 +346,14 @@ describe('manual deploys cannot skip tests', () => {
   });
 });
 
-describe('REQ-OPS-013 AC6-AC7: notification deployment configuration', () => {
+describe('REQ-OPS-013 AC6: notification deployment configuration', () => {
   function keyPair() {
     const ecdh = createECDH('prime256v1');
     ecdh.generateKeys();
+    const privateKey = ecdh.getPrivateKey();
     return {
       publicKey: ecdh.getPublicKey().toString('base64url'),
-      privateKey: ecdh.getPrivateKey().toString('base64url'),
+      privateKey: Buffer.concat([Buffer.alloc(32 - privateKey.length), privateKey]).toString('base64url'),
     };
   }
 

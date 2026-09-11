@@ -27,6 +27,7 @@ import {
   readManagedReconciliationTargets,
 } from '../lib/managed-release-active';
 import { PRESEED_CONTENT_HASH } from '../lib/agent-seed.generated';
+import { codingAgentProjectionIdentity } from '../../scripts/ci/coding-agent-selection-core.mjs';
 
 const logger = createLogger('preferences');
 
@@ -193,6 +194,9 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
     if (await isBucketMigrating(c.env, bucketName)) throw new BucketMigratingError();
   }
 
+  const projectionIdentity = body.sessionMode && body.sessionMode !== existing.sessionMode
+    ? codingAgentProjectionIdentity(c.env.CODING_AGENTS)
+    : undefined;
   const updated = mergePreferences(existing, body);
 
   await c.env.KV.put(key, JSON.stringify(updated));
@@ -213,6 +217,16 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
       // (plain) bucket gets plaintext configs, not unreadable SSE-C ones.
       const r2SseDisabled = await isR2SseDisabledForBucket(c.env, bucketName);
       const activeManagedRelease = await getActiveVerifiedManagedRelease(c.env);
+      const activeDescriptor = activeManagedRelease ? await getActiveManagedRelease(c.env) : null;
+      if (
+        activeManagedRelease
+        && (!activeDescriptor
+          || activeDescriptor.digest !== activeManagedRelease.digest
+          || activeDescriptor.pointer.sequence !== activeManagedRelease.release.sequence)
+      ) {
+        throw new Error('Managed release descriptor changed before reconciliation');
+      }
+      const resourcePolicy = activeDescriptor?.resourcePolicy ?? 'mutable';
       if (activeManagedRelease) managedInvolved = true;
       let priorManagedRelease: PriorManagedReleaseSelection | undefined;
       if (existing.managedEnvironmentApplied) {
@@ -232,11 +246,17 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
             digest: activeManagedRelease.digest,
             sequence: activeManagedRelease.release.sequence,
             mode: body.sessionMode,
+            projectionIdentity: projectionIdentity!,
           })
         : existingTargets;
       const interruptedManagedReleases: PriorManagedReleaseSelection[] = [];
       for (const target of existingTargets) {
-        if (activeManagedRelease && target.digest === activeManagedRelease.digest && target.mode === body.sessionMode) {
+        if (
+          activeManagedRelease
+          && target.digest === activeManagedRelease.digest
+          && target.mode === body.sessionMode
+          && target.projectionIdentity === projectionIdentity
+        ) {
           if (target.sequence !== activeManagedRelease.release.sequence) {
             throw new Error('Managed reconciliation target identity conflicts with active content');
           }
@@ -258,6 +278,9 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
       const managedOptions = activeManagedRelease
         ? {
             managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release },
+            resourcePolicy,
+            codingAgents: c.env.CODING_AGENTS,
+            projectionIdentity: projectionIdentity!,
             ...(priorManagedRelease && { priorManagedRelease }),
             ...(interruptedManagedReleases.length > 0 && { interruptedManagedReleases }),
           }
@@ -292,27 +315,33 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
         cleanup: true,
         contextModeEnabled,
         r2SseDisabled,
+        codingAgents: c.env.CODING_AGENTS,
+        projectionIdentity: projectionIdentity!,
         ...managedOptions,
       });
       if ((activeManagedRelease || priorManagedRelease) && result.warnings.length > 0) {
         throw new Error(`Managed reconciliation did not complete: ${result.warnings[0]}`);
       }
       if (activeManagedRelease) {
-        await reseedContextModePlugin(c.env, bucketName, endpoint, contextModeEnabled, r2SseDisabled);
+        await reseedContextModePlugin(c.env, bucketName, endpoint, contextModeEnabled, r2SseDisabled, c.env.CODING_AGENTS);
       }
 
       const nextManagedEnvironmentApplied = activeManagedRelease
         ? {
             digest: activeManagedRelease.digest,
+            projectionIdentity: projectionIdentity!,
             managedExtensionsDigest: await managedExtensionsDocumentDigest(activeManagedRelease),
             sequence: activeManagedRelease.release.sequence,
             mode: body.sessionMode,
+            resourcePolicy,
+            ...(result.managedPathsDigest ? { managedPathsDigest: result.managedPathsDigest } : {}),
             appliedAt: new Date().toISOString(),
           }
         : null;
       const latest = await c.env.KV.get<UserPreferences>(key, 'json') ?? updated;
       if (
         latest.sessionMode !== updated.sessionMode
+        || codingAgentProjectionIdentity(c.env.CODING_AGENTS) !== projectionIdentity
         || JSON.stringify(latest.managedEnvironmentApplied)
           !== JSON.stringify(updated.managedEnvironmentApplied)
         || JSON.stringify(latest.managedEnvironmentReconciliation?.targets ?? [])
@@ -329,7 +358,11 @@ app.patch('/', preferencesPatchRateLimiter, async (c) => {
       ) as UserPreferences;
       const applied: UserPreferences = nextManagedEnvironmentApplied
         ? { ...withoutManagedState, managedEnvironmentApplied: nextManagedEnvironmentApplied }
-        : { ...withoutManagedState, lastPreseedHash: PRESEED_CONTENT_HASH };
+        : {
+            ...withoutManagedState,
+            lastPreseedHash: PRESEED_CONTENT_HASH,
+            lastPreseedProjectionIdentity: projectionIdentity!,
+          };
       await c.env.KV.put(key, JSON.stringify(applied));
 
       logger.info('Auto-reconciled agent configs on preferences change', {

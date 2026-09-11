@@ -528,6 +528,11 @@ jobs:
           echo "Resolved container config:"
           sed -n '30,52p' wrangler.toml
 
+      - name: Configure optional container SSH
+        env:
+          CONTAINER_SSH_PUBLIC_KEY: ${{ secrets.CONTAINER_SSH_PUBLIC_KEY }}
+        run: node scripts/ci/configure-container-ssh.mjs wrangler.toml
+
       - name: Point wrangler.toml to pre-pushed image
         # The full URI embeds a masked account id / registry username, so only
         # secret-free identity components cross the job boundary. Reused images

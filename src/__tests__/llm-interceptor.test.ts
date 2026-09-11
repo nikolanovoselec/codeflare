@@ -30,12 +30,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
 import { LlmInterceptor } from '../llm-interceptor';
-import { getBuiltInProfileRef } from '../lib/reasoning-profiles';
+import { getBuiltInProfileRef, type ReasoningProfileId } from '../lib/reasoning-profiles';
+import { connectionFingerprint } from '../lib/reasoning-verification';
+import { createNativeTarget, nativeTargetHandle, serializeNativeAiTargets } from '../lib/native-ai-targets';
 import { routingInventoryFixtures, verifiedRoutingConfiguration } from './helpers/verified-routing';
 
 vi.mock('../lib/ai-gateway-management', async (original) => ({
   ...await original<typeof import('../lib/ai-gateway-management')>(),
   loadActiveRouteVersion: vi.fn(async (_account: string, _gateway: string, route: string) => routingInventoryFixtures.get(route)),
+  listNativeProviderConfigs: vi.fn(async () => [
+    { id: 'bedrock-default', provider: 'aws-bedrock', gatewayId: 'gw', defaultSelection: true },
+    { id: 'gemini-default', provider: 'google-ai-studio', gatewayId: 'gw', alias: 'default', defaultSelection: false },
+    { id: 'openai-default', provider: 'openai', gatewayId: 'gw', alias: 'default', defaultSelection: false },
+    { id: 'mesh-default', provider: 'codeflare-inference-mesh', gatewayId: 'gw', alias: 'default', defaultSelection: false },
+  ]),
+  listCustomProviderSlugs: vi.fn(async () => new Set(['codeflare-inference-mesh'])),
 }));
 const GATEWAY = 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/gw';
 const REST_BASE = 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai';
@@ -43,7 +52,7 @@ const AIG_TOKEN = 'aig-secret-token';
 const SESSION_USER = 'nikola@novoselec.ch'; // per-session attribution: the user's email (REQ-ENTERPRISE-004 AC4)
 
 /** Construct an interceptor with the given env + per-session props. */
-function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; groups?: string[]; gatewayUrl?: string; token?: string } = { user: SESSION_USER }) {
+function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; groups?: string[]; gatewayUrl?: string; gatewayId?: string; token?: string } = { user: SESSION_USER }) {
   // The interceptor now reads the route catalog from KV; tests pass a __kv map
   // of key -> JSON string via envOverrides, which backs a minimal KV.get stub.
   const kvStore: Record<string, string> = { ...((envOverrides as { __kv?: Record<string, string> }).__kv ?? {
@@ -53,7 +62,7 @@ function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string;
   }) };
   if (kvStore['setup:reasoning_configuration']) {
     try {
-      const configuration = verifiedRoutingConfiguration(JSON.parse(kvStore['setup:reasoning_configuration']), { gatewayUrl: props.gatewayUrl ?? envOverrides.AIG_GATEWAY_URL ?? GATEWAY, token: props.token ?? envOverrides.AIG_TOKEN ?? AIG_TOKEN });
+      const configuration = verifiedRoutingConfiguration(JSON.parse(kvStore['setup:reasoning_configuration']), { gatewayUrl: props.gatewayUrl ?? envOverrides.AIG_GATEWAY_URL ?? GATEWAY, gatewayId: props.gatewayId ?? envOverrides.AIG_GATEWAY_ID, token: props.token ?? envOverrides.AIG_TOKEN ?? AIG_TOKEN });
       const routes = JSON.parse(kvStore['setup:dynamic_routes'] ?? '[]') as string[];
       const selected = JSON.parse(kvStore['setup:default_route'] ?? 'null');
       configuration.fallbackRouting = routes.length ? { enabled: true, routes, defaultRoute: routes.includes(selected?.route) ? selected.route : routes[0], reasoning: selected?.reasoning ?? 'off' } : { enabled: false };
@@ -132,9 +141,10 @@ describe('REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) 
   // getAigConfig) and passes them via props; the interceptor must PREFER the props and
   // fall back to its own env only when a prop is absent.
   const PROPS_GATEWAY = 'https://gateway.ai.cloudflare.com/v1/abcdef0123456789abcdef0123456789/wizgw';
+  const PROPS_ACCOUNT_API = 'https://api.cloudflare.com/client/v4/accounts/abcdef0123456789abcdef0123456789/';
   const PROPS_REST_BASE = 'https://api.cloudflare.com/client/v4/accounts/abcdef0123456789abcdef0123456789/ai';
 
-  function interceptorWith(props: { user: string; gatewayUrl?: string; token?: string }, envOverrides: Partial<Env> = {}) {
+  function interceptorWith(props: { user: string; gatewayUrl?: string; gatewayId?: string; token?: string }, envOverrides: Partial<Env> = {}) {
     return makeInterceptor(envOverrides, props);
   }
 
@@ -144,6 +154,14 @@ describe('REQ-ENTERPRISE-017: AI Gateway URL/token resolved from props (wizard) 
     );
     expect(lastFetch?.url).toBe(`${PROPS_REST_BASE}/v1/chat/completions`);
     expect(lastFetch?.headers.get('authorization')).toBe('Bearer wizard-token');
+    expect(lastFetch?.headers.get('cf-aig-gateway-id')).toBe('wizgw');
+  });
+
+  it('uses the configured gateway name with the account API base URL', async () => {
+    await interceptorWith({ user: SESSION_USER, gatewayUrl: PROPS_ACCOUNT_API, gatewayId: 'wizgw', token: 'wizard-token' }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: '{}' }),
+    );
+    expect(lastFetch?.url).toBe(`${PROPS_REST_BASE}/v1/chat/completions`);
     expect(lastFetch?.headers.get('cf-aig-gateway-id')).toBe('wizgw');
   });
 
@@ -762,6 +780,97 @@ describe('REQ-ENTERPRISE-004: compat fallback on REST 404 (dual transport — AD
     const sent = JSON.parse(lastFetch?.body as string);
     expect(sent.store).toBe(false);
     expect(sent.prompt_cache_key).toBe('k');
+  });
+});
+
+describe('native provider authorization and compat dispatch', () => {
+  type NativeFixtureOptions = {
+    provider?: string;
+    customProvider?: boolean;
+    model?: string;
+    profileId?: ReasoningProfileId;
+    providerConfigId?: string;
+    providerConfigAlias?: string;
+    adapterVersion?: 'bedrock-anthropic-compat-v1' | 'native-openai-compat-v1' | 'gemini-openai-compat-v1';
+  };
+
+  function nativeFixture(includeTarget = true, fixture: NativeFixtureOptions = {}) {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const handle = nativeTargetHandle(id); const provider = fixture.provider ?? 'aws-bedrock';
+    const profileRef = getBuiltInProfileRef(fixture.profileId ?? 'bedrock-anthropic-compat');
+    const target = createNativeTarget({ id, label: provider, provider, customProvider: fixture.customProvider, model: fixture.model ?? 'eu.anthropic.claude-sonnet-5', contextWindow: 200000,
+      providerConfigId: fixture.providerConfigId ?? 'bedrock-default', providerConfigAlias: fixture.providerConfigAlias, profileRef, enabled: true });
+    const verification = { schemaVersion: 1 as const, method: 'administrator' as const, targetId: id, provider, ...(fixture.customProvider && { customProvider: true }), model: target.model,
+      providerConfigId: target.providerConfigId, ...(target.providerConfigAlias && { providerConfigAlias: target.providerConfigAlias }),
+      connectionFingerprint: connectionFingerprint({ gatewayUrl: GATEWAY, token: AIG_TOKEN })!, profileRef, transport: target.transport,
+      adapterVersion: fixture.adapterVersion ?? 'bedrock-anthropic-compat-v1', checkedAt: new Date().toISOString() };
+    return { id, handle, kv: {
+      'setup:dynamic_routes': '[]',
+      'setup:reasoning_configuration': JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {}, fallbackRouting: { enabled: false } }),
+      'setup:group_routing': JSON.stringify({ engineering: { routes: [], defaultRoute: '', reasoning: 'off', targets: [{ kind: 'native-target', targetId: id }], defaultTarget: { kind: 'native-target', targetId: id } } }),
+      'setup:native_ai_targets': serializeNativeAiTargets({ schemaVersion: 1, targets: includeTarget ? [{ ...target, verification }] : [] }),
+    } };
+  }
+
+  it('REQ-ENTERPRISE-050: dispatches an authorized native handle once through compat with its Worker-only model selector', async () => {
+    const fixture = nativeFixture();
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, messages: [] }) }),
+    );
+    expect(response.status).toBe(200);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(lastFetch?.url).toBe(`${GATEWAY}/compat/chat/completions`);
+    expect(JSON.parse(lastFetch!.body).model).toBe('aws-bedrock/eu.anthropic.claude-sonnet-5');
+    expect(lastFetch?.headers.get('cf-aig-authorization')).toBe(`Bearer ${AIG_TOKEN}`);
+    expect(lastFetch?.headers.get('authorization')).toBeNull();
+  });
+
+  it.each<[NativeFixtureOptions, string, string | undefined]>([
+    [{ provider: 'openai', model: 'gpt-5.6-sol', profileId: 'native-openai-compat', providerConfigId: 'openai-default', providerConfigAlias: 'default', adapterVersion: 'native-openai-compat-v1' }, 'openai/gpt-5.6-sol', 'none'],
+    [{ provider: 'codeflare-inference-mesh', customProvider: true, model: 'ornith-1-5-9b-gguf-q8-0', profileId: 'native-codeflare-inference-mesh-compat', providerConfigId: 'mesh-default', providerConfigAlias: 'default', adapterVersion: 'native-openai-compat-v1' }, 'custom-codeflare-inference-mesh/ornith-1-5-9b-gguf-q8-0', undefined],
+  ])('REQ-ENTERPRISE-050: dispatches %s through its exact Worker-owned selector', async (input, selector, effort) => {
+    const fixture = nativeFixture(true, input);
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, messages: [] }) }),
+    );
+    expect(response.status).toBe(200);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(lastFetch!.body)).toMatchObject({ model: selector, ...(effort && { reasoning_effort: effort }) });
+    expect(lastFetch?.headers.get('cf-aig-byok-alias')).toBe('default');
+  });
+
+  it('REQ-ENTERPRISE-059: round-trips Gemini thought signatures through Pi replay metadata', async () => {
+    const fixture = nativeFixture(true, { provider: 'google-ai-studio', model: 'gemini-3.1-pro-preview', profileId: 'native-google-ai-studio-compat', providerConfigId: 'gemini-default', providerConfigAlias: 'default', adapterVersion: 'gemini-openai-compat-v1' });
+    let sent: Record<string, any> | undefined;
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      const request = input as Request; sent = JSON.parse(await request.text());
+      return new Response(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{}' }, extra_content: { google: { thought_signature: 'opaque-state' } } }] }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`, { headers: { 'content-type': 'text/event-stream' } });
+    });
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, messages: [{ role: 'assistant', tool_calls: [{ id: 'call_0', type: 'function', function: { name: 'lookup', arguments: '{}' } }], reasoning_details: [{ type: 'reasoning.encrypted', id: 'call_0', format: 'codeflare.google.thought_signature.v1', data: 'prior-state' }] }, { role: 'tool', tool_call_id: 'call_0', content: 'ok' }] }) }),
+    );
+    expect(sent?.model).toBe('google-ai-studio/gemini-3.1-pro-preview');
+    expect(sent?.messages[0].tool_calls[0].extra_content.google.thought_signature).toBe('prior-state');
+    expect(sent?.messages[0].reasoning_details).toBeUndefined();
+    expect(await response.text()).toContain('"format":"codeflare.google.thought_signature.v1"');
+  });
+
+  it('REQ-ENTERPRISE-048: rejects reasoning controls for provider-default targets before upstream I/O', async () => {
+    const fixture = nativeFixture();
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'off', messages: [] }) }),
+    );
+    expect(response.status).toBe(400);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-049: revoked native handles fail before upstream I/O without fallback', async () => {
+    const fixture = nativeFixture(false);
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, messages: [] }) }),
+    );
+    expect(response.status).toBe(403);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
 

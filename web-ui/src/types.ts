@@ -62,6 +62,7 @@ export interface ReasoningProfileCatalogEntry extends ProfileRevisionRef {
   assignable?: boolean;
   classification?: string;
   ingressContract?: string;
+  reasoningMode?: 'pi-levels' | 'provider-default';
   supportedLevels: PiReasoningLevel[];
   unsupportedLevels?: PiReasoningLevel[];
   levels?: Partial<Record<PiReasoningLevel, Array<{ path: string; value: ReasoningScalar }>>>;
@@ -92,7 +93,19 @@ export interface ReasoningCatalog {
   usage: Array<{ profileRef: ProfileRevisionRef; routes: string[] }>;
   routes: string[];
   routeCatalogStatus: 'ready' | 'unavailable';
+  providers?: Array<{ provider: string; label: string; configured: boolean; defaultSelection: boolean; supported: boolean; custom?: boolean }>;
+  providerCatalogStatus?: 'ready' | 'unavailable';
   connection?: { status: 'ready' | 'missing' | 'permission-denied' | 'unavailable'; message: string };
+}
+
+export interface NativeAiTargetDraft {
+  id?: string; handle?: string; label: string; model: string; contextWindow: number; provider: string;
+  profileRef: ProfileRevisionRef; enabled: boolean;
+  verification?: { method: 'automated' | 'administrator'; checkedAt: string; current: boolean };
+}
+export interface NativeTargetCheckResult {
+  targetId: string; classification: 'Verified' | 'Administrator-confirmed'; assignable: true; checkId: string;
+  verification: { method: 'automated' | 'administrator'; checkedAt: string; current: true };
 }
 
 export interface ReasoningEvidenceRef {
@@ -134,7 +147,7 @@ export type FallbackRouting = { enabled: false } | {
   reasoning: PiReasoningLevel;
 };
 
-export interface ReasoningGatewayDraft { gatewayUrl: string; replacementToken?: string }
+export interface ReasoningGatewayDraft { gatewayUrl: string; gatewayId?: string; replacementToken?: string }
 export interface ReasoningManagementContext {
   gateway?: ReasoningGatewayDraft;
   backendDescriptions?: Record<string, string>;

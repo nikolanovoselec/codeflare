@@ -183,6 +183,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   _defaultReasoning: string | null = null;
   _routeContextWindows: Record<string, number> = {};
   _routeReasoningLevels: Record<string, string[]> = {};
+  _modelDisplayNames: Record<string, string> = {};
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null = null;
   /** REQ-GITHUB-004: clone directive (repo owner/name + optional ref) for a
@@ -245,6 +246,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       this._defaultReasoning = await this.ctx.storage.get<string>('defaultReasoning') || null;
       this._routeContextWindows = await this.ctx.storage.get<Record<string, number>>('routeContextWindows') || {};
       this._routeReasoningLevels = await this.ctx.storage.get<Record<string, string[]>>('routeReasoningLevels') || {};
+      this._modelDisplayNames = await this.ctx.storage.get<Record<string, string>>('modelDisplayNames') || {};
       // REQ-MEM-001 AC4: restore the user's IANA timezone so the capture
       // pipeline's TZ resolution produces wall-clock filenames after a
       // DO wake (matches the pattern for sessionId / userEmail above).
@@ -370,14 +372,14 @@ export class container extends Container<Env> implements ContainerEnvState {
     // Reject non-internal requests when the container is not running.
     // This prevents WebSocket reconnect attempts from waking a hibernated
     // container via super.fetch() (which triggers the SDK's startIfNotRunning).
-    // The DO knows the container state authoritatively - no KV read needed.
+    // The in-memory running flag can transiently read false for a live workload,
+    // so only the Worker's persisted-state admission gate may emit authoritative
+    // 4503. Keep this inner gate retryable without forwarding to super.fetch().
     if (!this.ctx.container?.running) {
-      // WS upgrade: accept then close with custom code 4503 so the client
-      // can distinguish "container stopped" from network errors (1006).
       if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
         const pair = new WebSocketPair();
         pair[1].accept();
-        pair[1].close(4503, 'container-stopped');
+        pair[1].close(1013, 'container-state-transient');
         return new Response(null, { status: 101, webSocket: pair[0] });
       }
       return new Response(JSON.stringify({ error: 'Container not running' }), {

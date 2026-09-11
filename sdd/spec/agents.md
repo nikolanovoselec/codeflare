@@ -766,10 +766,11 @@ Multi-agent support, preseed system, and session modes.
 3. Restoring that Codeflare session starts its immutable tab-1 agent with the same UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-AGENT-211 AC3: persists only the current classic agent-session binding) -->
 4. The restored native agent resumes its synced transcript. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) -->
 5. A different Codeflare session receives a different native conversation UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC5: a different Codeflare session starts empty under a different native ID) -->
+6. Every successful Classic Pi `/resume` switch atomically replaces that Codeflare session's binding with the selected root transcript ID, including repeated switches. <!-- @impl: preseed/agents/pi/extensions/classic-session-binding.ts::adoptClassicResumedSession --> <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: src/__tests__/lib/pi-classic-session-binding.test.ts (REQ-AGENT-211 AC6: Classic Pi adopts every explicit resumed transcript) --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC6: restarts Classic Pi with its last explicitly resumed named session) -->
 
 **Constraints:**
 
-- The binding is scoped only by the immutable Codeflare session ID; selecting another conversation inside the agent does not replace it.
+- The binding is scoped only by the immutable Codeflare session ID and changes only after initial creation or an explicit successful Pi resume.
 - Historical Classic sessions without a binding start empty rather than guessing from the newest transcript.
 - Herdr keeps its own native session-reference lifecycle and does not use this Classic bootstrap.
 
@@ -778,6 +779,38 @@ Multi-agent support, preseed system, and session modes.
 **Dependencies:** [REQ-AGENT-003](#req-agent-003-agent-cli-auto-started-in-tab-1), [REQ-STOR-004](storage.md#req-stor-004-initial-sync-restores-files-on-container-start)
 
 **Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-212: Canonical pull request history record
+
+**Intent:** Every pull request uses one navigable body shape that supports review now and historical recovery after merge.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Creating or materially rewriting any pull request loads the canonical authoring reference regardless of source or base branch. <!-- @impl: preseed/agents/claude/rules/git-workflow.md::Triggers and routes --> <!-- @impl: preseed/agents/pi/rules/git-workflow.md::Git Workflow --> <!-- @impl: preseed/agents/claude/skills/pr-workflow/SKILL.md::Pull Request Workflow --> <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md::Pull Request Workflow in Pi --> <!-- @manual -->
+2. Every body follows the same ordered roles: summary, shipped behavior, linked traceability, verification, boundaries, completion state, and final review record. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Canonical shape --> <!-- @manual -->
+3. Issues, incorporated pull requests, requirements, decisions, commits, runs, releases, deployments, and follow-ups are linked only with their relationship and relevance stated. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Links and traceability --> <!-- @manual -->
+4. Verification identifies exact heads and distinguishes automated, deployed, managed-publication, manual, owner-reported, and pending evidence. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Verification --> <!-- @manual -->
+5. Features and improvements precede secondary corrections; operational boundaries follow verification, and substantive review history stays last. <!-- @impl: preseed/agents/claude/skills/pr-workflow/references/pull-request-authoring.md::Core rule --> <!-- @manual -->
+6. The authoring reference reaches every skill-capable runtime in default and advanced modes. <!-- @impl: preseed/agents/claude/manifest.json::skills/pr-workflow/references/pull-request-authoring.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
+7. Native Pi and canonical workflow skills point to the same relative authoring-reference path. <!-- @impl: preseed/agents/claude/skills/pr-workflow/SKILL.md::Pull Request Workflow --> <!-- @impl: preseed/agents/pi/skills/pr-workflow/SKILL.md::Pull Request Workflow in Pi --> <!-- @manual -->
+
+**Constraints:**
+
+- Detail scales without dropping the section roles.
+- Closing keywords are used only when the PR targets the default branch and should close the linked issue.
+- Raw requirement, commit, file, or check catalogs are not traceability.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-036](#req-agent-036-pr-boundary-review-trigger-conditions)
+
+**Verification:** Manual content and delivery review
 
 **Status:** Implemented
 
@@ -2890,7 +2923,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. The advanced Cloudflare OAuth tier requests the 61 operator-verified scopes plus `user-details.read` and `offline_access`. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @impl: src/lib/oauth-scopes.ts::CF_ADVANCED --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token template) -->
+1. The advanced Cloudflare OAuth tier requests the 62 operator-verified scopes plus `user-details.read` and `offline_access`, including `cloudchamber.write` for container SSH-key management. <!-- @impl: src/lib/oauth-scopes.ts::cloudflareScopeForTier --> <!-- @impl: src/lib/oauth-scopes.ts::CF_ADVANCED --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token template) -->
 2. The advanced tier contains every recommended and minimal scope, including combined and granular Access permissions. <!-- @impl: src/lib/oauth-scopes.ts::CF_ADVANCED --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (REQ-AGENT-079: cloudflareScopeForTier advanced-tier scope catalog) -->
 3. `Logs: Edit` resolves to `logs.write` and `Firewall (Magic): Edit` to `magic-firewall.write`; three requested capabilities have no OAuth scope and are intentionally absent. <!-- @impl: src/lib/oauth-scopes.ts::CF_ADVANCED --> <!-- @test: src/__tests__/lib/oauth-scopes.test.ts (REQ-BROWSER-002: Browser Rendering scope in the Cloudflare token template) -->
 
@@ -2920,9 +2953,10 @@ None.
 1. Seed compilation delivers the constitution to every supported runtime in default and advanced modes. <!-- @impl: preseed/agents/claude/manifest.json::rules/engineering-constitution.md --> <!-- @impl: preseed/agents/pi/manifest.json::rules/engineering-constitution.md --> <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @manual -->
 2. Repository evidence and explicit constraints outrank generic patterns, and implementation stays within the smallest coherent change. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 3. Every changed behavior starts with failing behavioral proof and passes observable-outcome verification before completion. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
-4. Composition and extraction follow explicit ownership, coupling, state, reuse, testability, and maintenance evidence. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+4. Composition and extraction follow explicit ownership, state, reuse, testability, and maintenance evidence. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 5. Updates prefer immutability, keep necessary mutation local, validate untrusted boundaries, and trust typed internals. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 6. Repositories with `sdd/` keep changed behavior traced to truthful requirements, anchors, and documentation, with no touched REQ left `Partial`. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+7. CI, automated-test, deployment, and log-tail monitoring never blocks the main session; only approved safe local checks run in-session. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @impl: preseed/agents/pi/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 
 **Constraints:** Claude and Pi preseed rules are authored sources; transformed files are downstream artifacts. Both sources remain substantively aligned, while prose correctness is not pinned by wording, heading, token-count, or snapshot tests.
 
@@ -2986,16 +3020,17 @@ None.
 
 ### REQ-AGENT-200: Engineering Constitution work continuity
 
-**Intent:** Every managed coding session follows direct current-session user authority while retaining new input without abandoning active work mid-step.
+**Intent:** Every managed coding session follows direct current-user authority while retaining new input without abandoning active work mid-step.
 
 **Applies To:** Agent
 
 **Acceptance Criteria:**
 
-1. New user input is acknowledged and retained immediately. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
+1. New user input is acknowledged and retained. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
 2. Unrelated new input waits until the active task reaches a safe stopping point unless the user explicitly stops, pauses, or reprioritizes it. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Continuity --> <!-- @manual -->
-3. Direct current-session instructions override conflicting Codeflare workflow rules, sequencing, preferences, and prior user instructions. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
-4. `override` for a specific action executes the latest instruction immediately without another question. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
+3. The current user controls scope, sequencing, implementation choices, and internal Codeflare workflows and processes. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
+4. Their latest clear instruction overrides conflicting conventions, safeguards, preferences, and prior user instructions. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
+5. `override` for a named action executes immediately without confirmation, procedural delay, review, or substitution of a preferred workflow. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::User authority --> <!-- @manual -->
 
 **Constraints:** Related corrections remain part of the active task; overrides remain bounded by the named action, security, privacy, authentication, authorization, tenant isolation, least privilege, secret handling, and system or platform limits outside Codeflare's control.
 
@@ -5144,8 +5179,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. A wait client treats a live question page as open throughout the configured positive idle grace and reports the still-unanswered wait without inventing a choice. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) -->
-2. A wait client reports page closure only after the configured idle grace expires. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) -->
+1. A wait client treats a live question page as open throughout the configured positive idle grace and reports the still-unanswered wait without inventing a choice. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+2. A wait client reports page closure only after the configured idle grace expires. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
 
 **Constraints:** Waiting, page closure, and server failure remain distinct outcomes; none is treated as a user decision.
 
@@ -5194,10 +5229,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. [Native traversal and raster selection](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L184). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
-2. Scan mode excludes nested hidden directories and installed dependency directories. [Native directory exclusions](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L179). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
-3. Scan mode never follows a nested symbolic link, including broken and cyclic links. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
-4. An explicit symbolic-link target is rejected instead of producing an unaudited clean result. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) -->
+1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. [Native traversal and raster selection](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L184). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+2. Scan mode excludes nested hidden directories and installed dependency directories. [Native directory exclusions](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L179). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+3. Scan mode never follows a nested symbolic link, including broken and cyclic links. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+4. An explicit symbolic-link target is rejected instead of producing an unaudited clean result. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
 
 **Constraints:** Scan mode never follows a symbolic link.
 

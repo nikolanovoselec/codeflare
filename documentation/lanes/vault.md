@@ -32,9 +32,10 @@ Persistent user-note vault, automatic conversation capture, unified graphify gra
 
 The vault lives at `/home/user/Vault/` inside every advanced-mode session container. It is rclone-bisynced to R2 alongside the rest of `/home/user/`, so anything written here is available on the next session you start.
 
-Two parties write to the vault:
+Three owners write to the vault:
 
 - The **capture agent** appends a markdown file to `Raw/Sessions/` every 20 real user prompts and captures any durable uncaptured tail on the first prompt after resume.
+- The **image-owned compactor** folds cold capture files into deterministic `Raw/Sessions/Archive.md`; it is not an agent ([REQ-MEM-023](../../sdd/spec/memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory)). <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive -->
 - **The user** edits notes via SilverBullet or any tool that writes under `Notes/`, `References/`, `Inbox/`, or `Journal/`. Attachments land next to the referencing note; `Raw/Pasted/` remains an optional hand-organised archive.
 
 Vault content hashes are checked on resumed-tail capture and at each crossed 20-real-user-prompt epoch. Changed content signals one bounded background extraction; unchanged content is a no-op, and no polling extraction daemon runs. Future agents query the unified Graphify graph via `mcp__graphify__*` and see captures, user notes, and every active repository's code merged.
@@ -117,7 +118,13 @@ The extraction emits chunk JSON matching graphify's schema: nodes, edges, hypere
 
 On Pi, the worker writes the session note and the deterministic graph builder derives its graph identity afterward. The document label comes from the note H1, its ID comes from the Vault-relative path, repeated concept labels share one canonical ID, and exact duplicate evidence edges collapse before cumulative merge ([REQ-MEM-017](../../sdd/spec/memory.md#req-mem-017-session-memory-graph-identity-is-deterministic)). <!-- @impl: preseed/agents/pi/scripts/build-memory-graph.py::build_graph -->
 
-Compaction is manual: the vault grows append-only and no automated compactor ships. When `Raw/Sessions/` becomes unwieldy, prune or summarise files directly via SilverBullet.
+#### Daily session capture compaction (REQ-MEM-023, REQ-VAULT-032)
+
+After a successful natural bisync cycle, the image-owned compactor is eligible once per UTC day and approximates the latest-month hot set from each capture filename's leading calendar date. A failed attempt remains unstamped and retries after a later successful natural cycle. It leaves files on or after the same UTC calendar date in the prior month and any unrecognized filename as individual hot files, then renders older captures in stable capture-date/name order into `Raw/Sessions/Archive.md`. Repeating the same inputs produces the same archive without duplicate source records. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @impl: scripts/compact-session-captures.mjs::selectColdCaptures --> <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive -->
+
+The archive is machine-owned and read-only to agents. Retrieval searches current individual files first and uses `Archive.md` only as fallback; capture workers never target it, and interactive agents never edit it or delete source captures. The compactor changes storage shape, not meaning: semantic summarization, relevance pruning, and graph evidence deletion remain out of scope.
+
+Before exact unchanged source files are deleted locally, the shared merge helpers move matching node and edge `source_file` provenance to `Raw/Sessions/Archive.md` without changing node IDs, edge endpoints, relations, or evidence; archive locations keep evidence from different captures distinct. They publish the updated cumulative `vault-graph.json` as `user_vault`, then one bisync publishes the complete local result. <!-- @impl: entrypoint.sh::run_daily_vault_session_compaction --> <!-- @impl: preseed/agents/pi/scripts/merge-vault-graph.py::relocate_node_link_provenance --> <!-- @impl: preseed/agents/claude/plugins/codeflare-vault/scripts/merge-vault-graph.py::relocate_node_link_provenance -->
 
 Linking convention enforced in the prompt: concepts go in `[[wikilinks]]` so graphify's external-label dedup unifies them across the vault and per-repo code graphs. File paths, code symbols, and PR references stay as prose -- they namespace per-project and would never auto-link meaningfully.
 
@@ -137,7 +144,7 @@ If extraction fails mid-flight on the Claude path, the manifest is not committed
 
 The in-flight sentinel's TTL is 30 minutes. It was raised from 5 minutes in 2026-07 because real extraction runs on large change sets measured ~18 min, and the old TTL treated a still-running extraction as crashed and dispatched a second concurrent agent that raced the first on the shared chunk file. A genuinely crashed run can delay re-extraction until a later eligible prompt-cadenced check; committed high-water state never advances on failure.
 
-The exclusion set — `Raw/Sessions/`, `Raw/Graphs/`, `graphify-out/`, `Library/Codeflare/`, `.silverbullet/` (agent-owned; the served graph-viz copy the extractor's own final step re-renders; derived; vendored SilverBullet plug bundles; editor-config) — lives in `vault-manifest.py` (a parallel Python copy of `VAULT_GENERATED_PREFIXES` + `VAULT_PRESEED_ROOT_FILES`, code-commented "MUST stay identical to memory-vault-helpers.ts") and Pi's `vault-manifest-fs.ts` (which imports the predicate from `memory-vault-helpers.ts` directly) — kept in parity by convention on the Python side, by direct import on the TypeScript side.
+The exclusion set — `Raw/Sessions/` (individual captures and machine-owned `Archive.md`), `Raw/Graphs/`, `graphify-out/`, `Library/Codeflare/`, `.silverbullet/` — lives in `vault-manifest.py` (a parallel Python copy of `VAULT_GENERATED_PREFIXES` + `VAULT_PRESEED_ROOT_FILES`, code-commented "MUST stay identical to memory-vault-helpers.ts") and Pi's `vault-manifest-fs.ts` (which imports the predicate from `memory-vault-helpers.ts` directly) — kept in parity by convention on the Python side, by direct import on the TypeScript side.
 
 A mismatch re-triggers a spurious extraction cycle on the extractor's own output (observed live 2026-07-02 for `Raw/Graphs/vault-graph.html`). It also excludes the three always-managed root pages (`CONFIG.md`, `README.md`, `STYLES.md`) and the create-if-missing dashboard `Index.md`. `init_user_vault()` overwrites only the managed three; `Index.md` becomes editor-owned after first seed. The by-name exclusion keeps these product-supplied roots from counting as user-edit extraction input ([REQ-VAULT-010](../../sdd/spec/vault.md#req-vault-010-codeflare-authoritative-files-preseeded-into-the-vault-on-every-boot) AC1).
 
@@ -394,7 +401,7 @@ The vault plugin and supporting rule ship as preseed entries that land in every 
 The model pin prevents silent downgrade via a Task tool override. Delivery uses the same pipeline as architect, code-reviewer, and other agents.
 - Vault trigger and route rules live in the "Vault operations" and "Vault-edit hook" sections of `preseed/agents/claude/rules/memory.md`.
 
-  Vault layout, wikilink conventions, and prohibited operations live in `preseed/agents/claude/skills/vault-operations/SKILL.md`, which is advanced-mode only.
+  Vault layout, retrieval order, wikilink conventions, and prohibited operations live in the advanced-only Claude and Pi `vault-operations` skills at `preseed/agents/{claude,pi}/skills/vault-operations/SKILL.md`.
 - `preseed/agents/claude/rules/vault-note-capture.md` + `preseed/agents/claude/skills/vault-note-capture/SKILL.md` -- minimal trigger rule plus on-demand skill for "take a note" / "note this down" requests into `Notes/<Category>/`. Advanced-mode only.
 - `preseed/silverbullet/` -- optional `atlas.plug.js`, the four preseeded plug files (`pdf`, `treeview`, `github`, `graph` -- see `preseed/silverbullet/plugs/MANIFEST.md`), three always-managed root pages, and the create-if-missing `Index.md` dashboard.
 
@@ -675,8 +682,8 @@ Exhaustive Vault status remains in `sdd/spec/vault.md`; section-local links prov
 | Vault concern | Requirements | Source owner | Evidence |
 |---|---|---|---|
 | Path/bootstrap/persistence | REQ-VAULT-001/006/007/010 | entrypoint, seed, storage finalization | Initialization tiers and final-drain tests |
-| Capture/edit/extraction | REQ-VAULT-002/003/026/027/028 | capture hooks and `vault-extract` | Content-hash, transactional publication, isolation tests |
-| Graph merge/publication | REQ-VAULT-004/014/016 | Vault plugin and Graphify scripts | Active-repo lock and canonical schema checks |
+| Capture/edit/extraction | REQ-VAULT-002/003/026/027/028/032 | capture hooks, compactor, and `vault-extract` | Content-hash, transactional publication, archive-boundary, and isolation tests |
+| Graph merge/publication | REQ-VAULT-004/014/016 and REQ-MEM-023 | Vault plugin, compactor, and Graphify scripts | Active-repo lock, provenance relocation, and canonical schema checks |
 | SilverBullet proxy/runtime | REQ-VAULT-005/009/012/013/017/018/019/020/025 | Vault routes/view graft and UI | Proxy, upload, prewarm, service-worker tests |
 | Encryption and IDB | REQ-VAULT-008/015/021/022/023/024 | Vault crypto/view/bootstrap | Key/open/store lifecycle tests |
 | Attachments/PDF | REQ-VAULT-011 | extraction runtime | Capability-dependent ingestion evidence |

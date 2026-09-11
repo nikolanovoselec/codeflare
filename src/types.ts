@@ -145,6 +145,8 @@ interface EnterpriseEnv {
   // env only — never injected into the container (the container reaches the
   // gateway via platform outbound-HTTPS interception, not a URL).
   AIG_GATEWAY_URL?: string;
+  // Gateway name required when AIG_GATEWAY_URL uses the account API base form.
+  AIG_GATEWAY_ID?: string;
   // AI Gateway token the interceptor sends as a standard `Authorization: Bearer`
   // header on the REST API (enterprise only; AD74). Set via wrangler secret.
   // Never exposed to the container.
@@ -321,12 +323,16 @@ export interface UserPreferences {
   userTimezone?: string;
   /** REQ-AGENT-049: hash of last applied preseed content, for auto-upgrade detection. */
   lastPreseedHash?: string;
+  /** Selection/schema identity paired with lastPreseedHash; absence forces one full baked reconcile. */
+  lastPreseedProjectionIdentity?: string;
   /** Automatic targets that may have written R2 objects before applied publication. */
   managedEnvironmentReconciliation?: {
     targets: Array<{
       digest: string;
       sequence: number;
       mode: SessionMode;
+      /** Absent only on legacy pending targets, which remain retryable and force a full pass. */
+      projectionIdentity?: string;
     }>;
   };
   /** Last verified managed release fully reconciled into this user's bucket. */
@@ -336,6 +342,8 @@ export interface UserPreferences {
     managedExtensionsDigest?: string;
     sequence: number;
     mode: SessionMode;
+    /** Reconciliation schema and canonical selected-agent set; absent on legacy stamps. */
+    projectionIdentity?: string;
     resourcePolicy?: ManagedResourcePolicy;
     managedPathsDigest?: string;
     appliedAt: string;
@@ -466,8 +474,10 @@ export interface ContainerConfigPayload {
   defaultReasoning?: string;
   /** REQ-ENTERPRISE-012: per-route context window (route name -> tokens) for Pi models.json. */
   routeContextWindows?: Record<string, number>;
-  /** Canonical reasoning levels supported by each allowed route's active profile. */
+  /** Canonical reasoning levels supported by each allowed model's active profile; [] means provider-default. */
   routeReasoningLevels?: Record<string, string[]>;
+  /** Safe administrator labels keyed by opaque model handle. */
+  modelDisplayNames?: Record<string, string>;
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded to the container. */
   userTimezone?: string;
   /** REQ-GITHUB-004: one-shot GitHub clone directive forwarded to the container. */

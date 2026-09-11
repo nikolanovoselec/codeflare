@@ -154,6 +154,64 @@ describe('getPreseedKeysNotInMode', () => {
   });
 });
 
+describe('selected baked agent projection', () => {
+  it('REQ-STOR-024: filters baked planning and inactive cleanup by the canonical agent selection', () => {
+    const piDocument = {
+      key: '.pi/agent/extensions/company.ts',
+      contentType: 'text/plain; charset=utf-8',
+      content: 'pi company extension',
+      modes: ['advanced'] as ('default' | 'advanced')[],
+    };
+    testState.agentDocs.push(piDocument);
+    try {
+      const selected = (getConfigsForMode as unknown as (
+        mode: 'advanced', contextModeEnabled: boolean, codingAgents: string
+      ) => typeof testState.agentDocs)('advanced', false, 'pi');
+      const inactive = (getPreseedKeysNotInMode as unknown as (
+        mode: 'advanced', contextModeEnabled: boolean, codingAgents: string
+      ) => string[])('advanced', false, 'pi');
+
+      expect(selected.map((doc) => doc.key)).toEqual([piDocument.key]);
+      expect(inactive).toEqual(expect.arrayContaining([
+        '.claude/extensions/common.md',
+        '.claude/plugins/codeflare-hooks/.claude-plugin/plugin.json',
+        '.claude/extensions/consult-llm/index.ts',
+        '.codex/AGENTS.md',
+        '.codex/config/ship/index.ts',
+      ]));
+      expect(inactive).not.toContain(piDocument.key);
+    } finally {
+      testState.agentDocs.pop();
+    }
+  });
+
+  it('REQ-STOR-024: baked streaming writes only the selected agent documents', async () => {
+    vi.clearAllMocks();
+    const piDocument = {
+      key: '.pi/agent/extensions/company.ts',
+      contentType: 'text/plain; charset=utf-8',
+      content: 'pi company extension',
+      modes: ['advanced'] as ('default' | 'advanced')[],
+    };
+    testState.agentDocs.push(piDocument);
+    mockFetch.mockResolvedValue(new Response('', { status: 200 }));
+    try {
+      const result = await seedAgentConfigs(env, bucket, endpoint, {
+        overwrite: true,
+        mode: 'advanced',
+        codingAgents: 'pi',
+      } as Parameters<typeof seedAgentConfigs>[3] & { codingAgents: string });
+
+      expect(result.written).toEqual([piDocument.key]);
+      expect(mockFetch.mock.calls.map(([url]) => String(url))).toEqual([
+        `${endpoint}/${bucket}/${piDocument.key}`,
+      ]);
+    } finally {
+      testState.agentDocs.pop();
+    }
+  });
+});
+
 describe('seedAgentConfigs provenance marker', () => {
   beforeEach(() => {
     vi.clearAllMocks();

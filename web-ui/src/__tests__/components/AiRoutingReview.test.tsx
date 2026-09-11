@@ -303,7 +303,7 @@ describe('AI routing review', () => {
     if (gateway.replacementToken) expect(document.body.textContent).not.toContain(gateway.replacementToken);
     expect(api.start).not.toHaveBeenCalled();
     const firstPreview = api.preview.mock.calls[api.preview.mock.calls.length - 1]![2];
-    expect(firstPreview).toEqual({ ...initial, ...gateway, defaultRoute: { route: 'production', reasoning: 'high' },
+    expect(firstPreview).toEqual({ ...initial, ...gateway, nativeTargets: [], defaultRoute: { route: 'production', reasoning: 'high' },
       fallbackRouting: { enabled: false }, routeChecks: { development: 'development-edited-check', production: 'production-edited-check' },
       reasoningConfiguration: { ...initial.reasoningConfiguration, routeAssignments: Object.fromEntries(Object.entries(refs).map(([route, activeProfile]) => [route, { activeProfile, routeVersion: `${route}-v1`, verification: proof(route, 'edited-connection') }])) },
     });

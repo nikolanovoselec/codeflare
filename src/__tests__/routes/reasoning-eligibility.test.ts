@@ -10,6 +10,7 @@ import { loadEnterpriseRouteConfig } from '../../lib/access';
 import { getAigConfig } from '../../lib/aig-config';
 import { encryptForKV, importEncryptionKey } from '../../lib/kv-crypto';
 import { LlmInterceptor } from '../../llm-interceptor';
+import { nativeTargetHandle, parseNativeAiTargets } from '../../lib/native-ai-targets';
 import reasoningRoutes from '../../routes/admin/reasoning';
 import setupRoutes from '../../routes/setup';
 import { AppError } from '../../lib/error-types';
@@ -21,15 +22,23 @@ vi.mock('../../middleware/auth', () => ({
 }));
 
 const gatewayUrl = 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/gateway';
+const accountApiUrl = 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/';
 const token = 'test-gateway-token';
 const profileRef = getBuiltInProfileRef('openai-gpt-chat-tools-off');
+const bedrockProfileRef = getBuiltInProfileRef('bedrock-anthropic-compat');
 const model = { id: 'model', type: 'model', properties: { provider: 'openai', model: 'test-model' }, outputs: { success: { elementId: 'end' } } };
 const topology = [{ id: 'start', type: 'start', outputs: { next: { elementId: 'model' } } }, model];
 let version: string;
 let elements: unknown[];
-let providerMode: 'ok' | 'partial' | 'failed' | 'off-reasons' | 'empty-replay' | 'non-sse-replay' | 'error-replay';
+let providerMode: 'ok' | 'partial' | 'failed' | 'off-reasons' | 'empty-replay' | 'non-sse-replay' | 'error-replay' | 'unsupported' | 'candidates-unsupported';
 let managementStatus: number;
+let customProviderStatus: number;
 let providerCalls: number;
+let providerConfigAlias: string | undefined;
+let nativeProviderSlug: string;
+let observedProviderAliases: Array<string | null>;
+let observedProviderModels: string[];
+let observedProviderUrls: string[];
 let driftDuringCheck: boolean;
 
 function stream(delta: unknown, finish_reason = 'stop') {
@@ -68,21 +77,32 @@ async function activate(fixture: ReturnType<typeof setup>, extra: Record<string,
 }
 
 beforeEach(() => {
-  version = 'version-1'; elements = structuredClone(topology); providerMode = 'ok'; managementStatus = 200; providerCalls = 0; driftDuringCheck = false;
+  version = 'version-1'; elements = structuredClone(topology); providerMode = 'ok'; managementStatus = 200; customProviderStatus = 200;
+  providerCalls = 0; providerConfigAlias = undefined; nativeProviderSlug = 'aws-bedrock';
+  observedProviderAliases = []; observedProviderModels = []; observedProviderUrls = []; driftDuringCheck = false;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const method = input instanceof Request ? input.method : init?.method ?? 'GET';
     const url = input instanceof Request ? input.url : String(input);
     if (method === 'GET') {
+      if (url.includes('/custom-providers?') && customProviderStatus !== 200) return Response.json({ secret: 'private custom-provider error' }, { status: customProviderStatus });
       if (managementStatus !== 200) return Response.json({ secret: 'private error' }, { status: managementStatus });
+      if (url.endsWith('/ai-gateway/gateways')) return Response.json({ result: [{ id: 'gateway' }] });
+      if (url.includes('/provider_configs?')) return Response.json({ success: true, result: [{ id: nativeProviderSlug === 'aws-bedrock' ? 'bedrock-default' : 'provider-default', provider_slug: nativeProviderSlug, gateway_id: 'gateway', default_config: true, ...(providerConfigAlias && { alias: providerConfigAlias }) }], result_info: { page: 1, count: 1, per_page: 100, total_count: 1 } });
+      if (url.includes('/custom-providers?')) return Response.json({ success: true, result: [], result_info: { page: 1, count: 0, per_page: 100, total_count: 0 } });
       return url.endsWith('/routes')
         ? Response.json({ result: { routes: ['working', 'other'].map((name) => ({ id: name, name })) } })
         : Response.json({ result: { version: { id: version, active: true, data: elements } } });
     }
     providerCalls++;
+    observedProviderAliases.push(new Headers(input instanceof Request ? input.headers : init?.headers).get('cf-aig-byok-alias'));
+    observedProviderUrls.push(url);
     if (driftDuringCheck) version = 'version-2';
     if (providerMode === 'failed') return Response.json({}, { status: 503 });
     const body = JSON.parse(input instanceof Request ? await input.text() : String(init?.body));
+    observedProviderModels.push(String(body.model));
     if (!body.tools) return stream({ content: '2399', ...(providerMode === 'off-reasons' ? { reasoning_content: 'thinking' } : {}) });
+    const candidateToolProbe = Object.hasOwn(body, 'reasoning_effort') || Object.hasOwn(body, 'chat_template_kwargs');
+    if (providerMode === 'unsupported' || (providerMode === 'candidates-unsupported' && candidateToolProbe)) return stream({ content: 'no tool call' });
     if (providerMode === 'partial') return stream({ content: 'unfinished' }, 'length');
     if (body.messages.some((message: any) => message.role === 'tool')) {
       if (providerMode === 'empty-replay') return new Response('');
@@ -94,6 +114,179 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.restoreAllMocks());
+
+describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
+  it('REQ-ENTERPRISE-055: applies the discovered provider alias during native verification', async () => {
+    const f = setup();
+    providerConfigAlias = 'bedrock-live';
+    const response = await f.post('native/discover', {
+      target: { label: 'Claude aliased', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: false },
+      maxCompletionTokens: 32,
+    });
+    expect(response.status).toBe(200);
+    expect(observedProviderAliases.length).toBeGreaterThan(0);
+    expect(new Set(observedProviderAliases)).toEqual(new Set(['bedrock-live']));
+  });
+
+  it('REQ-ENTERPRISE-052: discovers and verifies an OpenAI native selector through the real compat helper', async () => {
+    const f = setup();
+    nativeProviderSlug = 'openai';
+    const openaiProfileRef = getBuiltInProfileRef('native-openai-compat');
+    const target = {
+      label: 'GPT-5.6 Terra',
+      provider: 'openai',
+      model: 'gpt-5.6-terra',
+      contextWindow: 200000,
+      enabled: false,
+    };
+
+    const discovered = await f.post('native/profile-discovery', {
+      target,
+      maxCompletionTokens: 32,
+    });
+    expect(discovered.status).toBe(200);
+    expect(observedProviderModels.length).toBeGreaterThan(0);
+    expect(new Set(observedProviderModels)).toEqual(new Set(['openai/gpt-5.6-terra']));
+    expect(observedProviderUrls.every((url) => url.includes('/compat/chat/completions'))).toBe(true);
+
+    observedProviderModels = [];
+    observedProviderUrls = [];
+    const verified = await f.post('native/discover', {
+      target: { ...target, profileRef: openaiProfileRef },
+      maxCompletionTokens: 32,
+    });
+    const body = await verified.json() as any;
+    expect(verified.status).toBe(200);
+    expect(body).toMatchObject({
+      classification: 'Verified',
+      assignable: true,
+      verification: { method: 'automated', current: true },
+    });
+    expect(body.targetId).toEqual(expect.any(String));
+    expect(body.checkId).toEqual(expect.any(String));
+    expect(new Set(observedProviderModels)).toEqual(new Set(['openai/gpt-5.6-terra']));
+    expect(observedProviderUrls.every((url) => url.includes('/compat/chat/completions'))).toBe(true);
+  });
+
+  it('REQ-ENTERPRISE-055: rejects invalid native target data before any routing write', async () => {
+    const f = setup();
+    const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      nativeTargets: [{ label: 'Invalid target', provider: 'aws-bedrock', model: 'valid-model', contextWindow: 16384, profileRef: bedrockProfileRef, enabled: false }],
+      nativeChecks: {},
+    }));
+    expect(validated.values).toBeUndefined();
+    expect(validated.fieldErrors).toBeDefined();
+    const unavailable = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      nativeTargets: [{ label: 'Unavailable target', provider: 'openai', model: 'gpt-5.6-sol', contextWindow: 200000, profileRef: getBuiltInProfileRef('native-openai-compat'), enabled: false }],
+      nativeChecks: {},
+    }));
+    expect(unavailable.values).toBeUndefined();
+    expect(unavailable.fieldErrors).toBeDefined();
+    expect(f.kv.put).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-055: rejects a Dynamic Route that collides with a submitted native handle before any routing write', async () => {
+    const f = setup();
+    const id = '11111111-1111-4111-8111-111111111111';
+    const handle = nativeTargetHandle(id);
+    const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      dynamicRoutes: ['working', handle],
+      nativeTargets: [{ id, label: 'Claude', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: false }],
+      nativeChecks: {},
+      groupRouting: [{ accessGroup: 'engineering', routes: ['working', handle], defaultRoute: 'working', reasoning: 'off' }],
+    }));
+    expect(validated.values).toBeUndefined();
+    expect(validated.fieldErrors?.dynamicRoutes).toContain('A Dynamic Route cannot use a native target handle');
+    expect(f.kv.put).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-055: validates a native-shaped Dynamic Route as a Dynamic Route when no native target owns it', async () => {
+    const f = setup();
+    const route = nativeTargetHandle('11111111-1111-4111-8111-111111111111');
+    const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      dynamicRoutes: [route],
+      defaultRoute: { route, reasoning: 'high' },
+      routeContextWindows: { [route]: 10000 },
+      groupRouting: [{ accessGroup: 'engineering', routes: [route], defaultRoute: route, reasoning: 'high' }],
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: { [route]: { activeProfile: profileRef } } },
+    }));
+    expect(validated.values).toBeUndefined();
+    expect(validated.fieldErrors?.reasoningConfiguration).toContain('Global default reasoning level is not mapped by its default route profile');
+    expect(f.kv.put).not.toHaveBeenCalled();
+  });
+
+  it('keeps built-in discovery, validation, and reauthorization available when custom-provider lookup fails', async () => {
+    const f = setup();
+    await activate(f);
+    customProviderStatus = 503;
+    const checked = await (await f.post('native/discover', {
+      target: { label: 'Claude automated', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true },
+      maxCompletionTokens: 32,
+    })).json() as any;
+    expect(checked).toMatchObject({ classification: 'Verified', assignable: true, verification: { method: 'automated', current: true } });
+    const handle = nativeTargetHandle(checked.targetId);
+    const proposed = values({
+      nativeTargets: [{ id: checked.targetId, label: 'Claude automated', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true }],
+      nativeChecks: { [checked.targetId]: checked.checkId },
+      groupRouting: [{ accessGroup: 'engineering', routes: ['working', handle], defaultRoute: handle, reasoning: 'off' }],
+      defaultRoute: { route: handle, reasoning: 'off' },
+    });
+    const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', proposed);
+    expect(validated.fieldErrors).toBeUndefined();
+    await executeConfigurationTask(f.env, 'configure_model_routing', validated.values!, { mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 1 });
+    const savedTarget = parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS)).targets[0];
+    expect(savedTarget.customProvider).toBeUndefined();
+    expect(savedTarget.verification?.capabilities).toEqual({ streaming: true, tools: true, replay: true });
+    expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toContain(handle);
+  });
+
+  it.each([
+    ['completed', 'candidates-unsupported', 2],
+    ['unsupported', 'unsupported', 1],
+  ] as const)('combines candidate and prepared-profile accounting for %s native profile discovery', async (_case, mode, preparedAttempts) => {
+    const f = setup();
+    customProviderStatus = 503;
+    providerMode = mode;
+
+    const response = await f.post('native/profile-discovery', {
+      target: { label: 'Claude profile', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, enabled: true },
+      maxCompletionTokens: 32,
+    });
+    const body = await response.json() as any;
+
+    expect(response.status).toBe(200);
+    expect(body.route).toBe('aws-bedrock/eu.anthropic.claude-sonnet-5');
+    expect(body.outcome).toBe(mode === 'candidates-unsupported' ? 'existing-profile' : 'unsupported');
+    expect(body.accounting.logicalProbes).toBeGreaterThan(1);
+    expect(body.accounting.httpAttempts).toBeGreaterThan(preparedAttempts);
+  });
+
+  it('REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save', async () => {
+    const f = setup();
+    await activate(f);
+    providerConfigAlias = 'bedrock-live';
+    const checked = await (await f.post('native/discover', {
+      target: { label: 'Claude exact', provider: 'aws-bedrock', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true },
+      administratorConfirmed: true, maxCompletionTokens: 32,
+    })).json() as any;
+    expect(checked).toMatchObject({ classification: 'Administrator-confirmed', assignable: true });
+    const handle = nativeTargetHandle(checked.targetId);
+    const proposed = values({
+      nativeTargets: [{ id: checked.targetId, label: 'Claude exact', provider: 'aws-bedrock', model: 'eu.anthropic.claude-future-profile', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true }],
+      nativeChecks: { [checked.targetId]: checked.checkId },
+      groupRouting: [{ accessGroup: 'engineering', routes: ['working', handle], defaultRoute: handle, reasoning: 'off' }],
+      defaultRoute: { route: handle, reasoning: 'off' },
+    });
+    const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', proposed);
+    expect(validated.fieldErrors).toBeUndefined();
+    const context = { mode: 'enterprise' as const, requestUrl: 'https://codeflare.example.com', resultingRevision: 1 };
+    await executeConfigurationTask(f.env, 'configure_model_routing', validated.values!, context);
+    const saved = parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS));
+    expect(saved.targets[0]).toMatchObject({ id: checked.targetId, providerConfigId: 'bedrock-default', providerConfigAlias: 'bedrock-live', model: 'eu.anthropic.claude-future-profile', verification: { method: 'administrator', providerConfigAlias: 'bedrock-live' } });
+    await executeConfigurationTask(f.env, 'configure_model_routing', values(), context);
+    expect(parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS))).toEqual(saved);
+  });
+});
 
 describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
   it.each([401, 403])('reports sanitized permission-denied for management %s without asserting the exact missing scope', async (status) => {
@@ -113,6 +306,26 @@ describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
     }
     expect((await f.post('routes/working/inventory', { backendDescriptions: { model: 'bad\nvalue' } })).status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it('REQ-ENTERPRISE-057/063: accepts the account API base URL and configured gateway name for Dynamic Route inspection', async () => {
+    const f = setup();
+    const response = await f.post('catalog', { gateway: { gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'draft-token' } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ routeCatalogStatus: 'ready', routes: ['working', 'other'] });
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai-gateway/gateways/gateway/routes',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+  it('REQ-ENTERPRISE-057/063: accepts the legacy gateway URL for Dynamic Route inspection', async () => {
+    const f = setup();
+    const response = await f.post('catalog', { gateway: { gatewayUrl, replacementToken: 'draft-token' } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ routeCatalogStatus: 'ready', routes: ['working', 'other'] });
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai-gateway/gateways/gateway/routes',
+      expect.objectContaining({ method: 'GET' }),
+    );
   });
   it('reuses the saved encrypted token for draft inspection without changing storage', async () => {
     const f = setup();
@@ -181,6 +394,26 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
     } }));
     expect(result.fieldErrors).toBeDefined();
     expect(providerCalls).toBe(0);
+  });
+  it('REQ-ENTERPRISE-057/063: discovers and verifies a Dynamic Route profile through the account API URL', async () => {
+    const f = setup();
+    const response = await f.check({ gateway: { gatewayUrl: `${accountApiUrl}ai/v1/chat/completions`, gatewayId: 'gateway', replacementToken: 'draft-token' } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ classification: 'Verified', verification: { profileRef } });
+    const providerRequests = vi.mocked(fetch).mock.calls.filter(([input, init]) => (input instanceof Request ? input.method : init?.method) === 'POST');
+    expect(providerRequests).toHaveLength(3);
+    expect(providerRequests.every(([input]) => String(input instanceof Request ? input.url : input) === `${accountApiUrl}ai/v1/chat/completions`)).toBe(true);
+    expect(providerRequests.every(([input, init]) => new Headers(input instanceof Request ? input.headers : init?.headers).get('cf-aig-gateway-id') === 'gateway')).toBe(true);
+  });
+  it('REQ-ENTERPRISE-057/063: discovers and verifies a Dynamic Route profile through the legacy URL', async () => {
+    const f = setup();
+    const response = await f.check({ gateway: { gatewayUrl, replacementToken: 'draft-token' } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ classification: 'Verified', verification: { profileRef } });
+    const providerRequests = vi.mocked(fetch).mock.calls.filter(([input, init]) => (input instanceof Request ? input.method : init?.method) === 'POST');
+    expect(providerRequests).toHaveLength(3);
+    expect(providerRequests.every(([input]) => String(input instanceof Request ? input.url : input) === `${accountApiUrl}ai/v1/chat/completions`)).toBe(true);
+    expect(providerRequests.every(([input, init]) => new Headers(input instanceof Request ? input.headers : init?.headers).get('cf-aig-gateway-id') === 'gateway')).toBe(true);
   });
   it('verifies an unsaved canonical custom profile and draft gateway without activation', async () => {
     const f = setup();
@@ -318,15 +551,23 @@ describe('REQ-ENTERPRISE-043 server-issued verification', () => {
     const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ routeChecks: { working: checked.checkId } }));
     expect(JSON.stringify(result.fieldErrors)).toMatch(/retry.*without.*check/i); expect(providerCalls).toBe(calls);
   });
-  it.each(['route', 'gateway', 'profile', 'inventory', 'provenance'].flatMap((identity) => [
+  it('REQ-ENTERPRISE-057: rebinds saved route authority after a replacement connection passes management topology validation', async () => {
+    const f = setup(); await activate(f);
+    f.env.ENCRYPTION_KEY = Buffer.alloc(32, 1).toString('base64');
+    const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'rotated-token',
+    }));
+    expect(result.fieldErrors).toBeUndefined();
+    const verification = (result.values!.reasoningConfiguration as any).routeAssignments.working.verification;
+    expect(verification.connectionFingerprint).not.toBe((JSON.parse(f.kv._store.get(SETUP_KEYS.REASONING_CONFIGURATION)!) as any).routeAssignments.working.verification.connectionFingerprint);
+    expect(verification.inventoryDigest).toBe((JSON.parse(f.kv._store.get(SETUP_KEYS.REASONING_CONFIGURATION)!) as any).routeAssignments.working.verification.inventoryDigest);
+    expect(providerCalls).toBe(3);
+  });
+  it.each(['route', 'profile', 'inventory', 'provenance'].flatMap((identity) => [
     { identity, administratorConfirmed: false }, { identity, administratorConfirmed: true },
   ]))('rejects a receipt after $identity identity changes (administrator: $administratorConfirmed)', async ({ identity, administratorConfirmed }) => {
     const f = setup(); const checked = await (await f.check(administratorConfirmed ? { administratorConfirmed: true } : {})).json() as any;
     const proposed = values({ routeChecks: { working: checked.checkId } });
-    if (identity === 'gateway') {
-      proposed.replacementToken = 'different-token';
-      f.env.ENCRYPTION_KEY = Buffer.alloc(32, 1).toString('base64');
-    }
     if (identity === 'inventory') version = 'version-2';
     if (identity === 'profile') proposed.reasoningConfiguration = { schemaVersion: 1, customProfileRevisions: [], routeAssignments: { working: { activeProfile: getBuiltInProfileRef('workers-ai-glm-thinking') } } };
     if (identity === 'provenance') model.properties.model = 'different-model';

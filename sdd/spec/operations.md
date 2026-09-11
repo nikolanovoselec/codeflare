@@ -99,8 +99,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. Each fixable vulnerable dependency in an immutable runtime is replaced at every affected path from an exact integrity-verified package artifact. <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @impl: Dockerfile::PACOTE_VERSION --> <!-- @manual: Dispatch a fresh integration image build and confirm each overlay integrity check succeeds before extraction. -->
-2. Before scan or push, packaged-image smoke verifies the fixed version at every affected runtime path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPacoteRuntime --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken npm pacote overlay) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
-3. Packaged-image smoke loads each replacement through every affected runtime path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPacoteRuntime --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken npm pacote overlay) -->
+2. Before scan or push, packaged-image smoke verifies the fixed version at every affected runtime path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyJsYamlRuntime --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPacoteRuntime --> <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken code-server js-yaml overlay) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken npm pacote overlay) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
+3. Packaged-image smoke loads each replacement through every affected runtime path. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyJsYamlRuntime --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyPacoteRuntime --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken code-server js-yaml overlay) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken npm pacote overlay) -->
 4. Each archive-capable replacement completes an archive creation and extraction round trip. <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyNodeTarRuntimes --> <!-- @test: host/__tests__/coding-agent-selection.test.js (REQ-OPS-046 AC2-AC4: packaged-image smoke rejects broken node-tar runtimes) --> <!-- @manual: Confirm fresh-image smoke reports both node-tar paths before Trivy scan and image push. -->
 
 **Constraints:**
@@ -150,6 +150,61 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** None.
 
 **Verification:** Automated tests ([required-check-covers-every-lane](../../host/__tests__/required-check-covers-every-lane.test.js), [nightly-pr-checks-routing](../../host/__tests__/nightly-pr-checks-routing.test.js), [workflow hardening](../../host/__tests__/ci-workflow-hardening.test.js)); lint, typecheck, and audit ACs verified in CI
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-058: Fast Impeccable native-engine regression
+
+**Intent:** Impeccable source corrections receive complete regression feedback within the PR Checks time budget.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The PR lane rejects source that does not match the reviewed engine version, commit, and archive digest. <!-- @impl: scripts/ci/impeccable-engine-source.py::main --> <!-- @test: scripts/ci/impeccable-engine-source.py (main) -->
+2. The PR lane reproduces the upstream early-close behavior while the configured idle grace remains open. <!-- @impl: scripts/ci/impeccable-engine-source.py::verify_probe --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+3. The PR lane reproduces upstream traversal through a nested symbolic link. <!-- @impl: scripts/ci/impeccable-engine-source.py::verify_probe --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+4. The corrected wait condition keeps the question open through the configured idle grace and closes it after expiry. <!-- @impl: scripts/ci/impeccable-engine-source.py::verify_probe --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+5. The corrected raster traversal retains ordinary raster discovery and exclusions while skipping nested symbolic links and rejecting linked targets. <!-- @impl: scripts/ci/impeccable-engine-source.py::verify_probe --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+6. The PR lane builds no container. <!-- @impl: .github/workflows/test.yml::impeccable-engine --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-058 AC6-AC7: configures the native source regression without a container build and with a one-minute timeout) -->
+7. The PR lane has a one-minute hard timeout. <!-- @impl: .github/workflows/test.yml::impeccable-engine --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-058 AC6-AC7: configures the native source regression without a container build and with a one-minute timeout) -->
+
+**Constraints:**
+
+- The focused probes compile logic extracted from the checksum-verified source archive.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-003](#req-ops-003-pr-checks-run-lint-test-typecheck-and-security-audit), [REQ-AGENT-163](agents.md#req-agent-163-impeccable-browser-question-idle-lifecycle), [REQ-AGENT-164](agents.md#req-agent-164-impeccable-raster-scan-traversal)
+
+**Verification:** Automated source-probe and workflow-contract tests
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-059: Complete Impeccable native-binary verification
+
+**Intent:** Deployment image publication retains executable proof for the complete native engine in addition to focused PR feedback.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The deployment image build compiles and behavior-tests the complete upstream native binary before applying Codeflare corrections. <!-- @impl: Dockerfile::impeccable-builder --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) -->
+2. The deployment image build compiles and behavior-tests the complete corrected native binary before publication. <!-- @impl: Dockerfile::impeccable-builder --> <!-- @test: scripts/ci/impeccable-engine.py (verify_engine) -->
+
+**Constraints:**
+
+- Focused PR probes do not replace deployment verification of the complete executable.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-002](#req-ops-002-docker-image-build-vulnerability-scan-and-registry-push), [REQ-OPS-058](#req-ops-058-fast-impeccable-native-engine-regression), [REQ-AGENT-163](agents.md#req-agent-163-impeccable-browser-question-idle-lifecycle), [REQ-AGENT-164](agents.md#req-agent-164-impeccable-raster-scan-traversal)
+
+**Verification:** Automated deployment native-binary tests
 
 **Status:** Implemented
 
@@ -320,7 +375,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. The container image declares a graceful-stop signal that the entrypoint trap can catch. <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC1: the container image declares STOPSIGNAL SIGINT) --> <!-- @manual -->
 2. The container entrypoint's trap handler catches the graceful-stop signal. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC2: the container entrypoint trap handler catches SIGINT/SIGTERM signals) -->
 3. The trap handler terminates the background sync daemon using a durable PID record as the sole mechanism. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC3 / REQ-OPS-048 AC1: trap handler kills services through protected runtime PID files) -->
-4. A final bidirectional sync to R2 runs before exit, with deletion safeguards to prevent accidental mass deletion. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC4: final rclone bisync with --ignore-checksum --max-delete 100 runs to R2 before exit) -->
+4. A final bidirectional sync to R2 runs before exit with a 5,000-file deletion limit. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC4 / REQ-STOR-003 AC6: final, periodic, and baseline bisync use the 5000-file deletion limit) -->
 5. The shutdown sync runs even when the initial sync timed out. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC5: bisync-initialized flag is touched on the timeout path to ensure final bisync runs) -->
 6. The terminal server is terminated after the final sync completes. <!-- @impl: entrypoint.sh::shutdown_handler --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC6: terminal server is killed after the final sync completes) -->
 
@@ -435,6 +490,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Container resource sizing is applied per the configured tier (low, default/saas, or high). <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @manual -->
 3. All tiers default to 10 concurrent instances; the cap is overridable per deployment. <!-- @manual -->
 4. The AI agent layer can be cache-busted on demand via a build variable so a fresh layer is rolled out without a full image rebuild. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+5. Source-controlled container configuration disables SSH and contains no authorized key. <!-- @impl: wrangler.toml::containers.ssh --> <!-- @test: host/__tests__/container-ssh-config.test.js (keeps SSH disabled when the repository secret is absent) -->
 
 **Constraints:**
 
@@ -1520,6 +1576,56 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Dependencies:** [REQ-SUB-025](subscription.md#req-sub-025-durable-historical-usage-accounting), [REQ-OPS-056](#req-ops-056-non-destructive-d1-deployment-boundary)
 
 **Verification:** Automated optional-read, logging-config, and representative-load tests; polling and exception visibility evidence remains required from Integration before goal completion
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-060: Optional persistent container SSH authorization
+
+**Intent:** An operator may provision one repository-scoped break-glass SSH identity before an incident so a running container can be inspected without a diagnostic redeployment.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Source-controlled container configuration starts with SSH disabled and no authorized key. <!-- @impl: wrangler.toml::containers.ssh --> <!-- @test: host/__tests__/container-ssh-config.test.js (keeps SSH disabled when the repository secret is absent) -->
+2. Without optional operator authorization, deployments keep SSH disabled and install no authorized identity. <!-- @impl: scripts/ci/configure-container-ssh.mjs::configureContainerSsh --> <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-ssh-config.test.js (keeps SSH disabled when the repository secret is absent) -->
+3. Valid shared public authorization enables exactly one fixed operator identity in each selected deployment. <!-- @impl: scripts/ci/configure-container-ssh.mjs::normalizeEd25519PublicKey --> <!-- @impl: scripts/ci/configure-container-ssh.mjs::configureContainerSsh --> <!-- @test: host/__tests__/container-ssh-config.test.js (enables SSH with exactly the validated repository public key) -->
+4. Invalid authorization material leaves deployment configuration unchanged and is not disclosed. <!-- @impl: scripts/ci/configure-container-ssh.mjs::normalizeEd25519PublicKey --> <!-- @test: host/__tests__/container-ssh-config.test.js (rejects malformed or non-Ed25519 keys without changing the config) -->
+5. Authorization configuration receives only public material. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-ssh-config.test.js (wires only the public key before Worker promotion) -->
+6. Authorization configuration completes before Worker promotion. <!-- @impl: .github/workflows/deploy.yml::deploy --> <!-- @test: host/__tests__/container-ssh-config.test.js (wires only the public key before Worker promotion) -->
+
+**Constraints:** The private credential remains under operator-controlled client custody; Cloudflare account write authorization and possession of the matching private key are independent connection requirements; SSH exposes no public container port.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-014](#req-ops-014-container-binding-and-scaling-from-image)
+
+**Verification:** Automated configuration mutation and pinned-Wrangler parse tests
+
+**Status:** Implemented
+
+---
+
+### REQ-OPS-061: Persistent container SSH identity lifecycle
+
+**Intent:** A provisioned operator identity remains available for incident inspection while authorization changes stay deployment-controlled.
+
+**Applies To:** Operator
+
+**Acceptance Criteria:**
+
+1. Adding, rotating, or removing the authorized identity requires a reviewed deployment. <!-- @manual -->
+2. Later connections to a running authorized instance require no configuration deployment. <!-- @manual -->
+
+**Constraints:** Private-key custody and Cloudflare account authorization remain independent of deployment.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-OPS-060](#req-ops-060-optional-persistent-container-ssh-authorization)
+
+**Verification:** Manual check
 
 **Status:** Implemented
 

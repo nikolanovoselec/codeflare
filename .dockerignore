@@ -12,6 +12,9 @@
 # must be un-ignored explicitly because un-ignore does not recurse upward.
 !preseed/
 !preseed/agents/
+!preseed/agents/pi/
+!preseed/agents/pi/scripts/
+!preseed/agents/pi/scripts/merge-vault-graph.py
 !preseed/agents/claude/
 !preseed/agents/claude/plugins/
 !preseed/agents/claude/plugins/context-mode/

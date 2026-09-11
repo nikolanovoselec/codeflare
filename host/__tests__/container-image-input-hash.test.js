@@ -78,6 +78,7 @@ describe('deployment container image input hash', () => {
       'COPY host/src/ /app/host/src/',
       'COPY entrypoint.sh /entrypoint.sh',
       'COPY transcript-retention.mjs /transcript-retention.mjs',
+      'COPY scripts/compact-session-captures.mjs /opt/codeflare/scripts/compact-session-captures.mjs',
       '',
     ].join('\n'));
     for (const path of [
@@ -86,6 +87,7 @@ describe('deployment container image input hash', () => {
       '.trivyignore',
       'entrypoint.sh',
       'transcript-retention.mjs',
+      'scripts/compact-session-captures.mjs',
       'host/package.json',
       'host/package-lock.json',
       'host/tsconfig.json',
@@ -106,16 +108,19 @@ describe('deployment container image input hash', () => {
       'scripts/verify-pi-lockstep.mjs',
       'scripts/verify-pi-prompt.mjs',
       'scripts/pi-prompt-contract.mjs',
+      'scripts/ci/coding-agent-selection-core.mjs',
       'scripts/ci/coding-agent-selection.mjs',
       'scripts/ci/prune-npm-platform-artifacts.mjs',
       'scripts/ci/smoke-openvscode-sidebar-image.mjs',
       'scripts/ci/validate-trivy-result.mjs',
       'src/lib/agent-seed.generated.ts',
     ]) write(path);
-    write(
-      'scripts/ci/coding-agent-selection.mjs',
-      readFileSync(join(ROOT, 'scripts/ci/coding-agent-selection.mjs'), 'utf8'),
-    );
+    for (const file of ['coding-agent-selection-core.mjs', 'coding-agent-selection.mjs']) {
+      write(
+        `scripts/ci/${file}`,
+        readFileSync(join(ROOT, 'scripts/ci', file), 'utf8'),
+      );
+    }
     commit('fixture');
     const baseline = imageHashResult();
     assert.match(baseline.tag ?? '', /^in-[a-f0-9]{16}$/);
@@ -146,10 +151,23 @@ describe('deployment container image input hash', () => {
     const retentionTag = imageHashResult().tag;
     assert.notEqual(retentionTag, productionTag);
 
+    write('scripts/compact-session-captures.mjs', 'compactor change\n');
+    commit('compactor script change');
+    const compactorTag = imageHashResult().tag;
+    assert.notEqual(compactorTag, retentionTag);
+
+    write(
+      'scripts/ci/coding-agent-selection-core.mjs',
+      `${readFileSync(join(root, 'scripts/ci/coding-agent-selection-core.mjs'), 'utf8')}\n// selection core change\n`,
+    );
+    commit('selection core change');
+    const selectionCoreTag = imageHashResult().tag;
+    assert.notEqual(selectionCoreTag, compactorTag);
+
     write('scripts/verify-pi-lockstep.mjs', 'image script change\n');
     commit('image script change');
     const scriptTag = imageHashResult().tag;
-    assert.notEqual(scriptTag, retentionTag);
+    assert.notEqual(scriptTag, selectionCoreTag);
 
     write('scripts/patch-pi-goal-review-control.mjs', 'Goal control patch change\n');
     commit('Goal patch change');

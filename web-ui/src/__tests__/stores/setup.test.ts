@@ -892,7 +892,7 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
   });
 
   describe('AI Gateway config (REQ-ENTERPRISE-017)', () => {
-    it('includes aigGatewayUrl + aigToken in the configure body in enterprise mode', async () => {
+    it('includes the AI Gateway URL, optional name, and token in the configure body in enterprise mode', async () => {
       mockFetch.mockImplementation((url: string) => {
         if (url === '/api/setup/status') {
           return Promise.resolve(new Response(
@@ -913,6 +913,7 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
       mockFetch.mockResolvedValue(ndjsonResponse({ done: true, success: true, steps: [] }));
       setupStore.addDynamicRoute('development');
       setupStore.setAigGatewayUrl('https://gateway.ai.cloudflare.com/v1/acct/gw');
+      setupStore.setAigGatewayId('gateway-name');
       setupStore.setAigToken('aig-secret');
 
       await setupStore.configure();
@@ -920,6 +921,7 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
       const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
       const body = JSON.parse(lastCall[1].body);
       expect(body.aigGatewayUrl).toBe('https://gateway.ai.cloudflare.com/v1/acct/gw');
+      expect(body.aigGatewayId).toBe('gateway-name');
       expect(body.aigToken).toBe('aig-secret');
     });
 
@@ -933,6 +935,7 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
       const [, options] = mockFetch.mock.calls[0];
       const body = JSON.parse(options.body);
       expect(body.aigGatewayUrl).toBeUndefined();
+      expect(body.aigGatewayId).toBeUndefined();
       expect(body.aigToken).toBeUndefined();
     });
 
@@ -946,7 +949,7 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
         }
         if (url === '/api/setup/prefill') {
           return Promise.resolve(new Response(
-            JSON.stringify({ adminUsers: [], allowedUsers: [], aigGatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct/gw', aigTokenSet: true }),
+            JSON.stringify({ adminUsers: [], allowedUsers: [], aigGatewayUrl: 'https://api.cloudflare.com/client/v4/accounts/acct/', aigGatewayId: 'gateway-name', aigTokenSet: true }),
             { status: 200, headers: { 'Content-Type': 'application/json' } }
           ));
         }
@@ -955,7 +958,8 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
 
       await setupStore.loadExistingConfig();
 
-      expect(setupStore.aigGatewayUrl).toBe('https://gateway.ai.cloudflare.com/v1/acct/gw');
+      expect(setupStore.aigGatewayUrl).toBe('https://api.cloudflare.com/client/v4/accounts/acct/');
+      expect(setupStore.aigGatewayId).toBe('gateway-name');
       expect(setupStore.aigTokenSet).toBe(true);
       // The stored token is never returned to the client; the write-only field stays blank.
       expect(setupStore.aigToken).toBe('');
@@ -963,9 +967,11 @@ describe('Setup Store / REQ-ENTERPRISE-022', () => {
 
     it('resets the AI Gateway fields', () => {
       setupStore.setAigGatewayUrl('https://x');
+      setupStore.setAigGatewayId('gateway-name');
       setupStore.setAigToken('y');
       setupStore.reset();
       expect(setupStore.aigGatewayUrl).toBe('');
+      expect(setupStore.aigGatewayId).toBe('');
       expect(setupStore.aigToken).toBe('');
       expect(setupStore.aigTokenSet).toBe(false);
     });

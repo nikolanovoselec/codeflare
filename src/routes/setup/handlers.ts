@@ -169,6 +169,7 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
     // configures KV; env stays a silent backstop.
     const aigTokenSet = Boolean(await c.env.KV.get(SETUP_KEYS.AIG_TOKEN));
     const aigGatewayUrl = (await c.env.KV.get(SETUP_KEYS.AIG_GATEWAY_URL)) ?? '';
+    const aigGatewayId = (await c.env.KV.get(SETUP_KEYS.AIG_GATEWAY_ID)) ?? '';
     // REQ-ENTERPRISE-013: surface the per-group routing map (route names only, no secrets).
     let groupRouting: Record<string, { routes: string[]; defaultRoute: string; reasoning: string }> = {};
     try {
@@ -222,7 +223,7 @@ handlers.get('/prefill', prefillRateLimiter, async (c) => {
       ...enterpriseExtras,
       enterpriseAccessGroup, adminAccessGroup, dynamicRoutes, defaultRoute, routeContextWindows, routeReasoningProfiles, reasoningConfiguration,
       ...(reasoningMigration !== undefined && { reasoningMigration }), browserRenderTokenSet, browserRenderAccountId,
-      aigGatewayUrl, aigTokenSet, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled,
+      aigGatewayUrl, aigGatewayId, aigTokenSet, groupRouting, strictGatewayEgress, r2SseDisabled, downloadsDisabled,
       activeAgents, configurableAgents,
     };
   }

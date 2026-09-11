@@ -23,6 +23,10 @@ import {
   type ManagedReconciliationTarget,
 } from '../../lib/managed-release-active';
 import { getManagedEnvironmentConfig } from '../../lib/remote-curation';
+import {
+  codingAgentProjectionIdentity,
+  isCodingAgentProjectionIdentity,
+} from '../../../scripts/ci/coding-agent-selection-core.mjs';
 
 const logger = createLogger('storage-seed');
 
@@ -50,6 +54,7 @@ function assertAppliedManagedIdentity(applied: NonNullable<UserPreferences['mana
     || !Number.isSafeInteger(applied.sequence)
     || applied.sequence <= 0
     || (applied.mode !== 'default' && applied.mode !== 'advanced')
+    || (applied.projectionIdentity !== undefined && !isCodingAgentProjectionIdentity(applied.projectionIdentity))
   ) {
     throw new Error('Previously applied managed release identity is invalid');
   }
@@ -114,6 +119,7 @@ async function reconcileAgentConfigsForRequest(
   const mode = await resolveEffectiveSessionMode(preferences ?? null, user, c.env);
 
   try {
+    const projectionIdentity = codingAgentProjectionIdentity(c.env.CODING_AGENTS);
     const activeManagedRelease = await getActiveVerifiedManagedRelease(c.env);
     const managedConfig = await getManagedEnvironmentConfig(c.env.KV);
     if (activeManagedRelease && !managedConfig) throw new Error('Active managed release has no valid managed environment configuration');
@@ -166,12 +172,18 @@ async function reconcileAgentConfigsForRequest(
         digest: activeManagedRelease.digest,
         sequence: activeManagedRelease.release.sequence,
         mode,
+        projectionIdentity,
       });
     }
 
     const interruptedManagedReleases: PriorManagedReleaseSelection[] = [];
     for (const target of existingTargets) {
-      if (activeManagedRelease && target.digest === activeManagedRelease.digest && target.mode === mode) {
+      if (
+        activeManagedRelease
+        && target.digest === activeManagedRelease.digest
+        && target.mode === mode
+        && target.projectionIdentity === projectionIdentity
+      ) {
         if (target.sequence !== activeManagedRelease.release.sequence) {
           throw new Error('Managed reconciliation target identity conflicts with active content');
         }
@@ -220,6 +232,7 @@ async function reconcileAgentConfigsForRequest(
             || currentActive.digest !== activeManagedRelease.digest
             || currentActive.pointer.sequence !== activeManagedRelease.release.sequence
             || currentActive.resourcePolicy !== resourcePolicy
+            || codingAgentProjectionIdentity(c.env.CODING_AGENTS) !== projectionIdentity
             || currentMode !== mode
             || currentSseDisabled !== r2SseDisabled
             || JSON.stringify(currentPreferences.managedEnvironmentReconciliation?.targets ?? [])
@@ -234,11 +247,17 @@ async function reconcileAgentConfigsForRequest(
       ? {
           managedRelease: { digest: activeManagedRelease.digest, compressed: activeManagedRelease.compressed, release: activeManagedRelease.release },
           resourcePolicy,
+          codingAgents: c.env.CODING_AGENTS,
+          projectionIdentity,
           ...(priorManagedRelease ? { priorManagedRelease } : priorManagedDigest ? { priorManagedDigest } : {}),
           ...(interruptedManagedReleases.length > 0 ? { interruptedManagedReleases } : {}),
           ...(automatic ? {
             automatic: {
               assumeEmpty: bucketResult.created === true,
+              fullReconciliation: bucketResult.created === true
+                || applied?.projectionIdentity !== projectionIdentity
+                || (applied?.resourcePolicy ?? 'mutable') !== resourcePolicy
+                || existingTargets.some(target => target.projectionIdentity !== projectionIdentity),
               beforeCleanup: validateAutomaticTarget,
               onProgress: async ({ completed, total }: { completed: number; total: number }) => {
                 if (completed === 0 || completed === total || completed % 25 === 0) {
@@ -286,6 +305,8 @@ async function reconcileAgentConfigsForRequest(
       cleanup: true,
       contextModeEnabled,
       r2SseDisabled,
+      codingAgents: c.env.CODING_AGENTS,
+      projectionIdentity,
       ...managedOptions,
     });
     if ((activeManagedRelease || priorManagedRelease || priorManagedDigest) && result.warnings.length > 0) {
@@ -298,7 +319,7 @@ async function reconcileAgentConfigsForRequest(
     // Context-mode stays image-owned even during remote curation. Complete this
     // separate reconciliation before recording the managed release as applied.
     if (activeManagedRelease) {
-      await reseedContextModePlugin(c.env, bucketName, endpoint, contextModeEnabled, r2SseDisabled);
+      await reseedContextModePlugin(c.env, bucketName, endpoint, contextModeEnabled, r2SseDisabled, c.env.CODING_AGENTS);
     }
 
     logger.info('Recreated agent configs', {
@@ -337,6 +358,7 @@ async function reconcileAgentConfigsForRequest(
           ...(enterpriseMode ? { sessionMode: 'advanced' as const } : {}),
           managedEnvironmentApplied: {
             digest: activeManagedRelease.digest,
+            projectionIdentity,
             managedExtensionsDigest: await managedExtensionsDocumentDigest(activeManagedRelease),
             sequence: activeManagedRelease.release.sequence,
             mode,
@@ -348,6 +370,7 @@ async function reconcileAgentConfigsForRequest(
       : {
           ...withoutManagedState,
           lastPreseedHash: PRESEED_CONTENT_HASH,
+          lastPreseedProjectionIdentity: projectionIdentity,
           ...(enterpriseMode ? { sessionMode: 'advanced' as const } : {}),
         };
     await c.env.KV.put(preferencesKey, JSON.stringify(updatedPreferences));

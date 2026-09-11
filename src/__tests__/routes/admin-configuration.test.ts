@@ -8,6 +8,7 @@ import { createMockKV } from '../helpers/mock-kv';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
 import { serializeReasoningConfiguration } from '../../lib/reasoning-configuration';
+import { createNativeTarget, serializeNativeAiTargets } from '../../lib/native-ai-targets';
 
 let mockRole = 'admin';
 let mockAuthReject = false;
@@ -106,7 +107,8 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
       AIG_GATEWAY_URL: 'https://gateway.ai.cloudflare.com/v1/deploy-account/deploy-gateway',
       AIG_TOKEN: 'deployment-secret-must-not-leak',
     });
-    await kv.put(SETUP_KEYS.AIG_GATEWAY_URL, 'https://gateway.ai.cloudflare.com/v1/admin-account/admin-gateway');
+    await kv.put(SETUP_KEYS.AIG_GATEWAY_URL, 'https://api.cloudflare.com/client/v4/accounts/abcdef0123456789abcdef0123456789/');
+    await kv.put(SETUP_KEYS.AIG_GATEWAY_ID, 'admin-gateway');
     await kv.put(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, 'browser-account');
     await kv.put('admin:configuration:active-run', JSON.stringify({ runId: 'run-1' }));
 
@@ -116,7 +118,8 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     expect(body.mode).toBe('enterprise');
     expect(body.applicableSections).toEqual(enterpriseSections);
     expect(body.sections.aiRouting).toMatchObject({
-      gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/admin-account/admin-gateway',
+      gatewayUrl: 'https://api.cloudflare.com/client/v4/accounts/abcdef0123456789abcdef0123456789/',
+      gatewayId: 'admin-gateway',
       tokenState: 'deployment',
     });
     expect(body.sections.browserRendering).toEqual({
@@ -153,6 +156,85 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     const body = await response.json() as any;
     expect(body.sections.aiRouting.reasoningConfiguration).toEqual(reasoningConfiguration);
     expect(body.sections.aiRouting.routeReasoningProfiles).toEqual({ development: 'workers-ai-glm-thinking' });
+  });
+
+  it('reloads a persisted native target through the sanitized Administration projection', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
+    const profileRef = getBuiltInProfileRef('native-openai-compat');
+    await kv.put(SETUP_KEYS.NATIVE_AI_TARGETS, serializeNativeAiTargets({
+      schemaVersion: 1,
+      targets: [createNativeTarget({
+        id: '6af8fc3b-5352-4d52-ac55-0c342673960d',
+        label: 'GPT-5.6 Terra',
+        model: 'gpt-5.6-terra',
+        contextWindow: 200000,
+        provider: 'openai',
+        providerConfigId: 'private-provider-binding',
+        profileRef,
+        enabled: true,
+      })],
+    }));
+
+    const response = await app.request('/admin/configuration');
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.sections.aiRouting.nativeTargets).toEqual([
+      expect.objectContaining({
+        id: '6af8fc3b-5352-4d52-ac55-0c342673960d',
+        label: 'GPT-5.6 Terra',
+        model: 'gpt-5.6-terra',
+        provider: 'openai',
+        profileRef,
+      }),
+    ]);
+    expect(JSON.stringify(body)).not.toContain('private-provider-binding');
+  });
+
+  it('keeps configuration available when persisted native targets are malformed', async () => {
+    const { app, kv } = createApp({
+      ENTERPRISE_MODE: 'active',
+      AIG_GATEWAY_URL: 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/gateway',
+      AIG_TOKEN: 'deployment-token',
+    });
+    await kv.put(SETUP_KEYS.NATIVE_AI_TARGETS, '{not-json');
+    const fetcher = vi.spyOn(globalThis, 'fetch');
+
+    const response = await app.request('/admin/configuration');
+
+    expect(response.status).toBe(200);
+    expect((await response.json() as any).sections.aiRouting.nativeTargets).toEqual([]);
+    expect(fetcher).not.toHaveBeenCalled();
+    fetcher.mockRestore();
+  });
+
+  it('fails closed when persisted native-target storage cannot be read', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
+    const read = kv.get.getMockImplementation()!;
+    kv.get.mockImplementation(async (key, type) => {
+      if (key === SETUP_KEYS.NATIVE_AI_TARGETS) throw new Error('native target storage unavailable');
+      return read(key, type);
+    });
+
+    const response = await app.request('/admin/configuration');
+
+    expect(response.status).toBe(500);
+  });
+
+  it('does not call provider management when no native targets are saved', async () => {
+    const { app } = createApp({
+      ENTERPRISE_MODE: 'active',
+      AIG_GATEWAY_URL: 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/gateway',
+      AIG_TOKEN: 'deployment-token',
+    });
+    const fetcher = vi.spyOn(globalThis, 'fetch');
+
+    const response = await app.request('/admin/configuration');
+
+    expect(response.status).toBe(200);
+    expect((await response.json() as any).sections.aiRouting.nativeTargets).toEqual([]);
+    expect(fetcher).not.toHaveBeenCalled();
+    fetcher.mockRestore();
   });
 
   it('surfaces malformed legacy reasoning storage as a non-persisted migration error', async () => {

@@ -59,6 +59,12 @@
       "advanced"
     ]
   },
+  "extensions/classic-session-binding.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/codeflare-commands.ts": {
     "modes": [
       "advanced"
@@ -654,6 +660,11 @@
   "skills/rpiv-todo/SKILL.md": {
     "modes": [
       "default",
+      "advanced"
+    ]
+  },
+  "skills/vault-operations/SKILL.md": {
+    "modes": [
       "advanced"
     ]
   },

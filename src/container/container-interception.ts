@@ -128,6 +128,7 @@ const llm: InterceptorSpec = {
         user,
         ...(host._userGroups.length > 0 ? { groups: host._userGroups } : {}),
         gatewayUrl: aig.gatewayUrl,
+        ...(aig.gatewayId ? { gatewayId: aig.gatewayId } : {}),
         token: aig.token,
       },
       hosts: INTERCEPTED_LLM_HOSTS,

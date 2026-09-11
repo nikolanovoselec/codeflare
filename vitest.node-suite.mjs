@@ -10,6 +10,8 @@ export const NODE_SUITE_FILES = [
   'src/__tests__/ci/suite-gates.test.ts',
   'src/__tests__/ci/usage-d1-deploy.test.ts',
   'src/__tests__/lib/local-statusline-repo.test.ts',
+  // Pi extension coverage that requires native filesystem behavior.
+  'src/__tests__/lib/pi-classic-session-binding.test.ts',
   // Bundles the Pi extension with an esbuild fixture, which requires Node.
   'src/__tests__/lib/startup-header.test.ts',
   // All three drive real temp trees through node:fs, and pi-memory-inject also

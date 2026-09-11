@@ -796,6 +796,25 @@ repair_hook_exec_bits() {
         -maxdepth 0 -type f -exec chmod 0755 {} + 2>/dev/null || true
 }
 
+CODING_AGENT_SELECTOR="${CODING_AGENT_SELECTOR:-/opt/codeflare/scripts/coding-agent-selection.mjs}"
+
+validate_coding_agent_selection() {
+    local canonical
+    if [ "${CODEFLARE_CODING_AGENTS+x}" = "x" ]; then
+        canonical="$(node "$CODING_AGENT_SELECTOR" resolve "$CODEFLARE_CODING_AGENTS")" || return 1
+    else
+        canonical="$(node "$CODING_AGENT_SELECTOR" resolve)" || return 1
+    fi
+    export CODEFLARE_CODING_AGENTS="$canonical"
+}
+
+coding_agent_is_selected() {
+    case ",${CODEFLARE_CODING_AGENTS}," in
+        *,"$1",*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # REQ-STOR-017 / AD90: lay down the image-baked agent seed for the session's mode into
 # $USER_HOME before the initial R2 sync. Only in Governed Mode (R2_SSE_DISABLED=true),
 # where the subsequent --checksum sync can prove the laid-down files match R2 and skip
@@ -817,14 +836,27 @@ lay_down_agent_seed_preseed() {
         echo "[entrypoint] Governed Mode: no baked agent seed for mode '${mode}'; skipping lay-down" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
         return 0
     fi
-    echo "[entrypoint] Governed Mode: laying down baked agent seed (mode=${mode}) before initial sync" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
-    # The bake tree mirrors the R2 key layout rooted at $USER_HOME (.claude/, .pi/agent/,
-    # .gemini/, .codex/, .copilot/, .config/opencode/), so one copy lands every agent home.
-    # cp -rp preserves modes, and the bake contains no .claude/hooks/ tree because
-    # the seed has no key under it - the exec-bit repair that used to follow this
-    # copy was left over from when it did, and could never match anything.
-    cp -rp "$bake/." "$USER_HOME/"
-    echo "[entrypoint] Baked agent seed laid down" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+    echo "[entrypoint] Governed Mode: laying down selected baked agent seed (mode=${mode}) before initial sync" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+    # Keep the universal bake in the image, but copy only deployment-selected homes.
+    # Each source mirrors its path below $USER_HOME; cp -rp preserves modes.
+    local agent relative source destination copied=0
+    while IFS='|' read -r agent relative; do
+        coding_agent_is_selected "$agent" || continue
+        source="$bake/$relative"
+        [ -d "$source" ] || continue
+        destination="$USER_HOME/$relative"
+        mkdir -p "$destination"
+        cp -rp "$source/." "$destination/"
+        copied=$((copied + 1))
+    done <<'AGENT_ROOTS'
+claude-code|.claude
+codex|.codex
+copilot|.copilot
+antigravity|.gemini
+opencode|.config/opencode
+pi|.pi/agent
+AGENT_ROOTS
+    echo "[entrypoint] Baked agent seed laid down (${copied} selected roots)" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
 }
 
 # REQ-STOR-017 / AD90: image-authoritative relay of Pi extension code.
@@ -835,6 +867,7 @@ lay_down_agent_seed_preseed() {
 # mode-aware.
 readonly -a IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS=(context-mode-runtime.ts)
 relay_managed_pi_extensions() {
+    coding_agent_is_selected pi || return 0
     local warm_src="${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}"
     local dest="$USER_HOME/.pi/agent/extensions"
     if [ "${REMOTE_CURATION_ACTIVE:-false}" = "true" ]; then
@@ -946,7 +979,7 @@ establish_bisync_baseline() {
             --recover \
             --check-sync=false \
             --ignore-checksum \
-            --max-delete 100 \
+            --max-delete 5000 \
             --retries 3 --retries-sleep 10s \
             --transfers 32 --checkers 64 -v > "$BASELINE_OUTPUT" 2>&1; then
             SYNC_RESULT=0
@@ -1075,7 +1108,7 @@ bisync_with_r2() {
         --recover \
         --check-sync=false \
         --ignore-checksum \
-        --max-delete 100 \
+        --max-delete 5000 \
         --retries 3 --retries-sleep 10s \
         --transfers 32 --checkers 64 "${verbose_args[@]}" > "$SYNC_OUTPUT" 2>&1; then
         RESULT=0
@@ -1089,13 +1122,85 @@ bisync_with_r2() {
     # The daemon reads it for vanishing-file recovery. It's overwritten each invocation.
 
     record_sync_disk_failure "$SYNC_OUTPUT"
-    # Conflict copies may contain unique user content; never delete them blindly.
+    # Pi transcript conflict copies were removed by cleanup; other conflict files remain untouched.
     if [ $RESULT -eq 0 ]; then
         # A sync that rewrote a hook from R2 dropped its exec bit; restore it here so
         # the window is seconds rather than the rest of the daemon cycle.
         repair_hook_exec_bits
     fi
     return $RESULT
+}
+
+# Compact cold session captures as a serial extension of an already-successful
+# sync cycle. No separate daemon, credential surface, or lock exists beyond the
+# normal bisync state and the existing global-graph lock.
+run_daily_vault_session_compaction() {
+    local today stamp state_dir sessions_dir manifest prepare_result prepare_status
+    local compactor="/opt/codeflare/scripts/compact-session-captures.mjs"
+    local merge_script="/opt/codeflare/scripts/merge-vault-graph.py"
+    local vault_graph="$USER_HOME/Vault/graphify-out/vault-graph.json"
+    local graph_copy="$USER_HOME/Vault/graphify-out/graph.json"
+    today="$(date -u +%F)" || return 1
+    stamp="$SYNC_RUNTIME_DIR/vault-session-compaction.utc-day"
+    [ "$(cat "$stamp" 2>/dev/null || true)" != "$today" ] || return 0
+
+    state_dir="$SYNC_RUNTIME_DIR/vault-session-compaction"
+    sessions_dir="$USER_HOME/Vault/Raw/Sessions"
+    manifest="$state_dir/manifest.json"
+    prepare_result="$state_dir/prepare-result.json"
+    mkdir -p "$state_dir" || return 1
+    chmod 0700 "$state_dir" || return 1
+
+    if ! node "$compactor" prepare "$sessions_dir" "$manifest" --today "$today" > "$prepare_result"; then
+        echo "[session-compaction] WARNING: archive preparation failed" >&2
+        return 1
+    fi
+    prepare_status="$(jq -er '.status' "$prepare_result" 2>/dev/null)" || return 1
+    if [ "$prepare_status" = "noop" ]; then
+        rm -rf -- "$state_dir" || return 1
+        printf '%s\n' "$today" > "${stamp}.tmp" && mv -f "${stamp}.tmp" "$stamp" || return 1
+        echo "[session-compaction] No cold captures; UTC day complete"
+        return 0
+    fi
+    if [ "$prepare_status" != "prepared" ] || [ ! -f "$manifest" ]; then
+        echo "[session-compaction] WARNING: compactor returned an invalid prepare outcome" >&2
+        return 1
+    fi
+
+    if ! (
+        exec 9>"$CODEFLARE_GRAPH_LOCK" || exit 1
+        flock -w 5 9 || exit 1
+        python3 "$merge_script" \
+            "$USER_HOME/Vault/graphify-out/.graphify_chunk_01.json" \
+            "$vault_graph" "$graph_copy" --relocate "$manifest" \
+            && graphify global add "$vault_graph" --as user_vault
+    ); then
+        echo "[session-compaction] WARNING: graph provenance relocation/publication failed" >&2
+        return 1
+    fi
+
+    if ! node "$compactor" delete "$sessions_dir" "$manifest"; then
+        echo "[session-compaction] WARNING: source deletion failed" >&2
+        return 1
+    fi
+
+    if ! bisync_with_r2 ""; then
+        echo "[session-compaction] WARNING: compaction bisync failed" >&2
+        return 1
+    fi
+    rm -rf -- "$state_dir" || return 1
+    printf '%s\n' "$today" > "${stamp}.tmp" && mv -f "${stamp}.tmp" "$stamp" || return 1
+    echo "[session-compaction] UTC day completed: $today"
+    return 0
+}
+
+run_vault_session_compaction_after_sync() {
+    [ "${1:-}" = "natural" ] || return 0
+    if ! run_daily_vault_session_compaction; then
+        echo "[sync-daemon] Session-capture compaction deferred; normal sync remains available" \
+            | tee -a "$CODEFLARE_RUNTIME_ROOT/sync/sync.log" >&2
+    fi
+    return 0
 }
 
 # ============================================================================
@@ -1150,10 +1255,18 @@ start_sync_daemon() {
         # bisync. Skip the sleep entirely if a trigger was queued
         # while finishing the prior cycle (RERUN_REQUESTED) or while
         # we were idle (REQUESTED). Cadence is 15 min (AD56).
+        BISYNC_CYCLE_TRIGGER="manual"
         if [ "$BISYNC_REQUESTED" = "0" ] && [ "$BISYNC_RERUN_REQUESTED" = "0" ]; then
             sleep 900 &
             SYNC_SLEEP_PID=$!
-            wait "$SYNC_SLEEP_PID" 2>/dev/null || true
+            if wait "$SYNC_SLEEP_PID" 2>/dev/null; then
+                # Only an uninterrupted cadence wait is natural. A USR1/USR2
+                # request, including one queued at the wait boundary, remains a
+                # manual cycle and cannot initiate compaction.
+                if [ "$BISYNC_REQUESTED" = "0" ] && [ "$BISYNC_RERUN_REQUESTED" = "0" ]; then
+                    BISYNC_CYCLE_TRIGGER="natural"
+                fi
+            fi
             # If the trap fired, sleep may still be alive in the
             # background. Kill it so it does not linger across cycles
             # (would leak one bash + one sleep process per trigger).
@@ -1199,6 +1312,7 @@ start_sync_daemon() {
             CONSECUTIVE_FAILURES=0
             echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Bisync completed successfully" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
             update_sync_status "success" "null"
+            run_vault_session_compaction_after_sync "$BISYNC_CYCLE_TRIGGER"
         else
             if [ "${BISYNC_DISK_BLOCKED:-0}" = "1" ] || [ -f "$CODEFLARE_RUNTIME_ROOT/sync/disk-space-blocked" ]; then
                 update_sync_status "failed" "Local disk full. Free local disk space, then click the cloud Sync now button to retry." || echo "[sync] Cannot publish disk-space status; sync remains blocked" >&2
@@ -1213,6 +1327,7 @@ start_sync_daemon() {
                     CONSECUTIVE_FAILURES=0
                     echo "[sync-daemon] $(date '+%Y-%m-%d %H:%M:%S') Recovery bisync succeeded" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
                     update_sync_status "success" "null"
+                    run_vault_session_compaction_after_sync "$BISYNC_CYCLE_TRIGGER"
                     # Clear in-flight before continue so the next
                     # iteration's trap classifies signals correctly
                     # (idle -> REQUESTED, not mid-flight -> RERUN).
@@ -2031,7 +2146,10 @@ configure_tab_autostart() {
             classic_binding_file="$classic_binding_dir/agent-session-id"
             if [ -f "$classic_binding_file" ]; then
                 classic_agent_id=$(cat "$classic_binding_file" 2>/dev/null || true)
-                if [[ "$classic_agent_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
+                if { [ "$classic_agent_kind" = "pi" ] \
+                        && [[ "$classic_agent_id" =~ ^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$ ]]; } \
+                    || { [ "$classic_agent_kind" = "claude" ] \
+                        && [[ "$classic_agent_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; }; then
                     if { [ "$classic_agent_kind" = "pi" ] \
                             && find "$USER_HOME/.pi/agent/sessions" -type f -name "*_${classic_agent_id}.jsonl" -print -quit 2>/dev/null | grep -q .; } \
                         || { [ "$classic_agent_kind" = "claude" ] \
@@ -2076,7 +2194,7 @@ configure_tab_autostart() {
 
             case "$classic_agent_kind:$classic_agent_state" in
                 pi:fresh) classic_agent_launch="pi --session-id $classic_agent_id" ;;
-                pi:resume) classic_agent_launch="pi --session $classic_agent_id" ;;
+                pi:resume) classic_agent_launch="pi --session-id $classic_agent_id" ;;
                 claude:fresh) classic_agent_launch="claude --dangerously-skip-permissions --session-id $classic_agent_id" ;;
                 claude:resume) classic_agent_launch="claude --dangerously-skip-permissions --resume $classic_agent_id" ;;
                 *:unavailable) classic_agent_launch="printf '%s\\n' 'Codeflare: saved Classic agent transcript is unavailable; start or resume it manually.' >&2" ;;
@@ -2569,6 +2687,9 @@ fi
 # Note: Claude Code consent is pre-accepted via bypassPermissionsModeAccepted in .claude.json.
 
 run_initial_r2_restore() {
+    # Validate explicit deployment selection before any restore or baseline can
+    # reintroduce disabled-agent content.
+    validate_coding_agent_selection || return 1
     if [ $RCLONE_CONFIG_RESULT -eq 0 ]; then
         # REQ-ENTERPRISE-016: under strict Gateway egress the container's rclone egress is
         # TLS-terminated by the platform with the Cloudflare containers CA. Install that CA
@@ -3245,16 +3366,53 @@ CA_TRUST_EOF
     ENTERPRISE_ROUTE_CATALOG="${ENTERPRISE_ROUTE_CATALOG:-[]}"
     ENTERPRISE_DEFAULT_ROUTE="${ENTERPRISE_DEFAULT_ROUTE:-}"        # resolved Worker-side
     ENTERPRISE_DEFAULT_REASONING="${ENTERPRISE_DEFAULT_REASONING:-off}"
-    # Fallback default if the Worker sent none: first catalog entry, else "codeflare".
+    # Fallback default if the Worker sent none: first authorized catalog entry.
     if [ -z "$ENTERPRISE_DEFAULT_ROUTE" ]; then
-        ENTERPRISE_DEFAULT_ROUTE="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -r 'if type=="array" and length>0 then .[0] else "codeflare" end')"
+        ENTERPRISE_DEFAULT_ROUTE="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -r 'if type=="array" and length>0 then .[0] else "" end')"
     fi
+    ENTERPRISE_CATALOG_COUNT="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -r 'if type=="array" then length else -1 end' 2>/dev/null || echo -1)"
+
+    if [ "$ENTERPRISE_CATALOG_COUNT" = "0" ]; then
+        # An explicit empty catalog is authoritative revocation, not an invitation
+        # to synthesize a model. Remove only Codeflare-managed Pi/Copilot state.
+        BASHRC_FILE="$USER_HOME/.bashrc"
+        touch "$BASHRC_FILE"
+        EMPTY_TMP=$(mktemp)
+        sed '/^# enterprise-copilot-byok$/,/^# end-enterprise-copilot-byok$/d' "$BASHRC_FILE" > "$EMPTY_TMP"
+        mv "$EMPTY_TMP" "$BASHRC_FILE"
+        PI_MODELS_JSON="$USER_HOME/.pi/agent/models.json"
+        PI_SETTINGS_JSON="$USER_HOME/.pi/agent/settings.json"
+        if [ -f "$PI_MODELS_JSON" ]; then
+            EMPTY_TMP=$(mktemp)
+            jq 'del(.providers["codeflare-gateway"])' "$PI_MODELS_JSON" > "$EMPTY_TMP" 2>/dev/null && mv "$EMPTY_TMP" "$PI_MODELS_JSON" || rm -f "$EMPTY_TMP"
+        fi
+        if [ -f "$PI_SETTINGS_JSON" ]; then
+            EMPTY_TMP=$(mktemp)
+            jq 'if .defaultProvider == "codeflare-gateway" then del(.defaultProvider,.defaultModel,.defaultThinkingLevel) else . end' "$PI_SETTINGS_JSON" > "$EMPTY_TMP" 2>/dev/null && mv "$EMPTY_TMP" "$PI_SETTINGS_JSON" || rm -f "$EMPTY_TMP"
+        fi
+        unset COPILOT_PROVIDER_BASE_URL COPILOT_PROVIDER_API_KEY COPILOT_MODEL COPILOT_PROVIDER_MAX_PROMPT_TOKENS COPILOT_PROVIDER_MAX_OUTPUT_TOKENS
+        echo "[entrypoint] Enterprise Mode: authoritative empty model catalog applied"
+    elif [ "$ENTERPRISE_CATALOG_COUNT" -gt 0 ]; then
 
     # NOTE: Claude Code is intentionally NOT configured here. It speaks the
     # Anthropic-native wire format, which the AI Gateway REST transport does not
     # carry, so it is excluded from the enterprise agent set (REQ-ENTERPRISE-003,
     # AD74). Only the OpenAI-wire-format agents (Copilot, Pi) are routed; bash
     # needs no LLM.
+
+    ENTERPRISE_ROUTE_CONTEXT_WINDOWS="${ENTERPRISE_ROUTE_CONTEXT_WINDOWS:-}"
+    [ -n "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" ] || ENTERPRISE_ROUTE_CONTEXT_WINDOWS='{}'
+    ENTERPRISE_ROUTE_REASONING_LEVELS="${ENTERPRISE_ROUTE_REASONING_LEVELS:-}"
+    [ -n "$ENTERPRISE_ROUTE_REASONING_LEVELS" ] || ENTERPRISE_ROUTE_REASONING_LEVELS='{}'
+    ENTERPRISE_DEFAULT_CONTEXT="$(echo "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" | jq -r --arg model "$ENTERPRISE_DEFAULT_ROUTE" '.[$model] // 256000' 2>/dev/null || echo 256000)"
+    ENTERPRISE_DEFAULT_LEVEL_COUNT="$(echo "$ENTERPRISE_ROUTE_REASONING_LEVELS" | jq -r --arg model "$ENTERPRISE_DEFAULT_ROUTE" 'if (.[$model] | type) == "array" then (.[$model] | length) else -1 end' 2>/dev/null || echo -1)"
+    if [[ "$ENTERPRISE_DEFAULT_ROUTE" == cf-native-* ]] || [ "$ENTERPRISE_DEFAULT_LEVEL_COUNT" = "0" ]; then
+        ENTERPRISE_COPILOT_OUTPUT=16384
+        ENTERPRISE_COPILOT_PROMPT=$((ENTERPRISE_DEFAULT_CONTEXT > ENTERPRISE_COPILOT_OUTPUT ? ENTERPRISE_DEFAULT_CONTEXT - ENTERPRISE_COPILOT_OUTPUT : 1))
+    else
+        ENTERPRISE_COPILOT_OUTPUT=128000
+        ENTERPRISE_COPILOT_PROMPT=920000
+    fi
 
     # --- GitHub Copilot ----------------------------------------------------
     # BYOK against the real OpenAI host (intercepted -> gateway REST API). BYOK is
@@ -3277,6 +3435,8 @@ CA_TRUST_EOF
     # LLM traffic still flows to the gateway. Deterministic fallback if a deploy
     # ever shows Copilot using GitHub-hosted models anyway: `export
     # COPILOT_OFFLINE=true` (gateway-only; that also disables the GitHub features above).
+    ENTERPRISE_COPILOT_PROMPT="${ENTERPRISE_COPILOT_PROMPT:-920000}"
+    ENTERPRISE_COPILOT_OUTPUT="${ENTERPRISE_COPILOT_OUTPUT:-128000}"
     export COPILOT_PROVIDER_BASE_URL="https://api.openai.com/v1"
     export COPILOT_PROVIDER_API_KEY="$ENTERPRISE_PLACEHOLDER_TOKEN"
     export COPILOT_MODEL="$ENTERPRISE_DEFAULT_ROUTE"
@@ -3286,8 +3446,8 @@ CA_TRUST_EOF
     # max output; prompt = ctx - output headroom) so context is not under-sized.
     # codeflare is a dynamic route — gpt-5.5 is the primary Copilot always hits (it
     # cannot send reasoning_effort to trigger the gemini fallback, which supports more).
-    export COPILOT_PROVIDER_MAX_PROMPT_TOKENS="920000"
-    export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="128000"
+    export COPILOT_PROVIDER_MAX_PROMPT_TOKENS="$ENTERPRISE_COPILOT_PROMPT"
+    export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="$ENTERPRISE_COPILOT_OUTPUT"
     echo "[entrypoint] Enterprise Mode: Copilot BYOK active (base_url + key + model=$ENTERPRISE_DEFAULT_ROUTE) via interception"
 
     # Persist the Copilot BYOK env into .bashrc so the COPILOT AGENT inherits it.
@@ -3315,8 +3475,8 @@ CA_TRUST_EOF
 export COPILOT_PROVIDER_BASE_URL="https://api.openai.com/v1"
 export COPILOT_PROVIDER_API_KEY="$ENTERPRISE_PLACEHOLDER_TOKEN"
 export COPILOT_MODEL="$ENTERPRISE_DEFAULT_ROUTE"
-export COPILOT_PROVIDER_MAX_PROMPT_TOKENS="920000"
-export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="128000"
+export COPILOT_PROVIDER_MAX_PROMPT_TOKENS="$ENTERPRISE_COPILOT_PROMPT"
+export COPILOT_PROVIDER_MAX_OUTPUT_TOKENS="$ENTERPRISE_COPILOT_OUTPUT"
 # end-enterprise-copilot-byok
 
 COPILOT_BYOK_EOF
@@ -3401,11 +3561,14 @@ COPILOT_BYOK_EOF
     [ -n "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" ] || ENTERPRISE_ROUTE_CONTEXT_WINDOWS='{}'
     ENTERPRISE_ROUTE_REASONING_LEVELS="${ENTERPRISE_ROUTE_REASONING_LEVELS:-}"
     [ -n "$ENTERPRISE_ROUTE_REASONING_LEVELS" ] || ENTERPRISE_ROUTE_REASONING_LEVELS='{}'
+    ENTERPRISE_MODEL_DISPLAY_NAMES="${ENTERPRISE_MODEL_DISPLAY_NAMES:-}"
+    [ -n "$ENTERPRISE_MODEL_DISPLAY_NAMES" ] || ENTERPRISE_MODEL_DISPLAY_NAMES='{}'
     PI_MODELS_ARRAY="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -c \
         --arg defroute "$ENTERPRISE_DEFAULT_ROUTE" \
         --arg defaultreasoning "$ENTERPRISE_DEFAULT_REASONING" \
         --argjson cw "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" \
         --argjson routelevels "$ENTERPRISE_ROUTE_REASONING_LEVELS" \
+        --argjson displaynames "$ENTERPRISE_MODEL_DISPLAY_NAMES" \
         --argjson dflt 256000 '
         def canonical_levels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
         (if type=="array" and length>0 then . else [$defroute] end)
@@ -3413,19 +3576,22 @@ COPILOT_BYOK_EOF
           then error("default reasoning is not supported by the default route")
           else .
           end
-        | map(. as $route | {
-            id: $route,
-            reasoning: true,
-            thinkingLevelMap: (($routelevels[$route]) as $levels
-                | if (($levels | type) != "array") or (($levels | length) == 0)
-                    or ($levels | any(. as $level | (canonical_levels | index($level)) == null))
-                    or (($levels | unique | length) != ($levels | length))
-                  then error("missing or invalid route reasoning levels for \($route)")
-                  else ($levels | map({key: ., value: .}) | from_entries)
-                  end),
-            input: ["text", "image"],
-            contextWindow: ($cw[$route] // $dflt)
-        })' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
+        | map(. as $route | (($routelevels[$route]) as $levels
+            | if (($levels | type) != "array")
+                or ($levels | any(. as $level | (canonical_levels | index($level)) == null))
+                or (($levels | unique | length) != ($levels | length))
+              then error("missing or invalid route reasoning levels for \($route)")
+              elif ($levels | length) == 0 then {
+                id: $route, name: ($displaynames[$route] // $route), reasoning: false,
+                compat: {supportsReasoningEffort: false}, input: ["text", "image"],
+                contextWindow: ($cw[$route] // $dflt), maxTokens: 16384
+              }
+              else {
+                id: $route, name: ($displaynames[$route] // $route), reasoning: true,
+                thinkingLevelMap: ($levels | map({key: ., value: .}) | from_entries),
+                input: ["text", "image"], contextWindow: ($cw[$route] // $dflt)
+              }
+              end))' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
     PI_PROVIDER_CONFIG=""
     if [ "$PI_GATEWAY_CONFIG_OK" = "1" ]; then
         PI_PROVIDER_CONFIG="$(jq -n \
@@ -3481,6 +3647,9 @@ COPILOT_BYOK_EOF
         echo "$PI_SETTINGS_CFG" | jq '.' > "$PI_SETTINGS_JSON"
     fi
     echo "[entrypoint] Enterprise Mode: Pi pinned to codeflare-gateway/$ENTERPRISE_DEFAULT_ROUTE (default provider + model; catalog has all routes)"
+    else
+        echo "[entrypoint] WARNING: malformed enterprise model catalog; leaving managed model configuration unchanged"
+    fi
 
     # Routes-only model picker: clear ~/.pi/agent/auth.json so NO built-in provider is
     # authenticated. Pi only lists a provider in /model when it has auth; codeflare-gateway
@@ -3542,6 +3711,10 @@ CF_OAUTH_CA_EOF
 fi
 
 # Configure context-mode MCP server. (Implements REQ-AGENT-005)
+claude_context_mode_is_selected() {
+    coding_agent_is_selected claude-code
+}
+
 # context-mode (https://github.com/mksglu/context-mode) ships in two layers:
 #   1. MCP server (ctx_* tools) - registered for ALL users on every session
 #      so the agent always has the helper tools available. The package is
@@ -3577,6 +3750,7 @@ fi
 # without revisiting AD49 first.
 CONTEXT_MODE_VERSION="1.0.169"
 CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
+if claude_context_mode_is_selected; then
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     # Surface the manifest version in the entrypoint log so a mismatch
     # against the build-time-installed binary (= /usr/local/bin/context-mode
@@ -3604,6 +3778,7 @@ else
     echo "$CONTEXT_MODE_MCP_CONFIG" | jq '.' > "$USER_CLAUDE_JSON"
 fi
 echo "[entrypoint] context-mode MCP server registered in .claude.json (version $CONTEXT_MODE_VERSION)"
+fi
 
 # ---------------------------------------------------------------------------
 # Configure graphify MCP server. (Implements REQ-AGENT-023)
@@ -4044,7 +4219,7 @@ repair_hook_exec_bits
 
 # Enable plugins (silently skipped if plugin files absent in default mode).
 # context-mode and graphify are conditionally enabled via the preseed-plugin gates.
-if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
+if claude_context_mode_is_selected && [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     PLUGINS_CONFIG='{"enabledPlugins":{"codeflare-memory":true,"codeflare-hooks":true,"context-mode":true}}'
     echo "[entrypoint] context-mode plugin enabled (preseed manifest present)"
 else
@@ -4164,8 +4339,14 @@ complete_managed_curation_startup() {
             renice -n 19 "$BASHPID" >/dev/null 2>&1 || true
             ionice -c 3 -p "$BASHPID" >/dev/null 2>&1 || true
             echo "[entrypoint] Establishing bisync baseline in background (deprioritized: nice 19 / ionice idle)..."
+            BASELINE_SUCCEEDED=0
             if establish_bisync_baseline; then
-                echo "[entrypoint] Bisync baseline established, starting daemon..."
+                if [ "${SYNC_STATUS:-}" = "success" ]; then
+                    BASELINE_SUCCEEDED=1
+                    echo "[entrypoint] Bisync baseline established, starting daemon..."
+                else
+                    echo "[entrypoint] Bisync baseline did not complete successfully; session compaction deferred" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
+                fi
             else
                 echo "[entrypoint] WARNING: Bisync baseline failed — starting daemon anyway (daemon has its own recovery)" | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
             fi
@@ -4176,6 +4357,12 @@ complete_managed_curation_startup() {
             # Idempotent: skip if vault directory already present.
             # ----------------------------------------------------------------------
             (init_user_vault) || echo "[entrypoint] WARNING: vault init failed; continuing"
+            # Startup compaction is serial with the successful baseline and
+            # completes (or safely defers) before the sync daemon can start.
+            if [ "$BASELINE_SUCCEEDED" = "1" ]; then
+                run_daily_vault_session_compaction \
+                    || echo "[entrypoint] WARNING: session-capture compaction deferred; continuing startup"
+            fi
             # Always start daemons — even if baseline failed.
             # Each daemon has its own retry + recovery; a dead daemon means
             # zero sync (or zero vault ingestion) for the entire session.

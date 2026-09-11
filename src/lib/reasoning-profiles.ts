@@ -29,6 +29,7 @@ export interface NormalizedReasoningProfile {
   hash: string;
   enabled: boolean;
   ingressContract: 'ai-gateway-chat-completions';
+  reasoningMode?: 'provider-default';
   supportedLevels: PiReasoningLevel[];
   unsupportedLevels: PiReasoningLevel[];
   removePaths: string[];
@@ -53,6 +54,10 @@ export const REASONING_PROFILE_IDS = [
   'workers-ai-kimi-k-thinking',
   'workers-ai-glm-thinking',
   'codeflare-inference-mesh-binary-thinking',
+  'native-google-ai-studio-compat',
+  'native-openai-compat',
+  'native-codeflare-inference-mesh-compat',
+  'bedrock-anthropic-compat',
 ] as const;
 export type ReasoningProfileId = typeof REASONING_PROFILE_IDS[number];
 
@@ -220,7 +225,8 @@ function flattenMapping(value: Record<string, unknown>, prefix = ''): ScalarWrit
   return writes;
 }
 
-interface BuiltInDraft extends Omit<NormalizedReasoningProfile, 'hash' | 'schemaVersion' | 'enabled' | 'builtIn' | 'aliases' | 'levels'> {
+interface BuiltInDraft extends Omit<NormalizedReasoningProfile, 'hash' | 'schemaVersion' | 'enabled' | 'builtIn' | 'aliases' | 'levels' | 'reasoningMode'> {
+  reasoningMode?: NormalizedReasoningProfile['reasoningMode'];
   levelMappings: Partial<Record<PiReasoningLevel, Record<string, unknown>>>;
   aliases?: Partial<Record<PiReasoningLevel, PiReasoningLevel>>;
 }
@@ -234,7 +240,8 @@ function deepFreeze<T>(value: T): T {
 }
 
 function makeBuiltIn(draft: BuiltInDraft): NormalizedReasoningProfile {
-  const supportedLevels = validateLevels(draft.supportedLevels, `${draft.id}.supportedLevels`);
+  const supportedLevels = draft.reasoningMode === 'provider-default' && draft.supportedLevels.length === 0
+    ? [] : validateLevels(draft.supportedLevels, `${draft.id}.supportedLevels`);
   const mappingKeys = Object.keys(draft.levelMappings);
   if (supportedLevels.some((level) => !mappingKeys.includes(level)) || mappingKeys.some((level) => !supportedLevels.includes(level as PiReasoningLevel))) {
     throw new Error(`built-in profile ${draft.id} must map exactly its supported levels`);
@@ -322,6 +329,46 @@ export const BUILT_IN_REASONING_PROFILES: readonly NormalizedReasoningProfile[] 
     recognizedResponseFields: { reasoning: ['choices[].message.reasoning_content'], content: ['choices[].message.content'], tools: ['choices[].message.tool_calls'] }, validatedTransports: ['rest'], classification: 'Verified',
     limitations: ['All non-off Pi levels are equivalent provider-default-on aliases.', 'Backend changes require revalidation.', 'The configured research fallback was inactive.', 'Only REST transport was validated.'],
     originallyCreatedAgainst: { modelId: 'Qwen 3.6 35B (administrator-declared)', provider: 'custom-codeflare-inference-mesh', route: 'dynamic/codeflare-mesh', activeRouteVersion: '872da3ad-bf4c-47d2-91ed-1715794359f5', observedAt: '2026-09-05' },
+  }),
+  makeBuiltIn({
+    id: 'native-google-ai-studio-compat', name: 'Google AI Studio · Gemini native', family: 'Google Gemini', revision: 1,
+    reasoningMode: 'provider-default', ingressContract: 'ai-gateway-chat-completions', supportedLevels: [], unsupportedLevels: ALL_LEVELS,
+    removePaths: COMMON_REMOVALS, levelMappings: {}, aliases: {}, offSemantics: { status: 'unsupported' },
+    toolCompatibility: { status: 'verified', levels: [], evidence: 'Gateway compat streaming tool calls passed when opaque thought signatures were preserved on replay.' },
+    recognizedResponseFields: { content: ['choices[].message.content'], tools: ['choices[].message.tool_calls', 'choices[].message.tool_calls[].extra_content.google.thought_signature'] },
+    validatedTransports: ['compat'], classification: 'Verified',
+    limitations: ['Reasoning is provider-controlled and no Pi reasoning level is claimed.', 'Gemini tool replay requires the audited thought-signature adapter.', 'Each exact model still requires target verification.'],
+    originallyCreatedAgainst: { provider: 'google-ai-studio', modelIds: ['gemini-3.1-pro-preview', 'gemini-3.7-flash', 'gemini-3.8-flash'], gateway: 'codeflare-enterprise', transport: 'compat', observedAt: '2026-09-09' },
+  }),
+  makeBuiltIn({
+    id: 'native-openai-compat', name: 'OpenAI GPT-5.6 · native tools-off', family: 'OpenAI GPT', revision: 1,
+    ingressContract: 'ai-gateway-chat-completions', supportedLevels: ['off'], unsupportedLevels: ALL_LEVELS.filter((level) => level !== 'off'),
+    removePaths: COMMON_REMOVALS, levelMappings: { off: { reasoning_effort: 'none' } }, aliases: {}, offSemantics: { status: 'explicit-value', path: 'reasoning_effort', value: 'none' },
+    toolCompatibility: { status: 'verified', levels: ['off'], evidence: 'Gateway compat streaming tool calls and exact replay passed with reasoning_effort none.' },
+    recognizedResponseFields: { content: ['choices[].message.content'], tools: ['choices[].message.tool_calls'] },
+    validatedTransports: ['compat'], classification: 'Verified',
+    limitations: ['Validated for GPT-5.6 Sol, Terra, and Luna.', 'GPT-6 Astra rejected tools on Chat Completions and is not covered by this profile.', 'Each exact model still requires target verification.'],
+    originallyCreatedAgainst: { provider: 'openai', modelIds: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'], gateway: 'codeflare-enterprise', transport: 'compat', observedAt: '2026-09-09' },
+  }),
+  makeBuiltIn({
+    id: 'native-codeflare-inference-mesh-compat', name: 'Codeflare Inference Mesh · native compat', family: 'Codeflare Inference Mesh', revision: 1,
+    reasoningMode: 'provider-default', ingressContract: 'ai-gateway-chat-completions', supportedLevels: [], unsupportedLevels: ALL_LEVELS,
+    removePaths: COMMON_REMOVALS, levelMappings: {}, aliases: {}, offSemantics: { status: 'unsupported' },
+    toolCompatibility: { status: 'verified', levels: [], evidence: 'Native custom-provider compat streaming tool call and exact replay completed.' },
+    recognizedResponseFields: { content: ['choices[].message.content'], tools: ['choices[].message.tool_calls'] },
+    validatedTransports: ['compat'], classification: 'Verified',
+    limitations: ['Reasoning is provider-controlled and no Pi reasoning level is claimed.', 'The custom provider must retain OpenAI-compatible chat completions.', 'Each exact model still requires target verification.'],
+    originallyCreatedAgainst: { provider: 'custom-codeflare-inference-mesh', modelIds: ['ornith-1-5-9b-gguf-q8-0'], gateway: 'codeflare-enterprise', transport: 'compat', observedAt: '2026-09-09' },
+  }),
+  makeBuiltIn({
+    id: 'bedrock-anthropic-compat', name: 'AWS Bedrock · Anthropic Claude', family: 'Amazon Bedrock Anthropic', revision: 1,
+    reasoningMode: 'provider-default', ingressContract: 'ai-gateway-chat-completions', supportedLevels: [], unsupportedLevels: ALL_LEVELS,
+    removePaths: COMMON_REMOVALS, levelMappings: {}, aliases: {}, offSemantics: { status: 'unsupported' },
+    toolCompatibility: { status: 'verified', levels: [], evidence: 'OpenAI-compatible streaming tool call and exact replay.' },
+    recognizedResponseFields: { content: ['choices[].message.content'], tools: ['choices[].message.tool_calls'], usage: ['usage.completion_tokens_details.reasoning_tokens'] },
+    validatedTransports: ['compat'], classification: 'Verified',
+    limitations: ['Reasoning is provider-controlled and not configurable or observable through this transport.', 'No Pi reasoning level is claimed.'],
+    originallyCreatedAgainst: { provider: 'aws-bedrock', modelIds: ['eu.anthropic.claude-sonnet-5', 'eu.anthropic.claude-opus-5'], gateway: 'codeflare-enterprise', transport: 'compat', observedAt: '2026-09-09' },
   }),
 ]);
 
@@ -529,7 +576,7 @@ export function serializeRouteSettings(contextWindows: Record<string, number>): 
 }
 
 export function translateReasoningRequest(payload: Record<string, unknown>, profile: NormalizedReasoningProfile, level: PiReasoningLevel): Record<string, unknown> {
-  if (!profile.enabled) throw new Error('reasoning profile is disabled');
+  if (!profile.enabled || profile.reasoningMode === 'provider-default') throw new Error('reasoning profile has no configurable levels');
   const writes = profile.levels[level];
   if (!writes || !profile.supportedLevels.includes(level)) throw new Error(`reasoning level ${level} is not mapped by profile ${profile.id}`);
   const translated = structuredClone(payload);

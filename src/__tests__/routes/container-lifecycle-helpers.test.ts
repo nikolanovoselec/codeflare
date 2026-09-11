@@ -305,12 +305,21 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
         env: { KV: mockKV as unknown as KVNamespace, CLOUDFLARE_API_TOKEN: 'tok' } as Env,
         bucketName: 'test-bucket',
         sessionMode: 'default',
+        codingAgents: 'pi',
         logger: mockLogger as any,
       });
 
       expect(mockSeedGettingStartedDocs).toHaveBeenCalled();
+      expect(mockReconcileAgentConfigs).toHaveBeenCalledWith(
+        expect.anything(), 'test-bucket', expect.any(String), 'default',
+        expect.objectContaining({ codingAgents: 'pi' }),
+      );
       const prefs = await mockKV.get('user-prefs:test-bucket', 'json') as Record<string, unknown> | null;
-      expect(prefs).toMatchObject({ gettingStartedSeeded: true });
+      expect(prefs).toMatchObject({
+        gettingStartedSeeded: true,
+        lastPreseedHash: expect.any(String),
+        lastPreseedProjectionIdentity: 'v1:pi',
+      });
     });
 
     // The bug this fixes: a pre-existing bucket whose one-shot create-time docs seed
@@ -492,6 +501,22 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
         cloudflareApiToken: null,
         cloudflareAccountId: null,
       });
+    });
+
+    it('REQ-ENTERPRISE-058: publishes opaque mixed and authoritative empty enterprise model snapshots', async () => {
+      mockGetStoredBucketName.mockResolvedValue('test-bucket');
+      await configureContainerDO({ ...baseParams,
+        routeCatalog: ['general_usage', 'cf-native-11111111-1111-4111-8111-111111111111'], defaultRoute: 'cf-native-11111111-1111-4111-8111-111111111111',
+        defaultReasoning: '', routeContextWindows: { 'cf-native-11111111-1111-4111-8111-111111111111': 200000 },
+        routeReasoningLevels: { general_usage: ['medium'], 'cf-native-11111111-1111-4111-8111-111111111111': [] },
+        modelDisplayNames: { 'cf-native-11111111-1111-4111-8111-111111111111': 'Claude Sonnet' },
+      });
+      let body = await (mockContainer.fetch.mock.calls.at(-1)![0] as Request).json() as Record<string, unknown>;
+      expect(JSON.stringify(body)).not.toContain('eu.anthropic');
+      expect(body).toMatchObject({ modelDisplayNames: { 'cf-native-11111111-1111-4111-8111-111111111111': 'Claude Sonnet' } });
+      await configureContainerDO({ ...baseParams, routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} });
+      body = await (mockContainer.fetch.mock.calls.at(-1)![0] as Request).json() as Record<string, unknown>;
+      expect(body).toMatchObject({ routeCatalog: [], routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} });
     });
 
     it('includes sessionMode in setBucketName body', async () => {

@@ -9,6 +9,7 @@
 import type { Env, SessionMode, ContainerConfigPayload, R2ConnectionConfig, UserPreferences } from '../../types';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, reconcileAgentConfigs, reseedContextModePlugin } from '../../lib/r2-seed';
+import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { resolveBucketSseOnEnsure } from '../../lib/r2-migration';
 import { getR2Config } from '../../lib/r2-config';
 import { getPreferencesKey } from '../../lib/kv-keys';
@@ -19,6 +20,7 @@ import { SetBucketNameBodySchema } from '../../lib/container-config-schema';
 import { getStoredBucketName } from './shared';
 import { getContainerInternalCB } from '../../lib/circuit-breakers';
 import type { Logger } from '../../lib/logger';
+import { codingAgentProjectionIdentity } from '../../../scripts/ci/coding-agent-selection-core.mjs';
 
 /**
  * Build the JSON body for /_internal/setBucketName requests.
@@ -85,14 +87,13 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     // '' is a meaningful "reasoning off" value (admin cleared the default, or it drifted
     // out of the catalog), so it is forwarded explicitly — a truthiness guard would drop
     // the empty reset and leave applyPrefsOnRestart stranded on a stale grade.
-    ...(params.routeCatalog && params.routeCatalog.length > 0 && {
+    ...(params.routeCatalog !== undefined && {
       routeCatalog: params.routeCatalog,
       defaultRoute: params.defaultRoute ?? '',
       defaultReasoning: params.defaultReasoning ?? '',
-      // REQ-ENTERPRISE-012: forward the per-route context-window map alongside the
-      // catalog so buildEnvVars fans it for entrypoint's Pi models.json.
-      ...(params.routeContextWindows && Object.keys(params.routeContextWindows).length > 0 && { routeContextWindows: params.routeContextWindows }),
+      routeContextWindows: params.routeContextWindows ?? {},
       routeReasoningLevels: params.routeReasoningLevels ?? {},
+      modelDisplayNames: params.modelDisplayNames ?? {},
     }),
     // REQ-MEM-001 AC4: forward the user's IANA timezone so the capture
     // pipeline's TZ resolution produces wall-clock filenames matching
@@ -145,9 +146,13 @@ export async function ensureBucketAndSeed(params: {
   bucketName: string;
   sessionMode: SessionMode;
   contextModeEnabled?: boolean;
+  codingAgents?: string;
   logger: Logger;
 }): Promise<{ r2Config: R2ConnectionConfig; r2SseDisabled: boolean }> {
-  const { env, bucketName, sessionMode, contextModeEnabled, logger } = params;
+  const { env, bucketName, sessionMode, contextModeEnabled, codingAgents, logger } = params;
+  // Selection is deployment input. Validate it before bucket creation or any
+  // user-R2 read/write so malformed configuration has no storage side effect.
+  const projectionIdentity = codingAgentProjectionIdentity(codingAgents);
 
   const r2Config = await getR2Config(env);
   const bucketResult = await createBucketIfNotExists(
@@ -183,7 +188,15 @@ export async function ensureBucketAndSeed(params: {
         cleanup: false,
         contextModeEnabled,
         r2SseDisabled,
+        codingAgents,
       });
+      const preferencesKey = getPreferencesKey(bucketName);
+      const latestPreferences = await env.KV.get<UserPreferences>(preferencesKey, 'json') ?? {};
+      await env.KV.put(preferencesKey, JSON.stringify({
+        ...latestPreferences,
+        lastPreseedHash: PRESEED_CONTENT_HASH,
+        lastPreseedProjectionIdentity: projectionIdentity,
+      }));
       initialAgentConfigReady = true;
       logger.info('Seeded initial agent configs', {
         bucketName,
@@ -250,6 +263,7 @@ export async function ensureBucketAndSeed(params: {
             cleanup: true,
             contextModeEnabled,
             r2SseDisabled,
+            codingAgents,
           });
           logger.info('Enterprise upgrade: reconciled agent configs to advanced', {
             bucketName,
@@ -259,7 +273,12 @@ export async function ensureBucketAndSeed(params: {
         }
         if (initialAgentConfigReady) {
           const latestPrefs = await env.KV.get<UserPreferences>(enterprisePrefsKey, 'json');
-          await env.KV.put(enterprisePrefsKey, JSON.stringify({ ...latestPrefs, sessionMode: 'advanced' }));
+          await env.KV.put(enterprisePrefsKey, JSON.stringify({
+            ...latestPrefs,
+            sessionMode: 'advanced',
+            lastPreseedHash: PRESEED_CONTENT_HASH,
+            lastPreseedProjectionIdentity: projectionIdentity,
+          }));
         }
       }
     } catch (error) {
@@ -280,7 +299,7 @@ export async function ensureBucketAndSeed(params: {
   // overwrite:false. Cost: 3 small R2 PUTs per session start.
   if (contextModeEnabled === true) {
     try {
-      const reseedResult = await reseedContextModePlugin(env, bucketName, r2Config.endpoint, true, r2SseDisabled);
+      const reseedResult = await reseedContextModePlugin(env, bucketName, r2Config.endpoint, true, r2SseDisabled, codingAgents);
       logger.info('Reseeded context-mode plugin subtree on session start', {
         bucketName,
         writtenCount: reseedResult.written.length,

@@ -8,6 +8,7 @@ import {
   parsePiSseText,
 } from '../../lib/reasoning-discovery';
 import { deriveCommonMapping, inventoryDynamicRoute } from '../../lib/dynamic-route-inventory';
+import { getBuiltInProfile } from '../../lib/reasoning-profiles';
 
 const ACCOUNT_ID = '0123456789abcdef0123456789abcdef';
 const PROFILE = {
@@ -93,6 +94,98 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
       tool_calls: [{ id: 'call-private', type: 'function', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' } }],
     });
     expect(replay.at(-1)).toEqual({ role: 'tool', content: 'ok', tool_call_id: 'call-private' });
+  });
+
+  it('REQ-ENTERPRISE-048: preserves Gemini thought signatures on the verification replay', async () => {
+    const parsed = await parsePiSseText(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'gemini-call', type: 'function', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' }, extra_content: { google: { thought_signature: 'opaque-state' } } }] }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
+    expect(buildPiReplayMessages([{ role: 'user', content: 'test' }], parsed).at(-2)).toEqual({
+      role: 'assistant', tool_calls: [{ id: 'gemini-call', type: 'function', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' }, extra_content: { google: { thought_signature: 'opaque-state' } } }],
+    });
+  });
+
+  it('REQ-ENTERPRISE-048: provider-default verification requires a complete tool lifecycle', async () => {
+    const requests: Array<{ url: string; body: Record<string, unknown>; headers: Headers }> = [];
+    const report = await discoverPiCompatibility({ accountId: ACCOUNT_ID, gatewayId: 'gateway', apiToken: 'secret-token',
+      route: 'aws-bedrock/eu.anthropic.claude-sonnet-5',
+      profile: { id: 'bedrock-anthropic-compat', reasoningMode: 'provider-default', supportedLevels: [], removePaths: [], levels: {} },
+      maxCompletionTokens: 32, compatOnly: true, fetcher: successfulFetcher(requests),
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests.every((request) => request.url.includes('/compat/chat/completions'))).toBe(true);
+    expect(report).toMatchObject({ classification: 'Verified', assignable: true, compatibleLevels: [], accounting: { logicalProbes: 1, httpAttempts: 2 } });
+    expect(report.distinctMappings[0].toolLifecycle).toMatchObject({ passed: true, stage: 'complete' });
+
+    const failed = await discoverPiCompatibility({ accountId: ACCOUNT_ID, gatewayId: 'gateway', apiToken: 'secret-token',
+      route: 'aws-bedrock/eu.anthropic.claude-sonnet-5',
+      profile: { id: 'bedrock-anthropic-compat', reasoningMode: 'provider-default', supportedLevels: [], removePaths: [], levels: {} },
+      maxCompletionTokens: 32, compatOnly: true, fetcher: vi.fn(async () => sse([{ choices: [{ delta: { content: 'no tool' }, finish_reason: 'stop' }] }, '[DONE]'])),
+    });
+    expect(failed.assignable).toBe(false);
+  });
+
+  it('REQ-ENTERPRISE-052: verifies a generalized native provider selector directly through compat', async () => {
+    const requests: Array<{ url: string; body: Record<string, unknown>; headers: Headers }> = [];
+    const report = await discoverPiCompatibility({
+      accountId: ACCOUNT_ID,
+      gatewayId: 'gateway',
+      apiToken: 'secret-token',
+      route: 'openai/gpt-5.6-terra',
+      profile: getBuiltInProfile('native-openai-compat')!,
+      maxCompletionTokens: 32,
+      compatOnly: true,
+      fetcher: successfulFetcher(requests),
+    });
+
+    expect(requests).toHaveLength(3);
+    expect(requests.every((request) => request.url.includes('/compat/chat/completions'))).toBe(true);
+    expect(requests.every((request) => request.body.model === 'openai/gpt-5.6-terra')).toBe(true);
+    expect(report).toMatchObject({
+      classification: 'Verified',
+      assignable: true,
+      accounting: { logicalProbes: 2, httpAttempts: 3 },
+    });
+  });
+
+  it.each([
+    'custom-private-provider/https://models.example/v1',
+    `custom-${'a'.repeat(64)}/family/model:tag`,
+  ])('REQ-ENTERPRISE-052: preserves the bounded native selector %s through compat', async (route) => {
+    const requests: Array<{ url: string; body: Record<string, unknown>; headers: Headers }> = [];
+    const report = await discoverPiCompatibility({
+      accountId: ACCOUNT_ID,
+      gatewayId: 'gateway',
+      apiToken: 'secret-token',
+      route,
+      profile: {
+        id: 'native-custom-compat',
+        reasoningMode: 'provider-default',
+        supportedLevels: [],
+        removePaths: [],
+        levels: {},
+      },
+      maxCompletionTokens: 32,
+      compatOnly: true,
+      fetcher: successfulFetcher(requests),
+    });
+
+    expect(requests).toHaveLength(2);
+    expect(requests.every((request) => request.url.includes('/compat/chat/completions'))).toBe(true);
+    expect(requests.every((request) => request.body.model === route)).toBe(true);
+    expect(report).toMatchObject({ classification: 'Verified', assignable: true });
+  });
+
+  it('REQ-ENTERPRISE-052: rejects an oversized Dynamic Route before provider I/O', async () => {
+    const fetcher = vi.fn();
+    await expect(discoverPiCompatibility({
+      accountId: ACCOUNT_ID,
+      gatewayId: 'gateway',
+      apiToken: 'secret-token',
+      route: `dynamic/${'a'.repeat(181)}`,
+      profile: getBuiltInProfile('native-openai-compat')!,
+      maxCompletionTokens: 32,
+      fetcher,
+    })).rejects.toThrow('Route must be a bounded model selector');
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it('counts one reasoning probe and one complete tool lifecycle per distinct semantic mapping', async () => {

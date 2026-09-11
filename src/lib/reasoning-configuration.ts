@@ -26,8 +26,10 @@ export interface RouteVerification {
   scope: 'single-model' | 'observed-path';
   checkedAt: string;
 }
+type RoutingTargetRef = { kind: 'dynamic-route'; route: string } | { kind: 'native-target'; targetId: string };
 export type FallbackRouting = { enabled: false } | {
   enabled: true; routes: string[]; defaultRoute: string; reasoning: PiReasoningLevel;
+  targets?: RoutingTargetRef[]; defaultTarget?: RoutingTargetRef;
 };
 
 const MAX_REASONING_CONFIGURATION_BYTES = 256 * 1024;
@@ -83,10 +85,10 @@ function bounded(value: unknown, label: string, max = MAX_REFERENCE_TEXT): strin
   return value;
 }
 
-function routeName(value: string): string {
-  bounded(value, 'route name', MAX_ROUTE_NAME);
-  if (value.includes('/') || ['__proto__', 'prototype', 'constructor'].includes(value.toLowerCase())) throw new Error('route name must be a safe slash-free handle');
-  return value;
+function routeName(value: unknown): string {
+  const route = bounded(value, 'route name', MAX_ROUTE_NAME);
+  if (route.includes('/') || ['__proto__', 'prototype', 'constructor'].includes(route.toLowerCase())) throw new Error('route name must be a safe slash-free handle');
+  return route;
 }
 
 function scalar(value: unknown, label: string, maxString = 512): ScalarValue {
@@ -152,22 +154,43 @@ export function parseRouteVerification(value: unknown): RouteVerification {
   };
 }
 
+function parseRoutingTarget(value: unknown): RoutingTargetRef {
+  const record = asRecord(value, 'routing target');
+  if (record.kind === 'dynamic-route') {
+    assertOnly(record, ['kind', 'route'], 'routing target');
+    return { kind: 'dynamic-route', route: routeName(record.route) };
+  }
+  if (record.kind === 'native-target') {
+    assertOnly(record, ['kind', 'targetId'], 'routing target');
+    if (typeof record.targetId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(record.targetId)) throw new Error('native target reference is invalid');
+    return { kind: 'native-target', targetId: record.targetId };
+  }
+  throw new Error('routing target kind is invalid');
+}
+
 export function parseFallbackRouting(value: unknown): FallbackRouting {
   const record = asRecord(value, 'fallback routing');
   if (record.enabled === false) {
     assertOnly(record, ['enabled'], 'fallback routing');
     return { enabled: false };
   }
-  assertOnly(record, ['enabled', 'routes', 'defaultRoute', 'reasoning'], 'fallback routing');
-  if (record.enabled !== true || !Array.isArray(record.routes) || record.routes.length < 1 || record.routes.length > 256) throw new Error('fallback routing is invalid');
+  assertOnly(record, ['enabled', 'routes', 'defaultRoute', 'reasoning', 'targets', 'defaultTarget'], 'fallback routing');
+  if (record.enabled !== true || !Array.isArray(record.routes) || record.routes.length > 256) throw new Error('fallback routing is invalid');
   const parseRoute = (value: unknown): string => {
     if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value)) throw new Error('fallback route is invalid');
     return routeName(value);
   };
   const routes = record.routes.map(parseRoute);
-  const defaultRoute = parseRoute(record.defaultRoute);
-  if (new Set(routes).size !== routes.length || !routes.includes(defaultRoute) || !isPiReasoningLevel(record.reasoning)) throw new Error('fallback default must belong to its allowed routes with a valid reasoning level');
-  return { enabled: true, routes, defaultRoute, reasoning: record.reasoning };
+  const targets = record.targets === undefined ? undefined : Array.isArray(record.targets) ? record.targets.map(parseRoutingTarget) : (() => { throw new Error('fallback targets are invalid'); })();
+  const defaultRoute = record.defaultRoute === '' && routes.length === 0 ? '' : parseRoute(record.defaultRoute);
+  const defaultTarget = record.defaultTarget === undefined ? undefined : parseRoutingTarget(record.defaultTarget);
+  if (!isPiReasoningLevel(record.reasoning) || new Set(routes).size !== routes.length || (!routes.length && !targets?.length)
+    || (routes.length > 0 && !routes.includes(defaultRoute))
+    || (targets && defaultTarget && !targets.some((target) => canonicalJson(target) === canonicalJson(defaultTarget)))) {
+    throw new Error('fallback default must belong to its allowed models with a valid reasoning level');
+  }
+  if (targets?.some((target) => target.kind === 'native-target') && !defaultTarget && routes.length === 0) throw new Error('fallback native default is required');
+  return { enabled: true, routes, defaultRoute, reasoning: record.reasoning, ...(targets && { targets }), ...(defaultTarget && { defaultTarget }) };
 }
 
 function parseWrites(value: unknown, label: string): ScalarWrite[] {
@@ -299,7 +322,7 @@ export function serializeReasoningConfiguration(input: unknown): string {
   return serialized;
 }
 
-function getProfileForRef(configuration: ReasoningConfiguration, ref: ProfileRevisionRef): NormalizedReasoningProfile {
+export function getProfileForRef(configuration: ReasoningConfiguration, ref: ProfileRevisionRef): NormalizedReasoningProfile {
   const customMap = new Map(configuration.customProfileRevisions.map((profile) => [`${profile.id}:${profile.revision}`, profile]));
   return resolveRef(ref, customMap, 'profile reference');
 }

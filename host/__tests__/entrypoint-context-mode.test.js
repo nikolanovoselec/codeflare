@@ -34,7 +34,7 @@ function extractPluginsConfigBranch() {
   return entrypoint.slice(start, fiIdx + 4);
 }
 
-function buildHarness(cwd, claudeJsonInitial, manifestPresent) {
+function buildHarness(cwd, claudeJsonInitial, manifestPresent, codingAgents = 'claude-code,codex,copilot,antigravity,opencode,pi') {
   // Create a fake $USER_HOME with .claude/plugins/context-mode optionally populated,
   // then run the extracted bash blocks and capture the resulting .claude.json
   // and the value of PLUGINS_CONFIG.
@@ -59,6 +59,13 @@ function buildHarness(cwd, claudeJsonInitial, manifestPresent) {
 set -e
 USER_HOME="${userHome}"
 USER_CLAUDE_JSON="${userClaudeJson}"
+CODEFLARE_CODING_AGENTS="${codingAgents}"
+coding_agent_is_selected() {
+  case ",\${CODEFLARE_CODING_AGENTS}," in
+    *,"\$1",*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 ${mcpBlock}
 ${pluginsBranch}
 echo "PLUGINS_CONFIG=$PLUGINS_CONFIG"
@@ -130,6 +137,16 @@ describe('entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (
       !('context-mode' in pluginsConfig.enabledPlugins),
       'context-mode key must not be present in enabledPlugins when manifest is absent'
     );
+  });
+
+  it('REQ-STOR-024: Claude-inactive startup does not register or enable Claude context-mode', () => {
+    const cwd = mkdtempSync(join(baseTmp, 'claude-inactive-'));
+    const initial = JSON.stringify({ mcpServers: { existing: { command: 'existing', args: [] } } });
+    const { claudeJson, pluginsConfig } = buildHarness(cwd, initial, true, 'pi');
+
+    assert.equal(claudeJson.mcpServers['context-mode'], undefined);
+    assert.deepEqual(claudeJson.mcpServers.existing, { command: 'existing', args: [] });
+    assert.equal(pluginsConfig.enabledPlugins['context-mode'], undefined);
   });
 
   it('manifest present: preserves existing mcpServers entries (consult-llm)', () => {

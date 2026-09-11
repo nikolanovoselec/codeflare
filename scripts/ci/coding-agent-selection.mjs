@@ -1,15 +1,21 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import {
+  CODING_AGENTS,
+  hasCodingAgent,
+  resolveCodingAgents,
+} from './coding-agent-selection-core.mjs';
 
-export const CODING_AGENTS = Object.freeze([
-  'claude-code',
-  'codex',
-  'copilot',
-  'antigravity',
-  'opencode',
-  'pi',
-]);
+export {
+  CODING_AGENTS,
+  CODING_AGENT_ROOTS,
+  codingAgentProjectionIdentity,
+  hasCodingAgent,
+  isCodingAgentProjectionIdentity,
+  managedPathOwner,
+  resolveCodingAgents,
+} from './coding-agent-selection-core.mjs';
 
 export const CODING_AGENT_COMMANDS = Object.freeze({
   'claude-code': Object.freeze({ path: '/usr/local/bin/claude', args: ['--version'] }),
@@ -27,24 +33,6 @@ const NPM_AGENT_PACKAGES = Object.freeze({
   opencode: 'opencode-ai',
   pi: '@earendil-works/pi-coding-agent',
 });
-
-const DEFAULT_SELECTION = CODING_AGENTS.join(',');
-
-/** Resolve an external comma-separated selection into stable canonical order. */
-export function resolveCodingAgents(rawSelection) {
-  if (rawSelection === undefined || rawSelection === null) return DEFAULT_SELECTION;
-  const requested = String(rawSelection).split(',').map((value) => value.trim()).filter(Boolean);
-  if (requested.length === 0) throw new Error('Select at least one coding agent');
-  const unknown = [...new Set(requested.filter((value) => !CODING_AGENTS.includes(value)))];
-  if (unknown.length > 0) throw new Error(`Unknown coding agent: ${unknown.join(', ')}`);
-  const selected = new Set(requested);
-  return CODING_AGENTS.filter((agent) => selected.has(agent)).join(',');
-}
-
-export function hasCodingAgent(rawSelection, agent) {
-  if (!CODING_AGENTS.includes(agent)) throw new Error(`Unknown coding agent: ${agent}`);
-  return resolveCodingAgents(rawSelection).split(',').includes(agent);
-}
 
 /** Return a fresh manifest whose coding-agent roots match the selected image set. */
 export function selectedNpmManifest(manifest, rawSelection) {

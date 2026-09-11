@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CODING_AGENT_ROOTS } from '../../scripts/ci/coding-agent-selection-core.mjs';
 import type { ManagedResourcePolicy } from '../types';
 import type { ManagedReleaseIndex } from './remote-curation';
 import { readBoundedResponse, readBoundedStream } from './bounded-stream';
@@ -22,14 +23,7 @@ const RESOURCE_CATEGORIES = new Set([
   'agents',
   'exceptions',
 ]);
-const MANAGED_HOMES = [
-  '.claude/',
-  '.codex/',
-  '.gemini/',
-  '.copilot/',
-  '.config/opencode/',
-  '.pi/agent/',
-] as const;
+const MANAGED_HOMES = Object.freeze(Object.values(CODING_AGENT_ROOTS));
 
 export interface ManagedR2Policy {
   schemaVersion: 1;
