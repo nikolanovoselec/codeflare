@@ -269,14 +269,12 @@ describe('AI routing review', () => {
     await section('Connection');
     await fireEvent.input(screen.getByLabelText('AI Gateway URL'), { target: { value: gateway.gatewayUrl } });
     if (gateway.replacementToken) await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: gateway.replacementToken } });
-    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
-    await fireEvent.submit(screen.getByRole('button', { name: 'Review changes' }).closest('form')!);
-    expect(api.preview).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled();
     await fireEvent.click(screen.getByRole('button', { name: 'Check connection' }));
     await waitFor(() => expect(screen.getByText('Connected · 2 routes readable')).toBeVisible());
     expect(api.catalog).toHaveBeenLastCalledWith(gateway);
     expect(api.discover).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled();
     await section('Routes');
     for (const route of initial.dynamicRoutes) {
       await fireEvent.click(screen.getByRole('button', { name: `Configure ${route}` }));

@@ -1365,7 +1365,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-057: AI Gateway Connection Rotation
 
-**Intent:** Administrators can rotate gateway coordinates without losing matching route authority.
+**Intent:** Administrators can rotate gateway coordinates or credentials without losing matching route authority.
 
 **Applies To:** Admin
 

@@ -227,7 +227,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     const save = screen.getByRole('button', { name: 'Review changes' });
     expect(save).toBeDisabled();
     await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: 'replacement-token' } });
-    expect(save).toBeDisabled();
+    expect(save).toBeEnabled();
     await fireEvent.click(screen.getByRole('button', { name: 'Check connection' }));
     await review();
 
@@ -251,11 +251,12 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: 'rotated-token' } });
     const save = screen.getByRole('button', { name: 'Review changes' });
     expect(save).toBeEnabled();
-    await fireEvent.click(screen.getByRole('button', { name: 'Check connection' }));
-    await screen.findByText('Connected · 1 routes readable');
-    await review();
+    await fireEvent.click(save);
+    expect(await screen.findByRole('heading', { name: 'Confirm Save' })).toBeVisible();
 
     expect(submitted().replacementToken).toBe('rotated-token');
+    expect(submitted().dynamicRoutes).toEqual(['development']);
+    expect(submitted().groupRouting).toEqual([group]);
     expect(submitted().routeChecks).toEqual({ development: 'saved-check' });
     expect(submitted().reasoningConfiguration.routeAssignments.development.verification).toEqual(proof());
   });
@@ -368,7 +369,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     await fireEvent.change(screen.getByLabelText('Gateway URL format'), { target: { value: 'account-api' } });
     await fireEvent.input(screen.getByLabelText('AI Gateway URL'), { target: { value: 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/' } });
     await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: 'rotated-token' } });
-    expect(reviewButton).toBeDisabled();
+    expect(reviewButton).toBeEnabled();
     await fireEvent.click(screen.getByRole('button', { name: 'Check connection' }));
     await screen.findByText('Connected · 0 routes readable');
     await waitFor(() => expect(reviewButton).toBeEnabled());
@@ -391,7 +392,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(3));
     expect(select).toHaveValue(key(ref));
     await fireEvent.change(select, { target: { value: key(nextRef) } });
-    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled();
     expect(draft(view.container).routeAssignments.development.activeProfile).toEqual(nextRef);
     await verifyRoute();
     expect(api.discover).toHaveBeenCalledWith({ route: 'development', profileRef: nextRef, maxCompletionTokens: 4096 });
@@ -433,7 +434,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     const selectedRef = customRef(expectedProfile);
     expect(draft(view.container).customProfileRevisions).toEqual([expectedProfile]);
     expect(screen.getByLabelText('development Pi compatibility profile')).toHaveValue(key(selectedRef));
-    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled();
     expect(api.start).not.toHaveBeenCalled();
     const selectedProof = proof('development', selectedRef, ['off', 'medium']);
     api.discover.mockResolvedValueOnce(verified(selectedProof, 'custom-draft-check'));
@@ -539,7 +540,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(screen.getByLabelText('development Pi compatibility profile')).toHaveValue(key(kimiRef));
     expect(draft(view.container).routeAssignments.development).toEqual({ activeProfile: kimiRef });
     expect(draft(view.container).customProfileRevisions).toEqual([]);
-    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled();
     expect(api.start).not.toHaveBeenCalled();
     const selectedProof = proof('development', kimiRef, ['medium', 'high']);
     api.discover.mockResolvedValueOnce(verified(selectedProof, 'kimi-check'));

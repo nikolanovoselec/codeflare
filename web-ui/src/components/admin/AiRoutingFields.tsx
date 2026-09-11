@@ -144,6 +144,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const [gatewayId, setGatewayId] = createSignal(text(current.gatewayId) || legacyGatewayId(initialGatewayUrl));
   const [replacementToken, setReplacementToken] = createSignal(text(current.replacementToken));
   const [checkedConnection, setCheckedConnection] = createSignal<string>();
+  const [replacementCredentialDraft, setReplacementCredentialDraft] = createSignal(false);
   const effectiveGatewayUrl = () => gatewayKind() === 'account-api' ? accountApiBase(gatewayUrl()) ?? gatewayUrl().trim() : gatewayUrl().trim();
   const effectiveGatewayId = () => gatewayKind() === 'account-api' ? gatewayId().trim() : '';
   const connectionKey = () => JSON.stringify([effectiveGatewayUrl(), effectiveGatewayId() || legacyGatewayId(gatewayUrl()), replacementToken().trim()]);
@@ -239,7 +240,7 @@ const AiRoutingFields: Component<Props> = (props) => {
     const proof = route.assignment.verification;
     const inventory = route.inventory;
     const profile = findProfile(route.assignment.activeProfile);
-    if (!connectionReady() || !profile || !proof || !inventory || route.inventoryBusy || route.inventoryError || verificationFor(route.name).busy) return false;
+    if ((!connectionReady() && !replacementCredentialDraft()) || !profile || !proof || !inventory || route.inventoryBusy || route.inventoryError || verificationFor(route.name).busy) return false;
     if (!inventory.inventoryDigest || proof.inventoryDigest !== inventory.inventoryDigest || proof.routeVersion !== inventoryVersion(inventory)
       || refKey(proof.profileRef) !== refKey(route.assignment.activeProfile) || !profile.supportedLevels.every((level) => proof.supportedLevels?.includes(level))) return false;
     if (routeChecks()[route.name] === null) return false;
@@ -294,6 +295,7 @@ const AiRoutingFields: Component<Props> = (props) => {
     else if (field === 'url') setGatewayUrl(value);
     else if (field === 'gateway') setGatewayId(value);
     else setReplacementToken(value);
+    setReplacementCredentialDraft(field === 'token');
     setCheckedConnection(undefined);
     if (field !== 'token') for (const route of routes()) {
       if (routeChecks()[route.name]) clearRouteVerification(route.name);
@@ -448,7 +450,16 @@ const AiRoutingFields: Component<Props> = (props) => {
     routeAssignments: Object.fromEntries(routes().flatMap((route) => route.assignment.activeProfile ? [[route.name, { ...route.assignment, activeProfile: route.assignment.activeProfile,
     } satisfies ReasoningRouteAssignment]] : [])),
   }));
-  const compatibilityDefault = () => fallbackEnabled() && normalizedFallback().routes.length ? normalizedFallback() : activeGroups()[0];
+  const submittedGroups = () => replacementCredentialDraft() ? groups() : configuredGroups();
+  const submittedFallback = (): FallbackRouting => replacementCredentialDraft()
+    ? fallbackEnabled() ? { enabled: true, ...fallbackPolicy() } : { enabled: false }
+    : fallbackRouting();
+  const submittedNames = () => replacementCredentialDraft()
+    ? [...new Set([...groups().flatMap((group) => group.routes), ...(fallbackEnabled() ? fallbackPolicy().routes : [])])]
+    : activeNames().filter((name) => gatewayRoutes().includes(name));
+  const compatibilityDefault = () => replacementCredentialDraft()
+    ? fallbackEnabled() && fallbackPolicy().routes.length ? fallbackPolicy() : groups().find((group) => group.routes.length > 0)
+    : fallbackEnabled() && normalizedFallback().routes.length ? normalizedFallback() : activeGroups()[0];
 
   return <div class="admin-ai-routing admin-form-wide admin-routing-workspace">
     <div class="admin-routing-intro"><h3>Choose profiles, then grant access</h3><p>Verify a profile or confirm it yourself before assigning access. Save activates your changes.</p></div>
@@ -609,10 +620,10 @@ const AiRoutingFields: Component<Props> = (props) => {
     </section>
     <Show when={pendingProfileName()}><div class="admin-unsaved-banner" role="status"><strong>{pendingProfileName()} is a draft</strong><span>Verify or confirm it, assign a group, then confirm Save to keep the profile and assignment.</span></div></Show>
     <Show when={!checksBusy() && saveHelp()}><p class="admin-routing-save-help" role="status" data-ready={canSave()}>{saveHelp()}</p></Show>
-    <For each={activeNames().filter((name) => gatewayRoutes().includes(name))}>{(name) => <input type="hidden" name="dynamicRoutes" value={name} />}</For>
+    <For each={submittedNames()}>{(name) => <input type="hidden" name="dynamicRoutes" value={name} />}</For>
     <For each={routes().filter((route) => route.assignment.activeProfile && validContext(route))}>{(route) => <><input type="hidden" name="routeContextRoute" value={route.name} /><input type="hidden" name="routeContextWindow" value={route.contextWindow} /></>}</For>
     <input type="hidden" name="defaultRoute" value={compatibilityDefault()?.defaultRoute ?? ''} /><input type="hidden" name="reasoning" value={compatibilityDefault()?.reasoning ?? 'off'} />
-    <input type="hidden" name="groupRouting" value={JSON.stringify(configuredGroups())} /><input type="hidden" name="fallbackRouting" value={JSON.stringify(fallbackRouting())} /><input type="hidden" name="routeChecks" value={JSON.stringify(routeChecks())} />
+    <input type="hidden" name="groupRouting" value={JSON.stringify(submittedGroups())} /><input type="hidden" name="fallbackRouting" value={JSON.stringify(submittedFallback())} /><input type="hidden" name="routeChecks" value={JSON.stringify(routeChecks())} />
     <input type="hidden" name="reasoningConfiguration" value={JSON.stringify(serializedConfiguration())} />
     <input type="hidden" name="nativeTargets" value={JSON.stringify(nativeSubmission())} />
     <Show when={nativeDirty()}><input type="hidden" name="nativeChecks" value={JSON.stringify(nativeChecks())} /></Show>
