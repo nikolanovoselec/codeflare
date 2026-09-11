@@ -4,14 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfigurationRequestError, type ConfigurationPreview } from '../../api/client';
 import type { FallbackRouting, PiReasoningLevel, ProfileRevisionRef, ReasoningConfiguration, ReasoningDiscoveryResult, ReasoningRouteVerification } from '../../types';
 
-const api = vi.hoisted(() => ({
-  configuration: vi.fn(), catalog: vi.fn(), preview: vi.fn(), start: vi.fn(), run: vi.fn(), inventory: vi.fn(), discover: vi.fn(),
-  RequestError: class ConfigurationRequestError extends Error {
-    constructor(public status: number, public body: Record<string, unknown>) {
-      super(typeof body.error === 'string' ? body.error : 'Environment request failed');
-    }
-  },
-}));
+const RequestError = vi.hoisted(() => class ConfigurationRequestError extends Error {
+  constructor(public status: number, public body: Record<string, unknown>) {
+    super(typeof body.error === 'string' ? body.error : 'Environment request failed');
+  }
+});
+const api = vi.hoisted(() => ({ configuration: vi.fn(), catalog: vi.fn(), preview: vi.fn(), start: vi.fn(), run: vi.fn(), inventory: vi.fn(), discover: vi.fn() }));
 vi.mock('../../api/client', () => ({
   getAdminConfiguration: (...args: unknown[]) => api.configuration(...args),
   getReasoningCatalog: (...args: unknown[]) => api.catalog(...args),
@@ -20,7 +18,7 @@ vi.mock('../../api/client', () => ({
   getConfigurationRun: (...args: unknown[]) => api.run(...args),
   getReasoningRouteInventory: (...args: unknown[]) => api.inventory(...args),
   discoverReasoningCompatibility: (...args: unknown[]) => api.discover(...args),
-  ConfigurationRequestError: api.RequestError,
+  ConfigurationRequestError: RequestError,
 }));
 
 import AdministrationLayout from '../../components/admin/AdministrationLayout';

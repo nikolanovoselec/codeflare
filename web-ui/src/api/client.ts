@@ -185,9 +185,19 @@ export class ConfigurationRequestError extends Error {
 }
 
 export async function previewConfiguration(section: ConfigurationSection, baseRevision: number, values: unknown): Promise<ConfigurationPreview> {
-  return fetchApi('/admin/configuration-previews', {
-    method: 'POST', body: JSON.stringify({ section, baseRevision, values }),
-  }, ConfigurationPreviewSchema);
+  try {
+    return await fetchApi('/admin/configuration-previews', {
+      method: 'POST', body: JSON.stringify({ section, baseRevision, values }),
+    }, ConfigurationPreviewSchema);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    let body: Record<string, unknown> = {};
+    try {
+      const parsed = typeof error.body === 'string' ? JSON.parse(error.body) : error.body;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) body = parsed as Record<string, unknown>;
+    } catch { /* response had no JSON body */ }
+    throw new ConfigurationRequestError(error.status, body);
+  }
 }
 
 export async function startConfigurationRun(

@@ -1406,6 +1406,21 @@ describe('API Client', () => {
       expect(mockFetch).toHaveBeenNthCalledWith(3, '/api/admin/usage-report-tests', expect.objectContaining({ method: 'POST' }));
     });
 
+    it('preserves authoritative preview validation fields in a typed request error', async () => {
+      const body = {
+        error: 'Environment values are invalid',
+        fields: { reasoningConfiguration: ['Route development requires an exact verification'] },
+      };
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        text: () => Promise.resolve(JSON.stringify(body)),
+      });
+
+      await expect(previewConfiguration('aiRouting', 7, {})).rejects.toMatchObject({ status: 400, body });
+    });
+
     it('submits explicit warning confirmations with the reviewed revision', async () => {
       mockFetch.mockResolvedValueOnce({ ok: true, status: 202 });
       const values = { dynamicRoutes: ['development'] };
