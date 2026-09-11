@@ -171,6 +171,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const [nativeProfileEditor, setNativeProfileEditor] = createSignal<number>();
   const [profileEditorBusy, setProfileEditorBusy] = createSignal(false);
   const [pendingProfileName, setPendingProfileName] = createSignal('');
+  const [unavailableRouteProfiles, setUnavailableRouteProfiles] = createSignal<Record<string, string>>({});
   const [pendingRemoval, setPendingRemoval] = createSignal<string>();
   const [applyGroupsOpen, setApplyGroupsOpen] = createSignal(false);
   const [applyGroupSource, setApplyGroupSource] = createSignal(groups()[0]?.accessGroup ?? '');
@@ -333,10 +334,18 @@ const AiRoutingFields: Component<Props> = (props) => {
       setCatalog(loaded);
       if (loaded.routeCatalogStatus === 'ready') {
         setCheckedConnection(key); setGatewayRoutes(loaded.routes);
+        const providerNativeRefs = new Map(loaded.profiles.filter((profile) => profile.id.startsWith('bedrock-anthropic-native-')).map((profile) => [refKey(profile), profileDisplayName(profile)]));
+        const unavailable: Record<string, string> = {};
         setRoutes((items) => {
           const byName = new Map(items.map((route) => [route.name, route]));
-          return [...loaded.routes.map((name) => byName.has(name) ? { ...byName.get(name)!, inventoryBusy: true } : { name, contextWindow: DEFAULT_CONTEXT_WINDOW, assignment: routeAssignment(assignments[name]), inventoryBusy: true }), ...items.filter((route) => !loaded.routes.includes(route.name)).map((route) => ({ ...route }))];
+          const loadedRoutes = loaded.routes.map((name) => byName.has(name) ? { ...byName.get(name)!, inventoryBusy: true } : { name, contextWindow: DEFAULT_CONTEXT_WINDOW, assignment: routeAssignment(assignments[name]), inventoryBusy: true });
+          for (const route of loadedRoutes) {
+            const label = providerNativeRefs.get(refKey(route.assignment.activeProfile));
+            if (label) { unavailable[route.name] = label; route.assignment = {}; }
+          }
+          return [...loadedRoutes, ...items.filter((route) => !loaded.routes.includes(route.name)).map((route) => ({ ...route }))];
         });
+        setUnavailableRouteProfiles(unavailable);
       } else setCheckedConnection(undefined);
     } catch {
       if (!disposed) { setCheckedConnection(undefined); setCatalogError('The connection could not be checked. Try again.'); }
@@ -347,6 +356,7 @@ const AiRoutingFields: Component<Props> = (props) => {
 
   const setRouteProfile = (name: string, key: string) => {
     const selected = dynamicRouteProfiles().find((profile) => refKey(profile) === key);
+    setUnavailableRouteProfiles((items) => Object.fromEntries(Object.entries(items).filter(([route]) => route !== name)));
     clearRouteVerification(name);
     updateRoute(name, (route) => ({ ...route, assignment: { ...route.assignment, activeProfile: selected ? profileRefFromEntry(selected) : undefined,
       ...(route.assignment.legs && { legs: route.assignment.legs.map((leg) => ({ ...leg, ...(selected && { profileRef: profileRefFromEntry(selected) }) })) }),
@@ -510,6 +520,7 @@ const AiRoutingFields: Component<Props> = (props) => {
                 <option value="" selected={!route.assignment.activeProfile}>Choose a profile</option><For each={dynamicRouteProfiles()}>{(option) => <option value={refKey(option)} selected={refKey(option) === refKey(route.assignment.activeProfile)}>{profileDisplayName(option)}</option>}</For>
               </select><small>Mapping translates request settings; it does not identify the model behind a route.</small></label>
               <label class="admin-form-field"><span>Context window</span><input type="text" inputmode="numeric" aria-label={`${route.name} context window`} value={route.contextWindow} onInput={(event) => updateRoute(route.name, (item) => ({ ...item, contextWindow: Number(event.currentTarget.value) }))} /><small>Maximum conversation size, in tokens.</small></label>
+              <Show when={unavailableRouteProfiles()[route.name]}>{(label) => <p role="alert" class="admin-inline-error">{label()} is unavailable for Dynamic Routes. Choose a Dynamic Route profile.</p>}</Show>
             </div>
             <Show when={!validContext(route)}><p class="admin-inline-error">Enter a positive whole-number context window before activating this route.</p></Show>
             <Show when={profile()}>{(selected) => <div class="admin-profile-explanation">

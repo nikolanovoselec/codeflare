@@ -28,6 +28,7 @@ const catalog: ReasoningCatalog = {
     { id: 'workers-ai-kimi-k-thinking', revision: 1, hash: hash('b'), name: 'Kimi thinking', supportedLevels: ['medium', 'high'], classification: 'Verified' },
     { id: 'workers-ai-glm-thinking', revision: 1, hash: hash('a'), name: 'GLM thinking', supportedLevels: ['off', 'medium', 'high'], classification: 'Verified' },
     { id: 'codeflare-inference-mesh-binary-thinking', revision: 1, hash: hash('6'), name: 'Mesh binary thinking', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
+    { id: 'dynamic-bedrock-anthropic-provider-default', revision: 1, hash: hash('4'), name: 'AWS Bedrock Claude provider default', supportedLevels: [], classification: 'Verified' },
     { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c'), name: 'AWS Bedrock · Anthropic Claude', supportedLevels: [], classification: 'Verified' },
     { id: 'bedrock-anthropic-native-sonnet', revision: 1, hash: hash('7'), name: 'AWS Bedrock Claude Sonnet · native', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
     { id: 'bedrock-anthropic-native-opus-stream', revision: 1, hash: hash('8'), name: 'AWS Bedrock Claude Opus · native stream', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high'], classification: 'Verified' },
@@ -572,6 +573,25 @@ describe('Structured AI routing', () => {
     expect(Array.from(profile.options, (option) => option.text)).not.toContain('Native Route - AWS Bedrock - Claude Opus');
     expect(profile).toHaveValue(profileKey(kimiRef));
     expect(within(profile).queryByRole('option', { name: 'GPT-OSS tool replay' })).toBeNull();
+  });
+
+  it('REQ-ENTERPRISE-075: removes hidden provider-native authority from a Dynamic Route draft until an allowed profile is selected', async () => {
+    const nativeRef = { id: 'bedrock-anthropic-native-sonnet', revision: 1, hash: hash('7') };
+    const view = mount({
+      ...checkedCurrent(),
+      reasoningConfiguration: { ...current.reasoningConfiguration, routeAssignments: {
+        ...current.reasoningConfiguration.routeAssignments,
+        general_usage: { activeProfile: nativeRef, routeVersion: 'general_usage-v2', verification: proof('general_usage', nativeRef) },
+      } },
+    });
+    await ready(view, 'general_usage');
+    const profile = view.getByLabelText('general_usage Pi compatibility profile') as HTMLSelectElement;
+    expect(profile).toHaveValue('');
+    expect(view.getByRole('alert')).toHaveTextContent('Native Route - AWS Bedrock - Claude Sonnet is unavailable for Dynamic Routes');
+    expect(formValues(view.container).reasoningConfiguration.routeAssignments.general_usage).toBeUndefined();
+    await fireEvent.change(profile, { target: { value: profileKey(glmRef) } });
+    expect(view.queryByText(/unavailable for Dynamic Routes/)).toBeNull();
+    expect(formValues(view.container).reasoningConfiguration.routeAssignments.general_usage).toEqual({ activeProfile: glmRef });
   });
 
   it('REQ-ENTERPRISE-034: offers one primary action on the expanded route and runs route-only protocol discovery', async () => {
