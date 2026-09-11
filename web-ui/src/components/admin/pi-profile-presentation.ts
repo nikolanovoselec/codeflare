@@ -8,6 +8,7 @@ const BUILTIN_PRESENTATION: Record<string, { label: string; basis: string }> = {
   'openai-gpt-chat-tools-reasoning': { label: 'Dynamic Route - OpenAI - GPT tools and reasoning', basis: 'Tested with GPT through OpenAI, including tools and supported reasoning controls.' },
   'openai-gpt-chat-tools-off': { label: 'Dynamic Route - OpenAI - GPT reasoning off', basis: 'Tested with GPT through OpenAI using tools with reasoning disabled.' },
   'codeflare-inference-mesh-binary-thinking': { label: 'Dynamic Route - Codeflare Inference Mesh - Qwen/Ornith', basis: 'Tested with Qwen and Ornith through Codeflare Inference Mesh.' },
+  'dynamic-bedrock-anthropic-provider-default': { label: 'Dynamic Route - AWS Bedrock - Claude tools, provider default reasoning', basis: 'Tested with Claude Sonnet 5 and Opus 5 through Bedrock Dynamic Routes using streaming tool replay.' },
   'bedrock-anthropic-compat': { label: 'Native Route - AWS Bedrock - Claude', basis: 'Externally validated with Claude Sonnet 5 and Opus 5 through the codeflare-enterprise gateway.' },
   'native-google-ai-studio-compat': { label: 'Native Route - Google AI Studio - Gemini', basis: 'Live-tested with Gemini 3.1 Pro and 3.7/3.8 Flash, including signed tool replay.' },
   'native-openai-compat': { label: 'Native Route - OpenAI - GPT-5.6 tools off', basis: 'Live-tested with GPT-5.6 Sol, Terra, and Luna using tools with reasoning disabled.' },

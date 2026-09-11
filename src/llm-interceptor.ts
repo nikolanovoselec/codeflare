@@ -576,7 +576,8 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     const contentType = upstream.headers.get('content-type') ?? '';
     const isStreamingChat =
       contentType.includes('text/event-stream') && url.pathname.endsWith('/chat/completions');
-    const normalizedBody = upstream.body && isStreamingChat && effectiveAdapter === 'bedrock-anthropic-compat'
+    const normalizedBody = upstream.body && isStreamingChat
+      && (effectiveAdapter === 'bedrock-anthropic-compat' || effectiveAdapter === 'dynamic-bedrock-anthropic-provider-default')
       ? upstream.body.pipeThrough(repairRepeatedCompleteToolNames(declaredToolNames)) : upstream.body;
     const responseBody = normalizedBody && isStreamingChat ? normalizedBody.pipeThrough(ensureStreamTerminator()) : normalizedBody;
 

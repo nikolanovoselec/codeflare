@@ -759,6 +759,30 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ---
 
+### REQ-ENTERPRISE-070: Bedrock Dynamic Route Provider-default Profile
+
+**Intent:** Administrators can use verified Bedrock Claude Dynamic Routes for Pi tool calling without overstating reasoning control.
+
+**Applies To:** Admin, Worker
+
+**Acceptance Criteria:**
+
+1. The profile catalogue provides a Dynamic Route Bedrock Anthropic profile with verified tool compatibility, provider-default reasoning, and no selectable Pi reasoning levels. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @impl: web-ui/src/components/admin/pi-profile-presentation.ts::profileDisplayName --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-070: gives Bedrock Dynamic Routes a distinct tool-capable provider-default profile) -->
+2. Discovery and runtime normalize repeated complete Bedrock tool names before Pi consumes the stream, while preserving tool IDs and argument fragments. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-070: repairs repeated Bedrock tool names while verifying a Dynamic Route provider-default profile) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-070: applies Bedrock tool-name repair to a Dynamic Route provider-default profile) -->
+3. Runtime continues dispatching the selected profile through its original `dynamic/<route>` selector. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-070: applies Bedrock tool-name repair to a Dynamic Route provider-default profile) -->
+
+**Constraints:** Dynamic Routing exposes no verified Off or graduated reasoning controls for this profile; native-provider evidence is not transferred to it.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-032](#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-043](#req-enterprise-043-enterprise-pi-verified-route-activation)
+
+**Verification:** Anchored behavioral fixtures; execution is CI-only.
+
+**Status:** Implemented
+
+---
+
 ### REQ-ENTERPRISE-045: Pi Compatibility Profile Communication
 
 **Intent:** Administrators understand profiles as Pi-to-AI-Gateway translation for tool calling and reasoning, including their tested provider basis.

@@ -1254,10 +1254,10 @@ start_sync_daemon() {
         # still-running sleep, and the next iteration runs the
         # bisync. Skip the sleep entirely if a trigger was queued
         # while finishing the prior cycle (RERUN_REQUESTED) or while
-        # we were idle (REQUESTED). Cadence is 15 min (AD56).
+        # we were idle (REQUESTED). Healthy cadence is 15 min; a failed cycle retries after 2 min (AD56).
         BISYNC_CYCLE_TRIGGER="manual"
         if [ "$BISYNC_REQUESTED" = "0" ] && [ "$BISYNC_RERUN_REQUESTED" = "0" ]; then
-            sleep 900 &
+            sleep $((CONSECUTIVE_FAILURES > 0 ? 120 : 900)) &
             SYNC_SLEEP_PID=$!
             if wait "$SYNC_SLEEP_PID" 2>/dev/null; then
                 # Only an uninterrupted cadence wait is natural. A USR1/USR2

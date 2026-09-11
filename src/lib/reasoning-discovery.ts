@@ -991,7 +991,7 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
     maxResponseBytes: input.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
     compatOnly: input.compatOnly,
     byokAlias: input.byokAlias,
-    repairToolNames: profile.id === 'bedrock-anthropic-compat',
+    repairToolNames: profile.id === 'bedrock-anthropic-compat' || profile.id === 'dynamic-bedrock-anthropic-provider-default',
   };
   const groups = groupMappings(profile);
   const accounting: Accounting = { logicalProbes: 0, httpAttempts: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };

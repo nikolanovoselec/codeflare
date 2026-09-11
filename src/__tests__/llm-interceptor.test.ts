@@ -341,6 +341,31 @@ describe('REQ-ENTERPRISE-032: selected-route capability translation', () => {
     expect(payload!.reasoning_effort).toBe('medium');
   });
 
+  it('REQ-ENTERPRISE-070: applies Bedrock tool-name repair to a Dynamic Route provider-default profile', async () => {
+    const env = { __kv: {
+      'setup:dynamic_routes': JSON.stringify(['bedrock_opus']),
+      'setup:default_route': JSON.stringify({ route: 'bedrock_opus', reasoning: 'off' }),
+      'setup:reasoning_configuration': JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {
+        bedrock_opus: { activeProfile: getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default') },
+      } }),
+    } } as unknown as Partial<Env>;
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
+      return new Response([
+        `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'bedrock-call', type: 'function', function: { name: 'lookup', arguments: '{}' } }] }, finish_reason: null }] })}`,
+        `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { name: 'lookup', arguments: '' } }] }, finish_reason: null }] })}`,
+        'data: [DONE]', '',
+      ].join('\n\n'), { headers: { 'content-type': 'text/event-stream' } });
+    });
+    const response = await makeInterceptor(env).fetch(new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', body: JSON.stringify({ model: 'bedrock_opus', messages: [], tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }] }),
+    }));
+    expect(JSON.parse(lastFetch!.body).model).toBe('dynamic/bedrock_opus');
+    const text = await response.text();
+    expect((text.match(/"name":"lookup"/g) ?? [])).toHaveLength(1);
+    expect(text).toContain('"finish_reason":"tool_calls"');
+  });
+
   it('AC3: fails closed before provider I/O when the selected route profile does not map the level', async () => {
     lastFetch = null;
     const { response } = await send('development', 'off');

@@ -8,6 +8,7 @@ const BUILTIN_IDS = [
   'workers-ai-kimi-k-thinking',
   'workers-ai-glm-thinking',
   'codeflare-inference-mesh-binary-thinking',
+  'dynamic-bedrock-anthropic-provider-default',
   'native-google-ai-studio-compat',
   'native-openai-compat',
   'native-codeflare-inference-mesh-compat',
@@ -36,6 +37,15 @@ function customProfile(overrides: Record<string, unknown> = {}) {
 }
 
 describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
+  it('REQ-ENTERPRISE-070: gives Bedrock Dynamic Routes a distinct tool-capable provider-default profile', () => {
+    const profile = profiles.getBuiltInProfile('dynamic-bedrock-anthropic-provider-default');
+    expect(profile).toMatchObject({
+      reasoningMode: 'provider-default', supportedLevels: [], levels: {}, validatedTransports: ['compat'],
+      toolCompatibility: { status: 'verified', levels: [] }, classification: 'Verified',
+    });
+    expect(profile?.originallyCreatedAgainst).toMatchObject({ provider: 'aws-bedrock', routes: ['bedrock_sonnet', 'bedrock_opus'] });
+  });
+
   it('REQ-ENTERPRISE-048: Bedrock Anthropic uses provider-default opaque reasoning without Pi levels', () => {
     const profile = profiles.getBuiltInProfile('bedrock-anthropic-compat');
     expect(profile).toMatchObject({ id: 'bedrock-anthropic-compat', name: 'AWS Bedrock · Anthropic Claude', reasoningMode: 'provider-default', supportedLevels: [], levels: {}, validatedTransports: ['compat'] });

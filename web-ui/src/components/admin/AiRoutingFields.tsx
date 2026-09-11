@@ -177,8 +177,9 @@ const AiRoutingFields: Component<Props> = (props) => {
   const updateVerification = (name: string, update: VerificationDraft) => setVerifications((items) => ({ ...items, [name]: update }));
   const checksBusy = () => profileEditorBusy() || Object.values(verifications()).some((value) => value.busy) || nativeTargets().some((target) => target.busy);
   // REQ-ENTERPRISE-044: compare editable semantics, not inventory-driven policy normalization.
+  const routeDraftEntry = (route: RouteDraft) => ({ name: route.name, contextWindow: route.contextWindow, assignment: route.assignment });
   const routeDraft = () => routes().filter((route) => storedRoutes.includes(route.name) || route.assignment.activeProfile || route.contextWindow !== DEFAULT_CONTEXT_WINDOW)
-    .map((route) => ({ name: route.name, contextWindow: route.contextWindow, assignment: route.assignment })).sort((a, b) => a.name.localeCompare(b.name));
+    .map(routeDraftEntry).sort((a, b) => a.name.localeCompare(b.name));
   const draftKey = () => JSON.stringify({
     gatewayUrl: effectiveGatewayUrl(), gatewayId: effectiveGatewayId(), replacementToken: replacementToken().trim(),
     routes: routeDraft(),
@@ -187,7 +188,7 @@ const AiRoutingFields: Component<Props> = (props) => {
     customRevisions: customRevisions(),
     nativeTargets: nativeSubmission(),
   });
-  const initialRouteDraftKey = JSON.stringify(routeDraft());
+  const initialRouteDraftKeys = new Map(routeDraft().map((route) => [route.name, JSON.stringify(route)]));
   const initialDraftKey = draftKey();
   createEffect(() => props.onDirtyChange?.(draftKey() !== initialDraftKey));
   let disposed = false;
@@ -260,7 +261,7 @@ const AiRoutingFields: Component<Props> = (props) => {
     .some((name) => gatewayRoutes().includes(name) && Boolean(routeByName(name)?.inventoryBusy));
   const nativeConfigurationReady = () => nativeDirty() && nativeSubmission().every((target) => nativeTargetDraftShapeValid(target)
     && Boolean(findProfile(target.profileRef)));
-  const verifiedRouteConfigurationReady = () => JSON.stringify(routeDraft()) !== initialRouteDraftKey && eligibleRoutes().length > 0
+  const verifiedRouteConfigurationReady = () => eligibleRoutes().some((route) => JSON.stringify(routeDraftEntry(route)) !== initialRouteDraftKeys.get(route.name))
     && (!nativeDirty() || nativeConfigurationReady());
   const canSave = () => connectionReady() && !policyInventoryPending() && !checksBusy()
     && (!fallbackEnabled() || normalizedFallback().routes.length > 0)
