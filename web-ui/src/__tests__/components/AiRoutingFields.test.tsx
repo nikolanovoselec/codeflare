@@ -370,7 +370,12 @@ describe('Structured AI routing', () => {
     await addNativeTarget(view);
     expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
     await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Claude draft' } });
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'arn:aws:bedrock:eu-central-1:123:model/claude' } });
+    expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
     await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-sonnet-5' } });
+    await fireEvent.input(view.getByLabelText('Native target 1 context window'), { target: { value: '4000001' } });
+    expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
+    await fireEvent.input(view.getByLabelText('Native target 1 context window'), { target: { value: '200000' } });
     await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
     expect(formValues(view.container)).toMatchObject({ dynamicRoutes: [], groupRouting: [], fallbackRouting: { enabled: false } });
     expect(formValues(view.container).nativeTargets).toMatchObject([{ label: 'Claude draft', enabled: false }]);

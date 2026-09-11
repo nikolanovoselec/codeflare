@@ -146,7 +146,7 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     expect(kv.delete).not.toHaveBeenCalled();
   });
 
-  it('rejects reasoning without a global default route', async () => {
+  it('REQ-ENTERPRISE-039: rejects reasoning without a global default route', async () => {
     const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'saved-token' });
 
     const response = await post(app, {

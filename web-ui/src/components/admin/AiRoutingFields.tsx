@@ -10,6 +10,7 @@ import type {
 } from '../../types';
 import ReasoningProfileEditor, { DISCOVERY_COMPLETION_TOKENS, ReasoningCheckDetails, ReasoningCheckOverview, reasoningCheckSummary } from './ReasoningProfileEditor';
 import { profileDisplayName, profileValidationBasis } from './pi-profile-presentation';
+import { nativeTargetDraftSchema } from '../../../../src/lib/native-ai-targets';
 import '../../styles/ai-routing-workspace.css';
 
 interface Props { current: unknown; onReadyChange?: (ready: boolean) => void; onDirtyChange?: (dirty: boolean) => void }
@@ -254,8 +255,8 @@ const AiRoutingFields: Component<Props> = (props) => {
   // REQ-ENTERPRISE-044: pending-policy-inventory must settle before Save can normalize selections.
   const policyInventoryPending = () => [...groups().flatMap((group) => group.routes), ...(fallbackEnabled() ? fallbackPolicy().routes : [])]
     .some((name) => gatewayRoutes().includes(name) && Boolean(routeByName(name)?.inventoryBusy));
-  const nativeConfigurationReady = () => nativeDirty() && nativeTargets().every((target) => target.label.trim() && target.model.trim()
-    && Number.isSafeInteger(target.contextWindow) && target.contextWindow > 16384 && Boolean(findProfile(target.profileRef)));
+  const nativeConfigurationReady = () => nativeDirty() && nativeSubmission().every((target) => nativeTargetDraftSchema.safeParse(target).success
+    && Boolean(findProfile(target.profileRef)));
   const canSave = () => connectionReady() && !policyInventoryPending() && !checksBusy()
     && (!fallbackEnabled() || normalizedFallback().routes.length > 0)
     && (activeGroups().length > 0 || normalizedFallback().routes.length > 0 || gatewayDraft() !== undefined || nativeConfigurationReady());
