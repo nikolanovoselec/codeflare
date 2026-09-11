@@ -663,7 +663,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. A Herdr bump advances its version, commit, checksum, provenance, and launcher pin in one pull request. <!-- @impl: .github/workflows/bump-shadow-pins.yml::herdr --> <!-- @manual: Review the files changed by a generated Herdr bump pull request. -->
 3. Packaged-image CI rejects a Herdr release whose consumed pane-scroll or agent-status subscription API is incompatible. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Container-image CI executes the pinned Herdr binary's schema command and enforces the consumed fields, subscription type, and semantic statuses. -->
 4. Packaged-image CI derives the expected Herdr version from committed provenance and requires an exact output match. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/verify-herdr-version.mjs --> <!-- @test: host/__tests__/herdr-version-verifier.test.js (REQ-OPS-055: accepts the exact version recorded in provenance) --> <!-- @test: host/__tests__/herdr-version-verifier.test.js (REQ-OPS-055: rejects output that merely contains the provenance version) -->
-5. A Herdr bump does not rewrite workflow files. <!-- @impl: .github/workflows/bump-shadow-pins.yml::herdr --> <!-- @manual: Review the generated Herdr bump pull request and confirm it contains no `.github/workflows/` changes. -->
+5. A Herdr bump does not rewrite workflow files. <!-- @impl: .github/workflows/bump-shadow-pins.yml::herdr --> <!-- @manual: Review the generated Herdr bump pull request and confirm it contains no workflow-file changes. -->
 
 **Constraints:** Herdr remains a coordinated GitHub release binary outside Dependabot ownership.
 
