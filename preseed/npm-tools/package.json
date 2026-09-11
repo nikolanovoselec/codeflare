@@ -4,7 +4,7 @@
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.251",
     "@earendil-works/pi-coding-agent": "0.85.1",
-    "@github/copilot": "1.0.82",
+    "@github/copilot": "1.0.83",
     "@openai/codex": "0.151.0",
     "bun": "1.4.0",
     "chrome-devtools-mcp": "1.8.0",
