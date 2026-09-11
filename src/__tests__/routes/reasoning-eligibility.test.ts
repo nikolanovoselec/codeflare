@@ -397,9 +397,13 @@ describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
     expect(JSON.stringify(body)).not.toMatch(/draft-token|private error/);
     expect(f.kv.put).not.toHaveBeenCalled();
   });
-  it('rejects draft gateway credentials, unsafe hosts and provenance before external I/O', async () => {
+  it('rejects invalid draft gateway coordinates, credentials and provenance before external I/O', async () => {
     const f = setup();
-    for (const gateway of [{ gatewayUrl: 'https://evil.example/v1/account/gateway' }, { gatewayUrl, replacementToken: 'bad\r\ntoken' }]) {
+    for (const gateway of [
+      { gatewayUrl: 'https://evil.example/v1/account/gateway' },
+      { gatewayUrl, replacementToken: 'bad\r\ntoken' },
+      { gatewayUrl: accountApiUrl, replacementToken: 'draft-token' },
+    ]) {
       expect((await f.post('catalog', { gateway })).status).toBe(400);
     }
     expect((await f.post('routes/working/inventory', { backendDescriptions: { model: 'bad\nvalue' } })).status).toBe(400);
@@ -422,6 +426,19 @@ describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
     expect(await response.json()).toMatchObject({ routeCatalogStatus: 'ready', routes: ['working', 'other'] });
     expect(fetch).toHaveBeenCalledWith(
       'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai-gateway/gateways/gateway/routes',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+  it.each([
+    ['account API', { gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'draft-token' }],
+    ['legacy', { gatewayUrl, replacementToken: 'draft-token' }],
+  ])('REQ-ENTERPRISE-063: loads Dynamic Route inventory through the %s URL', async (_label, gateway) => {
+    const f = setup();
+    const response = await f.post('routes/working/inventory', { gateway });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ route: 'working', routeVersion: version });
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai-gateway/gateways/gateway/routes/working',
       expect.objectContaining({ method: 'GET' }),
     );
   });
