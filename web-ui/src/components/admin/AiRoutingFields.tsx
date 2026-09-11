@@ -177,15 +177,17 @@ const AiRoutingFields: Component<Props> = (props) => {
   const updateVerification = (name: string, update: VerificationDraft) => setVerifications((items) => ({ ...items, [name]: update }));
   const checksBusy = () => profileEditorBusy() || Object.values(verifications()).some((value) => value.busy) || nativeTargets().some((target) => target.busy);
   // REQ-ENTERPRISE-044: compare editable semantics, not inventory-driven policy normalization.
+  const routeDraft = () => routes().filter((route) => storedRoutes.includes(route.name) || route.assignment.activeProfile || route.contextWindow !== DEFAULT_CONTEXT_WINDOW)
+    .map((route) => ({ name: route.name, contextWindow: route.contextWindow, assignment: route.assignment })).sort((a, b) => a.name.localeCompare(b.name));
   const draftKey = () => JSON.stringify({
     gatewayUrl: effectiveGatewayUrl(), gatewayId: effectiveGatewayId(), replacementToken: replacementToken().trim(),
-    routes: routes().filter((route) => storedRoutes.includes(route.name) || route.assignment.activeProfile || route.contextWindow !== DEFAULT_CONTEXT_WINDOW)
-      .map((route) => ({ name: route.name, contextWindow: route.contextWindow, assignment: route.assignment })).sort((a, b) => a.name.localeCompare(b.name)),
+    routes: routeDraft(),
     groups: groups().map((group) => ({ ...group, routes: [...group.routes].sort() })),
     fallback: fallbackEnabled() ? { enabled: true, ...fallbackPolicy(), routes: [...fallbackPolicy().routes].sort() } : { enabled: false },
     customRevisions: customRevisions(),
     nativeTargets: nativeSubmission(),
   });
+  const initialRouteDraftKey = JSON.stringify(routeDraft());
   const initialDraftKey = draftKey();
   createEffect(() => props.onDirtyChange?.(draftKey() !== initialDraftKey));
   let disposed = false;
@@ -258,10 +260,12 @@ const AiRoutingFields: Component<Props> = (props) => {
     .some((name) => gatewayRoutes().includes(name) && Boolean(routeByName(name)?.inventoryBusy));
   const nativeConfigurationReady = () => nativeDirty() && nativeSubmission().every((target) => nativeTargetDraftShapeValid(target)
     && Boolean(findProfile(target.profileRef)));
+  const verifiedRouteConfigurationReady = () => JSON.stringify(routeDraft()) !== initialRouteDraftKey && eligibleRoutes().length > 0
+    && (!nativeDirty() || nativeConfigurationReady());
   const canSave = () => connectionReady() && !policyInventoryPending() && !checksBusy()
     && (!fallbackEnabled() || normalizedFallback().routes.length > 0)
     && (activeGroups().length > 0 || normalizedFallback().routes.length > 0 || gatewayDraft() !== undefined || nativeConfigurationReady()
-      || (draftKey() !== initialDraftKey && (!nativeDirty() || nativeConfigurationReady())));
+      || verifiedRouteConfigurationReady());
   const saveHelp = () => !connectionReady() ? 'Check the AI Gateway connection before saving.' : policyInventoryPending() ? 'Wait for selected route models to finish loading.' : checksBusy() ? 'Wait for the current profile check to finish.' : fallbackEnabled() && !normalizedFallback().routes.length ? 'Choose an available route for fallback access, or turn fallback off.' : '';
   createEffect(() => props.onReadyChange?.(canSave()));
 

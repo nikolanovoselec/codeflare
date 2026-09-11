@@ -404,6 +404,7 @@ describe('Structured AI routing', () => {
     });
     await ready(view, 'general_usage');
     await fireEvent.change(view.getByLabelText('general_usage Pi compatibility profile'), { target: { value: profileKey(glmRef) } });
+    expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
     await fireEvent.click(view.getByRole('button', { name: 'Mark general_usage as verified' }));
     await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
     expect(formValues(view.container)).toMatchObject({ dynamicRoutes: [], groupRouting: [], fallbackRouting: { enabled: false } });
