@@ -106,6 +106,27 @@ describe('REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)', () => {
     expect(vars.ENTERPRISE_DEFAULT_REASONING).toBe('medium');
   });
 
+  it('REQ-ENTERPRISE-005: emits an explicit empty reasoning hint for a provider-default enterprise snapshot', () => {
+    const state = {
+      ...baseState(),
+      _routeCatalog: ['bedrock_opus'],
+      _defaultRoute: 'bedrock_opus',
+      _defaultReasoning: '',
+      _routeReasoningLevels: { bedrock_opus: [] },
+      _routeContextWindows: { bedrock_opus: 1048576 },
+    };
+    const vars = buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env);
+    expect(vars).toHaveProperty('ENTERPRISE_DEFAULT_REASONING', '');
+    expect(vars.ENTERPRISE_DEFAULT_ROUTE).toBe('bedrock_opus');
+    expect(vars.ENTERPRISE_ROUTE_CATALOG).toBe('["bedrock_opus"]');
+    expect(vars.ENTERPRISE_ROUTE_REASONING_LEVELS).toBe('{"bedrock_opus":[]}');
+    expect(vars.ENTERPRISE_ROUTE_CONTEXT_WINDOWS).toBe('{"bedrock_opus":1048576}');
+    // Empty is an authoritative provider-default value, not unconfigured null.
+    expect(buildEnvVars({ ...state, _defaultReasoning: null }, { ENTERPRISE_MODE: 'active' } as Env))
+      .not.toHaveProperty('ENTERPRISE_DEFAULT_REASONING');
+    expect(buildEnvVars(state, {} as Env)).not.toHaveProperty('ENTERPRISE_DEFAULT_REASONING');
+  });
+
   it('fans an authoritative empty catalog when enterprise routing is unset', () => {
     const vars = buildEnvVars(baseState(), { ENTERPRISE_MODE: 'active' } as Env);
     expect(vars.ENTERPRISE_ROUTE_CATALOG).toBe('[]');

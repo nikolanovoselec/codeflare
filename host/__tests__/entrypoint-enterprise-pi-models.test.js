@@ -19,6 +19,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { enterpriseStartup, authorizedRoutes, nativeHandle, nativeLevels, siblingProvider } from '../__fixtures__/enterprise-pi-startup.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
@@ -116,6 +117,43 @@ function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevels
   if (res.status === 0 && existsSync(modelsPath)) modelsJson = JSON.parse(readFileSync(modelsPath, 'utf8'));
   return { code: res.status, stderr: res.stderr, modelsJson };
 }
+
+describe('REQ-ENTERPRISE-058: complete enterprise Pi startup publication', () => {
+  for (const reasoning of [undefined, '']) {
+    it(`replaces restored stale models for provider-default startup (${reasoning === undefined ? 'missing' : 'empty'} effort)`, (t) => {
+      const fixture = enterpriseStartup({ reasoning });
+      t.after(fixture.cleanup);
+      assert.equal(fixture.result.status, 0, fixture.result.stderr);
+      const models = fixture.readModels();
+      const gateway = models.providers['codeflare-gateway'];
+      assert.deepEqual(gateway.models.map(({ id }) => id), authorizedRoutes);
+      assert.deepEqual(models.providers['unrelated-provider'], siblingProvider);
+      assert.deepEqual(gateway.models[0], {
+        id: 'bedrock_opus', name: 'bedrock_opus', reasoning: false,
+        compat: { supportsReasoningEffort: false }, input: ['text', 'image'], contextWindow: 1048576, maxTokens: 16384,
+      });
+      assert.equal(gateway.models[1].id, nativeHandle);
+      assert.equal(gateway.models[1].name, 'bedrock-opus-5');
+      assert.deepEqual(gateway.models[1].thinkingLevelMap, Object.fromEntries(nativeLevels.map((level) => [level, level])));
+      assert.deepEqual(fixture.readSettings(), { defaultProvider: 'codeflare-gateway', defaultModel: 'bedrock_opus', theme: 'dark' });
+      assert.doesNotMatch(fixture.result.stdout, /could not build Pi enterprise gateway config/);
+    });
+  }
+
+  for (const [name, options] of [
+    ['malformed authoritative capabilities', { reasoning: '', levels: { bedrock_opus: [], [nativeHandle]: ['invalid-level'] } }],
+    ['missing native capabilities', { reasoning: '', levels: { bedrock_opus: [] } }],
+  ]) {
+    it(`removes stale managed state without false success after ${name}`, (t) => {
+      const fixture = enterpriseStartup(options);
+      t.after(fixture.cleanup);
+      assert.equal(fixture.result.status, 0, 'a configuration failure must not crash the container');
+      assert.deepEqual(fixture.readModels(), { providers: { 'unrelated-provider': siblingProvider } });
+      assert.deepEqual(fixture.readSettings(), { theme: 'dark' });
+      assert.doesNotMatch(fixture.result.stdout, /Pi pinned to/);
+    });
+  }
+});
 
 describe('entrypoint enterprise Pi settings.json thinking-level passthrough (REQ-ENTERPRISE-005)', () => {
   it('writes the wizard reasoning grade verbatim as defaultThinkingLevel, preserving other keys', () => {

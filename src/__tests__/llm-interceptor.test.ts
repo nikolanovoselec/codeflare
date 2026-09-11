@@ -366,12 +366,66 @@ describe('REQ-ENTERPRISE-032: selected-route capability translation', () => {
     expect(text).toContain('"finish_reason":"tool_calls"');
   });
 
-  it('AC3: fails closed before provider I/O when the selected route profile does not map the level', async () => {
-    lastFetch = null;
-    const { response } = await send('development', 'off');
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ code: 'UNSUPPORTED_REASONING_LEVEL' });
-    expect(lastFetch).toBeNull();
+  it.each([
+    ['off', 'low'],
+    ['minimal', 'low'],
+    ['medium', 'medium'],
+    ['max', 'high'],
+  ])('REQ-ENTERPRISE-032: translates Kimi %s within the selected profile to wire effort %s, using the next higher level for Off', async (level, effort) => {
+    const { response, payload } = await send('development', level);
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({
+      model: 'dynamic/development',
+      messages: [{ role: 'user', content: 'hello' }],
+      reasoning_effort: effort,
+      chat_template_kwargs: { unrelated: 'preserved', enable_thinking: true, clear_thinking: false },
+    });
+  });
+
+  it('REQ-ENTERPRISE-032: an unrecognized reasoning hint uses the selected route preferred mapping', async () => {
+    const { response, payload } = await send('development', 'unrecognized');
+    expect(response.status).toBe(200);
+    expect(payload!.model).toBe('dynamic/development');
+    expect(payload!.reasoning_effort).toBe('medium');
+  });
+
+  it.each(['off', 'max'])('REQ-ENTERPRISE-032: maps %s to the only executable level in the assigned off-only Dynamic Route profile', async (level) => {
+    const response = await makeInterceptor().fetch(new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', body: JSON.stringify({ model: 'codeflare-enterprise', reasoning_effort: level, messages: [{ role: 'user', content: 'hello' }] }),
+    }));
+    expect(response.status).toBe(200);
+    expect(JSON.parse(lastFetch!.body)).toEqual({
+      model: 'dynamic/codeflare-enterprise', reasoning_effort: 'none', messages: [{ role: 'user', content: 'hello' }],
+    });
+  });
+
+  it.each(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])('REQ-ENTERPRISE-032: normalizes Dynamic Route provider-default %s without losing tools, replay, or unrelated fields', async (level) => {
+    const env = { __kv: {
+      'setup:dynamic_routes': JSON.stringify(['bedrock_opus']),
+      'setup:default_route': JSON.stringify({ route: 'bedrock_opus', reasoning: 'off' }),
+      'setup:reasoning_configuration': JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {
+        bedrock_opus: { activeProfile: getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default') },
+      } }),
+    } } as unknown as Partial<Env>;
+    const preserved = {
+      stream: true, temperature: 0.4,
+      messages: [
+        { role: 'user', content: 'Look up x' },
+        { role: 'assistant', content: null, tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' } }] },
+        { role: 'tool', tool_call_id: 'call_1', content: 'found' },
+      ],
+      tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object', properties: { q: { type: 'string' } } } } }],
+      tool_choice: 'auto',
+    };
+    const response = await makeInterceptor(env).fetch(new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', body: JSON.stringify({
+        ...preserved, model: 'bedrock_opus', reasoning_effort: level, reasoning: { effort: 'high' }, thinking: { type: 'enabled', budget_tokens: 1024 },
+        chat_template_kwargs: { enable_thinking: true, thinking: true, clear_thinking: false, unrelated: { value: 'keep' } },
+      }),
+    }));
+    expect(response.status).toBe(200);
+    expect(lastFetch?.url).toBe(`${REST_BASE}/v1/chat/completions`);
+    expect(JSON.parse(lastFetch!.body)).toEqual({ ...preserved, model: 'dynamic/bedrock_opus', chat_template_kwargs: { unrelated: { value: 'keep' } } });
   });
 
   it('denies legacy assignments without server verification when the atomic configuration is absent', async () => {
@@ -883,14 +937,45 @@ describe('native provider authorization and compat dispatch', () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it('REQ-ENTERPRISE-078: rejects Opus eventstream levels above High before provider I/O', async () => {
+  it.each(['high', 'xhigh', 'max'])('REQ-ENTERPRISE-078: maps Opus %s to High within the explicit eventstream profile without switching to Invoke', async (level) => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
+      return new Response('provider failure', { status: 502 });
+    });
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: fixture.handle, reasoning_effort: level, stream: true, messages: [{ role: 'user', content: 'Use a tool' }],
+        tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }],
+      }) }),
+    );
+    expect(response.status).toBe(502);
+    // Failed provider-native requests must not incur a paid retry or transport fallback.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke-with-response-stream`);
+    expect(lastFetch?.headers.get('accept')).toBe('application/vnd.amazon.eventstream');
+    expect(JSON.parse(lastFetch!.body)).toEqual({
+      anthropic_version: 'bedrock-2023-05-31', max_tokens: 4096,
+      thinking: { type: 'adaptive' }, output_config: { effort: 'high' },
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'Use a tool' }] }],
+      tools: [{ name: 'lookup', input_schema: { type: 'object' } }],
+    });
+  });
+
+  it('REQ-ENTERPRISE-073: downward mapping of Max still requires signed native tool replay', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
       transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
     const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }).fetch(
-      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'xhigh', stream: true, messages: [] }) }),
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: fixture.handle, reasoning_effort: 'max', stream: true, messages: [
+          { role: 'assistant', tool_calls: [{ id: 'call_missing', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+          { role: 'tool', tool_call_id: 'call_missing', content: 'found' },
+        ],
+      }) }),
     );
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ code: 'UNSUPPORTED_REASONING_LEVEL' });
+    expect(await response.json()).toMatchObject({ code: 'INVALID_NATIVE_REQUEST', error: 'Native Bedrock signed thinking state is unavailable' });
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
@@ -1047,19 +1132,88 @@ describe('native provider authorization and compat dispatch', () => {
     expect(await response.text()).toContain('"format":"codeflare.google.thought_signature.v1"');
   });
 
-  it('REQ-ENTERPRISE-048: rejects reasoning controls for provider-default targets before upstream I/O', async () => {
-    const fixture = nativeFixture();
+  it.each(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])('REQ-ENTERPRISE-059: normalizes Gemini provider-default %s while round-tripping thought signatures through Pi replay metadata', async (level) => {
+    const fixture = nativeFixture(true, { provider: 'google-ai-studio', model: 'gemini-3.1-pro-preview', profileId: 'native-google-ai-studio-compat', providerConfigId: 'gemini-default', providerConfigAlias: 'default', adapterVersion: 'gemini-openai-compat-v1' });
+    let sent: Record<string, any> | undefined;
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      const request = input as Request; sent = JSON.parse(await request.text());
+      return new Response(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{}' }, extra_content: { google: { thought_signature: 'opaque-state' } } }] }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`, { headers: { 'content-type': 'text/event-stream' } });
+    });
+    const tools = [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }];
     const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
-      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'off', messages: [] }) }),
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: fixture.handle, reasoning_effort: level, reasoning: { effort: 'high' }, thinking: { type: 'enabled' },
+        chat_template_kwargs: { enable_thinking: true, thinking: true, clear_thinking: false, unrelated: 'keep' },
+        temperature: 0.4, tools,
+        messages: [{ role: 'assistant', tool_calls: [{ id: 'call_0', type: 'function', function: { name: 'lookup', arguments: '{}' } }], reasoning_details: [{ type: 'reasoning.encrypted', id: 'call_0', format: 'codeflare.google.thought_signature.v1', data: 'prior-state' }] }, { role: 'tool', tool_call_id: 'call_0', content: 'ok' }],
+      }) }),
     );
-    expect(response.status).toBe(400);
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(sent).toEqual({
+      model: 'google-ai-studio/gemini-3.1-pro-preview', temperature: 0.4, tools,
+      chat_template_kwargs: { unrelated: 'keep' },
+      messages: [
+        { role: 'assistant', tool_calls: [{ id: 'call_0', type: 'function', function: { name: 'lookup', arguments: '{}' }, extra_content: { google: { thought_signature: 'prior-state' } } }] },
+        { role: 'tool', tool_call_id: 'call_0', content: 'ok' },
+      ],
+    });
+    const text = await response.text();
+    expect(text).toContain('"format":"codeflare.google.thought_signature.v1"');
+    expect(text).toContain('"data":"opaque-state"');
+  });
+
+  describe.each<[NativeFixtureOptions, string]>([
+    [{}, 'aws-bedrock/eu.anthropic.claude-sonnet-5'],
+    [{ provider: 'codeflare-inference-mesh', customProvider: true, model: 'ornith-1-5-9b-gguf-q8-0', profileId: 'native-codeflare-inference-mesh-compat', providerConfigId: 'mesh-default', providerConfigAlias: 'default', adapterVersion: 'native-openai-compat-v1' }, 'custom-codeflare-inference-mesh/ornith-1-5-9b-gguf-q8-0'],
+  ])('native provider-default normalization for %s', (options, selector) => {
+    it.each(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])('REQ-ENTERPRISE-048: ignores %s and removes only reasoning controls while preserving tools and replay', async (level) => {
+      const fixture = nativeFixture(true, options);
+      const preserved = {
+        temperature: 0.4, stream: true,
+        messages: [
+          { role: 'user', content: 'Look up x' },
+          { role: 'assistant', content: null, tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' } }] },
+          { role: 'tool', tool_call_id: 'call_1', content: 'found' },
+        ],
+        tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object', properties: { q: { type: 'string' } } } } }],
+        tool_choice: 'auto',
+      };
+      const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+        new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+          ...preserved, model: fixture.handle, reasoning_effort: level, reasoning: { effort: 'high' }, thinking: { type: 'enabled', budget_tokens: 1024 },
+          chat_template_kwargs: { enable_thinking: true, thinking: true, clear_thinking: false, unrelated: { value: 'keep' } },
+        }) }),
+      );
+      expect(response.status).toBe(200);
+      expect(lastFetch?.url).toBe(`${GATEWAY}/compat/chat/completions`);
+      expect(JSON.parse(lastFetch!.body)).toEqual({ ...preserved, model: selector, chat_template_kwargs: { unrelated: { value: 'keep' } } });
+    });
+  });
+
+  it.each(['off', 'max'])('REQ-ENTERPRISE-050: maps native OpenAI %s to the only executable off level without changing its assigned target', async (level) => {
+    const fixture = nativeFixture(true, { provider: 'openai', model: 'gpt-5.6-sol', profileId: 'native-openai-compat', providerConfigId: 'openai-default', providerConfigAlias: 'default', adapterVersion: 'native-openai-compat-v1' });
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: level, messages: [{ role: 'user', content: 'hello' }] }) }),
+    );
+    expect(response.status).toBe(200);
+    expect(lastFetch?.url).toBe(`${GATEWAY}/compat/chat/completions`);
+    expect(JSON.parse(lastFetch!.body)).toEqual({ model: 'openai/gpt-5.6-sol', reasoning_effort: 'none', messages: [{ role: 'user', content: 'hello' }] });
+    expect(lastFetch?.headers.get('cf-aig-byok-alias')).toBe('default');
   });
 
   it('REQ-ENTERPRISE-049: revoked native handles fail before upstream I/O without fallback', async () => {
     const fixture = nativeFixture(false);
     const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, messages: [] }) }),
+    );
+    expect(response.status).toBe(403);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])('REQ-ENTERPRISE-049: revoked native handles with %s still fail before upstream I/O without fallback', async (level) => {
+    const fixture = nativeFixture(false);
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: level, messages: [] }) }),
     );
     expect(response.status).toBe(403);
     expect(globalThis.fetch).not.toHaveBeenCalled();

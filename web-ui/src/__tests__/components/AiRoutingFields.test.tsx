@@ -174,6 +174,18 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Behavioral fixtures are execution-pending; CI owns RED/GREEN verification.
 describe('Structured AI routing', () => {
+  it('REQ-ENTERPRISE-041: navigates Dynamic routes and Native routes and adds a Native Route', async () => {
+    const view = mount();
+    await view.findByText('Connected · 3 routes readable');
+    const navigation = within(view.getByRole('navigation', { name: 'AI Gateway configuration sections' }));
+    await fireEvent.click(navigation.getByRole('button', { name: 'Dynamic routes', exact: true }));
+    expect(view.getByRole('heading', { name: 'Dynamic routes', exact: true })).toBeVisible();
+    await fireEvent.click(navigation.getByRole('button', { name: 'Native routes', exact: true }));
+    expect(view.getByRole('heading', { name: 'Native routes', exact: true })).toBeVisible();
+    await fireEvent.click(view.getByRole('button', { name: 'Add Native Route', exact: true }));
+    expect(formValues(view.container).nativeTargets).toHaveLength(1);
+    expect(view.submit).not.toHaveBeenCalled();
+  });
   it('REQ-ENTERPRISE-075: binds native Bedrock transport and region to the evidence-backed profile draft', async () => {
     const view = mount();
     await addNativeTarget(view);
