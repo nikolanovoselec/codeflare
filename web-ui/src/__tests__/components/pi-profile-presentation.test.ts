@@ -13,5 +13,15 @@ describe('REQ-ENTERPRISE-045/064: provider-aware Pi compatibility profiles', () 
     expect(profileDisplayName({ id: 'bedrock-anthropic-native-sonnet' })).toBe('Native Route - AWS Bedrock - Claude Sonnet');
     expect(profileDisplayName({ id: 'bedrock-anthropic-native-opus-stream' })).toBe('Native Route - AWS Bedrock - Claude Opus');
     expect(profileDisplayName({ id: 'bedrock-anthropic-native-opus-invoke' })).toBe('Native Route - AWS Bedrock - Claude Opus');
+    expect(profileDisplayName({ id: 'bedrock-anthropic-native-opus-auto' })).toBe('Native Route - AWS Bedrock - Claude Opus');
+    expect(profileDisplayName({ id: 'bedrock-anthropic-compat' })).toBe('Native Route - AWS Bedrock - Claude');
+  });
+
+  it('REQ-ENTERPRISE-078: gives automatic Opus presentation metadata without changing canonical identity', () => {
+    const profile = { id: 'bedrock-anthropic-native-opus-auto', name: 'Canonical automatic Opus', revision: 1, hash: 'immutable-hash' };
+    const original = { ...profile };
+    expect(profileDisplayName(profile)).toBe('Native Route - AWS Bedrock - Claude Opus');
+    expect(profileValidationBasis(profile)).toBe('Validated with Claude Opus 5 through provider-native Bedrock transport.');
+    expect(profile).toEqual(original);
   });
 });

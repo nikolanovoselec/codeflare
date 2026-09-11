@@ -582,6 +582,7 @@ reasoningRoutes.post('/native/profile-discovery', requireAdmin, discoveryRateLim
       const opus = request.data.target.model.includes('.claude-opus-5');
       if (!sonnet && !opus) return c.json({ error: 'No validated provider-native Bedrock profile covers this model', code: 'unsupported_model' }, 409);
       const profileId = sonnet ? 'bedrock-anthropic-native-sonnet'
+        : request.data.target.transport === 'aig-bedrock-anthropic-auto' ? 'bedrock-anthropic-native-opus-auto'
         : request.data.target.transport === 'aig-bedrock-anthropic-eventstream' ? 'bedrock-anthropic-native-opus-stream' : 'bedrock-anthropic-native-opus-invoke';
       const profile = getBuiltInProfile(profileId)!;
       return c.json({ schemaVersion: 1, route: `${provider.provider}/${request.data.target.model}`, outcome: 'existing-profile', classification: 'Verified', assignable: true,

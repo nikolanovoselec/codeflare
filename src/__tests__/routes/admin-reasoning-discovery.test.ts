@@ -64,6 +64,32 @@ function partialProfile(enabled = true) {
 describe('REQ-ENTERPRISE-035 actionable route discovery', () => {
   beforeEach(() => vi.restoreAllMocks());
 
+  it.each([
+    ['sonnet', 'aig-bedrock-anthropic-auto', 'bedrock-anthropic-native-sonnet'],
+    ['opus', 'aig-bedrock-anthropic-auto', 'bedrock-anthropic-native-opus-auto'],
+    ['opus', 'aig-bedrock-anthropic-eventstream', 'bedrock-anthropic-native-opus-stream'],
+    ['opus', 'aig-bedrock-anthropic-invoke', 'bedrock-anthropic-native-opus-invoke'],
+  ])('REQ-ENTERPRISE-074: discovers %s %s without inference or upgrading saved identities', async (family, transport, profileId) => {
+    const { app } = appWithProfiles();
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      const result = String(url).includes('/provider_configs')
+        ? [{ id: 'bedrock-default', provider_slug: 'aws-bedrock', gateway_id: 'gateway', default_config: true }] : [];
+      return Response.json({ success: true, result, result_info: { page: 1, count: result.length, per_page: 100, total_count: result.length } });
+    });
+    const response = await app.request('/admin/reasoning/native/profile-discovery', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ target: { label: family, provider: 'aws-bedrock', model: `eu.anthropic.claude-${family}-5`,
+        contextWindow: 200000, transport, region: 'eu-central-1', enabled: false } }),
+    });
+    expect(response.status).toBe(200);
+    const profile = getBuiltInProfile(profileId)!;
+    expect(await response.json()).toMatchObject({ outcome: 'existing-profile', assignable: true,
+      matchedProfiles: [{ profileRef: { id: profile.id, revision: profile.revision, hash: profile.hash }, supportedLevels: profile.supportedLevels }],
+      accounting: { logicalProbes: 0, httpAttempts: 0 } });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.every(([url, init]) => String(url).startsWith('https://api.cloudflare.com/') && (init?.method ?? 'GET') === 'GET')).toBe(true);
+  });
+
   it('recommends the exact existing Kimi revision when non-off tools and replay pass but off still reasons', async () => {
     const { app, kv } = appWithProfiles();
     provider((body) => body.chat_template_kwargs?.clear_thinking === false

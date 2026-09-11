@@ -36,6 +36,11 @@ const levelLabel = (level: string) => level.charAt(0).toUpperCase() + level.slic
 const refKey = (ref?: ProfileRevisionRef): string => ref ? `${ref.id}\u001f${ref.revision}\u001f${ref.hash}` : '';
 const profileRefFromEntry = (profile: ReasoningProfileCatalogEntry): ProfileRevisionRef => ({ id: profile.id, revision: profile.revision, hash: profile.hash });
 const inventoryVersion = (inventory?: ReasoningRouteInventory) => inventory?.routeVersion ?? inventory?.versionId;
+// REQ-ENTERPRISE-074/078: defaults apply only to new or changed provider-model identities.
+const newNativeIdentity = (provider: string, model = '', region?: string): Pick<NativeDraft, 'provider' | 'model' | 'transport' | 'region'> => {
+  const nativeBedrock = provider === 'aws-bedrock' && (!model || model.includes('.claude-sonnet-5') || model.includes('.claude-opus-5'));
+  return { provider, model, transport: nativeBedrock ? 'aig-bedrock-anthropic-auto' : 'aig-legacy-compat', region: nativeBedrock ? region || 'eu-central-1' : undefined };
+};
 function profileRef(value: unknown): ProfileRevisionRef | undefined {
   const candidate = record(value);
   return typeof candidate.id === 'string' && typeof candidate.revision === 'number' && typeof candidate.hash === 'string'
@@ -113,7 +118,7 @@ const AiRoutingFields: Component<Props> = (props) => {
     if (!selectedProfile) return [];
     return [{ id: text(target.id) || undefined, handle: text(target.handle) || undefined, label: text(target.label), model: text(target.model),
       provider: text(target.provider) || 'aws-bedrock', contextWindow: typeof target.contextWindow === 'number' ? target.contextWindow : 200000,
-      transport: target.transport === 'aig-bedrock-anthropic-invoke' || target.transport === 'aig-bedrock-anthropic-eventstream' ? target.transport : 'aig-legacy-compat',
+      transport: target.transport === 'aig-bedrock-anthropic-invoke' || target.transport === 'aig-bedrock-anthropic-eventstream' || target.transport === 'aig-bedrock-anthropic-auto' ? target.transport : 'aig-legacy-compat',
       ...(text(target.region) && { region: text(target.region) }), profileRef: selectedProfile, enabled: target.enabled === true,
       ...(text(verification.checkedAt) && { verification: { method: verification.method === 'administrator' ? 'administrator' as const : 'automated' as const, checkedAt: text(verification.checkedAt), current: verification.current === true } }),
     }];
@@ -214,13 +219,10 @@ const AiRoutingFields: Component<Props> = (props) => {
   const preparedProfileId = (provider: string) => provider === 'aws-bedrock' ? 'bedrock-anthropic-compat'
     : provider === 'google-ai-studio' ? 'native-google-ai-studio-compat'
       : provider === 'openai' ? 'native-openai-compat' : 'native-codeflare-inference-mesh-compat';
-  const preparedProfileRef = (provider: string): ProfileRevisionRef | undefined => {
-    const profile = assignableProfiles().find((candidate) => candidate.id === preparedProfileId(provider));
-    return profile ? profileRefFromEntry(profile) : undefined;
-  };
   const nativeProfileId = (target: Pick<NativeDraft, 'provider' | 'model' | 'transport'>): string => {
     if (target.provider !== 'aws-bedrock' || !target.transport || target.transport === 'aig-legacy-compat') return preparedProfileId(target.provider);
-    if (target.model.includes('.claude-sonnet-5')) return 'bedrock-anthropic-native-sonnet';
+    if (!target.model || target.model.includes('.claude-sonnet-5')) return 'bedrock-anthropic-native-sonnet';
+    if (target.transport === 'aig-bedrock-anthropic-auto') return 'bedrock-anthropic-native-opus-auto';
     return target.transport === 'aig-bedrock-anthropic-eventstream' ? 'bedrock-anthropic-native-opus-stream' : 'bedrock-anthropic-native-opus-invoke';
   };
   const nativePreparedProfileRef = (target: Pick<NativeDraft, 'provider' | 'model' | 'transport'>): ProfileRevisionRef | undefined => {
@@ -525,7 +527,7 @@ const AiRoutingFields: Component<Props> = (props) => {
             <Show when={!validContext(route)}><p class="admin-inline-error">Enter a positive whole-number context window before activating this route.</p></Show>
             <Show when={profile()}>{(selected) => <div class="admin-profile-explanation">
               <strong>{profileDisplayName(selected())}</strong><Show when={profileValidationBasis(selected())}>{(basis) => <p>{basis()}</p>}</Show>
-              <dl><div><dt>Reasoning options</dt><dd>{selected().supportedLevels.map(levelLabel).join(', ')}</dd></div><div><dt>Reasoning off</dt><dd>{selected().supportedLevels.includes('off') ? 'Supported' : 'Not supported'}</dd></div></dl>
+              <dl><div><dt>Reasoning options</dt><dd>{selected().supportedLevels.length ? selected().supportedLevels.map(levelLabel).join(', ') : 'Provider default'}</dd></div><Show when={selected().supportedLevels.length > 0}><div><dt>Reasoning off</dt><dd>{selected().supportedLevels.includes('off') ? 'Supported' : 'Not supported'}</dd></div></Show></dl>
             </div>}</Show>
             <div class="admin-route-action-row" role="group" aria-label={`${route.name} profile actions`}>
             <Show when={check().busy}><div class="admin-inline-progress" role="status"><progress aria-label={check().administratorConfirmed ? "Confirming profile" : "Verifying profile"} /><span>{check().administratorConfirmed ? `Confirming profile for ${route.name}…` : `Verifying profile for ${route.name}…`}</span></div></Show>
@@ -575,19 +577,18 @@ const AiRoutingFields: Component<Props> = (props) => {
           <div hidden={expandedNative() !== index} id={`native-panel-${index}`} class="admin-route-panel">
               <div class="admin-route-controls">
                 <label class="admin-form-field"><span>Provider</span><select aria-label={`Native target ${index + 1} provider`} value={target().provider} disabled={target().busy} onChange={(event) => {
-                  const provider = event.currentTarget.value; const profile = preparedProfileRef(provider);
-                  if (profile) clearProof({ provider, profileRef: profile, model: '', transport: 'aig-legacy-compat', region: undefined });
+                  const provider = event.currentTarget.value;
+                  if (provider === target().provider) return;
+                  const next = newNativeIdentity(provider); const profile = nativePreparedProfileRef(next);
+                  if (profile) clearProof({ ...next, profileRef: profile });
                 }}><For each={selectableProviders()}>{(provider) => <option value={provider.provider}>{provider.label}</option>}</For></select><small>Only uniquely selectable provider bindings are available.</small></label>
-                <Show when={target().provider === 'aws-bedrock'}><label class="admin-form-field"><span>Transport</span><select aria-label={`Native target ${index + 1} transport`} value={target().transport ?? 'aig-legacy-compat'} disabled={target().busy} onChange={(event) => {
-                  const transport = event.currentTarget.value as NativeAiTargetDraft['transport'];
-                  const next = { ...target(), transport };
-                  const profileRef = nativePreparedProfileRef(next);
-                  if (profileRef) clearProof({ transport, ...(transport === 'aig-legacy-compat' ? { region: undefined } : { region: target().region || 'eu-central-1' }), profileRef });
-                }}><option value="aig-legacy-compat">Compatibility</option><option value="aig-bedrock-anthropic-eventstream">Native eventstream</option><option value="aig-bedrock-anthropic-invoke">Native Invoke</option></select><small>Compatibility preserves existing targets. Native transports enable validated thinking controls.</small></label></Show>
                 <Show when={target().transport && target().transport !== 'aig-legacy-compat'}><label class="admin-form-field"><span>AWS region</span><input aria-label={`Native target ${index + 1} region`} value={target().region ?? ''} disabled={target().busy} onInput={(event) => clearProof({ region: event.currentTarget.value })} /><small>Region used in the Bedrock Runtime path.</small></label></Show>
                 <label class="admin-form-field"><span>Label</span><input aria-label={`Native target ${index + 1} label`} value={target().label} disabled={target().busy} onInput={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, label: event.currentTarget.value } : item))} /></label>
                 <label class="admin-form-field"><span>Exact model identifier</span><input aria-label={`Native target ${index + 1} model`} list={`native-model-suggestions-${index}`} value={target().model} disabled={target().busy} onInput={(event) => {
-                  const model = event.currentTarget.value; const profileRef = nativePreparedProfileRef({ ...target(), model }); clearProof({ model, ...(profileRef && { profileRef }) });
+                  const model = event.currentTarget.value;
+                  if (model === target().model) return;
+                  const next = newNativeIdentity(target().provider, model, target().region);
+                  const profileRef = nativePreparedProfileRef(next); clearProof({ ...next, ...(profileRef && { profileRef }) });
                 }} /><datalist id={`native-model-suggestions-${index}`}><For each={nativeModelSuggestions(target().provider)}>{(model) => <option value={model} />}</For></datalist><small>Route-derived names for this provider are suggestions only.</small></label>
                 <label class="admin-form-field"><span>Context window</span><input type="text" inputmode="numeric" aria-label={`Native target ${index + 1} context window`} value={target().contextWindow} disabled={target().busy} onInput={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, contextWindow: Number(event.currentTarget.value) } : item))} /><small>Must be greater than 16,384 tokens.</small></label>
                 <label class="admin-form-field"><span>Pi compatibility profile</span><select aria-label={`Native target ${index + 1} profile`} value={refKey(target().profileRef)} disabled={target().busy} onChange={(event) => {
@@ -606,8 +607,9 @@ const AiRoutingFields: Component<Props> = (props) => {
         ? 'No provider configurations are available to add.'
         : 'Provider discovery is unavailable. Check the connection to add a provider-model.'}</p></Show>
       <Show when={selectableProviders().length}><div class="admin-route-actions"><button type="button" class="admin-secondary-button" onClick={() => {
-        const provider = selectableProviders()[0]; const profile = provider && preparedProfileRef(provider.provider);
-        if (provider && profile) { const index = nativeTargets().length; setNativeTargets((items) => [...items, { label: '', model: '', provider: provider.provider, contextWindow: 200000, transport: 'aig-legacy-compat', profileRef: profile, enabled: false }]); setExpandedNative(index); }
+        const provider = selectableProviders()[0]; const identity = provider && newNativeIdentity(provider.provider);
+        const profile = identity && nativePreparedProfileRef(identity);
+        if (identity && profile) { const index = nativeTargets().length; setNativeTargets((items) => [...items, { ...identity, label: '', contextWindow: 200000, profileRef: profile, enabled: false }]); setExpandedNative(index); }
       }}>Add provider-model</button></div></Show>
     </section>
 

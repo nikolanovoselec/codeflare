@@ -33,6 +33,7 @@ const catalog: ReasoningCatalog = {
     { id: 'bedrock-anthropic-native-sonnet', revision: 1, hash: hash('7'), name: 'AWS Bedrock Claude Sonnet · native', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
     { id: 'bedrock-anthropic-native-opus-stream', revision: 1, hash: hash('8'), name: 'AWS Bedrock Claude Opus · native stream', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high'], classification: 'Verified' },
     { id: 'bedrock-anthropic-native-opus-invoke', revision: 1, hash: hash('9'), name: 'AWS Bedrock Claude Opus · native Invoke', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
+    { id: 'bedrock-anthropic-native-opus-auto', revision: 1, hash: hash('5'), name: 'AWS Bedrock Claude Opus · native automatic', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
     { id: 'native-openai-compat', revision: 1, hash: hash('d'), name: 'OpenAI GPT-5.6 · native tools-off', supportedLevels: ['off'], classification: 'Verified' },
     { id: 'native-google-ai-studio-compat', revision: 1, hash: hash('e'), name: 'Google AI Studio · Gemini native', supportedLevels: [], classification: 'Verified' },
     { id: 'native-codeflare-inference-mesh-compat', revision: 1, hash: hash('f'), name: 'Codeflare Inference Mesh · native compat', supportedLevels: [], classification: 'Verified' },
@@ -44,6 +45,7 @@ const catalog: ReasoningCatalog = {
 const glmRef = { id: 'workers-ai-glm-thinking', revision: 1, hash: hash('a') };
 const kimiRef = { id: 'workers-ai-kimi-k-thinking', revision: 1, hash: hash('b') };
 const offRef = { id: 'openai-gpt-chat-tools-off', revision: 1, hash: hash('2') };
+const bedrockDynamicRef = { id: 'dynamic-bedrock-anthropic-provider-default', revision: 1, hash: hash('4') };
 const selectedRef = (route: string) => route === 'development' ? kimiRef : glmRef;
 const current = {
   gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/account/gateway',
@@ -176,22 +178,109 @@ describe('Structured AI routing', () => {
     const view = mount();
     await addNativeTarget(view);
     const article = view.getByRole('article', { name: 'New native target' });
-    await fireEvent.input(within(article).getByLabelText('Native target 1 label'), { target: { value: 'Native Opus' } });
-    await fireEvent.input(within(article).getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-opus-5' } });
-    await fireEvent.change(within(article).getByLabelText('Native target 1 transport'), { target: { value: 'aig-bedrock-anthropic-eventstream' } });
-    expect(within(article).getByLabelText('Native target 1 region')).toHaveValue('eu-central-1');
-    expect(within(article).queryByRole('button', { name: 'Verify Profile' })).toBeNull();
-    await fireEvent.click(within(article).getByRole('button', { name: 'Mark as verified' }));
-    await waitFor(() => expect(api.native).toHaveBeenCalledWith(expect.objectContaining({ administratorConfirmed: true })));
-    const profile = within(article).getByLabelText('Native target 1 profile') as HTMLSelectElement;
-    expect(profile).toHaveValue(profileKey({ id: 'bedrock-anthropic-native-opus-stream', revision: 1, hash: hash('8') }));
-    expect(Array.from(profile.options, (option) => option.text)).toEqual(['Native Route - AWS Bedrock - Claude Opus']);
-    const target = formValues(view.container).nativeTargets[0];
-    expect(target).toMatchObject({ transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', profileRef: { id: 'bedrock-anthropic-native-opus-stream' } });
-    await fireEvent.change(within(article).getByLabelText('Native target 1 transport'), { target: { value: 'aig-bedrock-anthropic-invoke' } });
-    expect(profile).toHaveValue(profileKey({ id: 'bedrock-anthropic-native-opus-invoke', revision: 1, hash: hash('9') }));
-    expect(Array.from(profile.options, (option) => option.text)).toEqual(['Native Route - AWS Bedrock - Claude Opus']);
-    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', profileRef: { id: 'bedrock-anthropic-native-opus-invoke' } });
+    expect(within(article).queryByLabelText('Native target 1 transport')).toBeNull();
+    expect(formValues(view.container).nativeTargets[0].transport).toBe('aig-bedrock-anthropic-auto');
+    await fireEvent.input(within(article).getByLabelText('Native target 1 label'), { target: { value: 'Native Claude' } });
+    for (const [model, id, digest, family] of [
+      ['eu.anthropic.claude-opus-5', 'bedrock-anthropic-native-opus-auto', '5', 'Opus'],
+      ['eu.anthropic.claude-sonnet-5', 'bedrock-anthropic-native-sonnet', '7', 'Sonnet'],
+    ]) {
+      await fireEvent.input(within(article).getByLabelText('Native target 1 model'), { target: { value: model } });
+      expect(within(article).getByLabelText('Native target 1 region')).toHaveValue('eu-central-1');
+      const profile = within(article).getByLabelText('Native target 1 profile') as HTMLSelectElement;
+      expect(profile).toHaveValue(profileKey({ id, revision: 1, hash: hash(digest) }));
+      expect(Array.from(profile.options, (option) => option.text)).toEqual([`Native Route - AWS Bedrock - Claude ${family}`]);
+      expect(within(article).getByText('Pi levels: Off, Minimal, Low, Medium, High, Xhigh, Max.')).toBeVisible();
+      expect(within(article).queryByRole('button', { name: 'Verify Profile' })).toBeNull();
+      await fireEvent.click(within(article).getByRole('button', { name: 'Mark as verified' }));
+      await waitFor(() => expect(formValues(view.container).nativeTargets[0].enabled).toBe(true));
+      expect(api.native).toHaveBeenLastCalledWith(expect.objectContaining({ administratorConfirmed: true, target: expect.objectContaining({
+        model, transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', profileRef: { id, revision: 1, hash: hash(digest) },
+      }) }));
+      await openGroup(view, 'developers');
+      const target = formValues(view.container).nativeTargets[0];
+      const handle = `cf-native-${target.id}`;
+      const checkbox = view.getByRole('checkbox', { name: `developers Native Route - AWS Bedrock - ${model} route` });
+      if (!(checkbox as HTMLInputElement).checked) await fireEvent.click(checkbox);
+      await fireEvent.change(view.getByLabelText('developers default route'), { target: { value: handle } });
+      const reasoning = view.getByLabelText('developers default reasoning') as HTMLSelectElement;
+      expect(Array.from(reasoning.options, (option) => option.value)).toEqual(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+      await fireEvent.change(reasoning, { target: { value: 'max' } });
+      expect(formValues(view.container).groupRouting[0]).toMatchObject({ defaultRoute: handle, reasoning: 'max' });
+      await section(view, 'Native providers');
+    }
+  });
+
+  it.each([
+    [undefined, 'bedrock-anthropic-compat', 'c', []],
+    ['aig-legacy-compat', 'bedrock-anthropic-compat', 'c', []],
+    ['aig-bedrock-anthropic-eventstream', 'bedrock-anthropic-native-opus-stream', '8', ['off', 'minimal', 'low', 'medium', 'high']],
+    ['aig-bedrock-anthropic-invoke', 'bedrock-anthropic-native-opus-invoke', '9', ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']],
+    ['aig-bedrock-anthropic-auto', 'bedrock-anthropic-native-opus-auto', '5', ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']],
+    ['aig-bedrock-anthropic-eventstream', 'bedrock-anthropic-native-sonnet', '7', ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']],
+    ['aig-bedrock-anthropic-invoke', 'bedrock-anthropic-native-sonnet', '7', ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']],
+    ['aig-bedrock-anthropic-auto', 'bedrock-anthropic-native-sonnet', '7', ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']],
+  ] as const)('REQ-ENTERPRISE-074/078: preserves saved %s / %s identity and real levels on unrelated edits', async (transport, id, digest, levels) => {
+    const targetId = '11111111-1111-4111-8111-111111111111';
+    const handle = `cf-native-${targetId}`;
+    const profileRef = { id, revision: 1, hash: hash(digest) };
+    const model = id === 'bedrock-anthropic-native-sonnet' ? 'eu.anthropic.claude-sonnet-5' : 'eu.anthropic.claude-opus-5';
+    const target = { id: targetId, handle, label: 'Saved Claude', provider: 'aws-bedrock', model,
+      contextWindow: 200000, profileRef, enabled: true, ...(transport && { transport }),
+      ...(transport && transport !== 'aig-legacy-compat' && { region: 'us-east-1' }),
+      verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true } };
+    const view = mount({ ...checkedCurrent(), nativeTargets: [target], groupRouting: [{ accessGroup: 'developers', routes: [handle], defaultRoute: handle, reasoning: 'high' }] });
+    await openNative(view);
+    await fireEvent.click(view.getByRole('button', { name: `Configure Native Route - AWS Bedrock - ${model}` }));
+    expect(view.queryByLabelText('Native target 1 transport')).toBeNull();
+    const before = formValues(view.container).nativeTargets[0];
+    expect(before).toMatchObject({ id: targetId, profileRef, transport: transport ?? 'aig-legacy-compat', enabled: true });
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: target.model } });
+    await fireEvent.change(view.getByLabelText('Native target 1 provider'), { target: { value: target.provider } });
+    await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Renamed Opus' } });
+    await fireEvent.input(view.getByLabelText('Native target 1 context window'), { target: { value: '240000' } });
+    await openGroup(view, 'developers');
+    const reasoning = view.getByLabelText('developers default reasoning') as HTMLSelectElement;
+    expect(Array.from(reasoning.options, (option) => option.value)).toEqual(levels.length ? [...levels] : ['off']);
+    if (!levels.length) expect(within(reasoning).getByRole('option', { name: 'Provider default' })).toBeVisible();
+    await section(view, 'Connection');
+    await fireEvent.input(view.getByLabelText('Replacement API token'), { target: { value: 'replacement' } });
+    expect(formValues(view.container).nativeTargets[0]).toEqual({ ...before, label: 'Renamed Opus', contextWindow: 240000 });
+    expect(formValues(view.container).nativeChecks ?? {}).toEqual({});
+    expect(api.native).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-074/078: changes a saved compatibility identity to automatic only when its model changes', async () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const view = mount({ ...checkedCurrent(), nativeTargets: [{ id, label: 'Saved', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5',
+      contextWindow: 200000, transport: 'aig-legacy-compat', profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: true,
+      verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true } }] });
+    await openNative(view);
+    await fireEvent.click(view.getByRole('button', { name: 'Configure Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5' }));
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-opus-5' } });
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id, transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1',
+      profileRef: { id: 'bedrock-anthropic-native-opus-auto', revision: 1, hash: hash('5') }, enabled: false });
+    expect(formValues(view.container).nativeChecks).toEqual({ [id]: null });
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-future-profile' } });
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ transport: 'aig-legacy-compat', profileRef: { id: 'bedrock-anthropic-compat' }, enabled: false });
+    expect(formValues(view.container).nativeTargets[0]).not.toHaveProperty('region');
+  });
+
+  it('REQ-ENTERPRISE-078: selects automatic Bedrock after a genuine provider change and keeps other providers compatible', async () => {
+    api.catalog.mockResolvedValueOnce({ ...catalog, providers: [
+      { provider: 'openai', label: 'OpenAI', configured: true, defaultSelection: true, supported: true },
+      { provider: 'aws-bedrock', label: 'AWS Bedrock', configured: true, defaultSelection: false, supported: true },
+    ] });
+    const view = mount(checkedCurrent());
+    await addNativeTarget(view);
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ provider: 'openai', transport: 'aig-legacy-compat' });
+    await fireEvent.change(view.getByLabelText('Native target 1 provider'), { target: { value: 'aws-bedrock' } });
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ provider: 'aws-bedrock', model: '', transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1' });
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-opus-5' } });
+    expect(formValues(view.container).nativeTargets[0].profileRef.id).toBe('bedrock-anthropic-native-opus-auto');
+    await fireEvent.change(view.getByLabelText('Native target 1 provider'), { target: { value: 'openai' } });
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ provider: 'openai', model: '', transport: 'aig-legacy-compat', profileRef: { id: 'native-openai-compat' } });
+    expect(formValues(view.container).nativeTargets[0]).not.toHaveProperty('region');
   });
 
   it('REQ-ENTERPRISE-051/056/064: renders named native target rows with expanded-only controls', async () => {
@@ -326,7 +415,9 @@ describe('Structured AI routing', () => {
     await openNative(view);
     await fireEvent.click(view.getByRole('button', { name: 'Configure Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5' }));
     await fireEvent.change(view.getByLabelText('Native target 1 profile'), { target: { value: profileKey(ref) } });
-    expect(formValues(view.container).nativeTargets[0].profileRef).toEqual(ref);
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-sonnet-5' } });
+    await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Renamed native target' } });
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ profileRef: ref, transport: 'aig-legacy-compat', label: 'Renamed native target' });
   });
 
   it('REQ-ENTERPRISE-054: invokes native compatibility discovery for the current target draft', async () => {
@@ -351,8 +442,10 @@ describe('Structured AI routing', () => {
   it('REQ-ENTERPRISE-054: verifies the exact selected profile and records its server-issued draft state', async () => {
     let complete!: (value: unknown) => void;
     api.native.mockReturnValueOnce(new Promise((resolve) => { complete = resolve; }));
-    const view = mount(checkedCurrent());
-    await addNativeTarget(view);
+    const view = mount({ ...checkedCurrent(), nativeTargets: [{ id: '11111111-1111-4111-8111-111111111111', label: 'Saved', provider: 'aws-bedrock',
+      model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false }] });
+    await openNative(view);
+    await fireEvent.click(view.getByRole('button', { name: 'Configure Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5' }));
     await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Automated target' } });
     await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-sonnet-5' } });
     const article = view.getByRole('article', { name: 'Automated target native target' });
@@ -592,6 +685,21 @@ describe('Structured AI routing', () => {
     await fireEvent.change(profile, { target: { value: profileKey(glmRef) } });
     expect(view.queryByText(/unavailable for Dynamic Routes/)).toBeNull();
     expect(formValues(view.container).reasoningConfiguration.routeAssignments.general_usage).toEqual({ activeProfile: glmRef });
+  });
+
+  it('REQ-ENTERPRISE-045/070: presents Dynamic Bedrock reasoning as provider-controlled instead of unsupported Off', async () => {
+    const view = mount({
+      ...checkedCurrent(),
+      reasoningConfiguration: { ...current.reasoningConfiguration, routeAssignments: {
+        ...current.reasoningConfiguration.routeAssignments,
+        general_usage: { activeProfile: bedrockDynamicRef, verification: proof('general_usage', bedrockDynamicRef) },
+      } },
+    });
+    await ready(view, 'general_usage');
+    const card = await openRoute(view, 'general_usage');
+    expect(within(card).getByText('Provider default')).toBeVisible();
+    expect(within(card).queryByText('Reasoning off')).toBeNull();
+    expect(within(card).queryByText('Not supported')).toBeNull();
   });
 
   it('REQ-ENTERPRISE-034: offers one primary action on the expanded route and runs route-only protocol discovery', async () => {

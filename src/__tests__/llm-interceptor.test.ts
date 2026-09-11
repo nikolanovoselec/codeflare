@@ -817,7 +817,7 @@ describe('native provider authorization and compat dispatch', () => {
     providerConfigId?: string;
     providerConfigAlias?: string;
     adapterVersion?: 'bedrock-anthropic-compat-v1' | 'bedrock-anthropic-native-v1' | 'native-openai-compat-v1' | 'gemini-openai-compat-v1';
-    transport?: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream';
+    transport?: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto';
     region?: string;
   };
 
@@ -929,6 +929,106 @@ describe('native provider authorization and compat dispatch', () => {
     expect(replayWrites).toHaveLength(1);
     expect(replayWrites[0].key).toMatch(/^native-ai-replay:/);
     expect(replayWrites[0].value).not.toContain('private-signature');
+  });
+
+  describe.each(['sonnet', 'opus'] as const)('automatic native %s routing', (family) => {
+    const options: NativeFixtureOptions = { model: `eu.anthropic.claude-${family}-5`,
+      profileId: family === 'sonnet' ? 'bedrock-anthropic-native-sonnet' : 'bedrock-anthropic-native-opus-auto',
+      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' };
+    const encryption = Buffer.alloc(32, 7).toString('base64');
+    const props = { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] };
+
+    it.each(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const)('REQ-ENTERPRISE-072/077/078: dispatches initial %s once with the evidenced mapped effort', async (level) => {
+      const fixture = nativeFixture(true, options);
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+        const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
+        return new Response('provider failure', { status: 502 });
+      });
+      const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, props).fetch(
+        new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: level, stream: true, messages: [{ role: 'user', content: 'Hello' }] }) }),
+      );
+      const invoke = family === 'opus' && (level === 'xhigh' || level === 'max');
+      expect(response.status).toBe(502);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/${invoke ? 'invoke' : 'invoke-with-response-stream'}`);
+      const sent = JSON.parse(lastFetch!.body);
+      expect(sent.thinking).toEqual({ type: level === 'off' ? 'disabled' : 'adaptive' });
+      const effort = level === 'minimal' ? 'low' : family === 'sonnet' && (level === 'xhigh' || level === 'max') ? 'high' : level;
+      expect(sent.output_config).toEqual(level === 'off' ? undefined : { effort });
+      expect(lastFetch?.headers.get('accept')).toBe(invoke ? null : 'application/vnd.amazon.eventstream');
+    });
+
+    it('REQ-ENTERPRISE-077: rejects nonstreaming automatic eventstream turns without an Invoke fallback', async () => {
+      const fixture = nativeFixture(true, options);
+      const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, props).fetch(
+        new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'high', stream: false, messages: [] }) }),
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: 'UNSUPPORTED_NATIVE_TRANSPORT' });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it('REQ-ENTERPRISE-073: denies automatic routing without an authenticated session before provider I/O', async () => {
+      const fixture = nativeFixture(true, options);
+      const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, { ...props, sessionId: undefined }).fetch(
+        new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'high', stream: true, messages: [] }) }),
+      );
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ code: 'NATIVE_STATE_UNAVAILABLE' });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it('REQ-ENTERPRISE-049/073: denies unauthorized automatic targets before provider I/O', async () => {
+      const fixture = nativeFixture(true, options);
+      const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, { ...props, groups: ['other'] }).fetch(
+        new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'high', stream: true, messages: [] }) }),
+      );
+      expect(response.status).toBe(403);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it('REQ-ENTERPRISE-073/077: validates signed continuation before Invoke and keeps state private', async () => {
+      // Seed real encrypted replay state through the existing Invoke adapter.
+      const seed = nativeFixture(true, { ...options, transport: 'aig-bedrock-anthropic-invoke',
+        profileId: family === 'sonnet' ? 'bedrock-anthropic-native-sonnet' : 'bedrock-anthropic-native-opus-invoke' });
+      const replay: Record<string, string> = {};
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(Response.json({ id: 'seed', content: [
+        { type: 'thinking', thinking: '', signature: 'private-auto-signature' },
+        { type: 'tool_use', id: 'call_auto', name: 'lookup', input: { q: 'x' } },
+      ], stop_reason: 'tool_use' }));
+      const initial = await makeInterceptor({ __kv: seed.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, props, (key, value) => { replay[key] = value; }).fetch(
+        new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: seed.handle, reasoning_effort: 'high', messages: [{ role: 'user', content: 'Use a tool' }] }) }),
+      );
+      expect(initial.status).toBe(200);
+      expect(await initial.text()).not.toContain('private-auto-signature');
+      expect(Object.keys(replay)).toHaveLength(1);
+      expect(JSON.stringify(replay)).not.toContain('private-auto-signature');
+      const fixture = nativeFixture(true, options);
+      const messages = [{ role: 'assistant', tool_calls: [{ id: 'call_auto', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' } }] }, { role: 'tool', tool_call_id: 'call_auto', content: 'found' }];
+      const request = (bodyMessages = messages) => new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'high', stream: true, messages: bodyMessages }) });
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockClear();
+      const missing = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, props).fetch(request());
+      expect(missing.status).toBe(400);
+      expect(await missing.json()).toMatchObject({ code: 'INVALID_NATIVE_REQUEST' });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      const interceptor = makeInterceptor({ __kv: { ...fixture.kv, ...replay }, ENCRYPTION_KEY: encryption } as Partial<Env>, props);
+      const mismatch = await interceptor.fetch(request([{ role: 'assistant', tool_calls: [{ id: 'call_auto', type: 'function', function: { name: 'lookup', arguments: '{"q":"changed"}' } }] }, messages[1]]));
+      expect(mismatch.status).toBe(400);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+        const upstream = input as Request; lastFetch = { url: upstream.url, method: upstream.method, headers: upstream.headers, body: await upstream.text() };
+        return Response.json({ id: 'final', content: [{ type: 'text', text: 'Finished' }], stop_reason: 'end_turn' });
+      });
+      const response = await interceptor.fetch(request());
+      expect(response.status).toBe(200);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke`);
+      expect(JSON.parse(lastFetch!.body).messages[0].content).toEqual([
+        { type: 'thinking', thinking: '', signature: 'private-auto-signature' },
+        { type: 'tool_use', id: 'call_auto', name: 'lookup', input: { q: 'x' } },
+      ]);
+      expect(await response.text()).toContain('Finished');
+    });
   });
 
   it('REQ-ENTERPRISE-059: round-trips Gemini thought signatures through Pi replay metadata', async () => {

@@ -122,6 +122,7 @@ export const ReasoningCheckOverview: Component<{ result: ReasoningDiscoveryResul
       || props.result.piCompatibility?.verifiedLevels.includes(level) ? 'passed' : 'unclear';
   };
   return <div class="admin-check-overview">
+    <Show when={props.levels.length > 0} fallback={<p><strong>Provider default</strong> — no configurable Pi reasoning levels.</p>}>
     <table class="admin-check-table">
       <caption>Selected profile checks</caption>
       <thead><tr><th scope="col">Level</th><th scope="col">Compatibility</th><th scope="col">Tool call</th><th scope="col">Tool replay</th></tr></thead>
@@ -132,6 +133,7 @@ export const ReasoningCheckOverview: Component<{ result: ReasoningDiscoveryResul
         <CheckCell label={`${LEVEL_LABELS[level]} tool replay`} state={toolState(level, 'tool-replay')} />
       </tr>}</For></tbody>
     </table>
+    </Show>
     <Show when={props.levels.includes('off')}><div>Off disabled: <CheckPill label="Off disabled" state={offState()} /></div></Show>
   </div>;
 };
@@ -235,7 +237,7 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
         <For each={matchedProfiles()}>{(profile) => {
           const nameId = createUniqueId();
           return <div class="admin-profile-match">
-            <div><strong id={nameId}>{profileDisplayName({ ...profile.profileRef, name: profile.name })}</strong><span>Supported levels: {profile.supportedLevels.join(', ') || 'Not reported'}</span></div>
+            <div><strong id={nameId}>{profileDisplayName({ ...profile.profileRef, name: profile.name })}</strong><span>Supported levels: {profile.supportedLevels.join(', ') || 'Provider default'}</span></div>
             <button type="button" class="admin-secondary-button" aria-describedby={nameId} onClick={() => props.onSelectProfile(profile.profileRef)}>Assign profile</button>
           </div>;
         }}</For>

@@ -23,7 +23,7 @@ vi.mock('../../api/client', () => ({
 
 import AdministrationLayout from '../../components/admin/AdministrationLayout';
 import { EnvironmentAreaDetail } from '../../components/admin/EnvironmentIndex';
-import { normalizeCustomProfile } from '../../../../src/lib/reasoning-profiles';
+import { getBuiltInProfile, getBuiltInProfileRef, normalizeCustomProfile } from '../../../../src/lib/reasoning-profiles';
 
 const ref = { id: 'workers-ai-glm-thinking', revision: 1, hash: 'a'.repeat(64) };
 const levels: PiReasoningLevel[] = ['off', 'medium', 'high'];
@@ -373,6 +373,56 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(within(screen.getByRole('button', { name: 'Configure development' })).getByText(method ? 'Administrator-confirmed' : 'Verified')).toBeVisible();
     expect(draft(reloaded.container).routeAssignments.development).toEqual(savedValues.reasoningConfiguration.routeAssignments.development);
     // Restoring a persisted proof must use management reads, not another paid check.
+    expect(api.discover).toHaveBeenCalledTimes(1);
+  });
+
+  it('REQ-ENTERPRISE-041: reviews, saves and reloads an inactive administrator-confirmed profile and context without assigning access', async () => {
+    const route = 'bedrock_opus';
+    const profile = getBuiltInProfile('dynamic-bedrock-anthropic-provider-default')!;
+    const profileRef = getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default');
+    const verification: ReasoningRouteVerification = { ...proof(route, profileRef, []), method: 'administrator' };
+    const initial = { ...aiRouting(), dynamicRoutes: [], groupRouting: [], defaultRoute: { route: '', reasoning: 'off' },
+      routeContextWindows: {}, reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {}, fallbackRouting: { enabled: false } },
+    };
+    api.configuration.mockResolvedValueOnce(configuration(initial));
+    api.catalog.mockResolvedValue({ ...catalog(), profiles: [profile], routes: [route] });
+    api.inventory.mockResolvedValue(inventory(route));
+    api.discover.mockResolvedValueOnce({ classification: 'Administrator-confirmed', assignable: true, checkId: 'inactive-check', verification });
+    mount();
+    await openRoute(route);
+    const select = screen.getByLabelText(`${route} Pi compatibility profile`);
+    await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(2));
+    await fireEvent.change(select, { target: { value: key(profileRef) } });
+    await fireEvent.input(screen.getByLabelText(`${route} context window`), { target: { value: '1048576' } });
+    const action = screen.getByRole('button', { name: `Mark ${route} as verified` });
+    await waitFor(() => expect(action).toBeEnabled());
+    await fireEvent.click(action);
+    expect(await screen.findByText('Administrator-confirmed')).toBeVisible();
+    await review();
+    const expectSummary = () => {
+      const row = within(screen.getByRole('table', { name: 'Route profiles' })).getByRole('row', { name: /bedrock_opus/ });
+      expect(within(row).getByText('Dynamic Route - AWS Bedrock - Claude')).toBeVisible();
+      expect(within(row).getByText('1,048,576 tokens')).toBeVisible();
+      expect(within(row).getByText('Provider default')).toBeVisible();
+      expect(screen.getByText('No fallback access')).toBeVisible();
+    };
+    expectSummary();
+    await confirm();
+    expectSummary();
+    const savedValues = saved();
+    expect(savedValues.dynamicRoutes).toEqual([]);
+    expect(savedValues.groupRouting.every((policy) => policy.routes.length === 0)).toBe(true);
+    expect(savedValues.fallbackRouting).toEqual({ enabled: false });
+    expect(savedValues.routeContextWindows).toEqual({ [route]: 1048576 });
+    expect(savedValues.reasoningConfiguration.routeAssignments[route]).toMatchObject({ activeProfile: profileRef, verification });
+    api.configuration.mockResolvedValueOnce(configuration(persisted(savedValues), 8));
+    api.inventory.mockResolvedValue(inventory(route, verification));
+    cleanup(); mount();
+    await openRoute(route);
+    expect(screen.getByLabelText(`${route} Pi compatibility profile`)).toHaveValue(key(profileRef));
+    expect(screen.getByLabelText(`${route} context window`)).toHaveValue('1048576');
+    expect(screen.getByRole('button', { name: `Configure ${route}` })).toHaveTextContent('Not active in a policy');
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
     expect(api.discover).toHaveBeenCalledTimes(1);
   });
 

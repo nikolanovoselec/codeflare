@@ -2,6 +2,7 @@ import { For, Show, createMemo, createUniqueId, type Component } from 'solid-js'
 import type { ConfigurationPreview } from '../../api/client';
 import { operatorTaskLabel } from './administration-presentation';
 import { profileDisplayName } from './pi-profile-presentation';
+import { getBuiltInProfile } from '../../../../src/lib/reasoning-profiles';
 import './AiRoutingReview.css';
 
 type Changes = ConfigurationPreview['changes'];
@@ -63,7 +64,8 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
   const assignments = () => record(configuration().routeAssignments);
   const profiles = () => revisions(configuration().customProfileRevisions);
   const savedProfiles = () => revisions(record(record(props.current).reasoningConfiguration).customProfileRevisions);
-  const routes = () => list(data().dynamicRoutes);
+  // Profile assignments are durable even when no access policy activates the route.
+  const routes = () => [...new Set([...list(data().dynamicRoutes), ...Object.keys(assignments())])];
   const nativeTargets = () => revisions(data().nativeTargets);
   const groups = () => revisions(data().groupRouting);
   const explicitFallback = () => {
@@ -78,10 +80,16 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
   const fallback = () => record(explicitFallback() ?? data().defaultRoute);
   const fallbackEnabled = () => explicitFallback() !== undefined
     ? fallback().enabled === true : fallback().enabled !== false && Boolean(text(fallback().route));
-  const fallbackRoutes = () => explicitFallback() !== undefined || Array.isArray(fallback().routes) ? list(fallback().routes) : routes();
+  const fallbackRoutes = () => explicitFallback() !== undefined || Array.isArray(fallback().routes) ? list(fallback().routes) : list(data().dynamicRoutes);
   const fallbackDefault = () => explicitFallback() !== undefined ? fallback().defaultRoute : fallback().route;
   const profileFor = (route: string) => record(record(assignments()[route]).activeProfile);
   const customFor = (ref: Record<string, unknown>) => profiles().find((profile) => sameRevision(profile, ref));
+  const providerDefault = (route: string) => {
+    const ref = profileFor(route);
+    const profile = customFor(ref) ?? record(getBuiltInProfile(text(ref.id)));
+    return sameRevision(profile, ref) && profile.reasoningMode === 'provider-default';
+  };
+  const policyReasoning = (route: unknown, level: unknown) => providerDefault(text(route)) ? 'Provider default' : reasoningLabel(level);
   const nameFor = (ref: Record<string, unknown>) => {
     if (!text(ref.id)) return 'No profile assigned';
     const custom = customFor(ref);
@@ -119,7 +127,7 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
           <thead><tr><th scope="col">Route</th><th scope="col">Profile</th><th scope="col">Context window</th></tr></thead>
           <tbody><For each={routes()}>{(route) => <tr>
             <th scope="row">{safe()(route)}</th>
-            <td><span class="ai-routing-review-mobile-label" aria-hidden="true">Profile</span><span>{nameFor(profileFor(route))}<Show when={customFor(profileFor(route)) && pending(customFor(profileFor(route))!)}><small class="ai-routing-review-pending">Pending save</small></Show></span></td>
+            <td><span class="ai-routing-review-mobile-label" aria-hidden="true">Profile</span><span>{nameFor(profileFor(route))}<Show when={providerDefault(route)}><br /><small>Provider default</small></Show><Show when={customFor(profileFor(route)) && pending(customFor(profileFor(route))!)}><small class="ai-routing-review-pending">Pending save</small></Show></span></td>
             <td><span class="ai-routing-review-mobile-label" aria-hidden="true">Context window</span>{contextWindow(route)}</td>
           </tr>}</For></tbody>
         </table>
@@ -133,8 +141,8 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
     </section>
     <Show when={nativeTargets().length}><section class="ai-routing-review-section" aria-labelledby={`${id}-native`}>
       <h3 id={`${id}-native`}>Native providers</h3>
-      <table class="ai-routing-review-routes" aria-labelledby={`${id}-native`}><thead><tr><th scope="col">Target</th><th scope="col">Exact model</th><th scope="col">Transport</th><th scope="col">Context window</th><th scope="col">State</th></tr></thead>
-        <tbody><For each={nativeTargets()}>{(target) => <tr><th scope="row">{safe()(text(target.label) || 'Unnamed target')}</th><td>{safe()(text(target.model))}</td><td>{target.transport === 'aig-bedrock-anthropic-eventstream' ? `Native eventstream · ${safe()(text(target.region))}` : target.transport === 'aig-bedrock-anthropic-invoke' ? `Native Invoke · ${safe()(text(target.region))}` : 'Compatibility'}</td><td>{typeof target.contextWindow === 'number' ? `${target.contextWindow.toLocaleString('en-US')} tokens` : 'Not configured'}</td><td>{target.enabled === true ? 'Enabled' : 'Inactive'}</td></tr>}</For></tbody>
+      <table class="ai-routing-review-routes" aria-labelledby={`${id}-native`}><thead><tr><th scope="col">Target</th><th scope="col">Exact model</th><th scope="col">AWS region</th><th scope="col">Context window</th><th scope="col">State</th></tr></thead>
+        <tbody><For each={nativeTargets()}>{(target) => <tr><th scope="row">{safe()(text(target.label) || 'Unnamed target')}</th><td>{safe()(text(target.model))}</td><td>{safe()(text(target.region)) || 'Not applicable'}</td><td>{typeof target.contextWindow === 'number' ? `${target.contextWindow.toLocaleString('en-US')} tokens` : 'Not configured'}</td><td>{target.enabled === true ? 'Enabled' : 'Inactive'}</td></tr>}</For></tbody>
       </table>
     </section></Show>
     <section class="ai-routing-review-section" aria-labelledby={`${id}-groups`}>
@@ -145,7 +153,7 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
           <dl class="ai-routing-review-values">
             <div><dt>Allowed routes</dt><dd>{routeList(list(group.routes))}</dd></div>
             <div><dt>Default route</dt><dd>{safe()(text(group.defaultRoute) || 'Not configured')}</dd></div>
-            <div><dt>Default reasoning</dt><dd>{reasoningLabel(group.reasoning)}</dd></div>
+            <div><dt>Default reasoning</dt><dd>{policyReasoning(group.defaultRoute, group.reasoning)}</dd></div>
           </dl>
         </article>}</For></div>
       </Show>
@@ -157,7 +165,7 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
         <dl class="ai-routing-review-values">
           <div><dt>Allowed routes</dt><dd>{routeList(fallbackRoutes())}</dd></div>
           <div><dt>Default route</dt><dd>{safe()(text(fallbackDefault()) || 'Not configured')}</dd></div>
-          <div><dt>Default reasoning</dt><dd>{reasoningLabel(fallback().reasoning)}</dd></div>
+          <div><dt>Default reasoning</dt><dd>{policyReasoning(fallbackDefault(), fallback().reasoning)}</dd></div>
         </dl>
       </Show>
     </section>
@@ -168,7 +176,8 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
 const AiRoutingReview: Component<ReviewProps> = (props) => {
   const id = createUniqueId();
   const safe = createMemo(() => redactor(props.values, props.current, props.preview.changes));
-  const canConfirm = () => !props.busy && props.preview.changes.length > 0
+  const hasChanges = () => props.preview.changes.some((change) => !change.secret || change.secret.willReplace);
+  const canConfirm = () => !props.busy && hasChanges()
     && props.preview.warnings.every((warning) => props.confirmedWarnings.includes(warning.code));
   const assignments = () => Object.entries(record(record(record(props.values).reasoningConfiguration).routeAssignments));
 
@@ -184,7 +193,7 @@ const AiRoutingReview: Component<ReviewProps> = (props) => {
         </label>}</For>
       </section>
     </Show>
-    <Show when={props.preview.changes.length > 0} fallback={<div class="admin-state-panel"><h3>No changes detected</h3><p>Return to edit before saving.</p></div>}>
+    <Show when={hasChanges()} fallback={<div class="admin-state-panel"><h3>No changes detected</h3><p>Return to edit before saving.</p></div>}>
       <AiRoutingSummary values={props.values} current={props.current} changes={props.preview.changes} />
       <details class="admin-technical-details ai-routing-review-technical">
         <summary>Technical details</summary>
@@ -206,7 +215,7 @@ const AiRoutingReview: Component<ReviewProps> = (props) => {
     </Show>
     <div class="admin-form-actions">
       <button type="button" class="admin-secondary-button" disabled={props.busy} onClick={props.onBack}>Back to edit</button>
-      <Show when={props.preview.changes.length > 0}><button type="button" class="admin-primary-button" disabled={!canConfirm()} onClick={() => { if (canConfirm()) props.onConfirm(); }}>{props.busy ? 'Saving…' : 'Confirm Save'}</button></Show>
+      <Show when={hasChanges()}><button type="button" class="admin-primary-button" disabled={!canConfirm()} onClick={() => { if (canConfirm()) props.onConfirm(); }}>{props.busy ? 'Saving…' : 'Confirm Save'}</button></Show>
     </div>
   </div>;
 };

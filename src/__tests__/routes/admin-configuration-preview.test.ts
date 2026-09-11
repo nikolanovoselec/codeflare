@@ -7,6 +7,8 @@ import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
 import { ADMIN_CONFIGURATION_KEYS, SETUP_KEYS } from '../../lib/kv-keys';
 import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
+import { parseReasoningConfiguration } from '../../lib/reasoning-configuration';
+import { issueRouteCheck } from '../../lib/reasoning-verification';
 import { routingGatewayUrl, routingInventoryFixtures, verifiedRoutingConfiguration } from '../helpers/verified-routing';
 
 vi.mock('../../lib/ai-gateway-management', async (original) => ({
@@ -31,6 +33,8 @@ vi.mock('../../middleware/auth', () => ({
 }));
 
 import configurationPreviewRoutes from '../../routes/admin/configuration-previews';
+import configurationRunRoutes from '../../routes/admin/configuration-runs';
+import adminConfigurationRoutes from '../../routes/admin/configuration';
 
 function createApp(envOverrides: Partial<Env> = {}) {
   const kv = createMockKV();
@@ -44,6 +48,8 @@ function createApp(envOverrides: Partial<Env> = {}) {
     return next();
   });
   app.route('/admin/configuration-previews', configurationPreviewRoutes);
+  app.route('/admin/configuration-runs', configurationRunRoutes);
+  app.route('/admin/configuration', adminConfigurationRoutes);
   app.onError((err, c) => {
     if (err instanceof AppError) return c.json(err.toJSON(), err.statusCode as ContentfulStatusCode);
     return c.json({ error: String(err) }, 500);
@@ -142,6 +148,116 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
         { id: 'configure_model_routing' },
       ],
     });
+    expect(kv.put).not.toHaveBeenCalled();
+    expect(kv.delete).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-043/069: previews, saves, and reloads an inactive administrator-confirmed Dynamic Bedrock assignment and changed context', async () => {
+    const token = 'deployment-token';
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_GATEWAY_URL: routingGatewayUrl, AIG_TOKEN: token });
+    const activeProfile = getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default');
+    const current = parseReasoningConfiguration({
+      schemaVersion: 1, customProfileRevisions: [], routeAssignments: {}, fallbackRouting: { enabled: false },
+    });
+    kv._set(SETUP_KEYS.REASONING_CONFIGURATION, current);
+    kv._set(SETUP_KEYS.DYNAMIC_ROUTES, []);
+    kv._set(SETUP_KEYS.DEFAULT_ROUTE, { route: '', reasoning: 'off' });
+    kv._set(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, { bedrock_opus: 200000 });
+
+    // Seed server-owned authority bound to the exact profile, connection, and Bedrock inventory.
+    const checked = verifiedRoutingConfiguration({
+      schemaVersion: 1,
+      customProfileRevisions: [],
+      routeAssignments: {
+        bedrock_opus: {
+          activeProfile,
+          routeVersion: 'bedrock-opus-v1',
+          legs: [{ nodeId: 'primary', provider: 'aws-bedrock', declaredModel: 'eu.anthropic.claude-opus-5', profileRef: activeProfile }],
+        },
+      },
+    }, { gatewayUrl: routingGatewayUrl, token });
+    const { verification: checkedVerification, ...assignment } = checked.routeAssignments.bedrock_opus;
+    const verification = { ...checkedVerification!, method: 'administrator' as const };
+    const checkId = await issueRouteCheck(kv as unknown as KVNamespace, 'bedrock_opus', verification);
+    const expectedConfiguration = parseReasoningConfiguration({
+      ...checked, routeAssignments: { bedrock_opus: { ...assignment, verification } },
+    });
+    const values = {
+      gatewayUrl: routingGatewayUrl,
+      replacementToken: '',
+      dynamicRoutes: [],
+      defaultRoute: { route: '', reasoning: 'off' },
+      routeContextWindows: { bedrock_opus: 400000 },
+      // The submitted document has no verification: only the server receipt grants authority.
+      reasoningConfiguration: { ...checked, routeAssignments: { bedrock_opus: assignment } },
+      routeChecks: { bedrock_opus: checkId },
+      fallbackRouting: { enabled: false },
+      groupRouting: [],
+    };
+    vi.mocked(kv.put).mockClear();
+
+    const response = await post(app, { section: 'aiRouting', baseRevision: 0, values });
+
+    expect(response.status).toBe(200);
+    const preview = await response.json() as any;
+    expect(preview.changes).toEqual(expect.arrayContaining([
+      { field: 'reasoningConfiguration', before: current, after: expectedConfiguration },
+      { field: 'routeContextWindows', before: { bedrock_opus: 200000 }, after: { bedrock_opus: 400000 } },
+    ]));
+    expect(kv.put).not.toHaveBeenCalled();
+    expect(kv.delete).not.toHaveBeenCalled();
+
+    const saved = await app.request('/admin/configuration-runs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        section: 'aiRouting', baseRevision: 0, values,
+        confirmedWarnings: preview.warnings.map((warning: { code: string }) => warning.code),
+      }),
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.headers.get('content-type')).toContain('application/x-ndjson');
+    // Consuming the stream lets the real task executor finish without an ExecutionContext.
+    const events = (await saved.text()).trim().split('\n').map((line) => JSON.parse(line));
+    expect(events.at(-1).run).toMatchObject({
+      state: 'succeeded', resultingRevision: 1,
+      tasks: [
+        { id: 'configure_ai_gateway', state: 'succeeded' },
+        { id: 'configure_model_routing', state: 'succeeded' },
+      ],
+    });
+    const persistedConfiguration = parseReasoningConfiguration(await kv.get(SETUP_KEYS.REASONING_CONFIGURATION));
+    expect(persistedConfiguration).toEqual(expectedConfiguration);
+    expect(persistedConfiguration.routeAssignments.bedrock_opus.verification).toMatchObject({
+      method: 'administrator', profileRef: activeProfile, supportedLevels: [],
+    });
+    expect(await kv.get(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, 'json')).toEqual({ bedrock_opus: 400000 });
+    expect(await kv.get(SETUP_KEYS.DYNAMIC_ROUTES, 'json')).toEqual([]);
+    expect(await kv.get(SETUP_KEYS.GROUP_ROUTING)).toBeNull();
+
+    const reloaded = await app.request('/admin/configuration');
+    expect(reloaded.status).toBe(200);
+    expect(await reloaded.json()).toMatchObject({
+      revision: 1,
+      sections: {
+        aiRouting: {
+          dynamicRoutes: [], groupRouting: {}, fallbackRouting: { enabled: false },
+          defaultRoute: { route: '', reasoning: 'off' },
+          routeContextWindows: { bedrock_opus: 400000 },
+          reasoningConfiguration: expectedConfiguration,
+          routeReasoningProfiles: { bedrock_opus: activeProfile.id },
+        },
+      },
+    });
+
+    vi.mocked(kv.put).mockClear();
+    vi.mocked(kv.delete).mockClear();
+    const unchanged = await post(app, { section: 'aiRouting', baseRevision: 1, values });
+    expect(unchanged.status).toBe(200);
+    const unchangedPreview = await unchanged.json() as any;
+    // Transient routeChecks and secret replacement metadata are not durable assignment/context edits.
+    expect(unchangedPreview.changes.filter((change: { field: string }) =>
+      ['reasoningConfiguration', 'routeContextWindows'].includes(change.field))).toEqual([]);
     expect(kv.put).not.toHaveBeenCalled();
     expect(kv.delete).not.toHaveBeenCalled();
   });

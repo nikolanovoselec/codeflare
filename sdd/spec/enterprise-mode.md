@@ -770,6 +770,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Acceptance Criteria:**
 
 1. A verified Dynamic Route profile assignment can reach Review without a group assignment or fallback route. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-069: enables Review for a verified Dynamic Route profile without an access policy) -->
+2. Review and saved summaries include inactive route profiles and context windows without granting access. <!-- @impl: web-ui/src/components/admin/AiRoutingReview.tsx::AiRoutingSummary --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-041: reviews, saves and reloads an inactive administrator-confirmed profile and context without assigning access) -->
+3. Preview reports changed inactive assignments and context windows, and Save persists them without activating access. <!-- @impl: src/lib/admin-configuration.ts::buildConfigurationPreview --> <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-ENTERPRISE-043/069: previews, saves, and reloads an inactive administrator-confirmed Dynamic Bedrock assignment and changed context) -->
 
 **Constraints:** Saving an inactive route assignment does not grant runtime access.
 
@@ -842,6 +844,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. The native Sonnet profile exposes every Pi level using validated Minimal→Low and XHigh/Max→High aliases. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-072/078: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High) -->
 2. The native Opus eventstream profile exposes Off through High with Minimal→Low. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-072/078: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High) -->
 3. The separate native Opus Invoke profile exposes distinct XHigh and Max controls. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-072/078: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High) -->
+4. Automatic Opus routing has its own immutable all-level profile; existing explicit profiles remain unchanged. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-072/078: gives automatic Opus routing its own immutable all-level profile) -->
 
 **Constraints:** Native profile evidence changes neither Dynamic Route nor compatibility behavior.
 
@@ -888,9 +891,10 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. Native-target identity binds the exact Bedrock model, AWS region, profile revision, and Invoke or eventstream transport. <!-- @impl: src/lib/native-ai-targets.ts::createNativeTarget --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-074: binds provider-native Bedrock profiles to the validated model, region, and transport) -->
+1. Native-target identity binds the exact Bedrock model, AWS region, profile revision, and automatic or explicit transport contract. <!-- @impl: src/lib/native-ai-targets.ts::createNativeTarget --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-074: binds provider-native Bedrock profiles to the validated model, region, and transport) -->
 2. Existing compatibility targets retain their compatibility transport. <!-- @impl: src/lib/native-ai-targets.ts::createNativeTarget --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-074: binds provider-native Bedrock profiles to the validated model, region, and transport) -->
 3. Compatibility targets reject a region. <!-- @impl: src/lib/native-ai-targets.ts::createNativeTarget --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-074: binds provider-native Bedrock profiles to the validated model, region, and transport) -->
+4. New native Bedrock targets use automatic Worker-owned transport without an administrator transport selector; existing explicit transport and compatibility identities retain their authority. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-075: binds native Bedrock transport and region to the evidence-backed profile draft) -->
 
 **Constraints:** Existing compatibility targets are not migrated automatically.
 
@@ -958,7 +962,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-077: Provider-native Bedrock Transport Dispatch
 
-**Intent:** The Worker invokes exactly the configured provider-native Bedrock operation and uses the validated continuation transport.
+**Intent:** The Worker chooses the validated provider-native Bedrock operation within the target's authorized transport contract.
 
 **Applies To:** Worker
 
@@ -969,7 +973,10 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 3. A signed continuation for an eventstream profile uses non-streaming Invoke. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::selectBedrockAnthropicTransport --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-077: builds the region-scoped provider-native transport path) -->
 4. A failed provider-native request causes no fallback or paid retry. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-073/077: dispatches provider-native Bedrock Invoke with exact reasoning controls and hides signed replay state) -->
 
-**Constraints:** Each logical request selects one provider operation.
+5. Automatic routing selects initial eventstream through mapped High and Invoke for mapped XHigh/Max or signed continuation, only after authorization and replay validation. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::selectBedrockAnthropicTransport --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-072/077/078: dispatches initial %s once with the evidenced mapped effort) -->
+6. Initial automatic eventstream turns require streaming requests and never fall back to Invoke. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-077: rejects nonstreaming automatic eventstream turns without an Invoke fallback) -->
+
+**Constraints:** Each logical request selects one provider operation. Automatic routing never widens existing explicit-transport authority.
 
 **Priority:** P1
 
@@ -1064,7 +1071,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 2. Built-in profile presentation identifies the tested provider and model family without changing the active profile reference. <!-- @impl: web-ui/src/components/admin/pi-profile-presentation.ts::profileDisplayName --> <!-- @impl: web-ui/src/components/admin/pi-profile-presentation.ts::profileValidationBasis --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-045: explains the tested provider basis without changing the active profile) -->
 3. Custom profile names remain user-owned and do not acquire an invented tested provider. <!-- @impl: web-ui/src/components/admin/pi-profile-presentation.ts::profileDisplayName --> <!-- @test: web-ui/src/__tests__/components/pi-profile-presentation.test.ts (preserves a custom name without inventing a tested provider) -->
 4. Successful mapping with no existing fit offers named custom Create & Assign at the end of the mapping workflow. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (Discover Profile starts exactly once and creates a canonical route draft without submitting Save) -->
-5. A provider-controlled profile presents its policy reasoning as Provider default rather than Off. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @manual: Assign a provider-controlled Native Route in Enterprise Integration and confirm its disabled reasoning control reads Provider default. -->
+5. A provider-controlled profile presents policy, route-summary, and matched-profile reasoning as Provider default rather than unsupported Off or missing levels. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-045/070: presents Dynamic Bedrock reasoning as provider-controlled instead of unsupported Off) --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (REQ-ENTERPRISE-045: shows a matched empty level set as Provider default and preserves its assignment) -->
 
 **Constraints:**
 

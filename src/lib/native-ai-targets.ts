@@ -48,6 +48,8 @@ function enforceNativeTransport(value: { provider?: string; model: string; trans
   if (profileId.startsWith('bedrock-anthropic-native-opus-') && !value.model.includes('.claude-opus-5')) context.addIssue({ code: 'custom', message: 'Opus profile requires a Claude Opus 5 model', path: ['model'] });
   if (profileId === 'bedrock-anthropic-native-opus-stream' && transport !== 'aig-bedrock-anthropic-eventstream') context.addIssue({ code: 'custom', message: 'Opus streaming profile requires eventstream transport', path: ['transport'] });
   if (profileId === 'bedrock-anthropic-native-opus-invoke' && transport !== 'aig-bedrock-anthropic-invoke') context.addIssue({ code: 'custom', message: 'Opus Invoke profile requires Invoke transport', path: ['transport'] });
+  if (profileId === 'bedrock-anthropic-native-opus-auto' && transport !== 'aig-bedrock-anthropic-auto') context.addIssue({ code: 'custom', message: 'Opus automatic profile requires automatic transport', path: ['transport'] });
+  if (transport === 'aig-bedrock-anthropic-auto' && profileId !== 'bedrock-anthropic-native-sonnet' && profileId !== 'bedrock-anthropic-native-opus-auto') context.addIssue({ code: 'custom', message: 'Automatic transport requires a validated automatic Bedrock profile', path: ['profileRef'] });
 }
 const labelSchema = z.string().trim().min(1).max(128).regex(NATIVE_TEXT_PATTERN);
 const hashSchema = z.string().regex(NATIVE_HASH_PATTERN);

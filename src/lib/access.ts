@@ -825,7 +825,7 @@ function applyDefaultDrift(
  */
 interface ResolvedNativeTarget {
   model: string; provider: string; customProvider: boolean; byokAlias?: string; targetId: string; adapter: string;
-  transport: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream'; region?: string;
+  transport: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto'; region?: string;
   profileRef: ProfileRevisionRef; reasoningLevels: PiReasoningLevel[]; label: string; contextWindow: number;
 }
 

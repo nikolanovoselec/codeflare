@@ -44,7 +44,10 @@ function cloneBlocks(value: unknown): unknown[] | null {
   return parsed;
 }
 
-export function selectBedrockAnthropicTransport(configured: BedrockAnthropicTransport, replayTurn: boolean): BedrockAnthropicTransport {
+export function selectBedrockAnthropicTransport(configured: BedrockAnthropicTransport | 'auto', replayTurn: boolean, mappedEffort?: string): BedrockAnthropicTransport {
+  // Call only after authorization, profile translation, and signed replay validation.
+  // Sonnet's XHigh/Max aliases have already become native High here.
+  if (configured === 'auto') return replayTurn || mappedEffort === 'xhigh' || mappedEffort === 'max' ? 'invoke' : 'eventstream';
   return configured === 'eventstream' && replayTurn ? 'invoke' : configured;
 }
 

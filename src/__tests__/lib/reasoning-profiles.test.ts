@@ -12,6 +12,7 @@ const BUILTIN_IDS = [
   'bedrock-anthropic-native-sonnet',
   'bedrock-anthropic-native-opus-stream',
   'bedrock-anthropic-native-opus-invoke',
+  'bedrock-anthropic-native-opus-auto',
   'native-google-ai-studio-compat',
   'native-openai-compat',
   'native-codeflare-inference-mesh-compat',
@@ -68,6 +69,19 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     expect(opusInvoke.levels.max).toContainEqual({ path: 'output_config.effort', value: 'max' });
   });
 
+  it('REQ-ENTERPRISE-072/078: gives automatic Opus routing its own immutable all-level profile', () => {
+    const auto = profiles.getBuiltInProfile('bedrock-anthropic-native-opus-auto')!;
+    const invoke = profiles.getBuiltInProfile('bedrock-anthropic-native-opus-invoke')!;
+    expect(auto.supportedLevels).toEqual(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(auto.levels).toEqual(invoke.levels);
+    expect(auto.validatedTransports).toEqual(['bedrock-invoke', 'bedrock-eventstream']);
+    expect(auto.hash).not.toBe(invoke.hash);
+    expect(() => { auto.levels.max![0].value = 'high'; }).toThrow();
+    expect(profiles.getBuiltInProfile('bedrock-anthropic-native-opus-auto')!.levels.max).toContainEqual({ path: 'output_config.effort', value: 'max' });
+    expect(profiles.getBuiltInProfileRef('bedrock-anthropic-native-opus-auto')).toEqual({ id: auto.id, revision: 1, hash: auto.hash });
+    expect(profiles.getBuiltInProfile('bedrock-anthropic-native-opus-stream')!.unsupportedLevels).toEqual(['xhigh', 'max']);
+  });
+
   it('REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls', () => {
     const gemini = profiles.getBuiltInProfile('native-google-ai-studio-compat');
     const openai = profiles.getBuiltInProfile('native-openai-compat');
@@ -80,7 +94,7 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     expect(openai!.limitations).toContain('GPT-6 Astra rejected tools on Chat Completions and is not covered by this profile.');
   });
 
-  it('ships exactly the fourteen executable built-ins and keeps failed families as notices', () => {
+  it('ships exactly the fifteen executable built-ins and keeps failed families as notices', () => {
     expect(profiles.REASONING_PROFILE_IDS).toEqual(BUILTIN_IDS);
     expect((profiles as any).COMPATIBILITY_NOTICES.map((notice: any) => notice.id)).toEqual(NOTICE_IDS);
   });

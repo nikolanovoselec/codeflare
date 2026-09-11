@@ -497,13 +497,13 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
               if (!encryptionKey) {
                 return new Response(JSON.stringify({ error: 'Native Bedrock replay state is unavailable', code: 'NATIVE_STATE_UNAVAILABLE' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
               }
-              const configuredTransport: BedrockAnthropicTransport = native.transport === 'aig-bedrock-anthropic-eventstream' ? 'eventstream' : 'invoke';
+              const configuredTransport = native.transport === 'aig-bedrock-anthropic-auto' ? 'auto'
+                : native.transport === 'aig-bedrock-anthropic-eventstream' ? 'eventstream' : 'invoke';
               nativeStreamRequested = payload.stream === true;
               if (configuredTransport === 'eventstream' && !nativeStreamRequested) {
                 return new Response(JSON.stringify({ error: 'Bedrock eventstream targets require streaming requests', code: 'UNSUPPORTED_NATIVE_TRANSPORT' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
               }
               const replayTurn = Array.isArray(payload.messages) && payload.messages.some((message) => message && typeof message === 'object' && !Array.isArray(message) && (message as Record<string, unknown>).role === 'tool');
-              nativeBedrockTransport = selectBedrockAnthropicTransport(configuredTransport, replayTurn);
               const stateKey = (toolId: string) => nativeReplayStateKey(props.user, props.sessionId!, native.targetId, toolId);
               nativeBedrockState = {
                 load: async (toolId) => getAndDecrypt<unknown[]>(this.env.KV!, stateKey(toolId), encryptionKey),
@@ -513,8 +513,15 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
                   await this.env.KV!.put(key, encrypted, { expirationTtl: NATIVE_REPLAY_TTL_SECONDS });
                 },
               };
-              try { payload = await buildBedrockAnthropicRequest(payload, nativeBedrockState); } catch (error) {
+              try {
+                const nativePayload = await buildBedrockAnthropicRequest(payload, nativeBedrockState);
+                nativeBedrockTransport = selectBedrockAnthropicTransport(configuredTransport, replayTurn, nativePayload.output_config?.effort);
+                payload = nativePayload;
+              } catch (error) {
                 return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Invalid native Bedrock request', code: 'INVALID_NATIVE_REQUEST' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+              }
+              if (nativeBedrockTransport === 'eventstream' && !nativeStreamRequested) {
+                return new Response(JSON.stringify({ error: 'Bedrock eventstream targets require streaming requests', code: 'UNSUPPORTED_NATIVE_TRANSPORT' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
               }
               nativeBedrockUrl = `https://gateway.ai.cloudflare.com/v1/${gw.accountId}/${gw.gatewayId}${bedrockAnthropicGatewayPath(native.region, native.model, nativeBedrockTransport)}`;
               compatHeaders.set('content-type', 'application/json');
@@ -648,7 +655,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
    * here can never drift from it. The first matched policy wins before filtering;
    * unmatched users need explicit fallback. No eligible catalog denies inference.
    */
-  private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string; defaultReasoning: string; nativeTargets: Record<string, { model: string; provider: string; customProvider: boolean; byokAlias?: string; targetId: string; adapter: string; transport: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream'; region?: string; profileRef: import('./lib/reasoning-profiles').ProfileRevisionRef; reasoningLevels: import('./lib/reasoning-profiles').PiReasoningLevel[]; label: string; contextWindow: number }> }> {
+  private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string; defaultReasoning: string; nativeTargets: Record<string, { model: string; provider: string; customProvider: boolean; byokAlias?: string; targetId: string; adapter: string; transport: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto'; region?: string; profileRef: import('./lib/reasoning-profiles').ProfileRevisionRef; reasoningLevels: import('./lib/reasoning-profiles').PiReasoningLevel[]; label: string; contextWindow: number }> }> {
     if (!this.env.KV) return { routes: [], defaultRoute: '', defaultReasoning: 'off', nativeTargets: {} };
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
     const { routeCatalog, defaultRoute, defaultReasoning, nativeTargets } = await resolveRouteCatalog(this.env.KV, groups, {

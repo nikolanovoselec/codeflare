@@ -31,6 +31,23 @@ function standalone() {
 }
 
 describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
+  it('REQ-ENTERPRISE-045: does not render an empty level-check table for provider-default reasoning', () => {
+    const view = render(() => <ReasoningCheckOverview result={{ classification: 'Verified', assignable: true }} levels={[]} />);
+    expect(view.getByText('Provider default')).toBeVisible();
+    expect(view.queryByRole('table')).toBeNull();
+    expect(view.queryByText(/Off disabled/)).toBeNull();
+    expect(view.queryByText('Passed')).toBeNull();
+  });
+  it('REQ-ENTERPRISE-045: shows a matched empty level set as Provider default and preserves its assignment', async () => {
+    const profileRef = { id: 'dynamic-bedrock-anthropic-provider-default', revision: 1, hash: 'b'.repeat(64) };
+    discoverMock.mockResolvedValueOnce({ classification: 'Verified', assignable: true, outcome: 'existing-profile', matchedProfiles: [{ name: 'AWS Bedrock Dynamic Route Anthropic Claude', profileRef, supportedLevels: [] }] });
+    const view = standalone();
+    const assign = await view.findByRole('button', { name: 'Assign profile' });
+    expect(view.getByText('Supported levels: Provider default')).toBeVisible();
+    expect(view.queryByText(/Not reported/)).toBeNull();
+    await fireEvent.click(assign);
+    expect(view.onSelectProfile).toHaveBeenCalledExactlyOnceWith(profileRef);
+  });
   it('REQ-ENTERPRISE-035: offers completed matches with a rate-limit notice without retrying', async () => {
     const profileRef = { id: 'workers-ai-glm-thinking', revision: 1, hash: 'a'.repeat(64) };
     discoverMock.mockResolvedValueOnce({ classification: 'Verified', assignable: true, outcome: 'existing-profile', matchedProfiles: [{ name: 'GLM thinking', profileRef, supportedLevels: ['off', 'medium'] }], diagnostics: [{ code: 'request_rejected', status: 429, stage: 'reasoning', levels: ['high'] }] });

@@ -5,7 +5,7 @@ export const NATIVE_PROVIDER_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 export const NATIVE_TEXT_PATTERN = /^[^\u0000-\u001f\u007f]+$/;
 export const NATIVE_HASH_PATTERN = /^[a-f0-9]{64}$/;
 export const NATIVE_REGION_PATTERN = /^[a-z]{2}(?:-gov)?-[a-z]+-\d$/;
-export const NATIVE_TRANSPORTS = ['aig-legacy-compat', 'aig-bedrock-anthropic-invoke', 'aig-bedrock-anthropic-eventstream'] as const;
+export const NATIVE_TRANSPORTS = ['aig-legacy-compat', 'aig-bedrock-anthropic-invoke', 'aig-bedrock-anthropic-eventstream', 'aig-bedrock-anthropic-auto'] as const;
 
 const FORBIDDEN_IDENTIFIERS = ['__proto__', 'prototype', 'constructor'];
 const NATIVE_TARGET_DRAFT_KEYS = new Set(['id', 'label', 'provider', 'model', 'contextWindow', 'profileRef', 'enabled', 'transport', 'region']);
@@ -33,7 +33,7 @@ export function nativeTargetDraftShapeValid(input: unknown): boolean {
   const profile = record(value?.profileRef);
   const provider = value?.provider === undefined ? 'aws-bedrock' : value.provider;
   const transport = value?.transport === undefined ? 'aig-legacy-compat' : value.transport;
-  const nativeBedrock = transport === 'aig-bedrock-anthropic-invoke' || transport === 'aig-bedrock-anthropic-eventstream';
+  const nativeBedrock = transport === 'aig-bedrock-anthropic-invoke' || transport === 'aig-bedrock-anthropic-eventstream' || transport === 'aig-bedrock-anthropic-auto';
   return Boolean(value
     && Object.keys(value).every((key) => NATIVE_TARGET_DRAFT_KEYS.has(key))
     && (value.id === undefined || typeof value.id === 'string' && UUID_PATTERN.test(value.id))
