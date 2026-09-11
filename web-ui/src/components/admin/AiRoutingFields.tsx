@@ -295,11 +295,11 @@ const AiRoutingFields: Component<Props> = (props) => {
     else if (field === 'gateway') setGatewayId(value);
     else setReplacementToken(value);
     setCheckedConnection(undefined);
-    for (const route of routes()) {
+    if (field !== 'token') for (const route of routes()) {
       if (routeChecks()[route.name]) clearRouteVerification(route.name);
       else updateRoute(route.name, (draft) => ({ ...draft, inventory: undefined, inventoryBusy: false, inventoryError: undefined }));
     }
-    // Saved native authority remains a draft input while equivalent coordinates are checked.
+    // Saved route and native authority remain draft inputs while replacement credentials are checked.
     // Preview revalidates it against the resolved gateway and provider configuration before Save.
   };
   const managementContext = (name: string): ReasoningManagementContext | undefined => {

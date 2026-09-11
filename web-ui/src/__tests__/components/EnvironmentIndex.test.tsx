@@ -242,6 +242,24 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(api.start).not.toHaveBeenCalled();
   });
 
+  it('REQ-ENTERPRISE-044/057: reviews a replacement token without client-side readiness blocking', async () => {
+    const initial = { ...aiRouting(), routeChecks: { development: 'saved-check' } };
+    api.configuration.mockResolvedValueOnce(configuration(initial));
+    mount();
+
+    await section('Connection');
+    await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: 'rotated-token' } });
+    const save = screen.getByRole('button', { name: 'Review changes' });
+    expect(save).toBeEnabled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Check connection' }));
+    await screen.findByText('Connected · 1 routes readable');
+    await review();
+
+    expect(submitted().replacementToken).toBe('rotated-token');
+    expect(submitted().routeChecks).toEqual({ development: 'saved-check' });
+    expect(submitted().reasoningConfiguration.routeAssignments.development.verification).toEqual(proof());
+  });
+
   it.each(['legacy evidence', 'missing inventory digest', 'missing saved inventory proof', 'mismatched saved connection', 'mismatched saved profile'] as const)(
     'REQ-ENTERPRISE-044: %s cannot enable Save for a configured group', async (invalid) => {
       const initial = aiRouting();

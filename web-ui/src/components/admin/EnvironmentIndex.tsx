@@ -102,7 +102,6 @@ export const EnvironmentAreaDetail: Component = () => {
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string>();
   const [confirmedWarnings, setConfirmedWarnings] = createSignal<string[]>([]);
-  const [aiRoutingReady, setAiRoutingReady] = createSignal(false);
   const [aiRoutingDirty, setAiRoutingDirty] = createSignal(false);
 
   const editedCurrent = () => {
@@ -118,7 +117,7 @@ export const EnvironmentAreaDetail: Component = () => {
   const review = async (event: SubmitEvent) => {
     event.preventDefault();
     const section = area()?.section;
-    if (!section || preview() || busy() || configuration.activeRunId || (section === 'aiRouting' && (!aiRoutingReady() || !aiRoutingDirty()))) return;
+    if (!section || preview() || busy() || configuration.activeRunId || (section === 'aiRouting' && !aiRoutingDirty())) return;
     setBusy(true); setError(undefined);
     try {
       const values = environmentValues(section, configuration.mode, new FormData(event.currentTarget as HTMLFormElement));
@@ -177,7 +176,7 @@ export const EnvironmentAreaDetail: Component = () => {
         <form style={{ display: preview() ? 'none' : undefined }} class="admin-panel admin-environment-form" onSubmit={(event) => void review(event)}>
           <div class="admin-panel-heading"><div><h2>Edit current settings</h2><p>Blank secret fields preserve their stored value.</p></div><span class="admin-revision">Revision <strong class="admin-mono">{configuration.revision}</strong></span></div>
           <div class="admin-editor-layout">
-            <EnvironmentAreaFields section={resolved().section} mode={configuration.mode} current={editedCurrent()} onReadyChange={setAiRoutingReady} onDirtyChange={setAiRoutingDirty} />
+            <EnvironmentAreaFields section={resolved().section} mode={configuration.mode} current={editedCurrent()} onDirtyChange={setAiRoutingDirty} />
             <aside class="admin-editor-context">
               <h3>Before you apply</h3>
               <dl>
@@ -187,7 +186,7 @@ export const EnvironmentAreaDetail: Component = () => {
               </dl>
             </aside>
           </div>
-          <div class="admin-form-actions"><button type="submit" class="admin-primary-button" disabled={busy() || Boolean(configuration.activeRunId) || (resolved().section === 'aiRouting' && (!aiRoutingReady() || !aiRoutingDirty()))}>{busy() ? 'Reviewing…' : 'Review changes'}</button></div>
+          <div class="admin-form-actions"><button type="submit" class="admin-primary-button" disabled={busy() || Boolean(configuration.activeRunId) || (resolved().section === 'aiRouting' && !aiRoutingDirty())}>{busy() ? 'Reviewing…' : 'Review changes'}</button></div>
         </form>
       </Show>
       <Show when={!run() ? preview() : undefined}>{(reviewed) => <section class="admin-panel">

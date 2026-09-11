@@ -967,12 +967,13 @@ describe('Structured AI routing', () => {
   });
 
   it('REQ-ENTERPRISE-057: a successfully checked credential change preserves saved route authority for Review changes', async () => {
-    const view = mount(checkedCurrent());
+    const view = mount({ ...checkedCurrent(), routeChecks: { general_usage: 'general_usage-check', development: 'development-check' } });
     await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
     await section(view, 'Connection');
     await fireEvent.input(view.getByLabelText('Replacement API token'), { target: { value: 'rotated-token' } });
     expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
     expect(formValues(view.container).reasoningConfiguration.routeAssignments.development.verification).toEqual(proof());
+    expect(formValues(view.container).routeChecks).toEqual({ general_usage: 'general_usage-check', development: 'development-check' });
     await fireEvent.click(view.getByRole('button', { name: 'Check connection' }));
     await view.findByText('Connected · 3 routes readable');
     await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
