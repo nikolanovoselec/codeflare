@@ -59,6 +59,35 @@ const renderReview = (submitted: unknown = values(), reviewed = preview(), curre
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('AI routing review', () => {
+  it('REQ-ENTERPRISE-069: shows only the authoritative changed route, not the unchanged configuration inventory', () => {
+    const routes = ['bedrock_opus', 'development', 'general_usage', 'documentation', 'code_review', 'codeflare_mesh', 'codeflare-mesh-research', 'freestyler'];
+    const bedrock = getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default');
+    const current = { ...values(), dynamicRoutes: [], groupRouting: [], fallbackRouting: { enabled: false },
+      routeContextWindows: Object.fromEntries(routes.map((route) => [route, route === 'bedrock_opus' ? 5000000 : 256000])),
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: Object.fromEntries(routes.map((route) => [route, { activeProfile: route === 'bedrock_opus' ? bedrock : builtin }])) },
+    };
+    // Server normalization is authoritative, even if the browser still holds different raw values.
+    const proposed = { ...current, routeContextWindows: { ...current.routeContextWindows, bedrock_opus: 7000000 } };
+    renderReview(proposed, preview({ changes: [{ field: 'routeContextWindows', before: current.routeContextWindows, after: { ...current.routeContextWindows, bedrock_opus: 6000000 } }] }), current);
+    const table = screen.getByRole('table', { name: 'Route profiles' });
+    expect(within(table).getAllByRole('row')).toHaveLength(2);
+    const row = within(table).getByRole('row', { name: /bedrock_opus/ });
+    expect(within(row).getByText('5,000,000 tokens')).toBeVisible();
+    expect(within(row).getByText('6,000,000 tokens')).toBeVisible();
+    expect(within(row).queryByText('7,000,000 tokens')).toBeNull();
+    for (const route of routes.slice(1)) expect(within(table).queryByRole('row', { name: new RegExp(route) })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Group access' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Connection' })).toBeNull();
+  });
+
+  it('REQ-ENTERPRISE-069: shows a removed assignment from the authoritative before state', () => {
+    const current = values();
+    renderReview(current, preview({ changes: [{ field: 'reasoningConfiguration', before: current.reasoningConfiguration, after: { ...current.reasoningConfiguration, routeAssignments: { development: current.reasoningConfiguration.routeAssignments.development } } }] }), current);
+    const table = screen.getByRole('table', { name: 'Route profiles' });
+    expect(within(table).getAllByRole('row')).toHaveLength(2);
+    expect(within(table).getByRole('row', { name: /production/ })).toHaveTextContent('Removed');
+  });
+
   it('REQ-ENTERPRISE-074: reviews the native AWS region without exposing transport choices', () => {
     renderReview({ ...values(), nativeTargets: [{ label: 'Opus', model: 'eu.anthropic.claude-opus-5', transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', contextWindow: 200000, enabled: true }] });
     const section = screen.getByRole('heading', { name: 'Native providers' }).closest('section')!;

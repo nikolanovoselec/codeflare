@@ -255,11 +255,40 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     const unchanged = await post(app, { section: 'aiRouting', baseRevision: 1, values });
     expect(unchanged.status).toBe(200);
     const unchangedPreview = await unchanged.json() as any;
-    // Transient routeChecks and secret replacement metadata are not durable assignment/context edits.
-    expect(unchangedPreview.changes.filter((change: { field: string }) =>
-      ['reasoningConfiguration', 'routeContextWindows'].includes(change.field))).toEqual([]);
+    // An unchanged submission must be a complete no-op, not merely unchanged selected fields.
+    expect(unchangedPreview.changes).toEqual([]);
     expect(kv.put).not.toHaveBeenCalled();
     expect(kv.delete).not.toHaveBeenCalled();
+    const noOpSave = await app.request('/admin/configuration-runs', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ section: 'aiRouting', baseRevision: 1, values, confirmedWarnings: [] }),
+    });
+    expect(noOpSave.status).toBe(409);
+    expect(await noOpSave.json()).toMatchObject({ code: 'configuration_no_changes' });
+    expect(kv.put).not.toHaveBeenCalled();
+    expect(kv.delete).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-069: compares stored policy objects with submitted ordered policies without inventing changes', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_GATEWAY_URL: routingGatewayUrl, AIG_TOKEN: 'saved-token' });
+    const reasoningConfiguration = { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {}, fallbackRouting: { enabled: false } };
+    const emptyPolicy = { routes: [], defaultRoute: '', reasoning: 'off' };
+    kv._set(SETUP_KEYS.REASONING_CONFIGURATION, reasoningConfiguration);
+    kv._set(SETUP_KEYS.DYNAMIC_ROUTES, []);
+    kv._set(SETUP_KEYS.DEFAULT_ROUTE, { route: '', reasoning: 'off' });
+    kv._set(SETUP_KEYS.GROUP_ROUTING, { first: emptyPolicy, second: emptyPolicy });
+    const values = {
+      gatewayUrl: routingGatewayUrl, replacementToken: '', dynamicRoutes: [],
+      defaultRoute: { route: '', reasoning: 'off' }, routeContextWindows: {}, reasoningConfiguration,
+      fallbackRouting: { enabled: false }, routeChecks: {}, nativeTargets: [], nativeChecks: {},
+      groupRouting: [{ accessGroup: 'first', ...emptyPolicy }, { accessGroup: 'second', ...emptyPolicy }],
+    };
+    const unchanged = await post(app, { section: 'aiRouting', baseRevision: 0, values });
+    expect(unchanged.status).toBe(200);
+    expect((await unchanged.json() as any).changes).toEqual([]);
+    const reordered = await post(app, { section: 'aiRouting', baseRevision: 0, values: { ...values, groupRouting: [...values.groupRouting].reverse() } });
+    expect(reordered.status).toBe(200);
+    expect((await reordered.json() as any).changes).toEqual([{ field: 'groupRouting', before: values.groupRouting, after: [...values.groupRouting].reverse() }]);
   });
 
   it('REQ-ENTERPRISE-039: rejects reasoning without a global default route', async () => {

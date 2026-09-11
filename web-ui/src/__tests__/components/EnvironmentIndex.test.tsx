@@ -138,6 +138,38 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
+  it.each([false, true])('REQ-ENTERPRISE-044: eight routes with only Bedrock verified remain untouched after inventory failures (other assignments: %s)', async (assigned) => {
+    const routes = ['bedrock_opus', 'development', 'general_usage', 'documentation', 'code_review', 'codeflare_mesh', 'codeflare-mesh-research', 'freestyler'];
+    const bedrock = getBuiltInProfile('dynamic-bedrock-anthropic-provider-default')!;
+    const bedrockRef = getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default');
+    const verification = { ...proof('bedrock_opus', bedrockRef, []), method: 'administrator' as const };
+    const routeAssignments = Object.fromEntries(routes.filter((route) => assigned || route === 'bedrock_opus').map((route) => [route, {
+      activeProfile: route === 'bedrock_opus' ? bedrockRef : ref,
+      ...(route === 'bedrock_opus' && { verification }),
+    }]));
+    api.configuration.mockResolvedValueOnce(configuration({ ...aiRouting(), dynamicRoutes: [], groupRouting: {},
+      defaultRoute: { route: '', reasoning: 'off' }, fallbackRouting: { enabled: false },
+      routeContextWindows: Object.fromEntries(routes.map((route) => [route, route === 'bedrock_opus' ? 5000000 : 256000])),
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments, fallbackRouting: { enabled: false } },
+    }));
+    api.catalog.mockResolvedValue({ ...catalog(), profiles: [...catalog().profiles, bedrock], routes });
+    api.inventory.mockImplementation(async (route: string) => {
+      if (route !== 'bedrock_opus') throw new Error('Inventory unavailable');
+      return inventory(route, verification);
+    });
+    const view = mount();
+    const action = await screen.findByRole('button', { name: 'Review changes' });
+    expect(action).toBeDisabled();
+    await waitFor(() => expect(api.inventory).toHaveBeenCalledTimes(8));
+    await openRoute('bedrock_opus');
+    expect(action).toBeDisabled();
+    expect(draft(view.container).routeAssignments).toEqual(routeAssignments);
+    await fireEvent.submit(action.closest('form')!);
+    expect(api.preview).not.toHaveBeenCalled();
+    expect(api.discover).not.toHaveBeenCalled();
+    expect(api.start).not.toHaveBeenCalled();
+  });
+
   it('REQ-ENTERPRISE-081: shows each non-empty authoritative validation reason once when Review is rejected', async () => {
     const routeReason = 'Route development requires a successful check for its exact profile, gateway, and inventory';
     const credentialReason = 'AI Gateway credentials are unavailable';
