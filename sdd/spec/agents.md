@@ -2956,6 +2956,7 @@ None.
 4. Composition and extraction follow explicit ownership, state, reuse, testability, and maintenance evidence. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 5. Updates prefer immutability, keep necessary mutation local, validate untrusted boundaries, and trust typed internals. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 6. Repositories with `sdd/` keep changed behavior traced to truthful requirements, anchors, and documentation, with no touched REQ left `Partial`. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
+7. CI, automated-test, deployment, and log-tail monitoring never blocks the main session; only approved safe local checks run in-session. <!-- @impl: preseed/agents/claude/rules/engineering-constitution.md::Engineering --> <!-- @impl: preseed/agents/pi/rules/engineering-constitution.md::Engineering --> <!-- @manual -->
 
 **Constraints:** Claude and Pi preseed rules are authored sources; transformed files are downstream artifacts. Both sources remain substantively aligned, while prose correctness is not pinned by wording, heading, token-count, or snapshot tests.
 

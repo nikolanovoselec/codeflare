@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-11
 
+- **Monitoring never blocks the main coding session** ([REQ-AGENT-065](agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) AC7 added; remains Implemented). Claude and Pi use background agents or processes for CI, automated tests, deployments, and log tails; only approved safe local checks run in-session.
+
 - **Native access policies show provider-model labels** ([REQ-ENTERPRISE-056](enterprise-mode.md#req-enterprise-056-native-target-disclosure-and-readiness) AC5 added; remains Implemented). Group and fallback controls present each Ready native target by its provider and exact model while the existing opaque policy identity remains unchanged.
 
 ## 2026-09-10
