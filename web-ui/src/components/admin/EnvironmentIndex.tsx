@@ -17,6 +17,18 @@ import EnvironmentAreaFields, { environmentValues } from './EnvironmentAreaField
 import AiRoutingReview, { AiRoutingSummary } from './AiRoutingReview';
 import { environmentContext, executionOutcome, operatorTaskLabel } from './administration-presentation';
 
+function configurationErrorMessage(reason: unknown): string {
+  if (reason instanceof ConfigurationRequestError) {
+    const fields = reason.body.fields;
+    if (fields && typeof fields === 'object' && !Array.isArray(fields)) {
+      const details = Object.values(fields as Record<string, unknown>).flatMap((messages) =>
+        Array.isArray(messages) ? messages.filter((message): message is string => typeof message === 'string' && message.trim().length > 0) : []);
+      if (details.length > 0) return [...new Set(details)].join(' ');
+    }
+  }
+  return reason instanceof Error ? reason.message : 'Environment values are invalid.';
+}
+
 function changeValue(field: string, value: unknown): string {
   if (value === null || value === undefined) return 'Not configured';
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
@@ -125,7 +137,7 @@ export const EnvironmentAreaDetail: Component = () => {
       setConfirmedWarnings([]);
       setPreview(await previewConfiguration(section, configuration.revision, values));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Environment values are invalid.');
+      setError(configurationErrorMessage(reason));
     } finally { setBusy(false); }
   };
 

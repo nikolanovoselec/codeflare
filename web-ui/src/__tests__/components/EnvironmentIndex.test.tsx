@@ -1,10 +1,17 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import { Route, Router } from '@solidjs/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ConfigurationPreview } from '../../api/client';
+import { ConfigurationRequestError, type ConfigurationPreview } from '../../api/client';
 import type { FallbackRouting, PiReasoningLevel, ProfileRevisionRef, ReasoningConfiguration, ReasoningDiscoveryResult, ReasoningRouteVerification } from '../../types';
 
-const api = vi.hoisted(() => ({ configuration: vi.fn(), catalog: vi.fn(), preview: vi.fn(), start: vi.fn(), run: vi.fn(), inventory: vi.fn(), discover: vi.fn() }));
+const api = vi.hoisted(() => ({
+  configuration: vi.fn(), catalog: vi.fn(), preview: vi.fn(), start: vi.fn(), run: vi.fn(), inventory: vi.fn(), discover: vi.fn(),
+  RequestError: class ConfigurationRequestError extends Error {
+    constructor(public status: number, public body: Record<string, unknown>) {
+      super(typeof body.error === 'string' ? body.error : 'Environment request failed');
+    }
+  },
+}));
 vi.mock('../../api/client', () => ({
   getAdminConfiguration: (...args: unknown[]) => api.configuration(...args),
   getReasoningCatalog: (...args: unknown[]) => api.catalog(...args),
@@ -13,7 +20,7 @@ vi.mock('../../api/client', () => ({
   getConfigurationRun: (...args: unknown[]) => api.run(...args),
   getReasoningRouteInventory: (...args: unknown[]) => api.inventory(...args),
   discoverReasoningCompatibility: (...args: unknown[]) => api.discover(...args),
-  ConfigurationRequestError: class ConfigurationRequestError extends Error {},
+  ConfigurationRequestError: api.RequestError,
 }));
 
 import AdministrationLayout from '../../components/admin/AdministrationLayout';
@@ -133,6 +140,18 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
+  it('shows the authoritative AI routing validation reason when Review is rejected', async () => {
+    api.preview.mockRejectedValueOnce(new ConfigurationRequestError(400, {
+      error: 'Environment values are invalid',
+      fields: { reasoningConfiguration: ['Route development requires a successful check for its exact profile, gateway, and inventory'] },
+    }));
+    mount();
+    await section('Connection');
+    await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: 'replacement-token' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Route development requires a successful check for its exact profile, gateway, and inventory');
+  });
+
   it.each(['developers', 'Fallback'])('REQ-ENTERPRISE-044: reverting %s route membership disables review', async (policy) => {
     const initial = aiRouting();
     const routes = ['development', 'staging', 'production'];
