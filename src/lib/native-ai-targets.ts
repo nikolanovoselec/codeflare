@@ -12,6 +12,7 @@ import {
   nativeModelIdentifierValid,
   nativeProviderIdentifierValid,
   nativeProviderModelValid,
+  nativeTargetDraftShapeValid,
 } from './native-ai-target-draft';
 
 const BEDROCK_PROFILE_ID = 'bedrock-anthropic-compat';
@@ -38,7 +39,9 @@ const nativeTargetDraftObjectSchema = z.object({
   contextWindow: z.number().int().gt(NATIVE_MODEL_MAX_TOKENS).max(NATIVE_CONTEXT_WINDOW_MAX),
   provider: providerSchema.default('aws-bedrock'), profileRef: nativeProfileRefSchema, enabled: z.boolean(),
 }).strict();
-export const nativeTargetDraftSchema = nativeTargetDraftObjectSchema.superRefine(enforceProviderModel);
+export const nativeTargetDraftSchema = nativeTargetDraftObjectSchema
+  .refine(nativeTargetDraftShapeValid, { message: 'native target draft is invalid' })
+  .superRefine(enforceProviderModel);
 export const nativeTargetProfileDiscoveryDraftSchema = nativeTargetDraftObjectSchema
   .extend({ profileRef: nativeProfileRefSchema.optional() }).superRefine(enforceProviderModel);
 const adapterVersionSchema = z.enum([BEDROCK_COMPAT_ADAPTER_VERSION, NATIVE_COMPAT_ADAPTER_VERSION, GEMINI_COMPAT_ADAPTER_VERSION]);

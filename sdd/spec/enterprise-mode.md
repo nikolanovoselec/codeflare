@@ -540,8 +540,6 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 3. Connection, routes, and access policies have distinct, keyboard-operable section navigation. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: section navigation retains configuration state) -->
 4. At desktop widths, gateway URL and replacement-token inputs receive the primary editing width while format and gateway-name controls remain compact. <!-- @impl: web-ui/src/styles/ai-routing-workspace.css::.admin-connection-fields --> <!-- @manual: On the protected Enterprise Integration deployment at desktop width, compare all four connection controls and confirm the compact and primary hierarchy. -->
 5. At narrow-screen widths, all four gateway connection controls stack in one column without horizontal overflow. <!-- @impl: web-ui/src/styles/ai-routing-workspace.css::.admin-connection-fields --> <!-- @manual: On the protected Enterprise Integration deployment at mobile width, confirm the four connection controls use a single-column flow without horizontal overflow. -->
-6. At desktop widths, the four gateway configuration sections occupy one balanced navigation row. <!-- @impl: web-ui/src/styles/ai-routing-workspace.css::.admin-routing-nav --> <!-- @manual: On the protected Enterprise Integration deployment at desktop width, confirm all four section controls occupy one row. -->
-7. At narrow-screen widths, the four gateway configuration sections form a balanced two-by-two navigation grid. <!-- @impl: web-ui/src/styles/ai-routing-workspace.css::.admin-routing-nav --> <!-- @manual: On the protected Enterprise Integration deployment at mobile width, confirm the section controls form two balanced rows without overflow. -->
 
 **Constraints:**
 
@@ -683,6 +681,32 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Dependencies:** [REQ-ENTERPRISE-044](#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies), [REQ-ENTERPRISE-055](#req-enterprise-055-native-target-authority-and-save)
 
 **Verification:** Anchored backend behavioral test; execution is CI-only.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-067: Enterprise Pi Section Navigation Layout
+
+**Intent:** Administrators can move among gateway configuration sections through a balanced navigation layout at every supported width.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. At desktop widths, the four gateway configuration sections occupy one balanced navigation row. <!-- @impl: web-ui/src/styles/ai-routing-workspace.css::.admin-routing-nav --> <!-- @manual: On the protected Enterprise Integration deployment at desktop width, confirm all four section controls occupy one row. -->
+2. At narrow-screen widths, the four gateway configuration sections form a balanced two-by-two navigation grid. <!-- @impl: web-ui/src/styles/ai-routing-workspace.css::.admin-routing-nav --> <!-- @manual: On the protected Enterprise Integration deployment at mobile width, confirm the section controls form two balanced rows without overflow. -->
+
+**Constraints:**
+
+- Section navigation remains keyboard-operable and preserves configuration drafts.
+- The narrow-screen layout does not use horizontal scrolling or a dropdown.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-041](#req-enterprise-041-enterprise-pi-administrator-workspace)
+
+**Verification:** Manual verification on the protected Enterprise Integration deployment.
 
 **Status:** Implemented
 
