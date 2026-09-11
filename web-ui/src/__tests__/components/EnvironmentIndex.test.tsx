@@ -242,7 +242,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(api.start).not.toHaveBeenCalled();
   });
 
-  it.each(['token-first', 'url-first'] as const)('REQ-ENTERPRISE-044/057: replacement credentials preserve saved policies regardless of connection edit order (%s)', async (order) => {
+  it.each(['token-first', 'url-first', 'url-only'] as const)('REQ-ENTERPRISE-044/057: connection drafts preserve saved policies before and after checking (%s)', async (order) => {
     const initial = { ...aiRouting(), routeChecks: { development: 'saved-check' },
       fallbackRouting: { enabled: true, routes: ['development'], defaultRoute: 'development', reasoning: 'medium' as const } };
     api.configuration.mockResolvedValueOnce(configuration(initial));
@@ -252,18 +252,27 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     const editToken = () => fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: 'rotated-token' } });
     const editUrl = () => fireEvent.input(screen.getByLabelText('AI Gateway URL'), { target: { value: 'https://gateway.ai.cloudflare.com/v1/account/rotated-gateway' } });
     if (order === 'token-first') { await editToken(); await editUrl(); }
-    else { await editUrl(); await editToken(); }
+    else if (order === 'url-first') { await editUrl(); await editToken(); }
+    else await editUrl();
     const save = screen.getByRole('button', { name: 'Review changes' });
+    const expectPreservedDraft = () => {
+      expect(submitted().replacementToken).toBe(order === 'url-only' ? '' : 'rotated-token');
+      expect(submitted().dynamicRoutes).toEqual(['development']);
+      expect(submitted().groupRouting).toEqual([group]);
+      expect(submitted().fallbackRouting).toEqual({ enabled: true, routes: ['development'], defaultRoute: 'development', reasoning: 'medium' });
+      expect(submitted().routeChecks).toEqual({ development: 'saved-check' });
+      expect(submitted().reasoningConfiguration.routeAssignments.development.verification).toEqual(proof());
+    };
     expect(save).toBeEnabled();
     await fireEvent.click(save);
     expect(await screen.findByRole('heading', { name: 'Confirm Save' })).toBeVisible();
-
-    expect(submitted().replacementToken).toBe('rotated-token');
-    expect(submitted().dynamicRoutes).toEqual(['development']);
-    expect(submitted().groupRouting).toEqual([group]);
-    expect(submitted().fallbackRouting).toEqual({ enabled: true, routes: ['development'], defaultRoute: 'development', reasoning: 'medium' });
-    expect(submitted().routeChecks).toEqual({ development: 'saved-check' });
-    expect(submitted().reasoningConfiguration.routeAssignments.development.verification).toEqual(proof());
+    expectPreservedDraft();
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to edit' }));
+    await section('Connection');
+    await fireEvent.click(screen.getByRole('button', { name: 'Check connection' }));
+    await screen.findByText('Connected · 1 routes readable');
+    await review();
+    expectPreservedDraft();
   });
 
   it.each(['legacy evidence', 'missing inventory digest', 'missing saved inventory proof', 'mismatched saved connection', 'mismatched saved profile'] as const)(
