@@ -144,12 +144,12 @@ const AiRoutingFields: Component<Props> = (props) => {
   const [gatewayId, setGatewayId] = createSignal(text(current.gatewayId) || legacyGatewayId(initialGatewayUrl));
   const [replacementToken, setReplacementToken] = createSignal(text(current.replacementToken));
   const [checkedConnection, setCheckedConnection] = createSignal<string>();
-  const replacementCredentialDraft = () => Boolean(replacementToken().trim());
   const effectiveGatewayUrl = () => gatewayKind() === 'account-api' ? accountApiBase(gatewayUrl()) ?? gatewayUrl().trim() : gatewayUrl().trim();
   const effectiveGatewayId = () => gatewayKind() === 'account-api' ? gatewayId().trim() : '';
   const connectionKey = () => JSON.stringify([effectiveGatewayUrl(), effectiveGatewayId() || legacyGatewayId(gatewayUrl()), replacementToken().trim()]);
   const gatewayDraft = (): ReasoningGatewayDraft | undefined => effectiveGatewayUrl() !== text(current.savedGatewayUrl ?? current.gatewayUrl).trim() || effectiveGatewayId() !== (gatewayKind() === 'account-api' ? text(current.gatewayId).trim() : '') || replacementToken().trim()
     ? { gatewayUrl: effectiveGatewayUrl(), ...(effectiveGatewayId() && { gatewayId: effectiveGatewayId() }), ...(replacementToken().trim() && { replacementToken: replacementToken().trim() }) } : undefined;
+  const connectionDraft = () => gatewayDraft() !== undefined;
   const [catalog, setCatalog] = createSignal<ReasoningCatalog>({ schemaVersion: 1, profiles: [], notices: [], usage: [], routes: [], routeCatalogStatus: 'unavailable' });
   const [catalogBusy, setCatalogBusy] = createSignal(true);
   const [catalogError, setCatalogError] = createSignal('');
@@ -240,7 +240,7 @@ const AiRoutingFields: Component<Props> = (props) => {
     const proof = route.assignment.verification;
     const inventory = route.inventory;
     const profile = findProfile(route.assignment.activeProfile);
-    if ((!connectionReady() && !replacementCredentialDraft()) || !profile || !proof || !inventory || route.inventoryBusy || route.inventoryError || verificationFor(route.name).busy) return false;
+    if ((!connectionReady() && !connectionDraft()) || !profile || !proof || !inventory || route.inventoryBusy || route.inventoryError || verificationFor(route.name).busy) return false;
     if (!inventory.inventoryDigest || proof.inventoryDigest !== inventory.inventoryDigest || proof.routeVersion !== inventoryVersion(inventory)
       || refKey(proof.profileRef) !== refKey(route.assignment.activeProfile) || !profile.supportedLevels.every((level) => proof.supportedLevels?.includes(level))) return false;
     if (routeChecks()[route.name] === null) return false;
@@ -296,11 +296,8 @@ const AiRoutingFields: Component<Props> = (props) => {
     else if (field === 'gateway') setGatewayId(value);
     else setReplacementToken(value);
     setCheckedConnection(undefined);
-    if (field !== 'token') for (const route of routes()) {
-      if (routeChecks()[route.name]) clearRouteVerification(route.name);
-      else updateRoute(route.name, (draft) => ({ ...draft, inventory: undefined, inventoryBusy: false, inventoryError: undefined }));
-    }
-    // Saved route and native authority remain draft inputs while replacement credentials are checked.
+    for (const route of routes()) updateRoute(route.name, (draft) => ({ ...draft, inventory: undefined, inventoryBusy: false, inventoryError: undefined }));
+    // Saved route and native authority remain draft inputs while connection changes are checked.
     // Preview revalidates it against the resolved gateway and provider configuration before Save.
   };
   const managementContext = (name: string): ReasoningManagementContext | undefined => {
@@ -449,14 +446,14 @@ const AiRoutingFields: Component<Props> = (props) => {
     routeAssignments: Object.fromEntries(routes().flatMap((route) => route.assignment.activeProfile ? [[route.name, { ...route.assignment, activeProfile: route.assignment.activeProfile,
     } satisfies ReasoningRouteAssignment]] : [])),
   }));
-  const submittedGroups = () => replacementCredentialDraft() ? groups() : configuredGroups();
-  const submittedFallback = (): FallbackRouting => replacementCredentialDraft()
+  const submittedGroups = () => connectionDraft() ? groups() : configuredGroups();
+  const submittedFallback = (): FallbackRouting => connectionDraft()
     ? fallbackEnabled() ? { enabled: true, ...fallbackPolicy() } : { enabled: false }
     : fallbackRouting();
-  const submittedNames = () => replacementCredentialDraft()
+  const submittedNames = () => connectionDraft()
     ? [...new Set([...groups().flatMap((group) => group.routes), ...(fallbackEnabled() ? fallbackPolicy().routes : [])])]
     : activeNames().filter((name) => gatewayRoutes().includes(name));
-  const compatibilityDefault = () => replacementCredentialDraft()
+  const compatibilityDefault = () => connectionDraft()
     ? fallbackEnabled() && fallbackPolicy().routes.length ? fallbackPolicy() : groups().find((group) => group.routes.length > 0)
     : fallbackEnabled() && normalizedFallback().routes.length ? normalizedFallback() : activeGroups()[0];
 

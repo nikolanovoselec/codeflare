@@ -345,7 +345,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(api.discover).toHaveBeenCalledTimes(1);
   });
 
-  it('REQ-ENTERPRISE-057: keeps Review changes available after checking equivalent gateway coordinates for a native-only policy', async () => {
+  it('REQ-ENTERPRISE-057: preserves a native-only policy before and after checking connection changes', async () => {
     const targetId = '11111111-1111-4111-8111-111111111111';
     const handle = `cf-native-${targetId}`;
     const nativeRef = { id: 'native-openai-compat', revision: 1, hash: 'd'.repeat(64) };
@@ -375,16 +375,21 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     await fireEvent.input(screen.getByLabelText('AI Gateway URL'), { target: { value: 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/' } });
     await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: 'rotated-token' } });
     expect(reviewButton).toBeEnabled();
-    await fireEvent.click(screen.getByRole('button', { name: 'Check connection' }));
-    await screen.findByText('Connected · 0 routes readable');
-    await waitFor(() => expect(reviewButton).toBeEnabled());
-    await fireEvent.click(reviewButton);
-    expect(api.preview).toHaveBeenCalledWith('aiRouting', 7, expect.objectContaining({
+    const expected = expect.objectContaining({
       gatewayUrl: 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/',
       gatewayId: 'gateway', replacementToken: 'rotated-token',
       nativeTargets: [expect.objectContaining({ id: targetId, enabled: true })],
       groupRouting: [{ accessGroup: 'developers', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
-    }));
+    });
+    await fireEvent.click(reviewButton);
+    expect(api.preview).toHaveBeenLastCalledWith('aiRouting', 7, expected);
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to edit' }));
+    await section('Connection');
+    await fireEvent.click(screen.getByRole('button', { name: 'Check connection' }));
+    await screen.findByText('Connected · 0 routes readable');
+    await waitFor(() => expect(reviewButton).toBeEnabled());
+    await fireEvent.click(reviewButton);
+    expect(api.preview).toHaveBeenLastCalledWith('aiRouting', 7, expected);
   });
 
   it('REQ-ENTERPRISE-034: saves a different manually selected revision without configuring unrelated gateway routes', async () => {
