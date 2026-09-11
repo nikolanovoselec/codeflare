@@ -168,7 +168,7 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(observedProviderUrls.every((url) => url.includes('/compat/chat/completions'))).toBe(true);
   });
 
-  it('REQ-ENTERPRISE-055: accepts a disabled native provider target before routes or access policies exist', async () => {
+  it('REQ-ENTERPRISE-066: accepts a disabled native provider target before routes or access policies exist', async () => {
     const f = setup();
     const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
       gatewayUrl: accountApiUrl,

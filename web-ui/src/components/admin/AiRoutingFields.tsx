@@ -254,7 +254,11 @@ const AiRoutingFields: Component<Props> = (props) => {
   // REQ-ENTERPRISE-044: pending-policy-inventory must settle before Save can normalize selections.
   const policyInventoryPending = () => [...groups().flatMap((group) => group.routes), ...(fallbackEnabled() ? fallbackPolicy().routes : [])]
     .some((name) => gatewayRoutes().includes(name) && Boolean(routeByName(name)?.inventoryBusy));
-  const canSave = () => connectionReady() && !policyInventoryPending() && !checksBusy() && (!fallbackEnabled() || normalizedFallback().routes.length > 0);
+  const nativeConfigurationReady = () => nativeDirty() && nativeTargets().every((target) => target.label.trim() && target.model.trim()
+    && Number.isSafeInteger(target.contextWindow) && target.contextWindow > 16384 && Boolean(findProfile(target.profileRef)));
+  const canSave = () => connectionReady() && !policyInventoryPending() && !checksBusy()
+    && (!fallbackEnabled() || normalizedFallback().routes.length > 0)
+    && (activeGroups().length > 0 || normalizedFallback().routes.length > 0 || gatewayDraft() !== undefined || nativeConfigurationReady());
   const saveHelp = () => !connectionReady() ? 'Check the AI Gateway connection before saving.' : policyInventoryPending() ? 'Wait for selected route models to finish loading.' : checksBusy() ? 'Wait for the current profile check to finish.' : fallbackEnabled() && !normalizedFallback().routes.length ? 'Choose an available route for fallback access, or turn fallback off.' : '';
   createEffect(() => props.onReadyChange?.(canSave()));
 

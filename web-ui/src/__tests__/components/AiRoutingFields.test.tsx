@@ -365,6 +365,17 @@ describe('Structured AI routing', () => {
     ]));
   });
 
+  it('REQ-ENTERPRISE-066: enables Save for a complete disabled native draft without access policies', async () => {
+    const view = mount({ ...current, gatewayUrl: 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/', gatewayId: 'codeflare-enterprise', dynamicRoutes: [], defaultRoute: null, groupRouting: [], reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} } });
+    await addNativeTarget(view);
+    expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
+    await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Claude draft' } });
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-sonnet-5' } });
+    await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
+    expect(formValues(view.container)).toMatchObject({ dynamicRoutes: [], groupRouting: [], fallbackRouting: { enabled: false } });
+    expect(formValues(view.container).nativeTargets).toMatchObject([{ label: 'Claude draft', enabled: false }]);
+  });
+
   it('REQ-ENTERPRISE-054: verification automatically enables the native target draft', async () => {
     api.native.mockRejectedValueOnce(new ApiError('Rate limit exceeded. Try again in 44 seconds.', 429, 'Too Many Requests'));
     const view = mount(checkedCurrent());

@@ -128,7 +128,9 @@ const aiRoutingSchema = z.object({
   }
   const policyModels = [...new Set([...value.groupRouting.flatMap((group) => group.routes), ...(value.fallbackRouting.enabled ? value.fallbackRouting.routes : [])])];
   const activeRoutes = policyModels.filter((route) => !nativeHandles.has(route));
-  if (value.defaultRoute.route && !policyModels.includes(value.defaultRoute.route)) {
+  if (!value.defaultRoute.route && value.defaultRoute.reasoning !== 'off') {
+    context.addIssue({ code: 'custom', message: 'An empty default route must use Off reasoning', path: ['defaultRoute', 'reasoning'] });
+  } else if (value.defaultRoute.route && !policyModels.includes(value.defaultRoute.route)) {
     context.addIssue({ code: 'custom', message: 'Default model must be in the active policy catalog', path: ['defaultRoute', 'route'] });
   }
   if (value.reasoningConfiguration === undefined && activeRoutes.some((route) => !value.routeReasoningProfiles?.[route])) {

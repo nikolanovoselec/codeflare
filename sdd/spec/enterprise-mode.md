@@ -536,6 +536,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. The initial route overview presents route names and status without expanding every route's controls. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: starts with a compact route overview and expands only the selected route) -->
 2. Opening another route preserves unsaved edits in the previous route. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: switching route details preserves unsaved values) -->
 3. Connection, routes, and access policies have distinct, keyboard-operable section navigation. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: section navigation retains configuration state) -->
+4. At desktop widths, gateway URL and replacement-token inputs receive the primary editing width while format and gateway-name controls remain compact; narrow screens stack all four controls without horizontal overflow. <!-- @impl: web-ui/src/styles/ai-routing-workspace.css::.admin-connection-fields --> <!-- @manual: On the protected Enterprise Integration deployment, compare all four connection controls at desktop and mobile viewport widths and confirm the compact/primary hierarchy and single-column mobile flow. -->
 
 **Constraints:**
 
@@ -626,7 +627,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. A checked gateway connection and disabled provider drafts can be saved without any Dynamic Route, group assignment, or fallback route. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (accepts an AI Gateway connection before routes or access policies exist) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-055: accepts a disabled native provider target before routes or access policies exist) --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-044: reviews a checked connection change before routes or access policies exist) -->
+1. A checked gateway connection can be saved without any Dynamic Route, group assignment, or fallback route; its absent global default uses an empty route with Off reasoning, and contradictory reasoning is rejected. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (accepts an AI Gateway connection before routes or access policies exist) --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (rejects reasoning without a global default route) --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-044: reviews a checked connection change before routes or access policies exist) -->
 2. Invalid inactive context inputs do not block Save or discard valid retained draft windows. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (preserves valid inactive draft context windows and ignores invalid replacements without exposing inactive routes) -->
 3. Adding a group with exactly one eligible route preselects that route. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-044: a single eligible route defaults to a supported preference %s) -->
 4. New default reasoning prefers Medium, then Off, then the first supported level. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-044: a single eligible route defaults to a supported preference %s) -->
@@ -650,6 +651,31 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Dependencies:** [REQ-ENTERPRISE-043](#req-enterprise-043-enterprise-pi-verified-route-activation)
 
 **Verification:** Anchored behavioral fixtures; execution is CI-only and pending for this change.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-066: Native Provider Draft Persistence Before Access
+
+**Intent:** Administrators can establish provider-model configuration before granting runtime access.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. A complete disabled native provider-model draft can be saved without any Dynamic Route, group assignment, or fallback route. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-066: accepts a disabled native provider target before routes or access policies exist) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-066: enables Save for a complete disabled native draft without access policies) -->
+
+**Constraints:**
+
+- Persisting a disabled draft does not make it eligible for runtime access.
+- Provider and profile authority remain Worker-validated.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-044](#req-enterprise-044-enterprise-pi-minimum-save-and-access-policies), [REQ-ENTERPRISE-055](#req-enterprise-055-native-target-authority-and-save)
+
+**Verification:** Anchored backend behavioral test; execution is CI-only.
 
 **Status:** Implemented
 

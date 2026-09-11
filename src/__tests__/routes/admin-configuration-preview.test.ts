@@ -146,6 +146,30 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     expect(kv.delete).not.toHaveBeenCalled();
   });
 
+  it('rejects reasoning without a global default route', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'saved-token' });
+
+    const response = await post(app, {
+      section: 'aiRouting',
+      baseRevision: 0,
+      values: {
+        gatewayUrl: routingGatewayUrl,
+        replacementToken: '',
+        dynamicRoutes: [],
+        defaultRoute: { route: '', reasoning: 'high' },
+        routeContextWindows: {},
+        reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} },
+        fallbackRouting: { enabled: false },
+        groupRouting: [],
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'validation_error' });
+    expect(kv.put).not.toHaveBeenCalled();
+    expect(kv.delete).not.toHaveBeenCalled();
+  });
+
   it('normalizes an Access aggregate and expands only Access work', async () => {
     const { app, kv } = createApp();
 

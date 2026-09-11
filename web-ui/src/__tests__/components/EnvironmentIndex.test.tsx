@@ -211,12 +211,14 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(api.start).toHaveBeenCalledWith('aiRouting', 7, submitted(), []);
   });
   it('REQ-ENTERPRISE-044: reviews a checked connection change before routes or access policies exist', async () => {
-    const initial = aiRouting();
-    initial.dynamicRoutes = [];
-    initial.defaultRoute = { route: '', reasoning: 'off' };
-    initial.routeContextWindows = {};
-    initial.groupRouting = [];
-    initial.reasoningConfiguration.routeAssignments = {};
+    const initial = {
+      ...aiRouting(),
+      dynamicRoutes: [],
+      defaultRoute: { route: '', reasoning: 'off' },
+      routeContextWindows: {},
+      groupRouting: [],
+      reasoningConfiguration: { ...aiRouting().reasoningConfiguration, routeAssignments: {} },
+    };
     api.configuration.mockResolvedValueOnce(configuration(initial));
     api.catalog.mockResolvedValue({ ...catalog(), routes: [] });
     mount();
