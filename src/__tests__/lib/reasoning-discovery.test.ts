@@ -123,7 +123,7 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
     expect(failed.assignable).toBe(false);
   });
 
-  it('REQ-ENTERPRISE-070: repairs repeated Bedrock tool names while verifying a Dynamic Route provider-default profile', async () => {
+  it('REQ-ENTERPRISE-071: repairs repeated Bedrock tool names while verifying a Dynamic Route provider-default profile', async () => {
     const requests: Record<string, any>[] = [];
     const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as Record<string, any>;

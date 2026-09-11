@@ -456,6 +456,7 @@ function runRcloneFilterWiring() {
     'pgrep() { return 1; }',
     'find() { return 0; }',
     'cleanup_main_transcripts() { :; }',
+    'cleanup_remote_pi_transcript_conflicts() { :; }',
     'recover_vanished_files() { return 1; }',
     filterSetup,
     initialSync,

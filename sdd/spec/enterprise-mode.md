@@ -761,21 +761,44 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-070: Bedrock Dynamic Route Provider-default Profile
 
-**Intent:** Administrators can use verified Bedrock Claude Dynamic Routes for Pi tool calling without overstating reasoning control.
+**Intent:** Administrators can assign verified Bedrock Claude Dynamic Routes without overstating reasoning control.
 
-**Applies To:** Admin, Worker
+**Applies To:** Admin
 
 **Acceptance Criteria:**
 
 1. The profile catalogue provides a Dynamic Route Bedrock Anthropic profile with verified tool compatibility, provider-default reasoning, and no selectable Pi reasoning levels. <!-- @impl: src/lib/reasoning-profiles.ts::BUILT_IN_REASONING_PROFILES --> <!-- @impl: web-ui/src/components/admin/pi-profile-presentation.ts::profileDisplayName --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-070: gives Bedrock Dynamic Routes a distinct tool-capable provider-default profile) -->
-2. Discovery and runtime normalize repeated complete Bedrock tool names before Pi consumes the stream, while preserving tool IDs and argument fragments. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-070: repairs repeated Bedrock tool names while verifying a Dynamic Route provider-default profile) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-070: applies Bedrock tool-name repair to a Dynamic Route provider-default profile) -->
-3. Runtime continues dispatching the selected profile through its original `dynamic/<route>` selector. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-070: applies Bedrock tool-name repair to a Dynamic Route provider-default profile) -->
+2. Verification can issue and persist exact route authority when the selected provider-default profile has no selectable Pi reasoning levels. <!-- @impl: src/lib/reasoning-configuration.ts::parseRouteVerification --> <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-070: persists authority for a provider-default Dynamic Route with no selectable Pi levels) -->
 
 **Constraints:** Dynamic Routing exposes no verified Off or graduated reasoning controls for this profile; native-provider evidence is not transferred to it.
 
 **Priority:** P1
 
-**Dependencies:** [REQ-ENTERPRISE-032](#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-043](#req-enterprise-043-enterprise-pi-verified-route-activation)
+**Dependencies:** [REQ-ENTERPRISE-043](#req-enterprise-043-enterprise-pi-verified-route-activation)
+
+**Verification:** Anchored behavioral fixtures; execution is CI-only.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-071: Bedrock Dynamic Route Tool-call Normalization
+
+**Intent:** The Worker preserves Pi-compatible Bedrock tool calls across discovery and runtime dispatch.
+
+**Applies To:** Worker
+
+**Acceptance Criteria:**
+
+1. Discovery normalizes repeated complete Bedrock tool names while preserving tool IDs and argument fragments. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-071: repairs repeated Bedrock tool names while verifying a Dynamic Route provider-default profile) -->
+2. Runtime normalizes repeated complete Bedrock tool names before Pi consumes the stream. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-071: applies Bedrock tool-name repair to a Dynamic Route provider-default profile) -->
+3. Runtime dispatches the selected profile through its original `dynamic/<route>` selector. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-071: applies Bedrock tool-name repair to a Dynamic Route provider-default profile) -->
+
+**Constraints:** Normalization does not grant Dynamic Routing native-provider reasoning controls.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-032](#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation), [REQ-ENTERPRISE-070](#req-enterprise-070-bedrock-dynamic-route-provider-default-profile)
 
 **Verification:** Anchored behavioral fixtures; execution is CI-only.
 

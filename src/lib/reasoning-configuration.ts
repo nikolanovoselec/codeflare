@@ -135,7 +135,7 @@ export function parseRouteVerification(value: unknown): RouteVerification {
     if (typeof value !== 'string' || !HASH_PATTERN.test(value)) throw new Error(`${label}.${field} is invalid`);
     return value;
   };
-  if (!Array.isArray(record.supportedLevels) || record.supportedLevels.length < 1 || record.supportedLevels.length > 7
+  if (!Array.isArray(record.supportedLevels) || record.supportedLevels.length > 7
     || !record.supportedLevels.every(isPiReasoningLevel) || new Set(record.supportedLevels).size !== record.supportedLevels.length) throw new Error(`${label}.supportedLevels is invalid`);
   if (record.scope !== 'single-model' && record.scope !== 'observed-path') throw new Error(`${label}.scope is invalid`);
   if (typeof record.canaryVersion !== 'string' || record.canaryVersion.length < 1 || record.canaryVersion.length > 128) throw new Error(`${label}.canaryVersion is invalid`);

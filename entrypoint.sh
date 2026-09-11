@@ -518,7 +518,9 @@ RCLONE_FILTERS_COMMON=(
     # ~/.memory/ tree is no longer written to by the capture hook.
 
     # Pi — subagent task logs within sessions (equivalent to .claude/projects/**/subagents/**)
-    # Main session JSONL transcripts ARE synced for --resume; only task subdirs are excluded.
+    # Main session JSONL transcripts ARE synced for --resume; task subdirs and disposable
+    # rclone conflict copies are excluded so remote leftovers cannot be restored or nested.
+    --filter "- .pi/agent/sessions/**.conflict*"
     --filter "- .pi/agent/sessions/**/tasks/**"
 
     # Pi — retired Codeflare review extensions. Exclude exact managed paths so stale
@@ -1051,6 +1053,15 @@ cleanup_main_transcripts() {
     (cleanup_old_pi_transcripts) || true
 }
 
+cleanup_remote_pi_transcript_conflicts() {
+    rclone delete "r2:$R2_BUCKET_NAME/.pi/agent/sessions" \
+        --config "$RCLONE_CONFIG" \
+        --include "**/*.conflict*" \
+        --fast-list \
+        --transfers 32 >> "$CODEFLARE_RUNTIME_ROOT/sync/sync.log" 2>&1 \
+        || echo "[sync] Remote Pi transcript conflict cleanup deferred" | tee -a "$CODEFLARE_RUNTIME_ROOT/sync/sync.log" >&2
+}
+
 release_agent_pty_after_cleanup() {
     cleanup_main_transcripts
     touch "$CODEFLARE_INIT_FLAG_FILE"
@@ -1074,6 +1085,7 @@ bisync_with_r2() {
     # and final bisync paths. Adapter failures fall back to mtime internally;
     # process failures remain non-fatal to sync.
     cleanup_main_transcripts
+    cleanup_remote_pi_transcript_conflicts
 
     echo "[sync] Running bidirectional sync..." | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
 

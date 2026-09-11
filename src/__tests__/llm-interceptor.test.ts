@@ -341,7 +341,7 @@ describe('REQ-ENTERPRISE-032: selected-route capability translation', () => {
     expect(payload!.reasoning_effort).toBe('medium');
   });
 
-  it('REQ-ENTERPRISE-070: applies Bedrock tool-name repair to a Dynamic Route provider-default profile', async () => {
+  it('REQ-ENTERPRISE-071: applies Bedrock tool-name repair to a Dynamic Route provider-default profile', async () => {
     const env = { __kv: {
       'setup:dynamic_routes': JSON.stringify(['bedrock_opus']),
       'setup:default_route': JSON.stringify({ route: 'bedrock_opus', reasoning: 'off' }),

@@ -26,6 +26,7 @@ const accountApiUrl = 'https://api.cloudflare.com/client/v4/accounts/0123456789a
 const token = 'test-gateway-token';
 const profileRef = getBuiltInProfileRef('openai-gpt-chat-tools-off');
 const bedrockProfileRef = getBuiltInProfileRef('bedrock-anthropic-compat');
+const dynamicBedrockProfileRef = getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default');
 const model = { id: 'model', type: 'model', properties: { provider: 'openai', model: 'test-model' }, outputs: { success: { elementId: 'end' } } };
 const topology = [{ id: 'start', type: 'start', outputs: { next: { elementId: 'model' } } }, model];
 let version: string;
@@ -428,6 +429,37 @@ describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
 });
 
 describe('REQ-ENTERPRISE-043 server-issued verification', () => {
+  it('REQ-ENTERPRISE-070: persists authority for a provider-default Dynamic Route with no selectable Pi levels', async () => {
+    const f = setup();
+    const response = await f.check({ profileRef: dynamicBedrockProfileRef, administratorConfirmed: true });
+    expect(response.status).toBe(200);
+    const receipt = await response.json() as any;
+    expect(receipt).toMatchObject({
+      classification: 'Administrator-confirmed',
+      assignable: true,
+      verification: { profileRef: dynamicBedrockProfileRef, supportedLevels: [] },
+    });
+    expect(providerCalls).toBe(0);
+
+    const proposed = values({
+      defaultRoute: { route: '', reasoning: 'off' },
+      groupRouting: [],
+      reasoningConfiguration: {
+        schemaVersion: 1,
+        customProfileRevisions: [],
+        routeAssignments: { working: { activeProfile: dynamicBedrockProfileRef } },
+      },
+      routeChecks: { working: receipt.checkId },
+    });
+    const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', proposed);
+    expect(validated.fieldErrors).toBeUndefined();
+    await executeConfigurationTask(f.env, 'configure_model_routing', validated.values!, {
+      mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 1,
+    });
+    const stored = JSON.parse(f.kv._store.get(SETUP_KEYS.REASONING_CONFIGURATION)!);
+    expect(stored.routeAssignments.working.verification.supportedLevels).toEqual([]);
+  });
+
   it('confirms an administrator-selected profile without paid probes and preserves authority through Save and runtime loading', async () => {
     const f = setup();
     elements = [{ id: 'start', type: 'start', outputs: { next: { elementId: 'model' } } },

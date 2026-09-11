@@ -63,7 +63,7 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     expect(openai!.limitations).toContain('GPT-6 Astra rejected tools on Chat Completions and is not covered by this profile.');
   });
 
-  it('ships exactly the ten executable built-ins and keeps failed families as notices', () => {
+  it('ships exactly the eleven executable built-ins and keeps failed families as notices', () => {
     expect(profiles.REASONING_PROFILE_IDS).toEqual(BUILTIN_IDS);
     expect((profiles as any).COMPATIBILITY_NOTICES.map((notice: any) => notice.id)).toEqual(NOTICE_IDS);
   });
