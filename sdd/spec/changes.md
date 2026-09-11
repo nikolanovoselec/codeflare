@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-11
 
+- **Equivalent AI Gateway rotation keeps native-only drafts reviewable** ([REQ-ENTERPRISE-057](enterprise-mode.md#req-enterprise-057-ai-gateway-connection-rotation) AC7 added; remains Implemented). Editing the URL format, canonical URL, or replacement token no longer deletes saved native verification in the browser. After Check connection succeeds, the existing native-only group policy can reach Review changes; preview still revalidates gateway coordinates, provider authority, and persisted verification before Save.
+
 - **Persistent container SSH authorization is optional and repository-scoped** ([REQ-OPS-014](operations.md#req-ops-014-container-binding-and-scaling-from-image) AC5 amended; remains Implemented; [REQ-OPS-060](operations.md#req-ops-060-optional-persistent-container-ssh-authorization) and [REQ-OPS-061](operations.md#req-ops-061-persistent-container-ssh-identity-lifecycle) added as Implemented). Source control disables SSH and contains no key; a validated `CONTAINER_SSH_PUBLIC_KEY` repository secret enables one operator identity across deployment environments when no same-name environment secret overrides it, while the private key remains under client-side operator custody.
 
 - **Monitoring never blocks the main coding session** ([REQ-AGENT-065](agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents) AC7 added; remains Implemented). Claude and Pi use background agents or processes for CI, automated tests, deployments, and log tails; only approved safe local checks run in-session.
