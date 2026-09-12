@@ -5,6 +5,7 @@ import type { AuthVariables } from '../../middleware/auth';
 import { createMockKV } from '../helpers/mock-kv';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { getBuiltInProfile, getBuiltInProfileRef, normalizeCustomProfile } from '../../lib/reasoning-profiles';
+import { parseReasoningConfiguration, serializeReasoningConfiguration } from '../../lib/reasoning-configuration';
 import { validateConfigurationValues, buildConfigurationPreview, executeConfigurationTask } from '../../lib/admin-configuration';
 import { loadEnterpriseRouteConfig } from '../../lib/access';
 import { getAigConfig } from '../../lib/aig-config';
@@ -301,6 +302,54 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(body.outcome).toBe(mode === 'candidates-unsupported' ? 'existing-profile' : 'unsupported');
     expect(body.accounting.logicalProbes).toBeGreaterThan(1);
     expect(body.accounting.httpAttempts).toBeGreaterThan(preparedAttempts);
+  });
+
+  it('REQ-ENTERPRISE-037: round-trips a generic provider-default discovery draft as its own custom revision', async () => {
+    const f = setup();
+    nativeProviderSlug = 'groq';
+    providerMode = 'candidates-unsupported';
+
+    const response = await f.post('native/profile-discovery', {
+      target: { label: 'Generic provider', provider: 'groq', model: 'generic-tool-model', contextWindow: 200000, enabled: false },
+      maxCompletionTokens: 32,
+    });
+    const body = await response.json() as any;
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      route: 'groq/generic-tool-model', outcome: 'custom-profile', assignable: true, matchedProfiles: [],
+      profileDraft: { reasoningMode: 'provider-default', supportedLevels: [], levels: {}, aliases: {},
+        offSemantics: { status: 'unsupported' }, evidence: [{ toolReplay: true }] },
+    });
+    expect(body.profileDraft.levels).toEqual({});
+    expect(body.profileDraft.aliases).toEqual({});
+    const requests = vi.mocked(globalThis.fetch).mock.calls
+      .filter(([, init]) => init?.method === 'POST')
+      .map(([, init]) => JSON.parse(String(init?.body)));
+    expect(requests.some((request) => request.tools && (Object.hasOwn(request, 'reasoning_effort') || Object.hasOwn(request, 'chat_template_kwargs')))).toBe(true);
+    const [toolCall, replay] = requests.slice(-2);
+    expect(toolCall.tools).toEqual(expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'codeflare_profile_canary' }) })]));
+    expect(replay.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'assistant', tool_calls: [expect.objectContaining({ id: 'call', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' } })] }),
+      expect.objectContaining({ role: 'tool', tool_call_id: 'call' }),
+    ]));
+    for (const request of [toolCall, replay]) {
+      expect(request.model).toBe('groq/generic-tool-model');
+      expect(request).not.toHaveProperty('reasoning_effort');
+      expect(request).not.toHaveProperty('chat_template_kwargs');
+    }
+
+    // Only the administrator-owned identity is added to the actual route draft.
+    const profile = normalizeCustomProfile({ ...body.profileDraft, id: 'custom-generic-default', name: 'Generic provider default', revision: 1 });
+    expect(profile).toMatchObject({ id: 'custom-generic-default', name: 'Generic provider default', revision: 1,
+      builtIn: false, reasoningMode: 'provider-default', supportedLevels: [], levels: {} });
+    expect(profile.levels).toEqual({});
+    expect(profile.id).not.toBe('native-codeflare-inference-mesh-compat');
+    expect(profile.hash).toMatch(/^[0-9a-f]{64}$/);
+    const configuration = parseReasoningConfiguration({ schemaVersion: 1, customProfileRevisions: [profile], routeAssignments: {} });
+    const roundTrip = parseReasoningConfiguration(serializeReasoningConfiguration(configuration));
+    expect(roundTrip.customProfileRevisions).toEqual([profile]);
+    expect(roundTrip.customProfileRevisions[0].hash).toBe(profile.hash);
+    expect(vi.mocked(f.kv.put).mock.calls.filter(([key]) => key === SETUP_KEYS.REASONING_CONFIGURATION || key === SETUP_KEYS.NATIVE_AI_TARGETS)).toEqual([]);
   });
 
   it('REQ-ENTERPRISE-065: rebinds saved native authority only for equivalent coordinates and unchanged identity', async () => {

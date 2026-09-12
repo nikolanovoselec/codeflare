@@ -130,6 +130,20 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     })).toThrow(/off semantics/i);
   });
 
+  it.each<[string, Record<string, unknown>]>([
+    ['empty configurable levels', { supportedLevels: [], levels: {}, offSemantics: { status: 'unsupported' } }],
+    ['unknown reasoning mode', { reasoningMode: 'unknown' }],
+    ['provider-default with selectable levels', { reasoningMode: 'provider-default' }],
+    ['provider-default with hidden level writes', {
+      reasoningMode: 'provider-default', supportedLevels: [], levels: { medium: [{ path: 'reasoning_effort', value: 'medium' }] }, offSemantics: { status: 'unsupported' },
+    }],
+    ['provider-default with dangling aliases', {
+      reasoningMode: 'provider-default', supportedLevels: [], levels: {}, aliases: { low: 'medium' }, offSemantics: { status: 'unsupported' },
+    }],
+  ])('REQ-ENTERPRISE-031: rejects a custom draft with %s', (_case, overrides) => {
+    expect(() => profiles.normalizeCustomProfile(customProfile(overrides))).toThrow();
+  });
+
   it('applies only validated removal paths and scalar writes while preserving transport fields', () => {
     const profile = (profiles as any).normalizeCustomProfile({
       id: 'custom-safe', name: 'Custom safe', schemaVersion: 1, enabled: true,

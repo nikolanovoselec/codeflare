@@ -1201,6 +1201,64 @@ describe('native provider authorization and compat dispatch', () => {
     expect(lastFetch?.headers.get('cf-aig-byok-alias')).toBe('default');
   });
 
+  it.each(['', 'dynamic/'])('REQ-ENTERPRISE-032: dispatches an authorized unowned native-shaped Dynamic Route with %s prefix and its assigned reasoning', async (prefix) => {
+    const fixture = nativeFixture(false);
+    const route = fixture.handle;
+    fixture.kv['setup:dynamic_routes'] = JSON.stringify(['ordinary-route', route]);
+    fixture.kv['setup:reasoning_configuration'] = JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {
+      'ordinary-route': { activeProfile: getBuiltInProfileRef('openai-gpt-chat-tools-off') },
+      [route]: { activeProfile: getBuiltInProfileRef('workers-ai-kimi-k-thinking') },
+    } });
+    fixture.kv['setup:group_routing'] = JSON.stringify({ engineering: {
+      routes: ['ordinary-route', route], defaultRoute: 'ordinary-route', reasoning: 'off',
+      targets: [{ kind: 'dynamic-route', route: 'ordinary-route' }, { kind: 'dynamic-route', route }],
+      defaultTarget: { kind: 'dynamic-route', route: 'ordinary-route' },
+    } });
+    // makeInterceptor seeds current profile-bound verification and active inventory.
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: `${prefix}${route}`, reasoning_effort: 'low', messages: [{ role: 'user', content: 'hello' }],
+        chat_template_kwargs: { enable_thinking: false, clear_thinking: true, unrelated: 'keep' },
+      }) }),
+    );
+    expect(response.status).toBe(200);
+    expect(lastFetch?.url).toBe(`${REST_BASE}/v1/chat/completions`);
+    expect(JSON.parse(lastFetch!.body)).toEqual({
+      model: `dynamic/${route}`, reasoning_effort: 'low', messages: [{ role: 'user', content: 'hello' }],
+      chat_template_kwargs: { enable_thinking: true, clear_thinking: false, unrelated: 'keep' },
+    });
+  });
+
+  it.each(['', 'dynamic/'])('REQ-ENTERPRISE-049: rejects a revoked native handle with %s prefix despite an eligible ordinary Dynamic Route', async (prefix) => {
+    const fixture = nativeFixture(false);
+    fixture.kv['setup:dynamic_routes'] = JSON.stringify(['ordinary-route']);
+    fixture.kv['setup:reasoning_configuration'] = JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {
+      'ordinary-route': { activeProfile: getBuiltInProfileRef('openai-gpt-chat-tools-off') },
+    } });
+    fixture.kv['setup:group_routing'] = JSON.stringify({ engineering: {
+      routes: ['ordinary-route'], defaultRoute: 'ordinary-route', reasoning: 'off',
+      targets: [{ kind: 'native-target', targetId: fixture.id }, { kind: 'dynamic-route', route: 'ordinary-route' }],
+      defaultTarget: { kind: 'dynamic-route', route: 'ordinary-route' },
+    } });
+    const interceptor = makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] });
+    const request = (model: string) => new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', body: JSON.stringify({ model, reasoning_effort: 'off', messages: [] }),
+    });
+    // Prove the catalog is nonempty and the alternative is usable, not an empty-catalog denial.
+    const allowed = await interceptor.fetch(request('ordinary-route'));
+    expect(allowed.status).toBe(200);
+    expect(lastFetch?.url).toBe(`${REST_BASE}/v1/chat/completions`);
+    expect(JSON.parse(lastFetch!.body)).toEqual({ model: 'dynamic/ordinary-route', reasoning_effort: 'none', messages: [] });
+    vi.mocked(globalThis.fetch).mockClear();
+    lastFetch = null;
+
+    const denied = await interceptor.fetch(request(`${prefix}${fixture.handle}`));
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toMatchObject({ code: 'ROUTE_NOT_ELIGIBLE' });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(lastFetch).toBeNull();
+  });
+
   it('REQ-ENTERPRISE-049: revoked native handles fail before upstream I/O without fallback', async () => {
     const fixture = nativeFixture(false);
     const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
