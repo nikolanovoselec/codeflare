@@ -609,15 +609,16 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     for (const h of RESPONSE_STRIPPED_HEADERS) responseHeaders.delete(h);
 
     // Repair the dynamic-route streaming terminator (see ensureStreamTerminator):
-    // only for streamed chat-completions responses; every other response (non-
-    // streaming, /responses, errors) passes through byte-for-byte.
+    // only for streamed chat-completions responses outside the native Bedrock
+    // adapter, which owns both successful and failed stream completion.
     const contentType = upstream.headers.get('content-type') ?? '';
     const isStreamingChat =
       contentType.includes('text/event-stream') && url.pathname.endsWith('/chat/completions');
     const normalizedBody = upstream.body && isStreamingChat
       && (effectiveAdapter === 'bedrock-anthropic-compat' || effectiveAdapter === 'dynamic-bedrock-anthropic-provider-default')
       ? upstream.body.pipeThrough(repairRepeatedCompleteToolNames(declaredToolNames)) : upstream.body;
-    const responseBody = normalizedBody && isStreamingChat ? normalizedBody.pipeThrough(ensureStreamTerminator()) : normalizedBody;
+    const responseBody = normalizedBody && isStreamingChat && !nativeBedrockTransport
+      ? normalizedBody.pipeThrough(ensureStreamTerminator()) : normalizedBody;
 
     return new Response(responseBody, {
       status: upstream.status,

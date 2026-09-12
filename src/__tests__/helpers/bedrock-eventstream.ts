@@ -10,9 +10,9 @@ function crc32(bytes: Uint8Array): number {
 }
 
 // AWS rest-json eventstream headers plus JSON event payload, including its CRCs.
-export function bedrockEventFrame(eventType: string, payload: unknown, messageType = 'event'): Uint8Array {
+export function bedrockEventFrame(eventType: string, payload: unknown, messageType = 'event', headersOverride?: Uint8Array): Uint8Array {
   const encoder = new TextEncoder();
-  const headers = Uint8Array.from(Object.entries({
+  const headers = headersOverride ?? Uint8Array.from(Object.entries({
     ':message-type': messageType,
     [messageType === 'exception' ? ':exception-type' : ':event-type']: eventType,
     ':content-type': 'application/json',

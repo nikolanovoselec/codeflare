@@ -34,7 +34,7 @@ import { getBuiltInProfileRef, type ReasoningProfileId } from '../lib/reasoning-
 import { connectionFingerprint } from '../lib/reasoning-verification';
 import { createNativeTarget, nativeTargetHandle, serializeNativeAiTargets } from '../lib/native-ai-targets';
 import { routingInventoryFixtures, verifiedRoutingConfiguration } from './helpers/verified-routing';
-import { bedrockChunkFrame } from './helpers/bedrock-eventstream';
+import { bedrockChunkFrame, bedrockEventFrame } from './helpers/bedrock-eventstream';
 
 vi.mock('../lib/ai-gateway-management', async (original) => ({
   ...await original<typeof import('../lib/ai-gateway-management')>(),
@@ -1057,6 +1057,30 @@ describe('native provider authorization and compat dispatch', () => {
     expect(text.match(/data: \[DONE\]/g)).toHaveLength(1);
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke-with-response-stream`);
+  });
+
+  it('REQ-ENTERPRISE-080: preserves native stream errors without adding a success terminator', async () => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+    const replayWrites: string[] = [];
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(bedrockEventFrame('modelStreamErrorException', { message: 'private provider detail' }, 'exception'));
+      controller.close();
+    } }), { headers: { 'content-type': 'application/vnd.amazon.eventstream' } }));
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>,
+      { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }, (key) => replayWrites.push(key)).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: fixture.handle, reasoning_effort: 'high', stream: true, messages: [{ role: 'user', content: 'Hello' }],
+      }) }),
+    );
+    const text = await response.text();
+    expect(text).toContain('NATIVE_BEDROCK_STREAM_ERROR');
+    expect(text).not.toContain('private provider detail');
+    expect(text).not.toContain('"finish_reason"');
+    expect(text).not.toContain('codeflare-terminator');
+    expect(text.match(/data: \[DONE\]/g)).toHaveLength(1);
+    expect(replayWrites).toHaveLength(0);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('REQ-ENTERPRISE-073/077: dispatches provider-native Bedrock Invoke with exact reasoning controls and hides signed replay state', async () => {

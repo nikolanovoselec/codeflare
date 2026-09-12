@@ -267,6 +267,7 @@ describe('Bedrock Anthropic native adapter', () => {
     expect(text).toContain('"index":0,"id":"call_2"');
     expect(text).toContain('"name":"lookup"');
     expect(text).toContain('"arguments":"{\\"q\\":\\"x\\"}"');
+    expect(text).toContain('"prompt_tokens":2,"completion_tokens":8,"total_tokens":10');
     expect(text).not.toContain('opaque-signed-state');
     expect(replay.save).toHaveBeenCalledWith('call_2', [
       { type: 'thinking', thinking: '', signature: 'opaque-signed-state' },
@@ -356,6 +357,67 @@ describe('Bedrock Anthropic native adapter', () => {
     expect(text).not.toContain('invalid_exception');
     expect(text).not.toContain('"finish_reason":"stop"');
     expect(replay.save).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['invalid base64', bedrockEventFrame('chunk', { bytes: '%%%private%%%' })],
+    ['invalid UTF-8', bedrockEventFrame('chunk', { bytes: '/w==' })],
+    ['invalid JSON', bedrockEventFrame('chunk', { bytes: btoa('private invalid JSON') })],
+    ['non-object event', bedrockEventFrame('chunk', { bytes: btoa('[]') })],
+    ['missing event type', bedrockEventFrame('chunk', { bytes: btoa('{}') })],
+    ['Anthropic error event', eventstreamFrame({ type: 'error', error: { message: 'private provider detail' } })],
+  ])('REQ-ENTERPRISE-080: rejects %s before a later message_stop', async (_label, badFrame) => {
+    const replay = state();
+    const body = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(badFrame);
+      controller.enqueue(eventstreamFrame({ type: 'message_stop' }));
+      controller.close();
+    } });
+    const text = await (await adaptBedrockAnthropicResponse(new Response(body), 'eventstream', replay)).text();
+    expect(text).toContain('NATIVE_BEDROCK_STREAM_ERROR');
+    expect(text).not.toContain('private');
+    expect(text).not.toContain('"finish_reason":"stop"');
+    expect(text.match(/data: \[DONE\]/g)).toHaveLength(1);
+    expect(replay.save).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-076: accepts optional content type and valid extension headers', async () => {
+    const payload = { bytes: btoa(JSON.stringify({ type: 'message_stop' })) };
+    const frame = bedrockEventFrame('chunk', payload);
+    const headers = frame.slice(12, 12 + new DataView(frame.buffer).getUint32(4));
+    const contentTypeBytes = 1 + ':content-type'.length + 1 + 2 + 'application/json'.length;
+    for (const allowed of [
+      headers.subarray(0, headers.length - contentTypeBytes),
+      Uint8Array.from([...headers, 1, 120, 0]), // Valid boolean extension header x=true.
+    ]) {
+      const body = new ReadableStream<Uint8Array>({ start(controller) {
+        controller.enqueue(bedrockEventFrame('chunk', payload, 'event', allowed)); controller.close();
+      } });
+      const text = await (await adaptBedrockAnthropicResponse(new Response(body), 'eventstream', state())).text();
+      expect(text).toContain('"finish_reason":"stop"');
+      expect(text).not.toContain('NATIVE_BEDROCK_STREAM_ERROR');
+    }
+  });
+
+  it('REQ-ENTERPRISE-080: rejects absent, duplicate, invalid-type and truncated headers', async () => {
+    const payload = { bytes: btoa(JSON.stringify({ type: 'message_stop' })) };
+    const frame = bedrockEventFrame('chunk', payload);
+    const headers = frame.slice(12, 12 + new DataView(frame.buffer).getUint32(4));
+    for (const invalid of [
+      new Uint8Array(0),
+      Uint8Array.from([...headers, ...headers]),
+      Uint8Array.from([...headers, 1, 120, 255]),
+      Uint8Array.from([...headers, 1, 120, 7, 0]),
+    ]) {
+      const replay = state();
+      const body = new ReadableStream<Uint8Array>({ start(controller) {
+        controller.enqueue(bedrockEventFrame('chunk', payload, 'event', invalid)); controller.close();
+      } });
+      const text = await (await adaptBedrockAnthropicResponse(new Response(body), 'eventstream', replay)).text();
+      expect(text).toContain('NATIVE_BEDROCK_STREAM_ERROR');
+      expect(text).not.toContain('"finish_reason":"stop"');
+      expect(replay.save).not.toHaveBeenCalled();
+    }
   });
 
   it('REQ-ENTERPRISE-079: never logs signed-thinking replay state', async () => {

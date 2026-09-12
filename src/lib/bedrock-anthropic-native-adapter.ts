@@ -9,7 +9,7 @@ export interface BedrockReplayState {
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
 const MAX_REPLAY_BYTES = 64 * 1024;
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+const decoder = new TextDecoder('utf-8', { fatal: true });
 
 function plain(value: unknown): value is JsonObject {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -266,6 +266,55 @@ function concat(left: Uint8Array, right: Uint8Array): Uint8Array {
   const result = new Uint8Array(left.length + right.length); result.set(left); result.set(right, left.length); return result;
 }
 
+function readEventstreamHeaders(frame: Uint8Array, headerLength: number): Map<string, string | null> {
+  const end = 12 + headerLength;
+  const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
+  const headers = new Map<string, string | null>();
+  let offset = 12;
+  while (offset < end) {
+    const nameLength = frame[offset++];
+    if (!nameLength || offset + nameLength + 1 > end) throw new Error('Invalid Bedrock eventstream headers');
+    const name = decoder.decode(frame.subarray(offset, offset + nameLength)); offset += nameLength;
+    const type = frame[offset++];
+    let length: number;
+    if (type === 6 || type === 7) {
+      if (offset + 2 > end) throw new Error('Invalid Bedrock eventstream headers');
+      length = view.getUint16(offset); offset += 2;
+    } else {
+      // AWS bool, byte, short, int, long, timestamp and UUID header widths.
+      length = [0, 0, 1, 2, 4, 8, -1, -1, 8, 16][type] ?? -1;
+    }
+    if (length < 0 || offset + length > end || headers.has(name)) throw new Error('Invalid Bedrock eventstream headers');
+    headers.set(name, type === 7 ? decoder.decode(frame.subarray(offset, offset + length)) : null);
+    offset += length;
+  }
+  return headers;
+}
+
+function decodeBedrockChunk(frame: Uint8Array, headerLength: number): JsonObject {
+  const headers = readEventstreamHeaders(frame, headerLength);
+  if (headers.get(':message-type') !== 'event' || headers.get(':event-type') !== 'chunk') {
+    throw new Error('Unsupported Bedrock eventstream event');
+  }
+  const contentType = headers.get(':content-type');
+  if (contentType !== undefined && (typeof contentType !== 'string' || !/^application\/json(?:\s*;|$)/i.test(contentType.trim()))) {
+    throw new Error('Invalid Bedrock eventstream content type');
+  }
+  const envelope = JSON.parse(decoder.decode(frame.subarray(12 + headerLength, frame.length - 4)));
+  if (!plain(envelope) || typeof envelope.bytes !== 'string' || !envelope.bytes.length
+    || envelope.bytes.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(envelope.bytes)) {
+    throw new Error('Invalid Bedrock eventstream payload bytes');
+  }
+  // The checked frame bound also bounds the base64 string and decoded allocation.
+  const binary = atob(envelope.bytes);
+  if (btoa(binary) !== envelope.bytes) throw new Error('Invalid Bedrock eventstream base64');
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  const event = JSON.parse(decoder.decode(bytes));
+  if (!plain(event) || typeof event.type !== 'string' || event.type === 'error') throw new Error('Invalid Bedrock stream event');
+  return event;
+}
+
 function parseFrames(buffer: Uint8Array): { events: JsonObject[]; remainder: Uint8Array } {
   const events: JsonObject[] = [];
   let offset = 0;
@@ -273,16 +322,14 @@ function parseFrames(buffer: Uint8Array): { events: JsonObject[]; remainder: Uin
     const view = new DataView(buffer.buffer, buffer.byteOffset + offset, buffer.length - offset);
     const total = view.getUint32(0); const headerLength = view.getUint32(4);
     if (total < 16 || total > MAX_FRAME_BYTES || headerLength > total - 16) throw new Error('Invalid Bedrock eventstream frame');
+    if (view.getUint32(8) !== crc32(buffer.subarray(offset, offset + 8))) throw new Error('Invalid Bedrock eventstream checksum');
     if (buffer.length - offset < total) break;
     const frame = buffer.subarray(offset, offset + total);
     const frameView = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
-    if (frameView.getUint32(8) !== crc32(frame.subarray(0, 8)) || frameView.getUint32(total - 4) !== crc32(frame.subarray(0, total - 4))) {
+    if (frameView.getUint32(total - 4) !== crc32(frame.subarray(0, total - 4))) {
       throw new Error('Invalid Bedrock eventstream checksum');
     }
-    const payload = frame.subarray(12 + headerLength, total - 4);
-    const value = JSON.parse(decoder.decode(payload));
-    if (!plain(value)) throw new Error('Invalid Bedrock eventstream payload');
-    events.push(value); offset += total;
+    events.push(decodeBedrockChunk(frame, headerLength)); offset += total;
   }
   return { events, remainder: buffer.slice(offset) };
 }
