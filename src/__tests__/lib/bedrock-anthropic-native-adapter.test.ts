@@ -164,7 +164,8 @@ describe('Bedrock Anthropic native adapter', () => {
 
   it.each([
     { role: 'user', content: [{ type: 'text', text: 'Attached image(s) from tool result:' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,YQ==' } }] },
-    { role: 'user', content: 'Continue after the interrupted tool.' },
+    { role: 'user', content: '   ' },
+    { role: 'user', content: [{ type: 'text', text: 'Question' }, { type: 'unknown', text: 'data' }] },
   ])('REQ-ENTERPRISE-079: user-role content does not close an unfinished tool turn', async (suffix) => {
     await expect(buildBedrockAnthropicRequest({
       thinking: { type: 'adaptive' }, output_config: { effort: 'low' },
@@ -176,6 +177,30 @@ describe('Bedrock Anthropic native adapter', () => {
     }, state())).rejects.toThrow('signed thinking state');
   });
 
+  it.each([{ content: 'Who are you?' }, { content: [{ type: 'text', text: 'Who are you?' }] }])('REQ-ENTERPRISE-073: accepts a new text question after paired interrupted tools', async ({ content }) => {
+    const result = await buildBedrockAnthropicRequest({
+      thinking: { type: 'adaptive' }, output_config: { effort: 'low' },
+      messages: [
+        { role: 'assistant', tool_calls: [{ id: 'old_call', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+        { role: 'tool', tool_call_id: 'old_call', content: 'found' },
+        { role: 'user', content },
+      ],
+    }, state());
+    expect(result.messages[0].content).toEqual([{ type: 'tool_use', id: 'old_call', name: 'lookup', input: {} }]);
+    expect(result.messages[2].content).toEqual([{ type: 'text', text: 'Who are you?' }]);
+    expect(result.thinking).toEqual({ type: 'adaptive' });
+  });
+
+  it('REQ-ENTERPRISE-079: rejects malformed stored history even after a new question', async () => {
+    await expect(buildBedrockAnthropicRequest({
+      thinking: { type: 'adaptive' }, messages: [
+        { role: 'assistant', tool_calls: [{ id: 'old_call', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+        { role: 'tool', tool_call_id: 'old_call', content: 'found' },
+        { role: 'user', content: 'Who are you?' },
+      ],
+    }, state({ old_call: [{ type: 'thinking', signature: 42 }] }))).rejects.toThrow('signed thinking state');
+  });
+
   it('REQ-ENTERPRISE-079: incomplete parallel tool results remain protected despite later assistant and user text', async () => {
     await expect(buildBedrockAnthropicRequest({
       thinking: { type: 'adaptive' }, output_config: { effort: 'low' },
@@ -184,6 +209,17 @@ describe('Bedrock Anthropic native adapter', () => {
         { role: 'tool', tool_call_id: 'call_a', content: 'found' },
         { role: 'assistant', content: 'Partial result.' },
         { role: 'user', content: 'Continue.' },
+      ],
+    }, state())).rejects.toThrow('signed thinking state');
+  });
+
+  it.each(['orphan', 'duplicate'])('REQ-ENTERPRISE-079: ambiguous %s tool results cannot establish a historical exemption', async (kind) => {
+    await expect(buildBedrockAnthropicRequest({
+      thinking: { type: 'adaptive' }, messages: [
+        { role: 'assistant', tool_calls: [{ id: 'old_call', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+        { role: 'tool', tool_call_id: 'old_call', content: 'found' },
+        { role: 'tool', tool_call_id: kind === 'orphan' ? 'unknown_call' : 'old_call', content: 'extra' },
+        { role: 'user', content: 'Who are you?' },
       ],
     }, state())).rejects.toThrow('signed thinking state');
   });

@@ -55,7 +55,7 @@ import { gatewayCoordinates } from './lib/ai-gateway-management';
 import { repairRepeatedCompleteToolNames } from './lib/openai-sse-tool-name-repair';
 import { nativeProviderSelector } from './lib/native-ai-targets';
 import { exposeGeminiThoughtSignatures, restoreGeminiThoughtSignatures } from './lib/gemini-thought-signature-adapter';
-import { adaptBedrockAnthropicResponse, bedrockAnthropicGatewayPath, buildBedrockAnthropicRequest, selectBedrockAnthropicTransport, type BedrockAnthropicTransport, type BedrockReplayState } from './lib/bedrock-anthropic-native-adapter';
+import { adaptBedrockAnthropicResponse, bedrockAnthropicGatewayPath, buildBedrockAnthropicRequest, classifyBedrockToolTurn, selectBedrockAnthropicTransport, type BedrockAnthropicTransport, type BedrockReplayState } from './lib/bedrock-anthropic-native-adapter';
 import { encryptForKV, getAndDecrypt, getOrImportKey } from './lib/kv-crypto';
 
 /**
@@ -496,7 +496,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
               if (configuredTransport === 'eventstream' && !nativeStreamRequested) {
                 return new Response(JSON.stringify({ error: 'Bedrock eventstream targets require streaming requests', code: 'UNSUPPORTED_NATIVE_TRANSPORT' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
               }
-              const replayTurn = Array.isArray(payload.messages) && payload.messages.some((message) => message && typeof message === 'object' && !Array.isArray(message) && (message as Record<string, unknown>).role === 'tool');
+              const replayTurn = Array.isArray(payload.messages) && classifyBedrockToolTurn(payload.messages).replay;
               const stateKey = (toolId: string) => nativeReplayStateKey(props.user, props.sessionId!, native.targetId, toolId);
               nativeBedrockState = {
                 load: async (toolId) => getAndDecrypt<unknown[]>(this.env.KV!, stateKey(toolId), encryptionKey),

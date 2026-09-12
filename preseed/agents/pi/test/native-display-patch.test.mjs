@@ -8,7 +8,8 @@ import { patchPiNativeModelDisplay } from '../../../../scripts/patch-pi-native-m
 
 const installed = dirname(dirname(fileURLToPath(import.meta.resolve('@earendil-works/pi-coding-agent'))));
 const paths = ['package.json', 'dist/modes/interactive/components/model-selector.js',
-  'dist/modes/interactive/components/settings-selector.js', 'dist/bundle/chunks/chunk-JVUZSMYM.js'];
+  'dist/modes/interactive/components/settings-selector.js', 'dist/bundle/chunks/chunk-JVUZSMYM.js',
+  'dist/modes/interactive/interactive-mode.js'];
 function copyPackage(t) {
   const root = mkdtempSync(join(tmpdir(), 'pi-display-patch-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));

@@ -3589,6 +3589,9 @@ COPILOT_BYOK_EOF
         --argjson displaynames "$ENTERPRISE_MODEL_DISPLAY_NAMES" \
         --argjson dflt 256000 '
         def canonical_levels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+        def display_name($route):
+            if ($displaynames | has($route)) then "Native Route - \($displaynames[$route])"
+            else "Dynamic Route - \($route)" end;
         (if type=="array" and length>0 then . else [$defroute] end)
         | if ($defaultreasoning != "") and ((($routelevels[$defroute] // []) | index($defaultreasoning)) == null)
           then error("default reasoning is not supported by the default route")
@@ -3600,13 +3603,13 @@ COPILOT_BYOK_EOF
                 or (($levels | unique | length) != ($levels | length))
               then error("missing or invalid route reasoning levels for \($route)")
               elif ($levels | length) == 0 then {
-                id: $route, name: ($displaynames[$route] // $route), reasoning: true,
+                id: $route, name: display_name($route), reasoning: true,
                 thinkingLevelMap: (canonical_levels | map({key: ., value: .}) | from_entries),
                 compat: {supportsReasoningEffort: false}, input: ["text", "image"],
                 contextWindow: ($cw[$route] // $dflt), maxTokens: 16384
               }
               else {
-                id: $route, name: ($displaynames[$route] // $route), reasoning: true,
+                id: $route, name: display_name($route), reasoning: true,
                 thinkingLevelMap: ($levels | map({key: ., value: .}) | from_entries),
                 input: ["text", "image"], contextWindow: ($cw[$route] // $dflt)
               }

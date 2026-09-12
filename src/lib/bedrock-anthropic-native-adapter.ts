@@ -88,11 +88,47 @@ function reconstructToolCalls(message: JsonObject): JsonObject[] {
   });
 }
 
+// Classify original OpenAI messages, before tool results become native user blocks.
+// Pi's synthetic image-result user messages cannot establish a new text turn.
+export function classifyBedrockToolTurn(messages: unknown[]): { start: number; replay: boolean } {
+  const pending = new Set<string>();
+  const seen = new Set<string>();
+  let ambiguous = false;
+  let start = 0;
+  let lastTool = -1;
+  for (const [index, message] of messages.entries()) {
+    if (!plain(message)) { ambiguous = true; continue; }
+    if (message.role === 'assistant' && message.tool_calls !== undefined) {
+      if (!Array.isArray(message.tool_calls)) { ambiguous = true; continue; }
+      for (const call of message.tool_calls) {
+        const id = plain(call) ? safeToolId(call.id) : null;
+        if (!id || seen.has(id)) { ambiguous = true; continue; }
+        seen.add(id);
+        pending.add(id);
+      }
+    } else if (message.role === 'tool') {
+      lastTool = index;
+      const id = safeToolId(message.tool_call_id);
+      if (!id || !pending.delete(id)) ambiguous = true;
+    } else if (message.role === 'user' && !ambiguous && pending.size === 0) {
+      const content = message.content;
+      const textOnly = typeof content === 'string' ? content.trim().length > 0
+        : Array.isArray(content) && content.length > 0
+          && content.every((part) => plain(part) && part.type === 'text' && typeof part.text === 'string')
+          && content.some((part) => part.text.trim().length > 0);
+      if (textOnly) start = index;
+    }
+  }
+  return { start, replay: lastTool >= start };
+}
+
 async function assistantContent(message: JsonObject, thinkingEnabled: boolean, state: BedrockReplayState): Promise<JsonObject[]> {
   const calls = reconstructToolCalls(message);
   if (!calls.length) return textBlocks(message.content);
   const firstId = calls[0].id as string;
-  const stored = cloneBlocks(await state.load(firstId));
+  const loaded = await state.load(firstId);
+  const stored = cloneBlocks(loaded);
+  if (loaded !== null && !stored) throw new Error('Native Bedrock signed thinking state is invalid');
   if (stored) {
     const storedCalls = stored.filter((block) => plain(block) && block.type === 'tool_use');
     if (JSON.stringify(comparable(storedCalls)) !== JSON.stringify(comparable(calls))) {
@@ -123,8 +159,9 @@ export async function buildBedrockAnthropicRequest(payload: JsonObject, state: B
   const nativeMessages: JsonObject[] = [];
   const system: unknown[] = [];
   const thinkingEnabled = thinking?.type === 'adaptive';
+  const turn = classifyBedrockToolTurn(payload.messages);
 
-  for (const raw of payload.messages) {
+  for (const [index, raw] of payload.messages.entries()) {
     if (!plain(raw)) throw new Error('Invalid native Bedrock message');
     if (raw.role === 'system' || raw.role === 'developer') {
       if (typeof raw.content === 'string') system.push(raw.content);
@@ -132,7 +169,7 @@ export async function buildBedrockAnthropicRequest(payload: JsonObject, state: B
       continue;
     }
     if (raw.role === 'assistant') {
-      nativeMessages.push({ role: 'assistant', content: await assistantContent(raw, thinkingEnabled, state) });
+      nativeMessages.push({ role: 'assistant', content: await assistantContent(raw, thinkingEnabled && index >= turn.start, state) });
       continue;
     }
     if (raw.role === 'tool') {

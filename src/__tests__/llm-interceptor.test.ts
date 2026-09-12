@@ -963,7 +963,7 @@ describe('native provider authorization and compat dispatch', () => {
     });
   });
 
-  it('REQ-ENTERPRISE-073/077: starts native reasoning after completed foreign tool history without treating it as active replay', async () => {
+  it('REQ-ENTERPRISE-073/077: starts native reasoning after paired interrupted tool history without treating it as active replay', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-auto',
       transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
@@ -976,7 +976,6 @@ describe('native provider authorization and compat dispatch', () => {
           { role: 'user', content: 'Look up the project.' },
           { role: 'assistant', tool_calls: [{ id: 'foreign_call', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
           { role: 'tool', tool_call_id: 'foreign_call', content: 'found' },
-          { role: 'assistant', content: 'Here is the project.' },
           { role: 'user', content: 'Who are you?' },
         ],
       }) }),
@@ -989,7 +988,7 @@ describe('native provider authorization and compat dispatch', () => {
     expect(sent.output_config).toEqual({ effort: 'medium' });
     expect(sent.messages[1].content).toEqual([{ type: 'tool_use', id: 'foreign_call', name: 'lookup', input: {} }]);
     expect(sent.messages[2].content).toEqual([{ type: 'tool_result', tool_use_id: 'foreign_call', content: 'found' }]);
-    expect(sent.messages[4].content).toEqual([{ type: 'text', text: 'Who are you?' }]);
+    expect(sent.messages[3].content).toEqual([{ type: 'text', text: 'Who are you?' }]);
   });
 
   it('REQ-ENTERPRISE-073: downward mapping of Max still requires signed native tool replay', async () => {

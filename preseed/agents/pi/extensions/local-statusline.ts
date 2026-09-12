@@ -128,7 +128,7 @@ function truncateToWidth(text: string, width: number): string {
 }
 
 function renderLine(ctx: ExtensionContext, effort: string): string {
-  const model = ctx.model?.provider === "codeflare-gateway" && ctx.model.id?.startsWith("cf-native-")
+  const model = ctx.model?.provider === "codeflare-gateway"
     ? (ctx.model.name || ctx.model.id) : (ctx.model?.id ?? "model");
   return [
     contextPercent(ctx),

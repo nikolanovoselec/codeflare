@@ -887,9 +887,10 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. Serialized signed-thinking replay state does not exceed 64 KiB. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::MAX_REPLAY_BYTES = 64 * 1024 --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::cloneBlocks --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: rejects signed replay state above the 64 KiB serialized limit) -->
 2. Signed-thinking replay state remains confidential at rest. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-073/077: dispatches provider-native Bedrock Invoke with exact reasoning controls and hides signed replay state) -->
 3. Replay state is isolated by authenticated user and bound session. <!-- @impl: src/llm-interceptor.ts::nativeReplayStateKey --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-073: isolates native replay keys by authenticated user and session) -->
-4. Replay state is restored only when the complete assistant tool-call identity matches. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::assistantContent --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: fails closed when signed replay does not match the tool name and arguments) -->
+4. Available signed blocks are restored exactly, in historical and active turns, only when the complete assistant tool-call identity matches; a mismatch is never treated as absent state. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::assistantContent --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073/076: translates OpenAI tools and restores the exact server-held signed assistant blocks) --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: fails closed when signed replay does not match the tool name and arguments) -->
+5. Historical tool calls before the classified active turn may be translated when signed state is absent, including paired interrupted tools with no final assistant answer. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: accepts completed foreign tool history before a new native user turn) --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: accepts a new text question after paired interrupted tools) -->
 
-**Constraints:** Replay state is never supplied by an untrusted client.
+**Constraints:** Replay state is never supplied by an untrusted client. The active-turn boundary follows [REQ-ENTERPRISE-076](#req-enterprise-076-provider-native-bedrock-protocol-translation); absent historical state does not waive validation of available blocks or active adaptive-thinking replay. See Anthropic's [thinking and tool-use guidance](https://platform.claude.com/docs/en/build-with-claude/thinking).
 
 **Priority:** P1
 
@@ -966,8 +967,10 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 1. Runtime translates OpenAI Chat Completions messages and tools to the Bedrock Anthropic request contract. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073/076: translates OpenAI tools and restores the exact server-held signed assistant blocks) -->
 2. Runtime translates Invoke responses back to Pi's OpenAI protocol. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-076/079: converts Invoke responses and stores signed thinking without exposing it downstream) -->
 3. Runtime translates eventstream responses back to Pi's OpenAI protocol. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073/076: decodes eventstream blocks into OpenAI SSE and stores exact signed replay state) -->
+4. A nonempty text-only user message starts a new turn only when all preceding tool-call IDs and results are paired without orphan or duplicate ambiguity; no final assistant answer is required. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::classifyBedrockToolTurn --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: accepts a new text question after paired interrupted tools) --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-079: incomplete parallel tool results remain protected despite later assistant and user text) -->
+5. Image-bearing, unknown, or empty user content does not establish a new turn or waive active replay protection. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::classifyBedrockToolTurn --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-079: user-role content does not close an unfinished tool turn) -->
 
-**Constraints:** Provider-signed state remains outside the translated client protocol.
+**Constraints:** Provider-signed state remains outside the translated client protocol. `classifyBedrockToolTurn` in `src/lib/bedrock-anthropic-native-adapter.ts` classifies original OpenAI messages before tool results become native user blocks; request translation and interceptor transport selection share this classification.
 
 **Priority:** P1
 
@@ -992,7 +995,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 3. A signed continuation for an eventstream profile uses non-streaming Invoke. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::selectBedrockAnthropicTransport --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-077: builds the region-scoped provider-native transport path) -->
 4. A failed provider-native request causes no fallback or paid retry. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-073/077: dispatches provider-native Bedrock Invoke with exact reasoning controls and hides signed replay state) -->
 
-5. After authorization, automatic initial routing selects eventstream through mapped High and Invoke for mapped XHigh/Max. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-072/077/078: dispatches initial %s once with the evidenced mapped effort) -->
+5. After authorization, automatic initial routing selects eventstream through mapped High and Invoke for mapped XHigh/Max, including a new text turn after paired interrupted tool history. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::classifyBedrockToolTurn --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-072/077/078: dispatches initial %s once with the evidenced mapped effort) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-073/077: starts native reasoning after paired interrupted tool history without treating it as active replay) -->
 6. Initial automatic eventstream turns require streaming requests and never fall back to Invoke. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-077: rejects nonstreaming automatic eventstream turns without an Invoke fallback) -->
 
 7. Authorized automatic signed continuations use Invoke only after replay validation. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-073/077: validates signed continuation before Invoke and keeps state private) -->
@@ -1000,7 +1003,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Constraints:**
 
 - Each logical request selects one provider operation.
-- Automatic routing never widens existing explicit-transport authority.
+- Initial versus continuation transport uses the same `classifyBedrockToolTurn` result as replay translation; tool results before the classified start do not force Invoke.
+- Automatic routing never widens existing explicit-transport authority or changes the assigned profile.
 
 **Priority:** P1
 
@@ -1040,7 +1044,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-079: Provider-native Bedrock Replay Confidentiality
 
-**Intent:** Signed-thinking continuation state is never exposed and unavailable state fails closed.
+**Intent:** Signed-thinking continuation state is never exposed; missing active adaptive-thinking state and invalid available state fail closed.
 
 **Applies To:** Worker
 
@@ -1048,7 +1052,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. Signed-thinking state is omitted from downstream responses. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-076/079: converts Invoke responses and stores signed thinking without exposing it downstream) -->
 2. Signed-thinking state is omitted from logs. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-079: never logs signed-thinking replay state) -->
-3. Missing or mismatched replay state fails before provider I/O. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-079: fails closed when a thinking-enabled tool replay has no server-held signed state) -->
+3. Missing signed state for active adaptive-thinking tool replay fails before provider I/O; absent historical state remains allowed. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-079: fails closed when a thinking-enabled tool replay has no server-held signed state) --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: restores active signed continuation after completed unsigned history) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-073: downward mapping of Max still requires signed native tool replay) -->
+4. Malformed or identity-mismatched available replay blocks fail before provider I/O, including historical blocks before a new question. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::assistantContent --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-079: rejects malformed stored history even after a new question) --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: fails closed when signed replay does not match the tool name and arguments) -->
 
 **Constraints:** Failure responses contain no signed state.
 
@@ -2387,19 +2392,24 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 ---
 
 
-### REQ-ENTERPRISE-082: Pi Native Model Display
+<a id="req-enterprise-082-pi-native-model-display"></a>
+### REQ-ENTERPRISE-082: Pi Gateway Model Display
 
-**Intent:** Native model names remain readable without changing routing identity.
+**Intent:** Dynamic and native gateway models display their published route-category names without changing routing identity.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Pi's model picker displays published native names instead of opaque handles. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
-2. Pi's model-thinking settings display published native names instead of opaque handles. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
-3. Selecting a named native model retains its opaque provider/model identity. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
+1. Pi's model picker displays published names for all `codeflare-gateway` models. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
+2. Pi's model-thinking settings display those same published gateway names. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
+3. Selecting or saving a named gateway model retains its provider/model routing identity, including opaque native IDs. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
+4. Startup publishes `Dynamic Route - <route name>` and `Native Route - <native label>` as model names without changing IDs. <!-- @impl: entrypoint.sh::PI_MODELS_JSON --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: complete enterprise Pi startup publication) -->
+5. Model-command status messages use the published gateway name. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
+6. Picker selection, including saving the default, confirms the published gateway name. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
+7. The local footer uses the same published gateway name. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::renderLine --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-ENTERPRISE-082: renders the published Dynamic Route name without changing its route identity) --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-ENTERPRISE-058: renders the enterprise native label without changing its opaque identity) -->
 
-**Constraints:** Display substitution applies only to native handles under `codeflare-gateway`.
+**Constraints:** Display substitution applies to all models under `codeflare-gateway`, not only native handles; unrelated providers retain their existing display and selection behavior.
 
 **Priority:** P1
 
