@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { bedrockChunkFrame as eventstreamFrame, bedrockEventFrame } from '../helpers/bedrock-eventstream';
 import {
   adaptBedrockAnthropicResponse,
   buildBedrockAnthropicRequest,
@@ -11,30 +12,6 @@ const state = (entries: Record<string, unknown[]> = {}): BedrockReplayState => (
   load: vi.fn(async (toolId: string) => entries[toolId] ?? null),
   save: vi.fn(async () => undefined),
 });
-
-function crc32(bytes: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function eventstreamFrame(payload: unknown): Uint8Array {
-  const body = new TextEncoder().encode(JSON.stringify(payload));
-  const headers = new Uint8Array(0);
-  const total = 16 + headers.length + body.length;
-  const bytes = new Uint8Array(total);
-  const view = new DataView(bytes.buffer);
-  view.setUint32(0, total);
-  view.setUint32(4, headers.length);
-  view.setUint32(8, crc32(bytes.subarray(0, 8)));
-  bytes.set(headers, 12);
-  bytes.set(body, 12 + headers.length);
-  view.setUint32(total - 4, crc32(bytes.subarray(0, total - 4)));
-  return bytes;
-}
 
 describe('Bedrock Anthropic native adapter', () => {
   it('REQ-ENTERPRISE-077: builds the region-scoped provider-native transport path', () => {
@@ -297,6 +274,29 @@ describe('Bedrock Anthropic native adapter', () => {
     ]);
   });
 
+  it('REQ-ENTERPRISE-076: decodes split and coalesced AWS chunk envelopes without losing UTF-8 text', async () => {
+    const frames = [
+      { type: 'message_start', message: { id: 'msg_utf8', model: 'claude' } },
+      { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Grüße 🌍' } },
+      { type: 'content_block_stop', index: 0 },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' } },
+      { type: 'message_stop' },
+    ].map(eventstreamFrame);
+    const combined = new Uint8Array(frames.reduce((size, frame) => size + frame.length, 0));
+    let offset = 0;
+    for (const frame of frames) { combined.set(frame, offset); offset += frame.length; }
+    const body = new ReadableStream<Uint8Array>({ start(controller) {
+      for (const chunk of [combined.subarray(0, 7), combined.subarray(7, 109), combined.subarray(109)]) controller.enqueue(chunk);
+      controller.close();
+    } });
+    const text = await (await adaptBedrockAnthropicResponse(new Response(body), 'eventstream', state())).text();
+    expect(text).toContain('Grüße 🌍');
+    expect(text).not.toContain('NATIVE_BEDROCK_STREAM_ERROR');
+    expect(text).toContain('"finish_reason":"stop"');
+    expect(text.match(/data: \[DONE\]/g)).toHaveLength(1);
+  });
+
   it.each([
     ['invalid frame checksum', (() => { const frame = eventstreamFrame({ type: 'message_stop' }); frame[frame.length - 1] ^= 1; return [frame]; })(), state()],
     ['truncated frame', [eventstreamFrame({ type: 'message_start', message: { id: 'msg' } }).subarray(0, 15)], state()],
@@ -321,6 +321,41 @@ describe('Bedrock Anthropic native adapter', () => {
     expect(replay.save).not.toHaveBeenCalled();
     expect(text).not.toContain('"finish_reason":"stop"');
     expect(text.match(/data: \[DONE\]/g)).toHaveLength(1);
+  });
+
+  it.each([
+    ['provider exception after stop', bedrockEventFrame('modelStreamErrorException', { message: 'private provider detail' }, 'exception')],
+    ['malformed base64 after stop', bedrockEventFrame('chunk', { bytes: '%%%private%%%' })],
+    ['missing bytes after stop', bedrockEventFrame('chunk', {})],
+  ])('REQ-ENTERPRISE-080: rejects %s without a successful finish', async (_label, badFrame) => {
+    const replay = state();
+    const body = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(eventstreamFrame({ type: 'message_stop' }));
+      controller.enqueue(badFrame);
+      controller.close();
+    } });
+    const text = await (await adaptBedrockAnthropicResponse(new Response(body), 'eventstream', replay)).text();
+    expect(text).toContain('NATIVE_BEDROCK_STREAM_ERROR');
+    expect(text).not.toContain('private');
+    expect(text).not.toContain('"finish_reason":"stop"');
+    expect(text.match(/data: \[DONE\]/g)).toHaveLength(1);
+    expect(replay.save).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-080: honors exception headers even when their payload resembles a valid chunk', async () => {
+    const replay = state();
+    const body = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(bedrockEventFrame('modelStreamErrorException', {
+        bytes: btoa(JSON.stringify({ type: 'message_start', message: { id: 'invalid_exception' } })),
+      }, 'exception'));
+      controller.enqueue(eventstreamFrame({ type: 'message_stop' }));
+      controller.close();
+    } });
+    const text = await (await adaptBedrockAnthropicResponse(new Response(body), 'eventstream', replay)).text();
+    expect(text).toContain('NATIVE_BEDROCK_STREAM_ERROR');
+    expect(text).not.toContain('invalid_exception');
+    expect(text).not.toContain('"finish_reason":"stop"');
+    expect(replay.save).not.toHaveBeenCalled();
   });
 
   it('REQ-ENTERPRISE-079: never logs signed-thinking replay state', async () => {

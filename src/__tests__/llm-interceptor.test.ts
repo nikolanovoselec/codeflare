@@ -34,6 +34,7 @@ import { getBuiltInProfileRef, type ReasoningProfileId } from '../lib/reasoning-
 import { connectionFingerprint } from '../lib/reasoning-verification';
 import { createNativeTarget, nativeTargetHandle, serializeNativeAiTargets } from '../lib/native-ai-targets';
 import { routingInventoryFixtures, verifiedRoutingConfiguration } from './helpers/verified-routing';
+import { bedrockChunkFrame } from './helpers/bedrock-eventstream';
 
 vi.mock('../lib/ai-gateway-management', async (original) => ({
   ...await original<typeof import('../lib/ai-gateway-management')>(),
@@ -1018,6 +1019,42 @@ describe('native provider authorization and compat dispatch', () => {
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'high', stream: true, messages: [] }) }),
     );
     expect(response.status).toBe(502);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke-with-response-stream`);
+  });
+
+  it('REQ-ENTERPRISE-076/077: delivers AWS chunk-wrapped native Bedrock text to Pi without a fallback request', async () => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      const request = input as Request;
+      lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
+      const events = [
+        { type: 'message_start', message: { id: 'msg_native', model: 'claude' } },
+        { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Native response received' } },
+        { type: 'content_block_stop', index: 0 },
+        { type: 'message_delta', delta: { stop_reason: 'end_turn' } },
+        { type: 'message_stop' },
+      ];
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+        for (const event of events) controller.enqueue(bedrockChunkFrame(event));
+        controller.close();
+      } }), { headers: { 'content-type': 'application/vnd.amazon.eventstream' } });
+    });
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>,
+      { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: fixture.handle, reasoning_effort: 'high', stream: true, messages: [{ role: 'user', content: 'Hello' }],
+      }) }),
+    );
+    const text = await response.text();
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/event-stream');
+    expect(text).toContain('Native response received');
+    expect(text).toContain('"finish_reason":"stop"');
+    expect(text).not.toContain('NATIVE_BEDROCK_STREAM_ERROR');
+    expect(text.match(/data: \[DONE\]/g)).toHaveLength(1);
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke-with-response-stream`);
   });
