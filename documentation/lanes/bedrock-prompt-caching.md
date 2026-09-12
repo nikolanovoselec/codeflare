@@ -1,5 +1,7 @@
 # Bedrock prompt caching
 
+The historical measurements below remain model/transport-specific evidence. The subsequent [generic model support contract](bedrock-generic-model-support.md) removes the new-model profile-authoring requirement, uses adapter v4, and corrects the distinction between zero executable reasoning mappings and seven selectable Pi preferences. The operator now also accepts Gateway HIT as minimum cache qualification; it is still not proof of provider prefix reuse or permission to enable native checkpoints on Dynamic Routes.
+
 ## Provider cache versus Gateway cache
 
 Bedrock prompt caching reuses an input prefix and still generates a new answer. AI Gateway's whole-response cache replays a completed answer. `cf-aig-cache-status` and the Gateway log's `cached` flag measure the latter; neither proves nor disproves provider prompt caching. Do not add Gateway cache keys or change Gateway TTLs to enable Bedrock input caching.
