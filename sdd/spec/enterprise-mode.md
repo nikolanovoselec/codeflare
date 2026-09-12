@@ -2395,8 +2395,9 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. Pi's model picker and model-thinking settings display published native names instead of opaque handles. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
-2. Selecting a named native model retains its opaque provider/model identity. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
+1. Pi's model picker displays published native names instead of opaque handles. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
+2. Pi's model-thinking settings display published native names instead of opaque handles. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
+3. Selecting a named native model retains its opaque provider/model identity. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
 
 **Constraints:** Display substitution applies only to native handles under `codeflare-gateway`.
 
@@ -2407,3 +2408,5 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Verification:** Real source and CLI-bundled component rendering and selection tests in CI and image verification.
 
 **Status:** Implemented
+
+---

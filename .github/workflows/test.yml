@@ -173,6 +173,7 @@ jobs:
               - 'landing/**'
               - 'src/lib/design-ready.ts'
             pi:
+              - 'scripts/patch-pi-native-model-display.mjs'
               - 'entrypoint.sh'
               - 'host/__fixtures__/enterprise-pi-startup.mjs'
               - '.github/workflows/test.yml'
