@@ -113,16 +113,18 @@ describe('native AI targets', () => {
     expect(() => createNativeTarget({ ...native, id: undefined, transport: 'aig-legacy-compat', providerConfigId: 'raw-provider' })).toThrow();
     const verified = { ...native, verification: { schemaVersion: 1 as const, method: 'administrator' as const, targetId: native.id, provider: native.provider,
       model: native.model, providerConfigId: native.providerConfigId, connectionFingerprint: fingerprint, profileRef: native.profileRef,
-      transport: native.transport, region: native.region, adapterVersion: 'bedrock-anthropic-native-v2' as const, checkedAt: new Date().toISOString() } };
+      transport: native.transport, region: native.region, adapterVersion: 'bedrock-anthropic-native-v3' as const, checkedAt: new Date().toISOString() } };
     expect(nativeVerificationMatches(verified, connection)).toBe(true);
     expect(nativeVerificationMatches({ ...verified, region: 'us-east-1' }, connection)).toBe(false);
     // Reading old documents is backward compatible; authorizing their old
     // protocol receipt for a different adapter revision is intentionally not.
-    const old = parseNativeAiTargets({ schemaVersion: 1, targets: [{ ...verified,
-      verification: { ...verified.verification, adapterVersion: 'bedrock-anthropic-native-v1' } }] });
-    expect(old.targets).toHaveLength(1);
-    expect(old.targets[0].verification?.adapterVersion).toBe('bedrock-anthropic-native-v1');
-    expect(nativeVerificationMatches(old.targets[0], connection)).toBe(false);
+    for (const adapterVersion of ['bedrock-anthropic-native-v1', 'bedrock-anthropic-native-v2']) {
+      const old = parseNativeAiTargets({ schemaVersion: 1, targets: [{ ...verified,
+        verification: { ...verified.verification, adapterVersion } }] });
+      expect(old.targets).toHaveLength(1);
+      expect(old.targets[0].verification?.adapterVersion).toBe(adapterVersion);
+      expect(nativeVerificationMatches(old.targets[0], connection)).toBe(false);
+    }
   });
 
   it('REQ-ENTERPRISE-074: validates automatic routing without widening explicit or compatibility identities', () => {
@@ -148,7 +150,7 @@ describe('native AI targets', () => {
       profileRef: ref, providerConfigId: 'raw-provider', transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1' });
     const verification = { schemaVersion: 1 as const, method: 'administrator' as const, targetId: explicit.id, provider: explicit.provider,
       model: explicit.model, providerConfigId: explicit.providerConfigId, connectionFingerprint: fingerprint, profileRef: ref,
-      transport: explicit.transport, region: explicit.region, adapterVersion: 'bedrock-anthropic-native-v2' as const, checkedAt: new Date().toISOString() };
+      transport: explicit.transport, region: explicit.region, adapterVersion: 'bedrock-anthropic-native-v3' as const, checkedAt: new Date().toISOString() };
     const saved = { ...explicit, verification };
     const current = { schemaVersion: 1 as const, targets: [saved] };
     const draft = { id: explicit.id, label: explicit.label, provider: explicit.provider, model: explicit.model, contextWindow: explicit.contextWindow,

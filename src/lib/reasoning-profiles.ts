@@ -381,14 +381,14 @@ export const BUILT_IN_REASONING_PROFILES: readonly NormalizedReasoningProfile[] 
     originallyCreatedAgainst: { provider: 'aws-bedrock', modelIds: ['eu.anthropic.claude-opus-5'], region: 'eu-central-1', gateway: 'codeflare-enterprise', observedAt: '2026-09-11' },
   }),
   makeBuiltIn({
-    id: 'bedrock-anthropic-native-opus-auto', name: 'AWS Bedrock Claude Opus', family: 'Amazon Bedrock Anthropic', revision: 1,
+    id: 'bedrock-anthropic-native-opus-auto', name: 'AWS Bedrock Claude Opus', family: 'Amazon Bedrock Anthropic', revision: 2,
     ingressContract: 'ai-gateway-chat-completions', supportedLevels: ALL_LEVELS, unsupportedLevels: [], removePaths: BEDROCK_NATIVE_REMOVALS,
     levelMappings: { off: { thinking: { type: 'disabled' } }, minimal: bedrockAdaptive('low'), low: bedrockAdaptive('low'), medium: bedrockAdaptive('medium'), high: bedrockAdaptive('high'), xhigh: bedrockAdaptive('xhigh'), max: bedrockAdaptive('max') },
     aliases: { minimal: 'low' }, offSemantics: { status: 'explicit-value', path: 'thinking.type', value: 'disabled' },
     toolCompatibility: { status: 'verified', levels: ALL_LEVELS, evidence: 'Eventstream tool calls passed through High; Invoke tool calls passed at every level with exact server-held signed-thinking replay.' },
     recognizedResponseFields: { content: ['choices[].message.content'], tools: ['choices[].message.tool_calls'], usage: ['usage.completion_tokens_details.reasoning_tokens'] },
     validatedTransports: ['bedrock-invoke', 'bedrock-eventstream'], classification: 'Verified',
-    limitations: ['Pi minimal aliases native low.', 'Initial turns through High use eventstream; XHigh, Max, and signed continuations use Invoke.', 'XHigh and Max eventstream evidence remains deferred.', 'Signed thinking is retained only in encrypted Worker-side replay state.'],
+    limitations: ['Pi minimal aliases native low.', 'Initial and validated replay turns through High use eventstream; XHigh and Max use Invoke.', 'XHigh and Max eventstream evidence remains deferred.', 'Signed thinking is retained only in encrypted Worker-side replay state.'],
     originallyCreatedAgainst: { provider: 'aws-bedrock', modelIds: ['eu.anthropic.claude-opus-5'], region: 'eu-central-1', gateway: 'codeflare-enterprise', observedAt: '2026-09-11' },
   }),
   makeBuiltIn({

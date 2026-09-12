@@ -46,11 +46,19 @@ function cloneBlocks(value: unknown): unknown[] | null {
   return parsed;
 }
 
-export function selectBedrockAnthropicTransport(configured: BedrockAnthropicTransport | 'auto', replayTurn: boolean, mappedEffort?: string): BedrockAnthropicTransport {
-  // Call only after authorization, profile translation, and signed replay validation.
-  // Sonnet's XHigh/Max aliases have already become native High here.
-  if (configured === 'auto') return replayTurn || mappedEffort === 'xhigh' || mappedEffort === 'max' ? 'invoke' : 'eventstream';
-  return configured === 'eventstream' && replayTurn ? 'invoke' : configured;
+export function selectBedrockAnthropicTransport(configured: BedrockAnthropicTransport | 'auto', mappedEffort?: string): BedrockAnthropicTransport {
+  // Call only AFTER authorization, profile translation, and complete replay
+  // validation. A tool result does not require Invoke: both validated Claude
+  // models accept the original signed assistant blocks on Eventstream replay.
+  // Forcing Invoke here buffers an otherwise streaming-capable continuation.
+  // The proof and the separate Gateway response-DLP boundary are documented in
+  // documentation/lanes/bedrock-prompt-caching.md; never bypass inspection here.
+  //
+  // Preserve the existing explicit transport and upper-effort authority. Sonnet
+  // XHigh/Max aliases are already native High; Opus XHigh/Max still require Invoke
+  // in auto mode. This is selection, never a retry after a paid provider failure.
+  if (configured === 'auto') return mappedEffort === 'xhigh' || mappedEffort === 'max' ? 'invoke' : 'eventstream';
+  return configured;
 }
 
 export function bedrockAnthropicGatewayPath(region: string, model: string, transport: BedrockAnthropicTransport): string {

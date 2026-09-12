@@ -59,6 +59,17 @@ These initial observations proved native cache-aware signed tool replay and vali
 
 The operator subsequently disabled **response** inspection. A fresh authenticated read confirmed `check: ["REQUEST"]`, still enabled with `action: "BLOCK"`; the diagnostic agent changed no policy. Fresh High native tool lifecycles then passed again, with 7,722 (Sonnet) and 7,659 (Opus) cached input tokens on exact signed replay. Public text arrived in 48 deltas over 2.158 seconds and 38 deltas over 2.385 seconds respectively, before terminal events and EOF. Both Dynamic Routes also delivered incremental Pi text after the change. This verifies direct Gateway delivery under the observed request-only policy, not a deployed Worker/Pi session or every possible Gateway policy.
 
+The remaining distinct stream-supported native mappings were then tested, each with one initial call and one exact tool-result replay per model:
+
+| Native mapping | Sonnet initial thinking / replay cache-read tokens | Opus initial thinking / replay cache-read tokens |
+| --- | ---: | ---: |
+| Disabled, no effort | 0 / 7,719 | 0 / 7,649 |
+| Adaptive Low | 1,542 / 7,719 | 417 / 7,650 |
+| Adaptive Medium | 687 / 7,718 | 485 / 7,652 |
+| Adaptive High | 691 / 7,722 | 535 / 7,659 |
+
+Every initial call ended `tool_use`; every exact replay ended `end_turn` and delivered public text incrementally. Off had no thinking blocks. Each enabled initial call had authentic thinking plus a signature, retained unchanged on replay. Effort is not a promise of monotonically increasing token counts. Pi Minimal is an explicit Low alias; Sonnet XHigh/Max are High aliases. Opus XHigh/Max Eventstream remains unverified and is not enabled by this change.
+
 ## Dynamic Route boundary
 
 The exact active `bedrock_sonnet` and `bedrock_opus` routes still resolve through Gateway `/compat/chat/completions`. Their existing plain-system Pi tool call/replay works with the existing repeated-complete-tool-name repair. No new Dynamic reasoning levels or cache capability are published.
@@ -69,13 +80,17 @@ Keeping the system prompt string-valued while retaining only user/tool checkpoin
 
 The Dynamic profile remains honestly `provider-default`: an opaque response is not evidence for configurable Off/Medium/High. Gateway `/compat` did not expose cache categories or structured reasoning in these calls. Missing counters are not provider-reported zeroes or proof that implicit caching can never occur.
 
+A follow-up non-streaming diagnostic exposed **native Anthropic JSON**, not an OpenAI `choices` envelope. It reported explicit zero cache-read/write counters for a 7,571-token Sonnet input and 7,573/7,585-token Opus inputs despite the user-block checkpoint. Opus returned `refusal`, so those calls are not successful lifecycle evidence. This distinguishes missing SSE accounting from the zero counters actually observed in JSON; it still does not prove the internal cause or that all Dynamic caching is impossible.
+
+The remaining external contract to resolve is Cloudflare's preservation of Bedrock checkpoints and usage during Dynamic `/compat` conversion. An accepted request is not a cache-hit certificate. Require a preserved system-prefix canary and a positive provider-reported cache read on a changed-answer request before enabling Dynamic cache metadata. A custom-provider bridge could avoid that converter but would require a new endpoint and route/provider configuration; it is a different, unverified architecture, not part of these commits.
+
 ## Cherry-pick / reimplementation contract
 
 1. Apply the cache-accounting repair first; it is independent and does not change paid request bodies.
 2. Apply checkpoint translation and its complete capability plumbing together. Publishing Pi's flag without native translation is incomplete; enabling it provider-wide breaks the Dynamic boundary.
-3. Keep adapter revision `bedrock-anthropic-native-v2`. v1 target documents remain readable, but old receipts must not authorize v2. The existing native flow requires explicit administrator confirmation of recorded validation evidence; it does not automatically run paid verification. Do not fabricate or migrate receipts.
-4. Keep existing Dynamic/compat targets, profile revisions, region, and saved transport identity unchanged. Do not flatten a Dynamic Route into a direct model call or silently migrate an Invoke target.
-5. Do not remove the current forced-Invoke continuation dispatcher as part of this cache patch. Direct native Eventstream replay was accepted, but removing that dispatch rule and proving end-user streaming under the security policy is a separate change.
+3. The checkpoint commit uses adapter v2; the subsequent streaming-continuation commit uses `bedrock-anthropic-native-v3`. v1/v2 target documents remain readable, but old receipts must not authorize v3. The Opus-auto profile is revision 2 because its recorded transport behavior changed; reasoning mappings did not change. The existing native flow requires explicit administrator confirmation of recorded validation evidence, not an automatic paid verification. Do not fabricate or migrate receipts.
+4. Keep all existing Dynamic/compat configuration unchanged. Native region and saved transport identity remain unchanged too. Do not flatten a Dynamic Route into a direct model call or silently migrate an Invoke target.
+5. Apply the streaming-continuation commit separately if wanted. It removes forced Invoke after validated tool replay for the already stream-supported mappings. Explicit Invoke targets and automatic Opus XHigh/Max remain Invoke. It does not bypass Gateway response inspection, add fallback, or claim a deployed-session test.
 
 The code comments explain the non-obvious prefix boundaries, trust boundary, signed-state invariants, counter arithmetic, and version invalidation. They deliberately do not claim that caching fixes buffering.
 
@@ -83,7 +98,7 @@ The code comments explain the non-obvious prefix boundaries, trust boundary, sig
 
 Run the relevant Vitest adapter/interceptor, native authority, lifecycle, container, and schema suites directly (avoid unrelated generator hooks). Run the real entrypoint jq tests with `node --test --test-isolation=none host/__tests__/entrypoint-enterprise-pi-models.test.js`, and `tsc --noEmit` after the repository's local Worker type generation.
 
-The completed local run passed 553 tests across 13 relevant Vitest files, 20 real-entrypoint jq tests, TypeScript checking, and the offline locked-Pi check below. The cache-accounting regressions were also observed failing before the repair. This is bounded verification of the changed paths, not a claim that the entire repository or a deployed session was tested.
+The completed local run passed 577 tests across 14 relevant Vitest files, 20 real-entrypoint jq tests, TypeScript checking, and the offline locked-Pi check below. The cache-accounting regressions and eight encrypted-replay dispatch regressions were observed failing before their respective repairs. New tests hold upstream EOF open while requiring public text from the actual interceptor. This is bounded verification of the changed paths, not a claim that the entire repository or a deployed session was tested.
 
 For the locked client's serializer and parser, install the existing `@earendil-works/pi-ai@0.85.1` dependency in a temporary directory, then run:
 
@@ -95,7 +110,7 @@ This test injects its only HTTP implementation, makes **zero network calls**, an
 
 ## Streaming boundary
 
-The existing adapter streams native Eventstream public text incrementally. Active tool continuations still select Invoke under REQ-ENTERPRISE-077, and Invoke's client SSE is synthesized only after the complete upstream JSON response. Input caching does not make that operation incremental. Changing continuation dispatch requires its own authentic replay and streaming evidence; this accounting repair does not change it.
+The native adapter streams Eventstream public text incrementally. At the inspected develop baseline, active tool continuations selected Invoke, whose client SSE is synthesized only after complete upstream JSON. The third commit now preserves the stream-supported operation after exact replay validation; the cache-accounting and checkpoint commits remain independent. Explicit Invoke targets and automatic Opus XHigh/Max still have synthesized, non-incremental SSE. Input caching does not change that operation's delivery model. No fake character timers or transport migration are introduced.
 
 ## Evidence and references
 

@@ -142,16 +142,14 @@ describe('Bedrock Anthropic native adapter', () => {
     expect(bedrockAnthropicGatewayPath('eu-central-1', 'eu.anthropic.claude-opus-5', 'invoke')).toBe(
       '/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke',
     );
-    expect(selectBedrockAnthropicTransport('eventstream', false)).toBe('eventstream');
-    expect(selectBedrockAnthropicTransport('eventstream', true)).toBe('invoke');
+    expect(selectBedrockAnthropicTransport('eventstream')).toBe('eventstream');
+    expect(selectBedrockAnthropicTransport('auto')).toBe('eventstream'); // Off has no mapped effort.
   });
 
   it.each(['low', 'medium', 'high', 'xhigh', 'max'])('REQ-ENTERPRISE-077/078: selects automatic transport from mapped %s without changing explicit transports', (effort) => {
-    expect(selectBedrockAnthropicTransport('auto', false, effort)).toBe(['xhigh', 'max'].includes(effort) ? 'invoke' : 'eventstream');
-    expect(selectBedrockAnthropicTransport('auto', true, effort)).toBe('invoke');
-    expect(selectBedrockAnthropicTransport('invoke', false, effort)).toBe('invoke');
-    expect(selectBedrockAnthropicTransport('eventstream', false, effort)).toBe('eventstream');
-    expect(selectBedrockAnthropicTransport('eventstream', true, effort)).toBe('invoke');
+    expect(selectBedrockAnthropicTransport('auto', effort)).toBe(['xhigh', 'max'].includes(effort) ? 'invoke' : 'eventstream');
+    expect(selectBedrockAnthropicTransport('invoke', effort)).toBe('invoke');
+    expect(selectBedrockAnthropicTransport('eventstream', effort)).toBe('eventstream');
   });
 
   it('REQ-ENTERPRISE-073/076: translates OpenAI tools and restores the exact server-held signed assistant blocks', async () => {

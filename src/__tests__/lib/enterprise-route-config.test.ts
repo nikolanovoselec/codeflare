@@ -77,7 +77,7 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
       schemaVersion: 1 as const, targetId: id, provider: target.provider, model: target.model,
       providerConfigId: target.providerConfigId, providerConfigAlias: target.providerConfigAlias,
       connectionFingerprint: connectionFingerprint(connection)!, profileRef,
-      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v2' as const,
+      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v3' as const,
       checkedAt: new Date().toISOString(), capabilities: { streaming: true, tools: true, replay: true },
     };
     kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [{ ...target, verification }] });
@@ -142,7 +142,7 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
     kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [{ ...target, verification: {
       schemaVersion: 1, targetId: id, provider: target.provider, model: target.model, providerConfigId: target.providerConfigId,
       connectionFingerprint: connectionFingerprint({ gatewayUrl: routingGatewayUrl, token: env.AIG_TOKEN })!, profileRef,
-      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v2', checkedAt: new Date().toISOString(),
+      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v3', checkedAt: new Date().toISOString(),
     } }] });
     kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: [nativeTargetHandle(id)],
       targets: [{ kind: 'native-target', targetId: id }], defaultTarget: { kind: 'native-target', targetId: id }, reasoning: 'max' } });

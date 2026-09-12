@@ -871,7 +871,7 @@ describe('native provider authorization and compat dispatch', () => {
     profileId?: ReasoningProfileId;
     providerConfigId?: string;
     providerConfigAlias?: string;
-    adapterVersion?: 'bedrock-anthropic-compat-v1' | 'bedrock-anthropic-native-v2' | 'native-openai-compat-v1' | 'gemini-openai-compat-v1';
+    adapterVersion?: 'bedrock-anthropic-compat-v1' | 'bedrock-anthropic-native-v3' | 'native-openai-compat-v1' | 'gemini-openai-compat-v1';
     transport?: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto';
     region?: string;
   };
@@ -930,7 +930,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it('REQ-ENTERPRISE-073: denies native Bedrock before provider I/O when session identity is absent', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-invoke',
-      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
+      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v3' });
     const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'high', stream: false, messages: [] }) }),
     );
@@ -940,7 +940,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it.each(['high', 'xhigh', 'max'])('REQ-ENTERPRISE-078: maps Opus %s to High within the explicit eventstream profile without switching to Invoke', async (level) => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
-      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v3' });
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
       const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
       return new Response('provider failure', { status: 502 });
@@ -966,7 +966,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it('REQ-ENTERPRISE-073/077: starts native reasoning after paired interrupted tool history without treating it as active replay', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-auto',
-      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
+      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v3' });
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
       const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
       return new Response('provider failure', { status: 502 });
@@ -994,7 +994,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it('REQ-ENTERPRISE-073: downward mapping of Max still requires signed native tool replay', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
-      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v3' });
     const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
         model: fixture.handle, reasoning_effort: 'max', stream: true, messages: [
@@ -1010,7 +1010,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it('REQ-ENTERPRISE-077: dispatches one initial provider-native Bedrock eventstream request', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
-      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v3' });
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
       const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
       return new Response('provider failure', { status: 502 });
@@ -1025,7 +1025,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it('REQ-ENTERPRISE-076/077: delivers AWS chunk-wrapped native Bedrock text to Pi without a fallback request', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
-      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v3' });
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
       const request = input as Request;
       lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
@@ -1061,7 +1061,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it('REQ-ENTERPRISE-080: preserves native stream errors without adding a success terminator', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
-      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v3' });
     const replayWrites: string[] = [];
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(controller) {
       controller.enqueue(bedrockEventFrame('modelStreamErrorException', { message: 'private provider detail' }, 'exception'));
@@ -1085,7 +1085,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it('REQ-ENTERPRISE-073/077: dispatches provider-native Bedrock Invoke with exact reasoning controls and hides signed replay state', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-invoke',
-      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
+      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v3' });
     const replayWrites: Array<{ key: string; value: string }> = [];
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
       const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
@@ -1108,7 +1108,7 @@ describe('native provider authorization and compat dispatch', () => {
   describe.each(['sonnet', 'opus'] as const)('automatic native %s routing', (family) => {
     const options: NativeFixtureOptions = { model: `eu.anthropic.claude-${family}-5`,
       profileId: family === 'sonnet' ? 'bedrock-anthropic-native-sonnet' : 'bedrock-anthropic-native-opus-auto',
-      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' };
+      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v3' };
     const encryption = Buffer.alloc(32, 7).toString('base64');
     const props = { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] };
 
@@ -1161,15 +1161,16 @@ describe('native provider authorization and compat dispatch', () => {
       expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 
-    it.each(['unsigned', 'redacted-only'])('REQ-ENTERPRISE-073/077: continues an authentic %s High tool response through encrypted replay and Invoke', async (kind) => {
+    it.each(['unsigned', 'redacted-only', 'signed'])('REQ-ENTERPRISE-073/077: continues an authentic %s High tool response through encrypted replay and Eventstream', async (kind) => {
       const fixture = nativeFixture(true, options);
       const tool = { type: 'tool_use', id: 'toolu_bdrk_native_read', name: 'read', input: { path: 'README.md', offset: 1 } };
       const content = kind === 'unsigned'
         ? [{ type: 'text', text: 'Looking up ' }, { type: 'text', text: 'the overview.' }, tool]
-        : [{ type: 'redacted_thinking', data: 'private-redacted-state' }, tool];
+        : kind === 'signed' ? [{ type: 'thinking', thinking: 'synthetic private reasoning', signature: 'synthetic-private-signature' }, tool]
+          : [{ type: 'redacted_thinking', data: 'private-redacted-state' }, tool];
       const calls: Array<{ url: string; body: any }> = [];
       const ciphertext: Record<string, string> = {};
-      const responses = [bedrockToolResponse(content, 'eventstream'), bedrockToolResponse([{ type: 'text', text: 'Finished' }], 'invoke')];
+      const responses = [bedrockToolResponse(content, 'eventstream'), bedrockToolResponse([{ type: 'text', text: 'Finished' }], 'eventstream')];
       (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (input: RequestInfo | URL) => {
         const request = input as Request;
         calls.push({ url: request.url, body: JSON.parse(await request.text()) });
@@ -1190,6 +1191,8 @@ describe('native provider authorization and compat dispatch', () => {
       expect(first.finishes).toEqual(['tool_calls']);
       expect(first.doneCount).toBe(1);
       expect(first.wire).not.toContain('private-redacted-state');
+      expect(first.wire).not.toContain('synthetic-private-signature');
+      expect(first.wire).not.toContain('synthetic private reasoning');
       expect(first.message.tool_calls).toHaveLength(1);
       const messages = [question, first.message, { role: 'tool', tool_call_id: first.message.tool_calls[0].id, content: 'overview contents' }];
       const secondResponse = await interceptor.fetch(request(messages));
@@ -1201,7 +1204,7 @@ describe('native provider authorization and compat dispatch', () => {
       expect(second.wire).not.toContain('private-redacted-state');
       expect(calls.map((call) => call.url)).toEqual([
         `${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke-with-response-stream`,
-        `${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke`,
+        `${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke-with-response-stream`,
       ]);
       expect(calls[1].body.messages[1].content).toEqual(content);
       expect(calls[1].body.messages[2].content).toEqual([{ type: 'tool_result', tool_use_id: first.message.tool_calls[0].id, content: 'overview contents' }]);
@@ -1211,6 +1214,8 @@ describe('native provider authorization and compat dispatch', () => {
       }
       expect(Object.keys(ciphertext)).toHaveLength(1);
       expect(JSON.stringify(ciphertext)).not.toContain('private-redacted-state');
+      expect(JSON.stringify(ciphertext)).not.toContain('synthetic-private-signature');
+      expect(JSON.stringify(ciphertext)).not.toContain('synthetic private reasoning');
       expect(JSON.stringify(ciphertext)).not.toContain('README.md');
       // Even real ciphertext produced by this response cannot authorize another user/session.
       for (const otherProps of [{ ...props, sessionId: 'another-session' }, { ...props, user: 'another@example.com' }]) {
@@ -1222,7 +1227,75 @@ describe('native provider authorization and compat dispatch', () => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
 
-    it('REQ-ENTERPRISE-073/077: validates signed continuation before Invoke and keeps state private', async () => {
+    it('REQ-ENTERPRISE-077/080: delivers replay text while upstream EOF is withheld', async () => {
+      const fixture = nativeFixture(true, options);
+      // Synthetic signed state exercises the Worker boundary implementation;
+      // the separate live report establishes provider acceptance of real state.
+      const signed = [{ type: 'thinking', thinking: 'synthetic hidden reasoning', signature: 'synthetic-hidden-signature' },
+        { type: 'tool_use', id: 'call_incremental', name: 'lookup', input: { value: 'ok' } }];
+      let upstream!: ReadableStreamDefaultController<Uint8Array>;
+      let secondUrl = '';
+      const ciphertext: Record<string, string> = {};
+      const stream = new ReadableStream<Uint8Array>({ start(controller) {
+        upstream = controller;
+        for (const event of [
+          { type: 'message_start', message: { id: 'synthetic-final', usage: { input_tokens: 2, cache_read_input_tokens: 1024 } } },
+          { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'First part. ' } },
+        ]) controller.enqueue(bedrockChunkFrame(event));
+        // Deliberately withhold EOF, not a timing heuristic or a character timer.
+      } });
+      (globalThis.fetch as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(bedrockToolResponse(signed, 'eventstream'))
+        .mockImplementationOnce(async (input: RequestInfo | URL) => {
+          const request = input as Request; secondUrl = request.url;
+          // Fail a dispatch regression immediately instead of waiting for the
+          // Invoke JSON reader to hang on the deliberately withheld EOF.
+          expect(secondUrl).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke-with-response-stream`);
+          const native = JSON.parse(await request.text());
+          expect(native.messages[1].content).toEqual(signed);
+          return new Response(stream, { headers: { 'content-type': 'application/vnd.amazon.eventstream' } });
+        });
+      const interceptor = makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, props,
+        (key, value) => { ciphertext[key] = value; });
+      const request = (messages: unknown[]) => new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: fixture.handle, reasoning_effort: 'high', stream: true, messages,
+        tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }],
+      }) });
+      const question = { role: 'user', content: 'Synthetic tool request' };
+      const first = await readOpenAiToolTurn(await interceptor.fetch(request([question])));
+      const response = await interceptor.fetch(request([question, first.message,
+        { role: 'tool', tool_call_id: first.message.tool_calls[0].id, content: '{"value":"ok"}' }]));
+      expect(secondUrl).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke-with-response-stream`);
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let wire = '';
+      while (!wire.includes('First part. ')) {
+        const next = await reader.read();
+        expect(next.done).toBe(false);
+        wire += decoder.decode(next.value, { stream: true });
+      }
+      expect(wire).not.toMatch(/"finish_reason":"[^"]+"/);
+      expect(wire).not.toContain('[DONE]');
+      for (const event of [
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Second part.' } },
+        { type: 'content_block_stop', index: 0 },
+        { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 8 } },
+        { type: 'message_stop' },
+      ]) upstream.enqueue(bedrockChunkFrame(event));
+      upstream.close();
+      for (;;) { const next = await reader.read(); if (next.done) break; wire += decoder.decode(next.value, { stream: true }); }
+      expect(wire).toContain('Second part.');
+      expect(wire).toContain('"finish_reason":"stop"');
+      expect(wire).toContain('"cached_tokens":1024');
+      expect(wire.match(/data: \[DONE\]/g)).toHaveLength(1);
+      expect(wire).not.toContain('synthetic-hidden-signature');
+      expect(wire).not.toContain('synthetic hidden reasoning');
+      expect(JSON.stringify(ciphertext)).not.toContain('synthetic-hidden-signature');
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('REQ-ENTERPRISE-073/077: validates signed continuation before Eventstream and keeps state private', async () => {
       // Seed real encrypted replay state through the existing Invoke adapter.
       const seed = nativeFixture(true, { ...options, transport: 'aig-bedrock-anthropic-invoke',
         profileId: family === 'sonnet' ? 'bedrock-anthropic-native-sonnet' : 'bedrock-anthropic-native-opus-invoke' });
@@ -1252,12 +1325,12 @@ describe('native provider authorization and compat dispatch', () => {
       expect(globalThis.fetch).not.toHaveBeenCalled();
       (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
         const upstream = input as Request; lastFetch = { url: upstream.url, method: upstream.method, headers: upstream.headers, body: await upstream.text() };
-        return Response.json({ id: 'final', content: [{ type: 'text', text: 'Finished' }], stop_reason: 'end_turn' });
+        return bedrockToolResponse([{ type: 'text', text: 'Finished' }], 'eventstream');
       });
       const response = await interceptor.fetch(request());
       expect(response.status).toBe(200);
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-      expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke`);
+      expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke-with-response-stream`);
       expect(JSON.parse(lastFetch!.body).messages[0].content).toEqual([
         { type: 'thinking', thinking: '', signature: 'private-auto-signature' },
         { type: 'tool_use', id: 'call_auto', name: 'lookup', input: { q: 'x' } },

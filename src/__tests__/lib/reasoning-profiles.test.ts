@@ -78,7 +78,7 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     expect(auto.hash).not.toBe(invoke.hash);
     expect(() => { auto.levels.max![0].value = 'high'; }).toThrow();
     expect(profiles.getBuiltInProfile('bedrock-anthropic-native-opus-auto')!.levels.max).toContainEqual({ path: 'output_config.effort', value: 'max' });
-    expect(profiles.getBuiltInProfileRef('bedrock-anthropic-native-opus-auto')).toEqual({ id: auto.id, revision: 1, hash: auto.hash });
+    expect(profiles.getBuiltInProfileRef('bedrock-anthropic-native-opus-auto')).toEqual({ id: auto.id, revision: 2, hash: auto.hash });
     expect(profiles.getBuiltInProfile('bedrock-anthropic-native-opus-stream')!.unsupportedLevels).toEqual(['xhigh', 'max']);
   });
 
