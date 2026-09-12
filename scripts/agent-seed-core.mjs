@@ -176,6 +176,9 @@ function isClaudeOnlySkill(withinClaude) {
 // ---------------------------------------------------------------------------
 
 function inferContentType(filePath) {
+  if (filePath === 'skills/impeccable/scripts/impeccable') return 'application/x-shellscript; charset=utf-8';
+  if (filePath === 'skills/impeccable/scripts/VERSION'
+    || filePath === 'skills/impeccable/scripts/impeccable.cmd') return 'text/plain; charset=utf-8';
   if (path.basename(filePath) === 'LICENSE') return 'text/plain; charset=utf-8';
   const extension = path.extname(filePath).toLowerCase();
   switch (extension) {

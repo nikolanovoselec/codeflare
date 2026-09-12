@@ -9,7 +9,7 @@ type SeedDocument = {
   modes: ('default' | 'advanced')[];
 };
 
-export const PRESEED_CONTENT_HASH = 'c8d1c8bc6884f5fb';
+export const PRESEED_CONTENT_HASH = '5c3aec79efb35345';
 
 /** Composite digest of the managed npm runtime locks defining the release ABI. */
 export const PRESEED_RUNTIME_DEPENDENCY_HASH = '823886357f3fc167d2b3df332901d2e68bd7d1a8a7f577e4e7cc999c375cbce9';
@@ -1478,7 +1478,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   },
   {
     "key": ".claude/skills/impeccable/scripts/VERSION",
-    "contentType": "application/octet-stream",
+    "contentType": "text/plain; charset=utf-8",
     "content": "0.1.5\n",
     "modes": [
       "advanced"
@@ -1510,7 +1510,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   },
   {
     "key": ".claude/skills/impeccable/scripts/impeccable",
-    "contentType": "application/octet-stream",
+    "contentType": "application/x-shellscript; charset=utf-8",
     "content": "#!/bin/sh\nset -eu\ncommand=\"${1:-}\"\nif [ \"$command\" = skills ]; then command=\"${2:-}\"; fi\ncase \"$command\" in\n  install|update|uninstall|link)\n    echo \"Impeccable is image-owned; runtime updates require Codeflare image review.\" >&2\n    exit 1 ;;\nesac\ndir=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nversion=$(tr -d '[:space:]' < \"$dir/VERSION\")\ncase \"$version\" in\n  0.1.5) ;;\n  *) echo \"Unsupported Impeccable engine version: $version\" >&2; exit 1 ;;\nesac\nengine_root='/opt/codeflare/impeccable'\nengine=\"$engine_root/$version/impeccable\"\nif [ ! -x \"$engine\" ]; then\n  echo \"Impeccable engine $version is missing from this Codeflare image; update the image.\" >&2\n  exit 127\nfi\nexport IMPECCABLE_SKILL_DIR=$(CDPATH= cd -- \"$dir/..\" && pwd)\nexport IMPECCABLE_SELF=\"$0\"\nexec \"$engine\" \"$@\"\n",
     "modes": [
       "advanced"
@@ -1518,7 +1518,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   },
   {
     "key": ".claude/skills/impeccable/scripts/impeccable.cmd",
-    "contentType": "application/octet-stream",
+    "contentType": "text/plain; charset=utf-8",
     "content": "@echo off\necho Impeccable requires the Codeflare Linux image runtime. 1>&2\nexit /b 1\n",
     "modes": [
       "advanced"
@@ -3209,7 +3209,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   },
   {
     "key": ".pi/agent/skills/impeccable/scripts/VERSION",
-    "contentType": "application/octet-stream",
+    "contentType": "text/plain; charset=utf-8",
     "content": "0.1.5\n",
     "modes": [
       "advanced"
@@ -3241,7 +3241,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   },
   {
     "key": ".pi/agent/skills/impeccable/scripts/impeccable",
-    "contentType": "application/octet-stream",
+    "contentType": "application/x-shellscript; charset=utf-8",
     "content": "#!/bin/sh\nset -eu\ncommand=\"${1:-}\"\nif [ \"$command\" = skills ]; then command=\"${2:-}\"; fi\ncase \"$command\" in\n  install|update|uninstall|link)\n    echo \"Impeccable is image-owned; runtime updates require Codeflare image review.\" >&2\n    exit 1 ;;\nesac\ndir=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nversion=$(tr -d '[:space:]' < \"$dir/VERSION\")\ncase \"$version\" in\n  0.1.5) ;;\n  *) echo \"Unsupported Impeccable engine version: $version\" >&2; exit 1 ;;\nesac\nengine_root='/opt/codeflare/impeccable'\nengine=\"$engine_root/$version/impeccable\"\nif [ ! -x \"$engine\" ]; then\n  echo \"Impeccable engine $version is missing from this Codeflare image; update the image.\" >&2\n  exit 127\nfi\nexport IMPECCABLE_SKILL_DIR=$(CDPATH= cd -- \"$dir/..\" && pwd)\nexport IMPECCABLE_SELF=\"$0\"\nexec \"$engine\" \"$@\"\n",
     "modes": [
       "advanced"
@@ -3249,7 +3249,7 @@ export const AGENTS_SEEDED_CONFIGS: SeedDocument[] = [
   },
   {
     "key": ".pi/agent/skills/impeccable/scripts/impeccable.cmd",
-    "contentType": "application/octet-stream",
+    "contentType": "text/plain; charset=utf-8",
     "content": "@echo off\necho Impeccable requires the Codeflare Linux image runtime. 1>&2\nexit /b 1\n",
     "modes": [
       "advanced"

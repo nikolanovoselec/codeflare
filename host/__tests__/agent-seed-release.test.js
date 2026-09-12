@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { gunzipSync } from 'node:zlib';
 import { describe, it } from 'node:test';
 import { dirname, join, resolve } from 'node:path';
@@ -52,6 +54,39 @@ function releaseOptions(compiled = compiledSeed(), overrides = {}) {
   };
 }
 
+async function managedSource(t) {
+  const root = await mkdtemp(join(tmpdir(), 'managed-native-source-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  // Match curation's source ownership, without filtering compiler output.
+  const exclusions = new Set([
+    'claude/plugins/context-mode/.claude-plugin/plugin.json',
+    'claude/plugins/context-mode/README.md',
+    'pi/extensions/context-mode-runtime.ts',
+    'pi/package.json',
+    'pi/package-lock.json',
+  ]);
+  const copy = async (relative) => {
+    await mkdir(dirname(join(root, relative)), { recursive: true });
+    await copyFile(join(repoRoot, relative), join(root, relative));
+  };
+  for (const runtime of ['claude', 'pi']) {
+    const prefix = `preseed/agents/${runtime}`;
+    const manifest = JSON.parse(await readFile(join(repoRoot, prefix, 'manifest.json'), 'utf8'));
+    for (const relative of Object.keys(manifest)) {
+      if (exclusions.has(`${runtime}/${relative}`)) delete manifest[relative];
+      else await copy(`${prefix}/${relative}`);
+    }
+    await writeFile(join(root, prefix, 'manifest.json'), JSON.stringify(manifest));
+  }
+  for (const relative of [
+    'preseed/retired-keys.json',
+    'preseed/npm-tools/package-lock.json',
+    'preseed/agents/claude/browser-run-mcp/package-lock.json',
+    'preseed/agents/pi/package-lock.json',
+  ]) await copy(relative);
+  return root;
+}
+
 function extensionInput(overrides = {}) {
   return {
     bytes: Buffer.from('measured VSIX bytes'),
@@ -98,6 +133,35 @@ describe('REQ-AGENT-147 AC3: fixed managed seed release contract', () => {
       retiredPaths: ['.pi/agent/extensions/old.ts'],
       managedExtensions: [],
     });
+  });
+
+  it('REQ-AGENT-147 AC2: compiles native Impeccable text and launchers into a signed managed release', async (t) => {
+    const { computeAgentRuntimeHash } = await import(pathToFileURL(join(repoRoot, 'scripts/agent-seed-core.mjs')).href);
+    const { buildAgentSeedRelease, createReleaseBundle, signReleaseBundle, verifyReleaseBundle } = await import(releaseUrl);
+    const sourceRoot = await managedSource(t);
+    const release = await buildAgentSeedRelease(releaseOptions(undefined, { sourceRoot, compile: undefined }));
+    const bundle = createReleaseBundle(release);
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    assert.equal(verifyReleaseBundle(bundle.gzip, signReleaseBundle(bundle.gzip, privateKey), publicKey), true);
+    const published = JSON.parse(gunzipSync(bundle.gzip).toString('utf8'));
+    for (const [runtime, root] of [['claude', '.claude'], ['pi', '.pi/agent']]) {
+      for (const [name, contentType] of [
+        ['VERSION', 'text/plain; charset=utf-8'],
+        ['impeccable', 'application/x-shellscript; charset=utf-8'],
+        ['impeccable.cmd', 'text/plain; charset=utf-8'],
+      ]) {
+        const key = `${root}/skills/impeccable/scripts/${name}`;
+        const matches = published.documents.filter((document) => document.key === key);
+        assert.equal(matches.length, 1, key);
+        assert.deepEqual(matches[0], {
+          key,
+          contentType,
+          content: await readFile(join(repoRoot, 'preseed/agents', runtime, 'skills/impeccable/scripts', name), 'utf8'),
+          modes: ['advanced'],
+        });
+      }
+    }
+    assert.equal(published.runtimeDependencyHash, await computeAgentRuntimeHash(repoRoot));
   });
 
   it('retains historical managed retirements while excluding image-owned context-mode paths', async () => {
@@ -188,6 +252,34 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
       }))),
       /both live and retired/i,
     );
+  });
+
+  it('REQ-AGENT-147 AC4: rejects unsupported binary document types', async (t) => {
+    const { compileAgentSeed } = await import(pathToFileURL(join(repoRoot, 'scripts/agent-seed-core.mjs')).href);
+    const { buildAgentSeedRelease } = await import(releaseUrl);
+    for (const [runtime, prefix] of [['claude', '.claude'], ['pi', '.pi/agent']]) {
+      for (const name of ['engine.bin', 'impeccable']) {
+        await t.test(`${runtime}: ${name}`, async (subtest) => {
+          const sourceRoot = await managedSource(subtest);
+          const relative = `skills/probe/scripts/${name}`;
+          const filename = join(sourceRoot, 'preseed/agents', runtime, relative);
+          const manifestPath = join(sourceRoot, 'preseed/agents', runtime, 'manifest.json');
+          const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+          manifest[relative] = { modes: ['advanced'] };
+          await mkdir(dirname(filename), { recursive: true });
+          await writeFile(filename, Buffer.from([0, 255, 1, 128]));
+          await writeFile(manifestPath, JSON.stringify(manifest));
+          const compiled = await compileAgentSeed({ rootDir: sourceRoot });
+          const index = compiled.documents.findIndex(({ key }) => key === `${prefix}/${relative}`);
+          assert.ok(index >= 0);
+          assert.equal(compiled.documents[index].contentType, 'application/octet-stream');
+          await assert.rejects(
+            buildAgentSeedRelease(releaseOptions(undefined, { sourceRoot, compile: undefined })),
+            { message: `document ${index} contentType is unsupported: application/octet-stream` },
+          );
+        });
+      }
+    }
   });
 
   it('REQ-AGENT-147 AC4: rejects an undeclared runtime dependency identity', async () => {
