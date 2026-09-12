@@ -59,6 +59,8 @@ describe('Bedrock Anthropic native adapter', () => {
   it('REQ-ENTERPRISE-073/076: translates OpenAI tools and restores the exact server-held signed assistant blocks', async () => {
     const signed = [
       { type: 'thinking', thinking: '', signature: 'opaque-signed-state' },
+      { type: 'redacted_thinking', data: 'opaque-redacted-state' },
+      { type: 'text', text: 'Looking up x.' },
       { type: 'tool_use', id: 'call_1', name: 'lookup', input: { q: 'x' } },
     ];
     const replay = state({ call_1: signed });
@@ -191,14 +193,21 @@ describe('Bedrock Anthropic native adapter', () => {
     expect(result.thinking).toEqual({ type: 'adaptive' });
   });
 
-  it('REQ-ENTERPRISE-079: rejects malformed stored history even after a new question', async () => {
+  it.each([
+    { type: 'thinking', signature: 42 },
+    { type: 'text', text: 42 },
+    { type: 'text' },
+    { type: 'redacted_thinking', data: 42 },
+    { type: 'redacted_thinking' },
+    { type: 'unknown', text: 'not a supported replay block' },
+  ])('REQ-ENTERPRISE-079: rejects malformed stored history even after a new question', async (block) => {
     await expect(buildBedrockAnthropicRequest({
       thinking: { type: 'adaptive' }, messages: [
         { role: 'assistant', tool_calls: [{ id: 'old_call', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
         { role: 'tool', tool_call_id: 'old_call', content: 'found' },
         { role: 'user', content: 'Who are you?' },
       ],
-    }, state({ old_call: [{ type: 'thinking', signature: 42 }] }))).rejects.toThrow('signed thinking state');
+    }, state({ old_call: [block, { type: 'tool_use', id: 'old_call', name: 'lookup', input: {} }] }))).rejects.toThrow('signed thinking state');
   });
 
   it('REQ-ENTERPRISE-079: incomplete parallel tool results remain protected despite later assistant and user text', async () => {
