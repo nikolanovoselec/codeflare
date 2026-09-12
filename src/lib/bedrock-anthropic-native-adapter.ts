@@ -9,7 +9,7 @@ export interface BedrockReplayState {
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
 const MAX_REPLAY_BYTES = 64 * 1024;
 const encoder = new TextEncoder();
-const decoder = new TextDecoder('utf-8', { fatal: true });
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 
 function plain(value: unknown): value is JsonObject {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
