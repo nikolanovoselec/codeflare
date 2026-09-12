@@ -96,6 +96,20 @@ describe('REQ-AGENT-056: Pi local statusline repository resolution', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
+  it('REQ-ENTERPRISE-082: renders the published Dynamic Route name without changing its route identity', () => {
+    const { root } = repoFixture('statusline-dynamic-label-');
+    const model = { provider: 'codeflare-gateway', id: 'bedrock_opus', name: 'Dynamic Route - bedrock_opus' };
+    try {
+      const { component } = installStatusline({
+        hasUI: true, cwd: root, model, sessionManager: { getCwd: () => root }, ui: { setFooter: () => undefined },
+      });
+      try {
+        expect(component.render(120)[0]).toBe('--% | Dynamic Route - bedrock_opus:xhigh');
+        expect(model.id).toBe('bedrock_opus');
+      } finally { component.dispose(); }
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('REQ-AGENT-056: renders context, model effort, cwd repository, extension statuses, and width-safe truncation', () => {
     const { root, repo } = repoFixture('statusline-cwd-');
     const nested = join(repo, 'src', 'nested');

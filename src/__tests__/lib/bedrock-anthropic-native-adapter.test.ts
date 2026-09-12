@@ -121,6 +121,73 @@ describe('Bedrock Anthropic native adapter', () => {
     }, replay)).rejects.toThrow('does not match');
   });
 
+  it('REQ-ENTERPRISE-073: accepts completed foreign tool history before a new native user turn', async () => {
+    const result = await buildBedrockAnthropicRequest({
+      thinking: { type: 'adaptive' }, output_config: { effort: 'low' },
+      messages: [
+        { role: 'user', content: 'Look up the project.' },
+        { role: 'assistant', tool_calls: [{ id: 'foreign_call', type: 'function', function: { name: 'lookup', arguments: '{"q":"project"}' } }] },
+        { role: 'tool', tool_call_id: 'foreign_call', content: 'Project information.' },
+        { role: 'assistant', content: 'Here is the project.' },
+        { role: 'user', content: 'Who are you?' },
+      ],
+    }, state());
+    expect(result.thinking).toEqual({ type: 'adaptive' });
+    expect(result.messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'Look up the project.' }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'foreign_call', name: 'lookup', input: { q: 'project' } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'foreign_call', content: 'Project information.' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'Here is the project.' }] },
+      { role: 'user', content: [{ type: 'text', text: 'Who are you?' }] },
+    ]);
+  });
+
+  it('REQ-ENTERPRISE-073: restores active signed continuation after completed unsigned history', async () => {
+    const signed = [
+      { type: 'thinking', thinking: '', signature: 'current-signature' },
+      { type: 'tool_use', id: 'current_call', name: 'lookup', input: {} },
+    ];
+    const messages = [
+      { role: 'assistant', tool_calls: [{ id: 'old_call', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'old_call', content: 'old result' },
+      { role: 'assistant', content: 'Done.' },
+      { role: 'user', content: 'Look again.' },
+      { role: 'assistant', tool_calls: [{ id: 'current_call', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'current_call', content: 'new result' },
+    ];
+    const payload = { thinking: { type: 'adaptive' }, output_config: { effort: 'low' }, messages };
+    const result = await buildBedrockAnthropicRequest(payload, state({ current_call: signed }));
+    expect(result.messages[0].content).toEqual([{ type: 'tool_use', id: 'old_call', name: 'lookup', input: {} }]);
+    expect(result.messages[4].content).toEqual(signed);
+    await expect(buildBedrockAnthropicRequest(payload, state())).rejects.toThrow('signed thinking state');
+  });
+
+  it.each([
+    { role: 'user', content: [{ type: 'text', text: 'Attached image(s) from tool result:' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,YQ==' } }] },
+    { role: 'user', content: 'Continue after the interrupted tool.' },
+  ])('REQ-ENTERPRISE-079: user-role content does not close an unfinished tool turn', async (suffix) => {
+    await expect(buildBedrockAnthropicRequest({
+      thinking: { type: 'adaptive' }, output_config: { effort: 'low' },
+      messages: [
+        { role: 'assistant', tool_calls: [{ id: 'call_missing', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+        { role: 'tool', tool_call_id: 'call_missing', content: 'found' },
+        suffix,
+      ],
+    }, state())).rejects.toThrow('signed thinking state');
+  });
+
+  it('REQ-ENTERPRISE-079: incomplete parallel tool results remain protected despite later assistant and user text', async () => {
+    await expect(buildBedrockAnthropicRequest({
+      thinking: { type: 'adaptive' }, output_config: { effort: 'low' },
+      messages: [
+        { role: 'assistant', tool_calls: ['call_a', 'call_b'].map((id) => ({ id, type: 'function', function: { name: 'lookup', arguments: '{}' } })) },
+        { role: 'tool', tool_call_id: 'call_a', content: 'found' },
+        { role: 'assistant', content: 'Partial result.' },
+        { role: 'user', content: 'Continue.' },
+      ],
+    }, state())).rejects.toThrow('signed thinking state');
+  });
+
   it('REQ-ENTERPRISE-079: fails closed when a thinking-enabled tool replay has no server-held signed state', async () => {
     await expect(buildBedrockAnthropicRequest({
       thinking: { type: 'adaptive' }, output_config: { effort: 'low' },

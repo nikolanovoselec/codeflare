@@ -104,7 +104,7 @@ function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevels
 
 describe('REQ-ENTERPRISE-058: complete enterprise Pi startup publication', () => {
   for (const reasoning of [undefined, '']) {
-    it(`replaces restored stale models for provider-default startup (${reasoning === undefined ? 'missing' : 'empty'} effort)`, (t) => {
+    it(`REQ-ENTERPRISE-058: replaces stale models with prefixed route names and unchanged IDs (${reasoning === undefined ? 'missing' : 'empty'} effort)`, (t) => {
       const fixture = enterpriseStartup({ reasoning });
       t.after(fixture.cleanup);
       assert.equal(fixture.result.status, 0, fixture.result.stderr);
@@ -113,12 +113,12 @@ describe('REQ-ENTERPRISE-058: complete enterprise Pi startup publication', () =>
       assert.deepEqual(gateway.models.map(({ id }) => id), authorizedRoutes);
       assert.deepEqual(models.providers['unrelated-provider'], siblingProvider);
       assert.deepEqual(gateway.models[0], {
-        id: 'bedrock_opus', name: 'bedrock_opus', reasoning: true,
+        id: 'bedrock_opus', name: 'Dynamic Route - bedrock_opus', reasoning: true,
         thinkingLevelMap: Object.fromEntries(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((level) => [level, level])),
         compat: { supportsReasoningEffort: false }, input: ['text', 'image'], contextWindow: 1048576, maxTokens: 16384,
       });
       assert.equal(gateway.models[1].id, nativeHandle);
-      assert.equal(gateway.models[1].name, 'bedrock-opus-5');
+      assert.equal(gateway.models[1].name, 'Native Route - bedrock-opus-5');
       assert.deepEqual(gateway.models[1].thinkingLevelMap, Object.fromEntries(nativeLevels.map((level) => [level, level])));
       assert.deepEqual(fixture.readSettings(), { defaultProvider: 'codeflare-gateway', defaultModel: 'bedrock_opus', theme: 'dark' });
       assert.doesNotMatch(fixture.result.stdout, /could not build Pi enterprise gateway config/);
@@ -216,7 +216,7 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     const provider = modelsJson.providers['codeflare-gateway'];
     const native = provider.models[0];
     assert.deepEqual(native, {
-      id: handle, name: 'Claude Sonnet', reasoning: true, compat: { supportsReasoningEffort: false },
+      id: handle, name: 'Native Route - Claude Sonnet', reasoning: true, compat: { supportsReasoningEffort: false },
       thinkingLevelMap: Object.fromEntries(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((level) => [level, level])),
       input: ['text', 'image'], contextWindow: 200000, maxTokens: 16384,
     });

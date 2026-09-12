@@ -963,6 +963,35 @@ describe('native provider authorization and compat dispatch', () => {
     });
   });
 
+  it('REQ-ENTERPRISE-073/077: starts native reasoning after completed foreign tool history without treating it as active replay', async () => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-auto',
+      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
+      return new Response('provider failure', { status: 502 });
+    });
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: fixture.handle, reasoning_effort: 'medium', stream: true, messages: [
+          { role: 'user', content: 'Look up the project.' },
+          { role: 'assistant', tool_calls: [{ id: 'foreign_call', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+          { role: 'tool', tool_call_id: 'foreign_call', content: 'found' },
+          { role: 'assistant', content: 'Here is the project.' },
+          { role: 'user', content: 'Who are you?' },
+        ],
+      }) }),
+    );
+    expect(response.status).toBe(502);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke-with-response-stream`);
+    const sent = JSON.parse(lastFetch!.body);
+    expect(sent.thinking).toEqual({ type: 'adaptive' });
+    expect(sent.output_config).toEqual({ effort: 'medium' });
+    expect(sent.messages[1].content).toEqual([{ type: 'tool_use', id: 'foreign_call', name: 'lookup', input: {} }]);
+    expect(sent.messages[2].content).toEqual([{ type: 'tool_result', tool_use_id: 'foreign_call', content: 'found' }]);
+    expect(sent.messages[4].content).toEqual([{ type: 'text', text: 'Who are you?' }]);
+  });
+
   it('REQ-ENTERPRISE-073: downward mapping of Max still requires signed native tool replay', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
       transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
