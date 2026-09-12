@@ -16,6 +16,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildBedrockAnthropicRequest, adaptBedrockAnthropicResponse } from '../src/lib/bedrock-anthropic-native-adapter.ts';
+import { getBuiltInProfile, translateRuntimeReasoningRequest } from '../src/lib/reasoning-profiles.ts';
 
 const piRoot = resolve(process.argv[2] ?? 'preseed/agents/pi/node_modules/@earendil-works/pi-ai');
 const { version } = JSON.parse(await readFile(resolve(piRoot, 'package.json'), 'utf8'));
@@ -34,7 +35,17 @@ const model = {
     cacheControlFormat: 'anthropic', supportsLongCacheRetention: false },
 };
 
-for (const cacheRetention of ['none', 'short']) {
+// These are protocol/capability cases, not release-name fixtures. The generic
+// contract has no model list; the third case is a Gateway-HIT-only target whose
+// minimum passed but which must NOT publish native prefix checkpoints to Pi.
+for (const contract of [
+  { profile: 'bedrock-anthropic-native-sonnet', prefix: true },
+  { profile: 'bedrock-anthropic-native-provider-default', prefix: true },
+  { profile: 'bedrock-anthropic-native-provider-default', prefix: false },
+]) for (const cacheRetention of ['none', 'short']) {
+  const profile = getBuiltInProfile(contract.profile);
+  const targetModel = { ...model, compat: { ...model.compat, supportsReasoningEffort: profile.reasoningMode !== 'provider-default',
+    ...(contract.prefix ? {} : { cacheControlFormat: undefined }) } };
   const stored = new Map();
   const replay = { load: async id => stored.get(id) ?? null,
     save: async (id, blocks) => stored.set(id, structuredClone(blocks)) };
@@ -47,8 +58,13 @@ for (const cacheRetention of ['none', 'short']) {
   const fetch = async (url, init) => {
     assert.equal(String(url), `${model.baseUrl}/chat/completions`);
     const incoming = JSON.parse(init.body);
-    const body = await buildBedrockAnthropicRequest({ ...incoming, thinking: { type: 'adaptive' }, output_config: { effort: 'high' } }, replay);
-    const marked = cacheRetention === 'short';
+    const mapped = translateRuntimeReasoningRequest(incoming, profile, 'high');
+    const body = await buildBedrockAnthropicRequest(mapped, replay, contract.prefix);
+    if (profile.reasoningMode === 'provider-default') {
+      assert.equal(body.thinking, undefined);
+      assert.equal(body.output_config, undefined);
+    }
+    const marked = cacheRetention === 'short' && contract.prefix;
     assert.equal(Boolean(body.tools[0].cache_control), marked);
     assert.equal(Boolean(Array.isArray(body.system) && body.system[0].cache_control), marked);
     if (calls === 0) {
@@ -70,7 +86,7 @@ for (const cacheRetention of ['none', 'short']) {
     }), 'invoke', replay, true);
   };
   const invoke = async () => {
-    const events = stream(model, context, { apiKey: 'synthetic-placeholder', cacheRetention, fetch, maxRetries: 0, maxTokens: 512 });
+    const events = stream(targetModel, context, { apiKey: 'synthetic-placeholder', cacheRetention, fetch, maxRetries: 0, maxTokens: 512 });
     for await (const _ of events) { /* Consume Pi's actual incremental parser. */ }
     const result = await events.result();
     assert.deepEqual({ input: result.usage.input, output: result.usage.output, cacheRead: result.usage.cacheRead, cacheWrite: result.usage.cacheWrite },
@@ -88,4 +104,4 @@ for (const cacheRetention of ['none', 'short']) {
   assert.equal((await invoke()).stopReason, 'stop');
   assert.equal(calls, 2);
 }
-console.log('PASS: locked Pi serialization, checkpoint opt-out/opt-in, exact synthetic replay, confidential state, and usage accounting; zero network calls.');
+console.log('PASS: locked Pi, legacy/generic contracts, checkpoint opt-out/opt-in/revocation, exact synthetic replay, confidential state, and usage accounting; zero network calls.');
