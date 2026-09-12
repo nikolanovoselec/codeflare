@@ -34,7 +34,7 @@ import { getBuiltInProfileRef, type ReasoningProfileId } from '../lib/reasoning-
 import { connectionFingerprint } from '../lib/reasoning-verification';
 import { createNativeTarget, nativeTargetHandle, serializeNativeAiTargets } from '../lib/native-ai-targets';
 import { routingInventoryFixtures, verifiedRoutingConfiguration } from './helpers/verified-routing';
-import { bedrockChunkFrame, bedrockEventFrame } from './helpers/bedrock-eventstream';
+import { bedrockChunkFrame, bedrockEventFrame, bedrockToolResponse, readOpenAiToolTurn } from './helpers/bedrock-eventstream';
 
 vi.mock('../lib/ai-gateway-management', async (original) => ({
   ...await original<typeof import('../lib/ai-gateway-management')>(),
@@ -1159,6 +1159,67 @@ describe('native provider authorization and compat dispatch', () => {
       );
       expect(response.status).toBe(403);
       expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it.each(['unsigned', 'redacted-only'])('REQ-ENTERPRISE-073/077: continues an authentic %s High tool response through encrypted replay and Invoke', async (kind) => {
+      const fixture = nativeFixture(true, options);
+      const tool = { type: 'tool_use', id: 'toolu_bdrk_native_read', name: 'read', input: { path: 'README.md', offset: 1 } };
+      const content = kind === 'unsigned'
+        ? [{ type: 'text', text: 'Looking up ' }, { type: 'text', text: 'the overview.' }, tool]
+        : [{ type: 'redacted_thinking', data: 'private-redacted-state' }, tool];
+      const calls: Array<{ url: string; body: any }> = [];
+      const ciphertext: Record<string, string> = {};
+      const responses = [bedrockToolResponse(content, 'eventstream'), bedrockToolResponse([{ type: 'text', text: 'Finished' }], 'invoke')];
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (input: RequestInfo | URL) => {
+        const request = input as Request;
+        calls.push({ url: request.url, body: JSON.parse(await request.text()) });
+        const response = responses.shift();
+        if (!response) throw new Error('Unexpected provider retry');
+        return response;
+      });
+      const interceptor = makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, props,
+        (key, value) => { ciphertext[key] = value; });
+      const request = (messages: unknown[]) => new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: fixture.handle, reasoning_effort: 'high', stream: true, messages,
+        tools: [{ type: 'function', function: { name: 'read', parameters: { type: 'object', properties: { path: { type: 'string' }, offset: { type: 'integer' } } } } }],
+      }) });
+      const question = { role: 'user', content: 'What can you do?' };
+      const firstResponse = await interceptor.fetch(request([question]));
+      expect(firstResponse.status).toBe(200);
+      const first = await readOpenAiToolTurn(firstResponse);
+      expect(first.finishes).toEqual(['tool_calls']);
+      expect(first.doneCount).toBe(1);
+      expect(first.wire).not.toContain('private-redacted-state');
+      expect(first.message.tool_calls).toHaveLength(1);
+      const messages = [question, first.message, { role: 'tool', tool_call_id: first.message.tool_calls[0].id, content: 'overview contents' }];
+      const secondResponse = await interceptor.fetch(request(messages));
+      expect(secondResponse.status, await secondResponse.clone().text()).toBe(200);
+      const second = await readOpenAiToolTurn(secondResponse);
+      expect(second.message.content).toBe('Finished');
+      expect(second.finishes).toEqual(['stop']);
+      expect(second.doneCount).toBe(1);
+      expect(second.wire).not.toContain('private-redacted-state');
+      expect(calls.map((call) => call.url)).toEqual([
+        `${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke-with-response-stream`,
+        `${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke`,
+      ]);
+      expect(calls[1].body.messages[1].content).toEqual(content);
+      expect(calls[1].body.messages[2].content).toEqual([{ type: 'tool_result', tool_use_id: first.message.tool_calls[0].id, content: 'overview contents' }]);
+      for (const call of calls) {
+        expect(call.body.thinking).toEqual({ type: 'adaptive' });
+        expect(call.body.output_config).toEqual({ effort: 'high' });
+      }
+      expect(Object.keys(ciphertext)).toHaveLength(1);
+      expect(JSON.stringify(ciphertext)).not.toContain('private-redacted-state');
+      expect(JSON.stringify(ciphertext)).not.toContain('README.md');
+      // Even real ciphertext produced by this response cannot authorize another user/session.
+      for (const otherProps of [{ ...props, sessionId: 'another-session' }, { ...props, user: 'another@example.com' }]) {
+        const other = makeInterceptor({ __kv: { ...fixture.kv, ...ciphertext }, ENCRYPTION_KEY: encryption } as Partial<Env>, otherProps);
+        const denied = await other.fetch(request(messages));
+        expect(denied.status).toBe(400);
+        expect(await denied.json()).toMatchObject({ code: 'INVALID_NATIVE_REQUEST' });
+      }
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
 
     it('REQ-ENTERPRISE-073/077: validates signed continuation before Invoke and keeps state private', async () => {

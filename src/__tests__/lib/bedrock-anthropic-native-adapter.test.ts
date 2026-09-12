@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { bedrockChunkFrame as eventstreamFrame, bedrockEventFrame } from '../helpers/bedrock-eventstream';
+import { bedrockChunkFrame as eventstreamFrame, bedrockEventFrame, bedrockToolResponse, readOpenAiToolTurn } from '../helpers/bedrock-eventstream';
 import {
   adaptBedrockAnthropicResponse,
   buildBedrockAnthropicRequest,
@@ -14,6 +14,78 @@ const state = (entries: Record<string, unknown[]> = {}): BedrockReplayState => (
 });
 
 describe('Bedrock Anthropic native adapter', () => {
+  const tool = { type: 'tool_use', id: 'toolu_bdrk_read_1', name: 'read', input: { path: 'README.md', offset: 1 } };
+  const unsignedVariants = [
+    { label: 'tool-only', content: [tool] },
+    { label: 'unsigned text', content: [{ type: 'text', text: 'Looking up ' }, { type: 'text', text: 'Grüße 🌍' }, tool] },
+    { label: 'redacted-only', content: [{ type: 'redacted_thinking', data: 'private-redacted-state' }, tool] },
+  ];
+  const liveState = (): BedrockReplayState => {
+    const entries = new Map<string, unknown[]>();
+    return {
+      load: async (id) => entries.has(id) ? structuredClone(entries.get(id)!) : null,
+      save: async (id, blocks) => { entries.set(id, structuredClone(blocks)); },
+    };
+  };
+  const continuation = (messages: unknown[]) => ({
+    messages, thinking: { type: 'adaptive' }, output_config: { effort: 'high' },
+  });
+
+  describe.each(['invoke', 'eventstream'] as const)('%s tool-turn round trips', (transport) => {
+    it.each(unsignedVariants)('REQ-ENTERPRISE-073/076: restores authentic $label content from its emitted tool call', async ({ content }) => {
+      const replay = liveState();
+      const first = await readOpenAiToolTurn(await adaptBedrockAnthropicResponse(bedrockToolResponse(content, transport), transport, replay, true));
+      expect(first.finishes).toEqual(['tool_calls']);
+      expect(first.doneCount).toBe(1);
+      expect(first.wire).not.toContain('private-redacted-state');
+      expect(first.message.tool_calls).toHaveLength(1);
+      const result = { role: 'tool', tool_call_id: first.message.tool_calls[0].id, content: 'README contents' };
+      const payload = continuation([{ role: 'user', content: 'What can you do?' }, first.message, result]);
+      const next = await buildBedrockAnthropicRequest(payload, replay);
+      expect(next.messages[1].content).toEqual(content);
+      expect(next.messages[2].content).toEqual([{ type: 'tool_result', tool_use_id: result.tool_call_id, content: result.content }]);
+      expect(next.thinking).toEqual({ type: 'adaptive' });
+      expect(next.output_config).toEqual({ effort: 'high' });
+      // Authentic no-thinking state is distinct from absent state; no client reconstruction fallback.
+      await expect(buildBedrockAnthropicRequest(payload, liveState())).rejects.toThrow('signed thinking state is unavailable');
+      const changed = { ...first.message, tool_calls: first.message.tool_calls.map((call) => ({
+        ...call, function: { ...call.function, name: 'write' },
+      })) };
+      await expect(buildBedrockAnthropicRequest(continuation([payload.messages[0], changed, result]), replay)).rejects.toThrow('does not match tool replay');
+    });
+
+    it.each(['signed first', 'unsigned first'])('REQ-ENTERPRISE-073: preserves successive signed and unsigned tools in one active turn (%s)', async (order) => {
+      const replay = liveState();
+      const unsigned = unsignedVariants[1].content;
+      const signed = [{ type: 'thinking', thinking: 'private reasoning', signature: 'private-signature' }, { ...tool, id: 'toolu_bdrk_read_2' }];
+      const contents = order === 'signed first' ? [signed, unsigned] : [unsigned, signed];
+      const messages: unknown[] = [{ role: 'user', content: 'Read both resources.' }];
+      for (const [index, content] of contents.entries()) {
+        const selectedTransport = index === 0 ? transport : 'invoke';
+        const emitted = await readOpenAiToolTurn(await adaptBedrockAnthropicResponse(bedrockToolResponse(content, selectedTransport), selectedTransport, replay, true));
+        expect(emitted.wire).not.toContain('private-signature');
+        expect(emitted.wire).not.toContain('private reasoning');
+        messages.push(emitted.message, { role: 'tool', tool_call_id: emitted.message.tool_calls[0].id, content: `result ${index}` });
+        const next = await buildBedrockAnthropicRequest(continuation(messages), replay);
+        for (let step = 0; step <= index; step++) expect(next.messages[1 + step * 2].content).toEqual(contents[step]);
+      }
+    });
+
+    it.each(unsignedVariants)('REQ-ENTERPRISE-080: does not advertise usable $label tools after persistence fails', async ({ content }) => {
+      const replay: BedrockReplayState = { load: async () => null, save: async () => { throw new Error('private storage failure'); } };
+      const operation = adaptBedrockAnthropicResponse(bedrockToolResponse(content, transport), transport, replay, true);
+      if (transport === 'invoke') {
+        await expect(operation).rejects.toThrow('private storage failure');
+      } else {
+        const wire = await (await operation).text();
+        expect(wire).toContain('NATIVE_BEDROCK_STREAM_ERROR');
+        expect(wire).not.toContain('private storage failure');
+        expect(wire).not.toContain('"finish_reason":"tool_calls"');
+        expect(wire.match(/data: \[DONE\]/g)).toHaveLength(1);
+      }
+    });
+  });
+
   it('REQ-ENTERPRISE-077: builds the region-scoped provider-native transport path', () => {
     expect(bedrockAnthropicGatewayPath('eu-central-1', 'eu.anthropic.claude-sonnet-5', 'eventstream')).toBe(
       '/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-sonnet-5/invoke-with-response-stream',

@@ -8,6 +8,7 @@ vi.stubGlobal('fetch', mockFetch);
 import {
   getUser,
   getSessions,
+  getBatchSessionStatus,
   createSession,
   deleteSession,
   updateSession,
@@ -37,6 +38,22 @@ import {
 describe('API Client', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+  });
+
+  it('REQ-AGENT-049: carries the authoritative upgrade target through batch status parsing', async () => {
+    for (const target of ['target-a', 'target-b']) {
+      mockFetch.mockResolvedValueOnce(Response.json({ statuses: {}, maxSessions: 3, preseedNeedsUpgrade: true,
+        managedReleaseStatus: 'upgrading', preseedUpgradeTarget: target }));
+      expect(await getBatchSessionStatus({ includePreseedCheck: true })).toMatchObject({
+        preseedNeedsUpgrade: true, preseedUpgradeTarget: target,
+      });
+    }
+  });
+
+  it.each([0, '', null, {}])('REQ-AGENT-049: rejects an invalid upgrade target from batch status (%s)', async (target) => {
+    mockFetch.mockResolvedValueOnce(Response.json({ statuses: {}, maxSessions: 3, preseedNeedsUpgrade: true,
+      managedReleaseStatus: 'upgrading', preseedUpgradeTarget: target }));
+    await expect(getBatchSessionStatus({ includePreseedCheck: true })).rejects.toThrow();
   });
 
   // ==========================================================================

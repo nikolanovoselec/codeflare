@@ -36,6 +36,7 @@ vi.mock('../../components/CreateSessionDialog', () => ({
 
 vi.mock('../../stores/session', () => {
   let _preseedUpgrading = false;
+  let _preseedUpgradeFailed = false;
   let _managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null = null;
   return {
     sessionStore: {
@@ -43,6 +44,8 @@ vi.mock('../../stores/session', () => {
       getInitProgressForSession: vi.fn(() => null),
       sessions: [],
       get preseedUpgrading() { return _preseedUpgrading; },
+      get preseedUpgradeFailed() { return _preseedUpgradeFailed; },
+      _setPreseedUpgradeFailed: (v: boolean) => { _preseedUpgradeFailed = v; },
       get managedReleaseStatus() { return _managedReleaseStatus; },
       _setPreseedUpgrading: (v: boolean) => { _preseedUpgrading = v; },
       _setManagedReleaseStatus: (v: 'current' | 'upgrading' | 'update_pending' | null) => { _managedReleaseStatus = v; },
@@ -201,6 +204,7 @@ describe('SessionDropdown', () => {
   describe('REQ-AGENT-175: environment update lockdown', () => {
     afterEach(() => {
       (sessionStore as any)._setPreseedUpgrading(false);
+      (sessionStore as any)._setPreseedUpgradeFailed(false);
       (sessionStore as any)._setManagedReleaseStatus(null);
     });
 
@@ -229,6 +233,16 @@ describe('SessionDropdown', () => {
       expect(btn).toBeDisabled();
       expect(btn.textContent).toContain('Update pending');
       expect(btn).toHaveAttribute('aria-label', 'Session environment update pending until session stops');
+    });
+
+    it('REQ-AGENT-175: a failed baked upgrade cannot be bypassed through New Session', () => {
+      (sessionStore as any)._setPreseedUpgradeFailed(true);
+      render(() => <SessionDropdown {...defaultProps} />);
+      const button = screen.getByTestId('session-dropdown-new');
+      expect(button).toBeDisabled();
+      fireEvent.click(button);
+      expect(screen.queryByTestId('csd-select-agent')).not.toBeInTheDocument();
+      expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
     });
 
     it('enables New Session button when no environment update is running', () => {
