@@ -22,7 +22,11 @@ const OPENAI_NATIVE_PROFILE_ID = 'native-openai-compat';
 const GEMINI_NATIVE_PROFILE_ID = 'native-google-ai-studio-compat';
 const MESH_NATIVE_PROFILE_ID = 'native-codeflare-inference-mesh-compat';
 export const BEDROCK_COMPAT_ADAPTER_VERSION = 'bedrock-anthropic-compat-v1';
-export const BEDROCK_NATIVE_ADAPTER_VERSION = 'bedrock-anthropic-native-v1';
+// Checkpoint translation changes the paid request contract. A v1 receipt proves
+// neither its acceptance nor cache-aware tool replay; require explicit administrator
+// reconfirmation of the new recorded evidence (the existing native authority flow),
+// never rewrite existing receipts or silently convert a saved compat transport.
+export const BEDROCK_NATIVE_ADAPTER_VERSION = 'bedrock-anthropic-native-v2';
 export const NATIVE_COMPAT_ADAPTER_VERSION = 'native-openai-compat-v1';
 export const GEMINI_COMPAT_ADAPTER_VERSION = 'gemini-openai-compat-v1';
 
@@ -67,7 +71,9 @@ export const nativeTargetDraftSchema = nativeTargetDraftObjectSchema
   .superRefine(enforceProviderModel).superRefine(enforceNativeTransport);
 export const nativeTargetProfileDiscoveryDraftSchema = nativeTargetDraftObjectSchema
   .extend({ profileRef: nativeProfileRefSchema.optional() }).superRefine(enforceProviderModel).superRefine(enforceNativeTransport);
-const adapterVersionSchema = z.enum([BEDROCK_COMPAT_ADAPTER_VERSION, BEDROCK_NATIVE_ADAPTER_VERSION, NATIVE_COMPAT_ADAPTER_VERSION, GEMINI_COMPAT_ADAPTER_VERSION]);
+// Retain old documents for display/reverification; v1 receipts do not authorize
+// the new prompt-cache request mapping checked by nativeVerificationMatches.
+const adapterVersionSchema = z.enum([BEDROCK_COMPAT_ADAPTER_VERSION, 'bedrock-anthropic-native-v1', BEDROCK_NATIVE_ADAPTER_VERSION, NATIVE_COMPAT_ADAPTER_VERSION, GEMINI_COMPAT_ADAPTER_VERSION]);
 
 export function defaultNativeProfileId(provider: string): ReasoningProfileId {
   if (provider === 'aws-bedrock') return BEDROCK_PROFILE_ID;

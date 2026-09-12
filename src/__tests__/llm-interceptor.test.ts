@@ -871,7 +871,7 @@ describe('native provider authorization and compat dispatch', () => {
     profileId?: ReasoningProfileId;
     providerConfigId?: string;
     providerConfigAlias?: string;
-    adapterVersion?: 'bedrock-anthropic-compat-v1' | 'bedrock-anthropic-native-v1' | 'native-openai-compat-v1' | 'gemini-openai-compat-v1';
+    adapterVersion?: 'bedrock-anthropic-compat-v1' | 'bedrock-anthropic-native-v2' | 'native-openai-compat-v1' | 'gemini-openai-compat-v1';
     transport?: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto';
     region?: string;
   };
@@ -930,7 +930,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it('REQ-ENTERPRISE-073: denies native Bedrock before provider I/O when session identity is absent', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-invoke',
-      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
     const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'high', stream: false, messages: [] }) }),
     );
@@ -940,7 +940,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it.each(['high', 'xhigh', 'max'])('REQ-ENTERPRISE-078: maps Opus %s to High within the explicit eventstream profile without switching to Invoke', async (level) => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
-      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
       const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
       return new Response('provider failure', { status: 502 });
@@ -966,7 +966,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it('REQ-ENTERPRISE-073/077: starts native reasoning after paired interrupted tool history without treating it as active replay', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-auto',
-      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
       const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
       return new Response('provider failure', { status: 502 });
@@ -994,7 +994,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it('REQ-ENTERPRISE-073: downward mapping of Max still requires signed native tool replay', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
-      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
     const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
         model: fixture.handle, reasoning_effort: 'max', stream: true, messages: [
@@ -1010,7 +1010,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it('REQ-ENTERPRISE-077: dispatches one initial provider-native Bedrock eventstream request', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
-      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
       const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
       return new Response('provider failure', { status: 502 });
@@ -1025,7 +1025,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it('REQ-ENTERPRISE-076/077: delivers AWS chunk-wrapped native Bedrock text to Pi without a fallback request', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
-      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
       const request = input as Request;
       lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
@@ -1061,7 +1061,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it('REQ-ENTERPRISE-080: preserves native stream errors without adding a success terminator', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
-      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
     const replayWrites: string[] = [];
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(controller) {
       controller.enqueue(bedrockEventFrame('modelStreamErrorException', { message: 'private provider detail' }, 'exception'));
@@ -1085,7 +1085,7 @@ describe('native provider authorization and compat dispatch', () => {
 
   it('REQ-ENTERPRISE-073/077: dispatches provider-native Bedrock Invoke with exact reasoning controls and hides signed replay state', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-invoke',
-      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' });
     const replayWrites: Array<{ key: string; value: string }> = [];
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
       const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
@@ -1108,7 +1108,7 @@ describe('native provider authorization and compat dispatch', () => {
   describe.each(['sonnet', 'opus'] as const)('automatic native %s routing', (family) => {
     const options: NativeFixtureOptions = { model: `eu.anthropic.claude-${family}-5`,
       profileId: family === 'sonnet' ? 'bedrock-anthropic-native-sonnet' : 'bedrock-anthropic-native-opus-auto',
-      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' };
+      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v2' };
     const encryption = Buffer.alloc(32, 7).toString('base64');
     const props = { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] };
 

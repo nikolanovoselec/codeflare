@@ -3581,17 +3581,32 @@ COPILOT_BYOK_EOF
     [ -n "$ENTERPRISE_ROUTE_REASONING_LEVELS" ] || ENTERPRISE_ROUTE_REASONING_LEVELS='{}'
     ENTERPRISE_MODEL_DISPLAY_NAMES="${ENTERPRISE_MODEL_DISPLAY_NAMES:-}"
     [ -n "$ENTERPRISE_MODEL_DISPLAY_NAMES" ] || ENTERPRISE_MODEL_DISPLAY_NAMES='{}'
+    ENTERPRISE_PROMPT_CACHE_TARGETS="${ENTERPRISE_PROMPT_CACHE_TARGETS:-}"
+    [ -n "$ENTERPRISE_PROMPT_CACHE_TARGETS" ] || ENTERPRISE_PROMPT_CACHE_TARGETS='[]'
     PI_MODELS_ARRAY="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -c \
         --arg defroute "$ENTERPRISE_DEFAULT_ROUTE" \
         --arg defaultreasoning "$ENTERPRISE_DEFAULT_REASONING" \
         --argjson cw "$ENTERPRISE_ROUTE_CONTEXT_WINDOWS" \
         --argjson routelevels "$ENTERPRISE_ROUTE_REASONING_LEVELS" \
         --argjson displaynames "$ENTERPRISE_MODEL_DISPLAY_NAMES" \
+        --argjson promptcache "$ENTERPRISE_PROMPT_CACHE_TARGETS" \
         --argjson dflt 256000 '
         def canonical_levels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
         def display_name($route):
             if ($displaynames | has($route)) then "Native Route - \($displaynames[$route])"
             else "Dynamic Route - \($route)" end;
+        # Pi 0.85.1 emits block-level checkpoints and honors cacheRetention:none.
+        # Only Worker-authorized native Runtime handles opt in; no provider-wide
+        # switch may leak these Anthropic fields into Dynamic/other-provider calls.
+        def prompt_cache($route):
+            if ($promptcache | index($route)) != null then
+                {cacheControlFormat: "anthropic", supportsLongCacheRetention: false}
+            else {} end;
+        if ($promptcache | type) != "array" or ($promptcache | length) > 64
+            or ($promptcache | any(type != "string" or (test("^cf-native-[0-9a-f-]{36}$"; "i") | not)))
+            or (($promptcache | unique | length) != ($promptcache | length))
+        then error("invalid prompt-cache target catalog") else . end
+        |
         (if type=="array" and length>0 then . else [$defroute] end)
         | if ($defaultreasoning != "") and ((($routelevels[$defroute] // []) | index($defaultreasoning)) == null)
           then error("default reasoning is not supported by the default route")
@@ -3605,14 +3620,14 @@ COPILOT_BYOK_EOF
               elif ($levels | length) == 0 then {
                 id: $route, name: display_name($route), reasoning: true,
                 thinkingLevelMap: (canonical_levels | map({key: ., value: .}) | from_entries),
-                compat: {supportsReasoningEffort: false}, input: ["text", "image"],
+                compat: ({supportsReasoningEffort: false} + prompt_cache($route)), input: ["text", "image"],
                 contextWindow: ($cw[$route] // $dflt), maxTokens: 16384
               }
-              else {
+              else ({
                 id: $route, name: display_name($route), reasoning: true,
                 thinkingLevelMap: ($levels | map({key: ., value: .}) | from_entries),
                 input: ["text", "image"], contextWindow: ($cw[$route] // $dflt)
-              }
+              } + (if (prompt_cache($route) | length) > 0 then {compat: prompt_cache($route)} else {} end))
               end))' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
     PI_PROVIDER_CONFIG=""
     if [ "$PI_GATEWAY_CONFIG_OK" = "1" ]; then

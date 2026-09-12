@@ -77,7 +77,7 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
       schemaVersion: 1 as const, targetId: id, provider: target.provider, model: target.model,
       providerConfigId: target.providerConfigId, providerConfigAlias: target.providerConfigAlias,
       connectionFingerprint: connectionFingerprint(connection)!, profileRef,
-      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v1' as const,
+      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v2' as const,
       checkedAt: new Date().toISOString(), capabilities: { streaming: true, tools: true, replay: true },
     };
     kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [{ ...target, verification }] });
@@ -115,6 +115,7 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
       routeReasoningLevels: { bedrock_opus: [], [handle]: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] },
       modelDisplayNames: { [handle]: 'AWS Bedrock Claude Opus' },
       routeContextWindows: { bedrock_opus: 1048576, [handle]: 1048576 },
+      promptCacheTargets: [handle],
     });
     // Resolving access must leave the inactive drafts and immutable profile authority intact.
     expect(await kv.get(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(savedConfiguration);
@@ -141,7 +142,7 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
     kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [{ ...target, verification: {
       schemaVersion: 1, targetId: id, provider: target.provider, model: target.model, providerConfigId: target.providerConfigId,
       connectionFingerprint: connectionFingerprint({ gatewayUrl: routingGatewayUrl, token: env.AIG_TOKEN })!, profileRef,
-      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v1', checkedAt: new Date().toISOString(),
+      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v2', checkedAt: new Date().toISOString(),
     } }] });
     kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: [nativeTargetHandle(id)],
       targets: [{ kind: 'native-target', targetId: id }], defaultTarget: { kind: 'native-target', targetId: id }, reasoning: 'max' } });

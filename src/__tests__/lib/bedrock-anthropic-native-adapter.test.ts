@@ -14,6 +14,55 @@ const state = (entries: Record<string, unknown[]> = {}): BedrockReplayState => (
 });
 
 describe('Bedrock Anthropic native adapter', () => {
+  it('REQ-ENTERPRISE-083: preserves Pi checkpoints at native prefix boundaries without mutating input', async () => {
+    const cache = { type: 'ephemeral', ttl: '5m' };
+    const payload = { messages: [
+      { role: 'system', content: [{ type: 'text', text: 'Synthetic instructions', cache_control: cache }] },
+      { role: 'user', content: [{ type: 'text', text: 'Synthetic question', cache_control: cache }] },
+    ], tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } }, cache_control: cache }] };
+    const before = JSON.stringify(payload);
+    const native = await buildBedrockAnthropicRequest(payload, state());
+    expect(native.system[0].cache_control).toEqual(cache);
+    expect(native.tools[0]).toEqual({ name: 'lookup', input_schema: { type: 'object' }, cache_control: cache });
+    expect(native.messages[0].content[0].cache_control).toEqual(cache);
+    expect(native).not.toHaveProperty('cache_control');
+    expect(JSON.stringify(payload)).toBe(before);
+    const unmarked = await buildBedrockAnthropicRequest({ messages: [{ role: 'user', content: 'No explicit cache marker' }] }, state());
+    expect(JSON.stringify(unmarked)).not.toContain('cache_control');
+  });
+
+  it('REQ-ENTERPRISE-083: lifts a final Pi tool-result checkpoint without changing signed assistant replay', async () => {
+    // Synthetic signed state exercises exact preservation, not a live signature.
+    const blocks = [{ type: 'thinking', thinking: 'synthetic thinking', signature: 'synthetic-signature' },
+      { type: 'tool_use', id: 'call_fixture', name: 'lookup', input: { value: 'ok' } }];
+    const snapshot = JSON.stringify(blocks);
+    const payload = { thinking: { type: 'adaptive' }, messages: [
+      { role: 'user', content: 'Call lookup' },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'call_fixture', type: 'function', function: { name: 'lookup', arguments: '{"value":"ok"}' } }] },
+      { role: 'tool', tool_call_id: 'call_fixture', content: [{ type: 'text', text: '{"value":"ok"}', cache_control: { type: 'ephemeral' } }] },
+    ] };
+    const before = JSON.stringify(payload);
+    const native = await buildBedrockAnthropicRequest(payload, state({ call_fixture: blocks }));
+    expect(JSON.stringify(native.messages[1].content)).toBe(snapshot);
+    expect(JSON.stringify(blocks)).toBe(snapshot);
+    expect(JSON.stringify(payload)).toBe(before);
+    expect(native.messages[2].content).toEqual([{ type: 'tool_result', tool_use_id: 'call_fixture',
+      content: [{ type: 'text', text: '{"value":"ok"}' }], cache_control: { type: 'ephemeral' } }]);
+  });
+
+  it('REQ-ENTERPRISE-083: rejects malformed or broadened checkpoint semantics before provider I/O', async () => {
+    for (const cache of [null, true, 'ephemeral', {}, { type: 'permanent' }, { type: 'ephemeral', ttl: '1h' }, { type: 'ephemeral', ttl: '24h' }, { type: 'ephemeral', arbitrary: true }]) {
+      await expect(buildBedrockAnthropicRequest({ messages: [{ role: 'user', content: [{ type: 'text', text: 'x', cache_control: cache }] }] }, state())).rejects.toThrow('cache control');
+    }
+    await expect(buildBedrockAnthropicRequest({ messages: [], cache_control: { type: 'ephemeral' } }, state())).rejects.toThrow('block-level');
+    const short = { type: 'text', text: 'x', cache_control: { type: 'ephemeral' } };
+    await expect(buildBedrockAnthropicRequest({ messages: [{ role: 'user', content: Array(5).fill(short) }] }, state())).rejects.toThrow('four');
+    await expect(buildBedrockAnthropicRequest({ tools: [{ type: 'function', function: { name: 'lookup', parameters: {} }, cache_control: short.cache_control }],
+      messages: [{ role: 'system', content: [short] }, { role: 'user', content: [short, short, short] }] }, state())).rejects.toThrow('four');
+    await expect(buildBedrockAnthropicRequest({ messages: [{ role: 'user', content: [short, short, short, short] }] }, state())).resolves.toBeDefined();
+    await expect(buildBedrockAnthropicRequest({ messages: [{ role: 'tool', tool_call_id: 'call_fixture', content: [short, { type: 'text', text: 'later' }] }] }, state())).rejects.toThrow('end the tool result');
+  });
+
   const tool = { type: 'tool_use', id: 'toolu_bdrk_read_1', name: 'read', input: { path: 'README.md', offset: 1 } };
   const unsignedVariants = [
     { label: 'tool-only', content: [tool] },

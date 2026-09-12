@@ -478,6 +478,8 @@ export interface ContainerConfigPayload {
   routeReasoningLevels?: Record<string, string[]>;
   /** Safe administrator labels keyed by opaque model handle. */
   modelDisplayNames?: Record<string, string>;
+  /** Authorized native handles supporting block-level Anthropic prompt caching. */
+  promptCacheTargets?: string[];
   /** REQ-MEM-001 AC4: user's IANA timezone forwarded to the container. */
   userTimezone?: string;
   /** REQ-GITHUB-004: one-shot GitHub clone directive forwarded to the container. */

@@ -94,6 +94,7 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
       routeContextWindows: params.routeContextWindows ?? {},
       routeReasoningLevels: params.routeReasoningLevels ?? {},
       modelDisplayNames: params.modelDisplayNames ?? {},
+      promptCacheTargets: params.promptCacheTargets ?? [],
     }),
     // REQ-MEM-001 AC4: forward the user's IANA timezone so the capture
     // pipeline's TZ resolution produces wall-clock filenames matching

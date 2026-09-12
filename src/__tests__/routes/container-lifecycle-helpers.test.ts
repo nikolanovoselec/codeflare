@@ -510,13 +510,16 @@ describe('Container lifecycle extracted helpers / REQ-SESSION-007 (validateSessi
         defaultReasoning: '', routeContextWindows: { 'cf-native-11111111-1111-4111-8111-111111111111': 200000 },
         routeReasoningLevels: { general_usage: ['medium'], 'cf-native-11111111-1111-4111-8111-111111111111': [] },
         modelDisplayNames: { 'cf-native-11111111-1111-4111-8111-111111111111': 'Claude Sonnet' },
+        promptCacheTargets: ['cf-native-11111111-1111-4111-8111-111111111111'],
       });
       let body = await (mockContainer.fetch.mock.calls.at(-1)![0] as Request).json() as Record<string, unknown>;
       expect(JSON.stringify(body)).not.toContain('eu.anthropic');
       expect(body).toMatchObject({ modelDisplayNames: { 'cf-native-11111111-1111-4111-8111-111111111111': 'Claude Sonnet' } });
+      expect(body.promptCacheTargets).toEqual(['cf-native-11111111-1111-4111-8111-111111111111']);
       await configureContainerDO({ ...baseParams, routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} });
       body = await (mockContainer.fetch.mock.calls.at(-1)![0] as Request).json() as Record<string, unknown>;
       expect(body).toMatchObject({ routeCatalog: [], routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} });
+      expect(body.promptCacheTargets).toEqual([]);
     });
 
     it('includes sessionMode in setBucketName body', async () => {

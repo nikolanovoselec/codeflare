@@ -2429,3 +2429,30 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Status:** Implemented
 
 ---
+
+### REQ-ENTERPRISE-083: Native Bedrock Prompt-cache Checkpoints
+
+**Intent:** Let Pi request provider input-prefix reuse through the existing Bedrock Runtime adapter without confusing it with Gateway whole-response caching or widening the Dynamic Route contract.
+
+**Applies To:** Enterprise native Bedrock targets
+
+**Acceptance Criteria:**
+
+1. Only eligible native Runtime handles receive per-model Pi `cacheControlFormat: "anthropic"`. Dynamic Routes, legacy compatibility targets, and unrelated providers receive no new cache capability. Public startup metadata contains opaque handles, never provider bindings or credentials. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-083: enables Pi checkpoints only for the authorized native Runtime handle) -->
+2. Startup and restart preserve the bounded capability list; an explicit empty list revokes stale capabilities. Invalid or duplicate handles fail validation. <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @impl: src/container/container-router.ts::handleSetBucketName --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-ENTERPRISE-083: publishes and revokes opaque native cache capabilities on restart) --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-ENTERPRISE-083: persists native cache capabilities through the first-config receiver) -->
+3. Runtime preserves explicit five-minute checkpoints on supported content and tool boundaries. Pi's final tool-result text checkpoint maps to the enclosing native `tool_result`, without moving an interior checkpoint past later content. Unknown controls, unsupported TTLs, top-level automatic controls, and more than four checkpoints fail before provider I/O. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-083: rejects malformed or broadened checkpoint semantics before provider I/O) -->
+4. Checkpoint translation does not mutate client input or authentic stored assistant content. Signed thinking is restored unchanged and never decorated with cache controls. <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-083: lifts a final Pi tool-result checkpoint without changing signed assistant replay) --> <!-- @test: scripts/verify-bedrock-pi-prompt-cache.mjs -->
+5. Adapter identity advances to `bedrock-anthropic-native-v2`. Old v1 documents remain readable, but v1 receipts no longer authorize the changed request contract. Existing administrator-confirmation semantics remain explicit; no live receipts are fabricated or upgraded. <!-- @impl: src/lib/native-ai-targets.ts::nativeVerificationMatches --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-074: binds provider-native Bedrock profiles to the validated model, region, and transport) -->
+6. Pi `cacheRetention: none` emits no explicit checkpoints; this must not be presented as disabling AWS implicit caching. Only five-minute retention is advertised. Provider cache counters follow REQ-ENTERPRISE-076 AC6. No Gateway TTL/header/policy change or transport fallback is introduced. <!-- @test: scripts/verify-bedrock-pi-prompt-cache.mjs -->
+
+**Constraints:** Cache eligibility and actual hits remain provider decisions. Valid stream framing is not proof of incremental delivery through a Gateway with response inspection. Existing reasoning profiles, saved transport dispatch, and Dynamic Route routing remain unchanged.
+
+**Priority:** P1
+
+**Dependencies:** REQ-ENTERPRISE-058, REQ-ENTERPRISE-074, REQ-ENTERPRISE-076, REQ-ENTERPRISE-079
+
+**Verification:** Synthetic boundary tests, real locked Pi serializer/parser offline checks, and sanitized live Runtime evidence for both Claude models in `documentation/lanes/bedrock-prompt-caching.md`. No deployment or live application recovery is implied.
+
+**Status:** Implemented
+
+---

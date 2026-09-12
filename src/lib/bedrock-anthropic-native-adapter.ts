@@ -60,17 +60,40 @@ export function bedrockAnthropicGatewayPath(region: string, model: string, trans
   return `/aws-bedrock/bedrock-runtime/${encodeURIComponent(region)}/model/${encodeURIComponent(model)}/${operation}`;
 }
 
+/**
+ * Pi 0.85.1 can emit Anthropic checkpoints even on its OpenAI wire. Runtime
+ * Invoke accepts this small native shape, not an arbitrary provider-options
+ * object. Rebuild it rather than spreading client input across the trust boundary.
+ *
+ * This requests provider prefix reuse; it neither guarantees a hit (minimum
+ * prefix length/TTL still apply) nor changes AI Gateway's whole-response cache.
+ * See documentation/lanes/bedrock-prompt-caching.md for the wire evidence.
+ * Only the live-validated five-minute contract is enabled here. AWS also
+ * documents one-hour retention, but this adapter does not advertise or accept
+ * that separate write/pricing contract without its own validation.
+ */
+function promptCacheControl(value: unknown): JsonObject | undefined {
+  if (value === undefined) return undefined;
+  if (!plain(value) || value.type !== 'ephemeral' || Object.keys(value).some((key) => key !== 'type' && key !== 'ttl')
+    || (value.ttl !== undefined && value.ttl !== '5m')) {
+    throw new Error('Invalid native Bedrock prompt cache control');
+  }
+  return { type: 'ephemeral', ...(value.ttl !== undefined && { ttl: value.ttl }) };
+}
+
 function textBlocks(content: unknown): JsonObject[] {
   if (typeof content === 'string') return [{ type: 'text', text: content }];
   if (!Array.isArray(content)) return [];
   return content.flatMap((part): JsonObject[] => {
     if (typeof part === 'string') return [{ type: 'text', text: part }];
     if (!plain(part)) return [];
-    if (part.type === 'text' && typeof part.text === 'string') return [{ type: 'text', text: part.text }];
+    const cache = promptCacheControl(part.cache_control);
+    if (part.type === 'text' && typeof part.text === 'string') return [{ type: 'text', text: part.text, ...(cache && { cache_control: cache }) }];
     if (part.type === 'image_url' && plain(part.image_url) && typeof part.image_url.url === 'string') {
       const match = /^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/.exec(part.image_url.url);
-      if (match) return [{ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } }];
+      if (match) return [{ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] }, ...(cache && { cache_control: cache }) }];
     }
+    if (cache) throw new Error('Unsupported native Bedrock cacheable content block');
     return [];
   });
 }
@@ -136,6 +159,9 @@ async function assistantContent(message: JsonObject, thinkingEnabled: boolean, s
     if (JSON.stringify(comparable(storedCalls)) !== JSON.stringify(comparable(calls))) {
       throw new Error('Native Bedrock signed thinking state does not match tool replay');
     }
+    // Cache checkpoints belong on client-owned tools/system/user boundaries.
+    // Never decorate this authentic content: thinking signatures bind provider
+    // state, and a cache optimization cannot justify reconstructing that state.
     return stored as JsonObject[];
   }
   if (thinkingEnabled) throw new Error('Native Bedrock signed thinking state is unavailable');
@@ -154,6 +180,9 @@ function convertToolChoice(value: unknown): JsonObject | undefined {
 
 export async function buildBedrockAnthropicRequest(payload: JsonObject, state: BedrockReplayState): Promise<JsonObject> {
   if (!plain(payload) || !Array.isArray(payload.messages)) throw new Error('Native Bedrock requires messages');
+  // Runtime Invoke has a documented block-level checkpoint contract. Do not
+  // assume Anthropic Messages' top-level automatic cache control is equivalent.
+  if (payload.cache_control !== undefined) throw new Error('Native Bedrock requires block-level prompt cache controls');
   const thinking = plain(payload.thinking) && (payload.thinking.type === 'adaptive' || payload.thinking.type === 'disabled')
     ? { type: payload.thinking.type } : undefined;
   const effort = plain(payload.output_config) && ['low', 'medium', 'high', 'xhigh', 'max'].includes(payload.output_config.effort)
@@ -177,7 +206,19 @@ export async function buildBedrockAnthropicRequest(payload: JsonObject, state: B
     if (raw.role === 'tool') {
       const id = safeToolId(raw.tool_call_id);
       if (!id) throw new Error('Invalid native Bedrock tool result');
-      const result = { type: 'tool_result', tool_use_id: id, content: typeof raw.content === 'string' ? raw.content : textBlocks(raw.content) };
+      const result: JsonObject = { type: 'tool_result', tool_use_id: id, content: typeof raw.content === 'string' ? raw.content : textBlocks(raw.content) };
+      if (Array.isArray(result.content)) {
+        // Pi marks the final text part of its OpenAI tool-result message. The
+        // native checkpoint belongs on the complete tool_result block, not its
+        // nested text. Never move an interior breakpoint past later content.
+        const marked = result.content.filter((part: JsonObject) => part.cache_control !== undefined);
+        if (marked.length) {
+          const last = result.content[result.content.length - 1];
+          if (marked.length !== 1 || marked[0] !== last) throw new Error('Native Bedrock tool cache checkpoint must end the tool result');
+          result.cache_control = last.cache_control;
+          delete last.cache_control;
+        }
+      }
       const previous = nativeMessages[nativeMessages.length - 1];
       if (previous?.role === 'user' && Array.isArray(previous.content) && previous.content.every((part: any) => part?.type === 'tool_result')) previous.content.push(result);
       else nativeMessages.push({ role: 'user', content: [result] });
@@ -199,6 +240,8 @@ export async function buildBedrockAnthropicRequest(payload: JsonObject, state: B
       }
       const converted: JsonObject = { name: tool.function.name, input_schema: tool.function.parameters };
       if (typeof tool.function.description === 'string') converted.description = tool.function.description;
+      const cache = promptCacheControl(tool.cache_control);
+      if (cache) converted.cache_control = cache;
       return converted;
     });
   }
@@ -206,6 +249,14 @@ export async function buildBedrockAnthropicRequest(payload: JsonObject, state: B
   if (toolChoice) result.tool_choice = toolChoice;
   if (thinking) result.thinking = thinking;
   if (thinkingEnabled && effort) result.output_config = { effort };
+  // AWS counts checkpoints across the ENTIRE request, not separately per array.
+  // Prefix order is tools -> system -> messages, irrespective of JSON key order.
+  // Inspect only native cacheable blocks; restored assistant signed state is
+  // never decorated, rewritten, or moved to make a checkpoint.
+  const cacheable = [...(result.tools ?? []), ...(Array.isArray(result.system) ? result.system : []),
+    ...nativeMessages.flatMap((message) => message.content)];
+  const checkpoints = cacheable.filter((block) => block.cache_control !== undefined);
+  if (checkpoints.length > 4) throw new Error('Native Bedrock supports at most four prompt cache checkpoints');
   return result;
 }
 

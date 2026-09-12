@@ -749,6 +749,7 @@ export async function loadEnterpriseRouteConfig(
   routeContextWindows: Record<string, number>;
   routeReasoningLevels: Record<string, PiReasoningLevel[]>;
   modelDisplayNames: Record<string, string>;
+  promptCacheTargets?: string[];
 }> {
   if (!isEnterpriseMode(env)) {
     return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} };
@@ -781,7 +782,11 @@ export async function loadEnterpriseRouteConfig(
       return {};
     }
   })();
-  return { routeCatalog: resolved.routeCatalog, defaultRoute: resolved.defaultRoute, defaultReasoning: resolved.defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames };
+  // Publish capability only, never provider/model/credential coordinates. Compat
+  // and Dynamic Routes have no certified block-level cache forwarding contract.
+  const promptCacheTargets = resolved.routeCatalog.filter((handle) => resolved.nativeTargets[handle]?.adapter === 'bedrock-anthropic-native');
+  return { routeCatalog: resolved.routeCatalog, defaultRoute: resolved.defaultRoute, defaultReasoning: resolved.defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames,
+    ...(promptCacheTargets.length && { promptCacheTargets }) };
 }
 
 /** Per-group routing entry persisted under SETUP_KEYS.GROUP_ROUTING (REQ-ENTERPRISE-013). */

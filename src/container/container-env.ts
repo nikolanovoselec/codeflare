@@ -62,6 +62,8 @@ export interface ContainerEnvState {
   _routeReasoningLevels: Record<string, string[]>;
   /** Safe administrator labels keyed by opaque native handle. */
   _modelDisplayNames: Record<string, string>;
+  /** Worker-authorized opaque Runtime handles; omitted legacy state means none. */
+  _promptCacheTargets?: string[];
   /** REQ-MEM-001 AC4: user's IANA timezone (e.g. "Europe/Zurich"). */
   _userTimezone: string | null;
   /** REQ-GITHUB-004: GitHub repo (owner/name) to clone at container start. */
@@ -81,6 +83,7 @@ interface RestartPrefsInput {
   routeContextWindows?: Record<string, number>;
   routeReasoningLevels?: Record<string, string[]>;
   modelDisplayNames?: Record<string, string>;
+  promptCacheTargets?: string[];
   workspaceSyncEnabled?: boolean;
   fastStartEnabled?: boolean;
   tabConfig?: TabConfig[];
@@ -164,6 +167,7 @@ export function validateBucketNameInput(input: {
   terminalMode?: unknown;
   routeReasoningLevels?: unknown;
   modelDisplayNames?: unknown;
+  promptCacheTargets?: unknown;
 }): string | null {
   const { bucketName, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels, modelDisplayNames } = input;
 
@@ -222,6 +226,11 @@ export function validateBucketNameInput(input: {
     for (const [handle, label] of Object.entries(modelDisplayNames as Record<string, unknown>)) {
       if (!/^cf-native-[0-9a-f-]{36}$/i.test(handle) || typeof label !== 'string' || !label.trim() || label.length > 128) return 'modelDisplayNames contains an invalid handle or label';
     }
+  }
+  if (input.promptCacheTargets !== undefined) {
+    const handles = input.promptCacheTargets;
+    if (!Array.isArray(handles) || handles.length > 64 || new Set(handles).size !== handles.length
+      || handles.some((handle) => typeof handle !== 'string' || !/^cf-native-[0-9a-f-]{36}$/i.test(handle))) return 'promptCacheTargets contains invalid native handles';
   }
   return null;
 }
@@ -426,6 +435,7 @@ export function buildEnvVars(
     ...(isEnterpriseMode(env) && { ENTERPRISE_ROUTE_CONTEXT_WINDOWS: JSON.stringify(state._routeContextWindows) }),
     ...(isEnterpriseMode(env) && { ENTERPRISE_ROUTE_REASONING_LEVELS: JSON.stringify(state._routeReasoningLevels ?? {}) }),
     ...(isEnterpriseMode(env) && { ENTERPRISE_MODEL_DISPLAY_NAMES: JSON.stringify(state._modelDisplayNames ?? {}) }),
+    ...(isEnterpriseMode(env) && { ENTERPRISE_PROMPT_CACHE_TARGETS: JSON.stringify(state._promptCacheTargets ?? []) }),
   };
 }
 
@@ -773,6 +783,13 @@ export async function applyPrefsOnRestart(
     await storage.put('modelDisplayNames', input.modelDisplayNames);
     changed = true;
     logger.info('Updated modelDisplayNames on restart', { models: Object.keys(input.modelDisplayNames) });
+  }
+  if (input.promptCacheTargets !== undefined && JSON.stringify(input.promptCacheTargets) !== JSON.stringify(state._promptCacheTargets)) {
+    // Empty is authoritative: revoke old Pi capabilities when a target stops
+    // being eligible. Return changed so the next start regenerates models.json.
+    state._promptCacheTargets = input.promptCacheTargets;
+    await storage.put('promptCacheTargets', input.promptCacheTargets);
+    changed = true;
   }
 
   return changed;

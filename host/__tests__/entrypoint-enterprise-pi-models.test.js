@@ -62,7 +62,7 @@ function runSettingsBlock(defaultRoute, reasoning, existingSettings) {
 }
 
 // Run the extracted block with the given catalog and return { code, modelsJson }.
-function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevelsJson, defaultReasoning = 'off', displayNamesJson = '{}', existingSettings) {
+function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevelsJson, defaultReasoning = 'off', displayNamesJson = '{}', existingSettings, promptCacheTargetsJson = '[]') {
   const block = extractModelsBlock();
   const fixtureCatalog = JSON.parse(catalogJson);
   const fixtureRoutes = fixtureCatalog.length > 0 ? fixtureCatalog : [defaultRoute];
@@ -83,6 +83,7 @@ function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevels
     ...(contextWindowsJson !== undefined ? [`ENTERPRISE_ROUTE_CONTEXT_WINDOWS='${contextWindowsJson}'`] : []),
     `ENTERPRISE_ROUTE_REASONING_LEVELS='${effectiveReasoningLevels}'`,
     `ENTERPRISE_MODEL_DISPLAY_NAMES='${displayNamesJson}'`,
+    `ENTERPRISE_PROMPT_CACHE_TARGETS='${promptCacheTargetsJson}'`,
     "ENTERPRISE_PLACEHOLDER_TOKEN='codeflare-enterprise'",
     "PI_GATEWAY_BASE_URL='https://api.openai.com/v1'",
     `PI_MODELS_JSON='${modelsPath}'`,
@@ -161,6 +162,29 @@ describe('entrypoint enterprise Pi settings.json thinking-level passthrough (REQ
 });
 
 describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-ENTERPRISE-032)', () => {
+  it('REQ-ENTERPRISE-083: enables Pi checkpoints only for the authorized native Runtime handle', () => {
+    const catalog = ['bedrock_opus', nativeHandle];
+    const levels = { bedrock_opus: [], [nativeHandle]: ['off', 'medium', 'high'] };
+    const result = runBlock(JSON.stringify(catalog), 'bedrock_opus', undefined, JSON.stringify(levels), '', '{}', undefined, JSON.stringify([nativeHandle]));
+    assert.equal(result.code, 0, result.stderr);
+    const provider = result.modelsJson.providers['codeflare-gateway'];
+    assert.equal(provider.compat.cacheControlFormat, undefined, 'no provider-wide Anthropic behavior');
+    assert.equal(provider.models[0].compat.cacheControlFormat, undefined, 'Dynamic contract is unchanged');
+    assert.equal(provider.models[1].compat.cacheControlFormat, 'anthropic');
+    assert.equal(provider.models[1].compat.supportsLongCacheRetention, false);
+    assert.deepEqual(provider.models.map(m => m.id), catalog);
+    const legacy = runBlock(JSON.stringify(catalog), 'bedrock_opus', undefined, JSON.stringify(levels), '');
+    assert.equal(legacy.modelsJson.providers['codeflare-gateway'].models[1].compat, undefined, 'old startup snapshots do not opt in');
+  });
+
+  it('REQ-ENTERPRISE-083: rejects malformed cache-capability publication through guarded startup', () => {
+    for (const value of ['null', '{}', '[false]', '["bedrock_opus"]', JSON.stringify([nativeHandle, nativeHandle])]) {
+      const result = runBlock(JSON.stringify([nativeHandle]), nativeHandle, undefined, undefined, 'off', '{}', undefined, value);
+      assert.notEqual(result.code, 0);
+      assert.equal(result.modelsJson, null);
+    }
+  });
+
   it('REQ-ENTERPRISE-032 AC1: builds models.json with one model per catalog route under set -euo pipefail', () => {
     const catalog = ['general_usage', 'development', 'code_review', 'documentation'];
     const { code, stderr, modelsJson } = runBlock(JSON.stringify(catalog), 'general_usage');
