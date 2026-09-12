@@ -133,6 +133,3 @@ export async function readRouteCheck(kv: KVNamespace, checkId: string): Promise<
   if (age < 0 || age >= ROUTE_CHECK_TTL_SECONDS * 1000) throw new Error(retry);
   return receipt;
 }
-export function preferredReasoningLevel(levels: readonly PiReasoningLevel[]): PiReasoningLevel | undefined {
-  return levels.includes('medium') ? 'medium' : levels.includes('off') ? 'off' : levels[0];
-}

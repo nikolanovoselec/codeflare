@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-09-12
 
-- **Worker-owned reasoning hints and coherent Pi publication** (REQ-ENTERPRISE-005 AC1, REQ-032 AC3, REQ-041 AC3, REQ-052 AC3, REQ-058 AC2/AC3 and REQ-078 AC1/AC2). Runtime uses exact, next higher, then highest lower executable reasoning; provider-default removes overrides without altering tool replay. Discovery remains strict and profile identities/transports stay fixed. Startup preserves empty reasoning, replaces managed models/defaults coherently, and removes stale managed state on failure. Administration names its sections Dynamic routes and Native routes, with Add Native Route.
+- **Worker-owned reasoning hints and coherent Pi publication** (REQ-ENTERPRISE-005 AC1, REQ-032 AC3, REQ-041 AC3/AC4, REQ-052 AC3, REQ-058 AC2/AC3 and REQ-078 AC1/AC2). Runtime uses exact, next higher, then highest lower executable reasoning; provider-default removes overrides without altering tool replay. Discovery remains strict and profile identities/transports stay fixed. Startup preserves empty reasoning, replaces managed models/defaults coherently, and removes stale managed state on failure. Administration names its sections Dynamic routes and Native routes, with Add Native Route.
 
 ## 2026-09-11
 

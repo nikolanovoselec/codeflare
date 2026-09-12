@@ -138,7 +138,7 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
       offSemantics: { status: 'explicit-toggle', path: 'chat_template_kwargs.enable_thinking', value: false },
       recognizedResponseFields: { content: ['choices[].message.content'] },
     });
-    const translated = (profiles as any).translateReasoningRequest({
+    const translated = profiles.translateReasoningRequest({
       model: 'selected', messages: [{ role: 'user', content: 'hello' }], tools: [{ type: 'function' }],
       reasoning_effort: 'high', chat_template_kwargs: { enable_thinking: true, unrelated: 'kept' },
     }, profile, 'off');
