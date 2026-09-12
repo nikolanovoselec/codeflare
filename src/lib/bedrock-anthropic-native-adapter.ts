@@ -220,10 +220,19 @@ async function persistReplay(content: unknown[], state: BedrockReplayState): Pro
 
 function openAiUsage(value: unknown): JsonObject | undefined {
   if (!plain(value)) return undefined;
-  const prompt = Number.isFinite(value.input_tokens) ? value.input_tokens : 0;
+  const cacheRead = Number.isSafeInteger(value.cache_read_input_tokens) && value.cache_read_input_tokens >= 0 ? value.cache_read_input_tokens : undefined;
+  const cacheWrite = Number.isSafeInteger(value.cache_creation_input_tokens) && value.cache_creation_input_tokens >= 0 ? value.cache_creation_input_tokens : undefined;
+  // Anthropic input_tokens excludes cache reads AND writes. Pi's OpenAI parser
+  // expects prompt_tokens to include both, then subtracts the separate details.
+  // These are provider prefix-cache counters, not AI Gateway response-cache hits.
+  const prompt = (Number.isFinite(value.input_tokens) ? value.input_tokens : 0) + (cacheRead ?? 0) + (cacheWrite ?? 0);
   const completion = Number.isFinite(value.output_tokens) ? value.output_tokens : 0;
   const reasoning = plain(value.output_tokens_details) && Number.isFinite(value.output_tokens_details.thinking_tokens) ? value.output_tokens_details.thinking_tokens : undefined;
   return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion,
+    ...((cacheRead !== undefined || cacheWrite !== undefined) && { prompt_tokens_details: {
+      ...(cacheRead !== undefined && { cached_tokens: cacheRead }),
+      ...(cacheWrite !== undefined && { cache_write_tokens: cacheWrite }),
+    } }),
     ...(reasoning !== undefined && { completion_tokens_details: { reasoning_tokens: reasoning } }) };
 }
 

@@ -315,6 +315,69 @@ describe('Bedrock Anthropic native adapter', () => {
     ]);
   });
 
+  it.each(['invoke-json', 'invoke-sse', 'eventstream'] as const)('REQ-ENTERPRISE-076: preserves separate prompt-cache counters in %s usage', async (transport) => {
+    // Synthetic usage only: these are not live-provider cache-hit receipts.
+    const inputUsage = { input_tokens: 11, cache_read_input_tokens: 1024, cache_creation_input_tokens: 512,
+      cache_creation: { ephemeral_5m_input_tokens: 512, ephemeral_1h_input_tokens: 0 } };
+    const outputUsage = { output_tokens: 37, output_tokens_details: { thinking_tokens: 9 } };
+    const upstream = transport === 'eventstream'
+      ? new Response(new ReadableStream<Uint8Array>({ start(controller) {
+        for (const event of [
+          { type: 'message_start', message: { id: 'cache_fixture', model: 'claude', usage: { ...inputUsage, output_tokens: 1 } } },
+          { type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'OK' } },
+          { type: 'content_block_stop', index: 0 },
+          { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: outputUsage },
+          { type: 'message_stop' },
+        ]) controller.enqueue(eventstreamFrame(event));
+        controller.close();
+      } }), { headers: { 'content-type': 'application/vnd.amazon.eventstream' } })
+      : Response.json({ id: 'cache_fixture', model: 'claude', content: [{ type: 'text', text: 'OK' }],
+        stop_reason: 'end_turn', usage: { ...inputUsage, ...outputUsage } });
+    const response = await adaptBedrockAnthropicResponse(upstream, transport === 'eventstream' ? 'eventstream' : 'invoke', state(), transport === 'invoke-sse');
+    let usage;
+    if (transport === 'invoke-json') usage = (await response.json() as any).usage;
+    else {
+      const wire = await response.text();
+      const events = wire.split('\n').filter((line) => line.startsWith('data: ') && line !== 'data: [DONE]').map((line) => JSON.parse(line.slice(6)));
+      const terminal = events.filter((event) => event.choices?.[0]?.finish_reason);
+      expect(terminal).toHaveLength(1);
+      expect(wire.match(/data: \[DONE\]/g)).toHaveLength(1);
+      usage = terminal[0].usage;
+    }
+    expect(usage).toEqual({
+      prompt_tokens: 1547, completion_tokens: 37, total_tokens: 1584,
+      prompt_tokens_details: { cached_tokens: 1024, cache_write_tokens: 512 },
+      completion_tokens_details: { reasoning_tokens: 9 },
+    });
+    // The locked Pi 0.85.1 OpenAI parser subtracts reads and writes separately.
+    expect(usage.prompt_tokens - usage.prompt_tokens_details.cached_tokens - usage.prompt_tokens_details.cache_write_tokens).toBe(11);
+  });
+
+  it('REQ-ENTERPRISE-076: omits unmeasured cache counters and preserves explicit zeroes', async () => {
+    const convert = async (cache: Record<string, unknown>) => {
+      const response = await adaptBedrockAnthropicResponse(Response.json({
+        content: [], stop_reason: 'end_turn', usage: { input_tokens: 11, output_tokens: 5, ...cache },
+      }), 'invoke', state());
+      return (await response.json() as any).usage;
+    };
+    expect(await convert({})).toEqual({ prompt_tokens: 11, completion_tokens: 5, total_tokens: 16 });
+    expect(await convert({ cache_read_input_tokens: 0, cache_creation_input_tokens: 0 })).toEqual({
+      prompt_tokens: 11, completion_tokens: 5, total_tokens: 16,
+      prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+    });
+    expect(await convert({ cache_read_input_tokens: 12 })).toEqual({
+      prompt_tokens: 23, completion_tokens: 5, total_tokens: 28, prompt_tokens_details: { cached_tokens: 12 },
+    });
+    expect(await convert({ cache_creation_input_tokens: 12 })).toEqual({
+      prompt_tokens: 23, completion_tokens: 5, total_tokens: 28, prompt_tokens_details: { cache_write_tokens: 12 },
+    });
+    for (const invalid of [null, '12', true, -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(await convert({ cache_read_input_tokens: invalid, cache_creation_input_tokens: invalid })).toEqual({
+        prompt_tokens: 11, completion_tokens: 5, total_tokens: 16,
+      });
+    }
+  });
+
   it('REQ-ENTERPRISE-073/076: decodes eventstream blocks into OpenAI SSE and stores exact signed replay state', async () => {
     const replay = state();
     const events = [
