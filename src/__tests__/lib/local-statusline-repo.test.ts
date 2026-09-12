@@ -36,7 +36,7 @@ type FooterFactory = (
 type StatuslineContext = {
   hasUI: boolean;
   cwd: string;
-  model?: { id?: string };
+  model?: { id?: string; name?: string; provider?: string };
   sessionManager: { getCwd(): string };
   getContextUsage?: () => { percent?: number; tokens?: number | null; contextWindow?: number };
   ui: { setFooter(factory: FooterFactory): void };
@@ -82,6 +82,20 @@ afterEach(() => {
 });
 
 describe('REQ-AGENT-056: Pi local statusline repository resolution', () => {
+  it('REQ-ENTERPRISE-058: renders the enterprise native label without changing its opaque identity', () => {
+    const { root } = repoFixture('statusline-native-label-');
+    const model = { provider: 'codeflare-gateway', id: 'cf-native-11111111-1111-4111-8111-111111111111', name: 'Bedrock Opus' };
+    try {
+      const { component } = installStatusline({
+        hasUI: true, cwd: root, model, sessionManager: { getCwd: () => root }, ui: { setFooter: () => undefined },
+      });
+      try {
+        expect(component.render(120)[0]).toBe('--% | Bedrock Opus:xhigh');
+        expect(model.id).toBe('cf-native-11111111-1111-4111-8111-111111111111');
+      } finally { component.dispose(); }
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('REQ-AGENT-056: renders context, model effort, cwd repository, extension statuses, and width-safe truncation', () => {
     const { root, repo } = repoFixture('statusline-cwd-');
     const nested = join(repo, 'src', 'nested');

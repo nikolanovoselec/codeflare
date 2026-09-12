@@ -1,11 +1,79 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent';
+import { stripVTControlCharacters } from 'node:util';
+import { createAgentSession, DefaultResourceLoader, initTheme, ModelRuntime, SessionManager, SettingsManager, ThinkingSelectorComponent } from '@earendil-works/pi-coding-agent';
 import { streamSimple } from '@earendil-works/pi-ai/compat';
 import { authorizedRoutes, enterpriseStartup, nativeHandle } from '../../../../host/__fixtures__/enterprise-pi-startup.mjs';
 
+// Client choices are not backend supportedLevels: provider-default routes retain
+// empty backend capabilities, and the Worker remains authoritative over overrides.
+const providerDefaultThinkingChoices = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+async function providerDefaultSession(t) {
+  const fixture = enterpriseStartup({ reasoning: '' });
+  t.after(fixture.cleanup);
+  assert.equal(fixture.result.status, 0, fixture.result.stderr);
+  const modelRuntime = await ModelRuntime.create({
+    modelsPath: fixture.modelsPath, authPath: join(fixture.agentDir, 'auth.json'),
+    modelsStorePath: join(fixture.agentDir, 'models-store.json'), allowModelNetwork: false,
+  });
+  const sessionManager = SessionManager.inMemory(fixture.home);
+  const settingsManager = SettingsManager.create(fixture.home, fixture.agentDir);
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: fixture.home, agentDir: fixture.agentDir, settingsManager,
+    noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
+  });
+  await resourceLoader.reload();
+  const { session } = await createAgentSession({
+    cwd: fixture.home, agentDir: fixture.agentDir, modelRuntime,
+    sessionManager, settingsManager, resourceLoader, tools: [],
+  });
+  t.after(() => session.dispose());
+  assert.equal(session.model.provider, 'codeflare-gateway');
+  assert.equal(session.model.id, 'bedrock_opus');
+  return { session, sessionManager };
+}
+
 describe('REQ-ENTERPRISE-058: generated routing consumed by the pinned Pi runtime without inference', () => {
+  it('REQ-ENTERPRISE-058: provider-default Dynamic routes expose and preserve all seven Pi thinking choices', async (t) => {
+    const { session, sessionManager } = await providerDefaultSession(t);
+    assert.deepEqual(session.getAvailableThinkingLevels(), providerDefaultThinkingChoices);
+    for (const level of providerDefaultThinkingChoices) {
+      session.setThinkingLevel(level);
+      assert.equal(session.thinkingLevel, level, `${level} must not be clamped to off`);
+      assert.equal(sessionManager.buildSessionContext().thinkingLevel, level, `${level} survives transcript reconstruction`);
+      assert.equal(session.model.id, 'bedrock_opus');
+    }
+  });
+
+  it('REQ-ENTERPRISE-058: the real provider-default thinking selector renders and selects all seven choices', async (t) => {
+    const { session } = await providerDefaultSession(t);
+    initTheme('dark', false);
+    session.setThinkingLevel('off');
+    const selected = [];
+    // Same session-derived inputs as InteractiveMode.showThinkingSelector; no
+    // fabricated model capabilities, private selector state, or terminal process.
+    const selector = new ThinkingSelectorComponent(
+      session.thinkingLevel, session.getAvailableThinkingLevels(),
+      (level) => {
+        session.setThinkingLevel(level);
+        selected.push(session.thinkingLevel);
+      },
+      () => assert.fail('thinking selection must not cancel'),
+    );
+    const renderedChoices = selector.render(100)
+      .map((line) => stripVTControlCharacters(line).match(/^\s*(?:→\s*)?(?:✓\s*)?(off|minimal|low|medium|high|xhigh|max)\s/)?.[1])
+      .filter(Boolean);
+    assert.deepEqual(renderedChoices, providerDefaultThinkingChoices);
+    for (const level of providerDefaultThinkingChoices) {
+      selector.handleInput('\r');
+      assert.equal(session.thinkingLevel, level);
+      selector.handleInput('\u001b[B');
+    }
+    assert.deepEqual(selected, providerDefaultThinkingChoices);
+  });
+
   for (const previousModel of [undefined, 'development', nativeHandle]) {
     it(`loads the authoritative catalog for ${previousModel ?? 'a fresh conversation'}`, async (t) => {
       const fixture = enterpriseStartup({ reasoning: '' });
