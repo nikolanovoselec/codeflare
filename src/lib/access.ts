@@ -9,12 +9,12 @@ import { isEnterpriseMode } from './subscription';
 import { parseUserRecord } from './user-record';
 import { listAllKvKeys, SETUP_KEYS } from './kv-keys';
 import { reactivateUsageUser } from './admin-usage';
-import { isPiReasoningLevel, parseRouteSettings, type PiReasoningLevel, type ProfileRevisionRef } from './reasoning-profiles';
+import { selectRuntimeReasoningLevel, parseRouteSettings, type PiReasoningLevel, type ProfileRevisionRef } from './reasoning-profiles';
 import { getProfileForRef, getRouteReasoningProfile, parseReasoningConfiguration } from './reasoning-configuration';
 import { getAigConfig } from './aig-config';
 import { gatewayCoordinates, listCustomProviderSlugs, listNativeProviderConfigs, selectNativeProviderConfig, type GatewayConnection, type NativeProviderConfig } from './ai-gateway-management';
 import { nativeTargetHandle, nativeVerificationMatches, parseNativeAiTargets } from './native-ai-targets';
-import { connectionFingerprint, preferredReasoningLevel, verificationMatches } from './reasoning-verification';
+import { connectionFingerprint, verificationMatches } from './reasoning-verification';
 
 const logger = createLogger('access');
 const NATIVE_PROVIDER_CACHE_TTL_MS = 60_000;
@@ -905,13 +905,11 @@ export async function resolveRouteCatalog(
     const resolved = applyDefaultDrift(eligible, configuredDefault, typeof policy.reasoning === 'string' ? policy.reasoning : '');
     if (!resolved.defaultRoute) return empty;
     const nativeDefault = nativeTargets[resolved.defaultRoute];
-    if (nativeDefault) {
-      const levels = nativeDefault.reasoningLevels;
-      if (levels.length > 0 && isPiReasoningLevel(resolved.defaultReasoning) && !levels.includes(resolved.defaultReasoning)) return empty;
-      return { ...resolved, defaultReasoning: levels.includes(resolved.defaultReasoning as PiReasoningLevel) ? resolved.defaultReasoning : preferredReasoningLevel(levels) ?? '', nativeTargets };
-    }
-    const levels = getRouteReasoningProfile(configuration, resolved.defaultRoute).supportedLevels;
-    return { ...resolved, nativeTargets, defaultReasoning: levels.includes(resolved.defaultReasoning as PiReasoningLevel) ? resolved.defaultReasoning : preferredReasoningLevel(levels) ?? '' };
+    const profile = nativeDefault ? getProfileForRef(configuration, nativeDefault.profileRef)
+      : getRouteReasoningProfile(configuration, resolved.defaultRoute);
+    const level = selectRuntimeReasoningLevel(profile, resolved.defaultReasoning);
+    if (profile.reasoningMode !== 'provider-default' && level === undefined) return empty;
+    return { ...resolved, nativeTargets, defaultReasoning: level ?? '' };
   } catch { return empty; }
 }
 

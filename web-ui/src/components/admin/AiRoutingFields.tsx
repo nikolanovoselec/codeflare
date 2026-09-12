@@ -84,7 +84,7 @@ const PolicyFields: Component<PolicyFieldsProps> = (props) => {
   <fieldset class="admin-fieldset" aria-label={`${props.label} allowed routes`}>
     <legend>Available routes</legend>
     <p class="admin-field-help">Live-verified and administrator-confirmed routes are available here.</p>
-    <Show when={props.options.length} fallback={<p class="admin-status-text">Verify or confirm a profile in Routes before assigning access.</p>}>
+    <Show when={props.options.length} fallback={<p class="admin-status-text">Verify or confirm a profile in Dynamic routes or Native routes before assigning access.</p>}>
       <div class="admin-policy-routes"><For each={props.options}>{(route) => <label>
         <input type="checkbox" aria-label={`${props.label} ${optionLabel(route.name)} route`} checked={props.policy.routes.includes(route.name)} onChange={() => props.onToggle(route.name)} />
         <span>{optionLabel(route.name)}</span>
@@ -481,8 +481,8 @@ const AiRoutingFields: Component<Props> = (props) => {
     </section>
     <nav class="admin-routing-nav" aria-label="AI Gateway configuration sections">
       <button type="button" aria-pressed={section() === 'connection'} onClick={() => setSection('connection')}>Connection</button>
-      <button type="button" aria-pressed={section() === 'routes'} onClick={() => setSection('routes')}>Routes</button>
-      <button type="button" aria-pressed={section() === 'native'} onClick={() => setSection('native')}>Native providers</button>
+      <button type="button" aria-pressed={section() === 'routes'} onClick={() => setSection('routes')}>Dynamic routes</button>
+      <button type="button" aria-pressed={section() === 'native'} onClick={() => setSection('native')}>Native routes</button>
       <button type="button" aria-pressed={section() === 'access'} onClick={() => setSection('access')}>Access &amp; fallback</button>
     </nav>
 
@@ -500,7 +500,7 @@ const AiRoutingFields: Component<Props> = (props) => {
     </section>
 
     <section hidden={section() !== 'routes'} class="admin-routing-pane" aria-labelledby="routes-heading">
-      <div class="admin-subsection-heading"><div><h3 id="routes-heading">Routes</h3><p>Choose a route to configure it. A Pi compatibility profile translates Pi requests for tool calling and reasoning before AI Gateway selects a backend.</p></div><span class="admin-status">{eligibleRoutes().length} ready / {routes().length} routes</span></div>
+      <div class="admin-subsection-heading"><div><h3 id="routes-heading">Dynamic routes</h3><p>Choose a route to configure it. A Pi compatibility profile translates Pi requests for tool calling and reasoning before AI Gateway selects a backend.</p></div><span class="admin-status">{eligibleRoutes().length} ready / {routes().length} routes</span></div>
       <Show when={!catalogBusy() && routes().length === 0}><p class="admin-status-text">No routes available. Create a dynamic route in AI Gateway, then check the connection again.</p></Show>
       <div class="admin-route-overview"><For each={routes()}>{(route) => {
         const profile = () => findProfile(route.assignment.activeProfile);
@@ -555,7 +555,7 @@ const AiRoutingFields: Component<Props> = (props) => {
     </section>
 
     <section hidden={section() !== 'native'} class="admin-routing-pane" aria-labelledby="native-heading">
-      <div class="admin-subsection-heading"><div><h3 id="native-heading">Native providers</h3><p>Add an exact provider-model target, then open it to assign and verify its Pi compatibility profile.</p></div><span class="admin-status">{nativeTargets().length} targets</span></div>
+      <div class="admin-subsection-heading"><div><h3 id="native-heading">Native routes</h3><p>Add an exact provider-model target, then open it to assign and verify its Pi compatibility profile.</p></div><span class="admin-status">{nativeTargets().length} targets</span></div>
       <div class="admin-route-overview"><Index each={nativeTargets()}>{(target, index) => {
         const clearProof = (update: Partial<NativeDraft>) => {
           if (target().id) setNativeChecks((checks) => ({ ...checks, [target().id!]: null }));
@@ -606,12 +606,12 @@ const AiRoutingFields: Component<Props> = (props) => {
           }}</Index></div>
       <Show when={!selectableProviders().length}><p class="admin-status-text">{catalog().providerCatalogStatus === 'ready'
         ? 'No provider configurations are available to add.'
-        : 'Provider discovery is unavailable. Check the connection to add a provider-model.'}</p></Show>
+        : 'Provider discovery is unavailable. Check the connection to add a Native Route.'}</p></Show>
       <Show when={selectableProviders().length}><div class="admin-route-actions"><button type="button" class="admin-secondary-button" onClick={() => {
         const provider = selectableProviders()[0]; const identity = provider && newNativeIdentity(provider.provider);
         const profile = identity && nativePreparedProfileRef(identity);
         if (identity && profile) { const index = nativeTargets().length; setNativeTargets((items) => [...items, { ...identity, label: '', contextWindow: 200000, profileRef: profile, enabled: false }]); setExpandedNative(index); }
-      }}>Add provider-model</button></div></Show>
+      }}>Add Native Route</button></div></Show>
     </section>
 
     <section hidden={section() !== 'access'} class="admin-routing-pane" aria-labelledby="groups-heading">

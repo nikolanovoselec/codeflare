@@ -165,7 +165,7 @@ export const AiRoutingSummary: Component<SummaryProps> = (props) => {
       </Show>
     </section></Show>
     <Show when={changed('nativeTargets')}><section class="ai-routing-review-section" aria-labelledby={`${id}-native`}>
-      <h3 id={`${id}-native`}>Native providers</h3>
+      <h3 id={`${id}-native`}>Native routes</h3>
       <table class="ai-routing-review-routes" aria-labelledby={`${id}-native`}><thead><tr><th scope="col">Target</th><th scope="col">Exact model</th><th scope="col">AWS region</th><th scope="col">Context window</th><th scope="col">State</th></tr></thead>
         <tbody><For each={nativeTargets()}>{(target) => <tr><th scope="row">{safe()(text(target.label) || 'Unnamed target')}</th><td>{safe()(text(target.model))}</td><td>{safe()(text(target.region)) || 'Not applicable'}</td><td>{typeof target.contextWindow === 'number' ? `${target.contextWindow.toLocaleString('en-US')} tokens` : 'Not configured'}</td><td>{target.enabled === true ? 'Enabled' : 'Inactive'}</td></tr>}</For></tbody>
       </table>

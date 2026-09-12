@@ -177,7 +177,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. Enterprise containers receive the active flag plus configured non-secret catalog, default, reasoning, and context-window hints resolved from the session's first matching group or global fallback; gateway coordinates, credentials, and resolved model IDs remain absent. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) -->
+1. Enterprise containers receive the active flag plus configured non-secret catalog, default, reasoning (including explicit empty reasoning), and context-window hints resolved from the session's first matching group or global fallback; gateway coordinates, credentials, and resolved model IDs remain absent. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: emits an explicit empty reasoning hint for a provider-default enterprise snapshot) -->
 2. When `ENTERPRISE_MODE=active`, the Cloudflare containers CA is installed into the system trust store and the Node/Python CA env vars are prepended to `.bashrc` so the PTY-spawned agent shells inherit them and all agent HTTPS clients trust the intercepted (TLS-terminated) connections. <!-- @impl: entrypoint.sh::CF_OAUTH_CA_SRC --> <!-- @test: host/__tests__/entrypoint-enterprise-ca-copilot.test.js (REQ-ENTERPRISE-005 AC2: NODE_EXTRA_CA_CERTS in .bashrc points at the CF_CA_SRC path) -->
 3. Enterprise Copilot receives persistent-shell BYOK base URL, placeholder, default route, and prompt/output limits; startup overwrites stale defaults. It exposes only the default dynamic route, which maps on egress, and route changes require relaunch. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: host/__tests__/entrypoint-enterprise-ca-copilot.test.js (REQ-ENTERPRISE-005 AC3: COPILOT_MODEL in .bashrc equals the ENTERPRISE_DEFAULT_ROUTE value) -->
 4. The container never receives the AI Gateway URL, the gateway token, or any per-session secret; routing to the gateway is done entirely by the DO's outbound interception ([REQ-ENTERPRISE-004](#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)). <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-env-llm.test.ts (REQ-ENTERPRISE-005: enterprise env injection (flag-on emit)) -->
@@ -219,11 +219,11 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Constraints:**
 
-- Canonical levels remain `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; `off` never aliases an enabled level.
+- Canonical levels remain `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; declared `off` mappings never alias an enabled level. Runtime hint selection is separate from profile declarations.
 - Built-ins are immutable.
 - Custom profiles are bounded declarative data and cannot control credentials, providers, transport, messages, tools, models, or streams.
-- Unsupported startup defaults require administrator correction before activation, consistent with [REQ-ENTERPRISE-032](#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation) AC1. <!-- @impl: src/lib/reasoning-configuration.ts::migrateLegacyReasoningAssignments --> <!-- @test: src/__tests__/lib/reasoning-configuration.test.ts (leaves GPT-OSS unresolved and requires correction for a Kimi off startup default) -->
-- Missing, disabled, malformed, non-executable, protected-field, and unmapped-level failures remain hard gates; legacy compatibility evidence remains advisory, while activation authority follows [REQ-ENTERPRISE-043](#req-enterprise-043-enterprise-pi-verified-route-activation).
+- Legacy migration of unsupported startup defaults requires administrator correction before activation, consistent with [REQ-ENTERPRISE-032](#req-enterprise-032-enterprise-pi-route-selection-and-runtime-translation) AC1. <!-- @impl: src/lib/reasoning-configuration.ts::migrateLegacyReasoningAssignments --> <!-- @test: src/__tests__/lib/reasoning-configuration.test.ts (leaves GPT-OSS unresolved and requires correction for a Kimi off startup default) -->
+- Missing, disabled, malformed, non-executable, and protected-field failures remain hard gates; discovery rejects unmapped probe levels, while runtime maps hints within the assigned profile; legacy compatibility evidence remains advisory, while activation authority follows [REQ-ENTERPRISE-043](#req-enterprise-043-enterprise-pi-verified-route-activation).
 
 **Priority:** P1
 
@@ -245,7 +245,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. Pi lists the live-verified or administrator-confirmed routes allowed by the user's effective policy and starts with that scope's configured supported defaults. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (returns only the allowed verified routes with exact profile levels and scope defaults) -->
 2. A `/model` selection uses the selected allowed route's active profile; an unknown handle falls back to the effective default. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (AC2: loads the profile for the route selected through Pi /model) -->
-3. Missing or invalid profiles and unmapped levels fail before any provider request. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (AC3: fails closed before provider I/O when the selected route profile does not map the level) -->
+3. Reasoning selections use the assigned profile's exact executable level, otherwise the next higher level, otherwise its highest lower level. <!-- @impl: src/lib/reasoning-profiles.ts::selectRuntimeReasoningLevel --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-032: translates Kimi %s within the selected profile to wire effort %s, using the next higher level for Off) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-032: maps %s to the only executable level in the assigned off-only Dynamic Route profile) -->
 4. For authorized requests, existing Chat Completions fallback, Responses passthrough, parsing, replay, and stream repair behavior remains unchanged. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (AC1: replays a model-routable request to the compat path when the REST API returns 404) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (does not touch a non-chat-completions stream (e.g. /responses passes through unchanged)) --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (preserves the validated Pi 0.84.4 canary request and replay fixtures) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (injects a finish_reason:"stop" chunk before [DONE] when the upstream omits it (dynamic-route bug)) -->
 5. Without an atomic configuration containing server-owned verification, legacy assignments grant no runtime routes. <!-- @impl: src/lib/access.ts::resolveRouteCatalog --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (does not silently grandfather legacy %s evidence into authority) -->
 
@@ -254,7 +254,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Constraints:**
 
 - Group-to-route access remains many-to-many; the first configured matching group wins, otherwise only explicitly enabled fallback applies.
-- Runtime uses one active profile per route and never predicts a gateway leg from route names or response headers.
+- Runtime uses one active profile per route and never predicts a gateway leg from route names or response headers. Missing, disabled, invalid, or non-executable profiles remain hard gates.
+- Provider-default requests discard explicit reasoning controls while preserving tools and unrelated fields. <!-- @impl: src/lib/reasoning-profiles.ts::translateRuntimeReasoningRequest --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-032: normalizes Dynamic Route provider-default %s without losing tools, replay, or unrelated fields) -->
 - Gateway credentials and backend model identities remain outside the container.
 
 **Priority:** P1
@@ -537,7 +538,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. The initial route overview presents route names and status without expanding every route's controls. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: starts with a compact route overview and expands only the selected route) -->
 2. Opening another route preserves unsaved edits in the previous route. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: switching route details preserves unsaved values) -->
-3. Connection, routes, and access policies have distinct, keyboard-operable section navigation. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: section navigation retains configuration state) -->
+3. Connection, Dynamic routes, Native routes, and access policies have distinct, keyboard-operable section navigation; Add Native Route adds a native draft. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: section navigation retains configuration state) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-041: navigates Dynamic routes and Native routes and adds a Native Route) -->
 
 **Constraints:**
 
@@ -1005,16 +1006,16 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-078: Provider-native Bedrock Level Enforcement
 
-**Intent:** Provider-native Bedrock requests use upward-only fallback and reject levels above validated profile authority.
+**Intent:** Provider-native Bedrock requests translate client reasoning hints into executable values within the assigned profile and transport.
 
 **Applies To:** Worker
 
 **Acceptance Criteria:**
 
-1. An unsupported requested level maps only to the next higher supported level. <!-- @impl: src/lib/reasoning-profiles.ts::translateReasoningRequest --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-072/078: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High) -->
-2. A request above the profile's highest validated level fails before provider I/O. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-078: rejects Opus eventstream levels above High before provider I/O) -->
+1. Requested reasoning selects an exact executable level, otherwise the next higher level, otherwise the highest lower level. <!-- @impl: src/lib/reasoning-profiles.ts::selectRuntimeReasoningLevel --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-078: maps Opus %s to High within the explicit eventstream profile without switching to Invoke) -->
+2. Mapped requests retain the assigned transport and signed-replay validation. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-073: downward mapping of Max still requires signed native tool replay) --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (REQ-ENTERPRISE-058: maps a native streaming default Max down to High without losing the authorized catalog) -->
 
-**Constraints:** Downward fallback is forbidden.
+**Constraints:** Runtime mapping never widens profile capability, migrates profile identity, or changes an explicit transport. Verification/discovery retains strict exact-level translation.
 
 **Priority:** P1
 
@@ -1353,7 +1354,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. Automated native verification performs a streamed tool-call and exact replay canary against the exact provider/model selector; an empty reasoning-level list alone never passes. <!-- @impl: src/lib/reasoning-discovery.ts::discoverPiCompatibility --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-048: provider-default verification requires a complete tool lifecycle) --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-052: verifies a generalized native provider selector directly through compat) --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-052: preserves the bounded native selector %s through compat) --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-052: discovers and verifies an OpenAI native selector through the real compat helper) -->
 2. Receipts bind target kind, ID, provider kind, model, provider configuration, alias, connection, profile, transport, and adapter; changed identity fails closed. <!-- @impl: src/lib/native-ai-targets.ts::nativeVerificationMatches --> <!-- @test: src/__tests__/lib/native-ai-targets.test.ts (REQ-ENTERPRISE-055: changed target or connection authority fails verification matching) -->
-3. Explicit reasoning controls for provider-default targets are rejected before provider I/O while Dynamic Route translation remains unchanged. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-048: rejects reasoning controls for provider-default targets before upstream I/O) -->
+3. Provider-default targets discard client reasoning overrides while preserving unrelated request fields and tool replay. <!-- @impl: src/lib/reasoning-profiles.ts::translateRuntimeReasoningRequest --> <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-048: ignores %s and removes only reasoning controls while preserving tools and replay) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-059: normalizes Gemini provider-default %s while round-tripping thought signatures through Pi replay metadata) -->
 
 **Constraints:** Evidence applies only to exact tested mappings and does not change unrelated canary revisions.
 
@@ -1501,15 +1502,15 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 **Acceptance Criteria:**
 
-1. Session publication supplies route names, opaque native handles, safe display names, contexts, and selected-profile reasoning levels without exact native authority. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-ENTERPRISE-058: publishes opaque mixed and authoritative empty enterprise model snapshots) -->
-2. Explicit empty restart snapshots clear prior model state. <!-- @impl: src/routes/container/lifecycle-init.ts::configureContainerDO --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-ENTERPRISE-058: publishes opaque mixed and authoritative empty enterprise model snapshots) -->
-3. An explicit empty enterprise catalog removes managed Pi configuration. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: authoritative empty enterprise catalog removes managed Pi and Copilot configuration) -->
+1. Session publication supplies route names, opaque native handles, safe display names, contexts, and selected-profile reasoning levels without exact native authority. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-ENTERPRISE-058: publishes opaque mixed and authoritative empty enterprise model snapshots) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-058: generated routing consumed by the pinned Pi runtime without inference) -->
+2. Startup replaces prior managed Pi models and defaults with the authorized snapshot, including explicit empty resets. <!-- @impl: src/routes/container/lifecycle-init.ts::configureContainerDO --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-ENTERPRISE-058: publishes opaque mixed and authoritative empty enterprise model snapshots) -->
+3. An empty enterprise catalog or failed Pi publication removes stale managed Pi configuration without altering unrelated providers and settings. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: authoritative empty enterprise catalog removes managed Pi and Copilot configuration) -->
 4. An explicit empty enterprise catalog removes managed Copilot configuration. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: authoritative empty enterprise catalog removes managed Pi and Copilot configuration) -->
 5. Pi exposes provider-default targets without configurable reasoning and with administrator context and a 16,384-token output cap. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: emits honest Pi metadata for a provider-default native model) -->
 6. Copilot uses the same opaque default with an output cap of 16,384 and a prompt limit bounded by the administrator context. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-ca-copilot.test.js (REQ-ENTERPRISE-058: bounds Copilot output for a provider-default native model) --> <!-- @test: host/__tests__/entrypoint-enterprise-ca-copilot.test.js (REQ-ENTERPRISE-058: derives bounded Copilot limits for an off-only native profile) -->
 7. Container state omits exact native models, provider identity, credentials, aliases, and connection authority. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-ENTERPRISE-058: publishes opaque mixed and authoritative empty enterprise model snapshots) -->
 
-**Constraints:** Container-visible state contains no account or gateway authority.
+**Constraints:** Container-visible state contains no account or gateway authority. Pi publication stages models and defaults together and reports success only after application; failure keeps the container available. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: complete enterprise Pi startup publication) -->
 
 **Priority:** P1
 

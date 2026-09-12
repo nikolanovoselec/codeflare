@@ -418,7 +418,7 @@ export function buildEnvVars(
     // is byte-identical to today.
     ...(isEnterpriseMode(env) && { ENTERPRISE_ROUTE_CATALOG: JSON.stringify(state._routeCatalog) }),
     ...(isEnterpriseMode(env) && state._defaultRoute && { ENTERPRISE_DEFAULT_ROUTE: state._defaultRoute }),
-    ...(isEnterpriseMode(env) && state._defaultReasoning && { ENTERPRISE_DEFAULT_REASONING: state._defaultReasoning }),
+    ...(isEnterpriseMode(env) && state._defaultReasoning !== null && { ENTERPRISE_DEFAULT_REASONING: state._defaultReasoning }),
     // REQ-ENTERPRISE-012: per-route context-window map (route name -> tokens), a
     // non-secret routing hint. entrypoint.sh sets each Pi model's contextWindow from
     // it (falling back to DEFAULT_ROUTE_CONTEXT_WINDOW per route). Emitted only when

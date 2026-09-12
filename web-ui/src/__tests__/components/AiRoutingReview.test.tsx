@@ -94,7 +94,7 @@ describe('AI routing review', () => {
 
   it('REQ-ENTERPRISE-074: reviews the native AWS region without exposing transport choices', () => {
     renderReview({ ...values(), nativeTargets: [{ label: 'Opus', model: 'eu.anthropic.claude-opus-5', transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', contextWindow: 200000, enabled: true }] });
-    const section = screen.getByRole('heading', { name: 'Native providers' }).closest('section')!;
+    const section = screen.getByRole('heading', { name: 'Native routes' }).closest('section')!;
     expect(within(section).getByRole('columnheader', { name: 'AWS region' })).toBeVisible();
     expect(within(section).getByText('eu-central-1')).toBeVisible();
     expect(within(section).queryByText('Compatibility')).toBeNull();
@@ -359,7 +359,7 @@ describe('AI routing review', () => {
     expect(api.catalog).toHaveBeenLastCalledWith(gateway);
     expect(api.discover).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled();
-    await section('Routes');
+    await section('Dynamic routes');
     for (const route of initial.dynamicRoutes) {
       await fireEvent.click(screen.getByRole('button', { name: `Configure ${route}` }));
       expect(screen.getByRole('combobox', { name: `${route} Pi compatibility profile` })).toHaveValue(`${refs[route].id}\u001f${refs[route].revision}\u001f${refs[route].hash}`);
@@ -395,7 +395,7 @@ describe('AI routing review', () => {
     expect(screen.getByLabelText('AI Gateway URL')).toHaveValue(gateway.gatewayUrl);
     expect(screen.getByLabelText('Replacement API token')).toHaveValue(gateway.replacementToken ?? '');
     await waitFor(() => expect(api.catalog).toHaveBeenLastCalledWith(gateway));
-    await section('Routes');
+    await section('Dynamic routes');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Configure production' })).toHaveTextContent('Compatible · backup untested'));
     expect(screen.getByRole('button', { name: 'Configure development' })).toHaveTextContent('Verified');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled());

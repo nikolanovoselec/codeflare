@@ -3362,6 +3362,22 @@ CA_TRUST_EOF
         echo "[entrypoint] WARNING: $CF_CA_SRC not found; outbound HTTPS interception is unavailable (LLM calls will fail)"
     fi
 
+    # Managed Pi cleanup: remove only Codeflare-owned configuration.
+    clear_enterprise_pi_configuration() {
+        local file tmp
+        file="$USER_HOME/.pi/agent/models.json"
+        if [ -f "$file" ]; then
+            tmp=$(mktemp "${file}.XXXXXX") || return 0
+            jq 'del(.providers["codeflare-gateway"])' "$file" > "$tmp" 2>/dev/null && mv "$tmp" "$file" || rm -f "$tmp"
+        fi
+        file="$USER_HOME/.pi/agent/settings.json"
+        if [ -f "$file" ]; then
+            tmp=$(mktemp "${file}.XXXXXX") || return 0
+            jq 'if .defaultProvider == "codeflare-gateway" then del(.defaultProvider,.defaultModel,.defaultThinkingLevel) else . end' "$file" > "$tmp" 2>/dev/null && mv "$tmp" "$file" || rm -f "$tmp"
+        fi
+    }
+    # End managed Pi cleanup.
+
     # Constant, NON-SECRET placeholder credential. Each agent CLI only enters
     # API/gateway mode when *some* credential is present; the interceptor strips
     # it before forwarding, so it is never a real secret and never reaches the
@@ -3377,7 +3393,7 @@ CA_TRUST_EOF
     # is listed in Pi models.json; Copilot launches on the default route only.
     ENTERPRISE_ROUTE_CATALOG="${ENTERPRISE_ROUTE_CATALOG:-[]}"
     ENTERPRISE_DEFAULT_ROUTE="${ENTERPRISE_DEFAULT_ROUTE:-}"        # resolved Worker-side
-    ENTERPRISE_DEFAULT_REASONING="${ENTERPRISE_DEFAULT_REASONING:-off}"
+    ENTERPRISE_DEFAULT_REASONING="${ENTERPRISE_DEFAULT_REASONING:-}"
     # Fallback default if the Worker sent none: first authorized catalog entry.
     if [ -z "$ENTERPRISE_DEFAULT_ROUTE" ]; then
         ENTERPRISE_DEFAULT_ROUTE="$(echo "$ENTERPRISE_ROUTE_CATALOG" | jq -r 'if type=="array" and length>0 then .[0] else "" end')"
@@ -3392,16 +3408,7 @@ CA_TRUST_EOF
         EMPTY_TMP=$(mktemp)
         sed '/^# enterprise-copilot-byok$/,/^# end-enterprise-copilot-byok$/d' "$BASHRC_FILE" > "$EMPTY_TMP"
         mv "$EMPTY_TMP" "$BASHRC_FILE"
-        PI_MODELS_JSON="$USER_HOME/.pi/agent/models.json"
-        PI_SETTINGS_JSON="$USER_HOME/.pi/agent/settings.json"
-        if [ -f "$PI_MODELS_JSON" ]; then
-            EMPTY_TMP=$(mktemp)
-            jq 'del(.providers["codeflare-gateway"])' "$PI_MODELS_JSON" > "$EMPTY_TMP" 2>/dev/null && mv "$EMPTY_TMP" "$PI_MODELS_JSON" || rm -f "$EMPTY_TMP"
-        fi
-        if [ -f "$PI_SETTINGS_JSON" ]; then
-            EMPTY_TMP=$(mktemp)
-            jq 'if .defaultProvider == "codeflare-gateway" then del(.defaultProvider,.defaultModel,.defaultThinkingLevel) else . end' "$PI_SETTINGS_JSON" > "$EMPTY_TMP" 2>/dev/null && mv "$EMPTY_TMP" "$PI_SETTINGS_JSON" || rm -f "$EMPTY_TMP"
-        fi
+        clear_enterprise_pi_configuration
         unset COPILOT_PROVIDER_BASE_URL COPILOT_PROVIDER_API_KEY COPILOT_MODEL COPILOT_PROVIDER_MAX_PROMPT_TOKENS COPILOT_PROVIDER_MAX_OUTPUT_TOKENS
         echo "[entrypoint] Enterprise Mode: authoritative empty model catalog applied"
     elif [ "$ENTERPRISE_CATALOG_COUNT" -gt 0 ]; then
@@ -3522,8 +3529,7 @@ COPILOT_BYOK_EOF
     mkdir -p "$(dirname "$PI_MODELS_JSON")"
 
     # models.json: codeflare-gateway provider with ONE model per catalog route.
-    # Always register at least one model — a provider with zero models is invisible
-    # in Pi's picker/login — so an empty catalog falls back to the default route.
+    # The authoritative empty catalog is handled above by managed-state cleanup.
     # api="openai-completions": the AI Gateway REST endpoint /ai/v1/responses is
     # currently broken on this gateway -- it rejects a valid Responses `input` body
     # with "Required value missing: messages" (it validates as chat/completions),
@@ -3552,8 +3558,8 @@ COPILOT_BYOK_EOF
     # under `set -euo pipefail`; an UNGUARDED failure here kills PID 1 and
     # crash-loops the container with no shipped logs (the failure mode this whole
     # section was hardened against). A malformed catalog must degrade to "Pi
-    # unpinned, container stays up", never a dead container — so the `|| OK=0`
-    # guards keep set -e from aborting and we skip the pin on any jq failure.
+    # unavailable, container stays up", never a dead container. The guards prevent
+    # partial publication and remove stale managed state on generation failure.
     PI_GATEWAY_CONFIG_OK=1
     # contextWindow (REQ-ENTERPRISE-012): a dynamic route's underlying model is not
     # introspectable over the chat/completions API, so Pi falls back to its built-in 128k
@@ -3622,45 +3628,42 @@ COPILOT_BYOK_EOF
             }
         }' 2>/dev/null)" || PI_GATEWAY_CONFIG_OK=0
     fi
-    if [ "$PI_GATEWAY_CONFIG_OK" != "1" ] || [ -z "$PI_PROVIDER_CONFIG" ]; then
-        echo "[entrypoint] WARNING: could not build Pi enterprise gateway config (catalog=$ENTERPRISE_ROUTE_CATALOG); leaving Pi unpinned — container stays up"
-    elif [ -f "$PI_MODELS_JSON" ]; then
-        TMP_JSON=$(mktemp)
-        # Authoritative for codeflare-gateway only: replace that provider key wholesale
-        # (so a removed route disappears) while preserving any other providers.
-        if jq --argjson cfg "$PI_PROVIDER_CONFIG" '.providers = (.providers // {}) * $cfg.providers' "$PI_MODELS_JSON" > "$TMP_JSON" 2>/dev/null; then
-            mv "$TMP_JSON" "$PI_MODELS_JSON"
-        else
-            echo "[entrypoint] WARNING: Could not merge Pi gateway provider (malformed models.json?)"
-            rm -f "$TMP_JSON"
-        fi
-    else
-        echo "$PI_PROVIDER_CONFIG" | jq '.' > "$PI_MODELS_JSON"
+    # settings.json: overwrite ONLY defaultProvider/defaultModel/defaultThinkingLevel.
+    # Stage both documents before applying either; empty reasoning is provider-default.
+    PI_SETTINGS_CFG=""
+    if [ "$PI_GATEWAY_CONFIG_OK" = "1" ]; then
+        PI_SETTINGS_CFG=$(jq -n --arg model "$ENTERPRISE_DEFAULT_ROUTE" --arg thinking "$ENTERPRISE_DEFAULT_REASONING" '
+            {defaultProvider:"codeflare-gateway", defaultModel:$model}
+            + (if $thinking == "" then {} else {defaultThinkingLevel:$thinking} end)') || PI_GATEWAY_CONFIG_OK=0
     fi
-
-    # settings.json: overwrite ONLY defaultProvider/defaultModel/defaultThinkingLevel
-    # from the default route + reasoning grade each start (authoritative for these 3
-    # keys), preserving everything else (e.g. packages). defaultThinkingLevel comes
-    # from the default route's reasoning grade (container-side), not a hardcoded "off".
-    PI_SETTINGS_CFG=$(jq -n \
-        --arg provider "codeflare-gateway" \
-        --arg model "$ENTERPRISE_DEFAULT_ROUTE" \
-        --arg thinking "$ENTERPRISE_DEFAULT_REASONING" \
-        '{defaultProvider: $provider, defaultModel: $model, defaultThinkingLevel: $thinking}')
-    if [ -f "$PI_SETTINGS_JSON" ]; then
-        TMP_SET=$(mktemp)
-        if jq --argjson cfg "$PI_SETTINGS_CFG" '. * $cfg' "$PI_SETTINGS_JSON" > "$TMP_SET" 2>/dev/null; then
-            mv "$TMP_SET" "$PI_SETTINGS_JSON"
+    PI_MODELS_STAGE=$(mktemp "${PI_MODELS_JSON}.XXXXXX") || PI_GATEWAY_CONFIG_OK=0
+    PI_SETTINGS_STAGE=$(mktemp "${PI_SETTINGS_JSON}.XXXXXX") || PI_GATEWAY_CONFIG_OK=0
+    if [ "$PI_GATEWAY_CONFIG_OK" = "1" ]; then
+        if [ -f "$PI_MODELS_JSON" ]; then
+            jq --argjson cfg "$PI_PROVIDER_CONFIG" '.providers = (.providers // {}) | .providers["codeflare-gateway"] = $cfg.providers["codeflare-gateway"]' "$PI_MODELS_JSON" > "$PI_MODELS_STAGE" 2>/dev/null || PI_GATEWAY_CONFIG_OK=0
         else
-            echo "[entrypoint] WARNING: Could not merge Pi enterprise defaults (malformed settings.json?)"
-            rm -f "$TMP_SET"
+            printf '%s\n' "$PI_PROVIDER_CONFIG" > "$PI_MODELS_STAGE" || PI_GATEWAY_CONFIG_OK=0
         fi
-    else
-        echo "$PI_SETTINGS_CFG" | jq '.' > "$PI_SETTINGS_JSON"
+        if [ -f "$PI_SETTINGS_JSON" ]; then
+            jq --argjson cfg "$PI_SETTINGS_CFG" 'del(.defaultThinkingLevel) * $cfg' "$PI_SETTINGS_JSON" > "$PI_SETTINGS_STAGE" 2>/dev/null || PI_GATEWAY_CONFIG_OK=0
+        else
+            printf '%s\n' "$PI_SETTINGS_CFG" > "$PI_SETTINGS_STAGE" || PI_GATEWAY_CONFIG_OK=0
+        fi
     fi
-    echo "[entrypoint] Enterprise Mode: Pi pinned to codeflare-gateway/$ENTERPRISE_DEFAULT_ROUTE (default provider + model; catalog has all routes)"
+    if [ "$PI_GATEWAY_CONFIG_OK" = "1" ]; then
+        mv "$PI_MODELS_STAGE" "$PI_MODELS_JSON" && mv "$PI_SETTINGS_STAGE" "$PI_SETTINGS_JSON" || PI_GATEWAY_CONFIG_OK=0
+    fi
+    rm -f "$PI_MODELS_STAGE" "$PI_SETTINGS_STAGE"
+    if [ "$PI_GATEWAY_CONFIG_OK" = "1" ]; then
+        echo "[entrypoint] Enterprise Mode: Pi pinned to codeflare-gateway/$ENTERPRISE_DEFAULT_ROUTE (applied catalog=$ENTERPRISE_ROUTE_CATALOG)"
     else
-        echo "[entrypoint] WARNING: malformed enterprise model catalog; leaving managed model configuration unchanged"
+        clear_enterprise_pi_configuration
+        echo "[entrypoint] WARNING: could not apply Pi enterprise gateway config; managed Pi routes unavailable — container stays up"
+    fi
+    # --- Pi configuration end ---
+    else
+        clear_enterprise_pi_configuration
+        echo "[entrypoint] WARNING: malformed enterprise model catalog; managed Pi routes unavailable"
     fi
 
     # Routes-only model picker: clear ~/.pi/agent/auth.json so NO built-in provider is

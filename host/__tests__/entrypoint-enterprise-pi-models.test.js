@@ -14,12 +14,12 @@
 // configured catalog shape. Revert the fix (def back) and this test fails.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, mkdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { enterpriseStartup, authorizedRoutes, nativeHandle, nativeLevels, siblingProvider } from '../__fixtures__/enterprise-pi-startup.mjs';
+import { enterpriseStartup, authorizedRoutes, nativeHandle, nativeLevels, siblingProvider, extractPiCleanup } from '../__fixtures__/enterprise-pi-startup.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
@@ -29,7 +29,7 @@ const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8
 function extractModelsBlock() {
   const start = entrypoint.indexOf('# models.json: codeflare-gateway provider with ONE model per catalog route.');
   if (start === -1) throw new Error('models.json block start marker not found in entrypoint.sh');
-  const end = entrypoint.indexOf('# settings.json: overwrite ONLY defaultProvider', start);
+  const end = entrypoint.indexOf('# --- Pi configuration end ---', start);
   if (end === -1) throw new Error('models.json block end marker not found in entrypoint.sh');
   return entrypoint.slice(start, end);
 }
@@ -55,37 +55,14 @@ function extractEmptyCatalogBody() {
   return entrypoint.slice(start + startMarker.length, end);
 }
 
-// Extract the settings.json merge block (defaultProvider/defaultModel/
-// defaultThinkingLevel overwrite) by its stable comment markers.
-function extractSettingsBlock() {
-  const start = entrypoint.indexOf('# settings.json: overwrite ONLY defaultProvider');
-  if (start === -1) throw new Error('settings.json block start marker not found in entrypoint.sh');
-  const end = entrypoint.indexOf('echo "[entrypoint] Enterprise Mode: Pi pinned', start);
-  if (end === -1) throw new Error('settings.json block end marker not found in entrypoint.sh');
-  return entrypoint.slice(start, end);
-}
-
-// Run the settings merge with an existing settings.json and return the merged file.
+// Settings assertions use the same staged publication as model assertions.
 function runSettingsBlock(defaultRoute, reasoning, existingSettings) {
-  const block = extractSettingsBlock();
-  const dir = mkdtempSync(join(tmpdir(), 'ent-pi-settings-'));
-  const settingsPath = join(dir, 'settings.json');
-  if (existingSettings !== undefined) writeFileSync(settingsPath, existingSettings);
-  const script = [
-    'set -euo pipefail',
-    `ENTERPRISE_DEFAULT_ROUTE='${defaultRoute}'`,
-    `ENTERPRISE_DEFAULT_REASONING='${reasoning}'`,
-    `PI_SETTINGS_JSON='${settingsPath}'`,
-    block,
-  ].join('\n');
-  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
-  let settings = null;
-  if (res.status === 0) settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
-  return { code: res.status, stderr: res.stderr, settings };
+  const result = runBlock(JSON.stringify([defaultRoute]), defaultRoute, undefined, undefined, reasoning, '{}', existingSettings);
+  return { code: result.code, stderr: result.stderr, settings: result.settings };
 }
 
 // Run the extracted block with the given catalog and return { code, modelsJson }.
-function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevelsJson, defaultReasoning = 'off', displayNamesJson = '{}') {
+function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevelsJson, defaultReasoning = 'off', displayNamesJson = '{}', existingSettings) {
   const block = extractModelsBlock();
   const fixtureCatalog = JSON.parse(catalogJson);
   const fixtureRoutes = fixtureCatalog.length > 0 ? fixtureCatalog : [defaultRoute];
@@ -93,7 +70,11 @@ function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevels
     fixtureRoutes.map((route) => [route, ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']]),
   ));
   const dir = mkdtempSync(join(tmpdir(), 'ent-pi-models-'));
-  const modelsPath = join(dir, 'models.json');
+  const agentDir = join(dir, '.pi/agent');
+  mkdirSync(agentDir, { recursive: true });
+  const modelsPath = join(agentDir, 'models.json');
+  const settingsPath = join(agentDir, 'settings.json');
+  if (existingSettings !== undefined) writeFileSync(settingsPath, existingSettings);
   const script = [
     'set -euo pipefail',
     `ENTERPRISE_ROUTE_CATALOG='${catalogJson}'`,
@@ -105,6 +86,9 @@ function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevels
     "ENTERPRISE_PLACEHOLDER_TOKEN='codeflare-enterprise'",
     "PI_GATEWAY_BASE_URL='https://api.openai.com/v1'",
     `PI_MODELS_JSON='${modelsPath}'`,
+    `PI_SETTINGS_JSON='${settingsPath}'`,
+    `USER_HOME='${dir}'`,
+    extractPiCleanup(entrypoint),
     block,
     // The production block deliberately keeps the container alive and leaves Pi
     // unpinned on invalid input. For this focused helper, surface that guarded jq
@@ -115,7 +99,7 @@ function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevels
   const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
   let modelsJson = null;
   if (res.status === 0 && existsSync(modelsPath)) modelsJson = JSON.parse(readFileSync(modelsPath, 'utf8'));
-  return { code: res.status, stderr: res.stderr, modelsJson };
+  return { code: res.status, stderr: res.stderr, modelsJson, settings: res.status === 0 ? JSON.parse(readFileSync(settingsPath, 'utf8')) : null };
 }
 
 describe('REQ-ENTERPRISE-058: complete enterprise Pi startup publication', () => {
@@ -310,6 +294,7 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
       `printf '%s' '{"providers":{"codeflare-gateway":{"models":[]},"other":{"models":[]}}}' > "$USER_HOME/.pi/agent/models.json"`,
       `printf '%s' '{"defaultProvider":"codeflare-gateway","defaultModel":"stale","defaultThinkingLevel":"high","packages":["keep"]}' > "$USER_HOME/.pi/agent/settings.json"`,
       `printf '%s\\n' '# enterprise-copilot-byok' 'export COPILOT_MODEL="stale"' '# end-enterprise-copilot-byok' 'keep-me' > "$USER_HOME/.bashrc"`,
+      extractPiCleanup(entrypoint),
       extractEmptyCatalogBody(),
     ].join('\n');
     const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });

@@ -97,7 +97,7 @@ async function section(name: string) {
   await fireEvent.click(within(navigation).getByRole('button', { name }));
 }
 async function openRoute(name: string) {
-  await section('Routes');
+  await section('Dynamic routes');
   const button = await screen.findByRole('button', { name: `Configure ${name}` });
   if (button.getAttribute('aria-expanded') === 'false') await fireEvent.click(button);
 }

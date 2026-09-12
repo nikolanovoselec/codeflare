@@ -47,9 +47,9 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from './types';
 import { resolveRouteCatalog } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
-import { canonicalHash, isPiReasoningLevel, translateReasoningRequest } from './lib/reasoning-profiles';
+import { canonicalHash, translateRuntimeReasoningRequest } from './lib/reasoning-profiles';
 import { getProfileForRef, getRouteReasoningProfile, parseReasoningConfigurationWithLegacyFallback } from './lib/reasoning-configuration';
-import { preferredReasoningLevel, verificationMatches } from './lib/reasoning-verification';
+import { verificationMatches } from './lib/reasoning-verification';
 import { getAigConfig } from './lib/aig-config';
 import { gatewayCoordinates } from './lib/ai-gateway-management';
 import { repairRepeatedCompleteToolNames } from './lib/openai-sse-tool-name-repair';
@@ -471,19 +471,12 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
             try { profile = getProfileForRef(await this.loadReasoningConfiguration(), native.profileRef); } catch {
               return new Response(JSON.stringify({ error: 'Native profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
             }
-            if (profile.reasoningMode === 'provider-default') {
-              if (['reasoning_effort', 'reasoning', 'thinking', 'chat_template_kwargs'].some((key) => Object.hasOwn(payload!, key))) {
-                return new Response(JSON.stringify({ error: 'Reasoning controls are unsupported for this provider-default model', code: 'UNSUPPORTED_REASONING_CONTROL' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-              }
-            } else {
-              const canonicalLevel = payload.reasoning_effort ?? (isPiReasoningLevel(catalog.defaultReasoning) && profile.supportedLevels.includes(catalog.defaultReasoning)
-                ? catalog.defaultReasoning : preferredReasoningLevel(profile.supportedLevels));
-              if (!isPiReasoningLevel(canonicalLevel) || !profile.supportedLevels.includes(canonicalLevel)) {
-                return new Response(JSON.stringify({ error: 'Unsupported reasoning level', code: 'UNSUPPORTED_REASONING_LEVEL' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-              }
-              try { payload = translateReasoningRequest(payload, profile, canonicalLevel); } catch {
-                return new Response(JSON.stringify({ error: 'Native profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-              }
+            try {
+              payload = translateRuntimeReasoningRequest(payload, profile, catalog.defaultReasoning);
+            } catch {
+              return new Response(JSON.stringify({ error: 'Reasoning profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), {
+                status: 400, headers: { 'Content-Type': 'application/json' },
+              });
             }
             if (native.transport === 'aig-legacy-compat') {
               payload.model = `${nativeProviderSelector(native.provider, native.customProvider)}/${native.model}`;
@@ -548,27 +541,12 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
               }), { status: 400, headers: { 'Content-Type': 'application/json' } });
             }
             effectiveAdapter = profile.id;
-            if (profile.reasoningMode === 'provider-default') {
-              if (['reasoning_effort', 'reasoning', 'thinking', 'chat_template_kwargs'].some((key) => Object.hasOwn(payload!, key))) {
-                return new Response(JSON.stringify({ error: 'Reasoning controls are unsupported for this provider-default model', code: 'UNSUPPORTED_REASONING_CONTROL' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-              }
-            } else {
-              const canonicalLevel = payload.reasoning_effort ?? (isPiReasoningLevel(catalog.defaultReasoning) && profile.supportedLevels.includes(catalog.defaultReasoning)
-                ? catalog.defaultReasoning : preferredReasoningLevel(profile.supportedLevels));
-              if (!isPiReasoningLevel(canonicalLevel) || !profile.supportedLevels.includes(canonicalLevel)) {
-                return new Response(JSON.stringify({ error: 'Unsupported reasoning level', code: 'UNSUPPORTED_REASONING_LEVEL' }), {
-                  status: 400,
-                  headers: { 'Content-Type': 'application/json' },
-                });
-              }
-              try {
-                payload = translateReasoningRequest(payload, profile, canonicalLevel);
-              } catch {
-                return new Response(JSON.stringify({ error: 'Reasoning profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), {
-                  status: 400,
-                  headers: { 'Content-Type': 'application/json' },
-                });
-              }
+            try {
+              payload = translateRuntimeReasoningRequest(payload, profile, catalog.defaultReasoning);
+            } catch {
+              return new Response(JSON.stringify({ error: 'Reasoning profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), {
+                status: 400, headers: { 'Content-Type': 'application/json' },
+              });
             }
           }
           if (!native) payload.model = `dynamic/${route}`;

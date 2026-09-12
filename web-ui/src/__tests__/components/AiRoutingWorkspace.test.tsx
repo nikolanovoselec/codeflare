@@ -38,7 +38,7 @@ const values = (container: HTMLElement) => environmentValues('aiRouting', 'enter
 const mount = (data: unknown = current(), onReadyChange = vi.fn()) => ({ ...render(() => <form><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={data} onReadyChange={onReadyChange} /></form>), onReadyChange });
 async function ready(view: ReturnType<typeof mount>) { await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true)); }
 async function section(view: ReturnType<typeof mount>, name: string) { await fireEvent.click(within(view.getByRole('navigation', { name: 'AI Gateway configuration sections' })).getByRole('button', { name })); }
-async function openRoute(view: ReturnType<typeof mount>, route: string) { await section(view, 'Routes'); await fireEvent.click(view.getByRole('button', { name: `Configure ${route}` })); }
+async function openRoute(view: ReturnType<typeof mount>, route: string) { await section(view, 'Dynamic routes'); await fireEvent.click(view.getByRole('button', { name: `Configure ${route}` })); }
 
 beforeEach(() => {
   api.catalog.mockReset().mockResolvedValue(catalog());
@@ -151,7 +151,7 @@ describe('Administrator route workspace', () => {
     await section(view, 'Access & fallback');
     expect(view.getByRole('heading', { name: 'Group access' })).toBeVisible();
     expect(view.queryByRole('button', { name: 'Discover Profile for general_usage' })).toBeNull();
-    await section(view, 'Routes');
+    await section(view, 'Dynamic routes');
     expect(view.getByLabelText('general_usage context window')).toHaveValue('200000');
     expect(api.discover).not.toHaveBeenCalled();
   });
@@ -235,7 +235,7 @@ describe('Administrator route workspace', () => {
     await fireEvent.click(view.getByRole('checkbox', { name: 'developers Dynamic Route - development route' }));
     expect(values(view.container).dynamicRoutes).toContain('development');
     expect(values(view.container).routeChecks.development).toBe('admin-confirmation');
-    await section(view, 'Routes');
+    await section(view, 'Dynamic routes');
     await fireEvent.change(view.getByLabelText('development Pi compatibility profile'), { target: { value: `${offRef.id}\u001f${offRef.revision}\u001f${offRef.hash}` } });
     expect(values(view.container).dynamicRoutes).not.toContain('development');
   });

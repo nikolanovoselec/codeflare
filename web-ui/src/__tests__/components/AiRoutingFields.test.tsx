@@ -113,19 +113,19 @@ const mount = (data: unknown = current) => {
   return { ...render(() => <form onSubmit={submit}><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={data} onReadyChange={onReadyChange} /></form>), submit, onReadyChange };
 };
 type View = ReturnType<typeof mount>;
-async function section(view: View, name: 'Connection' | 'Routes' | 'Native providers' | 'Access & fallback') {
+async function section(view: View, name: 'Connection' | 'Dynamic routes' | 'Native routes' | 'Access & fallback') {
   await fireEvent.click(within(view.getByRole('navigation', { name: 'AI Gateway configuration sections' })).getByRole('button', { name }));
 }
 async function openNative(view: View) {
   await view.findByText('Connected · 3 routes readable');
-  await section(view, 'Native providers');
+  await section(view, 'Native routes');
 }
 async function addNativeTarget(view: View) {
   await openNative(view);
-  await fireEvent.click(view.getByRole('button', { name: 'Add provider-model' }));
+  await fireEvent.click(view.getByRole('button', { name: 'Add Native Route' }));
 }
 async function openRoute(view: View, route: string) {
-  await section(view, 'Routes');
+  await section(view, 'Dynamic routes');
   const toggle = view.getByRole('button', { name: `Configure ${route}` });
   if (toggle.getAttribute('aria-expanded') !== 'true') await fireEvent.click(toggle);
   return view.getByRole('article', { name: `${route} route` });
@@ -178,11 +178,11 @@ describe('Structured AI routing', () => {
     const view = mount();
     await view.findByText('Connected · 3 routes readable');
     const navigation = within(view.getByRole('navigation', { name: 'AI Gateway configuration sections' }));
-    await fireEvent.click(navigation.getByRole('button', { name: 'Dynamic routes', exact: true }));
-    expect(view.getByRole('heading', { name: 'Dynamic routes', exact: true })).toBeVisible();
-    await fireEvent.click(navigation.getByRole('button', { name: 'Native routes', exact: true }));
-    expect(view.getByRole('heading', { name: 'Native routes', exact: true })).toBeVisible();
-    await fireEvent.click(view.getByRole('button', { name: 'Add Native Route', exact: true }));
+    await fireEvent.click(navigation.getByRole('button', { name: 'Dynamic routes' }));
+    expect(view.getByRole('heading', { name: 'Dynamic routes' })).toBeVisible();
+    await fireEvent.click(navigation.getByRole('button', { name: 'Native routes' }));
+    expect(view.getByRole('heading', { name: 'Native routes' })).toBeVisible();
+    await fireEvent.click(view.getByRole('button', { name: 'Add Native Route' }));
     expect(formValues(view.container).nativeTargets).toHaveLength(1);
     expect(view.submit).not.toHaveBeenCalled();
   });
@@ -219,7 +219,7 @@ describe('Structured AI routing', () => {
       expect(Array.from(reasoning.options, (option) => option.value)).toEqual(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
       await fireEvent.change(reasoning, { target: { value: 'max' } });
       expect(formValues(view.container).groupRouting[0]).toMatchObject({ defaultRoute: handle, reasoning: 'max' });
-      await section(view, 'Native providers');
+      await section(view, 'Native routes');
     }
   });
 
@@ -390,7 +390,7 @@ describe('Structured AI routing', () => {
   });
 
   it.each([
-    ['unavailable', { ...catalog, providerCatalogStatus: 'unavailable' as const, providers: [] }, 'Provider discovery is unavailable. Check the connection to add a provider-model.'],
+    ['unavailable', { ...catalog, providerCatalogStatus: 'unavailable' as const, providers: [] }, 'Provider discovery is unavailable. Check the connection to add a Native Route.'],
     ['empty', { ...catalog, providerCatalogStatus: 'ready' as const, providers: [] }, 'No provider configurations are available to add.'],
   ])('keeps the native provider %s state actionable without restoring the provider catalogue', async (_case, providerCatalog, message) => {
     api.catalog.mockResolvedValueOnce(providerCatalog);
@@ -398,7 +398,7 @@ describe('Structured AI routing', () => {
     await openNative(view);
     expect(view.getByText(message)).toBeVisible();
     expect(view.queryByText('Configured providers')).toBeNull();
-    expect(view.queryByRole('button', { name: 'Add provider-model' })).toBeNull();
+    expect(view.queryByRole('button', { name: 'Add Native Route' })).toBeNull();
   });
 
   it('REQ-ENTERPRISE-051: edits the target label and context window in the native draft', async () => {

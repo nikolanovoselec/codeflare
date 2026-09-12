@@ -645,3 +645,27 @@ export function translateReasoningRequest(payload: Record<string, unknown>, prof
   for (const write of writes) writePath(translated, write);
   return translated;
 }
+
+/** Runtime hints never expand the assigned profile's executable capabilities. Discovery stays strict. */
+export function selectRuntimeReasoningLevel(profile: NormalizedReasoningProfile, requested: unknown): PiReasoningLevel | undefined {
+  if (!profile.enabled || profile.reasoningMode === 'provider-default') return undefined;
+  const available = PI_REASONING_LEVELS.filter((level) => profile.supportedLevels.includes(level) && profile.levels[level] !== undefined);
+  if (isPiReasoningLevel(requested)) {
+    return available.find((level) => PI_REASONING_LEVELS.indexOf(level) >= PI_REASONING_LEVELS.indexOf(requested)) ?? available.at(-1);
+  }
+  return available.includes('medium') ? 'medium' : available.includes('off') ? 'off' : available[0];
+}
+
+export function translateRuntimeReasoningRequest(payload: Record<string, unknown>, profile: NormalizedReasoningProfile, scopeDefault: unknown): Record<string, unknown> {
+  if (!profile.enabled) throw new Error('reasoning profile is disabled');
+  if (profile.reasoningMode === 'provider-default') {
+    const translated = structuredClone(payload);
+    for (const path of new Set([...WORKERS_REMOVALS, ...profile.removePaths])) deletePath(translated, path);
+    return translated;
+  }
+  const requested = isPiReasoningLevel(payload.reasoning_effort) ? payload.reasoning_effort
+    : isPiReasoningLevel(scopeDefault) && profile.supportedLevels.includes(scopeDefault) ? scopeDefault : undefined;
+  const level = selectRuntimeReasoningLevel(profile, requested);
+  if (level === undefined) throw new Error('reasoning profile has no executable mapping');
+  return translateReasoningRequest(payload, profile, level);
+}

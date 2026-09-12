@@ -173,6 +173,8 @@ jobs:
               - 'landing/**'
               - 'src/lib/design-ready.ts'
             pi:
+              - 'entrypoint.sh'
+              - 'host/__fixtures__/enterprise-pi-startup.mjs'
               - '.github/workflows/test.yml'
               - '.github/actions/install-deps/**'
               - 'package.json'

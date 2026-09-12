@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-09-12
+
+- **Worker-owned reasoning hints and coherent Pi publication** (REQ-ENTERPRISE-005 AC1, REQ-032 AC3, REQ-041 AC3, REQ-052 AC3, REQ-058 AC2/AC3 and REQ-078 AC1/AC2). Runtime uses exact, next higher, then highest lower executable reasoning; provider-default removes overrides without altering tool replay. Discovery remains strict and profile identities/transports stay fixed. Startup preserves empty reasoning, replaces managed models/defaults coherently, and removes stale managed state on failure. Administration names its sections Dynamic routes and Native routes, with Add Native Route.
+
 ## 2026-09-11
 
 - **AI routing Review shows authoritative differences, not inventory** ([REQ-ENTERPRISE-069](enterprise-mode.md#req-enterprise-069-dynamic-route-profile-persistence-before-access) AC2 amended and AC5–AC7 added). Saved and submitted policies are compared in the same ordered representation; transient receipts and preserved secrets are not changes. Review uses server before/after values, omits unchanged routes, and shows removals. Empty-diff Saves are rejected before writes. Existing verification and editor dirty-state rules remain unchanged.
