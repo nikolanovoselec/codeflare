@@ -456,6 +456,7 @@ function runRcloneFilterWiring() {
     'pgrep() { return 1; }',
     'find() { return 0; }',
     'cleanup_main_transcripts() { :; }',
+    'cleanup_remote_pi_transcript_conflicts() { :; }',
     'recover_vanished_files() { return 1; }',
     filterSetup,
     initialSync,
@@ -478,8 +479,9 @@ describe('REQ-STOR-017 AC6: retired Pi review extensions stay outside R2 sync', 
   it('passes every retired-extension exclusion to initial sync and both bisync calls', () => {
     const { code, stderr, calls } = runRcloneFilterWiring();
     assert.equal(code, 0, `rclone sync fixture exited non-zero: ${stderr}`);
-    assert.deepEqual(calls.map((call) => call[0]), ['sync', 'bisync', 'bisync']);
-    for (const call of calls) {
+    const syncCalls = calls.filter((call) => call[0] === 'sync' || call[0] === 'bisync');
+    assert.deepEqual(syncCalls.map((call) => call[0]), ['sync', 'bisync', 'bisync']);
+    for (const call of syncCalls) {
       for (const name of retired) {
         const pattern = `- .pi/agent/extensions/${name}`;
         assert.ok(
@@ -500,7 +502,8 @@ describe('REQ-STOR-012: child transcripts stay outside R2 sync', () => {
       '- .claude/projects/**/subagents/**',
       '- .pi/agent/sessions/**/tasks/**',
     ];
-    for (const call of calls) {
+    const syncCalls = calls.filter((call) => call[0] === 'sync' || call[0] === 'bisync');
+    for (const call of syncCalls) {
       for (const pattern of exclusions) {
         assert.ok(
           call.some((arg, index) => arg === '--filter' && call[index + 1] === pattern),

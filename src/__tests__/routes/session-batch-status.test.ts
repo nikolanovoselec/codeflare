@@ -624,6 +624,46 @@ describe('REQ-SESSION-010: Session status observable from dashboard', () => {
       expect(body.preseedNeedsUpgrade).toBe(true);
     });
 
+    it('REQ-STOR-023: exposes a stable desired target for retry suppression without confusing progress with identity', async () => {
+      const original = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'mutable' as const };
+      managedReleaseState.active = original;
+      mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
+      const observe = async (env: Partial<Env> = {}) => {
+        const response = await createApp(env).request('/sessions/batch-status?includePreseedCheck=true');
+        expect(response.status).toBe(200);
+        return await response.json() as { preseedUpgradeTarget?: string; preseedNeedsUpgrade?: boolean };
+      };
+      const first = await observe();
+      expect(first.preseedNeedsUpgrade).toBe(true);
+      expect(first.preseedUpgradeTarget).toEqual(expect.any(String));
+      expect(first.preseedUpgradeTarget?.length).toBeGreaterThan(0);
+      mockKV._set('managed-reconcile-progress:test-bucket', {
+        schemaVersion: 1, targetDigest: original.digest, phase: 'finalizing', completed: 61, total: 61,
+        updatedAt: '2026-08-31T12:00:00.000Z',
+      });
+      expect((await observe()).preseedUpgradeTarget).toBe(first.preseedUpgradeTarget);
+      // Every desired-state dimension can require a real later upgrade, even without a current poll between targets.
+      for (const changed of [
+        { ...original, digest: 'a'.repeat(64) },
+        { ...original, pointer: { sequence: 5 } },
+        { ...original, resourcePolicy: 'immutable' as const },
+      ]) {
+        managedReleaseState.active = changed;
+        expect((await observe()).preseedUpgradeTarget).not.toBe(first.preseedUpgradeTarget);
+      }
+      managedReleaseState.active = original;
+      mockKV._set('user-prefs:test-bucket', { sessionMode: 'advanced' });
+      expect((await observe()).preseedUpgradeTarget).not.toBe(first.preseedUpgradeTarget);
+      mockKV._set('user-prefs:test-bucket', { sessionMode: 'default' });
+      expect((await observe({ CODING_AGENTS: 'pi' })).preseedUpgradeTarget).not.toBe(first.preseedUpgradeTarget);
+      managedReleaseState.active = null;
+      const baked = await observe();
+      expect(baked.preseedUpgradeTarget).toEqual(expect.any(String));
+      expect(baked.preseedUpgradeTarget).not.toBe(first.preseedUpgradeTarget);
+      expect((await observe()).preseedUpgradeTarget).toBe(baked.preseedUpgradeTarget);
+      expect(await (await createApp().request('/sessions/batch-status')).json()).not.toHaveProperty('preseedUpgradeTarget');
+    });
+
     it('reports current only when release, mode, policy, and projection identity match applied state', async () => {
       managedReleaseState.active = { digest: 'd'.repeat(64), pointer: { sequence: 4 }, resourcePolicy: 'immutable' };
       mockKV._set('user-prefs:test-bucket', {

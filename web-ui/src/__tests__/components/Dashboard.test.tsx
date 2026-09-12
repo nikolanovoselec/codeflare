@@ -5,6 +5,7 @@ import Dashboard from '../../components/Dashboard';
 import { sessionStore } from '../../stores/session';
 import { storageStore } from '../../stores/storage';
 import { githubStore } from '../../stores/github';
+import * as storageApi from '../../api/storage';
 import * as vaultCache from '../../lib/vault-cache';
 import type { SessionWithStatus } from '../../types';
 
@@ -118,6 +119,8 @@ vi.mock('../../stores/session', async () => {
       get maxSessions() { return _maxSessions; },
       get r2Ready() { return r2Ready(); },
       get preseedUpgrading() { return _preseedUpgrading; },
+      preseedUpgradeFailed: false,
+      retryPreseedUpgrade: vi.fn().mockResolvedValue(undefined),
       get bucketMigrating() { return _bucketMigrating; },
       get bucketMigrationPercent() { return _bucketMigrationPercent; },
       get managedReleaseStatus() { return _managedReleaseStatus; },
@@ -185,6 +188,7 @@ vi.mock('../../stores/storage', async () => {
 
 vi.mock('../../api/storage', () => ({
   getDownloadUrl: vi.fn(() => 'https://example.com/download'),
+  recreateAgentConfigs: vi.fn(),
 }));
 
 vi.mock('../../lib/vault-cache', () => ({
@@ -208,6 +212,12 @@ const mockSessions: SessionWithStatus[] = [
   { id: 'sess1', name: 'Test Session 1', createdAt: '2024-01-15T10:00:00Z', lastAccessedAt: '2024-01-15T12:00:00Z', status: 'running' },
   { id: 'sess2', name: 'Test Session 2', createdAt: '2024-01-14T10:00:00Z', lastAccessedAt: '2024-01-14T12:00:00Z', status: 'stopped' },
 ];
+
+// Test-local recovery fields keep this RED suite compilable before the public API lands.
+const upgradeRecovery = sessionStore as typeof sessionStore & {
+  preseedUpgradeFailed: boolean;
+  retryPreseedUpgrade: () => Promise<void>;
+};
 
 // REQ-ENTERPRISE-015: Enterprise-mode admin and dropdown suppressions
 // REQ-VAULT-015: Vault IDB lifecycle and listing filters
@@ -234,6 +244,9 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     vi.mocked(githubStore.loadStatus).mockReset();
     vi.mocked(storageStore.fetchStats).mockReset();
     vi.mocked(sessionStore.startR2Polling).mockReset();
+    vi.mocked(upgradeRecovery.retryPreseedUpgrade).mockReset().mockResolvedValue(undefined);
+    upgradeRecovery.preseedUpgradeFailed = false;
+    (sessionStore as any)._setPreseedUpgrading(false);
     (storageStore as any)._setStats(null);
     (sessionStore as any)._setR2Ready(true);
     viewportMock.setViewport?.('desktop');
@@ -1105,6 +1118,42 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(button).toBeDisabled();
     expect(button.textContent).toBe('Update pending');
     expect(button).toHaveAttribute('aria-label', 'Session environment update pending until session stops');
+  });
+
+  it('REQ-AGENT-049: offers an actionable Retry upgrade after failure without creating a session or full Recreate', () => {
+    upgradeRecovery.preseedUpgradeFailed = true;
+    (sessionStore as any)._setPreseedUpgrading(false);
+    (sessionStore as any)._setManagedReleaseStatus('upgrading');
+    (sessionStore as any)._setManagedReleaseProgress({ phase: 'finalizing', completed: 61, total: 61 });
+    render(() => <Dashboard {...defaultProps} sessions={[]} />);
+
+    const retry = screen.getByRole('button', { name: /retry upgrade/i });
+    expect(retry).toBeEnabled();
+    expect(retry).toHaveTextContent('Retry upgrade');
+    fireEvent.click(retry);
+
+    expect(upgradeRecovery.retryPreseedUpgrade).toHaveBeenCalledTimes(1);
+    expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
+    expect(screen.getByTestId('create-session-dialog')).toHaveAttribute('data-open', 'false');
+    expect(storageApi.recreateAgentConfigs).not.toHaveBeenCalled();
+    expect(screen.getByTestId('storage-browser')).toBeInTheDocument();
+  });
+
+  it.each(['in-flight upgrade', 'update_pending'] as const)('REQ-STOR-037: Retry upgrade cannot bypass %s gating', (blockedBy) => {
+    upgradeRecovery.preseedUpgradeFailed = true;
+    (sessionStore as any)._setPreseedUpgrading(blockedBy === 'in-flight upgrade');
+    (sessionStore as any)._setManagedReleaseStatus(blockedBy === 'update_pending' ? 'update_pending' : 'upgrading');
+    render(() => <Dashboard {...defaultProps} sessions={[]} />);
+
+    const retry = screen.queryByRole('button', { name: /retry upgrade/i });
+    if (retry) expect(retry).toBeDisabled();
+    expect(screen.getByTestId('dashboard-new-session')).toBeDisabled();
+    if (blockedBy === 'update_pending') {
+      expect(screen.getByTestId('dashboard-new-session')).toHaveTextContent('Update pending');
+    }
+    expect(upgradeRecovery.retryPreseedUpgrade).not.toHaveBeenCalled();
+    expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
+    expect(storageApi.recreateAgentConfigs).not.toHaveBeenCalled();
   });
 
   it('REQ-AGENT-175 AC7: whole-button managed upgrade progress preserves centered text and ordinary completion color', () => {

@@ -9,12 +9,12 @@ import { isEnterpriseMode } from './subscription';
 import { parseUserRecord } from './user-record';
 import { listAllKvKeys, SETUP_KEYS } from './kv-keys';
 import { reactivateUsageUser } from './admin-usage';
-import { parseRouteSettings, type PiReasoningLevel, type ProfileRevisionRef } from './reasoning-profiles';
+import { selectRuntimeReasoningLevel, parseRouteSettings, type PiReasoningLevel, type ProfileRevisionRef } from './reasoning-profiles';
 import { getProfileForRef, getRouteReasoningProfile, parseReasoningConfiguration } from './reasoning-configuration';
 import { getAigConfig } from './aig-config';
 import { gatewayCoordinates, listCustomProviderSlugs, listNativeProviderConfigs, selectNativeProviderConfig, type GatewayConnection, type NativeProviderConfig } from './ai-gateway-management';
 import { nativeTargetHandle, nativeVerificationMatches, parseNativeAiTargets } from './native-ai-targets';
-import { connectionFingerprint, preferredReasoningLevel, verificationMatches } from './reasoning-verification';
+import { connectionFingerprint, verificationMatches } from './reasoning-verification';
 
 const logger = createLogger('access');
 const NATIVE_PROVIDER_CACHE_TTL_MS = 60_000;
@@ -825,6 +825,7 @@ function applyDefaultDrift(
  */
 interface ResolvedNativeTarget {
   model: string; provider: string; customProvider: boolean; byokAlias?: string; targetId: string; adapter: string;
+  transport: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto'; region?: string;
   profileRef: ProfileRevisionRef; reasoningLevels: PiReasoningLevel[]; label: string; contextWindow: number;
 }
 
@@ -890,8 +891,10 @@ export async function resolveRouteCatalog(
         eligible.push(handle);
         nativeTargets[handle] = {
           model: target.model, provider: target.provider, customProvider: Boolean(target.customProvider), ...(alias && { byokAlias: alias }),
-          targetId: target.id, adapter: target.provider === 'aws-bedrock' ? 'bedrock-anthropic-compat'
+          targetId: target.id, adapter: target.provider === 'aws-bedrock'
+            ? target.transport === 'aig-legacy-compat' ? 'bedrock-anthropic-compat' : 'bedrock-anthropic-native'
             : target.provider === 'google-ai-studio' ? 'gemini-openai-compat' : 'native-openai-compat',
+          transport: target.transport, ...(target.region && { region: target.region }),
           profileRef: target.profileRef, reasoningLevels: [...profile.supportedLevels], label: target.label, contextWindow: target.contextWindow,
         };
       }
@@ -902,12 +905,11 @@ export async function resolveRouteCatalog(
     const resolved = applyDefaultDrift(eligible, configuredDefault, typeof policy.reasoning === 'string' ? policy.reasoning : '');
     if (!resolved.defaultRoute) return empty;
     const nativeDefault = nativeTargets[resolved.defaultRoute];
-    if (nativeDefault) {
-      const levels = nativeDefault.reasoningLevels;
-      return { ...resolved, defaultReasoning: levels.includes(resolved.defaultReasoning as PiReasoningLevel) ? resolved.defaultReasoning : preferredReasoningLevel(levels) ?? '', nativeTargets };
-    }
-    const levels = getRouteReasoningProfile(configuration, resolved.defaultRoute).supportedLevels;
-    return { ...resolved, nativeTargets, defaultReasoning: levels.includes(resolved.defaultReasoning as PiReasoningLevel) ? resolved.defaultReasoning : preferredReasoningLevel(levels) ?? '' };
+    const profile = nativeDefault ? getProfileForRef(configuration, nativeDefault.profileRef)
+      : getRouteReasoningProfile(configuration, resolved.defaultRoute);
+    const level = selectRuntimeReasoningLevel(profile, resolved.defaultReasoning);
+    if (profile.reasoningMode !== 'provider-default' && level === undefined) return empty;
+    return { ...resolved, nativeTargets, defaultReasoning: level ?? '' };
   } catch { return empty; }
 }
 

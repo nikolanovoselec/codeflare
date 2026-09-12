@@ -8,6 +8,7 @@ vi.stubGlobal('fetch', mockFetch);
 import {
   getUser,
   getSessions,
+  getBatchSessionStatus,
   createSession,
   deleteSession,
   updateSession,
@@ -37,6 +38,22 @@ import {
 describe('API Client', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+  });
+
+  it('REQ-AGENT-049: carries the authoritative upgrade target through batch status parsing', async () => {
+    for (const target of ['target-a', 'target-b']) {
+      mockFetch.mockResolvedValueOnce(Response.json({ statuses: {}, maxSessions: 3, preseedNeedsUpgrade: true,
+        managedReleaseStatus: 'upgrading', preseedUpgradeTarget: target }));
+      expect(await getBatchSessionStatus({ includePreseedCheck: true })).toMatchObject({
+        preseedNeedsUpgrade: true, preseedUpgradeTarget: target,
+      });
+    }
+  });
+
+  it.each([0, '', null, {}])('REQ-AGENT-049: rejects an invalid upgrade target from batch status (%s)', async (target) => {
+    mockFetch.mockResolvedValueOnce(Response.json({ statuses: {}, maxSessions: 3, preseedNeedsUpgrade: true,
+      managedReleaseStatus: 'upgrading', preseedUpgradeTarget: target }));
+    await expect(getBatchSessionStatus({ includePreseedCheck: true })).rejects.toThrow();
   });
 
   // ==========================================================================
@@ -1404,6 +1421,35 @@ describe('API Client', () => {
       expect(mockFetch).toHaveBeenNthCalledWith(1, '/api/admin/configuration-previews', expect.objectContaining({ method: 'POST', body }));
       expect(mockFetch).toHaveBeenNthCalledWith(2, '/api/admin/configuration-runs', expect.objectContaining({ method: 'POST', body, credentials: 'same-origin' }));
       expect(mockFetch).toHaveBeenNthCalledWith(3, '/api/admin/usage-report-tests', expect.objectContaining({ method: 'POST' }));
+    });
+
+    it('REQ-ENTERPRISE-081: preserves authoritative preview validation fields in a typed request error', async () => {
+      const body = {
+        error: 'Environment values are invalid',
+        fields: { reasoningConfiguration: ['Route development requires an exact verification'] },
+      };
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        text: () => Promise.resolve(JSON.stringify(body)),
+      });
+
+      await expect(previewConfiguration('aiRouting', 7, {})).rejects.toMatchObject({ status: 400, body });
+    });
+
+    it('REQ-ENTERPRISE-081: preserves a plain-text preview failure message', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        statusText: 'Bad Gateway',
+        text: () => Promise.resolve('Gateway validation is temporarily unavailable'),
+      });
+
+      await expect(previewConfiguration('aiRouting', 7, {})).rejects.toMatchObject({
+        status: 502,
+        message: 'Gateway validation is temporarily unavailable',
+      });
     });
 
     it('submits explicit warning confirmations with the reviewed revision', async () => {

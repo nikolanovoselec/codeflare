@@ -1970,4 +1970,328 @@ describe('Session Store', () => {
       expect(sessionStore.authExpired).toBe(false);
     });
   });
+
+  describe('managed upgrade retry episodes (REQ-AGENT-049, REQ-STOR-033/036/037/040)', () => {
+    const upgradeUrl = '/api/storage/seed/agent-configs/upgrade';
+    const completedUpgrade = {
+      success: true, bucketCreated: false, written: [], skipped: [], deleted: [], warnings: [],
+      managedReleaseProgress: { phase: 'finalizing' as const, completed: 61, total: 61 },
+    };
+    const completedBakedUpgrade = { success: true, bucketCreated: false, written: [], skipped: [] };
+    // Optional only so the RED tests compile before this public recovery action exists.
+    // Missing recovery must fail on dispatched HTTP behavior, not a missing-method exception.
+    const retryStore = sessionStore as typeof sessionStore & {
+      readonly preseedUpgradeFailed?: boolean;
+      retryPreseedUpgrade?: () => Promise<void>;
+    };
+    const http = vi.fn<typeof fetch>();
+    let batch: Awaited<ReturnType<typeof api.getBatchSessionStatus>>;
+    let nextUpgrade: Promise<Response> | undefined;
+    let pendingResponses: Array<(response: Response) => void>;
+
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+      status, headers: { 'Content-Type': 'application/json' },
+    });
+    const upgradeRequests = () => http.mock.calls.filter(([url, init]) => url === upgradeUrl && init?.method === 'POST');
+    const mutations = () => http.mock.calls.filter(([, init]) => init?.method === 'POST').map(([url]) => url);
+    const deferUpgrade = () => {
+      let finish!: (response: Response) => void;
+      nextUpgrade = new Promise<Response>((resolve) => { finish = resolve; });
+      pendingResponses.push(finish);
+      return finish;
+    };
+
+    beforeEach(async () => {
+      sessionStore.stopSessionListPolling();
+      nextUpgrade = undefined;
+      pendingResponses = [];
+      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false };
+      const [client, storage] = await Promise.all([
+        vi.importActual<typeof api>('../../api/client'),
+        vi.importActual<typeof storageApi>('../../api/storage'),
+      ]);
+      // Keep unrelated store collaborators stubbed, but exercise the real HTTP clients,
+      // including response validation and upgrade-vs-full-Recreate endpoint selection.
+      mockGetSessions.mockImplementation(client.getSessions);
+      mockGetBatchSessionStatus.mockImplementation(client.getBatchSessionStatus);
+      mockUpgradeAgentConfigs.mockReset().mockImplementation(storage.upgradeAgentConfigs);
+      mockRecreateAgentConfigs.mockReset().mockImplementation(storage.recreateAgentConfigs);
+      http.mockReset().mockImplementation(async (input, init) => {
+        const url = new URL(String(input), 'https://codeflare.test');
+        if (url.pathname === '/api/sessions' && !init?.method) return json({ sessions: [] });
+        if (url.pathname === '/api/sessions/batch-status' && !init?.method) {
+          return json(url.searchParams.get('includePreseedCheck') === 'true'
+            ? batch : { statuses: batch.statuses, maxSessions: batch.maxSessions });
+        }
+        if (url.pathname === upgradeUrl && init?.method === 'POST') {
+          const response = nextUpgrade;
+          nextUpgrade = undefined;
+          return response ?? json(completedUpgrade);
+        }
+        throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${input}`);
+      });
+      vi.stubGlobal('fetch', http);
+      // Close any preceding episode through an authoritative public observation.
+      await sessionStore.loadSessions();
+      http.mockClear();
+      mockCreateSession.mockClear();
+      mockRecreateAgentConfigs.mockClear();
+      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: true };
+    });
+
+    afterEach(async () => {
+      // A RED assertion must not leave a deferred request occupying the shared store.
+      for (const finish of pendingResponses) finish(json(completedUpgrade));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false };
+      await sessionStore.refreshSessionStatuses(true);
+      mockGetSessions.mockResolvedValue([]);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {}, maxSessions: 3 });
+      mockUpgradeAgentConfigs.mockReset().mockResolvedValue(completedUpgrade);
+      mockRecreateAgentConfigs.mockReset().mockResolvedValue(completedUpgrade);
+      vi.unstubAllGlobals();
+    });
+
+    it('posts a successful upgrade once while stale true status keeps being observed', async () => {
+      const finish = deferUpgrade();
+      await sessionStore.loadSessions();
+      expect(sessionStore.preseedUpgrading).toBe(true);
+      finish(json(completedUpgrade));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      expect(sessionStore.managedReleaseStatus).toBe('upgrading');
+
+      for (const progress of [
+        { phase: 'planning' as const, completed: 0, total: 61 },
+        { phase: 'writing' as const, completed: 25, total: 61 },
+        { phase: 'finalizing' as const, completed: 61, total: 61 },
+      ]) {
+        batch = { ...batch, managedReleaseProgress: progress };
+        await sessionStore.refreshSessionStatuses();
+        await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      }
+      await sessionStore.loadSessions();
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+
+      expect(upgradeRequests()).toHaveLength(1);
+      expect(http.mock.calls.filter(([url]) => String(url).includes('/sessions/batch-status'))).toHaveLength(5);
+      expect(sessionStore.managedReleaseStatus).toBe('upgrading');
+      expect(sessionStore.managedReleaseProgress).toEqual(batch.managedReleaseProgress);
+      expect(mutations()).toEqual([upgradeUrl]);
+    });
+
+    it('does not claim current from a successful POST without completion progress', async () => {
+      const finish = deferUpgrade();
+      await sessionStore.loadSessions();
+      finish(json({ success: true, bucketCreated: false, written: [], skipped: [] }));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+
+      expect(sessionStore.managedReleaseStatus).toBe('upgrading');
+      expect(sessionStore.managedReleaseProgress).toBeNull();
+      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false };
+      await sessionStore.refreshSessionStatuses(true);
+      expect(sessionStore.managedReleaseStatus).toBe('current');
+      expect(upgradeRequests()).toHaveLength(1);
+    });
+
+    it('does not automatically retry a failed upgrade on repeated true polls and exposes recovery', async () => {
+      const finish = deferUpgrade();
+      await sessionStore.loadSessions();
+      finish(json({ error: 'Upgrade unavailable' }, 503));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+
+      for (let poll = 0; poll < 3; poll++) {
+        await sessionStore.refreshSessionStatuses();
+        await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      }
+
+      expect(upgradeRequests()).toHaveLength(1);
+      expect(retryStore.preseedUpgradeFailed).toBe(true);
+      expect(sessionStore.managedReleaseStatus).toBe('upgrading');
+      expect(http.mock.calls.filter(([url]) => String(url).includes('/sessions/batch-status'))).toHaveLength(4);
+    });
+
+    it('REQ-AGENT-049: clears a failed baked attempt when polling reports no upgrade needed without managed status', async () => {
+      batch = { statuses: {}, maxSessions: 3, preseedNeedsUpgrade: true, preseedUpgradeTarget: 'baked-a' };
+      const finish = deferUpgrade();
+      await sessionStore.loadSessions();
+      finish(json({ error: 'Upgrade unavailable' }, 503));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      expect(sessionStore.preseedUpgradeFailed).toBe(true);
+      expect(sessionStore.managedReleaseStatus).toBeNull();
+
+      // Another tab completed the baked upgrade. Its status has no managed fields.
+      batch = { ...batch, preseedNeedsUpgrade: false };
+      await sessionStore.refreshSessionStatuses();
+
+      expect(sessionStore.preseedUpgradeFailed).toBe(false);
+      await sessionStore.retryPreseedUpgrade();
+      expect(mutations()).toEqual([upgradeUrl]);
+      expect(sessionStore.managedReleaseStatus).toBeNull();
+    });
+
+    it.each(['success', 'failure'] as const)('REQ-AGENT-049: attempts a changed baked target without managed status after target A %s', async (outcome) => {
+      batch = { statuses: {}, maxSessions: 3, preseedNeedsUpgrade: true, preseedUpgradeTarget: 'baked-a' };
+      const first = deferUpgrade();
+      await sessionStore.loadSessions();
+      first(outcome === 'success' ? json(completedBakedUpgrade) : json({ error: 'Target A failed' }, 503));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      await sessionStore.refreshSessionStatuses();
+      expect(upgradeRequests()).toHaveLength(1);
+
+      const finishB = deferUpgrade();
+      batch = { ...batch, preseedUpgradeTarget: 'baked-b' };
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.preseedUpgrading).toBe(true);
+      expect(sessionStore.preseedUpgradeFailed).toBe(false);
+      finishB(json(completedBakedUpgrade));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+
+      for (const target of ['baked-b', 'baked-a', 'baked-b']) {
+        batch = { ...batch, preseedUpgradeTarget: target };
+        await sessionStore.refreshSessionStatuses();
+        await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      }
+      expect(mutations()).toEqual([upgradeUrl, upgradeUrl]);
+      expect(sessionStore.preseedUpgradeFailed).toBe(false);
+      expect(sessionStore.managedReleaseStatus).toBeNull();
+    });
+
+    it.each([undefined, 'target-a'])('allows a later automatic upgrade after false/current, including the same target (%s)', async (target) => {
+      batch = { ...batch, ...{ preseedUpgradeTarget: target } };
+      const first = deferUpgrade();
+      await sessionStore.loadSessions();
+      first(json(completedUpgrade));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      await sessionStore.refreshSessionStatuses();
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+
+      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false };
+      await sessionStore.refreshSessionStatuses(true);
+      expect(sessionStore.managedReleaseStatus).toBe('current');
+      expect(sessionStore.managedReleaseProgress).toBeNull();
+
+      const later = deferUpgrade();
+      batch = {
+        statuses: {}, maxSessions: 3, managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: true,
+        ...{ preseedUpgradeTarget: target },
+      };
+      await sessionStore.refreshSessionStatuses(true);
+      expect(sessionStore.preseedUpgrading).toBe(true);
+      later(json(completedUpgrade));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+
+      expect(upgradeRequests()).toHaveLength(2);
+      expect(sessionStore.managedReleaseStatus).toBe('upgrading');
+      expect(mutations()).toEqual([upgradeUrl, upgradeUrl]);
+    });
+
+    it.each(['success', 'failure'] as const)('attempts target B without an intervening false after target A %s, but does not repeat either target', async (outcome) => {
+      batch = { ...batch, ...{ preseedUpgradeTarget: 'target-a' } };
+      const first = deferUpgrade();
+      await sessionStore.loadSessions();
+      first(outcome === 'success' ? json(completedUpgrade) : json({ error: 'Target A failed' }, 503));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      await sessionStore.refreshSessionStatuses();
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      const postsAfterStaleA = upgradeRequests().length;
+
+      // A release activated while this tab was hidden: no false/current was observed.
+      const finishB = deferUpgrade();
+      batch = { ...batch, ...{ preseedUpgradeTarget: 'target-b' } };
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.preseedUpgrading).toBe(true);
+      expect(retryStore.preseedUpgradeFailed).toBeFalsy();
+      finishB(json(completedUpgrade));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      const postsAfterB = upgradeRequests().length;
+      // Out-of-order target observations must not restart either completed attempt.
+      for (const target of ['target-b', 'target-a', 'target-b']) {
+        batch = { ...batch, ...{ preseedUpgradeTarget: target } };
+        await sessionStore.refreshSessionStatuses();
+        await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      }
+
+      expect([postsAfterStaleA, postsAfterB, upgradeRequests().length]).toEqual([1, 2, 2]);
+      expect(sessionStore.managedReleaseStatus).toBe('upgrading');
+      expect(mutations()).toEqual([upgradeUrl, upgradeUrl]);
+    });
+
+    it.each(['current', 'update_pending'] as const)('ignores a late success after newer %s status', async (status) => {
+      const finish = deferUpgrade();
+      await sessionStore.loadSessions();
+      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: status, preseedNeedsUpgrade: false };
+      await sessionStore.refreshSessionStatuses(true);
+      expect(sessionStore.managedReleaseStatus).toBe(status);
+      expect(sessionStore.managedReleaseProgress).toBeNull();
+
+      finish(json(completedUpgrade));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+
+      expect(sessionStore.managedReleaseStatus).toBe(status);
+      expect(sessionStore.managedReleaseProgress).toBeNull();
+      expect(retryStore.preseedUpgradeFailed).toBeFalsy();
+      expect(sessionStore.error).toBeNull();
+      expect(upgradeRequests()).toHaveLength(1);
+    });
+
+    it.each(['current', 'update_pending'] as const)('ignores a late failure after newer %s status', async (status) => {
+      const finish = deferUpgrade();
+      await sessionStore.loadSessions();
+      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: status, preseedNeedsUpgrade: false };
+      await sessionStore.refreshSessionStatuses(true);
+      finish(json({ error: 'Old upgrade failed' }, 503));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+
+      expect(sessionStore.managedReleaseStatus).toBe(status);
+      expect(sessionStore.managedReleaseProgress).toBeNull();
+      expect(retryStore.preseedUpgradeFailed).toBeFalsy();
+      expect(sessionStore.error).toBeNull();
+      expect(upgradeRequests()).toHaveLength(1);
+    });
+
+    it('manually retries the current need once through the upgrade endpoint, never session creation or full Recreate', async () => {
+      const existingSessionIds = new Set(sessionStore.sessions.map((session) => session.id));
+      const first = deferUpgrade();
+      await sessionStore.loadSessions();
+      first(json({ error: 'Upgrade unavailable' }, 503));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+
+      const finishRetry = deferUpgrade();
+      const retry = retryStore.retryPreseedUpgrade?.();
+      await vi.waitFor(() => expect(upgradeRequests()).toHaveLength(2));
+      expect(sessionStore.preseedUpgrading).toBe(true);
+      expect(retryStore.preseedUpgradeFailed).toBeFalsy();
+      // Polling and another click cannot dispatch an overlapping attempt.
+      await sessionStore.refreshSessionStatuses();
+      const duplicateRetry = Promise.resolve(retryStore.retryPreseedUpgrade?.()).catch(() => undefined);
+      expect(upgradeRequests()).toHaveLength(2);
+      finishRetry(json(completedUpgrade));
+      await Promise.all([retry, duplicateRetry]);
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      await sessionStore.refreshSessionStatuses();
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+
+      expect(mutations()).toEqual([upgradeUrl, upgradeUrl]);
+      expect(sessionStore.managedReleaseStatus).toBe('upgrading');
+      expect(sessionStore.sessions.filter((session) => !existingSessionIds.has(session.id))).toEqual([]);
+      expect(mockCreateSession).not.toHaveBeenCalled();
+      expect(mockRecreateAgentConfigs).not.toHaveBeenCalled();
+    });
+
+    it.each(['current', 'update_pending'] as const)('does not retry a previous failure after newer %s status', async (status) => {
+      const finish = deferUpgrade();
+      await sessionStore.loadSessions();
+      finish(json({ error: 'Upgrade unavailable' }, 503));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      batch = { statuses: {}, maxSessions: 3, managedReleaseStatus: status, preseedNeedsUpgrade: false };
+      await sessionStore.refreshSessionStatuses(true);
+
+      await Promise.resolve(retryStore.retryPreseedUpgrade?.()).catch(() => undefined);
+
+      expect(mutations()).toEqual([upgradeUrl]);
+      expect(sessionStore.managedReleaseStatus).toBe(status);
+      expect(retryStore.preseedUpgradeFailed).toBeFalsy();
+      expect(mockRecreateAgentConfigs).not.toHaveBeenCalled();
+    });
+  });
 });

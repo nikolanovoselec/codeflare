@@ -47,14 +47,16 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from './types';
 import { resolveRouteCatalog } from './lib/access';
 import { SETUP_KEYS } from './lib/kv-keys';
-import { isPiReasoningLevel, translateReasoningRequest } from './lib/reasoning-profiles';
+import { canonicalHash, translateRuntimeReasoningRequest } from './lib/reasoning-profiles';
 import { getProfileForRef, getRouteReasoningProfile, parseReasoningConfigurationWithLegacyFallback } from './lib/reasoning-configuration';
-import { preferredReasoningLevel, verificationMatches } from './lib/reasoning-verification';
+import { verificationMatches } from './lib/reasoning-verification';
 import { getAigConfig } from './lib/aig-config';
 import { gatewayCoordinates } from './lib/ai-gateway-management';
 import { repairRepeatedCompleteToolNames } from './lib/openai-sse-tool-name-repair';
 import { nativeProviderSelector } from './lib/native-ai-targets';
 import { exposeGeminiThoughtSignatures, restoreGeminiThoughtSignatures } from './lib/gemini-thought-signature-adapter';
+import { adaptBedrockAnthropicResponse, bedrockAnthropicGatewayPath, buildBedrockAnthropicRequest, classifyBedrockToolTurn, selectBedrockAnthropicTransport, type BedrockAnthropicTransport, type BedrockReplayState } from './lib/bedrock-anthropic-native-adapter';
+import { encryptForKV, getAndDecrypt, getOrImportKey } from './lib/kv-crypto';
 
 /**
  * Hosts the DO must intercept for enterprise LLM routing. Only the OpenAI host
@@ -109,6 +111,8 @@ const RESPONSE_STRIPPED_HEADERS: readonly string[] = [
 interface InterceptorProps {
   /** The user's email — stamped into cf-aig-metadata for per-user gateway analytics. */
   user: string;
+  /** Bound container session identity used only to isolate confidential native replay state. */
+  sessionId?: string;
   /**
    * The user's matched Cloudflare Access groups, when the deployment configures
    * group gating. Each becomes one cf-aig-metadata tag (group_<sanitized>_<hash>=1) so
@@ -139,6 +143,11 @@ interface InterceptorProps {
  * prompt caching (`prompt_cache_key`) and `store` are unaffected.
  */
 const COMPAT_INCOMPATIBLE_FIELDS = ['store', 'prompt_cache_key'] as const;
+const NATIVE_REPLAY_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+export function nativeReplayStateKey(user: string, sessionId: string, targetId: string, toolId: string): string {
+  return `native-ai-replay:${canonicalHash({ user, sessionId, targetId, toolId })}`;
+}
 
 /** Return `raw` with COMPAT_INCOMPATIBLE_FIELDS removed; non-JSON/non-object bodies pass through unchanged. */
 function stripOpenAiOnlyFields(raw: string): string {
@@ -398,6 +407,10 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     let outboundBody: BodyInit | null | undefined = hasBody ? request.body : undefined;
     let nativeRequest = false;
     let effectiveAdapter = '';
+    let nativeBedrockUrl = '';
+    let nativeBedrockTransport: BedrockAnthropicTransport | null = null;
+    let nativeBedrockState: BedrockReplayState | null = null;
+    let nativeStreamRequested = false;
     let declaredToolNames: string[] = [];
     const catalog = isModelRoutable ? await this.loadRouteCatalog(groups) : null;
     if (catalog && catalog.routes.length === 0) {
@@ -440,7 +453,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         {
           const handle = typeof payload.model === 'string' ? payload.model.replace(/^dynamic\//, '') : catalog.defaultRoute;
           const requestedNative = handle.startsWith('cf-native-');
-          if (requestedNative && !catalog.nativeTargets[handle]) {
+          if (requestedNative && !catalog.nativeTargets[handle] && !catalog.routes.includes(handle)) {
             return new Response(JSON.stringify({ error: 'Native target is not authorized', code: 'ROUTE_NOT_ELIGIBLE' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
           }
           const route = catalog.routes.includes(handle) ? handle : catalog.defaultRoute;
@@ -458,22 +471,55 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
             try { profile = getProfileForRef(await this.loadReasoningConfiguration(), native.profileRef); } catch {
               return new Response(JSON.stringify({ error: 'Native profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
             }
-            if (profile.reasoningMode === 'provider-default') {
-              if (['reasoning_effort', 'reasoning', 'thinking', 'chat_template_kwargs'].some((key) => Object.hasOwn(payload!, key))) {
-                return new Response(JSON.stringify({ error: 'Reasoning controls are unsupported for this provider-default model', code: 'UNSUPPORTED_REASONING_CONTROL' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-              }
-            } else {
-              const canonicalLevel = payload.reasoning_effort ?? (isPiReasoningLevel(catalog.defaultReasoning) && profile.supportedLevels.includes(catalog.defaultReasoning)
-                ? catalog.defaultReasoning : preferredReasoningLevel(profile.supportedLevels));
-              if (!isPiReasoningLevel(canonicalLevel) || !profile.supportedLevels.includes(canonicalLevel)) {
-                return new Response(JSON.stringify({ error: 'Unsupported reasoning level', code: 'UNSUPPORTED_REASONING_LEVEL' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-              }
-              try { payload = translateReasoningRequest(payload, profile, canonicalLevel); } catch {
-                return new Response(JSON.stringify({ error: 'Native profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-              }
+            try {
+              payload = translateRuntimeReasoningRequest(payload, profile, catalog.defaultReasoning);
+            } catch {
+              return new Response(JSON.stringify({ error: 'Reasoning profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), {
+                status: 400, headers: { 'Content-Type': 'application/json' },
+              });
             }
-            payload.model = `${nativeProviderSelector(native.provider, native.customProvider)}/${native.model}`;
-            if (native.provider === 'google-ai-studio') restoreGeminiThoughtSignatures(payload);
+            if (native.transport === 'aig-legacy-compat') {
+              payload.model = `${nativeProviderSelector(native.provider, native.customProvider)}/${native.model}`;
+              if (native.provider === 'google-ai-studio') restoreGeminiThoughtSignatures(payload);
+            } else {
+              if (!this.env.KV || !native.region || !props?.user || !props.sessionId) {
+                return new Response(JSON.stringify({ error: 'Native Bedrock replay state is unavailable', code: 'NATIVE_STATE_UNAVAILABLE' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+              }
+              let encryptionKey: CryptoKey | null;
+              try { encryptionKey = await getOrImportKey(this.env); } catch { encryptionKey = null; }
+              if (!encryptionKey) {
+                return new Response(JSON.stringify({ error: 'Native Bedrock replay state is unavailable', code: 'NATIVE_STATE_UNAVAILABLE' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+              }
+              const configuredTransport = native.transport === 'aig-bedrock-anthropic-auto' ? 'auto'
+                : native.transport === 'aig-bedrock-anthropic-eventstream' ? 'eventstream' : 'invoke';
+              nativeStreamRequested = payload.stream === true;
+              if (configuredTransport === 'eventstream' && !nativeStreamRequested) {
+                return new Response(JSON.stringify({ error: 'Bedrock eventstream targets require streaming requests', code: 'UNSUPPORTED_NATIVE_TRANSPORT' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+              }
+              const replayTurn = Array.isArray(payload.messages) && classifyBedrockToolTurn(payload.messages).replay;
+              const stateKey = (toolId: string) => nativeReplayStateKey(props.user, props.sessionId!, native.targetId, toolId);
+              nativeBedrockState = {
+                load: async (toolId) => getAndDecrypt<unknown[]>(this.env.KV!, stateKey(toolId), encryptionKey),
+                save: async (toolId, content) => {
+                  const key = stateKey(toolId);
+                  const encrypted = await encryptForKV(JSON.stringify(content), encryptionKey!, key);
+                  await this.env.KV!.put(key, encrypted, { expirationTtl: NATIVE_REPLAY_TTL_SECONDS });
+                },
+              };
+              try {
+                const nativePayload = await buildBedrockAnthropicRequest(payload, nativeBedrockState);
+                nativeBedrockTransport = selectBedrockAnthropicTransport(configuredTransport, replayTurn, nativePayload.output_config?.effort);
+                payload = nativePayload;
+              } catch (error) {
+                return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Invalid native Bedrock request', code: 'INVALID_NATIVE_REQUEST' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+              }
+              if (nativeBedrockTransport === 'eventstream' && !nativeStreamRequested) {
+                return new Response(JSON.stringify({ error: 'Bedrock eventstream targets require streaming requests', code: 'UNSUPPORTED_NATIVE_TRANSPORT' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+              }
+              nativeBedrockUrl = `https://gateway.ai.cloudflare.com/v1/${gw.accountId}/${gw.gatewayId}${bedrockAnthropicGatewayPath(native.region, native.model, nativeBedrockTransport)}`;
+              compatHeaders.set('content-type', 'application/json');
+              if (nativeBedrockTransport === 'eventstream') compatHeaders.set('accept', 'application/vnd.amazon.eventstream');
+            }
             if (native.byokAlias) compatHeaders.set('cf-aig-byok-alias', native.byokAlias);
             nativeRequest = true;
             effectiveAdapter = native.adapter;
@@ -495,27 +541,12 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
               }), { status: 400, headers: { 'Content-Type': 'application/json' } });
             }
             effectiveAdapter = profile.id;
-            if (profile.reasoningMode === 'provider-default') {
-              if (['reasoning_effort', 'reasoning', 'thinking', 'chat_template_kwargs'].some((key) => Object.hasOwn(payload!, key))) {
-                return new Response(JSON.stringify({ error: 'Reasoning controls are unsupported for this provider-default model', code: 'UNSUPPORTED_REASONING_CONTROL' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-              }
-            } else {
-              const canonicalLevel = payload.reasoning_effort ?? (isPiReasoningLevel(catalog.defaultReasoning) && profile.supportedLevels.includes(catalog.defaultReasoning)
-                ? catalog.defaultReasoning : preferredReasoningLevel(profile.supportedLevels));
-              if (!isPiReasoningLevel(canonicalLevel) || !profile.supportedLevels.includes(canonicalLevel)) {
-                return new Response(JSON.stringify({ error: 'Unsupported reasoning level', code: 'UNSUPPORTED_REASONING_LEVEL' }), {
-                  status: 400,
-                  headers: { 'Content-Type': 'application/json' },
-                });
-              }
-              try {
-                payload = translateReasoningRequest(payload, profile, canonicalLevel);
-              } catch {
-                return new Response(JSON.stringify({ error: 'Reasoning profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), {
-                  status: 400,
-                  headers: { 'Content-Type': 'application/json' },
-                });
-              }
+            try {
+              payload = translateRuntimeReasoningRequest(payload, profile, catalog.defaultReasoning);
+            } catch {
+              return new Response(JSON.stringify({ error: 'Reasoning profile configuration unavailable', code: 'REASONING_CONFIGURATION_UNAVAILABLE' }), {
+                status: 400, headers: { 'Content-Type': 'application/json' },
+              });
             }
           }
           if (!native) payload.model = `dynamic/${route}`;
@@ -544,7 +575,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
 
     let upstream: Response;
     try {
-      upstream = nativeRequest ? await sendTo(compatUrl, compatHeaders, stripOpenAiOnlyFields(outboundBody as string)) : await sendTo(restUrl, restHeaders);
+      upstream = nativeRequest ? await sendTo(nativeBedrockUrl || compatUrl, compatHeaders, nativeBedrockUrl ? outboundBody : stripOpenAiOnlyFields(outboundBody as string)) : await sendTo(restUrl, restHeaders);
       if (!nativeRequest && upstream.status === 404 && isModelRoutable && typeof outboundBody === 'string') {
         // Compat reaches non-OpenAI providers (e.g. google-ai-studio) that reject
         // OpenAI-only fields (store, prompt_cache_key) with a 400; strip them on
@@ -567,18 +598,27 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
     // reading it preserves text/event-stream + chunked transfer — tokens reach
     // the agent as they arrive.
     if (nativeRequest && effectiveAdapter === 'gemini-openai-compat') upstream = exposeGeminiThoughtSignatures(upstream);
+    if (nativeBedrockTransport && nativeBedrockState) {
+      try { upstream = await adaptBedrockAnthropicResponse(upstream, nativeBedrockTransport, nativeBedrockState, nativeStreamRequested); }
+      catch (error) {
+        console.error('LlmInterceptor: native Bedrock response adaptation failed', { error: error instanceof Error ? error.message : String(error) });
+        return new Response(JSON.stringify({ error: 'Invalid native Bedrock response', code: 'INVALID_NATIVE_RESPONSE' }), { status: 502, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
     const responseHeaders = new Headers(upstream.headers);
     for (const h of RESPONSE_STRIPPED_HEADERS) responseHeaders.delete(h);
 
     // Repair the dynamic-route streaming terminator (see ensureStreamTerminator):
-    // only for streamed chat-completions responses; every other response (non-
-    // streaming, /responses, errors) passes through byte-for-byte.
+    // only for streamed chat-completions responses outside the native Bedrock
+    // adapter, which owns both successful and failed stream completion.
     const contentType = upstream.headers.get('content-type') ?? '';
     const isStreamingChat =
       contentType.includes('text/event-stream') && url.pathname.endsWith('/chat/completions');
-    const normalizedBody = upstream.body && isStreamingChat && effectiveAdapter === 'bedrock-anthropic-compat'
+    const normalizedBody = upstream.body && isStreamingChat
+      && (effectiveAdapter === 'bedrock-anthropic-compat' || effectiveAdapter === 'dynamic-bedrock-anthropic-provider-default')
       ? upstream.body.pipeThrough(repairRepeatedCompleteToolNames(declaredToolNames)) : upstream.body;
-    const responseBody = normalizedBody && isStreamingChat ? normalizedBody.pipeThrough(ensureStreamTerminator()) : normalizedBody;
+    const responseBody = normalizedBody && isStreamingChat && !nativeBedrockTransport
+      ? normalizedBody.pipeThrough(ensureStreamTerminator()) : normalizedBody;
 
     return new Response(responseBody, {
       status: upstream.status,
@@ -594,7 +634,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
    * here can never drift from it. The first matched policy wins before filtering;
    * unmatched users need explicit fallback. No eligible catalog denies inference.
    */
-  private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string; defaultReasoning: string; nativeTargets: Record<string, { model: string; provider: string; customProvider: boolean; byokAlias?: string; targetId: string; adapter: string; profileRef: import('./lib/reasoning-profiles').ProfileRevisionRef; reasoningLevels: import('./lib/reasoning-profiles').PiReasoningLevel[]; label: string; contextWindow: number }> }> {
+  private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string; defaultReasoning: string; nativeTargets: Record<string, { model: string; provider: string; customProvider: boolean; byokAlias?: string; targetId: string; adapter: string; transport: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto'; region?: string; profileRef: import('./lib/reasoning-profiles').ProfileRevisionRef; reasoningLevels: import('./lib/reasoning-profiles').PiReasoningLevel[]; label: string; contextWindow: number }> }> {
     if (!this.env.KV) return { routes: [], defaultRoute: '', defaultReasoning: 'off', nativeTargets: {} };
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
     const { routeCatalog, defaultRoute, defaultReasoning, nativeTargets } = await resolveRouteCatalog(this.env.KV, groups, {

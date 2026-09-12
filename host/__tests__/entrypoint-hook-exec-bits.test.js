@@ -86,6 +86,7 @@ function runSuccessfulBisync(home) {
     'RCLONE_FILTERS=()',
     'pgrep() { return 1; }',
     'cleanup_main_transcripts() { :; }',
+    'cleanup_remote_pi_transcript_conflicts() { :; }',
     'rclone() { return 0; }',
     'find() { if [ "${1:-}" = "/home/user" ]; then return 0; fi; command find "$@"; }',
     extractFunction('repair_hook_exec_bits'),

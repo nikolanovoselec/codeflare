@@ -77,7 +77,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
     return Math.min(100, Math.max(0, (progress.completed / progress.total) * 100));
   });
   const managedUpgradeStyle = createMemo(() => {
-    if (sessionStore.managedReleaseStatus !== 'upgrading') return undefined;
+    if (sessionStore.managedReleaseStatus !== 'upgrading' || sessionStore.preseedUpgradeFailed) return undefined;
     const percent = managedUpgradePercent();
     return `background: linear-gradient(to right, var(--color-accent) 0%, var(--color-accent) ${percent}%, color-mix(in srgb, var(--color-accent) 72%, black) ${percent}%, color-mix(in srgb, var(--color-accent) 72%, black) 100%);`;
   });
@@ -426,9 +426,13 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   class={`dashboard-new-session-btn ${sessionStore.isAtSessionLimit() ? 'dashboard-new-session-btn--limited' : ''}`}
                   data-testid="dashboard-new-session"
                   style={managedUpgradeStyle()}
-                  disabled={!sessionStore.r2Ready || isAtUsageQuota() || sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' || sessionStore.managedReleaseStatus === 'update_pending' || sessionStore.bucketMigrating}
-                  aria-label={sessionStore.bucketMigrating ? 'Storage is migrating' : sessionStore.managedReleaseStatus === 'update_pending' ? 'Session environment update pending until session stops' : managedUpgradeAriaLabel() ?? (sessionStore.preseedUpgrading ? 'Updating session environment' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session')}
+                  disabled={!sessionStore.r2Ready || isAtUsageQuota() || sessionStore.preseedUpgrading || (sessionStore.managedReleaseStatus === 'upgrading' && !sessionStore.preseedUpgradeFailed) || sessionStore.managedReleaseStatus === 'update_pending' || sessionStore.bucketMigrating}
+                  aria-label={sessionStore.bucketMigrating ? 'Storage is migrating' : sessionStore.managedReleaseStatus === 'update_pending' ? 'Session environment update pending until session stops' : sessionStore.preseedUpgradeFailed && !sessionStore.preseedUpgrading ? 'Retry upgrade' : managedUpgradeAriaLabel() ?? (sessionStore.preseedUpgrading ? 'Updating session environment' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session')}
                   onClick={() => {
+                    if (sessionStore.preseedUpgradeFailed) {
+                      void sessionStore.retryPreseedUpgrade();
+                      return;
+                    }
                     if (sessionStore.isAtSessionLimit()) {
                       setShowLimitPopup(!showLimitPopup());
                     } else {
@@ -440,7 +444,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     ? (sessionStore.bucketMigrationPercent != null ? `Migrating ${sessionStore.bucketMigrationPercent}%` : 'Migrating')
                     : sessionStore.managedReleaseStatus === 'update_pending'
                       ? 'Update pending'
-                      : managedUpgradeLabel() ?? (sessionStore.preseedUpgrading ? 'Updating' : '+ New Session')}
+                      : sessionStore.preseedUpgradeFailed && !sessionStore.preseedUpgrading
+                        ? 'Retry upgrade'
+                        : managedUpgradeLabel() ?? (sessionStore.preseedUpgrading ? 'Updating' : '+ New Session')}
                 </button>
                 <Show when={multiViewWorkspace()}>
                   <button

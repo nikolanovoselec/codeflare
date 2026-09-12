@@ -35,6 +35,7 @@ export interface InterceptionHost {
   readonly ctx: DurableObjectState<Env>;
   readonly logger: ReturnType<typeof createLogger>;
   _bucketName: string | null;
+  _sessionId: string | null;
   _userEmail: string | null;
   _userGroups: string[];
   _cloudflareApiToken: string | null;
@@ -126,6 +127,7 @@ const llm: InterceptorSpec = {
       entrypoint: 'LlmInterceptor',
       props: {
         user,
+        ...(host._sessionId ? { sessionId: host._sessionId } : {}),
         ...(host._userGroups.length > 0 ? { groups: host._userGroups } : {}),
         gatewayUrl: aig.gatewayUrl,
         ...(aig.gatewayId ? { gatewayId: aig.gatewayId } : {}),

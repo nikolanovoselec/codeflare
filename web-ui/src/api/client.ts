@@ -185,9 +185,19 @@ export class ConfigurationRequestError extends Error {
 }
 
 export async function previewConfiguration(section: ConfigurationSection, baseRevision: number, values: unknown): Promise<ConfigurationPreview> {
-  return fetchApi('/admin/configuration-previews', {
-    method: 'POST', body: JSON.stringify({ section, baseRevision, values }),
-  }, ConfigurationPreviewSchema);
+  try {
+    return await fetchApi('/admin/configuration-previews', {
+      method: 'POST', body: JSON.stringify({ section, baseRevision, values }),
+    }, ConfigurationPreviewSchema);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    let body: Record<string, unknown> = { error: error.message };
+    try {
+      const parsed = typeof error.body === 'string' ? JSON.parse(error.body) : error.body;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) body = parsed as Record<string, unknown>;
+    } catch { /* response had no JSON body */ }
+    throw new ConfigurationRequestError(error.status, body);
+  }
 }
 
 export async function startConfigurationRun(
@@ -374,13 +384,13 @@ export interface ManagedReleaseProgress {
  * Get status for all sessions in a single batch call
  * Returns statuses map, maxSessions limit, and optional storageStats
  */
-export async function getBatchSessionStatus(options?: { includePreseedCheck?: boolean; include?: readonly ('usage' | 'storage')[] }): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }; preseedNeedsUpgrade?: boolean; managedReleaseStatus?: 'current' | 'upgrading' | 'update_pending'; managedReleaseProgress?: ManagedReleaseProgress; bucketMigrating?: boolean; bucketMigrationPending?: boolean; bucketMigrationPercent?: number }> {
+export async function getBatchSessionStatus(options?: { includePreseedCheck?: boolean; include?: readonly ('usage' | 'storage')[] }): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }; preseedNeedsUpgrade?: boolean; preseedUpgradeTarget?: string; managedReleaseStatus?: 'current' | 'upgrading' | 'update_pending'; managedReleaseProgress?: ManagedReleaseProgress; bucketMigrating?: boolean; bucketMigrationPending?: boolean; bucketMigrationPercent?: number }> {
   const query = new URLSearchParams();
   if (options?.includePreseedCheck) query.set('includePreseedCheck', 'true');
   if (options?.include?.length) query.set('include', [...new Set(options.include)].sort().join(','));
   const path = `/sessions/batch-status${query.size ? `?${query}` : ''}`;
   const response = await fetchApi(path, {}, BatchSessionStatusResponseSchema);
-  return { statuses: response.statuses, maxSessions: response.maxSessions, storageStats: response.storageStats, usage: response.usage, preseedNeedsUpgrade: response.preseedNeedsUpgrade, managedReleaseStatus: response.managedReleaseStatus, managedReleaseProgress: response.managedReleaseProgress, bucketMigrating: response.bucketMigrating, bucketMigrationPending: response.bucketMigrationPending, bucketMigrationPercent: response.bucketMigrationPercent };
+  return { statuses: response.statuses, maxSessions: response.maxSessions, storageStats: response.storageStats, usage: response.usage, preseedNeedsUpgrade: response.preseedNeedsUpgrade, preseedUpgradeTarget: response.preseedUpgradeTarget, managedReleaseStatus: response.managedReleaseStatus, managedReleaseProgress: response.managedReleaseProgress, bucketMigrating: response.bucketMigrating, bucketMigrationPending: response.bucketMigrationPending, bucketMigrationPercent: response.bucketMigrationPercent };
 }
 
 // Get container startup status (polling endpoint)

@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  createNativeTarget, nativeProfileRefKey, nativeProviderSelector, nativeTargetHandle, nativeVerificationMatches,
+  createNativeTarget, nativeProfileRefKey, nativeProviderSelector, nativeTargetDraftSchema, nativeTargetHandle, nativeVerificationMatches,
   parseNativeAiTargets, reconcileNativeTargets, sanitizeNativeTarget,
 } from '../../lib/native-ai-targets';
 import { defaultBedrockProvider, listCustomProviderSlugs, listCustomProviderSlugsForProviders, listNativeProviderConfigs, selectNativeProviderConfig } from '../../lib/ai-gateway-management';
 import { connectionFingerprint } from '../../lib/reasoning-verification';
 import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
+import { nativeTargetDraftShapeValid } from '../../lib/native-ai-target-draft';
 
 const profileRef = getBuiltInProfileRef('bedrock-anthropic-compat');
 const connection = { gatewayUrl: `https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/`, gatewayId: 'gateway', token: 'secret-token' };
@@ -72,6 +73,25 @@ describe('native AI targets', () => {
     expect(nativeTargetHandle(target.id)).toBe('cf-native-11111111-1111-4111-8111-111111111111');
   });
 
+  const legacyDraft = { label: 'Legacy Bedrock draft', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef, enabled: false };
+
+  it('REQ-ENTERPRISE-066: browser validation treats an omitted provider as AWS Bedrock', () => {
+    expect(nativeTargetDraftShapeValid(legacyDraft)).toBe(true);
+    expect(nativeTargetDraftShapeValid({ ...legacyDraft, model: 'arn:aws:bedrock:eu-central-1:123456789012:inference-profile/example' })).toBe(false);
+  });
+
+  it('REQ-ENTERPRISE-066: API validation defaults an omitted provider to AWS Bedrock', () => {
+    expect(nativeTargetDraftSchema.parse(legacyDraft).provider).toBe('aws-bedrock');
+  });
+
+  it('REQ-ENTERPRISE-066: browser validation rejects undeclared native draft fields', () => {
+    expect(nativeTargetDraftShapeValid({ ...legacyDraft, unexpected: true })).toBe(false);
+  });
+
+  it('REQ-ENTERPRISE-066: API validation rejects undeclared native draft fields', () => {
+    expect(nativeTargetDraftSchema.safeParse({ ...legacyDraft, unexpected: true }).success).toBe(false);
+  });
+
   it('REQ-ENTERPRISE-060: enforces the Bedrock model boundary without restricting custom-provider model syntax', () => {
     for (const model of ['../escape', 'family/model', 'https://example.com/model', 'arn:aws:bedrock:eu-central-1:123456789012:inference-profile/example', 'model%2Fchild', 'model?query', 'model#fragment', 'model*']) {
       expect(() => createNativeTarget({ label: 'Bad', model, contextWindow: 200000, providerConfigId: 'raw-provider', profileRef })).toThrow();
@@ -79,6 +99,60 @@ describe('native AI targets', () => {
     const custom = createNativeTarget({ label: 'Custom', provider: 'custom-provider', customProvider: true, model: 'family/model:tag', contextWindow: 200000, providerConfigId: 'raw-provider', profileRef: getBuiltInProfileRef('native-codeflare-inference-mesh-compat') });
     expect(custom.model).toBe('family/model:tag');
     expect(() => createNativeTarget({ label: 'Small', model: 'valid.model', contextWindow: 16384, providerConfigId: 'raw-provider', profileRef })).toThrow();
+  });
+
+  it('REQ-ENTERPRISE-074: binds provider-native Bedrock profiles to the validated model, region, and transport', () => {
+    const sonnetRef = getBuiltInProfileRef('bedrock-anthropic-native-sonnet');
+    const native = createNativeTarget({ label: 'Native Sonnet', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000,
+      providerConfigId: 'raw-provider', profileRef: sonnetRef, transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1' });
+    expect(native).toMatchObject({ transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', profileRef: sonnetRef });
+    expect(nativeTargetDraftShapeValid({ label: native.label, provider: native.provider, model: native.model, contextWindow: native.contextWindow,
+      profileRef: native.profileRef, transport: native.transport, region: native.region, enabled: false })).toBe(true);
+    expect(() => createNativeTarget({ ...native, id: undefined, model: 'eu.anthropic.claude-opus-5', providerConfigId: 'raw-provider' })).toThrow();
+    expect(() => createNativeTarget({ ...native, id: undefined, region: undefined, providerConfigId: 'raw-provider' })).toThrow();
+    expect(() => createNativeTarget({ ...native, id: undefined, transport: 'aig-legacy-compat', providerConfigId: 'raw-provider' })).toThrow();
+    const verified = { ...native, verification: { schemaVersion: 1 as const, method: 'administrator' as const, targetId: native.id, provider: native.provider,
+      model: native.model, providerConfigId: native.providerConfigId, connectionFingerprint: fingerprint, profileRef: native.profileRef,
+      transport: native.transport, region: native.region, adapterVersion: 'bedrock-anthropic-native-v1' as const, checkedAt: new Date().toISOString() } };
+    expect(nativeVerificationMatches(verified, connection)).toBe(true);
+    expect(nativeVerificationMatches({ ...verified, region: 'us-east-1' }, connection)).toBe(false);
+  });
+
+  it('REQ-ENTERPRISE-074: validates automatic routing without widening explicit or compatibility identities', () => {
+    const autoRef = getBuiltInProfileRef('bedrock-anthropic-native-opus-auto');
+    const draft = { label: 'Opus', provider: 'aws-bedrock', model: 'eu.anthropic.claude-opus-5', contextWindow: 200000,
+      profileRef: autoRef, transport: 'aig-bedrock-anthropic-auto' as const, region: 'eu-central-1', enabled: false };
+    expect(nativeTargetDraftShapeValid(draft)).toBe(true);
+    expect(nativeTargetDraftSchema.parse(draft)).toEqual(draft);
+    for (const change of [{ provider: 'openai' }, { region: undefined }, { model: 'eu.anthropic.claude-sonnet-5' },
+      { transport: 'aig-bedrock-anthropic-eventstream' }, { transport: 'aig-bedrock-anthropic-invoke' }, { transport: 'aig-legacy-compat' },
+      { profileRef: getBuiltInProfileRef('bedrock-anthropic-native-opus-stream') }, { profileRef: getBuiltInProfileRef('bedrock-anthropic-native-opus-invoke') },
+      { profileRef: getBuiltInProfileRef('bedrock-anthropic-compat') }]) {
+      expect(nativeTargetDraftSchema.safeParse({ ...draft, ...change }).success).toBe(false);
+    }
+    expect(nativeTargetDraftSchema.safeParse({ ...draft, model: 'eu.anthropic.claude-sonnet-5', profileRef: getBuiltInProfileRef('bedrock-anthropic-native-sonnet') }).success).toBe(true);
+    const auto = createNativeTarget({ ...draft, providerConfigId: 'raw-provider' });
+    expect(parseNativeAiTargets({ schemaVersion: 1, targets: [auto] }).targets[0]).toEqual(auto);
+  });
+
+  it('REQ-ENTERPRISE-074: automatic upgrades invalidate old verification while unchanged explicit targets retain it', () => {
+    const ref = getBuiltInProfileRef('bedrock-anthropic-native-sonnet');
+    const explicit = createNativeTarget({ label: 'Sonnet', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000,
+      profileRef: ref, providerConfigId: 'raw-provider', transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1' });
+    const verification = { schemaVersion: 1 as const, method: 'administrator' as const, targetId: explicit.id, provider: explicit.provider,
+      model: explicit.model, providerConfigId: explicit.providerConfigId, connectionFingerprint: fingerprint, profileRef: ref,
+      transport: explicit.transport, region: explicit.region, adapterVersion: 'bedrock-anthropic-native-v1' as const, checkedAt: new Date().toISOString() };
+    const saved = { ...explicit, verification };
+    const current = { schemaVersion: 1 as const, targets: [saved] };
+    const draft = { id: explicit.id, label: explicit.label, provider: explicit.provider, model: explicit.model, contextWindow: explicit.contextWindow,
+      profileRef: ref, enabled: false, transport: explicit.transport, region: explicit.region };
+    const refs = new Set([nativeProfileRefKey(ref)]);
+    expect(reconcileNativeTargets([draft], current, authority, refs).targets[0]).toEqual(saved);
+    const upgraded = reconcileNativeTargets([{ ...draft, transport: 'aig-bedrock-anthropic-auto' }], current, authority, refs).targets[0];
+    expect(upgraded.transport).toBe('aig-bedrock-anthropic-auto');
+    expect(upgraded.verification).toBeUndefined();
+    expect(nativeVerificationMatches({ ...upgraded, verification }, connection)).toBe(false);
+    expect(nativeVerificationMatches({ ...upgraded, verification: { ...verification, transport: upgraded.transport } }, connection)).toBe(true);
   });
 
   it('REQ-ENTERPRISE-061: browser projection excludes exact provider authority and aliases', () => {

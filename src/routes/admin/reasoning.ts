@@ -11,6 +11,7 @@ import {
   COMPATIBILITY_NOTICES,
   canonicalHash,
   canonicalJson,
+  getBuiltInProfile,
   getBuiltInProfileRef,
   isPiReasoningLevel,
   normalizeCustomProfile,
@@ -167,6 +168,14 @@ function allProfiles(configuration: ReasoningConfigurationView): Record<string, 
   return [...(BUILT_IN_REASONING_PROFILES as unknown as readonly Record<string, unknown>[]), ...configuration.customProfileRevisions];
 }
 
+function supportsCompatibilityDiscovery(profile: Record<string, unknown>): boolean {
+  const transports = Array.isArray(profile.validatedTransports) ? profile.validatedTransports : [];
+  const hasDiscoverableContract = Array.isArray(profile.supportedLevels) && (profile.supportedLevels.length > 0
+    || profile.id === 'dynamic-bedrock-anthropic-provider-default');
+  return hasDiscoverableContract
+    && !transports.some((transport) => transport === 'bedrock-invoke' || transport === 'bedrock-eventstream');
+}
+
 function resolveProfile(configuration: ReasoningConfigurationView, requested: ProfileRef): Record<string, unknown> | null {
   return allProfiles(configuration).find((profile) => {
     const reference = profileRefFor(profile);
@@ -187,6 +196,7 @@ function profileDiscoveryContract(profile: Record<string, unknown>): Record<stri
 function distinctDiscoveryCandidates(): Record<string, unknown>[] {
   const seen = new Set<string>();
   return (BUILT_IN_REASONING_PROFILES as unknown as readonly Record<string, unknown>[]).filter((profile) => {
+    if (!supportsCompatibilityDiscovery(profile)) return false;
     const digest = canonicalHash(profileDiscoveryContract(profile));
     if (seen.has(digest)) return false;
     seen.add(digest);
@@ -200,6 +210,9 @@ interface DiscoveryCandidateReport {
 }
 
 function coversProfile(observed: Record<string, unknown>, requested: Record<string, unknown>): boolean {
+  if (requested.id === 'dynamic-bedrock-anthropic-provider-default') {
+    return observed.id === requested.id && observed.hash === requested.hash;
+  }
   const observedLevels = Array.isArray(observed.supportedLevels) ? observed.supportedLevels.filter(isPiReasoningLevel) : [];
   const requestedLevels = Array.isArray(requested.supportedLevels) ? requested.supportedLevels.filter(isPiReasoningLevel) : [];
   if (requestedLevels.length === 0 || !requestedLevels.every((level) => observedLevels.includes(level))) return false;
@@ -227,6 +240,7 @@ function distinctCandidateReports(reports: DiscoveryCandidateReport[]): Discover
 }
 
 function observedCandidate({ profile, report }: DiscoveryCandidateReport): DiscoveryCandidateReport | null {
+  if (profile.id === 'dynamic-bedrock-anthropic-provider-default') return report.assignable ? { profile, report } : null;
   const supportedLevels = Array.isArray(report.compatibleLevels) ? report.compatibleLevels.filter(isPiReasoningLevel) : [];
   if (supportedLevels.length === 0 || !isPlainObject(profile.levels)) return null;
   const mappings = profile.levels;
@@ -499,7 +513,7 @@ async function discoverNativeProfile(input: {
   }
   const stopped = reports.some(({ report }) => report.stopDiscovery === true);
   const observed = reports.map(observedCandidate).filter((candidate): candidate is DiscoveryCandidateReport => candidate !== null);
-  const matches = stopped ? [] : allProfiles(input.configuration).filter((profile) => profile.enabled !== false).flatMap((profile) => {
+  const matches = stopped ? [] : allProfiles(input.configuration).filter((profile) => profile.enabled !== false && supportsCompatibilityDiscovery(profile)).flatMap((profile) => {
     const observation = observed.find((candidate) => coversProfile(candidate.profile, profile));
     return observation ? [{ profile, report: observation.report }] : [];
   });
@@ -563,6 +577,17 @@ reasoningRoutes.post('/native/profile-discovery', requireAdmin, discoveryRateLim
     ]);
     const provider = selectNativeProviderConfig(configs, request.data.target.provider);
     if (!provider) return c.json({ error: 'Native provider configuration not found', code: 'provider_unavailable' }, 409);
+    if (request.data.target.transport && request.data.target.transport !== 'aig-legacy-compat') {
+      const sonnet = request.data.target.model.includes('.claude-sonnet-5');
+      const opus = request.data.target.model.includes('.claude-opus-5');
+      if (!sonnet && !opus) return c.json({ error: 'No validated provider-native Bedrock profile covers this model', code: 'unsupported_model' }, 409);
+      const profileId = sonnet ? 'bedrock-anthropic-native-sonnet'
+        : request.data.target.transport === 'aig-bedrock-anthropic-auto' ? 'bedrock-anthropic-native-opus-auto'
+        : request.data.target.transport === 'aig-bedrock-anthropic-eventstream' ? 'bedrock-anthropic-native-opus-stream' : 'bedrock-anthropic-native-opus-invoke';
+      const profile = getBuiltInProfile(profileId)!;
+      return c.json({ schemaVersion: 1, route: `${provider.provider}/${request.data.target.model}`, outcome: 'existing-profile', classification: 'Verified', assignable: true,
+        matchedProfiles: [{ profileRef: profileRefFor(profile as unknown as Record<string, unknown>), name: profile.name, supportedLevels: profile.supportedLevels }], diagnostics: [], accounting: { logicalProbes: 0, httpAttempts: 0 } });
+    }
     const selector = `${nativeProviderSelector(provider.provider, customProviders.has(provider.provider))}/${request.data.target.model}`;
     return c.json(await discoverNativeProfile({
       accountId: coordinates.accountId, gatewayId: coordinates.gatewayId, token: gateway.token, selector, provider: provider.provider,
@@ -613,9 +638,12 @@ reasoningRoutes.post('/native/discover', requireAdmin, discoveryRateLimiter, asy
       schemaVersion: 1, ...(request.data.administratorConfirmed && { method: 'administrator' as const }), targetId: target.id,
       provider: target.provider, ...(target.customProvider && { customProvider: true }), model: target.model,
       providerConfigId: provider.id, ...(providerConfigAlias && { providerConfigAlias }), connectionFingerprint: fingerprint, profileRef: target.profileRef,
-      transport: target.transport, adapterVersion: nativeTargetAdapterVersion(target.provider), checkedAt: new Date().toISOString(),
+      transport: target.transport, ...(target.region && { region: target.region }), adapterVersion: nativeTargetAdapterVersion(target.provider, target.transport), checkedAt: new Date().toISOString(),
     };
     let report: Record<string, any> | undefined;
+    if (target.transport !== 'aig-legacy-compat' && !request.data.administratorConfirmed) {
+      return c.json({ error: 'Provider-native Bedrock targets require administrator confirmation of the recorded validation evidence', code: 'administrator_confirmation_required' }, 400);
+    }
     if (!request.data.administratorConfirmed) {
       report = await discoverPiCompatibility({ accountId: coordinates.accountId, gatewayId: coordinates.gatewayId, apiToken: gateway.token,
         route: `${nativeProviderSelector(target.provider, Boolean(target.customProvider))}/${target.model}`, profile,
@@ -737,7 +765,7 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
     const observed = reports.map(observedCandidate).filter((candidate): candidate is DiscoveryCandidateReport => candidate !== null);
     // Reuse the finite protocol observations for catalog matching. Saved custom
     // revisions do not expand the paid probe campaign or inject new request paths.
-    const matches = allProfiles(configuration).filter((profile) => profile.enabled !== false).flatMap((profile) => {
+    const matches = allProfiles(configuration).filter((profile) => profile.enabled !== false && supportsCompatibilityDiscovery(profile)).flatMap((profile) => {
       const observation = observed.find((candidate) => coversProfile(candidate.profile, profile));
       return observation ? [{ profile, report: observation.report }] : [];
     });

@@ -28,7 +28,12 @@ const catalog: ReasoningCatalog = {
     { id: 'workers-ai-kimi-k-thinking', revision: 1, hash: hash('b'), name: 'Kimi thinking', supportedLevels: ['medium', 'high'], classification: 'Verified' },
     { id: 'workers-ai-glm-thinking', revision: 1, hash: hash('a'), name: 'GLM thinking', supportedLevels: ['off', 'medium', 'high'], classification: 'Verified' },
     { id: 'codeflare-inference-mesh-binary-thinking', revision: 1, hash: hash('6'), name: 'Mesh binary thinking', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
+    { id: 'dynamic-bedrock-anthropic-provider-default', revision: 1, hash: hash('4'), name: 'AWS Bedrock Claude provider default', supportedLevels: [], classification: 'Verified' },
     { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c'), name: 'AWS Bedrock · Anthropic Claude', supportedLevels: [], classification: 'Verified' },
+    { id: 'bedrock-anthropic-native-sonnet', revision: 1, hash: hash('7'), name: 'AWS Bedrock Claude Sonnet · native', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
+    { id: 'bedrock-anthropic-native-opus-stream', revision: 1, hash: hash('8'), name: 'AWS Bedrock Claude Opus · native stream', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high'], classification: 'Verified' },
+    { id: 'bedrock-anthropic-native-opus-invoke', revision: 1, hash: hash('9'), name: 'AWS Bedrock Claude Opus · native Invoke', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
+    { id: 'bedrock-anthropic-native-opus-auto', revision: 1, hash: hash('5'), name: 'AWS Bedrock Claude Opus · native automatic', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
     { id: 'native-openai-compat', revision: 1, hash: hash('d'), name: 'OpenAI GPT-5.6 · native tools-off', supportedLevels: ['off'], classification: 'Verified' },
     { id: 'native-google-ai-studio-compat', revision: 1, hash: hash('e'), name: 'Google AI Studio · Gemini native', supportedLevels: [], classification: 'Verified' },
     { id: 'native-codeflare-inference-mesh-compat', revision: 1, hash: hash('f'), name: 'Codeflare Inference Mesh · native compat', supportedLevels: [], classification: 'Verified' },
@@ -40,6 +45,7 @@ const catalog: ReasoningCatalog = {
 const glmRef = { id: 'workers-ai-glm-thinking', revision: 1, hash: hash('a') };
 const kimiRef = { id: 'workers-ai-kimi-k-thinking', revision: 1, hash: hash('b') };
 const offRef = { id: 'openai-gpt-chat-tools-off', revision: 1, hash: hash('2') };
+const bedrockDynamicRef = { id: 'dynamic-bedrock-anthropic-provider-default', revision: 1, hash: hash('4') };
 const selectedRef = (route: string) => route === 'development' ? kimiRef : glmRef;
 const current = {
   gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/account/gateway',
@@ -107,19 +113,19 @@ const mount = (data: unknown = current) => {
   return { ...render(() => <form onSubmit={submit}><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={data} onReadyChange={onReadyChange} /></form>), submit, onReadyChange };
 };
 type View = ReturnType<typeof mount>;
-async function section(view: View, name: 'Connection' | 'Routes' | 'Native providers' | 'Access & fallback') {
+async function section(view: View, name: 'Connection' | 'Dynamic routes' | 'Native routes' | 'Access & fallback') {
   await fireEvent.click(within(view.getByRole('navigation', { name: 'AI Gateway configuration sections' })).getByRole('button', { name }));
 }
 async function openNative(view: View) {
   await view.findByText('Connected · 3 routes readable');
-  await section(view, 'Native providers');
+  await section(view, 'Native routes');
 }
 async function addNativeTarget(view: View) {
   await openNative(view);
-  await fireEvent.click(view.getByRole('button', { name: 'Add provider-model' }));
+  await fireEvent.click(view.getByRole('button', { name: 'Add Native Route' }));
 }
 async function openRoute(view: View, route: string) {
-  await section(view, 'Routes');
+  await section(view, 'Dynamic routes');
   const toggle = view.getByRole('button', { name: `Configure ${route}` });
   if (toggle.getAttribute('aria-expanded') !== 'true') await fireEvent.click(toggle);
   return view.getByRole('article', { name: `${route} route` });
@@ -154,7 +160,7 @@ async function expectDevelopmentInactive(view: View) {
     { accessGroup: 'support', routes: [], defaultRoute: '', reasoning: 'off' },
   ]);
   await openGroup(view, 'developers');
-  expect(within(view.getByRole('group', { name: 'developers allowed routes' })).queryByRole('checkbox', { name: 'developers development route' })).toBeNull();
+  expect(within(view.getByRole('group', { name: 'developers allowed routes' })).queryByRole('checkbox', { name: 'developers Dynamic Route - development route' })).toBeNull();
 }
 
 beforeEach(() => {
@@ -168,7 +174,142 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Behavioral fixtures are execution-pending; CI owns RED/GREEN verification.
 describe('Structured AI routing', () => {
-  it('REQ-ENTERPRISE-051/056: renders native targets as collapsed provider-model rows with expanded-only controls', async () => {
+  it('REQ-ENTERPRISE-041: navigates Dynamic routes and Native routes and adds a Native Route', async () => {
+    const view = mount();
+    await view.findByText('Connected · 3 routes readable');
+    const navigation = within(view.getByRole('navigation', { name: 'AI Gateway configuration sections' }));
+    await fireEvent.click(navigation.getByRole('button', { name: 'Dynamic routes' }));
+    expect(view.getByRole('heading', { name: 'Dynamic routes' })).toBeVisible();
+    await fireEvent.click(navigation.getByRole('button', { name: 'Native routes' }));
+    expect(view.getByRole('heading', { name: 'Native routes' })).toBeVisible();
+    await fireEvent.click(view.getByRole('button', { name: 'Add Native Route' }));
+    expect(formValues(view.container).nativeTargets).toHaveLength(1);
+    expect(view.submit).not.toHaveBeenCalled();
+  });
+  it('REQ-ENTERPRISE-075: binds native Bedrock transport and region to the evidence-backed profile draft', async () => {
+    const view = mount();
+    await addNativeTarget(view);
+    const article = view.getByRole('article', { name: 'New native target' });
+    expect(within(article).queryByLabelText('Native target 1 transport')).toBeNull();
+    expect(formValues(view.container).nativeTargets[0].transport).toBe('aig-bedrock-anthropic-auto');
+    await fireEvent.input(within(article).getByLabelText('Native target 1 label'), { target: { value: 'Native Claude' } });
+    for (const [model, id, digest, family] of [
+      ['eu.anthropic.claude-opus-5', 'bedrock-anthropic-native-opus-auto', '5', 'Opus'],
+      ['eu.anthropic.claude-sonnet-5', 'bedrock-anthropic-native-sonnet', '7', 'Sonnet'],
+    ]) {
+      await fireEvent.input(within(article).getByLabelText('Native target 1 model'), { target: { value: model } });
+      expect(within(article).getByLabelText('Native target 1 region')).toHaveValue('eu-central-1');
+      const profile = within(article).getByLabelText('Native target 1 profile') as HTMLSelectElement;
+      expect(profile).toHaveValue(profileKey({ id, revision: 1, hash: hash(digest) }));
+      expect(Array.from(profile.options, (option) => option.text)).toEqual([`Native Route - AWS Bedrock - Claude ${family}`]);
+      expect(within(article).getByText('Pi levels: Off, Minimal, Low, Medium, High, Xhigh, Max.')).toBeVisible();
+      expect(within(article).queryByRole('button', { name: 'Verify Profile' })).toBeNull();
+      await fireEvent.click(within(article).getByRole('button', { name: 'Mark as verified' }));
+      await waitFor(() => expect(formValues(view.container).nativeTargets[0].enabled).toBe(true));
+      expect(api.native).toHaveBeenLastCalledWith(expect.objectContaining({ administratorConfirmed: true, target: expect.objectContaining({
+        model, transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', profileRef: { id, revision: 1, hash: hash(digest) },
+      }) }));
+      await openGroup(view, 'developers');
+      const target = formValues(view.container).nativeTargets[0];
+      const handle = `cf-native-${target.id}`;
+      const checkbox = view.getByRole('checkbox', { name: `developers Native Route - AWS Bedrock - ${model} route` });
+      if (!(checkbox as HTMLInputElement).checked) await fireEvent.click(checkbox);
+      await fireEvent.change(view.getByLabelText('developers default route'), { target: { value: handle } });
+      const reasoning = view.getByLabelText('developers default reasoning') as HTMLSelectElement;
+      expect(Array.from(reasoning.options, (option) => option.value)).toEqual(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+      await fireEvent.change(reasoning, { target: { value: 'max' } });
+      expect(formValues(view.container).groupRouting[0]).toMatchObject({ defaultRoute: handle, reasoning: 'max' });
+      await section(view, 'Native routes');
+    }
+  });
+
+  it.each([
+    [undefined, 'bedrock-anthropic-compat', 'c', []],
+    ['aig-legacy-compat', 'bedrock-anthropic-compat', 'c', []],
+    ['aig-bedrock-anthropic-eventstream', 'bedrock-anthropic-native-opus-stream', '8', ['off', 'minimal', 'low', 'medium', 'high']],
+    ['aig-bedrock-anthropic-invoke', 'bedrock-anthropic-native-opus-invoke', '9', ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']],
+    ['aig-bedrock-anthropic-auto', 'bedrock-anthropic-native-opus-auto', '5', ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']],
+    ['aig-bedrock-anthropic-eventstream', 'bedrock-anthropic-native-sonnet', '7', ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']],
+    ['aig-bedrock-anthropic-invoke', 'bedrock-anthropic-native-sonnet', '7', ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']],
+    ['aig-bedrock-anthropic-auto', 'bedrock-anthropic-native-sonnet', '7', ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']],
+  ] as const)('REQ-ENTERPRISE-074/078: preserves saved %s / %s identity and real levels on unrelated edits', async (transport, id, digest, levels) => {
+    const targetId = '11111111-1111-4111-8111-111111111111';
+    const handle = `cf-native-${targetId}`;
+    const profileRef = { id, revision: 1, hash: hash(digest) };
+    const model = id === 'bedrock-anthropic-native-sonnet' ? 'eu.anthropic.claude-sonnet-5' : 'eu.anthropic.claude-opus-5';
+    const target = { id: targetId, handle, label: 'Saved Claude', provider: 'aws-bedrock', model,
+      contextWindow: 200000, profileRef, enabled: true, ...(transport && { transport }),
+      ...(transport && transport !== 'aig-legacy-compat' && { region: 'us-east-1' }),
+      verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true } };
+    const view = mount({ ...checkedCurrent(), nativeTargets: [target], groupRouting: [{ accessGroup: 'developers', routes: [handle], defaultRoute: handle, reasoning: 'high' }] });
+    await openNative(view);
+    await fireEvent.click(view.getByRole('button', { name: `Configure Native Route - AWS Bedrock - ${model}` }));
+    expect(view.queryByLabelText('Native target 1 transport')).toBeNull();
+    const before = formValues(view.container).nativeTargets[0];
+    expect(before).toMatchObject({ id: targetId, profileRef, transport: transport ?? 'aig-legacy-compat', enabled: true });
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: target.model } });
+    await fireEvent.change(view.getByLabelText('Native target 1 provider'), { target: { value: target.provider } });
+    await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Renamed Opus' } });
+    await fireEvent.input(view.getByLabelText('Native target 1 context window'), { target: { value: '240000' } });
+    await openGroup(view, 'developers');
+    const reasoning = view.getByLabelText('developers default reasoning') as HTMLSelectElement;
+    expect(Array.from(reasoning.options, (option) => option.value)).toEqual(levels.length ? [...levels] : ['off']);
+    if (!levels.length) expect(within(reasoning).getByRole('option', { name: 'Provider default' })).toBeVisible();
+    await section(view, 'Connection');
+    await fireEvent.input(view.getByLabelText('Replacement API token'), { target: { value: 'replacement' } });
+    expect(formValues(view.container).nativeTargets[0]).toEqual({ ...before, label: 'Renamed Opus', contextWindow: 240000 });
+    expect(formValues(view.container).nativeChecks ?? {}).toEqual({});
+    expect(api.native).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-074: preserves the selected region through successive model edits without submitting it for compatibility', async () => {
+    const view = mount();
+    await addNativeTarget(view);
+    const model = view.getByLabelText('Native target 1 model');
+    await fireEvent.input(model, { target: { value: 'eu.anthropic.claude-sonnet-5' } });
+    await fireEvent.input(view.getByLabelText('Native target 1 region'), { target: { value: 'us-east-1' } });
+    await fireEvent.input(model, { target: { value: 'eu.anthropic.claude-sonnet-' } });
+    expect(formValues(view.container).nativeTargets[0]).not.toHaveProperty('region');
+    await fireEvent.input(model, { target: { value: 'eu.anthropic.claude-sonnet-5' } });
+    expect(view.getByLabelText('Native target 1 region')).toHaveValue('us-east-1');
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ region: 'us-east-1', transport: 'aig-bedrock-anthropic-auto' });
+    expect(formValues(view.container).nativeTargets[0]).not.toHaveProperty('rememberedRegion');
+  });
+
+  it('REQ-ENTERPRISE-074/078: changes a saved compatibility identity to automatic only when its model changes', async () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const view = mount({ ...checkedCurrent(), nativeTargets: [{ id, label: 'Saved', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5',
+      contextWindow: 200000, transport: 'aig-legacy-compat', profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: true,
+      verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true } }] });
+    await openNative(view);
+    await fireEvent.click(view.getByRole('button', { name: 'Configure Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5' }));
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-opus-5' } });
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id, transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1',
+      profileRef: { id: 'bedrock-anthropic-native-opus-auto', revision: 1, hash: hash('5') }, enabled: false });
+    expect(formValues(view.container).nativeChecks).toEqual({ [id]: null });
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-future-profile' } });
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ transport: 'aig-legacy-compat', profileRef: { id: 'bedrock-anthropic-compat' }, enabled: false });
+    expect(formValues(view.container).nativeTargets[0]).not.toHaveProperty('region');
+  });
+
+  it('REQ-ENTERPRISE-078: selects automatic Bedrock after a genuine provider change and keeps other providers compatible', async () => {
+    api.catalog.mockResolvedValueOnce({ ...catalog, providers: [
+      { provider: 'openai', label: 'OpenAI', configured: true, defaultSelection: true, supported: true },
+      { provider: 'aws-bedrock', label: 'AWS Bedrock', configured: true, defaultSelection: false, supported: true },
+    ] });
+    const view = mount(checkedCurrent());
+    await addNativeTarget(view);
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ provider: 'openai', transport: 'aig-legacy-compat' });
+    await fireEvent.change(view.getByLabelText('Native target 1 provider'), { target: { value: 'aws-bedrock' } });
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ provider: 'aws-bedrock', model: '', transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1' });
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-opus-5' } });
+    expect(formValues(view.container).nativeTargets[0].profileRef.id).toBe('bedrock-anthropic-native-opus-auto');
+    await fireEvent.change(view.getByLabelText('Native target 1 provider'), { target: { value: 'openai' } });
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ provider: 'openai', model: '', transport: 'aig-legacy-compat', profileRef: { id: 'native-openai-compat' } });
+    expect(formValues(view.container).nativeTargets[0]).not.toHaveProperty('region');
+  });
+
+  it('REQ-ENTERPRISE-051/056/064: renders named native target rows with expanded-only controls', async () => {
     api.catalog.mockResolvedValueOnce({
       ...catalog,
       providers: [
@@ -181,7 +322,7 @@ describe('Structured AI routing', () => {
     await openNative(view);
     expect(view.queryByText('Configured providers')).toBeNull();
     const article = view.getByRole('article', { name: 'Gemini native target' });
-    const toggle = within(article).getByRole('button', { name: 'Configure Google AI Studio · gemini-3.1-pro-preview' });
+    const toggle = within(article).getByRole('button', { name: 'Configure Native Route - Google AI Studio - gemini-3.1-pro-preview' });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(within(article).getByText('Not ready')).toHaveAttribute('data-state', 'unclear');
     expect(within(article).getByLabelText('Native target 1 provider')).not.toBeVisible();
@@ -210,11 +351,11 @@ describe('Structured AI routing', () => {
     expect(view.queryByText('Available for routing')).toBeNull();
     expect(formValues(view.container).nativeTargets.map((target: { enabled: boolean }) => target.enabled)).toEqual([true, false]);
     await openGroup(view, 'developers');
-    expect(view.getByRole('checkbox', { name: 'developers Amazon Bedrock · eu.anthropic.claude-sonnet-5 route' })).toBeVisible();
-    expect(view.queryByRole('checkbox', { name: 'developers Amazon Bedrock · eu.anthropic.claude-opus-5 route' })).toBeNull();
+    expect(view.getByRole('checkbox', { name: 'developers Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5 route' })).toBeVisible();
+    expect(view.queryByRole('checkbox', { name: 'developers Native Route - AWS Bedrock - eu.anthropic.claude-opus-5 route' })).toBeNull();
   });
 
-  it('REQ-ENTERPRISE-056: presents native group assignments by provider and model while preserving their opaque handles', async () => {
+  it('REQ-ENTERPRISE-056/064: presents named native group assignments while preserving their opaque handles', async () => {
     const targetId = '6af8fc3b-5352-4d52-ac55-0c342673960d';
     const handle = `cf-native-${targetId}`;
     api.catalog.mockResolvedValueOnce({ ...catalog, providers: [{ provider: 'openai', label: 'OpenAI', configured: true, defaultSelection: true, supported: true }] });
@@ -227,9 +368,9 @@ describe('Structured AI routing', () => {
       enabled: true, verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true },
     }] });
     await openGroup(view, 'developers');
-    const assignment = view.getByRole('checkbox', { name: 'developers OpenAI · gpt-5.6-terra route' });
+    const assignment = view.getByRole('checkbox', { name: 'developers Native Route - OpenAI - gpt-5.6-terra route' });
     expect(assignment).toBeChecked();
-    expect(view.getByRole('option', { name: 'OpenAI · gpt-5.6-terra' })).toHaveValue(handle);
+    expect(view.getByRole('option', { name: 'Native Route - OpenAI - gpt-5.6-terra' })).toHaveValue(handle);
     expect(formValues(view.container).groupRouting[0]).toEqual({ accessGroup: 'developers', routes: [handle], defaultRoute: handle, reasoning: 'off' });
   });
 
@@ -241,7 +382,7 @@ describe('Structured AI routing', () => {
       enabled: true, verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true },
     }] });
     await openGroup(view, 'developers');
-    await fireEvent.click(view.getByRole('checkbox', { name: 'developers Amazon Bedrock · eu.anthropic.claude-sonnet-5 route' }));
+    await fireEvent.click(view.getByRole('checkbox', { name: 'developers Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5 route' }));
     expect(formValues(view.container).groupRouting[0].routes).toContain(`cf-native-${targetId}`);
     expect(formValues(view.container).nativeTargets).toEqual([
       expect.objectContaining({ id: targetId, provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', enabled: true }),
@@ -249,7 +390,7 @@ describe('Structured AI routing', () => {
   });
 
   it.each([
-    ['unavailable', { ...catalog, providerCatalogStatus: 'unavailable' as const, providers: [] }, 'Provider discovery is unavailable. Check the connection to add a provider-model.'],
+    ['unavailable', { ...catalog, providerCatalogStatus: 'unavailable' as const, providers: [] }, 'Provider discovery is unavailable. Check the connection to add a Native Route.'],
     ['empty', { ...catalog, providerCatalogStatus: 'ready' as const, providers: [] }, 'No provider configurations are available to add.'],
   ])('keeps the native provider %s state actionable without restoring the provider catalogue', async (_case, providerCatalog, message) => {
     api.catalog.mockResolvedValueOnce(providerCatalog);
@@ -257,7 +398,7 @@ describe('Structured AI routing', () => {
     await openNative(view);
     expect(view.getByText(message)).toBeVisible();
     expect(view.queryByText('Configured providers')).toBeNull();
-    expect(view.queryByRole('button', { name: 'Add provider-model' })).toBeNull();
+    expect(view.queryByRole('button', { name: 'Add Native Route' })).toBeNull();
   });
 
   it('REQ-ENTERPRISE-051: edits the target label and context window in the native draft', async () => {
@@ -298,9 +439,11 @@ describe('Structured AI routing', () => {
     const saved = checkedCurrent();
     const view = mount({ ...saved, reasoningConfiguration: { ...saved.reasoningConfiguration, customProfileRevisions: custom ? [custom] : [] }, nativeTargets: [{ id: '11111111-1111-4111-8111-111111111111', label: 'Native target', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false }] });
     await openNative(view);
-    await fireEvent.click(view.getByRole('button', { name: 'Configure Amazon Bedrock · eu.anthropic.claude-sonnet-5' }));
+    await fireEvent.click(view.getByRole('button', { name: 'Configure Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5' }));
     await fireEvent.change(view.getByLabelText('Native target 1 profile'), { target: { value: profileKey(ref) } });
-    expect(formValues(view.container).nativeTargets[0].profileRef).toEqual(ref);
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-sonnet-5' } });
+    await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Renamed native target' } });
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ profileRef: ref, transport: 'aig-legacy-compat', label: 'Renamed native target' });
   });
 
   it('REQ-ENTERPRISE-054: invokes native compatibility discovery for the current target draft', async () => {
@@ -325,8 +468,10 @@ describe('Structured AI routing', () => {
   it('REQ-ENTERPRISE-054: verifies the exact selected profile and records its server-issued draft state', async () => {
     let complete!: (value: unknown) => void;
     api.native.mockReturnValueOnce(new Promise((resolve) => { complete = resolve; }));
-    const view = mount(checkedCurrent());
-    await addNativeTarget(view);
+    const view = mount({ ...checkedCurrent(), nativeTargets: [{ id: '11111111-1111-4111-8111-111111111111', label: 'Saved', provider: 'aws-bedrock',
+      model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false }] });
+    await openNative(view);
+    await fireEvent.click(view.getByRole('button', { name: 'Configure Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5' }));
     await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Automated target' } });
     await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-sonnet-5' } });
     const article = view.getByRole('article', { name: 'Automated target native target' });
@@ -355,7 +500,7 @@ describe('Structured AI routing', () => {
       nativeTarget('33333333-3333-4333-8333-333333333333', 'Third', 'eu.anthropic.claude-opus-5'),
     ] });
     await openNative(view);
-    await fireEvent.click(view.getByRole('button', { name: 'Configure Amazon Bedrock · eu.anthropic.claude-sonnet-5' }));
+    await fireEvent.click(view.getByRole('button', { name: 'Configure Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5' }));
     await fireEvent.click(within(view.getByRole('article', { name: 'Pending native target' })).getByRole('button', { name: 'Verify Profile' }));
     await fireEvent.click(view.getByRole('button', { name: 'Remove First' }));
     complete({ targetId: '44444444-4444-4444-8444-444444444444', classification: 'Verified', assignable: true, checkId: '55555555-5555-4555-8555-555555555555', verification: { method: 'automated', checkedAt: '2026-09-09T12:00:00.000Z', current: true } });
@@ -363,6 +508,52 @@ describe('Structured AI routing', () => {
       expect.objectContaining({ id: '44444444-4444-4444-8444-444444444444', label: 'Pending', enabled: true }),
       expect.objectContaining({ id: '33333333-3333-4333-8333-333333333333', label: 'Third', enabled: false }),
     ]));
+  });
+
+  it('REQ-ENTERPRISE-066: enables Save for a complete disabled native draft without access policies', async () => {
+    const view = mount({ ...current, gatewayUrl: 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/', gatewayId: 'codeflare-enterprise', dynamicRoutes: [], defaultRoute: null, groupRouting: [], reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} } });
+    await addNativeTarget(view);
+    expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
+    await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Claude draft' } });
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'arn:aws:bedrock:eu-central-1:123:model/claude' } });
+    expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-sonnet-5' } });
+    await fireEvent.input(view.getByLabelText('Native target 1 context window'), { target: { value: '4000001' } });
+    expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
+    await fireEvent.input(view.getByLabelText('Native target 1 context window'), { target: { value: '200000' } });
+    await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
+    expect(formValues(view.container)).toMatchObject({ dynamicRoutes: [], groupRouting: [], fallbackRouting: { enabled: false } });
+    expect(formValues(view.container).nativeTargets).toMatchObject([{ label: 'Claude draft', enabled: false }]);
+  });
+
+  it('REQ-ENTERPRISE-066: keeps Save unavailable for a native draft whose profile is unavailable', async () => {
+    const unavailableRef = { id: 'missing-native-profile', revision: 1, hash: hash('9') };
+    const view = mount({
+      ...current,
+      gatewayUrl: 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/', gatewayId: 'codeflare-enterprise',
+      dynamicRoutes: [], defaultRoute: null, groupRouting: [], reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} },
+      nativeTargets: [{ id: '11111111-1111-4111-8111-111111111111', label: 'Unavailable profile', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: unavailableRef, enabled: false }],
+    });
+    await openNative(view);
+    await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Unavailable profile draft' } });
+    expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('REQ-ENTERPRISE-069: enables Review for a verified Dynamic Route profile without an access policy', async () => {
+    api.inventory.mockImplementation(async (route: string) => singleInventory(route));
+    api.discover.mockResolvedValueOnce(verifiedReport('general_usage', glmRef));
+    const view = mount({
+      ...current,
+      dynamicRoutes: [], groupRouting: [], fallbackRouting: { enabled: false },
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} },
+    });
+    await ready(view, 'general_usage');
+    await fireEvent.change(view.getByLabelText('general_usage Pi compatibility profile'), { target: { value: profileKey(glmRef) } });
+    expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
+    await fireEvent.click(view.getByRole('button', { name: 'Mark general_usage as verified' }));
+    await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
+    expect(formValues(view.container)).toMatchObject({ dynamicRoutes: [], groupRouting: [], fallbackRouting: { enabled: false } });
+    expect(draftConfiguration(view.container).routeAssignments.general_usage.activeProfile).toEqual(glmRef);
   });
 
   it('REQ-ENTERPRISE-054: verification automatically enables the native target draft', async () => {
@@ -406,21 +597,21 @@ describe('Structured AI routing', () => {
     expect(formValues(view.container).routeChecks.development).toBe('development-check');
     expect(saved.reasoningConfiguration.routeAssignments.development).toEqual(legacyDevelopmentAssignment());
   });
-  it('REQ-ENTERPRISE-034: preserves checked many-to-many group routes with one scope default route and reasoning', async () => {
+  it('REQ-ENTERPRISE-034/064: presents and preserves named Dynamic Routes in many-to-many group policies', async () => {
     const view = mount(checkedCurrent());
     await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
     await openGroup(view, 'developers');
-    expect(view.getByRole('checkbox', { name: 'developers general_usage route' })).toBeChecked();
-    expect(view.getByRole('checkbox', { name: 'developers development route' })).toBeChecked();
+    expect(view.getByRole('checkbox', { name: 'developers Dynamic Route - general_usage route' })).toBeChecked();
+    expect(view.getByRole('checkbox', { name: 'developers Dynamic Route - development route' })).toBeChecked();
     expect(view.getByLabelText('developers default route')).toHaveValue('development');
     expect(view.getByLabelText('developers default reasoning')).toHaveValue('medium');
     await openGroup(view, 'support');
-    expect(view.getByRole('checkbox', { name: 'support general_usage route' })).toBeChecked();
-    expect(view.getByRole('checkbox', { name: 'support development route' })).not.toBeChecked();
+    expect(view.getByRole('checkbox', { name: 'support Dynamic Route - general_usage route' })).toBeChecked();
+    expect(view.getByRole('checkbox', { name: 'support Dynamic Route - development route' })).not.toBeChecked();
     await fireEvent.change(view.getByLabelText('Unconfigured access group'), { target: { value: 'research-team' } });
     await fireEvent.click(view.getByRole('button', { name: 'Add group policy' }));
-    expect(view.getByRole('checkbox', { name: 'research-team general_usage route' })).not.toBeChecked();
-    await fireEvent.click(view.getByRole('checkbox', { name: 'research-team development route' }));
+    expect(view.getByRole('checkbox', { name: 'research-team Dynamic Route - general_usage route' })).not.toBeChecked();
+    await fireEvent.click(view.getByRole('checkbox', { name: 'research-team Dynamic Route - development route' }));
     expect(formValues(view.container).groupRouting[2]).toEqual({ accessGroup: 'research-team', routes: ['development'], defaultRoute: 'development', reasoning: 'medium' });
     await fireEvent.click(view.getByRole('button', { name: 'Remove research-team policy' }));
     expect(view.queryByLabelText('research-team allowed routes')).toBeNull();
@@ -468,7 +659,7 @@ describe('Structured AI routing', () => {
     expect(view.getByText(/positive whole-number context window/)).toBeVisible();
     await fireEvent.input(view.getByLabelText('research context window'), { target: { value: '65536' } });
     await openGroup(view, 'developers');
-    await fireEvent.click(view.getByRole('checkbox', { name: 'developers research route' }));
+    await fireEvent.click(view.getByRole('checkbox', { name: 'developers Dynamic Route - research route' }));
     expect(formValues(view.container).routeContextWindows.research).toBe(65536);
     expect(formValues(view.container).dynamicRoutes).toEqual([...current.dynamicRoutes, 'research']);
     expect(view.onReadyChange).toHaveBeenLastCalledWith(true);
@@ -493,13 +684,48 @@ describe('Structured AI routing', () => {
     expect(api.discover).not.toHaveBeenCalled();
     await openRoute(view, 'development');
     const profile = view.getByLabelText('development Pi compatibility profile') as HTMLSelectElement;
-    expect(Array.from(profile.options, (option) => option.textContent)).toEqual([
-      'Choose a profile', 'OpenAI · GPT — tools and reasoning', 'OpenAI · GPT — reasoning off',
-      'Workers AI · Gemma', 'Workers AI · Kimi', 'Workers AI · GLM', 'Codeflare Inference Mesh · Qwen / Ornith',
-      'Amazon Bedrock · Claude native', 'OpenAI · GPT-5.6 native tools-off', 'Google AI Studio · Gemini native', 'Codeflare Inference Mesh · Ornith native',
+    expect(Array.from(profile.options, (option) => option.value)).toEqual([
+      '', ...catalog.profiles.filter((candidate) => !candidate.id.startsWith('bedrock-anthropic-native-')).map(profileKey),
     ]);
+    expect(Array.from(profile.options, (option) => option.text)).toContain('Dynamic Route - AWS Bedrock - Claude');
+    expect(Array.from(profile.options, (option) => option.text)).not.toContain('Native Route - AWS Bedrock - Claude Sonnet');
+    expect(Array.from(profile.options, (option) => option.text)).not.toContain('Native Route - AWS Bedrock - Claude Opus');
     expect(profile).toHaveValue(profileKey(kimiRef));
     expect(within(profile).queryByRole('option', { name: 'GPT-OSS tool replay' })).toBeNull();
+  });
+
+  it('REQ-ENTERPRISE-075: removes hidden provider-native authority from a Dynamic Route draft until an allowed profile is selected', async () => {
+    const nativeRef = { id: 'bedrock-anthropic-native-sonnet', revision: 1, hash: hash('7') };
+    const view = mount({
+      ...checkedCurrent(),
+      reasoningConfiguration: { ...current.reasoningConfiguration, routeAssignments: {
+        ...current.reasoningConfiguration.routeAssignments,
+        general_usage: { activeProfile: nativeRef, routeVersion: 'general_usage-v2', verification: proof('general_usage', nativeRef) },
+      } },
+    });
+    await ready(view, 'general_usage');
+    const profile = view.getByLabelText('general_usage Pi compatibility profile') as HTMLSelectElement;
+    expect(profile).toHaveValue('');
+    expect(view.getByRole('alert')).toHaveTextContent('Native Route - AWS Bedrock - Claude Sonnet is unavailable for Dynamic Routes');
+    expect(formValues(view.container).reasoningConfiguration.routeAssignments.general_usage).toBeUndefined();
+    await fireEvent.change(profile, { target: { value: profileKey(glmRef) } });
+    expect(view.queryByText(/unavailable for Dynamic Routes/)).toBeNull();
+    expect(formValues(view.container).reasoningConfiguration.routeAssignments.general_usage).toEqual({ activeProfile: glmRef });
+  });
+
+  it('REQ-ENTERPRISE-045/070: presents Dynamic Bedrock reasoning as provider-controlled instead of unsupported Off', async () => {
+    const view = mount({
+      ...checkedCurrent(),
+      reasoningConfiguration: { ...current.reasoningConfiguration, routeAssignments: {
+        ...current.reasoningConfiguration.routeAssignments,
+        general_usage: { activeProfile: bedrockDynamicRef, verification: proof('general_usage', bedrockDynamicRef) },
+      } },
+    });
+    await ready(view, 'general_usage');
+    const card = await openRoute(view, 'general_usage');
+    expect(within(card).getByText('Provider default')).toBeVisible();
+    expect(within(card).queryByText('Reasoning off')).toBeNull();
+    expect(within(card).queryByText('Not supported')).toBeNull();
   });
 
   it('REQ-ENTERPRISE-034: offers one primary action on the expanded route and runs route-only protocol discovery', async () => {
@@ -591,7 +817,7 @@ describe('Structured AI routing', () => {
     expect(formValues(view.container).dynamicRoutes).toEqual(['development']);
     expect(formValues(view.container).routeChecks.development).toBe('development-check');
     await openGroup(view, 'developers');
-    expect(view.getByRole('checkbox', { name: 'developers development route' })).toBeChecked();
+    expect(view.getByRole('checkbox', { name: 'developers Dynamic Route - development route' })).toBeChecked();
     expect(within(view.getByRole('group', { name: 'developers allowed routes' })).getByText('Backup untested')).toBeVisible();
   });
 
@@ -904,12 +1130,13 @@ describe('Structured AI routing', () => {
   });
 
   it('REQ-ENTERPRISE-057: a successfully checked credential change preserves saved route authority for Review changes', async () => {
-    const view = mount(checkedCurrent());
+    const view = mount({ ...checkedCurrent(), routeChecks: { general_usage: 'general_usage-check', development: 'development-check' } });
     await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
     await section(view, 'Connection');
     await fireEvent.input(view.getByLabelText('Replacement API token'), { target: { value: 'rotated-token' } });
     expect(view.onReadyChange).toHaveBeenLastCalledWith(false);
     expect(formValues(view.container).reasoningConfiguration.routeAssignments.development.verification).toEqual(proof());
+    expect(formValues(view.container).routeChecks).toEqual({ general_usage: 'general_usage-check', development: 'development-check' });
     await fireEvent.click(view.getByRole('button', { name: 'Check connection' }));
     await view.findByText('Connected · 3 routes readable');
     await waitFor(() => expect(view.onReadyChange).toHaveBeenLastCalledWith(true));
@@ -955,7 +1182,7 @@ describe('Structured AI routing', () => {
     expect(formValues(view.container).routeContextWindows).toEqual(current.routeContextWindows);
     expect(draftConfiguration(view.container)).toEqual({ ...saved.reasoningConfiguration, fallbackRouting: { enabled: false } });
     await openGroup(view, 'developers');
-    expect(view.queryByLabelText('developers research route')).toBeNull();
+    expect(view.queryByLabelText('developers Dynamic Route - research route')).toBeNull();
     await fireEvent.change(view.getByLabelText('Unconfigured access group'), { target: { value: 'research-team' } });
     await fireEvent.click(view.getByRole('button', { name: 'Add group policy' }));
     expect(view.getByLabelText('research-team default route')).toHaveValue('');
@@ -991,7 +1218,7 @@ describe('Structured AI routing', () => {
     await fireEvent.click(view.getByRole('button', { name: 'Remove developers policy' }));
     expect(formValues(view.container).groupRouting).toEqual([current.groupRouting[1]]);
     await openGroup(view, 'support');
-    await fireEvent.click(view.getByRole('checkbox', { name: 'support general_usage route' }));
+    await fireEvent.click(view.getByRole('checkbox', { name: 'support Dynamic Route - general_usage route' }));
     expect(formValues(view.container).groupRouting).toEqual([{ accessGroup: 'support', routes: [], defaultRoute: '', reasoning: 'off' }]);
     expect(formValues(view.container).dynamicRoutes).toEqual([]);
     expect(formValues(view.container).routeContextWindows).toEqual(current.routeContextWindows);
@@ -1040,13 +1267,13 @@ describe('Structured AI routing', () => {
     expect(formValues(view.container).dynamicRoutes).toEqual(current.dynamicRoutes);
     expect(formValues(view.container).routeContextWindows.research).toBe(65536);
     await openGroup(view, 'developers');
-    expect(view.queryByLabelText('developers research route')).toBeNull();
+    expect(view.queryByLabelText('developers Dynamic Route - research route')).toBeNull();
     api.discover.mockResolvedValueOnce(verifiedReport('research'));
     await verifyProfile(view, 'research');
     await waitFor(() => expect(formValues(view.container).routeChecks.research).toBe('research-check'));
     expect(formValues(view.container).dynamicRoutes).toEqual(current.dynamicRoutes);
     await openGroup(view, 'developers');
-    await fireEvent.click(view.getByRole('checkbox', { name: 'developers research route' }));
+    await fireEvent.click(view.getByRole('checkbox', { name: 'developers Dynamic Route - research route' }));
     await fireEvent.change(view.getByLabelText('developers default route'), { target: { value: 'research' } });
     await fireEvent.change(view.getByLabelText('developers default reasoning'), { target: { value: 'high' } });
     await fireEvent.click(view.getByRole('button', { name: 'Apply to all groups' }));

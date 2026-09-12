@@ -57,12 +57,13 @@ describe('Environment report fields', () => {
     const { getByLabelText, queryByLabelText, queryByRole, container } = render(() => (
       <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} />
     ));
-    await waitFor(() => expect((getByLabelText('development Pi compatibility profile') as HTMLSelectElement).selectedOptions[0]?.textContent).toContain('Workers AI · Kimi'));
+    const expectedProfile = `${profileRef.id}\u001f${profileRef.revision}\u001f${profileRef.hash}`;
+    await waitFor(() => expect((getByLabelText('development Pi compatibility profile') as HTMLSelectElement).value).toBe(expectedProfile));
 
     await waitFor(() => expect(container.querySelectorAll('input[name=dynamicRoutes]')).toHaveLength(1));
     expect(queryByRole('button', { name: /add route/i })).toBeNull();
     expect((getByLabelText('development context window') as HTMLInputElement).value).toBe('262144');
-    expect((getByLabelText('development Pi compatibility profile') as HTMLSelectElement).selectedOptions[0]?.textContent).toContain('Workers AI · Kimi');
+    expect((getByLabelText('development Pi compatibility profile') as HTMLSelectElement).value).toBe(expectedProfile);
     expect(getByLabelText('developers allowed routes')).toBeTruthy();
     expect(queryByLabelText(/route context windows.*json/i)).toBeNull();
     expect(queryByLabelText(/per-group routing.*json/i)).toBeNull();

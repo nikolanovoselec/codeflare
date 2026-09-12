@@ -179,6 +179,7 @@ app.get('/batch-status', async (c) => {
   // Initial-load upgrade decision. Remote curation piggybacks on this existing
   // request and existing reconcile route; it does not add another poller.
   let preseedNeedsUpgrade: boolean | undefined;
+  let preseedUpgradeTarget: string | undefined;
   let managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | undefined;
   let managedReleaseProgress: { phase: 'planning' | 'writing' | 'finalizing'; completed: number; total: number } | undefined;
   if (c.req.query('includePreseedCheck') === 'true') {
@@ -192,6 +193,11 @@ app.get('/batch-status', async (c) => {
         prefs?.managedEnvironmentReconciliation,
       );
       const desiredPolicy = active?.resourcePolicy ?? 'mutable';
+      // Opaque client deduplication metadata, not applied state or mutation authority.
+      preseedUpgradeTarget = JSON.stringify([
+        active ? 'managed' : 'baked', active?.digest ?? PRESEED_CONTENT_HASH,
+        active?.pointer.sequence ?? null, mode, projectionIdentity, desiredPolicy,
+      ]);
       const appliedPolicy = applied?.resourcePolicy ?? 'mutable';
       const managedMismatch = hasInterruptedTargets || (active
         ? applied?.digest !== active.digest
@@ -286,7 +292,7 @@ app.get('/batch-status', async (c) => {
     }
   }
 
-  return c.json({ statuses, maxSessions, storageStats, usage, preseedNeedsUpgrade, managedReleaseStatus, managedReleaseProgress, bucketMigrating, bucketMigrationPending, bucketMigrationPercent });
+  return c.json({ statuses, maxSessions, storageStats, usage, preseedNeedsUpgrade, preseedUpgradeTarget, managedReleaseStatus, managedReleaseProgress, bucketMigrating, bucketMigrationPending, bucketMigrationPercent });
 });
 
 /**

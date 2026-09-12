@@ -60,7 +60,7 @@ COPY scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py /tmp/
 WORKDIR /src/impeccable
 RUN <<'IMPECCABLE'
 set -eu
-node -e 'const p=require("/tmp/impeccable-engine.json"); if(p.version!=="0.1.3" || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256)) throw new Error("Invalid Impeccable engine pin")'
+node -e 'const p=require("/tmp/impeccable-engine.json"); if(p.version!=="0.1.5" || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256)) throw new Error("Invalid Impeccable engine pin")'
 COMMIT=$(node -p 'require("/tmp/impeccable-engine.json").commit')
 SHA256=$(node -p 'require("/tmp/impeccable-engine.json").sha256')
 curl -fsSL "https://codeload.github.com/pbakaus/impeccable/tar.gz/$COMMIT" -o /tmp/impeccable.tar.gz
@@ -201,7 +201,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 
 # Keep fast server-modtime listings without copying source timestamps into remote state.
 COPY --from=rclone-builder /out/rclone /usr/bin/rclone
-COPY --from=impeccable-builder /out/ /opt/codeflare/impeccable/0.1.3/
+COPY --from=impeccable-builder /out/ /opt/codeflare/impeccable/0.1.5/
 
 # Install the official Herdr terminal runtime from one immutable stable release.
 # Codeflare owns updates through image review; runtime checks and self-update are disabled.
@@ -463,7 +463,7 @@ RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CO
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
-COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs /opt/codeflare/scripts/
+COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs /opt/codeflare/scripts/
 # better-sqlite3 / bufferutil / utf-8-validate are native (node-gyp) modules. Their
 # prebuilt-binary fetch is best-effort and falls back to a source compile, which needs
 # make + a C/C++ toolchain. stage-1 ships python3 but not make/gcc/g++ (those live only
@@ -488,7 +488,9 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     node /opt/codeflare/scripts/verify-pi-lockstep.mjs \
       /opt/codeflare/npm-tools/package.json ./package.json \
       ./node_modules/@earendil-works/pi-coding-agent/package.json && \
+    node /opt/codeflare/scripts/patch-pi-native-model-display.mjs ./node_modules/@earendil-works/pi-coding-agent && \
     if [ -f /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/package.json ]; then \
+      node /opt/codeflare/scripts/patch-pi-native-model-display.mjs /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent && \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-runtime \
         /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/package.json; \
     fi && \

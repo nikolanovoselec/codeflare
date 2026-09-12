@@ -29,11 +29,12 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
-import { LlmInterceptor } from '../llm-interceptor';
+import { LlmInterceptor, nativeReplayStateKey } from '../llm-interceptor';
 import { getBuiltInProfileRef, type ReasoningProfileId } from '../lib/reasoning-profiles';
 import { connectionFingerprint } from '../lib/reasoning-verification';
 import { createNativeTarget, nativeTargetHandle, serializeNativeAiTargets } from '../lib/native-ai-targets';
 import { routingInventoryFixtures, verifiedRoutingConfiguration } from './helpers/verified-routing';
+import { bedrockChunkFrame, bedrockEventFrame, bedrockToolResponse, readOpenAiToolTurn } from './helpers/bedrock-eventstream';
 
 vi.mock('../lib/ai-gateway-management', async (original) => ({
   ...await original<typeof import('../lib/ai-gateway-management')>(),
@@ -52,7 +53,7 @@ const AIG_TOKEN = 'aig-secret-token';
 const SESSION_USER = 'nikola@novoselec.ch'; // per-session attribution: the user's email (REQ-ENTERPRISE-004 AC4)
 
 /** Construct an interceptor with the given env + per-session props. */
-function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; groups?: string[]; gatewayUrl?: string; gatewayId?: string; token?: string } = { user: SESSION_USER }) {
+function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string; sessionId?: string; groups?: string[]; gatewayUrl?: string; gatewayId?: string; token?: string } = { user: SESSION_USER, sessionId: 'session-1' }, onKvPut?: (key: string, value: string) => void) {
   // The interceptor now reads the route catalog from KV; tests pass a __kv map
   // of key -> JSON string via envOverrides, which backs a minimal KV.get stub.
   const kvStore: Record<string, string> = { ...((envOverrides as { __kv?: Record<string, string> }).__kv ?? {
@@ -72,7 +73,7 @@ function makeInterceptor(envOverrides: Partial<Env> = {}, props: { user: string;
   const env = { AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN, KV: { get: async (k: string, type?: string) => {
     const raw = kvStore[k];
     return raw !== undefined && type === 'json' ? JSON.parse(raw) : raw ?? null;
-  } }, ...envOverrides } as unknown as Env;
+  }, put: async (k: string, value: string) => { kvStore[k] = value; onKvPut?.(k, value); } }, ...envOverrides } as unknown as Env;
   // The DO instantiates this via ctx.exports.LlmInterceptor({ props }); props
   // land on ctx.props. A minimal ctx stub mirrors that shape for the unit test.
   const ctx = { props } as unknown as ExecutionContext;
@@ -341,12 +342,91 @@ describe('REQ-ENTERPRISE-032: selected-route capability translation', () => {
     expect(payload!.reasoning_effort).toBe('medium');
   });
 
-  it('AC3: fails closed before provider I/O when the selected route profile does not map the level', async () => {
-    lastFetch = null;
-    const { response } = await send('development', 'off');
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ code: 'UNSUPPORTED_REASONING_LEVEL' });
-    expect(lastFetch).toBeNull();
+  it('REQ-ENTERPRISE-071: applies Bedrock tool-name repair to a Dynamic Route provider-default profile', async () => {
+    const env = { __kv: {
+      'setup:dynamic_routes': JSON.stringify(['bedrock_opus']),
+      'setup:default_route': JSON.stringify({ route: 'bedrock_opus', reasoning: 'off' }),
+      'setup:reasoning_configuration': JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {
+        bedrock_opus: { activeProfile: getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default') },
+      } }),
+    } } as unknown as Partial<Env>;
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
+      return new Response([
+        `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'bedrock-call', type: 'function', function: { name: 'lookup', arguments: '{}' } }] }, finish_reason: null }] })}`,
+        `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { name: 'lookup', arguments: '' } }] }, finish_reason: null }] })}`,
+        'data: [DONE]', '',
+      ].join('\n\n'), { headers: { 'content-type': 'text/event-stream' } });
+    });
+    const response = await makeInterceptor(env).fetch(new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', body: JSON.stringify({ model: 'bedrock_opus', messages: [], tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }] }),
+    }));
+    expect(JSON.parse(lastFetch!.body).model).toBe('dynamic/bedrock_opus');
+    const text = await response.text();
+    expect((text.match(/"name":"lookup"/g) ?? [])).toHaveLength(1);
+    expect(text).toContain('"finish_reason":"tool_calls"');
+  });
+
+  it.each([
+    ['off', 'low'],
+    ['minimal', 'low'],
+    ['medium', 'medium'],
+    ['max', 'high'],
+  ])('REQ-ENTERPRISE-032: translates Kimi %s within the selected profile to wire effort %s, using the next higher level for Off', async (level, effort) => {
+    const { response, payload } = await send('development', level);
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({
+      model: 'dynamic/development',
+      messages: [{ role: 'user', content: 'hello' }],
+      reasoning_effort: effort,
+      chat_template_kwargs: { unrelated: 'preserved', enable_thinking: true, clear_thinking: false },
+    });
+  });
+
+  it('REQ-ENTERPRISE-032: an unrecognized reasoning hint uses the selected route preferred mapping', async () => {
+    const { response, payload } = await send('development', 'unrecognized');
+    expect(response.status).toBe(200);
+    expect(payload!.model).toBe('dynamic/development');
+    expect(payload!.reasoning_effort).toBe('medium');
+  });
+
+  it.each(['off', 'max'])('REQ-ENTERPRISE-032: maps %s to the only executable level in the assigned off-only Dynamic Route profile', async (level) => {
+    const response = await makeInterceptor().fetch(new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', body: JSON.stringify({ model: 'codeflare-enterprise', reasoning_effort: level, messages: [{ role: 'user', content: 'hello' }] }),
+    }));
+    expect(response.status).toBe(200);
+    expect(JSON.parse(lastFetch!.body)).toEqual({
+      model: 'dynamic/codeflare-enterprise', reasoning_effort: 'none', messages: [{ role: 'user', content: 'hello' }],
+    });
+  });
+
+  it.each(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])('REQ-ENTERPRISE-032: normalizes Dynamic Route provider-default %s without losing tools, replay, or unrelated fields', async (level) => {
+    const env = { __kv: {
+      'setup:dynamic_routes': JSON.stringify(['bedrock_opus']),
+      'setup:default_route': JSON.stringify({ route: 'bedrock_opus', reasoning: 'off' }),
+      'setup:reasoning_configuration': JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {
+        bedrock_opus: { activeProfile: getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default') },
+      } }),
+    } } as unknown as Partial<Env>;
+    const preserved = {
+      stream: true, temperature: 0.4,
+      messages: [
+        { role: 'user', content: 'Look up x' },
+        { role: 'assistant', content: null, tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' } }] },
+        { role: 'tool', tool_call_id: 'call_1', content: 'found' },
+      ],
+      tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object', properties: { q: { type: 'string' } } } } }],
+      tool_choice: 'auto',
+    };
+    const response = await makeInterceptor(env).fetch(new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', body: JSON.stringify({
+        ...preserved, model: 'bedrock_opus', reasoning_effort: level, reasoning: { effort: 'high' }, thinking: { type: 'enabled', budget_tokens: 1024 },
+        chat_template_kwargs: { enable_thinking: true, thinking: true, clear_thinking: false, unrelated: { value: 'keep' } },
+      }),
+    }));
+    expect(response.status).toBe(200);
+    expect(lastFetch?.url).toBe(`${REST_BASE}/v1/chat/completions`);
+    expect(JSON.parse(lastFetch!.body)).toEqual({ ...preserved, model: 'dynamic/bedrock_opus', chat_template_kwargs: { unrelated: { value: 'keep' } } });
   });
 
   it('denies legacy assignments without server verification when the atomic configuration is absent', async () => {
@@ -791,7 +871,9 @@ describe('native provider authorization and compat dispatch', () => {
     profileId?: ReasoningProfileId;
     providerConfigId?: string;
     providerConfigAlias?: string;
-    adapterVersion?: 'bedrock-anthropic-compat-v1' | 'native-openai-compat-v1' | 'gemini-openai-compat-v1';
+    adapterVersion?: 'bedrock-anthropic-compat-v1' | 'bedrock-anthropic-native-v1' | 'native-openai-compat-v1' | 'gemini-openai-compat-v1';
+    transport?: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto';
+    region?: string;
   };
 
   function nativeFixture(includeTarget = true, fixture: NativeFixtureOptions = {}) {
@@ -799,10 +881,11 @@ describe('native provider authorization and compat dispatch', () => {
     const handle = nativeTargetHandle(id); const provider = fixture.provider ?? 'aws-bedrock';
     const profileRef = getBuiltInProfileRef(fixture.profileId ?? 'bedrock-anthropic-compat');
     const target = createNativeTarget({ id, label: provider, provider, customProvider: fixture.customProvider, model: fixture.model ?? 'eu.anthropic.claude-sonnet-5', contextWindow: 200000,
-      providerConfigId: fixture.providerConfigId ?? 'bedrock-default', providerConfigAlias: fixture.providerConfigAlias, profileRef, enabled: true });
+      providerConfigId: fixture.providerConfigId ?? 'bedrock-default', providerConfigAlias: fixture.providerConfigAlias, profileRef, enabled: true,
+      transport: fixture.transport, region: fixture.region });
     const verification = { schemaVersion: 1 as const, method: 'administrator' as const, targetId: id, provider, ...(fixture.customProvider && { customProvider: true }), model: target.model,
       providerConfigId: target.providerConfigId, ...(target.providerConfigAlias && { providerConfigAlias: target.providerConfigAlias }),
-      connectionFingerprint: connectionFingerprint({ gatewayUrl: GATEWAY, token: AIG_TOKEN })!, profileRef, transport: target.transport,
+      connectionFingerprint: connectionFingerprint({ gatewayUrl: GATEWAY, token: AIG_TOKEN })!, profileRef, transport: target.transport, ...(target.region && { region: target.region }),
       adapterVersion: fixture.adapterVersion ?? 'bedrock-anthropic-compat-v1', checkedAt: new Date().toISOString() };
     return { id, handle, kv: {
       'setup:dynamic_routes': '[]',
@@ -839,6 +922,350 @@ describe('native provider authorization and compat dispatch', () => {
     expect(lastFetch?.headers.get('cf-aig-byok-alias')).toBe('default');
   });
 
+  it('REQ-ENTERPRISE-073: isolates native replay keys by authenticated user and session', () => {
+    const base = nativeReplayStateKey('one@example.com', 'session-1', 'target-1', 'call_1');
+    expect(nativeReplayStateKey('two@example.com', 'session-1', 'target-1', 'call_1')).not.toBe(base);
+    expect(nativeReplayStateKey('one@example.com', 'session-2', 'target-1', 'call_1')).not.toBe(base);
+  });
+
+  it('REQ-ENTERPRISE-073: denies native Bedrock before provider I/O when session identity is absent', async () => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-invoke',
+      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'high', stream: false, messages: [] }) }),
+    );
+    expect(response.status).toBe(503);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(['high', 'xhigh', 'max'])('REQ-ENTERPRISE-078: maps Opus %s to High within the explicit eventstream profile without switching to Invoke', async (level) => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
+      return new Response('provider failure', { status: 502 });
+    });
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: fixture.handle, reasoning_effort: level, stream: true, messages: [{ role: 'user', content: 'Use a tool' }],
+        tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }],
+      }) }),
+    );
+    expect(response.status).toBe(502);
+    // Failed provider-native requests must not incur a paid retry or transport fallback.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke-with-response-stream`);
+    expect(lastFetch?.headers.get('accept')).toBe('application/vnd.amazon.eventstream');
+    expect(JSON.parse(lastFetch!.body)).toEqual({
+      anthropic_version: 'bedrock-2023-05-31', max_tokens: 4096,
+      thinking: { type: 'adaptive' }, output_config: { effort: 'high' },
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'Use a tool' }] }],
+      tools: [{ name: 'lookup', input_schema: { type: 'object' } }],
+    });
+  });
+
+  it('REQ-ENTERPRISE-073/077: starts native reasoning after paired interrupted tool history without treating it as active replay', async () => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-auto',
+      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
+      return new Response('provider failure', { status: 502 });
+    });
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: fixture.handle, reasoning_effort: 'medium', stream: true, messages: [
+          { role: 'user', content: 'Look up the project.' },
+          { role: 'assistant', tool_calls: [{ id: 'foreign_call', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+          { role: 'tool', tool_call_id: 'foreign_call', content: 'found' },
+          { role: 'user', content: 'Who are you?' },
+        ],
+      }) }),
+    );
+    expect(response.status).toBe(502);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke-with-response-stream`);
+    const sent = JSON.parse(lastFetch!.body);
+    expect(sent.thinking).toEqual({ type: 'adaptive' });
+    expect(sent.output_config).toEqual({ effort: 'medium' });
+    expect(sent.messages[1].content).toEqual([{ type: 'tool_use', id: 'foreign_call', name: 'lookup', input: {} }]);
+    expect(sent.messages[2].content).toEqual([{ type: 'tool_result', tool_use_id: 'foreign_call', content: 'found' }]);
+    expect(sent.messages[3].content).toEqual([{ type: 'text', text: 'Who are you?' }]);
+  });
+
+  it('REQ-ENTERPRISE-073: downward mapping of Max still requires signed native tool replay', async () => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: fixture.handle, reasoning_effort: 'max', stream: true, messages: [
+          { role: 'assistant', tool_calls: [{ id: 'call_missing', type: 'function', function: { name: 'lookup', arguments: '{}' } }] },
+          { role: 'tool', tool_call_id: 'call_missing', content: 'found' },
+        ],
+      }) }),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'INVALID_NATIVE_REQUEST', error: 'Native Bedrock signed thinking state is unavailable' });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-077: dispatches one initial provider-native Bedrock eventstream request', async () => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
+      return new Response('provider failure', { status: 502 });
+    });
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'high', stream: true, messages: [] }) }),
+    );
+    expect(response.status).toBe(502);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke-with-response-stream`);
+  });
+
+  it('REQ-ENTERPRISE-076/077: delivers AWS chunk-wrapped native Bedrock text to Pi without a fallback request', async () => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      const request = input as Request;
+      lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
+      const events = [
+        { type: 'message_start', message: { id: 'msg_native', model: 'claude' } },
+        { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Native response received' } },
+        { type: 'content_block_stop', index: 0 },
+        { type: 'message_delta', delta: { stop_reason: 'end_turn' } },
+        { type: 'message_stop' },
+      ];
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+        for (const event of events) controller.enqueue(bedrockChunkFrame(event));
+        controller.close();
+      } }), { headers: { 'content-type': 'application/vnd.amazon.eventstream' } });
+    });
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>,
+      { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: fixture.handle, reasoning_effort: 'high', stream: true, messages: [{ role: 'user', content: 'Hello' }],
+      }) }),
+    );
+    const text = await response.text();
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/event-stream');
+    expect(text).toContain('Native response received');
+    expect(text).toContain('"finish_reason":"stop"');
+    expect(text).not.toContain('NATIVE_BEDROCK_STREAM_ERROR');
+    expect(text.match(/data: \[DONE\]/g)).toHaveLength(1);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke-with-response-stream`);
+  });
+
+  it('REQ-ENTERPRISE-080: preserves native stream errors without adding a success terminator', async () => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+    const replayWrites: string[] = [];
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(bedrockEventFrame('modelStreamErrorException', { message: 'private provider detail' }, 'exception'));
+      controller.close();
+    } }), { headers: { 'content-type': 'application/vnd.amazon.eventstream' } }));
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>,
+      { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }, (key) => replayWrites.push(key)).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: fixture.handle, reasoning_effort: 'high', stream: true, messages: [{ role: 'user', content: 'Hello' }],
+      }) }),
+    );
+    const text = await response.text();
+    expect(text).toContain('NATIVE_BEDROCK_STREAM_ERROR');
+    expect(text).not.toContain('private provider detail');
+    expect(text).not.toContain('"finish_reason"');
+    expect(text).not.toContain('codeflare-terminator');
+    expect(text.match(/data: \[DONE\]/g)).toHaveLength(1);
+    expect(replayWrites).toHaveLength(0);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('REQ-ENTERPRISE-073/077: dispatches provider-native Bedrock Invoke with exact reasoning controls and hides signed replay state', async () => {
+    const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-invoke',
+      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' });
+    const replayWrites: Array<{ key: string; value: string }> = [];
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
+      return Response.json({ id: 'msg', model: 'claude', content: [{ type: 'thinking', thinking: '', signature: 'private-signature' },
+        { type: 'tool_use', id: 'call_1', name: 'lookup', input: { q: 'x' } }], stop_reason: 'tool_use', usage: { input_tokens: 4, output_tokens: 8 } });
+    });
+    const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] }, (key, value) => replayWrites.push({ key, value })).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'xhigh', stream: false, messages: [{ role: 'user', content: 'Use a tool' }], tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }] }) }),
+    );
+    expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke`);
+    expect(JSON.parse(lastFetch!.body)).toMatchObject({ thinking: { type: 'adaptive' }, output_config: { effort: 'xhigh' }, anthropic_version: 'bedrock-2023-05-31' });
+    const body = await response.text();
+    expect(body).toContain('"name":"lookup"');
+    expect(body).not.toContain('private-signature');
+    expect(replayWrites).toHaveLength(1);
+    expect(replayWrites[0].key).toMatch(/^native-ai-replay:/);
+    expect(replayWrites[0].value).not.toContain('private-signature');
+  });
+
+  describe.each(['sonnet', 'opus'] as const)('automatic native %s routing', (family) => {
+    const options: NativeFixtureOptions = { model: `eu.anthropic.claude-${family}-5`,
+      profileId: family === 'sonnet' ? 'bedrock-anthropic-native-sonnet' : 'bedrock-anthropic-native-opus-auto',
+      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v1' };
+    const encryption = Buffer.alloc(32, 7).toString('base64');
+    const props = { user: SESSION_USER, sessionId: 'session-1', groups: ['engineering'] };
+
+    it.each(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const)('REQ-ENTERPRISE-072/077/078: dispatches initial %s once with the evidenced mapped effort', async (level) => {
+      const fixture = nativeFixture(true, options);
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+        const request = input as Request; lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
+        return new Response('provider failure', { status: 502 });
+      });
+      const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, props).fetch(
+        new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: level, stream: true, messages: [{ role: 'user', content: 'Hello' }] }) }),
+      );
+      const invoke = family === 'opus' && (level === 'xhigh' || level === 'max');
+      expect(response.status).toBe(502);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/${invoke ? 'invoke' : 'invoke-with-response-stream'}`);
+      const sent = JSON.parse(lastFetch!.body);
+      expect(sent.thinking).toEqual({ type: level === 'off' ? 'disabled' : 'adaptive' });
+      const effort = level === 'minimal' ? 'low' : family === 'sonnet' && (level === 'xhigh' || level === 'max') ? 'high' : level;
+      expect(sent.output_config).toEqual(level === 'off' ? undefined : { effort });
+      expect(lastFetch?.headers.get('accept')).toBe(invoke ? null : 'application/vnd.amazon.eventstream');
+    });
+
+    it('REQ-ENTERPRISE-077: rejects nonstreaming automatic eventstream turns without an Invoke fallback', async () => {
+      const fixture = nativeFixture(true, options);
+      const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, props).fetch(
+        new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'high', stream: false, messages: [] }) }),
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: 'UNSUPPORTED_NATIVE_TRANSPORT' });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it('REQ-ENTERPRISE-073: denies automatic routing without an authenticated session before provider I/O', async () => {
+      const fixture = nativeFixture(true, options);
+      const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, { ...props, sessionId: undefined }).fetch(
+        new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'high', stream: true, messages: [] }) }),
+      );
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ code: 'NATIVE_STATE_UNAVAILABLE' });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it('REQ-ENTERPRISE-049/073: denies unauthorized automatic targets before provider I/O', async () => {
+      const fixture = nativeFixture(true, options);
+      const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, { ...props, groups: ['other'] }).fetch(
+        new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'high', stream: true, messages: [] }) }),
+      );
+      expect(response.status).toBe(403);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it.each(['unsigned', 'redacted-only'])('REQ-ENTERPRISE-073/077: continues an authentic %s High tool response through encrypted replay and Invoke', async (kind) => {
+      const fixture = nativeFixture(true, options);
+      const tool = { type: 'tool_use', id: 'toolu_bdrk_native_read', name: 'read', input: { path: 'README.md', offset: 1 } };
+      const content = kind === 'unsigned'
+        ? [{ type: 'text', text: 'Looking up ' }, { type: 'text', text: 'the overview.' }, tool]
+        : [{ type: 'redacted_thinking', data: 'private-redacted-state' }, tool];
+      const calls: Array<{ url: string; body: any }> = [];
+      const ciphertext: Record<string, string> = {};
+      const responses = [bedrockToolResponse(content, 'eventstream'), bedrockToolResponse([{ type: 'text', text: 'Finished' }], 'invoke')];
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (input: RequestInfo | URL) => {
+        const request = input as Request;
+        calls.push({ url: request.url, body: JSON.parse(await request.text()) });
+        const response = responses.shift();
+        if (!response) throw new Error('Unexpected provider retry');
+        return response;
+      });
+      const interceptor = makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, props,
+        (key, value) => { ciphertext[key] = value; });
+      const request = (messages: unknown[]) => new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: fixture.handle, reasoning_effort: 'high', stream: true, messages,
+        tools: [{ type: 'function', function: { name: 'read', parameters: { type: 'object', properties: { path: { type: 'string' }, offset: { type: 'integer' } } } } }],
+      }) });
+      const question = { role: 'user', content: 'What can you do?' };
+      const firstResponse = await interceptor.fetch(request([question]));
+      expect(firstResponse.status).toBe(200);
+      const first = await readOpenAiToolTurn(firstResponse);
+      expect(first.finishes).toEqual(['tool_calls']);
+      expect(first.doneCount).toBe(1);
+      expect(first.wire).not.toContain('private-redacted-state');
+      expect(first.message.tool_calls).toHaveLength(1);
+      const messages = [question, first.message, { role: 'tool', tool_call_id: first.message.tool_calls[0].id, content: 'overview contents' }];
+      const secondResponse = await interceptor.fetch(request(messages));
+      expect(secondResponse.status, await secondResponse.clone().text()).toBe(200);
+      const second = await readOpenAiToolTurn(secondResponse);
+      expect(second.message.content).toBe('Finished');
+      expect(second.finishes).toEqual(['stop']);
+      expect(second.doneCount).toBe(1);
+      expect(second.wire).not.toContain('private-redacted-state');
+      expect(calls.map((call) => call.url)).toEqual([
+        `${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke-with-response-stream`,
+        `${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke`,
+      ]);
+      expect(calls[1].body.messages[1].content).toEqual(content);
+      expect(calls[1].body.messages[2].content).toEqual([{ type: 'tool_result', tool_use_id: first.message.tool_calls[0].id, content: 'overview contents' }]);
+      for (const call of calls) {
+        expect(call.body.thinking).toEqual({ type: 'adaptive' });
+        expect(call.body.output_config).toEqual({ effort: 'high' });
+      }
+      expect(Object.keys(ciphertext)).toHaveLength(1);
+      expect(JSON.stringify(ciphertext)).not.toContain('private-redacted-state');
+      expect(JSON.stringify(ciphertext)).not.toContain('README.md');
+      // Even real ciphertext produced by this response cannot authorize another user/session.
+      for (const otherProps of [{ ...props, sessionId: 'another-session' }, { ...props, user: 'another@example.com' }]) {
+        const other = makeInterceptor({ __kv: { ...fixture.kv, ...ciphertext }, ENCRYPTION_KEY: encryption } as Partial<Env>, otherProps);
+        const denied = await other.fetch(request(messages));
+        expect(denied.status).toBe(400);
+        expect(await denied.json()).toMatchObject({ code: 'INVALID_NATIVE_REQUEST' });
+      }
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('REQ-ENTERPRISE-073/077: validates signed continuation before Invoke and keeps state private', async () => {
+      // Seed real encrypted replay state through the existing Invoke adapter.
+      const seed = nativeFixture(true, { ...options, transport: 'aig-bedrock-anthropic-invoke',
+        profileId: family === 'sonnet' ? 'bedrock-anthropic-native-sonnet' : 'bedrock-anthropic-native-opus-invoke' });
+      const replay: Record<string, string> = {};
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(Response.json({ id: 'seed', content: [
+        { type: 'thinking', thinking: '', signature: 'private-auto-signature' },
+        { type: 'tool_use', id: 'call_auto', name: 'lookup', input: { q: 'x' } },
+      ], stop_reason: 'tool_use' }));
+      const initial = await makeInterceptor({ __kv: seed.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, props, (key, value) => { replay[key] = value; }).fetch(
+        new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: seed.handle, reasoning_effort: 'high', messages: [{ role: 'user', content: 'Use a tool' }] }) }),
+      );
+      expect(initial.status).toBe(200);
+      expect(await initial.text()).not.toContain('private-auto-signature');
+      expect(Object.keys(replay)).toHaveLength(1);
+      expect(JSON.stringify(replay)).not.toContain('private-auto-signature');
+      const fixture = nativeFixture(true, options);
+      const messages = [{ role: 'assistant', tool_calls: [{ id: 'call_auto', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' } }] }, { role: 'tool', tool_call_id: 'call_auto', content: 'found' }];
+      const request = (bodyMessages = messages) => new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'high', stream: true, messages: bodyMessages }) });
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockClear();
+      const missing = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: encryption } as Partial<Env>, props).fetch(request());
+      expect(missing.status).toBe(400);
+      expect(await missing.json()).toMatchObject({ code: 'INVALID_NATIVE_REQUEST' });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      const interceptor = makeInterceptor({ __kv: { ...fixture.kv, ...replay }, ENCRYPTION_KEY: encryption } as Partial<Env>, props);
+      const mismatch = await interceptor.fetch(request([{ role: 'assistant', tool_calls: [{ id: 'call_auto', type: 'function', function: { name: 'lookup', arguments: '{"q":"changed"}' } }] }, messages[1]]));
+      expect(mismatch.status).toBe(400);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+        const upstream = input as Request; lastFetch = { url: upstream.url, method: upstream.method, headers: upstream.headers, body: await upstream.text() };
+        return Response.json({ id: 'final', content: [{ type: 'text', text: 'Finished' }], stop_reason: 'end_turn' });
+      });
+      const response = await interceptor.fetch(request());
+      expect(response.status).toBe(200);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      expect(lastFetch?.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/${options.model}/invoke`);
+      expect(JSON.parse(lastFetch!.body).messages[0].content).toEqual([
+        { type: 'thinking', thinking: '', signature: 'private-auto-signature' },
+        { type: 'tool_use', id: 'call_auto', name: 'lookup', input: { q: 'x' } },
+      ]);
+      expect(await response.text()).toContain('Finished');
+    });
+  });
+
   it('REQ-ENTERPRISE-059: round-trips Gemini thought signatures through Pi replay metadata', async () => {
     const fixture = nativeFixture(true, { provider: 'google-ai-studio', model: 'gemini-3.1-pro-preview', profileId: 'native-google-ai-studio-compat', providerConfigId: 'gemini-default', providerConfigAlias: 'default', adapterVersion: 'gemini-openai-compat-v1' });
     let sent: Record<string, any> | undefined;
@@ -855,19 +1282,146 @@ describe('native provider authorization and compat dispatch', () => {
     expect(await response.text()).toContain('"format":"codeflare.google.thought_signature.v1"');
   });
 
-  it('REQ-ENTERPRISE-048: rejects reasoning controls for provider-default targets before upstream I/O', async () => {
-    const fixture = nativeFixture();
+  it.each(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])('REQ-ENTERPRISE-059: normalizes Gemini provider-default %s while round-tripping thought signatures through Pi replay metadata', async (level) => {
+    const fixture = nativeFixture(true, { provider: 'google-ai-studio', model: 'gemini-3.1-pro-preview', profileId: 'native-google-ai-studio-compat', providerConfigId: 'gemini-default', providerConfigAlias: 'default', adapterVersion: 'gemini-openai-compat-v1' });
+    let sent: Record<string, any> | undefined;
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
+      const request = input as Request; sent = JSON.parse(await request.text());
+      return new Response(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{}' }, extra_content: { google: { thought_signature: 'opaque-state' } } }] }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`, { headers: { 'content-type': 'text/event-stream' } });
+    });
+    const tools = [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }];
     const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
-      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: 'off', messages: [] }) }),
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: fixture.handle, reasoning_effort: level, reasoning: { effort: 'high' }, thinking: { type: 'enabled' },
+        chat_template_kwargs: { enable_thinking: true, thinking: true, clear_thinking: false, unrelated: 'keep' },
+        temperature: 0.4, tools,
+        messages: [{ role: 'assistant', tool_calls: [{ id: 'call_0', type: 'function', function: { name: 'lookup', arguments: '{}' } }], reasoning_details: [{ type: 'reasoning.encrypted', id: 'call_0', format: 'codeflare.google.thought_signature.v1', data: 'prior-state' }] }, { role: 'tool', tool_call_id: 'call_0', content: 'ok' }],
+      }) }),
     );
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
+    expect(sent).toEqual({
+      model: 'google-ai-studio/gemini-3.1-pro-preview', temperature: 0.4, tools,
+      chat_template_kwargs: { unrelated: 'keep' },
+      messages: [
+        { role: 'assistant', tool_calls: [{ id: 'call_0', type: 'function', function: { name: 'lookup', arguments: '{}' }, extra_content: { google: { thought_signature: 'prior-state' } } }] },
+        { role: 'tool', tool_call_id: 'call_0', content: 'ok' },
+      ],
+    });
+    const text = await response.text();
+    expect(text).toContain('"format":"codeflare.google.thought_signature.v1"');
+    expect(text).toContain('"data":"opaque-state"');
+  });
+
+  describe.each<[NativeFixtureOptions, string]>([
+    [{}, 'aws-bedrock/eu.anthropic.claude-sonnet-5'],
+    [{ provider: 'codeflare-inference-mesh', customProvider: true, model: 'ornith-1-5-9b-gguf-q8-0', profileId: 'native-codeflare-inference-mesh-compat', providerConfigId: 'mesh-default', providerConfigAlias: 'default', adapterVersion: 'native-openai-compat-v1' }, 'custom-codeflare-inference-mesh/ornith-1-5-9b-gguf-q8-0'],
+  ])('native provider-default normalization for %s', (options, selector) => {
+    it.each(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])('REQ-ENTERPRISE-048: ignores %s and removes only reasoning controls while preserving tools and replay', async (level) => {
+      const fixture = nativeFixture(true, options);
+      const preserved = {
+        temperature: 0.4, stream: true,
+        messages: [
+          { role: 'user', content: 'Look up x' },
+          { role: 'assistant', content: null, tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{"q":"x"}' } }] },
+          { role: 'tool', tool_call_id: 'call_1', content: 'found' },
+        ],
+        tools: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object', properties: { q: { type: 'string' } } } } }],
+        tool_choice: 'auto',
+      };
+      const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+        new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+          ...preserved, model: fixture.handle, reasoning_effort: level, reasoning: { effort: 'high' }, thinking: { type: 'enabled', budget_tokens: 1024 },
+          chat_template_kwargs: { enable_thinking: true, thinking: true, clear_thinking: false, unrelated: { value: 'keep' } },
+        }) }),
+      );
+      expect(response.status).toBe(200);
+      expect(lastFetch?.url).toBe(`${GATEWAY}/compat/chat/completions`);
+      expect(JSON.parse(lastFetch!.body)).toEqual({ ...preserved, model: selector, chat_template_kwargs: { unrelated: { value: 'keep' } } });
+    });
+  });
+
+  it.each(['off', 'max'])('REQ-ENTERPRISE-050: maps native OpenAI %s to the only executable off level without changing its assigned target', async (level) => {
+    const fixture = nativeFixture(true, { provider: 'openai', model: 'gpt-5.6-sol', profileId: 'native-openai-compat', providerConfigId: 'openai-default', providerConfigAlias: 'default', adapterVersion: 'native-openai-compat-v1' });
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: level, messages: [{ role: 'user', content: 'hello' }] }) }),
+    );
+    expect(response.status).toBe(200);
+    expect(lastFetch?.url).toBe(`${GATEWAY}/compat/chat/completions`);
+    expect(JSON.parse(lastFetch!.body)).toEqual({ model: 'openai/gpt-5.6-sol', reasoning_effort: 'none', messages: [{ role: 'user', content: 'hello' }] });
+    expect(lastFetch?.headers.get('cf-aig-byok-alias')).toBe('default');
+  });
+
+  it.each(['', 'dynamic/'])('REQ-ENTERPRISE-032: dispatches an authorized unowned native-shaped Dynamic Route with %s prefix and its assigned reasoning', async (prefix) => {
+    const fixture = nativeFixture(false);
+    const route = fixture.handle;
+    fixture.kv['setup:dynamic_routes'] = JSON.stringify(['ordinary-route', route]);
+    fixture.kv['setup:reasoning_configuration'] = JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {
+      'ordinary-route': { activeProfile: getBuiltInProfileRef('openai-gpt-chat-tools-off') },
+      [route]: { activeProfile: getBuiltInProfileRef('workers-ai-kimi-k-thinking') },
+    } });
+    fixture.kv['setup:group_routing'] = JSON.stringify({ engineering: {
+      routes: ['ordinary-route', route], defaultRoute: 'ordinary-route', reasoning: 'off',
+      targets: [{ kind: 'dynamic-route', route: 'ordinary-route' }, { kind: 'dynamic-route', route }],
+      defaultTarget: { kind: 'dynamic-route', route: 'ordinary-route' },
+    } });
+    // makeInterceptor seeds current profile-bound verification and active inventory.
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
+        model: `${prefix}${route}`, reasoning_effort: 'low', messages: [{ role: 'user', content: 'hello' }],
+        chat_template_kwargs: { enable_thinking: false, clear_thinking: true, unrelated: 'keep' },
+      }) }),
+    );
+    expect(response.status).toBe(200);
+    expect(lastFetch?.url).toBe(`${REST_BASE}/v1/chat/completions`);
+    expect(JSON.parse(lastFetch!.body)).toEqual({
+      model: `dynamic/${route}`, reasoning_effort: 'low', messages: [{ role: 'user', content: 'hello' }],
+      chat_template_kwargs: { enable_thinking: true, clear_thinking: false, unrelated: 'keep' },
+    });
+  });
+
+  it.each(['', 'dynamic/'])('REQ-ENTERPRISE-049: rejects a revoked native handle with %s prefix despite an eligible ordinary Dynamic Route', async (prefix) => {
+    const fixture = nativeFixture(false);
+    fixture.kv['setup:dynamic_routes'] = JSON.stringify(['ordinary-route']);
+    fixture.kv['setup:reasoning_configuration'] = JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {
+      'ordinary-route': { activeProfile: getBuiltInProfileRef('openai-gpt-chat-tools-off') },
+    } });
+    fixture.kv['setup:group_routing'] = JSON.stringify({ engineering: {
+      routes: ['ordinary-route'], defaultRoute: 'ordinary-route', reasoning: 'off',
+      targets: [{ kind: 'native-target', targetId: fixture.id }, { kind: 'dynamic-route', route: 'ordinary-route' }],
+      defaultTarget: { kind: 'dynamic-route', route: 'ordinary-route' },
+    } });
+    const interceptor = makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] });
+    const request = (model: string) => new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', body: JSON.stringify({ model, reasoning_effort: 'off', messages: [] }),
+    });
+    // Prove the catalog is nonempty and the alternative is usable, not an empty-catalog denial.
+    const allowed = await interceptor.fetch(request('ordinary-route'));
+    expect(allowed.status).toBe(200);
+    expect(lastFetch?.url).toBe(`${REST_BASE}/v1/chat/completions`);
+    expect(JSON.parse(lastFetch!.body)).toEqual({ model: 'dynamic/ordinary-route', reasoning_effort: 'none', messages: [] });
+    vi.mocked(globalThis.fetch).mockClear();
+    lastFetch = null;
+
+    const denied = await interceptor.fetch(request(`${prefix}${fixture.handle}`));
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toMatchObject({ code: 'ROUTE_NOT_ELIGIBLE' });
     expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(lastFetch).toBeNull();
   });
 
   it('REQ-ENTERPRISE-049: revoked native handles fail before upstream I/O without fallback', async () => {
     const fixture = nativeFixture(false);
     const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
       new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, messages: [] }) }),
+    );
+    expect(response.status).toBe(403);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])('REQ-ENTERPRISE-049: revoked native handles with %s still fail before upstream I/O without fallback', async (level) => {
+    const fixture = nativeFixture(false);
+    const response = await makeInterceptor({ __kv: fixture.kv } as Partial<Env>, { user: SESSION_USER, groups: ['engineering'] }).fetch(
+      new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: fixture.handle, reasoning_effort: level, messages: [] }) }),
     );
     expect(response.status).toBe(403);
     expect(globalThis.fetch).not.toHaveBeenCalled();

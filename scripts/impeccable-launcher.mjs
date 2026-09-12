@@ -1,5 +1,14 @@
-// The managed skill dispatches only to the versioned, image-owned engine.
+export const REVIEWED_IMPECCABLE_NATIVE_ENGINES = Object.freeze({
+  '4.3.1': '0.1.5',
+});
+
+export function reviewedImpeccableEngine(skillVersion) {
+  return REVIEWED_IMPECCABLE_NATIVE_ENGINES[skillVersion];
+}
+
+// The managed skill dispatches only to a reviewed, versioned image-owned engine.
 export function managedImpeccableLauncher(engineRoot = '/opt/codeflare/impeccable') {
+  const reviewedEngines = [...new Set(Object.values(REVIEWED_IMPECCABLE_NATIVE_ENGINES))].join('|');
   const quotedRoot = `'${engineRoot.replaceAll("'", "'\\''")}'`;
   return `#!/bin/sh
 set -eu
@@ -13,7 +22,7 @@ esac
 dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 version=$(tr -d '[:space:]' < "$dir/VERSION")
 case "$version" in
-  0.1.3) ;;
+  ${reviewedEngines}) ;;
   *) echo "Unsupported Impeccable engine version: $version" >&2; exit 1 ;;
 esac
 engine_root=${quotedRoot}

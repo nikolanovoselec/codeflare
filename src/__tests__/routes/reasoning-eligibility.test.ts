@@ -5,6 +5,7 @@ import type { AuthVariables } from '../../middleware/auth';
 import { createMockKV } from '../helpers/mock-kv';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { getBuiltInProfile, getBuiltInProfileRef, normalizeCustomProfile } from '../../lib/reasoning-profiles';
+import { parseReasoningConfiguration, serializeReasoningConfiguration } from '../../lib/reasoning-configuration';
 import { validateConfigurationValues, buildConfigurationPreview, executeConfigurationTask } from '../../lib/admin-configuration';
 import { loadEnterpriseRouteConfig } from '../../lib/access';
 import { getAigConfig } from '../../lib/aig-config';
@@ -26,6 +27,7 @@ const accountApiUrl = 'https://api.cloudflare.com/client/v4/accounts/0123456789a
 const token = 'test-gateway-token';
 const profileRef = getBuiltInProfileRef('openai-gpt-chat-tools-off');
 const bedrockProfileRef = getBuiltInProfileRef('bedrock-anthropic-compat');
+const dynamicBedrockProfileRef = getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default');
 const model = { id: 'model', type: 'model', properties: { provider: 'openai', model: 'test-model' }, outputs: { success: { elementId: 'end' } } };
 const topology = [{ id: 'start', type: 'start', outputs: { next: { elementId: 'model' } } }, model];
 let version: string;
@@ -168,6 +170,47 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(observedProviderUrls.every((url) => url.includes('/compat/chat/completions'))).toBe(true);
   });
 
+  it('REQ-ENTERPRISE-075: offers evidence-backed native Bedrock profiles without a paid probe and requires explicit administrator confirmation', async () => {
+    const f = setup();
+    const profileRef = getBuiltInProfileRef('bedrock-anthropic-native-opus-invoke');
+    const target = { label: 'Native Opus', provider: 'aws-bedrock', model: 'eu.anthropic.claude-opus-5', contextWindow: 200000,
+      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', enabled: false };
+    const discovery = await f.post('native/profile-discovery', { target, maxCompletionTokens: 32 });
+    expect(discovery.status).toBe(200);
+    expect(await discovery.json()).toMatchObject({ outcome: 'existing-profile', accounting: { logicalProbes: 0, httpAttempts: 0 }, matchedProfiles: [{ profileRef }] });
+    expect(observedProviderModels).toEqual([]);
+
+    const denied = await f.post('native/discover', { target: { ...target, profileRef }, maxCompletionTokens: 32 });
+    expect(denied.status).toBe(400);
+    expect(await denied.json()).toMatchObject({ code: 'administrator_confirmation_required' });
+    expect(observedProviderModels).toEqual([]);
+
+    const confirmed = await f.post('native/discover', { target: { ...target, profileRef }, administratorConfirmed: true, maxCompletionTokens: 32 });
+    expect(confirmed.status).toBe(200);
+    expect(await confirmed.json()).toMatchObject({ classification: 'Administrator-confirmed', assignable: true, verification: { method: 'administrator', current: true } });
+  });
+
+  it('REQ-ENTERPRISE-066: accepts a disabled native provider target before routes or access policies exist', async () => {
+    const f = setup();
+    const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      gatewayUrl: accountApiUrl,
+      gatewayId: 'gateway',
+      dynamicRoutes: [],
+      defaultRoute: { route: '', reasoning: 'off' },
+      routeContextWindows: {},
+      groupRouting: [],
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} },
+      nativeTargets: [{ label: 'Claude draft', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: false }],
+      nativeChecks: {},
+    }));
+
+    expect(validated.fieldErrors).toBeUndefined();
+    expect(parseNativeAiTargets(validated.values?.nativeTargets).targets).toMatchObject([
+      { label: 'Claude draft', provider: 'aws-bedrock', enabled: false },
+    ]);
+    expect(f.kv.put).not.toHaveBeenCalled();
+  });
+
   it('REQ-ENTERPRISE-055: rejects invalid native target data before any routing write', async () => {
     const f = setup();
     const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
@@ -261,6 +304,110 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(body.accounting.httpAttempts).toBeGreaterThan(preparedAttempts);
   });
 
+  it('REQ-ENTERPRISE-037: round-trips a generic provider-default discovery draft as its own custom revision', async () => {
+    const f = setup();
+    nativeProviderSlug = 'groq';
+    providerMode = 'candidates-unsupported';
+
+    const response = await f.post('native/profile-discovery', {
+      target: { label: 'Generic provider', provider: 'groq', model: 'generic-tool-model', contextWindow: 200000, enabled: false },
+      maxCompletionTokens: 32,
+    });
+    const body = await response.json() as any;
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      route: 'groq/generic-tool-model', outcome: 'custom-profile', assignable: true, matchedProfiles: [],
+      profileDraft: { reasoningMode: 'provider-default', supportedLevels: [], levels: {}, aliases: {},
+        offSemantics: { status: 'unsupported' }, evidence: [{ toolReplay: true }] },
+    });
+    expect(body.profileDraft.levels).toEqual({});
+    expect(body.profileDraft.aliases).toEqual({});
+    const requests = vi.mocked(globalThis.fetch).mock.calls
+      .filter(([, init]) => init?.method === 'POST')
+      .map(([, init]) => JSON.parse(String(init?.body)));
+    expect(requests.some((request) => request.tools && (Object.hasOwn(request, 'reasoning_effort') || Object.hasOwn(request, 'chat_template_kwargs')))).toBe(true);
+    const [toolCall, replay] = requests.slice(-2);
+    expect(toolCall.tools).toEqual(expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'codeflare_profile_canary' }) })]));
+    expect(replay.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'assistant', tool_calls: [expect.objectContaining({ id: 'call', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' } })] }),
+      expect.objectContaining({ role: 'tool', tool_call_id: 'call' }),
+    ]));
+    for (const request of [toolCall, replay]) {
+      expect(request.model).toBe('groq/generic-tool-model');
+      expect(request).not.toHaveProperty('reasoning_effort');
+      expect(request).not.toHaveProperty('chat_template_kwargs');
+    }
+
+    // Only the administrator-owned identity is added to the actual route draft.
+    const profile = normalizeCustomProfile({ ...body.profileDraft, id: 'custom-generic-default', name: 'Generic provider default', revision: 1 });
+    expect(profile).toMatchObject({ id: 'custom-generic-default', name: 'Generic provider default', revision: 1,
+      builtIn: false, reasoningMode: 'provider-default', supportedLevels: [], levels: {} });
+    expect(profile.levels).toEqual({});
+    expect(profile.id).not.toBe('native-codeflare-inference-mesh-compat');
+    expect(profile.hash).toMatch(/^[0-9a-f]{64}$/);
+    const configuration = parseReasoningConfiguration({ schemaVersion: 1, customProfileRevisions: [profile], routeAssignments: {} });
+    const roundTrip = parseReasoningConfiguration(serializeReasoningConfiguration(configuration));
+    expect(roundTrip.customProfileRevisions).toEqual([profile]);
+    expect(roundTrip.customProfileRevisions[0].hash).toBe(profile.hash);
+    expect(vi.mocked(f.kv.put).mock.calls.filter(([key]) => key === SETUP_KEYS.REASONING_CONFIGURATION || key === SETUP_KEYS.NATIVE_AI_TARGETS)).toEqual([]);
+  });
+
+  it('REQ-ENTERPRISE-065: rebinds saved native authority only for equivalent coordinates and unchanged identity', async () => {
+    const f = setup();
+    f.env.ENCRYPTION_KEY = Buffer.alloc(32, 1).toString('base64');
+    await activate(f);
+    const checked = await (await f.post('native/discover', {
+      target: { label: 'Claude rotated', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true },
+      administratorConfirmed: true, maxCompletionTokens: 32,
+    })).json() as any;
+    const handle = nativeTargetHandle(checked.targetId);
+    const nativeDraft = { id: checked.targetId, label: 'Claude rotated', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5', contextWindow: 200000, profileRef: bedrockProfileRef, enabled: true };
+    const initial = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      nativeTargets: [nativeDraft], nativeChecks: { [checked.targetId]: checked.checkId },
+      groupRouting: [{ accessGroup: 'engineering', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
+      defaultRoute: { route: handle, reasoning: 'off' },
+    }));
+    expect(initial.fieldErrors).toBeUndefined();
+    await executeConfigurationTask(f.env, 'configure_model_routing', initial.values!, { mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 2 });
+    const before = parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS)).targets[0].verification!;
+
+    const otherGateway = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/fedcba9876543210fedcba9876543210/gateway/', replacementToken: 'rotated-token', dynamicRoutes: [], routeContextWindows: {},
+      nativeTargets: [nativeDraft], nativeChecks: {},
+      groupRouting: [{ accessGroup: 'engineering', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
+      defaultRoute: { route: handle, reasoning: 'off' },
+    }));
+    expect(otherGateway.values).toBeUndefined();
+    expect(otherGateway.fieldErrors?.reasoningConfiguration).toHaveLength(1);
+    nativeProviderSlug = 'openai';
+    const changedProvider = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'rotated-token', dynamicRoutes: [], routeContextWindows: {},
+      nativeTargets: [{ ...nativeDraft, provider: 'openai', model: 'gpt-5.6-terra', profileRef: getBuiltInProfileRef('native-openai-compat') }], nativeChecks: {},
+      groupRouting: [{ accessGroup: 'engineering', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
+      defaultRoute: { route: handle, reasoning: 'off' },
+    }));
+    expect(changedProvider.values).toBeUndefined();
+    expect(changedProvider.fieldErrors?.reasoningConfiguration).toHaveLength(1);
+    nativeProviderSlug = 'aws-bedrock';
+
+    const rotated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'rotated-token', dynamicRoutes: [], routeContextWindows: {},
+      nativeTargets: [nativeDraft], nativeChecks: {},
+      groupRouting: [{ accessGroup: 'engineering', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
+      defaultRoute: { route: handle, reasoning: 'off' },
+    }));
+    expect(rotated.fieldErrors).toBeUndefined();
+    const rebound = parseNativeAiTargets(rotated.values?.nativeTargets).targets[0].verification!;
+    expect(rebound).toMatchObject({ targetId: checked.targetId, providerConfigId: 'bedrock-default', model: nativeDraft.model, profileRef: bedrockProfileRef });
+    expect(rebound.connectionFingerprint).not.toBe(before.connectionFingerprint);
+    expect(Date.parse(rebound.checkedAt)).toBeGreaterThanOrEqual(Date.parse(before.checkedAt));
+    const preview = await buildConfigurationPreview(f.env, 'aiRouting', 'enterprise', 2, 2, rotated.values!);
+    expect(preview.tasks.map((task) => task.id)).toEqual(['configure_ai_gateway', 'configure_model_routing']);
+    await executeConfigurationTask(f.env, 'configure_ai_gateway', rotated.values!, { mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 3 });
+    await executeConfigurationTask(f.env, 'configure_model_routing', rotated.values!, { mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 3 });
+    expect(parseNativeAiTargets(await f.kv.get(SETUP_KEYS.NATIVE_AI_TARGETS)).targets[0].verification).toEqual(rebound);
+  });
+
   it('REQ-ENTERPRISE-054: administrator confirmation issues server identity, persists authority, and leaves it unchanged on route-only Save', async () => {
     const f = setup();
     await activate(f);
@@ -299,9 +446,13 @@ describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
     expect(JSON.stringify(body)).not.toMatch(/draft-token|private error/);
     expect(f.kv.put).not.toHaveBeenCalled();
   });
-  it('rejects draft gateway credentials, unsafe hosts and provenance before external I/O', async () => {
+  it('rejects invalid draft gateway coordinates, credentials and provenance before external I/O', async () => {
     const f = setup();
-    for (const gateway of [{ gatewayUrl: 'https://evil.example/v1/account/gateway' }, { gatewayUrl, replacementToken: 'bad\r\ntoken' }]) {
+    for (const gateway of [
+      { gatewayUrl: 'https://evil.example/v1/account/gateway' },
+      { gatewayUrl, replacementToken: 'bad\r\ntoken' },
+      { gatewayUrl: accountApiUrl, replacementToken: 'draft-token' },
+    ]) {
       expect((await f.post('catalog', { gateway })).status).toBe(400);
     }
     expect((await f.post('routes/working/inventory', { backendDescriptions: { model: 'bad\nvalue' } })).status).toBe(400);
@@ -324,6 +475,19 @@ describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
     expect(await response.json()).toMatchObject({ routeCatalogStatus: 'ready', routes: ['working', 'other'] });
     expect(fetch).toHaveBeenCalledWith(
       'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai-gateway/gateways/gateway/routes',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+  it.each([
+    ['account API', { gatewayUrl: accountApiUrl, gatewayId: 'gateway', replacementToken: 'draft-token' }],
+    ['legacy', { gatewayUrl, replacementToken: 'draft-token' }],
+  ])('REQ-ENTERPRISE-063: loads Dynamic Route inventory through the %s URL', async (_label, gateway) => {
+    const f = setup();
+    const response = await f.post('routes/working/inventory', { gateway });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ route: 'working', routeVersion: version });
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai-gateway/gateways/gateway/routes/working',
       expect.objectContaining({ method: 'GET' }),
     );
   });
@@ -351,6 +515,37 @@ describe('REQ-ENTERPRISE-042 draft gateway connection', () => {
 });
 
 describe('REQ-ENTERPRISE-043 server-issued verification', () => {
+  it('REQ-ENTERPRISE-070: persists authority for a provider-default Dynamic Route with no selectable Pi levels', async () => {
+    const f = setup();
+    const response = await f.check({ profileRef: dynamicBedrockProfileRef, administratorConfirmed: true });
+    expect(response.status).toBe(200);
+    const receipt = await response.json() as any;
+    expect(receipt).toMatchObject({
+      classification: 'Administrator-confirmed',
+      assignable: true,
+      verification: { profileRef: dynamicBedrockProfileRef, supportedLevels: [] },
+    });
+    expect(providerCalls).toBe(0);
+
+    const proposed = values({
+      defaultRoute: { route: '', reasoning: 'off' },
+      groupRouting: [],
+      reasoningConfiguration: {
+        schemaVersion: 1,
+        customProfileRevisions: [],
+        routeAssignments: { working: { activeProfile: dynamicBedrockProfileRef } },
+      },
+      routeChecks: { working: receipt.checkId },
+    });
+    const validated = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', proposed);
+    expect(validated.fieldErrors).toBeUndefined();
+    await executeConfigurationTask(f.env, 'configure_model_routing', validated.values!, {
+      mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 1,
+    });
+    const stored = JSON.parse(f.kv._store.get(SETUP_KEYS.REASONING_CONFIGURATION)!);
+    expect(stored.routeAssignments.working.verification.supportedLevels).toEqual([]);
+  });
+
   it('confirms an administrator-selected profile without paid probes and preserves authority through Save and runtime loading', async () => {
     const f = setup();
     elements = [{ id: 'start', type: 'start', outputs: { next: { elementId: 'model' } } },
@@ -648,10 +843,11 @@ describe('REQ-ENTERPRISE-044 minimum routing and optional fallback', () => {
     expect(saved.routeAssignments.working.verification).toEqual(checked.verification);
     expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toEqual(['working']);
   });
-  it('requires a group assignment rather than fallback alone', async () => {
+  it('accepts verified fallback access without requiring a group policy', async () => {
     const f = setup(); const body = await (await f.check()).json() as any;
     const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ routeChecks: { working: body.checkId }, groupRouting: [], fallbackRouting: { enabled: true, routes: ['working'], defaultRoute: 'working', reasoning: 'off' } }));
-    expect(result.values).toBeUndefined();
+    expect(result.fieldErrors).toBeUndefined();
+    expect(result.values?.dynamicRoutes).toEqual(['working']);
   });
   it('disabled fallback denies unmatched users and enabled fallback exposes only its allowed verified subset', async () => {
     const f = setup(); await activate(f);
@@ -674,10 +870,16 @@ describe('REQ-ENTERPRISE-044 minimum routing and optional fallback', () => {
     expect((await loadEnterpriseRouteConfig(f.env, ['deny', 'engineering'])).routeCatalog).toEqual([]);
     expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toEqual(['working']);
   });
-  it('cannot Save deny-only groups without a nonempty working group', async () => {
+  it('saves an explicit deny-only group without requiring a working group', async () => {
     const f = setup();
-    const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({ groupRouting: [{ accessGroup: 'deny', routes: [], defaultRoute: '', reasoning: 'off' }] }));
-    expect(result.values).toBeUndefined();
+    const result = await validateConfigurationValues(f.env, 'aiRouting', 'enterprise', values({
+      dynamicRoutes: [], defaultRoute: { route: '', reasoning: 'off' }, routeContextWindows: {},
+      groupRouting: [{ accessGroup: 'deny', routes: [], defaultRoute: '', reasoning: 'off' }],
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {} },
+    }));
+    expect(result.fieldErrors).toBeUndefined();
+    await executeConfigurationTask(f.env, 'configure_model_routing', result.values!, { mode: 'enterprise', requestUrl: 'https://codeflare.example.com', resultingRevision: 1 });
+    expect(JSON.parse(f.kv._store.get(SETUP_KEYS.GROUP_ROUTING)!)).toEqual({ deny: { routes: [], defaultRoute: '', reasoning: 'off' } });
   });
   it('does not fall through from the first matching policy when its routes become ineligible', async () => {
     const f = setup(); await activate(f);

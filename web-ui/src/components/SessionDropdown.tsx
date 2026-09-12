@@ -154,7 +154,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
           ref={setCreateBtnRef}
           class="session-dropdown__new-session"
           data-testid="session-dropdown-new"
-          disabled={sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' || sessionStore.managedReleaseStatus === 'update_pending'}
+          disabled={sessionStore.preseedUpgrading || sessionStore.preseedUpgradeFailed || sessionStore.managedReleaseStatus === 'upgrading' || sessionStore.managedReleaseStatus === 'update_pending'}
           aria-label={sessionStore.managedReleaseStatus === 'update_pending' ? 'Session environment update pending until session stops' : sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' ? 'Updating session environment' : 'New Session'}
           onClick={() => setShowCreateDialog(!showCreateDialog())}
         >

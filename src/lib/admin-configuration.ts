@@ -15,7 +15,7 @@ import { getWorkerNameFromHostname } from '../routes/setup/shared';
 import { reactivateUsageUser } from './admin-usage';
 import { REASONING_PROFILE_IDS, canonicalJson, getBuiltInProfile, getBuiltInProfileRef, parseRouteSettings, serializeRouteSettings } from './reasoning-profiles';
 import { dynamicRouteSchema, gatewayCoordinates, gatewayDraftSchema, listCustomProviderSlugs, listCustomProviderSlugsForProviders, listNativeProviderConfigs, parseGatewayUrl, resolveGatewayConnection, selectNativeProviderConfig } from './ai-gateway-management';
-import { nativeProfileRefKey, nativeTargetDraftSchema, nativeTargetHandle, nativeTargetIdFromHandle, nativeVerificationMatches, parseNativeAiTargets, readNativeTargetCheck, reconcileNativeTargets, sanitizeNativeTarget, serializeNativeAiTargets, type NativeProviderAuthority } from './native-ai-targets';
+import { nativeProfileRefKey, nativeTargetDraftSchema, nativeTargetHandle, nativeTargetIdFromHandle, nativeVerificationMatches, parseNativeAiTargets, readNativeTargetCheck, rebindNativeVerificationConnection, reconcileNativeTargets, sanitizeNativeTarget, serializeNativeAiTargets, type NativeProviderAuthority } from './native-ai-targets';
 import {
   assignmentBackendDescriptions, fallbackRoutingSchema, loadCheckedRouteInventory, readRouteCheck,
   rebindVerificationConnection, routeCheckIdSchema, verificationMatches, type FallbackRouting,
@@ -104,7 +104,7 @@ const aiRoutingSchema = z.object({
   gatewayId: z.union([dynamicRouteSchema, z.literal('')]).default(''),
   replacementToken: gatewayDraftSchema.shape.replacementToken.default(''),
   dynamicRoutes: z.array(dynamicRouteSchema).max(256),
-  defaultRoute: z.object({ route: policyTargetSchema, reasoning }).strict(),
+  defaultRoute: z.object({ route: z.union([policyTargetSchema, z.literal('')]), reasoning }).strict(),
   routeContextWindows: z.record(z.string(), z.unknown()),
   routeReasoningProfiles: z.record(name, z.string().max(64)).optional(),
   reasoningConfiguration: z.unknown().optional(),
@@ -117,7 +117,7 @@ const aiRoutingSchema = z.object({
     routes: z.array(policyTargetSchema),
     defaultRoute: z.union([policyTargetSchema, z.literal('')]),
     reasoning,
-  }).strict()).min(1),
+  }).strict()),
 }).strict().superRefine((value, context) => {
   if (parseGatewayUrl(value.gatewayUrl)?.kind === 'account-api' && !value.gatewayId) {
     context.addIssue({ code: 'custom', message: 'AI Gateway name is required for an account API URL', path: ['gatewayId'] });
@@ -128,7 +128,9 @@ const aiRoutingSchema = z.object({
   }
   const policyModels = [...new Set([...value.groupRouting.flatMap((group) => group.routes), ...(value.fallbackRouting.enabled ? value.fallbackRouting.routes : [])])];
   const activeRoutes = policyModels.filter((route) => !nativeHandles.has(route));
-  if (!policyModels.includes(value.defaultRoute.route)) {
+  if (!value.defaultRoute.route && value.defaultRoute.reasoning !== 'off') {
+    context.addIssue({ code: 'custom', message: 'An empty default route must use Off reasoning', path: ['defaultRoute', 'reasoning'] });
+  } else if (value.defaultRoute.route && !policyModels.includes(value.defaultRoute.route)) {
     context.addIssue({ code: 'custom', message: 'Default model must be in the active policy catalog', path: ['defaultRoute', 'route'] });
   }
   if (value.reasoningConfiguration === undefined && activeRoutes.some((route) => !value.routeReasoningProfiles?.[route])) {
@@ -136,9 +138,6 @@ const aiRoutingSchema = z.object({
   }
   if (activeRoutes.some((route) => !dynamicRouteSchema.safeParse(route).success || !z.number().int().positive().safeParse(value.routeContextWindows[route]).success)) {
     context.addIssue({ code: 'custom', message: 'Every active dynamic route requires a valid handle and positive context window', path: ['routeContextWindows'] });
-  }
-  if (!value.groupRouting.some((group) => group.routes.length > 0)) {
-    context.addIssue({ code: 'custom', message: 'At least one group requires a working route', path: ['groupRouting'] });
   }
   for (const [index, group] of value.groupRouting.entries()) {
     if (group.routes.length === 0) {
@@ -372,7 +371,7 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
   if (dynamicRoutes.some((route) => !configuration.routeAssignments[route])) throw new Error('Every active route requires an exact profile assignment');
   configuration = { ...configuration, fallbackRouting: values.fallbackRouting as FallbackRouting };
   const validateDefault = (scope: string, route: string, level: string): void => {
-    if (nativeHandles.has(route)) return;
+    if (!route || nativeHandles.has(route)) return;
     const profile = getRouteReasoningProfile(configuration, route);
     if (profile.reasoningMode === 'provider-default') return;
     if (!profile.supportedLevels.includes(level as never)) throw new Error(`${scope} default reasoning level is not mapped by its default route profile`);
@@ -606,6 +605,8 @@ export async function validateConfigurationValues(
           const gateway = await resolveGatewayConnection(env, { gatewayUrl: values.gatewayUrl as string, gatewayId: (values.gatewayId as string) || undefined, replacementToken: values.replacementToken as string });
           const coordinates = gatewayCoordinates(gateway);
           if (!coordinates || !gateway.token) throw new Error('Native targets require a connected account AI Gateway');
+          const savedCoordinates = gatewayCoordinates(await resolveGatewayConnection(env));
+          const equivalentCoordinates = Boolean(savedCoordinates && canonicalJson(savedCoordinates) === canonicalJson(coordinates));
           const parsedDrafts = z.array(nativeTargetDraftSchema).max(64).parse(drafts);
           const providerNames = new Set(parsedDrafts.map((draft) => draft.provider));
           const [providerConfigs, customProviders] = await Promise.all([
@@ -640,7 +641,12 @@ export async function validateConfigurationValues(
             if (!nativeVerificationMatches(candidate, gateway)) throw new Error('Native target check receipt is stale');
             return candidate;
           }) };
-          for (const target of document.targets) if (target.enabled && !nativeVerificationMatches(target, gateway)) throw new Error(`Native target ${target.label} must be verified before it can be enabled`);
+          document = { ...document, targets: document.targets.map((target) => {
+            if (!target.enabled || nativeVerificationMatches(target, gateway)) return target;
+            const verification = equivalentCoordinates ? rebindNativeVerificationConnection(target, gateway) : null;
+            if (!verification) throw new Error(`Native target ${target.label} must be verified before it can be enabled`);
+            return { ...target, verification };
+          }) };
           values.nativeTargets = document;
         }
       }
@@ -708,6 +714,28 @@ function same(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+// Compare the same editable semantics on both sides without revalidating saved authority.
+// Policy order is significant: the first matching group wins, including empty policies.
+function aiRoutingComparison(values: ConfigurationValues): ConfigurationValues {
+  const policy = (value: Record<string, unknown>) => ({
+    routes: value.routes ?? [], defaultRoute: value.defaultRoute ?? '', reasoning: value.reasoning ?? 'off',
+  });
+  const groups = Array.isArray(values.groupRouting)
+    ? values.groupRouting as Array<Record<string, unknown>>
+    : Object.entries((values.groupRouting ?? {}) as Record<string, Record<string, unknown>>)
+      .map(([accessGroup, value]) => ({ ...value, accessGroup }));
+  const configuration = values.reasoningConfiguration as Record<string, unknown>;
+  const fallback = (values.fallbackRouting ?? configuration?.fallbackRouting ?? { enabled: false }) as Record<string, unknown>;
+  const fallbackRouting = fallback.enabled ? { enabled: true, ...policy(fallback) } : { enabled: false };
+  return {
+    ...values,
+    defaultRoute: values.defaultRoute ?? { route: '', reasoning: 'off' },
+    groupRouting: groups.map((group) => ({ accessGroup: group.accessGroup, ...policy(group) })),
+    fallbackRouting,
+    ...(configuration && { reasoningConfiguration: { ...configuration, fallbackRouting } }),
+  };
+}
+
 export async function buildConfigurationPreview(
   env: Env,
   section: ConfigurationSection,
@@ -716,15 +744,20 @@ export async function buildConfigurationPreview(
   currentRevision: number,
   values: ConfigurationValues,
 ): Promise<ConfigurationPreview> {
-  const current = await readCurrentConfigurationValues(env, section, mode);
+  const saved = await readCurrentConfigurationValues(env, section, mode);
+  const current = section === 'aiRouting' ? aiRoutingComparison(saved) : saved;
+  const proposed = section === 'aiRouting' ? aiRoutingComparison(values) : values;
   const secretFields = new Set(SECRET_FIELDS[section] ?? []);
   const changes: ConfigurationChange[] = [];
-  for (const [field, after] of Object.entries(values)) {
+  for (const [field, after] of Object.entries(proposed)) {
+    if (section === 'aiRouting' && (field === 'routeChecks' || field === 'nativeChecks')) continue;
     if (secretFields.has(field)) {
-      changes.push({ field, secret: { willReplace: typeof after === 'string' && after.trim().length > 0 } });
+      const willReplace = typeof after === 'string' && after.trim().length > 0;
+      if (section !== 'aiRouting' || willReplace) changes.push({ field, secret: { willReplace } });
     } else {
       const safeAfter = field === 'nativeTargets' ? parseNativeAiTargets(after).targets.map((target) => sanitizeNativeTarget(target, Boolean(target.verification))) : after;
-      if (!same(current[field], safeAfter)) changes.push({ field, ...(current[field] !== undefined && { before: current[field] }), after: safeAfter });
+      const equal = section === 'aiRouting' ? canonicalJson(current[field]) === canonicalJson(safeAfter) : same(current[field], safeAfter);
+      if (!equal) changes.push({ field, ...(current[field] !== undefined && { before: current[field] }), after: safeAfter });
     }
   }
 

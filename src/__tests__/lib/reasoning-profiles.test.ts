@@ -8,6 +8,11 @@ const BUILTIN_IDS = [
   'workers-ai-kimi-k-thinking',
   'workers-ai-glm-thinking',
   'codeflare-inference-mesh-binary-thinking',
+  'dynamic-bedrock-anthropic-provider-default',
+  'bedrock-anthropic-native-sonnet',
+  'bedrock-anthropic-native-opus-stream',
+  'bedrock-anthropic-native-opus-invoke',
+  'bedrock-anthropic-native-opus-auto',
   'native-google-ai-studio-compat',
   'native-openai-compat',
   'native-codeflare-inference-mesh-compat',
@@ -36,11 +41,47 @@ function customProfile(overrides: Record<string, unknown> = {}) {
 }
 
 describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
+  it('REQ-ENTERPRISE-070: gives Bedrock Dynamic Routes a distinct tool-capable provider-default profile', () => {
+    const profile = profiles.getBuiltInProfile('dynamic-bedrock-anthropic-provider-default');
+    expect(profile).toMatchObject({
+      reasoningMode: 'provider-default', supportedLevels: [], levels: {}, validatedTransports: ['compat'],
+      toolCompatibility: { status: 'verified', levels: [] }, classification: 'Verified',
+    });
+    expect(profile?.originallyCreatedAgainst).toMatchObject({ provider: 'aws-bedrock', routes: ['bedrock_sonnet', 'bedrock_opus'] });
+  });
+
   it('REQ-ENTERPRISE-048: Bedrock Anthropic uses provider-default opaque reasoning without Pi levels', () => {
     const profile = profiles.getBuiltInProfile('bedrock-anthropic-compat');
     expect(profile).toMatchObject({ id: 'bedrock-anthropic-compat', name: 'AWS Bedrock · Anthropic Claude', reasoningMode: 'provider-default', supportedLevels: [], levels: {}, validatedTransports: ['compat'] });
     expect((profile as unknown as Record<string, unknown>)?.thinkingLevelMap).toBeUndefined();
   });
+  it('REQ-ENTERPRISE-072/078: maps native Bedrock reasoning only to evidence-supported controls and fails closed above streaming High', () => {
+    const sonnet = profiles.getBuiltInProfile('bedrock-anthropic-native-sonnet')!;
+    const opusStream = profiles.getBuiltInProfile('bedrock-anthropic-native-opus-stream')!;
+    const opusInvoke = profiles.getBuiltInProfile('bedrock-anthropic-native-opus-invoke')!;
+    expect(sonnet.supportedLevels).toEqual(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(sonnet.levels.minimal).toEqual(sonnet.levels.low);
+    expect(sonnet.levels.xhigh).toEqual(sonnet.levels.high);
+    expect(sonnet.levels.max).toEqual(sonnet.levels.high);
+    expect(opusStream.supportedLevels).toEqual(['off', 'minimal', 'low', 'medium', 'high']);
+    expect(opusStream.unsupportedLevels).toEqual(['xhigh', 'max']);
+    expect(opusInvoke.levels.xhigh).toContainEqual({ path: 'output_config.effort', value: 'xhigh' });
+    expect(opusInvoke.levels.max).toContainEqual({ path: 'output_config.effort', value: 'max' });
+  });
+
+  it('REQ-ENTERPRISE-072/078: gives automatic Opus routing its own immutable all-level profile', () => {
+    const auto = profiles.getBuiltInProfile('bedrock-anthropic-native-opus-auto')!;
+    const invoke = profiles.getBuiltInProfile('bedrock-anthropic-native-opus-invoke')!;
+    expect(auto.supportedLevels).toEqual(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(auto.levels).toEqual(invoke.levels);
+    expect(auto.validatedTransports).toEqual(['bedrock-invoke', 'bedrock-eventstream']);
+    expect(auto.hash).not.toBe(invoke.hash);
+    expect(() => { auto.levels.max![0].value = 'high'; }).toThrow();
+    expect(profiles.getBuiltInProfile('bedrock-anthropic-native-opus-auto')!.levels.max).toContainEqual({ path: 'output_config.effort', value: 'max' });
+    expect(profiles.getBuiltInProfileRef('bedrock-anthropic-native-opus-auto')).toEqual({ id: auto.id, revision: 1, hash: auto.hash });
+    expect(profiles.getBuiltInProfile('bedrock-anthropic-native-opus-stream')!.unsupportedLevels).toEqual(['xhigh', 'max']);
+  });
+
   it('REQ-ENTERPRISE-048: ships live-evidenced native profiles without overstating reasoning controls', () => {
     const gemini = profiles.getBuiltInProfile('native-google-ai-studio-compat');
     const openai = profiles.getBuiltInProfile('native-openai-compat');
@@ -53,7 +94,7 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     expect(openai!.limitations).toContain('GPT-6 Astra rejected tools on Chat Completions and is not covered by this profile.');
   });
 
-  it('ships exactly the ten executable built-ins and keeps failed families as notices', () => {
+  it('ships exactly the fifteen executable built-ins and keeps failed families as notices', () => {
     expect(profiles.REASONING_PROFILE_IDS).toEqual(BUILTIN_IDS);
     expect((profiles as any).COMPATIBILITY_NOTICES.map((notice: any) => notice.id)).toEqual(NOTICE_IDS);
   });
@@ -89,6 +130,23 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     })).toThrow(/off semantics/i);
   });
 
+  it.each<[string, Record<string, unknown>]>([
+    ['empty configurable levels', { supportedLevels: [], levels: {}, offSemantics: { status: 'unsupported' } }],
+    ['unknown reasoning mode', { reasoningMode: 'unknown' }],
+    ['provider-default with selectable levels', { reasoningMode: 'provider-default' }],
+    ['provider-default with hidden level writes', {
+      reasoningMode: 'provider-default', supportedLevels: [], levels: { medium: [{ path: 'reasoning_effort', value: 'medium' }] }, offSemantics: { status: 'unsupported' },
+    }],
+    ['provider-default with shadowed legacy mappings', {
+      reasoningMode: 'provider-default', supportedLevels: [], levels: {}, levelMappings: { medium: [{ path: 'reasoning_effort', value: 'medium' }] }, offSemantics: { status: 'unsupported' },
+    }],
+    ['provider-default with dangling aliases', {
+      reasoningMode: 'provider-default', supportedLevels: [], levels: {}, aliases: { low: 'medium' }, offSemantics: { status: 'unsupported' },
+    }],
+  ])('REQ-ENTERPRISE-031: rejects a custom draft with %s', (_case, overrides) => {
+    expect(() => profiles.normalizeCustomProfile(customProfile(overrides))).toThrow();
+  });
+
   it('applies only validated removal paths and scalar writes while preserving transport fields', () => {
     const profile = (profiles as any).normalizeCustomProfile({
       id: 'custom-safe', name: 'Custom safe', schemaVersion: 1, enabled: true,
@@ -97,7 +155,7 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
       offSemantics: { status: 'explicit-toggle', path: 'chat_template_kwargs.enable_thinking', value: false },
       recognizedResponseFields: { content: ['choices[].message.content'] },
     });
-    const translated = (profiles as any).translateReasoningRequest({
+    const translated = profiles.translateReasoningRequest({
       model: 'selected', messages: [{ role: 'user', content: 'hello' }], tools: [{ type: 'function' }],
       reasoning_effort: 'high', chat_template_kwargs: { enable_thinking: true, unrelated: 'kept' },
     }, profile, 'off');

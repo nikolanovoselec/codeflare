@@ -38,7 +38,7 @@ export interface NormalizedReasoningProfile {
   offSemantics: Record<string, unknown>;
   toolCompatibility: { status: 'verified' | 'unsupported' | 'unverified'; levels: PiReasoningLevel[]; evidence?: string };
   recognizedResponseFields: Record<string, string[]>;
-  validatedTransports: Array<'rest' | 'compat'>;
+  validatedTransports: Array<'rest' | 'compat' | 'bedrock-invoke' | 'bedrock-eventstream'>;
   classification: 'Verified' | 'Compatible, unverified' | 'Heterogeneous' | 'Unsupported' | 'Inconclusive';
   limitations: string[];
   originallyCreatedAgainst?: Record<string, unknown>;
@@ -54,6 +54,11 @@ export const REASONING_PROFILE_IDS = [
   'workers-ai-kimi-k-thinking',
   'workers-ai-glm-thinking',
   'codeflare-inference-mesh-binary-thinking',
+  'dynamic-bedrock-anthropic-provider-default',
+  'bedrock-anthropic-native-sonnet',
+  'bedrock-anthropic-native-opus-stream',
+  'bedrock-anthropic-native-opus-invoke',
+  'bedrock-anthropic-native-opus-auto',
   'native-google-ai-studio-compat',
   'native-openai-compat',
   'native-codeflare-inference-mesh-compat',
@@ -267,7 +272,9 @@ function makeBuiltIn(draft: BuiltInDraft): NormalizedReasoningProfile {
 
 const COMMON_REMOVALS = ['reasoning_effort', 'reasoning', 'thinking', 'chat_template_kwargs.enable_thinking', 'chat_template_kwargs.thinking'];
 const WORKERS_REMOVALS = [...COMMON_REMOVALS, 'chat_template_kwargs.clear_thinking'];
+const BEDROCK_NATIVE_REMOVALS = [...COMMON_REMOVALS, 'output_config'];
 const ALL_LEVELS = [...PI_REASONING_LEVELS];
+const bedrockAdaptive = (effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max') => ({ thinking: { type: 'adaptive' }, output_config: { effort } });
 const GRADUATED_ALIASES = { minimal: 'low', xhigh: 'high', max: 'high' } as const;
 const workersMapping = (effort: 'low' | 'medium' | 'high', enabled = true) => ({
   reasoning_effort: effort,
@@ -329,6 +336,60 @@ export const BUILT_IN_REASONING_PROFILES: readonly NormalizedReasoningProfile[] 
     recognizedResponseFields: { reasoning: ['choices[].message.reasoning_content'], content: ['choices[].message.content'], tools: ['choices[].message.tool_calls'] }, validatedTransports: ['rest'], classification: 'Verified',
     limitations: ['All non-off Pi levels are equivalent provider-default-on aliases.', 'Backend changes require revalidation.', 'The configured research fallback was inactive.', 'Only REST transport was validated.'],
     originallyCreatedAgainst: { modelId: 'Qwen 3.6 35B (administrator-declared)', provider: 'custom-codeflare-inference-mesh', route: 'dynamic/codeflare-mesh', activeRouteVersion: '872da3ad-bf4c-47d2-91ed-1715794359f5', observedAt: '2026-09-05' },
+  }),
+  makeBuiltIn({
+    id: 'dynamic-bedrock-anthropic-provider-default', name: 'AWS Bedrock Dynamic Route Anthropic Claude', family: 'Amazon Bedrock Anthropic', revision: 1,
+    reasoningMode: 'provider-default', ingressContract: 'ai-gateway-chat-completions', supportedLevels: [], unsupportedLevels: ALL_LEVELS,
+    removePaths: COMMON_REMOVALS, levelMappings: {}, aliases: {}, offSemantics: { status: 'unsupported' },
+    toolCompatibility: { status: 'verified', levels: [], evidence: 'Dynamic Route compat streaming tool call and replay passed after repeated complete tool-name repair.' },
+    recognizedResponseFields: { content: ['choices[].message.content'], tools: ['choices[].message.tool_calls'] },
+    validatedTransports: ['compat'], classification: 'Verified',
+    limitations: ['Reasoning is provider-controlled and not configurable or observable through Dynamic Routing.', 'No Pi reasoning level is claimed.', 'Streaming tool metadata requires the audited repeated-name repair.'],
+    originallyCreatedAgainst: { provider: 'aws-bedrock', modelIds: ['eu.anthropic.claude-sonnet-5', 'eu.anthropic.claude-opus-5'], routes: ['bedrock_sonnet', 'bedrock_opus'], gateway: 'codeflare-enterprise', transport: 'compat', observedAt: '2026-09-09' },
+  }),
+  makeBuiltIn({
+    id: 'bedrock-anthropic-native-sonnet', name: 'AWS Bedrock Claude Sonnet · native', family: 'Amazon Bedrock Anthropic', revision: 1,
+    ingressContract: 'ai-gateway-chat-completions', supportedLevels: ALL_LEVELS, unsupportedLevels: [], removePaths: BEDROCK_NATIVE_REMOVALS,
+    levelMappings: { off: { thinking: { type: 'disabled' } }, minimal: bedrockAdaptive('low'), low: bedrockAdaptive('low'), medium: bedrockAdaptive('medium'), high: bedrockAdaptive('high'), xhigh: bedrockAdaptive('high'), max: bedrockAdaptive('high') },
+    aliases: { minimal: 'low', xhigh: 'high', max: 'high' }, offSemantics: { status: 'explicit-value', path: 'thinking.type', value: 'disabled' },
+    toolCompatibility: { status: 'verified', levels: ALL_LEVELS, evidence: 'Invoke and eventstream tool calls passed with exact server-held signed-thinking replay.' },
+    recognizedResponseFields: { content: ['choices[].message.content'], tools: ['choices[].message.tool_calls'], usage: ['usage.completion_tokens_details.reasoning_tokens'] },
+    validatedTransports: ['bedrock-invoke', 'bedrock-eventstream'], classification: 'Verified',
+    limitations: ['Pi minimal aliases native low; Pi xhigh and max alias native high.', 'Signed thinking is retained only in encrypted Worker-side replay state.'],
+    originallyCreatedAgainst: { provider: 'aws-bedrock', modelIds: ['eu.anthropic.claude-sonnet-5'], region: 'eu-central-1', gateway: 'codeflare-enterprise', observedAt: '2026-09-11' },
+  }),
+  makeBuiltIn({
+    id: 'bedrock-anthropic-native-opus-stream', name: 'AWS Bedrock Claude Opus · native stream', family: 'Amazon Bedrock Anthropic', revision: 1,
+    ingressContract: 'ai-gateway-chat-completions', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high'], unsupportedLevels: ['xhigh', 'max'], removePaths: BEDROCK_NATIVE_REMOVALS,
+    levelMappings: { off: { thinking: { type: 'disabled' } }, minimal: bedrockAdaptive('low'), low: bedrockAdaptive('low'), medium: bedrockAdaptive('medium'), high: bedrockAdaptive('high') },
+    aliases: { minimal: 'low' }, offSemantics: { status: 'explicit-value', path: 'thinking.type', value: 'disabled' },
+    toolCompatibility: { status: 'verified', levels: ['off', 'minimal', 'low', 'medium', 'high'], evidence: 'Eventstream tool calls passed through High with exact server-held signed-thinking replay.' },
+    recognizedResponseFields: { content: ['choices[].message.content'], tools: ['choices[].message.tool_calls'], usage: ['usage.completion_tokens_details.reasoning_tokens'] },
+    validatedTransports: ['bedrock-eventstream'], classification: 'Verified',
+    limitations: ['Pi minimal aliases native low.', 'XHigh and Max fail closed because streaming evidence is deferred.', 'Signed thinking is retained only in encrypted Worker-side replay state.'],
+    originallyCreatedAgainst: { provider: 'aws-bedrock', modelIds: ['eu.anthropic.claude-opus-5'], region: 'eu-central-1', gateway: 'codeflare-enterprise', observedAt: '2026-09-11' },
+  }),
+  makeBuiltIn({
+    id: 'bedrock-anthropic-native-opus-invoke', name: 'AWS Bedrock Claude Opus · native Invoke', family: 'Amazon Bedrock Anthropic', revision: 1,
+    ingressContract: 'ai-gateway-chat-completions', supportedLevels: ALL_LEVELS, unsupportedLevels: [], removePaths: BEDROCK_NATIVE_REMOVALS,
+    levelMappings: { off: { thinking: { type: 'disabled' } }, minimal: bedrockAdaptive('low'), low: bedrockAdaptive('low'), medium: bedrockAdaptive('medium'), high: bedrockAdaptive('high'), xhigh: bedrockAdaptive('xhigh'), max: bedrockAdaptive('max') },
+    aliases: { minimal: 'low' }, offSemantics: { status: 'explicit-value', path: 'thinking.type', value: 'disabled' },
+    toolCompatibility: { status: 'verified', levels: ALL_LEVELS, evidence: 'Invoke tool calls passed at every level with exact server-held signed-thinking replay; XHigh and Max remained distinct.' },
+    recognizedResponseFields: { content: ['choices[].message.content'], tools: ['choices[].message.tool_calls'], usage: ['usage.completion_tokens_details.reasoning_tokens'] },
+    validatedTransports: ['bedrock-invoke'], classification: 'Verified',
+    limitations: ['Pi minimal aliases native low.', 'Use the separate streaming profile for eventstream.', 'Signed thinking is retained only in encrypted Worker-side replay state.'],
+    originallyCreatedAgainst: { provider: 'aws-bedrock', modelIds: ['eu.anthropic.claude-opus-5'], region: 'eu-central-1', gateway: 'codeflare-enterprise', observedAt: '2026-09-11' },
+  }),
+  makeBuiltIn({
+    id: 'bedrock-anthropic-native-opus-auto', name: 'AWS Bedrock Claude Opus', family: 'Amazon Bedrock Anthropic', revision: 1,
+    ingressContract: 'ai-gateway-chat-completions', supportedLevels: ALL_LEVELS, unsupportedLevels: [], removePaths: BEDROCK_NATIVE_REMOVALS,
+    levelMappings: { off: { thinking: { type: 'disabled' } }, minimal: bedrockAdaptive('low'), low: bedrockAdaptive('low'), medium: bedrockAdaptive('medium'), high: bedrockAdaptive('high'), xhigh: bedrockAdaptive('xhigh'), max: bedrockAdaptive('max') },
+    aliases: { minimal: 'low' }, offSemantics: { status: 'explicit-value', path: 'thinking.type', value: 'disabled' },
+    toolCompatibility: { status: 'verified', levels: ALL_LEVELS, evidence: 'Eventstream tool calls passed through High; Invoke tool calls passed at every level with exact server-held signed-thinking replay.' },
+    recognizedResponseFields: { content: ['choices[].message.content'], tools: ['choices[].message.tool_calls'], usage: ['usage.completion_tokens_details.reasoning_tokens'] },
+    validatedTransports: ['bedrock-invoke', 'bedrock-eventstream'], classification: 'Verified',
+    limitations: ['Pi minimal aliases native low.', 'Initial turns through High use eventstream; XHigh, Max, and signed continuations use Invoke.', 'XHigh and Max eventstream evidence remains deferred.', 'Signed thinking is retained only in encrypted Worker-side replay state.'],
+    originallyCreatedAgainst: { provider: 'aws-bedrock', modelIds: ['eu.anthropic.claude-opus-5'], region: 'eu-central-1', gateway: 'codeflare-enterprise', observedAt: '2026-09-11' },
   }),
   makeBuiltIn({
     id: 'native-google-ai-studio-compat', name: 'Google AI Studio · Gemini native', family: 'Google Gemini', revision: 1,
@@ -410,7 +471,7 @@ export function normalizeCustomProfile(input: unknown): NormalizedReasoningProfi
     'id', 'name', 'description', 'operatorNotes', 'family', 'schemaVersion', 'revision', 'hash', 'enabled', 'ingressContract',
     'supportedLevels', 'unsupportedLevels', 'removePaths', 'levels', 'levelMappings', 'aliases', 'offSemantics',
     'toolCompatibility', 'recognizedResponseFields', 'validatedTransports', 'classification', 'limitations',
-    'originallyCreatedAgainst', 'provenance', 'validatedAgainst', 'evidence', 'builtIn',
+    'originallyCreatedAgainst', 'provenance', 'validatedAgainst', 'evidence', 'builtIn', 'reasoningMode',
   ]);
   const unknownField = Object.keys(value).find((key) => !allowedFields.has(key));
   if (unknownField) throw new Error(`custom profile has unknown field ${unknownField}`);
@@ -424,11 +485,18 @@ export function normalizeCustomProfile(input: unknown): NormalizedReasoningProfi
   if (!Number.isInteger(revision) || (revision as number) < 1 || (revision as number) > Number.MAX_SAFE_INTEGER) throw new Error('custom profile revision is invalid');
   if (typeof value.enabled !== 'boolean') throw new Error('custom profile enabled must be boolean');
   if (value.ingressContract !== undefined && value.ingressContract !== 'ai-gateway-chat-completions') throw new Error('custom profile ingress contract is unsupported');
-  const supportedLevels = validateLevels(value.supportedLevels, 'supportedLevels');
+  if (value.reasoningMode !== undefined && value.reasoningMode !== 'provider-default') throw new Error('custom profile reasoning mode is unsupported');
+  const providerDefault = value.reasoningMode === 'provider-default';
+  if (providerDefault && (!Array.isArray(value.supportedLevels) || value.supportedLevels.length !== 0)) throw new Error('provider-default supportedLevels must be empty');
+  const supportedLevels: PiReasoningLevel[] = providerDefault ? [] : validateLevels(value.supportedLevels, 'supportedLevels');
   const unsupportedLevels = PI_REASONING_LEVELS.filter((level) => !supportedLevels.includes(level));
   const removePaths = validateRemovePaths(value.removePaths ?? []);
   const rawLevels = asRecord(value.levels ?? value.levelMappings, 'levels');
   const rawAliases = value.aliases === undefined ? {} : asRecord(value.aliases, 'aliases');
+  if (providerDefault && (Object.keys(rawLevels).length > 0 || Object.keys(rawAliases).length > 0
+    || (value.levelMappings !== undefined && Object.keys(asRecord(value.levelMappings, 'levelMappings')).length > 0))) {
+    throw new Error('provider-default mappings and aliases must be empty');
+  }
   const aliases: Partial<Record<PiReasoningLevel, PiReasoningLevel>> = {};
   const levels: Partial<Record<PiReasoningLevel, ScalarWrite[]>> = {};
   for (const level of supportedLevels) {
@@ -506,9 +574,10 @@ export function normalizeCustomProfile(input: unknown): NormalizedReasoningProfi
   const core = {
     id, name, ...(description !== undefined && { description }), ...(operatorNotes !== undefined && { operatorNotes }), family, schemaVersion: 1 as const, revision: revision as number,
     enabled: value.enabled, ingressContract: 'ai-gateway-chat-completions' as const, supportedLevels, unsupportedLevels,
+    ...(providerDefault && { reasoningMode: 'provider-default' as const }),
     removePaths, levels, aliases, offSemantics,
     toolCompatibility: { status: 'unverified' as const, levels: [] as PiReasoningLevel[] }, recognizedResponseFields,
-    validatedTransports: [] as Array<'rest' | 'compat'>, classification: 'Compatible, unverified' as const,
+    validatedTransports: [] as Array<'rest' | 'compat' | 'bedrock-invoke' | 'bedrock-eventstream'>, classification: 'Compatible, unverified' as const,
     limitations: [...limitations] as string[],
     ...(originallyCreatedAgainst && { originallyCreatedAgainst }),
     ...(validatedAgainst.length > 0 && { validatedAgainst }),
@@ -583,4 +652,28 @@ export function translateReasoningRequest(payload: Record<string, unknown>, prof
   for (const path of profile.removePaths) deletePath(translated, path);
   for (const write of writes) writePath(translated, write);
   return translated;
+}
+
+/** Runtime hints never expand the assigned profile's executable capabilities. Discovery stays strict. */
+export function selectRuntimeReasoningLevel(profile: NormalizedReasoningProfile, requested: unknown): PiReasoningLevel | undefined {
+  if (!profile.enabled || profile.reasoningMode === 'provider-default') return undefined;
+  const available = PI_REASONING_LEVELS.filter((level) => profile.supportedLevels.includes(level) && profile.levels[level] !== undefined);
+  if (isPiReasoningLevel(requested)) {
+    return available.find((level) => PI_REASONING_LEVELS.indexOf(level) >= PI_REASONING_LEVELS.indexOf(requested)) ?? available[available.length - 1];
+  }
+  return available.includes('medium') ? 'medium' : available.includes('off') ? 'off' : available[0];
+}
+
+export function translateRuntimeReasoningRequest(payload: Record<string, unknown>, profile: NormalizedReasoningProfile, scopeDefault: unknown): Record<string, unknown> {
+  if (!profile.enabled) throw new Error('reasoning profile is disabled');
+  if (profile.reasoningMode === 'provider-default') {
+    const translated = structuredClone(payload);
+    for (const path of new Set([...WORKERS_REMOVALS, ...profile.removePaths])) deletePath(translated, path);
+    return translated;
+  }
+  const requested = isPiReasoningLevel(payload.reasoning_effort) ? payload.reasoning_effort
+    : isPiReasoningLevel(scopeDefault) && profile.supportedLevels.includes(scopeDefault) ? scopeDefault : undefined;
+  const level = selectRuntimeReasoningLevel(profile, requested);
+  if (level === undefined) throw new Error('reasoning profile has no executable mapping');
+  return translateReasoningRequest(payload, profile, level);
 }

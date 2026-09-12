@@ -2317,13 +2317,19 @@ None.
 
 1. The preseed generation script computes a deterministic content hash over all preseed documents (sorted by key) and emits it as a build-time constant accessible to the runtime. <!-- @impl: src/lib/agent-seed.generated.ts::PRESEED_CONTENT_HASH --> <!-- @manual -->
 2. After a successful reconcile (manual or auto), the applied hash is persisted in the user's preferences store. <!-- @test: src/__tests__/routes/storage-seed.test.ts (Agent Config Seed Routes / REQ-AGENT-011 (skills/rules manually recreatable)) --> <!-- @manual -->
-3. On initial dashboard load, the backend compares the stored hash against the build-time constant (and, under enterprise, the stored session mode against the forced Pro mode) and returns whether an upgrade is needed. This check is omitted from periodic polling to avoid overhead. <!-- @test: src/__tests__/routes/session-batch-status.test.ts (returns preseedNeedsUpgrade true when hash missing from preferences) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (enterprise: returns preseedNeedsUpgrade true when stored sessionMode is not advanced despite matching hash) --> <!-- @manual -->
-4. On initial dashboard load, if an upgrade is needed, the frontend triggers the dedicated automatic reconcile in the background. <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-033 AC7: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true) -->
+3. Initial dashboard load requests an upgrade decision comparing stored preseed identity and enterprise mode with the desired environment. <!-- @test: src/__tests__/routes/session-batch-status.test.ts (returns preseedNeedsUpgrade true when hash missing from preferences) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (enterprise: returns preseedNeedsUpgrade true when stored sessionMode is not advanced despite matching hash) --> <!-- @manual -->
+4. The frontend automatically reconciles each advertised pending target at most once until status reports no upgrade needed. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049: attempts a changed baked target without managed status after target A %s) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (posts a successful upgrade once while stale true status keeps being observed) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (attempts target B without an intervening false after target A %s, but does not repeat either target) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (allows a later automatic upgrade after false/current, including the same target (%s)) --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-033 AC7: should trigger the automatic upgrade endpoint when preseedNeedsUpgrade is true) -->
 5. The dashboard shows an active update for the full automatic reconciliation request and removes that request-scoped indicator when the request settles. <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (should set preseedUpgrading during upgrade and clear after) -->
-6. If the auto-upgrade fails, the error is logged but the dashboard remains fully usable. A page refresh retries the check. <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049 AC7: should clear preseedUpgrading on failure so dashboard remains usable) -->
+6. After upgrade failure, session-creation controls offer explicit retry or stay disabled. <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049: clears a failed baked attempt when polling reports no upgrade needed without managed status) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-AGENT-175: a failed baked upgrade cannot be bypassed through New Session) --> <!-- @impl: web-ui/src/stores/session.ts::performPreseedUpgrade --> <!-- @impl: web-ui/src/stores/session.ts::retryPreseedUpgrade --> <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (does not automatically retry a failed upgrade on repeated true polls and exposes recovery) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (manually retries the current need once through the upgrade endpoint, never session creation or full Recreate) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-049: offers an actionable Retry upgrade after failure without creating a session or full Recreate) -->
 7. The reconcile respects the user's current session mode and tier (standard/pro/unlimited). <!-- @impl: src/routes/storage/seed.ts::reconcileAgentConfigsForRequest --> <!-- @test: src/__tests__/routes/storage-seed.test.ts (REQ-AGENT-049 AC7: propagates advanced mode and contextModeEnabled for unlimited tier) -->
 
-**Constraints:** Managed-release delta semantics follow [REQ-STOR-033](storage.md#req-stor-033-managed-release-delta-planning-and-resume).
+**Constraints:**
+
+- Attempt tracking is page-local and does not authorize mutation.
+- Target-less responses share one pending episode.
+- Retry changes neither browsing access nor session ownership.
+- Status freshness follows [REQ-STOR-040](storage.md#req-stor-040-managed-release-discovery-freshness).
+- Managed-release delta semantics follow [REQ-STOR-033](storage.md#req-stor-033-managed-release-delta-planning-and-resume).
 
 **Priority:** P1
 
@@ -2351,7 +2357,10 @@ None.
 6. The dashboard displays planning as "Upgrading", finalization as "Finalizing", and nonzero writing work with completed and total counts between those phases even when reconciliation completes between polls. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/stores/session.ts::applyManagedReleaseBatch --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-175 AC6: shows planning and finalizing managed upgrade phases) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-AGENT-049 AC5 + REQ-AGENT-175 AC5: preserves fast upgrade progress through finalization) -->
 7. Managed progress advances across the whole button behind centered accessible text. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-175 AC7: whole-button managed upgrade progress preserves centered text and ordinary completion color) -->
 
-**Constraints:** Update states reuse existing dashboard polling and add no independent poller.
+**Constraints:**
+
+- Update states reuse existing dashboard polling and add no independent poller.
+- Failed-upgrade recovery follows [REQ-AGENT-049](#req-agent-049-auto-upgrade-preseed-on-release) AC6.
 
 **Priority:** P1
 
@@ -2768,7 +2777,7 @@ None.
 **Acceptance Criteria:**
 
 1. The Pi local statusline extension is preseeded in both Standard and Pro modes. <!-- @impl: preseed/agents/pi/manifest.json::local-statusline.ts --> <!-- @manual -->
-2. The first footer line renders context usage, active model with thinking effort, and the active repository label when resolved. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::renderLine --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::contextPercent --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: renders context, model effort, cwd repository, extension statuses, and width-safe truncation) -->
+2. The first footer line renders context usage, active model with thinking effort, and the resolved repository label, using published `Dynamic Route - <route name>` or `Native Route - <native label>` names for all enterprise gateway models without changing routing IDs. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::renderLine --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-ENTERPRISE-082: renders the published Dynamic Route name without changing its route identity) --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-ENTERPRISE-058: renders the enterprise native label without changing its opaque identity) --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::contextPercent --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: renders context, model effort, cwd repository, extension statuses, and width-safe truncation) -->
 3. If cwd metadata is outside git, the footer falls back to active repository memory shared by the main Pi extension. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::rememberActiveRepo --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::recallActiveRepo --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: resolves the active repository remembered by the main Pi extension) -->
 4. The graphify active-cwd sentinel is display-only and accepted only for git repositories inside a session root. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::sentinelRepoForDisplay --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: uses the display sentinel only when its repository is inside the session root) -->
 5. Non-empty extension statuses render on a separate footer line without replacing session context. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::installFooter --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: renders context, model effort, cwd repository, extension statuses, and width-safe truncation) -->
@@ -3505,7 +3514,7 @@ None.
 
 - The native Impeccable launcher uses only the reviewed image engine and refuses runtime installation or self-update. <!-- @impl: scripts/impeccable-launcher.mjs::managedImpeccableLauncher --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: native launcher uses only the image engine and refuses runtime updates) -->
 - Boot and successful sync restore executable permissions only for the known Claude and Pi Impeccable launchers. <!-- @impl: entrypoint.sh::repair_hook_exec_bits --> <!-- @test: host/__tests__/entrypoint-hook-exec-bits.test.js (REQ-AGENT-181: native Impeccable launchers remain executable after boot and bisync) -->
-- Native bundle updates reject unreviewed engine versions before mutation. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: unreviewed native engine fails before source mutation) -->
+- Native bundle updates accept only reviewed skill/engine pairs and reject unreviewed engine versions before mutation. <!-- @impl: scripts/update-impeccable-skill.mjs::applyCodeflareImpeccableOverlay --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: current native bundle refresh dispatches through its reviewed image engine without a retired JavaScript server) --> <!-- @test: host/__tests__/impeccable-runtime-policy.test.js (REQ-AGENT-181: unreviewed native engine fails before source mutation) -->
 - Explicit specialist invocations retain their documented behavior.
 - Missing optional specialists do not block the selected owner.
 
@@ -4766,18 +4775,19 @@ None.
 **Acceptance Criteria:**
 
 1. Image and managed-release generation use one side-effect-free compiler. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
-2. Given an explicit source root and mode, compilation emits deterministic documents, retirements, and seed identity. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
+2. Given an explicit source root and mode, compilation emits deterministic documents with accurate text/script types, retirements, and seed identity. <!-- @impl: scripts/agent-seed-core.mjs::compileAgentSeed --> <!-- @impl: scripts/agent-seed-core.mjs::inferContentType --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC2: compiles native Impeccable text and launchers into a signed managed release) -->
 3. A release identifies its source, ABI, monotonic sequence, runtime dependencies, unique documents, retirements, and measured extensions. <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease --> <!-- @impl: src/lib/remote-curation.ts::verifyManagedReleaseStream --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-147 AC3: accepts one complete signed release contract and rejects an incomplete contract) -->
-4. Compilation rejects traversal, unsupported roots, image-owned paths, duplicate ownership, and undeclared runtime requirements. <!-- @impl: scripts/agent-seed-release-limits.mjs::validateManagedReleasePath --> <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects paths outside the managed release contract) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects invalid modes, duplicate ownership, and live paths listed as retired) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects an undeclared runtime dependency identity) -->
+4. Compilation rejects traversal, unsupported roots or content types, image-owned paths, duplicate ownership, and undeclared runtime requirements. <!-- @impl: scripts/agent-seed-release-limits.mjs::validateManagedReleasePath --> <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects paths outside the managed release contract) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects invalid modes, duplicate ownership, and live paths listed as retired) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects an undeclared runtime dependency identity) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects unsupported binary document types) -->
 5. Extension records derive exact package identity, version, platform, size, digest, entrypoint, and closed dependencies from reviewed bytes. <!-- @impl: scripts/agent-seed-release.mjs::measureExtensionRecord --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC5: measures exact extension identity and bytes) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC5: rejects unmeasured or incomplete extension closure) -->
 6. Compilation enforces the shared seed-v1 byte, path, document, retirement, extension, and redirect limits, including a 2 MiB maximum for any individual document. <!-- @impl: scripts/agent-seed-release-limits.mjs::MANAGED_RELEASE_LIMITS --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC6: enforces document and retired-path resource limits) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC6: enforces the expanded bundle resource limit) -->
-7. The runtime dependency identity derives from the shared npm-tools, Claude Browser Run MCP, and Pi lockfiles; changing any one lock changes that identity. <!-- @impl: scripts/agent-seed-core.mjs::computeAgentRuntimeHash --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
+7. `runtimeDependencyHash` derives only from the three complete shared npm-tools, Claude Browser Run MCP, and Pi lockfiles; changing any one lock changes that identity. <!-- @impl: scripts/agent-seed-core.mjs::computeAgentRuntimeHash --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
 
 **Constraints:**
 
 - The tier-gated context-mode subtree remains image-owned.
 - Releases carry no secrets, user-stored VSIX bytes, or new runtime dependency.
-- The runtime dependency identity covers npm packages available to managed agent content; new native or image-owned requirements ship through Codeflare first.
+- Runtime identity excludes native engines and image-only inputs.
+- Native prerequisites require separate consuming-image verification and must ship through Codeflare before dependent managed content.
 - The shared compiler remains the only transformation source of truth.
 
 **Priority:** P1
@@ -4802,6 +4812,7 @@ None.
 2. Production signing rejects a private key whose derived public key is not the configured active public key. <!-- @manual: Confirm the signing job's configured-public-key comparison in the private release workflow and its green protected run. -->
 3. Publication verifies the exact draft release identity, asset set, and per-asset digests, and re-verifies them immediately before leaving draft. <!-- @manual: Confirm the draft-identity and post-publish recheck steps in the private release workflow and its green protected run. -->
 4. Publication succeeds only when the resulting release is immutable at the sequence derived from published history. <!-- @manual: Confirm the immutability assertion and derived-sequence step in the private release workflow and its green protected run. -->
+5. Compiler-pin automation advances only for a changed compiler script or managed npm lockfile among its six inputs from an exact successful Codeflare deployment. <!-- @manual: Inspect codeflare-curation's compiler-pin workflow for a successful main/develop deployment's exact SHA and the three-script/three-lockfile comparison; verify unchanged inputs do not advance the pin. -->
 
 **Constraints:**
 
@@ -4870,7 +4881,7 @@ None.
 
 ### REQ-AGENT-154: Build-compatible managed-release discovery
 
-**Intent:** Each deployment discovers the newest managed release compatible with its exact runtime dependency set within a fixed history bound.
+**Intent:** Fresh-required discovery selects the newest signed managed release matching the deployment's exact managed npm lockfile identity within a fixed history bound.
 
 **Applies To:** Admin
 
@@ -4883,7 +4894,12 @@ None.
 5. An advertised managed release that fails validation stops discovery. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC5: stops when an advertised history release fails validation) -->
 6. Discovery fails when the bounded history contains no matching runtime hash. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records) -->
 
-**Constraints:** GitHub history pagination uses at most ten 100-record pages; validation remains memory-bounded and fail closed.
+**Constraints:**
+
+- GitHub history uses at most ten 100-record pages.
+- Validation remains memory-bounded and fail closed.
+- Background refresh checks only the latest release.
+- Hash selection excludes native-engine differences outside the three managed npm lockfiles.
 
 **Priority:** P1
 
@@ -5086,19 +5102,24 @@ None.
 3. Serialized registered-tool descriptions and parameter schemas are reported as a separate budget and never counted as prompt reduction. <!-- @impl: scripts/pi-prompt-contract.mjs::measurePiPromptBudget --> <!-- @impl: scripts/verify-pi-prompt.mjs::serializePiToolSchemas --> <!-- @manual -->
 4. A repository-owned ledger maps each baseline controlled surface category—system, global instruction, skill catalog, and tool contract—to one owner and retained destination; no category may be removed without a destination or moved into tool schemas merely to satisfy the cap. <!-- @impl: scripts/pi-prompt-rule-ledger.json::entries --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @manual -->
 5. Both Pi modes receive one owned system instruction and one owned global instruction; each final source-root projection receives one compact index covering every model-invocable seed skill without removing any skill file, while project context remains additive, byte-unaltered, and separately reported. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @manual -->
-6. Codeflare owns prompt assembly, executable guards, image fallback, and compiler support; codeflare-curation owns its complete managed policy inventory, invocation visibility, mode membership, signed projections, managed prompt verification, and the declared synchronization duty for shared manifest-owned fallback paths. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @manual -->
-7. Curation advances its compiler pin only from an exact successful Codeflare deployment and verifies both managed modes plus matching bytes for every shared manifest-owned fallback path before publication; private curation content never reverse-syncs. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @manual: verify the exact deployed compiler pin, shared manifest-owned fallback bytes, and both managed-mode prompt reports in protected codeflare-curation CI -->
+6. Ownership assigns prompt assembly, executable guards, compiler support and image fallback to Codeflare, and complete managed policy, invocation visibility, modes, signed projections, prompt verification and shared-path synchronization to codeflare-curation. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @manual -->
+7. Before signed publication, explicit checkpoint alignment matches the complete compiler-eligible canonical Claude/Pi inventory: source bytes, file modes, manifest mode metadata, additions/removals and historical retirements. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @manual: Record the exact source checkpoint, complete eligible manifest/byte/mode/retirement comparison, image exclusions, and protected exact-head codeflare-curation CI for both managed modes plus immutable publication evidence. -->
 
 **Constraints:**
 
-- Use Pi's native `SYSTEM.md`, `AGENTS.md`, skill progressive disclosure, and invocation metadata.
-- Do not add a custom skill router, hand-maintained runtime registry, Pi fork, core patch, XML rewrite, or staged mode canary.
-- The cap excludes serialized tool schemas and arbitrary additive project context.
-- The cap includes Pi custom system text, Codeflare-owned global context framing and content, winning visible skill catalog framing and descriptions, and isolated working-directory framing.
-- Project context is measured separately and never truncated.
-- Codeflare hard policy may move from prose to an executable guard only when the guard enforces the same observable boundary.
-- A change to a fallback seed path also present in curation's managed manifest is incomplete until curation carries matching bytes and protected contract verification passes; image-owned paths and curation-private content remain independently owned.
-- Builds, tests, package installation, resource-loader integration, and final prompt verification remain CI-owned.
+- Use Pi-native `SYSTEM.md`, `AGENTS.md`, progressive skill disclosure and invocation metadata.
+- No custom skill router, hand-maintained runtime registry, Pi fork/core patch, XML rewrite or staged mode canary.
+- Exclude tool schemas and additive project context from the cap.
+- Include owned system/global text/framing, winning visible skill-catalog descriptions/framing and isolated working-directory framing.
+- Measure project context separately without truncation.
+- Guards must preserve replaced prose's hard-policy boundary.
+- Shared fallback-path changes require matching curation bytes and protected verification.
+- Full alignment includes new paths and native Impeccable source.
+- Compiler-forbidden context-mode/Pi npm paths remain image-owned, outside managed documents/retirements.
+- Historical retirements retain product provenance; ordinary removals never enlarge the by-name backlog ([REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
+- Alignment preserves compiler pins, runtime selections, signing history, tenant authorization and ownership guards.
+- No automatic content synchronization or private reverse-sync.
+- Builds, tests, installation, resource-loader integration and prompt verification remain CI-owned.
 
 **Priority:** P1
 
@@ -5215,7 +5236,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-163](#req-agent-163-impeccable-browser-question-idle-lifecycle)
 
-**Verification:** Manual review ([pinned native source](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/serve_question.rs))
+**Verification:** Manual review ([pinned native source](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/serve_question.rs))
 
 **Status:** Implemented
 
@@ -5229,8 +5250,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. [Native traversal and raster selection](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L184). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
-2. Scan mode excludes nested hidden directories and installed dependency directories. [Native directory exclusions](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs#L163-L179). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+1. Scan mode recursively audits PNG, JPEG, and WebP files in ordinary directories beneath each explicit target. [Native traversal and raster selection](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/embed_prompt.rs#L163-L184). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
+2. Scan mode excludes nested hidden directories and installed dependency directories. [Native directory exclusions](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/embed_prompt.rs#L163-L179). <!-- @manual --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
 3. Scan mode never follows a nested symbolic link, including broken and cyclic links. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
 4. An explicit symbolic-link target is rejected instead of producing an unaudited clean result. <!-- @impl: scripts/patch-impeccable-engine.py::patch_engine --> <!-- @test: scripts/ci/impeccable-engine.py (verify_scan) --> <!-- @test: scripts/ci/impeccable-engine-source.py (verify_probe) -->
 
@@ -5263,7 +5284,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal)
 
-**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs))
+**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/embed_prompt.rs))
 
 **Status:** Implemented
 
@@ -5286,7 +5307,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-164](#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-166](#req-agent-166-impeccable-raster-prompt-recovery)
 
-**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/2abca8b472afa15dd5f0430ea5c5f86911a14806/crates/context/src/embed_prompt.rs))
+**Verification:** Manual check ([pinned native source](https://github.com/pbakaus/impeccable/blob/112703d5bf2469574758e0ddc5baf8e03c958f58/crates/context/src/embed_prompt.rs))
 
 **Status:** Implemented
 

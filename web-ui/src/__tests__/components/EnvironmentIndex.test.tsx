@@ -1,9 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import { Route, Router } from '@solidjs/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ConfigurationPreview } from '../../api/client';
+import { ConfigurationRequestError, type ConfigurationPreview } from '../../api/client';
 import type { FallbackRouting, PiReasoningLevel, ProfileRevisionRef, ReasoningConfiguration, ReasoningDiscoveryResult, ReasoningRouteVerification } from '../../types';
 
+const RequestError = vi.hoisted(() => class ConfigurationRequestError extends Error {
+  constructor(public status: number, public body: Record<string, unknown>) {
+    super(typeof body.error === 'string' ? body.error : 'Environment request failed');
+  }
+});
 const api = vi.hoisted(() => ({ configuration: vi.fn(), catalog: vi.fn(), preview: vi.fn(), start: vi.fn(), run: vi.fn(), inventory: vi.fn(), discover: vi.fn() }));
 vi.mock('../../api/client', () => ({
   getAdminConfiguration: (...args: unknown[]) => api.configuration(...args),
@@ -13,12 +18,12 @@ vi.mock('../../api/client', () => ({
   getConfigurationRun: (...args: unknown[]) => api.run(...args),
   getReasoningRouteInventory: (...args: unknown[]) => api.inventory(...args),
   discoverReasoningCompatibility: (...args: unknown[]) => api.discover(...args),
-  ConfigurationRequestError: class ConfigurationRequestError extends Error {},
+  ConfigurationRequestError: RequestError,
 }));
 
 import AdministrationLayout from '../../components/admin/AdministrationLayout';
 import { EnvironmentAreaDetail } from '../../components/admin/EnvironmentIndex';
-import { normalizeCustomProfile } from '../../../../src/lib/reasoning-profiles';
+import { getBuiltInProfile, getBuiltInProfileRef, normalizeCustomProfile } from '../../../../src/lib/reasoning-profiles';
 
 const ref = { id: 'workers-ai-glm-thinking', revision: 1, hash: 'a'.repeat(64) };
 const levels: PiReasoningLevel[] = ['off', 'medium', 'high'];
@@ -81,7 +86,8 @@ interface SubmittedRouting {
 }
 const preview = (section: ConfigurationPreview['section'], baseRevision: number, values: SubmittedRouting): ConfigurationPreview => ({
   section, baseRevision, currentRevision: baseRevision,
-  changes: [{ field: 'reasoningConfiguration', after: values.reasoningConfiguration }],
+  changes: [{ field: 'reasoningConfiguration', after: values.reasoningConfiguration },
+    { field: 'routeContextWindows', after: values.routeContextWindows }],
   tasks: [{ id: 'configure_model_routing', dependsOn: [] }], warnings: [], exclusions: [],
 });
 const stream = () => new Response(`${JSON.stringify({ type: 'snapshot', run: { runId: 'saved-routing', section: 'aiRouting', state: 'succeeded', tasks: [], resultingRevision: 8 } })}\n`);
@@ -91,7 +97,7 @@ async function section(name: string) {
   await fireEvent.click(within(navigation).getByRole('button', { name }));
 }
 async function openRoute(name: string) {
-  await section('Routes');
+  await section('Dynamic routes');
   const button = await screen.findByRole('button', { name: `Configure ${name}` });
   if (button.getAttribute('aria-expanded') === 'false') await fireEvent.click(button);
 }
@@ -133,6 +139,55 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
+  it.each([false, true])('REQ-ENTERPRISE-044: eight routes with only Bedrock verified remain untouched after inventory failures (other assignments: %s)', async (assigned) => {
+    const routes = ['bedrock_opus', 'development', 'general_usage', 'documentation', 'code_review', 'codeflare_mesh', 'codeflare-mesh-research', 'freestyler'];
+    const bedrock = getBuiltInProfile('dynamic-bedrock-anthropic-provider-default')!;
+    const bedrockRef = getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default');
+    const verification = { ...proof('bedrock_opus', bedrockRef, []), method: 'administrator' as const };
+    const routeAssignments = Object.fromEntries(routes.filter((route) => assigned || route === 'bedrock_opus').map((route) => [route, {
+      activeProfile: route === 'bedrock_opus' ? bedrockRef : ref,
+      ...(route === 'bedrock_opus' && { verification }),
+    }]));
+    api.configuration.mockResolvedValueOnce(configuration({ ...aiRouting(), dynamicRoutes: [], groupRouting: {},
+      defaultRoute: { route: '', reasoning: 'off' }, fallbackRouting: { enabled: false },
+      routeContextWindows: Object.fromEntries(routes.map((route) => [route, route === 'bedrock_opus' ? 5000000 : 256000])),
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments, fallbackRouting: { enabled: false } },
+    }));
+    api.catalog.mockResolvedValue({ ...catalog(), profiles: [...catalog().profiles, bedrock], routes });
+    api.inventory.mockImplementation(async (route: string) => {
+      if (route !== 'bedrock_opus') throw new Error('Inventory unavailable');
+      return inventory(route, verification);
+    });
+    const view = mount();
+    const action = await screen.findByRole('button', { name: 'Review changes' });
+    expect(action).toBeDisabled();
+    await waitFor(() => expect(api.inventory).toHaveBeenCalledTimes(8));
+    await openRoute('bedrock_opus');
+    expect(action).toBeDisabled();
+    expect(draft(view.container).routeAssignments).toEqual(routeAssignments);
+    await fireEvent.submit(action.closest('form')!);
+    expect(api.preview).not.toHaveBeenCalled();
+    expect(api.discover).not.toHaveBeenCalled();
+    expect(api.start).not.toHaveBeenCalled();
+  });
+
+  it('REQ-ENTERPRISE-081: shows each non-empty authoritative validation reason once when Review is rejected', async () => {
+    const routeReason = 'Route development requires a successful check for its exact profile, gateway, and inventory';
+    const credentialReason = 'AI Gateway credentials are unavailable';
+    api.preview.mockRejectedValueOnce(new ConfigurationRequestError(400, {
+      error: 'Environment values are invalid',
+      fields: {
+        reasoningConfiguration: [routeReason, '', routeReason],
+        credentials: ['   ', credentialReason],
+      },
+    }));
+    mount();
+    await section('Connection');
+    await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: 'replacement-token' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
+    expect(await screen.findByText(`${routeReason} ${credentialReason}`, { exact: true })).toBeVisible();
+  });
+
   it.each(['developers', 'Fallback'])('REQ-ENTERPRISE-044: reverting %s route membership disables review', async (policy) => {
     const initial = aiRouting();
     const routes = ['development', 'staging', 'production'];
@@ -145,13 +200,13 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     api.inventory.mockImplementation(async (route: string) => inventory(route, proof(route)));
     mount();
     await section('Access & fallback');
-    await screen.findByRole('checkbox', { name: `${policy} production route` });
+    await screen.findByRole('checkbox', { name: `${policy} Dynamic Route - production route` });
     const action = screen.getByRole('button', { name: 'Review changes' });
     expect(action).toBeDisabled();
-    await fireEvent.click(screen.getByRole('checkbox', { name: `${policy} staging route` }));
+    await fireEvent.click(screen.getByRole('checkbox', { name: `${policy} Dynamic Route - staging route` }));
     expect(action).toBeEnabled();
-    await fireEvent.click(screen.getByRole('checkbox', { name: `${policy} staging route` }));
-    expect(screen.getByRole('checkbox', { name: `${policy} staging route` })).toBeChecked();
+    await fireEvent.click(screen.getByRole('checkbox', { name: `${policy} Dynamic Route - staging route` }));
+    expect(screen.getByRole('checkbox', { name: `${policy} Dynamic Route - staging route` })).toBeChecked();
     expect(action).toBeDisabled();
     await fireEvent.submit(action.closest('form')!);
     expect(api.preview).not.toHaveBeenCalled();
@@ -210,37 +265,69 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(completed.closest('details')).toBeNull();
     expect(api.start).toHaveBeenCalledWith('aiRouting', 7, submitted(), []);
   });
-  it('REQ-ENTERPRISE-044: Save and direct submission wait for a checked route assigned to a group', async () => {
-    const initial = aiRouting();
-    initial.groupRouting = [];
-    initial.reasoningConfiguration.routeAssignments.development = { activeProfile: ref, routeVersion: 'development-v1', legs: [{
-      nodeId: 'development-model', provider: 'workers-ai', declaredModel: '@cf/development', profileRef: ref,
-      evidence: { current: true, toolReplay: true, ingress: 'ai-gateway-chat-completions', status: 'Verified' },
-    }] };
+  it('REQ-ENTERPRISE-044: reviews a checked connection change before routes or access policies exist', async () => {
+    const initial = {
+      ...aiRouting(),
+      dynamicRoutes: [],
+      defaultRoute: { route: '', reasoning: 'off' },
+      routeContextWindows: {},
+      groupRouting: [],
+      reasoningConfiguration: { ...aiRouting().reasoningConfiguration, routeAssignments: {} },
+    };
     api.configuration.mockResolvedValueOnce(configuration(initial));
-    api.inventory.mockImplementation(async (route: string) => inventory(route));
-    api.discover.mockResolvedValueOnce(verified());
+    api.catalog.mockResolvedValue({ ...catalog(), routes: [] });
     mount();
-    await openRoute('development');
-    await screen.findByText('@cf/development');
+
+    await section('Connection');
     const save = screen.getByRole('button', { name: 'Review changes' });
     expect(save).toBeDisabled();
-    await fireEvent.submit(save.closest('form')!);
-    expect(api.preview).not.toHaveBeenCalled();
-    expect(screen.queryByRole('heading', { name: 'Confirm Save' })).not.toBeInTheDocument();
-    await verifyRoute();
-    expect(save).toBeDisabled();
-    expect(screen.getByText('Assign an available route to at least one group before saving.')).toBeVisible();
-    await fireEvent.submit(save.closest('form')!);
-    expect(api.preview).not.toHaveBeenCalled();
-    await section('Access & fallback');
-    await fireEvent.click(screen.getByRole('button', { name: 'Add group policy' }));
-    expect(screen.getByRole('checkbox', { name: 'developers development route' })).toBeChecked();
+    await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: 'replacement-token' } });
+    expect(save).toBeEnabled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Check connection' }));
     await review();
-    expect(submitted().dynamicRoutes).toEqual(['development']);
-    expect(submitted().groupRouting).toEqual([group]);
-    expect(submitted().routeChecks).toEqual({ development: 'development-check' });
+
+    expect(submitted()).toMatchObject({
+      replacementToken: 'replacement-token',
+      dynamicRoutes: [],
+      defaultRoute: { route: '', reasoning: 'off' },
+      routeContextWindows: {},
+      groupRouting: [],
+      fallbackRouting: { enabled: false },
+    });
     expect(api.start).not.toHaveBeenCalled();
+  });
+
+  it.each(['token-first', 'url-first', 'url-only'] as const)('REQ-ENTERPRISE-044/057: connection drafts preserve saved policies before and after checking (%s)', async (order) => {
+    const initial = { ...aiRouting(), routeChecks: { development: 'saved-check' },
+      fallbackRouting: { enabled: true, routes: ['development'], defaultRoute: 'development', reasoning: 'medium' as const } };
+    api.configuration.mockResolvedValueOnce(configuration(initial));
+    mount();
+
+    await section('Connection');
+    const editToken = () => fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: 'rotated-token' } });
+    const editUrl = () => fireEvent.input(screen.getByLabelText('AI Gateway URL'), { target: { value: 'https://gateway.ai.cloudflare.com/v1/account/rotated-gateway' } });
+    if (order === 'token-first') { await editToken(); await editUrl(); }
+    else if (order === 'url-first') { await editUrl(); await editToken(); }
+    else await editUrl();
+    const save = screen.getByRole('button', { name: 'Review changes' });
+    const expectPreservedDraft = () => {
+      expect(submitted().replacementToken).toBe(order === 'url-only' ? '' : 'rotated-token');
+      expect(submitted().dynamicRoutes).toEqual(['development']);
+      expect(submitted().groupRouting).toEqual([group]);
+      expect(submitted().fallbackRouting).toEqual({ enabled: true, routes: ['development'], defaultRoute: 'development', reasoning: 'medium' });
+      expect(submitted().routeChecks).toEqual({ development: 'saved-check' });
+      expect(submitted().reasoningConfiguration.routeAssignments.development.verification).toEqual(proof());
+    };
+    expect(save).toBeEnabled();
+    await fireEvent.click(save);
+    expect(await screen.findByRole('heading', { name: 'Confirm Save' })).toBeVisible();
+    expectPreservedDraft();
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to edit' }));
+    await section('Connection');
+    await fireEvent.click(screen.getByRole('button', { name: 'Check connection' }));
+    await screen.findByText('Connected · 1 routes readable');
+    await review();
+    expectPreservedDraft();
   });
 
   it.each(['legacy evidence', 'missing inventory digest', 'missing saved inventory proof', 'mismatched saved connection', 'mismatched saved profile'] as const)(
@@ -322,6 +409,104 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(api.discover).toHaveBeenCalledTimes(1);
   });
 
+  it('REQ-ENTERPRISE-041: reviews, saves and reloads an inactive administrator-confirmed profile and context without assigning access', async () => {
+    const route = 'bedrock_opus';
+    const profile = getBuiltInProfile('dynamic-bedrock-anthropic-provider-default')!;
+    const profileRef = getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default');
+    const verification: ReasoningRouteVerification = { ...proof(route, profileRef, []), method: 'administrator' };
+    const initial = { ...aiRouting(), dynamicRoutes: [], groupRouting: [], defaultRoute: { route: '', reasoning: 'off' },
+      routeContextWindows: {}, reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], routeAssignments: {}, fallbackRouting: { enabled: false } },
+    };
+    api.configuration.mockResolvedValueOnce(configuration(initial));
+    api.catalog.mockResolvedValue({ ...catalog(), profiles: [profile], routes: [route] });
+    api.inventory.mockResolvedValue(inventory(route));
+    api.discover.mockResolvedValueOnce({ classification: 'Administrator-confirmed', assignable: true, checkId: 'inactive-check', verification });
+    mount();
+    await openRoute(route);
+    const select = screen.getByLabelText(`${route} Pi compatibility profile`);
+    await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(2));
+    await fireEvent.change(select, { target: { value: key(profileRef) } });
+    await fireEvent.input(screen.getByLabelText(`${route} context window`), { target: { value: '1048576' } });
+    const action = screen.getByRole('button', { name: `Mark ${route} as verified` });
+    await waitFor(() => expect(action).toBeEnabled());
+    await fireEvent.click(action);
+    expect(await screen.findByText('Administrator-confirmed')).toBeVisible();
+    await review();
+    const expectSummary = () => {
+      const row = within(screen.getByRole('table', { name: 'Route profiles' })).getByRole('row', { name: /bedrock_opus/ });
+      expect(within(row).getByText('Dynamic Route - AWS Bedrock - Claude')).toBeVisible();
+      expect(within(row).getByText('1,048,576 tokens')).toBeVisible();
+      expect(within(row).getByText('Provider default')).toBeVisible();
+      expect(screen.queryByRole('region', { name: 'Fallback' })).toBeNull();
+    };
+    expectSummary();
+    await confirm();
+    expectSummary();
+    const savedValues = saved();
+    expect(savedValues.dynamicRoutes).toEqual([]);
+    expect(savedValues.groupRouting.every((policy) => policy.routes.length === 0)).toBe(true);
+    expect(savedValues.fallbackRouting).toEqual({ enabled: false });
+    expect(savedValues.routeContextWindows).toEqual({ [route]: 1048576 });
+    expect(savedValues.reasoningConfiguration.routeAssignments[route]).toMatchObject({ activeProfile: profileRef, verification });
+    api.configuration.mockResolvedValueOnce(configuration(persisted(savedValues), 8));
+    api.inventory.mockResolvedValue(inventory(route, verification));
+    cleanup(); mount();
+    await openRoute(route);
+    expect(screen.getByLabelText(`${route} Pi compatibility profile`)).toHaveValue(key(profileRef));
+    expect(screen.getByLabelText(`${route} context window`)).toHaveValue('1048576');
+    expect(screen.getByRole('button', { name: `Configure ${route}` })).toHaveTextContent('Not active in a policy');
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
+    expect(api.discover).toHaveBeenCalledTimes(1);
+  });
+
+  it('REQ-ENTERPRISE-057: preserves a native-only policy before and after checking connection changes', async () => {
+    const targetId = '11111111-1111-4111-8111-111111111111';
+    const handle = `cf-native-${targetId}`;
+    const nativeRef = { id: 'native-openai-compat', revision: 1, hash: 'd'.repeat(64) };
+    const initial = {
+      ...aiRouting(), dynamicRoutes: [], routeContextWindows: {},
+      nativeTargets: [{
+        id: targetId, handle, label: 'GPT 5.6 Terra', provider: 'openai', model: 'gpt-5.6-terra', contextWindow: 200000,
+        profileRef: nativeRef, enabled: true,
+        verification: { method: 'administrator', checkedAt: '2026-09-09T12:00:00.000Z', current: true },
+      }],
+      defaultRoute: { route: handle, reasoning: 'off' },
+      groupRouting: [{ accessGroup: 'developers', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [], fallbackRouting: { enabled: false }, routeAssignments: {} },
+    };
+    api.configuration.mockResolvedValueOnce(configuration(initial));
+    api.catalog.mockResolvedValue({
+      ...catalog(), routes: [], profiles: [{ ...nativeRef, name: 'OpenAI native', enabled: true, supportedLevels: ['off'] }],
+      providers: [{ provider: 'openai', label: 'OpenAI', configured: true, defaultSelection: true, supported: true }],
+      providerCatalogStatus: 'ready',
+    });
+    mount();
+    await screen.findByText('Connected · 0 routes readable');
+    const reviewButton = screen.getByRole('button', { name: 'Review changes' });
+    expect(reviewButton).toBeDisabled();
+    await section('Connection');
+    await fireEvent.change(screen.getByLabelText('Gateway URL format'), { target: { value: 'account-api' } });
+    await fireEvent.input(screen.getByLabelText('AI Gateway URL'), { target: { value: 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/' } });
+    await fireEvent.input(screen.getByLabelText('Replacement API token'), { target: { value: 'rotated-token' } });
+    expect(reviewButton).toBeEnabled();
+    const expected = expect.objectContaining({
+      gatewayUrl: 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/',
+      gatewayId: 'gateway', replacementToken: 'rotated-token',
+      dynamicRoutes: [],
+      nativeTargets: [expect.objectContaining({ id: targetId, enabled: true })],
+      groupRouting: [{ accessGroup: 'developers', routes: [handle], defaultRoute: handle, reasoning: 'off' }],
+    });
+    await fireEvent.click(reviewButton);
+    expect(api.preview).toHaveBeenLastCalledWith('aiRouting', 7, expected);
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to edit' }));
+    await section('Connection');
+    await fireEvent.click(screen.getByRole('button', { name: 'Check connection' }));
+    await screen.findByText('Connected · 0 routes readable');
+    await waitFor(() => expect(reviewButton).toBeEnabled());
+    await fireEvent.click(reviewButton);
+    expect(api.preview).toHaveBeenLastCalledWith('aiRouting', 7, expected);
+  });
+
   it('REQ-ENTERPRISE-034: saves a different manually selected revision without configuring unrelated gateway routes', async () => {
     const nextRef = { ...ref, revision: 2, hash: 'b'.repeat(64) };
     api.catalog.mockResolvedValue({ ...catalog(), profiles: [...catalog().profiles, { ...nextRef, name: 'GLM thinking', enabled: true, supportedLevels: levels }], routes: ['development', 'unconfigured'] });
@@ -332,7 +517,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(3));
     expect(select).toHaveValue(key(ref));
     await fireEvent.change(select, { target: { value: key(nextRef) } });
-    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled();
     expect(draft(view.container).routeAssignments.development.activeProfile).toEqual(nextRef);
     await verifyRoute();
     expect(api.discover).toHaveBeenCalledWith({ route: 'development', profileRef: nextRef, maxCompletionTokens: 4096 });
@@ -374,7 +559,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     const selectedRef = customRef(expectedProfile);
     expect(draft(view.container).customProfileRevisions).toEqual([expectedProfile]);
     expect(screen.getByLabelText('development Pi compatibility profile')).toHaveValue(key(selectedRef));
-    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled();
     expect(api.start).not.toHaveBeenCalled();
     const selectedProof = proof('development', selectedRef, ['off', 'medium']);
     api.discover.mockResolvedValueOnce(verified(selectedProof, 'custom-draft-check'));
@@ -446,7 +631,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
       { accessGroup: 'archivists', routes: ['archive'], defaultRoute: 'archive', reasoning: 'off' },
     ]);
     expect(firstPreview.fallbackRouting).toEqual({ enabled: false });
-    expect(within(screen.getByRole('region', { name: 'Other profiles pending save' })).getByText('Development custom')).toBeVisible();
+    expect(within(screen.getByRole('table', { name: 'Route profiles' })).getByText('Development custom')).toBeVisible();
     await fireEvent.click(screen.getByRole('button', { name: 'Back to edit' }));
     await openRoute('archive');
     expect(screen.getByLabelText('archive Pi compatibility profile')).toHaveValue(key(customRef(archived)));
@@ -480,7 +665,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(screen.getByLabelText('development Pi compatibility profile')).toHaveValue(key(kimiRef));
     expect(draft(view.container).routeAssignments.development).toEqual({ activeProfile: kimiRef });
     expect(draft(view.container).customProfileRevisions).toEqual([]);
-    expect(screen.getByRole('button', { name: 'Review changes' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Review changes' })).toBeEnabled();
     expect(api.start).not.toHaveBeenCalled();
     const selectedProof = proof('development', kimiRef, ['medium', 'high']);
     api.discover.mockResolvedValueOnce(verified(selectedProof, 'kimi-check'));
@@ -500,7 +685,6 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(submitted()).toEqual(firstPreview);
     await confirm();
     expect(api.start).toHaveBeenCalledWith('aiRouting', 7, firstPreview, []);
-    expect(screen.getByText('Workers AI · Kimi')).toBeVisible();
   });
 
   it('REQ-ENTERPRISE-041: blocks Save confirmation until the API warning is confirmed and submits that exact code', async () => {
