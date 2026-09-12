@@ -891,7 +891,13 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 5. Historical tool calls before the classified active turn may be translated when signed state is absent, including paired interrupted tools with no final assistant answer. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::buildBedrockAnthropicRequest --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: accepts completed foreign tool history before a new native user turn) --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: accepts a new text question after paired interrupted tools) -->
 6. Complete validated provider tool-turn content is retained even without normal thinking blocks. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::persistReplay --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073/076: restores authentic $label content from its emitted tool call) --> <!-- @test: src/__tests__/lib/bedrock-anthropic-native-adapter.test.ts (REQ-ENTERPRISE-073: preserves successive signed and unsigned tools in one active turn (%s)) -->
 
-**Constraints:** Replay state is never supplied by an untrusted client. Normal thinking is optional; present thinking and redacted blocks remain intact. The active-turn boundary follows [REQ-ENTERPRISE-076](#req-enterprise-076-provider-native-bedrock-protocol-translation); absent historical state does not waive validation of available blocks or active adaptive-thinking replay. See Anthropic's [thinking and tool-use guidance](https://platform.claude.com/docs/en/build-with-claude/thinking).
+**Constraints:**
+
+- Replay state is never supplied by an untrusted client.
+- Normal thinking is optional ([Anthropic's thinking and tool-use guidance](https://platform.claude.com/docs/en/build-with-claude/thinking)).
+- Present thinking and redacted blocks remain intact.
+- The active-turn boundary follows [REQ-ENTERPRISE-076](#req-enterprise-076-provider-native-bedrock-protocol-translation).
+- Absent historical state does not waive validation of available blocks or active adaptive-thinking replay.
 
 **Priority:** P1
 

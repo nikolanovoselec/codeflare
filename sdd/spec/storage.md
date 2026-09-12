@@ -708,7 +708,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 5. Status reports update-pending without a compatible verified active descriptor. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC5: reports update pending when no compatible verified active release is available) -->
 6. Requested status exposes a stable target identity covering release or baked hash, sequence, mode, policy, and projection, independent of progress. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023: exposes a stable desired target for retry suppression without confusing progress with identity) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-AGENT-049: carries the authoritative upgrade target through batch status parsing) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-AGENT-049: rejects an invalid upgrade target from batch status (%s)) -->
 
-**Constraints:** Unchanged polling does not parse or decompress a managed payload. The opaque target is observation metadata, not applied state or mutation authority.
+**Constraints:**
+
+- Unchanged polling does not parse or decompress a managed payload.
+- The opaque target is observation metadata, not applied state or mutation authority.
 
 **Priority:** P1
 
@@ -1081,7 +1084,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. Progress is exposed only for the matching target while reconciliation is pending or during the single applied-finalization handoff. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-036 AC2: batch status exposes only matching pending progress) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-036 AC2: update-pending state omits progress) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-036 AC4: applied target exposes finalizing once and clears it) -->
 3. Progress read failure cannot replace authoritative release status. <!-- @impl: src/lib/managed-reconcile-progress.ts::readManagedReconcileProgress --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-036 AC3: progress read failure cannot replace authoritative upgrading status) -->
 4. After the target is applied, status observation exposes matching finalizing progress once as a transient upgrading handoff and clears it. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @impl: src/lib/managed-reconcile-progress.ts::clearMatchingManagedReconcileProgress --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-036 AC4: applied target exposes finalizing once and clears it) -->
-5. Earlier request completions cannot overwrite newer managed-status observations. <!-- @impl: web-ui/src/stores/session.ts::performPreseedUpgrade --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (ignores a late success after newer %s status) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (ignores a late failure after newer %s status) -->
+5. Late reconcile responses cannot revert observed current or update-pending status. <!-- @impl: web-ui/src/stores/session.ts::performPreseedUpgrade --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (ignores a late success after newer %s status) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (ignores a late failure after newer %s status) -->
 6. Successful reconcile responses alone do not mark a managed release current in the dashboard. <!-- @impl: web-ui/src/stores/session.ts::performPreseedUpgrade --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (does not claim current from a successful POST without completion progress) -->
 
 **Constraints:** Batch status does not infer reconciliation completion from progress.

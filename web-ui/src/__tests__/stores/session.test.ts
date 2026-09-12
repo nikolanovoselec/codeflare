@@ -1977,6 +1977,7 @@ describe('Session Store', () => {
       success: true, bucketCreated: false, written: [], skipped: [], deleted: [], warnings: [],
       managedReleaseProgress: { phase: 'finalizing' as const, completed: 61, total: 61 },
     };
+    const completedBakedUpgrade = { success: true, bucketCreated: false, written: [], skipped: [] };
     // Optional only so the RED tests compile before this public recovery action exists.
     // Missing recovery must fail on dispatched HTTP behavior, not a missing-method exception.
     const retryStore = sessionStore as typeof sessionStore & {
@@ -2109,6 +2110,52 @@ describe('Session Store', () => {
       expect(http.mock.calls.filter(([url]) => String(url).includes('/sessions/batch-status'))).toHaveLength(4);
     });
 
+    it('REQ-AGENT-049: clears a failed baked attempt when polling reports no upgrade needed without managed status', async () => {
+      batch = { statuses: {}, maxSessions: 3, preseedNeedsUpgrade: true, preseedUpgradeTarget: 'baked-a' };
+      const finish = deferUpgrade();
+      await sessionStore.loadSessions();
+      finish(json({ error: 'Upgrade unavailable' }, 503));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      expect(sessionStore.preseedUpgradeFailed).toBe(true);
+      expect(sessionStore.managedReleaseStatus).toBeNull();
+
+      // Another tab completed the baked upgrade. Its status has no managed fields.
+      batch = { ...batch, preseedNeedsUpgrade: false };
+      await sessionStore.refreshSessionStatuses();
+
+      expect(sessionStore.preseedUpgradeFailed).toBe(false);
+      await sessionStore.retryPreseedUpgrade();
+      expect(mutations()).toEqual([upgradeUrl]);
+      expect(sessionStore.managedReleaseStatus).toBeNull();
+    });
+
+    it.each(['success', 'failure'] as const)('REQ-AGENT-049: attempts a changed baked target without managed status after target A %s', async (outcome) => {
+      batch = { statuses: {}, maxSessions: 3, preseedNeedsUpgrade: true, preseedUpgradeTarget: 'baked-a' };
+      const first = deferUpgrade();
+      await sessionStore.loadSessions();
+      first(outcome === 'success' ? json(completedBakedUpgrade) : json({ error: 'Target A failed' }, 503));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      await sessionStore.refreshSessionStatuses();
+      expect(upgradeRequests()).toHaveLength(1);
+
+      const finishB = deferUpgrade();
+      batch = { ...batch, preseedUpgradeTarget: 'baked-b' };
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.preseedUpgrading).toBe(true);
+      expect(sessionStore.preseedUpgradeFailed).toBe(false);
+      finishB(json(completedBakedUpgrade));
+      await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+
+      for (const target of ['baked-b', 'baked-a', 'baked-b']) {
+        batch = { ...batch, preseedUpgradeTarget: target };
+        await sessionStore.refreshSessionStatuses();
+        await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+      }
+      expect(mutations()).toEqual([upgradeUrl, upgradeUrl]);
+      expect(sessionStore.preseedUpgradeFailed).toBe(false);
+      expect(sessionStore.managedReleaseStatus).toBeNull();
+    });
+
     it.each([undefined, 'target-a'])('allows a later automatic upgrade after false/current, including the same target (%s)', async (target) => {
       batch = { ...batch, ...{ preseedUpgradeTarget: target } };
       const first = deferUpgrade();
@@ -2203,6 +2250,7 @@ describe('Session Store', () => {
     });
 
     it('manually retries the current need once through the upgrade endpoint, never session creation or full Recreate', async () => {
+      const existingSessionIds = new Set(sessionStore.sessions.map((session) => session.id));
       const first = deferUpgrade();
       await sessionStore.loadSessions();
       first(json({ error: 'Upgrade unavailable' }, 503));
@@ -2225,7 +2273,7 @@ describe('Session Store', () => {
 
       expect(mutations()).toEqual([upgradeUrl, upgradeUrl]);
       expect(sessionStore.managedReleaseStatus).toBe('upgrading');
-      expect(sessionStore.sessions).toHaveLength(0);
+      expect(sessionStore.sessions.filter((session) => !existingSessionIds.has(session.id))).toEqual([]);
       expect(mockCreateSession).not.toHaveBeenCalled();
       expect(mockRecreateAgentConfigs).not.toHaveBeenCalled();
     });
