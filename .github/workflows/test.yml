@@ -208,6 +208,7 @@ jobs:
               - 'scripts/update-impeccable-skill.mjs'
               - 'scripts/patch-pi-goal-review-control.mjs'
               - 'scripts/patch-pi-plan-mode-tool-policy.mjs'
+              - 'scripts/patch-pi-native-model-display.mjs'
               - 'scripts/patch-rclone-bisync.py'
               # host/__tests__ asserts on the STRUCTURE of workflows other than
               # test.yml: deploy-requires-tests.test.js and
@@ -803,6 +804,9 @@ jobs:
           key-prefix: pi-prompt
           ignore-scripts: 'true'
 
+      - name: Apply pinned Pi native display patch
+        run: node scripts/patch-pi-native-model-display.mjs preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
+
       - name: Verify installed Pi dependencies and image processing
         run: node scripts/verify-pi-lockstep.mjs --verify-runtime "$GITHUB_WORKSPACE/preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent/package.json"
 
@@ -845,7 +849,7 @@ jobs:
       - name: Verify real Pi runtime reports
         env:
           CODEFLARE_PI_REPORT_ROOT: ${{ runner.temp }}
-        run: node --test preseed/agents/pi/test/runtime-projection.test.mjs preseed/agents/pi/test/enterprise-routing.test.mjs preseed/agents/pi/test/enterprise-model-display.test.mjs
+        run: node --test preseed/agents/pi/test/runtime-projection.test.mjs preseed/agents/pi/test/enterprise-routing.test.mjs preseed/agents/pi/test/enterprise-model-display.test.mjs preseed/agents/pi/test/native-display-patch.test.mjs
 
       - name: Upload Pi prompt reports
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

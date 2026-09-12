@@ -1507,7 +1507,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 ### REQ-ENTERPRISE-058: Native Model Container Publication
 
-**Intent:** Containers receive only authorized opaque native models with honest client capability metadata.
+**Intent:** Containers receive authorized model identities with client hints distinct from backend executable capabilities.
 
 **Applies To:** Container
 
@@ -1517,13 +1517,14 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 2. Startup replaces prior managed Pi models and defaults with the authorized snapshot, including explicit empty resets. <!-- @impl: src/routes/container/lifecycle-init.ts::configureContainerDO --> <!-- @impl: src/container/container-env.ts::applyPrefsOnRestart --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-ENTERPRISE-058: publishes opaque mixed and authoritative empty enterprise model snapshots) --> <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: complete enterprise Pi startup publication) -->
 3. An empty enterprise catalog or failed Pi publication removes stale managed Pi configuration without altering unrelated providers and settings. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: authoritative empty enterprise catalog removes managed Pi and Copilot configuration) --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: complete enterprise Pi startup publication) -->
 4. An explicit empty enterprise catalog removes managed Copilot configuration. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: authoritative empty enterprise catalog removes managed Pi and Copilot configuration) -->
-5. Pi exposes provider-default targets without configurable reasoning and with administrator context and a 16,384-token output cap. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: emits honest Pi metadata for a provider-default native model) -->
+5. Provider-default routes offer all seven Pi thinking choices while retaining administrator context and a 16,384-token output cap. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: emits honest Pi metadata for a provider-default native model) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-058: provider-default Dynamic routes expose and preserve all seven Pi thinking choices) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-058: the real provider-default thinking selector renders and selects all seven choices) -->
 6. Copilot uses the same opaque default with an output cap of 16,384 and a prompt limit bounded by the administrator context. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-ca-copilot.test.js (REQ-ENTERPRISE-058: bounds Copilot output for a provider-default native model) --> <!-- @test: host/__tests__/entrypoint-enterprise-ca-copilot.test.js (REQ-ENTERPRISE-058: derives bounded Copilot limits for an off-only native profile) -->
 7. Container state omits exact native models, provider identity, credentials, aliases, and connection authority. <!-- @impl: src/lib/access.ts::loadEnterpriseRouteConfig --> <!-- @test: src/__tests__/routes/container-lifecycle-helpers.test.ts (REQ-ENTERPRISE-058: publishes opaque mixed and authoritative empty enterprise model snapshots) -->
 
 **Constraints:**
 
 - Container-visible state contains no account or gateway authority.
+- Client thinking choices do not widen backend profile levels or bypass Worker normalization. <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (serializes generated provider-default and native models before the network boundary) -->
 - Pi publication stages models and defaults together and reports success only after application; failure keeps the container available. <!-- @impl: entrypoint.sh::ENTERPRISE_ROUTE_CATALOG --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-058: complete enterprise Pi startup publication) -->
 
 **Priority:** P1
@@ -2384,3 +2385,25 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 **Status:** Implemented
 
 ---
+
+
+### REQ-ENTERPRISE-082: Pi Native Model Display
+
+**Intent:** Native model names remain readable without changing routing identity.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pi's model picker and model-thinking settings display published native names instead of opaque handles. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
+2. Selecting a named native model retains its opaque provider/model identity. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay --> <!-- @test: preseed/agents/pi/test/enterprise-model-display.test.mjs (REQ-ENTERPRISE-082: Pi native model display) -->
+
+**Constraints:** Display substitution applies only to native handles under `codeflare-gateway`.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-058](#req-enterprise-058-native-model-container-publication)
+
+**Verification:** Real source and CLI-bundled component rendering and selection tests in CI and image verification.
+
+**Status:** Implemented

@@ -112,13 +112,15 @@ describe('REQ-ENTERPRISE-058: generated routing consumed by the pinned Pi runtim
       modelsPath: fixture.modelsPath, authPath: join(fixture.agentDir, 'auth.json'),
       modelsStorePath: join(fixture.agentDir, 'models-store.json'), allowModelNetwork: false,
     });
-    for (const id of authorizedRoutes) {
+    for (const [id, reasoning] of [
+      ...providerDefaultThinkingChoices.map((level) => ['bedrock_opus', level]), [nativeHandle, 'max'],
+    ]) {
       const model = runtime.getModel('codeflare-gateway', id);
       assert.ok(model, `generated model ${id} is available`);
       let sent;
       // The real serializer runs; the hook stops before any network/provider call.
       const result = await streamSimple(model, { messages: [{ role: 'user', content: 'Offline serialization', timestamp: 1 }] }, {
-        apiKey: 'fixture-only', reasoning: 'max',
+        apiKey: 'fixture-only', reasoning,
         onPayload(payload) { sent = payload; throw new Error('offline serialization boundary'); },
       }).result();
       assert.ok(sent);

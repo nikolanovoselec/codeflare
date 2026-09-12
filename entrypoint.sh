@@ -3600,7 +3600,8 @@ COPILOT_BYOK_EOF
                 or (($levels | unique | length) != ($levels | length))
               then error("missing or invalid route reasoning levels for \($route)")
               elif ($levels | length) == 0 then {
-                id: $route, name: ($displaynames[$route] // $route), reasoning: false,
+                id: $route, name: ($displaynames[$route] // $route), reasoning: true,
+                thinkingLevelMap: (canonical_levels | map({key: ., value: .}) | from_entries),
                 compat: {supportsReasoningEffort: false}, input: ["text", "image"],
                 contextWindow: ($cw[$route] // $dflt), maxTokens: 16384
               }

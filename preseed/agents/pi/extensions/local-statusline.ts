@@ -13,7 +13,7 @@ type Cache<T> = {
 type ExtensionContext = {
   cwd: string;
   hasUI: boolean;
-  model?: { id?: string };
+  model?: { id?: string; name?: string; provider?: string };
   getContextUsage?: () => { percent?: number; tokens?: number | null; contextWindow?: number } | undefined;
   sessionManager: { getCwd(): string };
   ui: { setFooter(renderer: FooterRendererFactory): void };
@@ -128,7 +128,8 @@ function truncateToWidth(text: string, width: number): string {
 }
 
 function renderLine(ctx: ExtensionContext, effort: string): string {
-  const model = ctx.model?.id ?? "model";
+  const model = ctx.model?.provider === "codeflare-gateway" && ctx.model.id?.startsWith("cf-native-")
+    ? (ctx.model.name || ctx.model.id) : (ctx.model?.id ?? "model");
   return [
     contextPercent(ctx),
     `${model}:${effort}`,

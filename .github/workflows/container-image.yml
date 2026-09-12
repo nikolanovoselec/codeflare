@@ -113,7 +113,7 @@ jobs:
           # hashed, so deleting a suppression left the tag identical, the reuse
           # probe hit, and build+scan+push were skipped — the image shipped with
           # the CVE and the scan that would now fail never ran.
-          HASHED_PATHS=".github/workflows/container-image.yml Dockerfile .dockerignore .trivyignore entrypoint.sh transcript-retention.mjs scripts/compact-session-captures.mjs host/package.json host/package-lock.json host/tsconfig.json host/src image openvscode preseed scripts/browser-ide-ui-state.py scripts/browser-ide-extensions.py scripts/materialize-agent-seed.mjs scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py scripts/patch-rclone-bisync.py scripts/ci/rclone-bookkeeping_test.go scripts/patch-context-mode-bundles.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/verify-pi-lockstep.mjs scripts/verify-pi-prompt.mjs scripts/pi-prompt-contract.mjs scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
+          HASHED_PATHS=".github/workflows/container-image.yml Dockerfile .dockerignore .trivyignore entrypoint.sh transcript-retention.mjs scripts/compact-session-captures.mjs host/package.json host/package-lock.json host/tsconfig.json host/src image openvscode preseed scripts/browser-ide-ui-state.py scripts/browser-ide-extensions.py scripts/materialize-agent-seed.mjs scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py scripts/patch-rclone-bisync.py scripts/ci/rclone-bookkeeping_test.go scripts/patch-context-mode-bundles.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/verify-pi-lockstep.mjs scripts/verify-pi-prompt.mjs scripts/pi-prompt-contract.mjs scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
           CODING_AGENTS=$(node scripts/ci/coding-agent-selection.mjs resolve "$RAW_CODING_AGENTS")
 
           # Guard: every COPY source in the Dockerfile must be covered by
@@ -123,7 +123,7 @@ jobs:
           while read -r src; do
             case "$src" in
               .cache-bust) ;; # represented by the cache-bust input
-              Dockerfile|entrypoint.sh|transcript-retention.mjs|scripts/compact-session-captures.mjs|host/package.json|host/package-lock.json|host/tsconfig.json|host/src/*|image/*|openvscode/*|preseed/*|scripts/browser-ide-ui-state.py|scripts/browser-ide-extensions.py|scripts/materialize-agent-seed.mjs|scripts/patch-impeccable-engine.py|scripts/ci/impeccable-engine.py|scripts/patch-rclone-bisync.py|scripts/ci/rclone-bookkeeping_test.go|scripts/patch-context-mode-bundles.mjs|scripts/patch-pi-goal-review-control.mjs|scripts/patch-pi-plan-mode-tool-policy.mjs|scripts/verify-pi-lockstep.mjs|scripts/verify-pi-prompt.mjs|scripts/pi-prompt-contract.mjs|scripts/ci/coding-agent-selection-core.mjs|scripts/ci/coding-agent-selection.mjs|scripts/ci/prune-npm-platform-artifacts.mjs|scripts/ci/smoke-openvscode-sidebar-image.mjs|src/lib/agent-seed.generated.ts) ;;
+              Dockerfile|entrypoint.sh|transcript-retention.mjs|scripts/compact-session-captures.mjs|host/package.json|host/package-lock.json|host/tsconfig.json|host/src/*|image/*|openvscode/*|preseed/*|scripts/browser-ide-ui-state.py|scripts/browser-ide-extensions.py|scripts/materialize-agent-seed.mjs|scripts/patch-impeccable-engine.py|scripts/ci/impeccable-engine.py|scripts/patch-rclone-bisync.py|scripts/ci/rclone-bookkeeping_test.go|scripts/patch-context-mode-bundles.mjs|scripts/patch-pi-goal-review-control.mjs|scripts/patch-pi-plan-mode-tool-policy.mjs|scripts/patch-pi-native-model-display.mjs|scripts/verify-pi-lockstep.mjs|scripts/verify-pi-prompt.mjs|scripts/pi-prompt-contract.mjs|scripts/ci/coding-agent-selection-core.mjs|scripts/ci/coding-agent-selection.mjs|scripts/ci/prune-npm-platform-artifacts.mjs|scripts/ci/smoke-openvscode-sidebar-image.mjs|src/lib/agent-seed.generated.ts) ;;
               *)
                 echo "::warning::COPY source '$src' not covered by the image input hash — disabling reuse for this run. Add it to HASHED_PATHS in container-image.yml."
                 NO_REUSE=1
@@ -353,6 +353,20 @@ jobs:
             -v "$GITHUB_WORKSPACE:/codeflare:ro" \
             --entrypoint /usr/local/bin/node "$IMAGE" \
             --test /codeflare/host/__tests__/safe-local-check-image.test.js
+
+      - name: Verify packaged Pi native display and identity
+        if: steps.reuse.outputs.reused != 'true' && contains(steps.hash.outputs.coding_agents, 'pi')
+        env:
+          IMAGE: ${{ steps.docker-build.outputs.local_ref }}
+        run: |
+          set -euo pipefail
+          for root in /opt/codeflare/npm-tools /opt/codeflare/pi-agent/npm; do
+            docker run --rm \
+              -e CODEFLARE_PI_PACKAGE_ROOT="$root/node_modules/@earendil-works/pi-coding-agent" \
+              -v "$GITHUB_WORKSPACE:/workspace:ro" \
+              --entrypoint /usr/local/bin/node "$IMAGE" \
+              --test /workspace/preseed/agents/pi/test/enterprise-model-display.test.mjs
+          done
 
       - name: Verify real Pi prompt budget
         if: steps.reuse.outputs.reused != 'true' && contains(steps.hash.outputs.coding_agents, 'pi')

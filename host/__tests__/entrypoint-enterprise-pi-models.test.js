@@ -113,7 +113,8 @@ describe('REQ-ENTERPRISE-058: complete enterprise Pi startup publication', () =>
       assert.deepEqual(gateway.models.map(({ id }) => id), authorizedRoutes);
       assert.deepEqual(models.providers['unrelated-provider'], siblingProvider);
       assert.deepEqual(gateway.models[0], {
-        id: 'bedrock_opus', name: 'bedrock_opus', reasoning: false,
+        id: 'bedrock_opus', name: 'bedrock_opus', reasoning: true,
+        thinkingLevelMap: Object.fromEntries(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((level) => [level, level])),
         compat: { supportsReasoningEffort: false }, input: ['text', 'image'], contextWindow: 1048576, maxTokens: 16384,
       });
       assert.equal(gateway.models[1].id, nativeHandle);
@@ -215,10 +216,11 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     const provider = modelsJson.providers['codeflare-gateway'];
     const native = provider.models[0];
     assert.deepEqual(native, {
-      id: handle, name: 'Claude Sonnet', reasoning: false, compat: { supportsReasoningEffort: false },
+      id: handle, name: 'Claude Sonnet', reasoning: true, compat: { supportsReasoningEffort: false },
+      thinkingLevelMap: Object.fromEntries(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((level) => [level, level])),
       input: ['text', 'image'], contextWindow: 200000, maxTokens: 16384,
     });
-    assert.equal('thinkingLevelMap' in native, false);
+    assert.equal(native.compat.supportsReasoningEffort, false);
   });
 
   it('REQ-ENTERPRISE-032 AC3: fails closed when any allowed route lacks supported levels', () => {
