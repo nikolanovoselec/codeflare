@@ -69,7 +69,7 @@ describe('REQ-ENTERPRISE-035 actionable route discovery', () => {
     ['opus', 'aig-bedrock-anthropic-auto', 'bedrock-anthropic-native-opus-auto'],
     ['opus', 'aig-bedrock-anthropic-eventstream', 'bedrock-anthropic-native-opus-stream'],
     ['opus', 'aig-bedrock-anthropic-invoke', 'bedrock-anthropic-native-opus-invoke'],
-  ])('REQ-ENTERPRISE-074: discovers %s %s without inference or upgrading saved identities', async (family, transport, profileId) => {
+  ])('REQ-ENTERPRISE-074: discovers %s %s without inference or upgrading saved identities', async (family, transport) => {
     const { app } = appWithProfiles();
     const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
       const result = String(url).includes('/provider_configs')
@@ -82,8 +82,8 @@ describe('REQ-ENTERPRISE-035 actionable route discovery', () => {
         contextWindow: 200000, transport, region: 'eu-central-1', enabled: false } }),
     });
     expect(response.status).toBe(200);
-    const profile = getBuiltInProfile(profileId)!;
-    expect(await response.json()).toMatchObject({ outcome: 'existing-profile', assignable: true,
+    const profile = getBuiltInProfile('bedrock-anthropic-native-provider-default')!;
+    expect(await response.json()).toMatchObject({ outcome: 'existing-profile', classification: 'Compatible, unverified', assignable: true,
       matchedProfiles: [{ profileRef: { id: profile.id, revision: profile.revision, hash: profile.hash }, supportedLevels: profile.supportedLevels }],
       accounting: { logicalProbes: 0, httpAttempts: 0 } });
     expect(fetcher).toHaveBeenCalledTimes(2);

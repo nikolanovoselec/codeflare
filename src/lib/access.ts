@@ -9,11 +9,11 @@ import { isEnterpriseMode } from './subscription';
 import { parseUserRecord } from './user-record';
 import { listAllKvKeys, SETUP_KEYS } from './kv-keys';
 import { reactivateUsageUser } from './admin-usage';
-import { selectRuntimeReasoningLevel, parseRouteSettings, type PiReasoningLevel, type ProfileRevisionRef } from './reasoning-profiles';
+import { canonicalHash, selectRuntimeReasoningLevel, parseRouteSettings, type PiReasoningLevel, type ProfileRevisionRef } from './reasoning-profiles';
 import { getProfileForRef, getRouteReasoningProfile, parseReasoningConfiguration } from './reasoning-configuration';
 import { getAigConfig } from './aig-config';
 import { gatewayCoordinates, listCustomProviderSlugs, listNativeProviderConfigs, selectNativeProviderConfig, type GatewayConnection, type NativeProviderConfig } from './ai-gateway-management';
-import { nativeTargetHandle, nativeVerificationMatches, parseNativeAiTargets } from './native-ai-targets';
+import { nativePromptCacheSupported, nativeTargetHandle, nativeVerificationMatches, parseNativeAiTargets } from './native-ai-targets';
 import { connectionFingerprint, verificationMatches } from './reasoning-verification';
 
 const logger = createLogger('access');
@@ -784,7 +784,7 @@ export async function loadEnterpriseRouteConfig(
   })();
   // Publish capability only, never provider/model/credential coordinates. Compat
   // and Dynamic Routes have no certified block-level cache forwarding contract.
-  const promptCacheTargets = resolved.routeCatalog.filter((handle) => resolved.nativeTargets[handle]?.adapter === 'bedrock-anthropic-native');
+  const promptCacheTargets = resolved.routeCatalog.filter((handle) => resolved.nativeTargets[handle]?.promptCacheSupported === true);
   return { routeCatalog: resolved.routeCatalog, defaultRoute: resolved.defaultRoute, defaultReasoning: resolved.defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames,
     ...(promptCacheTargets.length && { promptCacheTargets }) };
 }
@@ -832,6 +832,7 @@ interface ResolvedNativeTarget {
   model: string; provider: string; customProvider: boolean; byokAlias?: string; targetId: string; adapter: string;
   transport: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto'; region?: string;
   profileRef: ProfileRevisionRef; reasoningLevels: PiReasoningLevel[]; label: string; contextWindow: number;
+  promptCacheSupported: boolean; replayBinding: string;
 }
 
 export async function resolveRouteCatalog(
@@ -901,6 +902,14 @@ export async function resolveRouteCatalog(
             : target.provider === 'google-ai-studio' ? 'gemini-openai-compat' : 'native-openai-compat',
           transport: target.transport, ...(target.region && { region: target.region }),
           profileRef: target.profileRef, reasoningLevels: [...profile.supportedLevels], label: target.label, contextWindow: target.contextWindow,
+          promptCacheSupported: nativePromptCacheSupported(target),
+          // Internal authority only: never publish this or provider bindings to Pi.
+          // checkedAt is deliberately excluded so an identical reverification
+          // does not discard authentic state for an unchanged protocol identity.
+          replayBinding: canonicalHash({ connection: connectionFingerprint(connection), provider: target.provider,
+            providerConfigId: target.providerConfigId, alias: target.providerConfigAlias, model: target.model,
+            region: target.region, transport: target.transport, profile: target.profileRef,
+            adapter: target.verification!.adapterVersion }),
         };
       }
     }

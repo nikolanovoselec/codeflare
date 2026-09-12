@@ -6,6 +6,29 @@ export const NATIVE_TEXT_PATTERN = /^[^\u0000-\u001f\u007f]+$/;
 export const NATIVE_HASH_PATTERN = /^[a-f0-9]{64}$/;
 export const NATIVE_REGION_PATTERN = /^[a-z]{2}(?:-gov)?-[a-z]+-\d$/;
 export const NATIVE_TRANSPORTS = ['aig-legacy-compat', 'aig-bedrock-anthropic-invoke', 'aig-bedrock-anthropic-eventstream', 'aig-bedrock-anthropic-auto'] as const;
+export const BEDROCK_MESSAGES_DEFAULT_PROFILE = 'bedrock-anthropic-native-provider-default';
+
+/** Target evidence, not a model catalog or a generated executable profile.
+ * Gateway whole-response reuse satisfies the operator's minimum, but only a
+ * provider-prefix observation can authorize Pi's native checkpoint serializer. */
+export interface BedrockCapabilitySummary {
+  schemaVersion: 1;
+  tools: boolean;
+  replay: boolean;
+  cache: 'provider-prefix' | 'gateway-response' | 'inconclusive' | 'not-tested';
+  nativePromptCache: boolean;
+  reasoning: 'provider-default';
+  streaming: 'incremental' | 'not-observed';
+  grade: 'Acceptable' | 'Optimal' | 'Not qualified';
+}
+
+/** A protocol candidate, never a claim of availability or capabilities. The
+ * namespace admits new releases without a source change; authenticated binding
+ * and an explicit, target-bound tool/cache check still gate authorization. */
+export function bedrockAnthropicCandidate(model: string): boolean {
+  return nativeProviderModelValid('aws-bedrock', model)
+    && /^(?:(?:eu|us|apac|global)\.)?anthropic\.claude-[a-z0-9][a-z0-9.:-]*$/.test(model);
+}
 
 const FORBIDDEN_IDENTIFIERS = ['__proto__', 'prototype', 'constructor'];
 const NATIVE_TARGET_DRAFT_KEYS = new Set(['id', 'label', 'provider', 'model', 'contextWindow', 'profileRef', 'enabled', 'transport', 'region']);
@@ -48,4 +71,15 @@ export function nativeTargetDraftShapeValid(input: unknown): boolean {
     && profile && typeof profile.id === 'string' && profile.id.length >= 1 && profile.id.length <= 64
     && typeof profile.revision === 'number' && Number.isInteger(profile.revision) && profile.revision > 0
     && typeof profile.hash === 'string' && NATIVE_HASH_PATTERN.test(profile.hash));
+}
+
+/** Collection-level upgrades must not force unrelated old targets to disappear.
+ * An unavailable revision can be retained exactly as saved, disabled only. This
+ * exception permits neither edits nor activation, and creates no new evidence. */
+export function preservesDisabledNativeTarget(input: unknown, saved: unknown): boolean {
+  const draft = record(input); const prior = record(saved);
+  const ref = record(draft?.profileRef); const oldRef = record(prior?.profileRef);
+  return Boolean(draft && prior && draft.enabled === false && typeof draft.id === 'string' && draft.id === prior.id
+    && ['label', 'provider', 'model', 'transport', 'region', 'contextWindow'].every((field) => draft[field] === prior[field])
+    && ref && oldRef && ['id', 'revision', 'hash'].every((field) => ref[field] === oldRef[field]));
 }

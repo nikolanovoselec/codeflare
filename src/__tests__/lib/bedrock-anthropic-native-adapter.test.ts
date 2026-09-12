@@ -573,6 +573,8 @@ describe('Bedrock Anthropic native adapter', () => {
       Uint8Array.from([...headers, 1, 120, 0]), // Valid boolean extension header x=true.
     ]) {
       const body = new ReadableStream<Uint8Array>({ start(controller) {
+        controller.enqueue(eventstreamFrame({ type: 'message_start', message: {} }));
+        controller.enqueue(eventstreamFrame({ type: 'message_delta', delta: { stop_reason: 'end_turn' } }));
         controller.enqueue(bedrockEventFrame('chunk', payload, 'event', allowed)); controller.close();
       } });
       const text = await (await adaptBedrockAnthropicResponse(new Response(body), 'eventstream', state())).text();

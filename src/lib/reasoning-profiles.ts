@@ -55,6 +55,7 @@ export const REASONING_PROFILE_IDS = [
   'workers-ai-glm-thinking',
   'codeflare-inference-mesh-binary-thinking',
   'dynamic-bedrock-anthropic-provider-default',
+  'bedrock-anthropic-native-provider-default',
   'bedrock-anthropic-native-sonnet',
   'bedrock-anthropic-native-opus-stream',
   'bedrock-anthropic-native-opus-invoke',
@@ -346,6 +347,15 @@ export const BUILT_IN_REASONING_PROFILES: readonly NormalizedReasoningProfile[] 
     validatedTransports: ['compat'], classification: 'Verified',
     limitations: ['Reasoning is provider-controlled and not configurable or observable through Dynamic Routing.', 'No Pi reasoning level is claimed.', 'Streaming tool metadata requires the audited repeated-name repair.'],
     originallyCreatedAgainst: { provider: 'aws-bedrock', modelIds: ['eu.anthropic.claude-sonnet-5', 'eu.anthropic.claude-opus-5'], routes: ['bedrock_sonnet', 'bedrock_opus'], gateway: 'codeflare-enterprise', transport: 'compat', observedAt: '2026-09-09' },
+  }),
+  makeBuiltIn({
+    id: 'bedrock-anthropic-native-provider-default', name: 'AWS Bedrock Anthropic Messages · provider default', family: 'Amazon Bedrock Anthropic', revision: 1,
+    reasoningMode: 'provider-default', ingressContract: 'ai-gateway-chat-completions', supportedLevels: [], unsupportedLevels: ALL_LEVELS,
+    removePaths: BEDROCK_NATIVE_REMOVALS, levelMappings: {}, aliases: {}, offSemantics: { status: 'provider-default' },
+    toolCompatibility: { status: 'unverified', levels: [], evidence: 'Requires explicit target-bound tool call, authentic replay and cache discovery.' },
+    recognizedResponseFields: { content: ['choices[].message.content'], tools: ['choices[].message.tool_calls'] },
+    validatedTransports: ['bedrock-invoke', 'bedrock-eventstream'], classification: 'Compatible, unverified',
+    limitations: ['All seven Pi preferences normalize to provider default, not seven provider controls or a guaranteed Off state.', 'Model availability and tool/cache support require explicit target verification.', 'Native prompt checkpoints are published only with target-bound evidence; streaming must be observed separately.'],
   }),
   makeBuiltIn({
     id: 'bedrock-anthropic-native-sonnet', name: 'AWS Bedrock Claude Sonnet · native', family: 'Amazon Bedrock Anthropic', revision: 1,

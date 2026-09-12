@@ -30,6 +30,7 @@ const catalog: ReasoningCatalog = {
     { id: 'codeflare-inference-mesh-binary-thinking', revision: 1, hash: hash('6'), name: 'Mesh binary thinking', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
     { id: 'dynamic-bedrock-anthropic-provider-default', revision: 1, hash: hash('4'), name: 'AWS Bedrock Claude provider default', supportedLevels: [], classification: 'Verified' },
     { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c'), name: 'AWS Bedrock · Anthropic Claude', supportedLevels: [], classification: 'Verified' },
+    { id: 'bedrock-anthropic-native-provider-default', revision: 1, hash: hash('0'), name: 'Anthropic Messages Provider default', supportedLevels: [], classification: 'Compatible, unverified' },
     { id: 'bedrock-anthropic-native-sonnet', revision: 1, hash: hash('7'), name: 'AWS Bedrock Claude Sonnet · native', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
     { id: 'bedrock-anthropic-native-opus-stream', revision: 1, hash: hash('8'), name: 'AWS Bedrock Claude Opus · native stream', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high'], classification: 'Verified' },
     { id: 'bedrock-anthropic-native-opus-invoke', revision: 1, hash: hash('9'), name: 'AWS Bedrock Claude Opus · native Invoke', supportedLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], classification: 'Verified' },
@@ -172,8 +173,22 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-// Behavioral fixtures are execution-pending; CI owns RED/GREEN verification.
+// Synthetic component fixtures; CI reruns the locally verified behavior.
 describe('Structured AI routing', () => {
+  it('REQ-ENTERPRISE-075: explains an inconclusive cache check without enabling the native target', async () => {
+    api.native.mockResolvedValueOnce({ assignable: false, classification: 'Inconclusive',
+      cacheEvidence: { explanation: 'Minimum not met: no cache reuse observed; this does not establish unsupported caching.' } });
+    const view = mount();
+    await addNativeTarget(view);
+    await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Synthetic cache check' } });
+    await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-synthetic-future-2099-v1:0' } });
+    const article = view.getByRole('article', { name: 'Synthetic cache check native target' });
+    await fireEvent.click(within(article).getByRole('button', { name: 'Verify Profile' }));
+    expect(await within(article).findByRole('alert')).toHaveTextContent('does not establish unsupported caching');
+    expect(formValues(view.container).nativeTargets[0].enabled).toBe(false);
+    expect(formValues(view.container).nativeTargets[0]).not.toHaveProperty('verification');
+    expect(api.native).toHaveBeenCalledTimes(1);
+  });
   it('REQ-ENTERPRISE-041: navigates Dynamic routes and Native routes and adds a Native Route', async () => {
     const view = mount();
     await view.findByText('Connected · 3 routes readable');
@@ -186,29 +201,28 @@ describe('Structured AI routing', () => {
     expect(formValues(view.container).nativeTargets).toHaveLength(1);
     expect(view.submit).not.toHaveBeenCalled();
   });
-  it('REQ-ENTERPRISE-075: binds native Bedrock transport and region to the evidence-backed profile draft', async () => {
+  it('REQ-ENTERPRISE-075: selects older/current/synthetic future models with one reusable native profile and explicit verification', async () => {
     const view = mount();
     await addNativeTarget(view);
     const article = view.getByRole('article', { name: 'New native target' });
     expect(within(article).queryByLabelText('Native target 1 transport')).toBeNull();
     expect(formValues(view.container).nativeTargets[0].transport).toBe('aig-bedrock-anthropic-auto');
     await fireEvent.input(within(article).getByLabelText('Native target 1 label'), { target: { value: 'Native Claude' } });
-    for (const [model, id, digest, family] of [
-      ['eu.anthropic.claude-opus-5', 'bedrock-anthropic-native-opus-auto', '5', 'Opus'],
-      ['eu.anthropic.claude-sonnet-5', 'bedrock-anthropic-native-sonnet', '7', 'Sonnet'],
-    ]) {
+    for (const model of ['eu.anthropic.claude-opus-5', 'eu.anthropic.claude-sonnet-4-6', 'eu.anthropic.claude-synthetic-future-2099-v1:0']) {
+      const id = 'bedrock-anthropic-native-provider-default'; const digest = '0';
       await fireEvent.input(within(article).getByLabelText('Native target 1 model'), { target: { value: model } });
       expect(within(article).getByLabelText('Native target 1 region')).toHaveValue('eu-central-1');
       const profile = within(article).getByLabelText('Native target 1 profile') as HTMLSelectElement;
       expect(profile).toHaveValue(profileKey({ id, revision: 1, hash: hash(digest) }));
-      expect(Array.from(profile.options, (option) => option.text)).toEqual([`Native Route - AWS Bedrock - Claude ${family}`]);
-      expect(within(article).getByText('Pi levels: Off, Minimal, Low, Medium, High, Xhigh, Max.')).toBeVisible();
-      expect(within(article).queryByRole('button', { name: 'Verify Profile' })).toBeNull();
-      await fireEvent.click(within(article).getByRole('button', { name: 'Mark as verified' }));
+      expect(Array.from(profile.options, (option) => option.text)).toEqual(['Native Route - AWS Bedrock - Anthropic Messages (Provider default)']);
+      expect(within(article).getByText(/All seven Pi preferences normalize to Provider default/)).toBeVisible();
+      expect(within(article).queryByRole('button', { name: 'Mark as verified' })).toBeNull();
+      await fireEvent.click(within(article).getByRole('button', { name: 'Verify Profile' }));
       await waitFor(() => expect(formValues(view.container).nativeTargets[0].enabled).toBe(true));
-      expect(api.native).toHaveBeenLastCalledWith(expect.objectContaining({ administratorConfirmed: true, target: expect.objectContaining({
+      expect(api.native).toHaveBeenLastCalledWith(expect.objectContaining({ target: expect.objectContaining({
         model, transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', profileRef: { id, revision: 1, hash: hash(digest) },
       }) }));
+      expect(api.native.mock.calls[api.native.mock.calls.length - 1][0]).not.toHaveProperty('administratorConfirmed');
       await openGroup(view, 'developers');
       const target = formValues(view.container).nativeTargets[0];
       const handle = `cf-native-${target.id}`;
@@ -216,9 +230,8 @@ describe('Structured AI routing', () => {
       if (!(checkbox as HTMLInputElement).checked) await fireEvent.click(checkbox);
       await fireEvent.change(view.getByLabelText('developers default route'), { target: { value: handle } });
       const reasoning = view.getByLabelText('developers default reasoning') as HTMLSelectElement;
-      expect(Array.from(reasoning.options, (option) => option.value)).toEqual(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
-      await fireEvent.change(reasoning, { target: { value: 'max' } });
-      expect(formValues(view.container).groupRouting[0]).toMatchObject({ defaultRoute: handle, reasoning: 'max' });
+      expect(reasoning).toBeDisabled(); // Admin default is opaque; Pi still has all seven preferences.
+      expect(formValues(view.container).groupRouting[0]).toMatchObject({ defaultRoute: handle });
       await section(view, 'Native routes');
     }
   });
@@ -268,7 +281,7 @@ describe('Structured AI routing', () => {
     const model = view.getByLabelText('Native target 1 model');
     await fireEvent.input(model, { target: { value: 'eu.anthropic.claude-sonnet-5' } });
     await fireEvent.input(view.getByLabelText('Native target 1 region'), { target: { value: 'us-east-1' } });
-    await fireEvent.input(model, { target: { value: 'eu.anthropic.claude-sonnet-' } });
+    await fireEvent.input(model, { target: { value: 'eu.anthropic.' } });
     expect(formValues(view.container).nativeTargets[0]).not.toHaveProperty('region');
     await fireEvent.input(model, { target: { value: 'eu.anthropic.claude-sonnet-5' } });
     expect(view.getByLabelText('Native target 1 region')).toHaveValue('us-east-1');
@@ -276,7 +289,7 @@ describe('Structured AI routing', () => {
     expect(formValues(view.container).nativeTargets[0]).not.toHaveProperty('rememberedRegion');
   });
 
-  it('REQ-ENTERPRISE-074/078: changes a saved compatibility identity to automatic only when its model changes', async () => {
+  it('REQ-ENTERPRISE-074/078: never changes a saved compatibility transport when its model changes', async () => {
     const id = '11111111-1111-4111-8111-111111111111';
     const view = mount({ ...checkedCurrent(), nativeTargets: [{ id, label: 'Saved', provider: 'aws-bedrock', model: 'eu.anthropic.claude-sonnet-5',
       contextWindow: 200000, transport: 'aig-legacy-compat', profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: true,
@@ -284,8 +297,8 @@ describe('Structured AI routing', () => {
     await openNative(view);
     await fireEvent.click(view.getByRole('button', { name: 'Configure Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5' }));
     await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-opus-5' } });
-    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id, transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1',
-      profileRef: { id: 'bedrock-anthropic-native-opus-auto', revision: 1, hash: hash('5') }, enabled: false });
+    expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id, transport: 'aig-legacy-compat',
+      profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: false });
     expect(formValues(view.container).nativeChecks).toEqual({ [id]: null });
     await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-future-profile' } });
     expect(formValues(view.container).nativeTargets[0]).toMatchObject({ transport: 'aig-legacy-compat', profileRef: { id: 'bedrock-anthropic-compat' }, enabled: false });
@@ -303,7 +316,7 @@ describe('Structured AI routing', () => {
     await fireEvent.change(view.getByLabelText('Native target 1 provider'), { target: { value: 'aws-bedrock' } });
     expect(formValues(view.container).nativeTargets[0]).toMatchObject({ provider: 'aws-bedrock', model: '', transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1' });
     await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: 'eu.anthropic.claude-opus-5' } });
-    expect(formValues(view.container).nativeTargets[0].profileRef.id).toBe('bedrock-anthropic-native-opus-auto');
+    expect(formValues(view.container).nativeTargets[0].profileRef.id).toBe('bedrock-anthropic-native-provider-default');
     await fireEvent.change(view.getByLabelText('Native target 1 provider'), { target: { value: 'openai' } });
     expect(formValues(view.container).nativeTargets[0]).toMatchObject({ provider: 'openai', model: '', transport: 'aig-legacy-compat', profileRef: { id: 'native-openai-compat' } });
     expect(formValues(view.container).nativeTargets[0]).not.toHaveProperty('region');
@@ -566,8 +579,12 @@ describe('Structured AI routing', () => {
     expect(within(article).getByText('Not ready')).toHaveAttribute('data-state', 'unclear');
     await fireEvent.click(within(article).getByRole('button', { name: 'Verify Profile' }));
     expect(await within(article).findByRole('alert')).toHaveTextContent('Rate limit exceeded. Try again in 44 seconds.');
-    await fireEvent.click(within(article).getByRole('button', { name: 'Mark as verified' }));
-    await waitFor(() => expect(api.native).toHaveBeenLastCalledWith(expect.objectContaining({ target: expect.objectContaining({ model: 'eu.anthropic.claude-future-profile' }), administratorConfirmed: true })));
+    // An explicit second click is a new operator-authorized check. A failed
+    // capability probe must not unlock the legacy manual-confirmation bypass.
+    expect(within(article).queryByRole('button', { name: 'Mark as verified' })).toBeNull();
+    await fireEvent.click(within(article).getByRole('button', { name: 'Verify Profile' }));
+    await waitFor(() => expect(api.native).toHaveBeenLastCalledWith(expect.objectContaining({ target: expect.objectContaining({ model: 'eu.anthropic.claude-future-profile' }) })));
+    expect(api.native.mock.calls[api.native.mock.calls.length - 1]?.[0]).not.toHaveProperty('administratorConfirmed');
     expect(within(article).getByText('Ready')).toHaveAttribute('data-state', 'passed');
     expect(view.queryByLabelText('Enable Claude custom native target')).toBeNull();
     expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id: '11111111-1111-4111-8111-111111111111', model: 'eu.anthropic.claude-future-profile', enabled: true });

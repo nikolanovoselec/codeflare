@@ -5,6 +5,8 @@
 
 import { validateRequestPath } from './reasoning-profiles';
 import { repairRepeatedCompleteToolNames } from './openai-sse-tool-name-repair';
+import { adaptBedrockAnthropicResponse, bedrockAnthropicGatewayPath, buildBedrockAnthropicRequest, selectBedrockAnthropicTransport, type BedrockReplayState } from './bedrock-anthropic-native-adapter';
+import { bedrockAnthropicCandidate, type BedrockCapabilitySummary } from './native-ai-target-draft';
 
 export const PI_WIRE_CANARY_VERSION = 'pi-openai-completions-0.84.4-canary-v1';
 
@@ -74,6 +76,9 @@ export interface DiscoveryInput {
   maxResponseBytes?: number;
   compatOnly?: boolean;
   byokAlias?: string;
+  // Trusted server-selected coordinates, never browser-provided URLs/headers.
+  native?: { model: string; region: string; transport: 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto' };
+  requireCacheEvidence?: boolean;
 }
 
 export interface ParsedPiSse {
@@ -88,6 +93,8 @@ export interface ParsedPiSse {
   usage: Record<string, unknown> | null;
   eventCount: number;
   malformedEvents: number;
+  publicDeltaTimes?: number[];
+  eofTime?: number;
 }
 
 interface ChatCompletionsAttemptInput {
@@ -101,12 +108,14 @@ interface ChatCompletionsAttemptInput {
   maxResponseBytes?: number;
   compatOnly?: boolean;
   byokAlias?: string;
+  native?: DiscoveryInput['native'];
+  replayState?: BedrockReplayState;
 }
 
 interface ChatCompletionsAttempt {
   response: Response;
   attempts: number;
-  transport: 'rest' | 'compat';
+  transport: 'rest' | 'compat' | 'bedrock-invoke' | 'bedrock-eventstream';
 }
 
 function clone<T>(value: T): T {
@@ -301,6 +310,9 @@ function validateInput(input: DiscoveryInput): { profile: DiscoveryProfile; offC
   if (typeof input.apiToken !== 'string' || input.apiToken.length < 8) throw new TypeError('Worker-side API token is required');
 
   const profile = normalizeProfile(input.profile);
+  if (input.native && (input.route !== `aws-bedrock/${input.native.model}` || !bedrockAnthropicCandidate(input.native.model)
+    || profile.reasoningMode !== 'provider-default')) throw new TypeError('Native discovery requires the selected Anthropic provider-default contract');
+  if (input.requireCacheEvidence && profile.reasoningMode !== 'provider-default') throw new TypeError('Capability certification currently requires provider-default reasoning');
   const offCandidate = input.offCandidateMapping === undefined ? undefined : normalizeStandaloneMapping(input.offCandidateMapping);
   const groups = groupMappings(profile);
   const reasoningProbeCount = groups.length + (offCandidate ? 1 : 0);
@@ -457,6 +469,14 @@ async function parsePiSseStream(stream: ReadableStream<Uint8Array> | null, maxBy
   let buffer = '';
   let bytes = 0;
   const state = newParsedState();
+  const start = performance.now();
+  state.publicDeltaTimes = [];
+  const consume = (payload: string) => {
+    const length = state.content.length;
+    consumeSseData(payload, state);
+    if (state.content.length > length) state.publicDeltaTimes!.push(performance.now() - start);
+  };
+  try {
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -471,13 +491,20 @@ async function parsePiSseStream(stream: ReadableStream<Uint8Array> | null, maxBy
       const line = buffer.slice(0, newline).replace(/\r$/, '');
       buffer = buffer.slice(newline + 1);
       const trimmed = line.trimStart();
-      if (trimmed.startsWith('data:')) consumeSseData(trimmed.slice(trimmed.indexOf(':') + 1).trim(), state);
+      if (trimmed.startsWith('data:')) consume(trimmed.slice(trimmed.indexOf(':') + 1).trim());
     }
   }
   buffer += decoder.decode();
   const trimmed = buffer.trimStart();
-  if (trimmed.startsWith('data:')) consumeSseData(trimmed.slice(trimmed.indexOf(':') + 1).trim(), state);
+  if (trimmed.startsWith('data:')) consume(trimmed.slice(trimmed.indexOf(':') + 1).trim());
+  state.eofTime = performance.now() - start;
   return finishParsedSse(state);
+  } finally {
+    // Cancellation also releases a timed-out/malformed provider stream. Never
+    // leave an unread paid response running after a failed certification.
+    void reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }
 
 function parsedToolArguments(call: ParsedPiSse['toolCalls'][number]): { value: 'ok' } {
@@ -519,17 +546,16 @@ async function readBoundedText(response: Response, maxBytes: number): Promise<st
   const decoder = new TextDecoder();
   let result = '';
   let bytes = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    bytes += value.byteLength;
-    if (bytes > maxBytes) {
-      await reader.cancel('response too large');
-      throw new Error('response_too_large');
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) throw new Error('response_too_large');
+      result += decoder.decode(value, { stream: true });
     }
-    result += decoder.decode(value, { stream: true });
-  }
-  return result + decoder.decode();
+    return result + decoder.decode();
+  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 
 function sanitizedError(status: number | null, text: string, codeOverride?: string): {
@@ -565,12 +591,20 @@ class DiscoveryAttemptError extends Error {
 async function fetchWithTimeout(fetcher: typeof fetch, url: string, init: RequestInit, timeoutMs: number, attempt: number): Promise<Response> {
   const controller = new AbortController();
   let expireBody: (() => void) | undefined;
+  let expireHeaders: ((error: Error) => void) | undefined;
+  const acquisitionDeadline = new Promise<never>((_, reject) => { expireHeaders = reject; });
   const timeout = setTimeout(() => {
     controller.abort('discovery timeout');
     expireBody?.();
+    expireHeaders?.(new DiscoveryAttemptError('timeout', attempt));
   }, timeoutMs);
   try {
-    const response = await fetcher(url, { ...init, signal: controller.signal, redirect: 'manual' });
+    const pending = fetcher(url, { ...init, signal: controller.signal, redirect: 'manual' });
+    // AbortSignal alone does not bound response acquisition when an upstream
+    // implementation ignores it. Dispose a late body without another request.
+    void pending.then((late) => { if (controller.signal.aborted) void late.body?.cancel().catch(() => {}); }, () => {});
+    const response = await Promise.race([pending, acquisitionDeadline]);
+    expireHeaders = undefined;
     if (controller.signal.aborted) throw new DiscoveryAttemptError('timeout', attempt);
     if (!response.body) {
       clearTimeout(timeout);
@@ -578,6 +612,7 @@ async function fetchWithTimeout(fetcher: typeof fetch, url: string, init: Reques
     }
     const reader = response.body.getReader();
     let settled = false;
+    let responseBytes = 0;
     const settle = () => { settled = true; clearTimeout(timeout); };
     // Keep the original attempt deadline until EOF or cancellation, including
     // error/404 bodies. Error the consumer even if upstream ignores abort.
@@ -599,6 +634,13 @@ async function fetchWithTimeout(fetcher: typeof fetch, url: string, init: Reques
             reader.releaseLock();
             streamController.close();
           } else {
+            responseBytes += value.byteLength;
+            if (responseBytes > DEFAULT_MAX_RESPONSE_BYTES) {
+              settle();
+              streamController.error(new DiscoveryAttemptError('response_too_large', attempt));
+              void reader.cancel('response too large').catch(() => {});
+              return;
+            }
             streamController.enqueue(value);
           }
         } catch (error) {
@@ -634,13 +676,33 @@ async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInp
     ?? `https://api.cloudflare.com/client/v4/accounts/${input.accountId}/ai/v1/chat/completions`;
   const compatUrl = input.endpoint?.compat
     ?? `https://gateway.ai.cloudflare.com/v1/${input.accountId}/${input.gatewayId}/compat/chat/completions`;
+  if (input.native) {
+    if (!input.replayState || !input.accountId || !input.gatewayId) throw new TypeError('Native discovery requires server-held replay and gateway coordinates');
+    const configured = input.native.transport === 'aig-bedrock-anthropic-auto' ? 'auto'
+      : input.native.transport === 'aig-bedrock-anthropic-eventstream' ? 'eventstream' : 'invoke';
+    const operation = selectBedrockAnthropicTransport(configured);
+    const body = await buildBedrockAnthropicRequest({ ...input.body, max_tokens: input.body.max_completion_tokens }, input.replayState);
+    const url = `https://gateway.ai.cloudflare.com/v1/${input.accountId}/${input.gatewayId}${bedrockAnthropicGatewayPath(input.native.region, input.native.model, operation)}`;
+    const upstream = await fetchWithTimeout(fetcher, url, { method: 'POST',
+      headers: { 'cf-aig-authorization': `Bearer ${input.apiToken}`, 'cf-aig-max-attempts': '1', 'content-type': 'application/json',
+        ...(operation === 'eventstream' && { accept: 'application/vnd.amazon.eventstream' }),
+        ...(input.byokAlias && { 'cf-aig-byok-alias': input.byokAlias }) }, body: JSON.stringify(body),
+    }, Math.min(timeoutMs, 90_000), 1);
+    const response = await adaptBedrockAnthropicResponse(upstream, operation, input.replayState, true);
+    // Read cache observations at the Gateway boundary, before native response
+    // translation drops transport headers. No secret headers are propagated.
+    for (const name of ['cf-aig-cache-status', 'cf-aig-provider', 'cf-aig-model']) {
+      const value = upstream.headers.get(name); if (value) response.headers.set(name, value);
+    }
+    return { response, attempts: 1, transport: operation === 'invoke' ? 'bedrock-invoke' : 'bedrock-eventstream' };
+  }
   if (input.compatOnly) {
     const compatBody = clone(input.body);
     delete compatBody.store;
     delete compatBody.prompt_cache_key;
     return {
       response: await fetchWithTimeout(fetcher, compatUrl, {
-        method: 'POST', headers: { 'cf-aig-authorization': `Bearer ${input.apiToken}`, ...(input.byokAlias && { 'cf-aig-byok-alias': input.byokAlias }), 'content-type': 'application/json' }, body: JSON.stringify(compatBody),
+        method: 'POST', headers: { 'cf-aig-authorization': `Bearer ${input.apiToken}`, 'cf-aig-max-attempts': '1', ...(input.byokAlias && { 'cf-aig-byok-alias': input.byokAlias }), 'content-type': 'application/json' }, body: JSON.stringify(compatBody),
       }, timeoutMs, 1), attempts: 1, transport: 'compat',
     };
   }
@@ -648,6 +710,7 @@ async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInp
     method: 'POST',
     headers: {
       authorization: `Bearer ${input.apiToken}`,
+      'cf-aig-max-attempts': '1',
       'cf-aig-gateway-id': input.gatewayId ?? '',
       'cf-aig-metadata': metadata,
       'content-type': 'application/json',
@@ -668,6 +731,7 @@ async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInp
     method: 'POST',
     headers: {
       'cf-aig-authorization': `Bearer ${input.apiToken}`,
+      'cf-aig-max-attempts': '1',
       ...(input.byokAlias && { 'cf-aig-byok-alias': input.byokAlias }),
       'cf-aig-metadata': metadata,
       'content-type': 'application/json',
@@ -691,11 +755,14 @@ function numericUsage(usage: Record<string, unknown> | null, key: string): numbe
 
 function usageSummary(usage: Record<string, unknown> | null): Record<string, number | null> {
   const details = isPlainObject(usage?.completion_tokens_details) ? usage.completion_tokens_details : null;
+  const promptDetails = isPlainObject(usage?.prompt_tokens_details) ? usage.prompt_tokens_details : null;
   return {
     promptTokens: numericUsage(usage, 'prompt_tokens'),
     completionTokens: numericUsage(usage, 'completion_tokens'),
     totalTokens: numericUsage(usage, 'total_tokens'),
     reasoningTokens: numericUsage(details, 'reasoning_tokens'),
+    cacheReadTokens: numericUsage(promptDetails, 'cached_tokens'),
+    cacheWriteTokens: numericUsage(promptDetails, 'cache_write_tokens'),
   };
 }
 
@@ -718,6 +785,7 @@ async function summarizeParsedSse(parsed: ParsedPiSse, transport: string, attemp
     }))),
     toolCallCount: parsed.toolCalls.length,
     toolNames: parsed.toolCalls.map((call) => call.name === CANARY_TOOL_NAME ? CANARY_TOOL_NAME : 'unexpected'),
+    publicDeltaTimes: parsed.publicDeltaTimes ?? [], eofTime: parsed.eofTime ?? null,
     ...usageSummary(parsed.usage),
   };
 }
@@ -739,6 +807,8 @@ interface CommonRequest {
   compatOnly?: boolean;
   byokAlias?: string;
   repairToolNames?: boolean;
+  native?: DiscoveryInput['native'];
+  replayState?: BedrockReplayState;
 }
 
 function transportFailure(error: unknown): ProbeResult {
@@ -837,7 +907,7 @@ async function executeToolLifecycle(common: CommonRequest, initialRequest: Plain
       stop: true,
     };
   }
-  const first = await summarizeParsedSse(firstParsed, firstAttempt.transport, firstAttempt.attempts);
+  const first = { ...(await summarizeParsedSse(firstParsed, firstAttempt.transport, firstAttempt.attempts)), ...gatewayObservation(firstAttempt.response) };
   try {
     if (firstParsed.malformedEvents > 0 || firstParsed.effectiveFinishReason !== 'tool_calls') {
       throw new Error('First turn did not terminate as tool_calls');
@@ -873,7 +943,7 @@ async function executeToolLifecycle(common: CommonRequest, initialRequest: Plain
         stop: true,
       };
     }
-    const replay = await summarizeParsedSse(replayParsed, replayAttempt.transport, replayAttempt.attempts);
+    const replay = { ...(await summarizeParsedSse(replayParsed, replayAttempt.transport, replayAttempt.attempts)), ...gatewayObservation(replayAttempt.response) };
     const passed = replayParsed.malformedEvents === 0
       && replayParsed.effectiveFinishReason === 'stop'
       && replayParsed.content.trim().length > 0
@@ -978,9 +1048,76 @@ function publicProbe<T extends Record<string, unknown> & { stop: boolean }>(prob
   return result as Omit<T, 'stop'>;
 }
 
+function gatewayObservation(response: Response): Record<string, unknown> {
+  const cache = response.headers.get('cf-aig-cache-status')?.toUpperCase();
+  const safe = (name: string) => {
+    const value = response.headers.get(name);
+    return value && /^[A-Za-z0-9@._:/-]{1,256}$/.test(value) ? value : undefined;
+  };
+  return { cacheStatus: cache === 'HIT' || cache === 'MISS' ? cache : null,
+    backend: { ...(safe('cf-aig-provider') && { provider: safe('cf-aig-provider') }), ...(safe('cf-aig-model') && { model: safe('cf-aig-model') }) } };
+}
+
+/** One explicit discovery, not startup probing: tools/replay first, then two
+ * bounded public cache observations. No TTL/key overrides or model substitutes.
+ * Native markers never leak into Dynamic conversion. A MISS is inconclusive:
+ * model-specific prefix thresholds, placement and best-effort reuse still apply.
+ */
+async function discoverCache(common: CommonRequest, route: string, maxCompletionTokens: number, toolObservations: Array<Record<string, any>>) {
+  const marker = crypto.randomUUID();
+  // Large enough to exercise documented 4,096-token minima with ordinary text,
+  // but not a tokenizer claim or a promise of a hit for an unknown future model.
+  const prefix = `Public Codeflare cache canary ${marker}. Ignore the fictional inventory; follow the user request.\n`
+    + Array.from({ length: 2048 }, (_, index) => `Item ${index}: amber birch cedar.`).join('\n');
+  const request: PlainObject = { model: route, messages: [
+    { role: 'system', content: common.native ? [{ type: 'text', text: prefix, cache_control: { type: 'ephemeral', ttl: '5m' } }] : prefix },
+    { role: 'user', content: 'Reply with a numbered list of 32 short fictional labels. Do not use tools.' },
+  ], stream: true, stream_options: { include_usage: true }, max_completion_tokens: maxCompletionTokens };
+  const observations: Array<Record<string, any>> = [];
+  for (let index = 0; index < 2; index++) {
+    try {
+      const attempt = await requestChatCompletionsWithCompat({ ...common, body: request });
+      const header = gatewayObservation(attempt.response);
+      if (attempt.response.status !== 200) {
+        const text = await readBoundedText(attempt.response, common.maxResponseBytes);
+        observations.push({ ...sanitizedError(attempt.response.status, text), ...header, transport: attempt.transport, httpAttempts: attempt.attempts });
+        break; // A validation/auth/provider failure is evidence, not a retry invitation.
+      }
+      const parsed = await parsePiSseStream(attempt.response.body, common.maxResponseBytes);
+      const valid = parsed.malformedEvents === 0 && parsed.effectiveFinishReason === 'stop' && parsed.content.trim().length > 0 && parsed.usage !== null;
+      observations.push({ ...(await summarizeParsedSse(parsed, attempt.transport, attempt.attempts)), ...header, valid });
+      if (!valid) break;
+    } catch (error) {
+      observations.push(publicProbe(transportFailure(error))); break;
+    }
+  }
+  // Certify the exercised path, not every configured fallback. But never join
+  // known tools-on-A and cache-on-B into a fictitious capable backend. Missing
+  // Gateway identity remains explicitly unobserved, not invented from inventory.
+  const allObservations = [...toolObservations, ...observations];
+  const backendConsistent = ['provider', 'model'].every((key) => new Set(allObservations.map((item) => item.backend?.[key]).filter(Boolean)).size <= 1);
+  const backendIdentified = allObservations.every((item) => item.backend?.provider && item.backend?.model);
+  const complete = backendConsistent && observations.length === 2 && observations.every((item) => item.valid)
+    && observations[0].transport === observations[1].transport;
+  const second = observations[1];
+  const prefixRead = complete && second.cacheStatus !== 'HIT' && second.cacheReadTokens > 0;
+  const cache: BedrockCapabilitySummary['cache'] = prefixRead ? 'provider-prefix'
+    : complete && second.cacheStatus === 'HIT' ? 'gateway-response' : 'inconclusive';
+  // Cached delivery and synthesized Invoke SSE are never cold-generation proof.
+  const incremental = observations.some((item) => item.valid && item.cacheStatus !== 'HIT' && item.transport !== 'bedrock-invoke'
+    && item.publicDeltaTimes.length >= 2 && item.publicDeltaTimes[0] + 5 < item.publicDeltaTimes.at(-1)
+    && item.publicDeltaTimes[0] + 5 < item.eofTime);
+  return { cache, incremental, observations, backendConsistent, backendIdentified, identicalPublicBody: true, publicBodyHash: await digest(JSON.stringify(request)),
+    explanation: !backendConsistent ? 'Tool and cache observations identify different backends. Minimum is inconclusive for one exercised route path; this is not an all-branches requirement.'
+      : cache === 'inconclusive' ? 'No qualifying cache reuse observed. Minimum is not met; unsupported caching is NOT established by a miss, absent counters, truncation or a rejected probe.'
+      : cache === 'gateway-response' ? 'Gateway HIT satisfies the minimum; this is whole-response reuse, not proof of provider input-prefix reuse.'
+        : 'Positive provider prefix-cache reads observed on the native/compat request actually tested.' };
+}
+
 export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Record<string, any>> {
   const { profile, offCandidate } = validateInput(input);
   const fetcher = input.fetcher ?? input.fetchImpl ?? fetch;
+  const replay = new Map<string, unknown[]>();
   const common: CommonRequest = {
     accountId: input.accountId,
     gatewayId: input.gatewayId,
@@ -992,6 +1129,9 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
     compatOnly: input.compatOnly,
     byokAlias: input.byokAlias,
     repairToolNames: profile.id === 'bedrock-anthropic-compat' || profile.id === 'dynamic-bedrock-anthropic-provider-default',
+    native: input.native,
+    ...(input.native && { replayState: { load: async (id: string) => replay.get(id) ?? null,
+      save: async (id: string, blocks: unknown[]) => { replay.set(id, clone(blocks)); } } }),
   };
   const groups = groupMappings(profile);
   const accounting: Accounting = { logicalProbes: 0, httpAttempts: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
@@ -1089,15 +1229,15 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
   // tool lifecycle. A capped tool call/replay, or an unproven off mode, never does.
   const compatibleLevels = verifiedLevels.filter((level) => !diagnostics.some((diagnostic) => diagnostic.levels.includes(level)));
   const completionLimited = diagnostics.some((diagnostic) => diagnostic.code === 'completion_limit');
-  const stopDiscovery = diagnostics.some((diagnostic) =>
+  let stopDiscovery = diagnostics.some((diagnostic) =>
     ['timeout', 'transport_error', 'malformed_response', 'response_too_large'].includes(diagnostic.code)
     || diagnostic.status === 401 || diagnostic.status === 403 || diagnostic.status === 429
     || (diagnostic.status !== undefined && diagnostic.status >= 500));
-  const assignable = !stopped
+  let assignable = !stopped
     && allToolsPassed
     && !reasoningTransportFailures
     && !['not-disabled', 'not-verified', 'candidate-disabled-profile-mismatch'].includes(off);
-  const classification = stopDiscovery || completionLimited
+  let classification = stopDiscovery || completionLimited
     ? 'Inconclusive'
     : assignable
       ? 'Verified'
@@ -1114,6 +1254,28 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
           ? 'inconclusive'
           : 'unsupported';
 
+  let cacheEvidence: Awaited<ReturnType<typeof discoverCache>> | undefined;
+  let capabilitySummary: BedrockCapabilitySummary | undefined;
+  if (input.requireCacheEvidence) {
+    if (assignable) {
+      // Keep the successful leg; do not replay a known REST 404 for every probe.
+      if (distinctMappings[0]?.toolLifecycle.first?.transport === 'compat') common.compatOnly = true;
+      cacheEvidence = await discoverCache(common, input.route, Math.min(input.maxCompletionTokens, 2048),
+        distinctMappings.flatMap((item) => [item.toolLifecycle.first, item.toolLifecycle.replay]).filter(Boolean));
+      accounting.logicalProbes += cacheEvidence.observations.length;
+      for (const observation of cacheEvidence.observations) addEvidence(accounting, observation);
+      stopDiscovery ||= cacheEvidence.observations.some((item) => item.status === null || [401, 403, 429].includes(item.status) || item.status >= 500);
+    }
+    const cache = cacheEvidence?.cache ?? 'not-tested';
+    const minimum = assignable && (cache === 'provider-prefix' || cache === 'gateway-response');
+    capabilitySummary = { schemaVersion: 1, tools: allToolsPassed, replay: allToolsPassed, cache,
+      nativePromptCache: Boolean(input.native && cache === 'provider-prefix'), reasoning: 'provider-default',
+      streaming: cacheEvidence?.incremental ? 'incremental' : 'not-observed',
+      grade: minimum ? cacheEvidence?.incremental ? 'Optimal' : 'Acceptable' : 'Not qualified' };
+    if (assignable && !minimum) classification = 'Inconclusive';
+    assignable = minimum;
+  }
+  replay.clear(); // No signed/provider state in reports, receipts, logs or persistent discovery storage.
   return {
     schemaVersion: 1,
     canaryVersion: PI_WIRE_CANARY_VERSION,
@@ -1133,6 +1295,7 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
     },
     classification,
     assignable,
+    ...(capabilitySummary && { capabilitySummary, cacheEvidence }),
     accounting,
     evidence: {
       current: true,

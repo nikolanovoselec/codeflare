@@ -145,8 +145,8 @@ interface InterceptorProps {
 const COMPAT_INCOMPATIBLE_FIELDS = ['store', 'prompt_cache_key'] as const;
 const NATIVE_REPLAY_TTL_SECONDS = 30 * 24 * 60 * 60;
 
-export function nativeReplayStateKey(user: string, sessionId: string, targetId: string, toolId: string): string {
-  return `native-ai-replay:${canonicalHash({ user, sessionId, targetId, toolId })}`;
+export function nativeReplayStateKey(user: string, sessionId: string, targetId: string, toolId: string, binding?: string): string {
+  return `native-ai-replay:${canonicalHash({ user, sessionId, targetId, toolId, binding })}`;
 }
 
 /** Return `raw` with COMPAT_INCOMPATIBLE_FIELDS removed; non-JSON/non-object bodies pass through unchanged. */
@@ -496,7 +496,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
               if (configuredTransport === 'eventstream' && !nativeStreamRequested) {
                 return new Response(JSON.stringify({ error: 'Bedrock eventstream targets require streaming requests', code: 'UNSUPPORTED_NATIVE_TRANSPORT' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
               }
-              const stateKey = (toolId: string) => nativeReplayStateKey(props.user, props.sessionId!, native.targetId, toolId);
+              const stateKey = (toolId: string) => nativeReplayStateKey(props.user, props.sessionId!, native.targetId, toolId, native.replayBinding);
               nativeBedrockState = {
                 load: async (toolId) => getAndDecrypt<unknown[]>(this.env.KV!, stateKey(toolId), encryptionKey),
                 save: async (toolId, content) => {
@@ -506,7 +506,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
                 },
               };
               try {
-                const nativePayload = await buildBedrockAnthropicRequest(payload, nativeBedrockState);
+                const nativePayload = await buildBedrockAnthropicRequest(payload, nativeBedrockState, native.promptCacheSupported === true);
                 // buildBedrockAnthropicRequest has already restored/validated
                 // server-held tool state. Stream replay without weakening that
                 // boundary or changing a target explicitly configured as Invoke.
@@ -636,7 +636,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
    * here can never drift from it. The first matched policy wins before filtering;
    * unmatched users need explicit fallback. No eligible catalog denies inference.
    */
-  private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string; defaultReasoning: string; nativeTargets: Record<string, { model: string; provider: string; customProvider: boolean; byokAlias?: string; targetId: string; adapter: string; transport: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto'; region?: string; profileRef: import('./lib/reasoning-profiles').ProfileRevisionRef; reasoningLevels: import('./lib/reasoning-profiles').PiReasoningLevel[]; label: string; contextWindow: number }> }> {
+  private async loadRouteCatalog(groups?: string[]): Promise<{ routes: string[]; defaultRoute: string; defaultReasoning: string; nativeTargets: Awaited<ReturnType<typeof resolveRouteCatalog>>['nativeTargets'] }> {
     if (!this.env.KV) return { routes: [], defaultRoute: '', defaultReasoning: 'off', nativeTargets: {} };
     const props = (this.ctx as unknown as { props?: InterceptorProps }).props;
     const { routeCatalog, defaultRoute, defaultReasoning, nativeTargets } = await resolveRouteCatalog(this.env.KV, groups, {

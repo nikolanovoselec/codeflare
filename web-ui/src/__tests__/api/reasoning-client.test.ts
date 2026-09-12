@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getReasoningCatalog, getReasoningRouteInventory, discoverReasoningCompatibility } from '../../api/client';
+import { checkNativeTarget, getReasoningCatalog, getReasoningRouteInventory, discoverReasoningCompatibility } from '../../api/client';
 
 const fetchMock = vi.fn();
 const gateway = { gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/account/gateway', replacementToken: 'draft-test-token' };
@@ -10,6 +10,14 @@ beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Enterprise Pi administration transport', () => {
+  it('REQ-ENTERPRISE-075: accepts a sanitized unsuccessful native check without inventing receipt fields', async () => {
+    fetchMock.mockResolvedValueOnce(response({ assignable: false, classification: 'Inconclusive', cacheEvidence: { explanation: 'No cache reuse observed.', privateField: 'synthetic-hidden' },
+      rawProviderBody: 'synthetic-hidden' }));
+    const result = await checkNativeTarget({ target: { label: 'Synthetic', provider: 'aws-bedrock', model: 'eu.anthropic.claude-synthetic-2099', profileRef,
+      contextWindow: 200000, enabled: false } });
+    expect(result).toEqual({ assignable: false, classification: 'Inconclusive', cacheEvidence: { explanation: 'No cache reuse observed.' } });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it('rejects an unknown authority method instead of silently relabeling it', async () => {
     fetchMock.mockResolvedValueOnce(response({ classification: 'Administrator-confirmed', assignable: true,
       checkId: 'check-id', verification: { ...verification, method: 'unknown' } }));

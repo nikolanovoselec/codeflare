@@ -9,6 +9,7 @@ const BUILTIN_IDS = [
   'workers-ai-glm-thinking',
   'codeflare-inference-mesh-binary-thinking',
   'dynamic-bedrock-anthropic-provider-default',
+  'bedrock-anthropic-native-provider-default',
   'bedrock-anthropic-native-sonnet',
   'bedrock-anthropic-native-opus-stream',
   'bedrock-anthropic-native-opus-invoke',
@@ -94,7 +95,7 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     expect(openai!.limitations).toContain('GPT-6 Astra rejected tools on Chat Completions and is not covered by this profile.');
   });
 
-  it('ships exactly the fifteen executable built-ins and keeps failed families as notices', () => {
+  it('ships the reusable native contract alongside unchanged historical built-ins and failed-family notices', () => {
     expect(profiles.REASONING_PROFILE_IDS).toEqual(BUILTIN_IDS);
     expect((profiles as any).COMPATIBILITY_NOTICES.map((notice: any) => notice.id)).toEqual(NOTICE_IDS);
   });

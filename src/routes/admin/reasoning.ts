@@ -18,6 +18,7 @@ import {
   type NormalizedReasoningProfile,
 } from '../../lib/reasoning-profiles';
 import { discoverPiCompatibility, PI_WIRE_CANARY_VERSION } from '../../lib/reasoning-discovery';
+import { BEDROCK_MESSAGES_DEFAULT_PROFILE } from '../../lib/native-ai-target-draft';
 import {
   backendDescriptionsSchema, connectionStatus, dynamicRouteSchema, gatewayDraftSchema,
   gatewayCoordinates, listCustomProviderSlugs, listCustomProviderSlugsForProviders, listDynamicRoutes, listNativeProviderConfigs,
@@ -578,15 +579,14 @@ reasoningRoutes.post('/native/profile-discovery', requireAdmin, discoveryRateLim
     const provider = selectNativeProviderConfig(configs, request.data.target.provider);
     if (!provider) return c.json({ error: 'Native provider configuration not found', code: 'provider_unavailable' }, 409);
     if (request.data.target.transport && request.data.target.transport !== 'aig-legacy-compat') {
-      const sonnet = request.data.target.model.includes('.claude-sonnet-5');
-      const opus = request.data.target.model.includes('.claude-opus-5');
-      if (!sonnet && !opus) return c.json({ error: 'No validated provider-native Bedrock profile covers this model', code: 'unsupported_model' }, 409);
-      const profileId = sonnet ? 'bedrock-anthropic-native-sonnet'
-        : request.data.target.transport === 'aig-bedrock-anthropic-auto' ? 'bedrock-anthropic-native-opus-auto'
-        : request.data.target.transport === 'aig-bedrock-anthropic-eventstream' ? 'bedrock-anthropic-native-opus-stream' : 'bedrock-anthropic-native-opus-invoke';
-      const profile = getBuiltInProfile(profileId)!;
-      return c.json({ schemaVersion: 1, route: `${provider.provider}/${request.data.target.model}`, outcome: 'existing-profile', classification: 'Verified', assignable: true,
-        matchedProfiles: [{ profileRef: profileRefFor(profile as unknown as Record<string, unknown>), name: profile.name, supportedLevels: profile.supportedLevels }], diagnostics: [], accounting: { logicalProbes: 0, httpAttempts: 0 } });
+      // Selecting a protocol template is management-only. It is not a successful
+      // model probe or an authorization receipt. Verify explicitly exercises
+      // this exact model/region/operation; no new release needs a profile entry.
+      const profile = getBuiltInProfile(BEDROCK_MESSAGES_DEFAULT_PROFILE)!;
+      return c.json({ schemaVersion: 1, route: `${provider.provider}/${request.data.target.model}`, outcome: 'existing-profile', classification: 'Compatible, unverified', assignable: true,
+        matchedProfiles: [{ profileRef: profileRefFor(profile as unknown as Record<string, unknown>), name: profile.name, supportedLevels: profile.supportedLevels }],
+        limitations: ['Protocol candidate only. Explicit Verify must establish tools/replay and cache reuse before activation. All Pi preferences use provider default.'],
+        diagnostics: [], accounting: { logicalProbes: 0, httpAttempts: 0 } });
     }
     const selector = `${nativeProviderSelector(provider.provider, customProviders.has(provider.provider))}/${request.data.target.model}`;
     return c.json(await discoverNativeProfile({
@@ -641,19 +641,30 @@ reasoningRoutes.post('/native/discover', requireAdmin, discoveryRateLimiter, asy
       transport: target.transport, ...(target.region && { region: target.region }), adapterVersion: nativeTargetAdapterVersion(target.provider, target.transport), checkedAt: new Date().toISOString(),
     };
     let report: Record<string, any> | undefined;
-    if (target.transport !== 'aig-legacy-compat' && !request.data.administratorConfirmed) {
+    const genericNative = target.transport !== 'aig-legacy-compat' && target.profileRef.id === BEDROCK_MESSAGES_DEFAULT_PROFILE;
+    if (genericNative && request.data.administratorConfirmed) {
+      return c.json({ error: 'Unknown-model capabilities require explicit tools/replay and cache discovery; administrator confirmation cannot invent this evidence', code: 'capability_verification_required' }, 400);
+    }
+    if (!genericNative && target.transport !== 'aig-legacy-compat' && !request.data.administratorConfirmed) {
       return c.json({ error: 'Provider-native Bedrock targets require administrator confirmation of the recorded validation evidence', code: 'administrator_confirmation_required' }, 400);
     }
     if (!request.data.administratorConfirmed) {
       report = await discoverPiCompatibility({ accountId: coordinates.accountId, gatewayId: coordinates.gatewayId, apiToken: gateway.token,
         route: `${nativeProviderSelector(target.provider, Boolean(target.customProvider))}/${target.model}`, profile,
-        maxCompletionTokens: request.data.maxCompletionTokens, compatOnly: true, ...(providerConfigAlias && { byokAlias: providerConfigAlias }) });
+        maxCompletionTokens: genericNative ? Math.min(request.data.maxCompletionTokens, 2048) : request.data.maxCompletionTokens,
+        compatOnly: true, ...(providerConfigAlias && { byokAlias: providerConfigAlias }),
+        ...(genericNative && { native: { model: target.model, region: target.region!, transport: target.transport as 'aig-bedrock-anthropic-auto' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' }, requireCacheEvidence: true }) });
       if (!completedProfileCheck(report, profile as unknown as NormalizedReasoningProfile)) return c.json({ ...report, assignable: false });
-      verification.capabilities = { streaming: true, tools: true, replay: true };
+      if (genericNative) {
+        const after = selectNativeProviderConfig(await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token), target.provider);
+        if (!after || after.id !== provider.id || after.alias !== provider.alias) return c.json({ error: 'Provider binding changed during verification', code: 'provider_changed' }, 409);
+        verification.discovery = report.capabilitySummary;
+      } else verification.capabilities = { streaming: true, tools: true, replay: true };
     }
     const checkId = await issueNativeTargetCheck(c.env.KV, target.id, verification);
     return c.json({ targetId: target.id, classification: request.data.administratorConfirmed ? 'Administrator-confirmed' : 'Verified', assignable: true,
-      checkId, verification: { method: verification.method ?? 'automated', checkedAt: verification.checkedAt, current: true }, ...(report && { report }) });
+      checkId, verification: { method: verification.method ?? 'automated', checkedAt: verification.checkedAt, current: true,
+        ...(verification.discovery && { discovery: verification.discovery }) }, ...(report && { report }) });
   } catch (error) {
     const code = error instanceof Error && /^[a-z0-9_]{1,64}$/.test(error.message) ? error.message : 'unexpected_failure';
     logger.warn('Native target check failed', { code });
@@ -720,6 +731,7 @@ reasoningRoutes.post('/discover', requireAdmin, discoveryRateLimiter, async (c) 
         route: `dynamic/${request.data.route}`,
         profile,
         maxCompletionTokens: request.data.maxCompletionTokens,
+        requireCacheEvidence: profile.id === 'dynamic-bedrock-anthropic-provider-default',
       });
       logger.info('Reasoning discovery completed', {
         initiatedBy: c.get('user')?.email ?? 'unknown',

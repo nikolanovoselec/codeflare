@@ -103,7 +103,8 @@ export function rebindVerificationConnection(
 }
 export function completedProfileCheck(report: Record<string, any>, profile: { supportedLevels: readonly PiReasoningLevel[] }): boolean {
   const levels = profile.supportedLevels;
-  return report.canaryVersion === PI_WIRE_CANARY_VERSION && report.stopDiscovery === false
+  return (!report.capabilitySummary || report.assignable === true)
+    && report.canaryVersion === PI_WIRE_CANARY_VERSION && report.stopDiscovery === false
     && report.piCompatibility?.status === 'verified' && report.piCompatibility.failedLevels?.length === 0
     && report.reasoningConfiguration?.routeHealthVerified === true
     && report.distinctMappings?.some((mapping: Record<string, any>) => mapping.toolLifecycle?.passed === true && mapping.toolLifecycle.stage === 'complete')

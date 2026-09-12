@@ -15,6 +15,8 @@ import {
   nativeProviderIdentifierValid,
   nativeProviderModelValid,
   nativeTargetDraftShapeValid,
+  bedrockAnthropicCandidate,
+  BEDROCK_MESSAGES_DEFAULT_PROFILE,
 } from './native-ai-target-draft';
 
 const BEDROCK_PROFILE_ID = 'bedrock-anthropic-compat';
@@ -26,7 +28,10 @@ export const BEDROCK_COMPAT_ADAPTER_VERSION = 'bedrock-anthropic-compat-v1';
 // Eventstream instead of forcing Invoke. Neither old receipt authorizes this
 // changed operation contract. Require explicit administrator reconfirmation of
 // recorded evidence; never rewrite receipts or migrate a saved Invoke/compat target.
-export const BEDROCK_NATIVE_ADAPTER_VERSION = 'bedrock-anthropic-native-v3';
+// v4 requires authentic active replay even for provider-default/disabled
+// reasoning and binds its storage to target authority. Old receipts stay
+// readable, but require the existing explicit confirmation/verification path.
+export const BEDROCK_NATIVE_ADAPTER_VERSION = 'bedrock-anthropic-native-v4';
 export const NATIVE_COMPAT_ADAPTER_VERSION = 'native-openai-compat-v1';
 export const GEMINI_COMPAT_ADAPTER_VERSION = 'gemini-openai-compat-v1';
 
@@ -43,17 +48,22 @@ function enforceNativeTransport(value: { provider?: string; model: string; trans
   const native = transport !== 'aig-legacy-compat';
   if (native && (value.provider ?? 'aws-bedrock') !== 'aws-bedrock') context.addIssue({ code: 'custom', message: 'provider-native Bedrock transports require aws-bedrock', path: ['transport'] });
   if (native && !value.region) context.addIssue({ code: 'custom', message: 'provider-native Bedrock transports require a region', path: ['region'] });
+  if (native && !bedrockAnthropicCandidate(value.model)) context.addIssue({ code: 'custom', message: 'Native Anthropic transport requires an Anthropic Claude model identifier; capabilities must be verified separately', path: ['model'] });
   if (!native && value.region) context.addIssue({ code: 'custom', message: 'compatibility transports do not accept a Bedrock region', path: ['region'] });
   const profileId = value.profileRef?.id;
   if (!profileId) return;
   const nativeProfile = profileId.startsWith('bedrock-anthropic-native-');
   if (native !== nativeProfile) context.addIssue({ code: 'custom', message: 'Bedrock native profiles and transports must be selected together', path: ['profileRef'] });
-  if (profileId === 'bedrock-anthropic-native-sonnet' && !value.model.includes('.claude-sonnet-5')) context.addIssue({ code: 'custom', message: 'Sonnet profile requires a Claude Sonnet 5 model', path: ['model'] });
-  if (profileId.startsWith('bedrock-anthropic-native-opus-') && !value.model.includes('.claude-opus-5')) context.addIssue({ code: 'custom', message: 'Opus profile requires a Claude Opus 5 model', path: ['model'] });
+  // These retained profiles describe historical control evidence, not the
+  // product's model allowlist. A new version uses the reusable default contract
+  // and must never inherit old controls by matching a familiar substring.
+  const evidenceModel = value.model.replace(/^(?:eu|us|apac|global)\./, '');
+  if (profileId === 'bedrock-anthropic-native-sonnet' && evidenceModel !== 'anthropic.claude-sonnet-5') context.addIssue({ code: 'custom', message: 'Legacy Sonnet control evidence covers Claude Sonnet 5 only; use the reusable Provider-default contract for another model', path: ['model'] });
+  if (profileId.startsWith('bedrock-anthropic-native-opus-') && evidenceModel !== 'anthropic.claude-opus-5') context.addIssue({ code: 'custom', message: 'Legacy Opus control evidence covers Claude Opus 5 only; use the reusable Provider-default contract for another model', path: ['model'] });
   if (profileId === 'bedrock-anthropic-native-opus-stream' && transport !== 'aig-bedrock-anthropic-eventstream') context.addIssue({ code: 'custom', message: 'Opus streaming profile requires eventstream transport', path: ['transport'] });
   if (profileId === 'bedrock-anthropic-native-opus-invoke' && transport !== 'aig-bedrock-anthropic-invoke') context.addIssue({ code: 'custom', message: 'Opus Invoke profile requires Invoke transport', path: ['transport'] });
   if (profileId === 'bedrock-anthropic-native-opus-auto' && transport !== 'aig-bedrock-anthropic-auto') context.addIssue({ code: 'custom', message: 'Opus automatic profile requires automatic transport', path: ['transport'] });
-  if (transport === 'aig-bedrock-anthropic-auto' && profileId !== 'bedrock-anthropic-native-sonnet' && profileId !== 'bedrock-anthropic-native-opus-auto') context.addIssue({ code: 'custom', message: 'Automatic transport requires a validated automatic Bedrock profile', path: ['profileRef'] });
+  if (transport === 'aig-bedrock-anthropic-auto' && profileId !== BEDROCK_MESSAGES_DEFAULT_PROFILE && profileId !== 'bedrock-anthropic-native-sonnet' && profileId !== 'bedrock-anthropic-native-opus-auto') context.addIssue({ code: 'custom', message: 'Automatic transport requires a compatible Bedrock protocol profile', path: ['profileRef'] });
 }
 const labelSchema = z.string().trim().min(1).max(128).regex(NATIVE_TEXT_PATTERN);
 const hashSchema = z.string().regex(NATIVE_HASH_PATTERN);
@@ -71,8 +81,8 @@ export const nativeTargetDraftSchema = nativeTargetDraftObjectSchema
   .superRefine(enforceProviderModel).superRefine(enforceNativeTransport);
 export const nativeTargetProfileDiscoveryDraftSchema = nativeTargetDraftObjectSchema
   .extend({ profileRef: nativeProfileRefSchema.optional() }).superRefine(enforceProviderModel).superRefine(enforceNativeTransport);
-// Retain old documents for display/reverification, not authority for v3.
-const adapterVersionSchema = z.enum([BEDROCK_COMPAT_ADAPTER_VERSION, 'bedrock-anthropic-native-v1', 'bedrock-anthropic-native-v2', BEDROCK_NATIVE_ADAPTER_VERSION, NATIVE_COMPAT_ADAPTER_VERSION, GEMINI_COMPAT_ADAPTER_VERSION]);
+// Retain old documents for display/reverification, not authority for v4.
+const adapterVersionSchema = z.enum([BEDROCK_COMPAT_ADAPTER_VERSION, 'bedrock-anthropic-native-v1', 'bedrock-anthropic-native-v2', 'bedrock-anthropic-native-v3', BEDROCK_NATIVE_ADAPTER_VERSION, NATIVE_COMPAT_ADAPTER_VERSION, GEMINI_COMPAT_ADAPTER_VERSION]);
 
 export function defaultNativeProfileId(provider: string): ReasoningProfileId {
   if (provider === 'aws-bedrock') return BEDROCK_PROFILE_ID;
@@ -96,6 +106,11 @@ const nativeVerificationSchema = z.object({
   providerConfigId: z.string().min(1).max(128), providerConfigAlias: providerAliasSchema.optional(), connectionFingerprint: hashSchema,
   profileRef: nativeProfileRefSchema, transport: transportSchema, region: regionSchema.optional(), adapterVersion: adapterVersionSchema,
   checkedAt: z.string().datetime(), capabilities: z.object({ streaming: z.literal(true), tools: z.literal(true), replay: z.literal(true) }).strict().optional(),
+  discovery: z.object({ schemaVersion: z.literal(1), tools: z.boolean(), replay: z.boolean(),
+    cache: z.enum(['provider-prefix', 'gateway-response', 'inconclusive', 'not-tested']), nativePromptCache: z.boolean(),
+    reasoning: z.literal('provider-default'), streaming: z.enum(['incremental', 'not-observed']),
+    grade: z.enum(['Acceptable', 'Optimal', 'Not qualified']),
+  }).strict().optional(),
 }).strict().superRefine(enforceProviderModel).superRefine(enforceNativeTransport);
 export type NativeTargetVerification = z.infer<typeof nativeVerificationSchema>;
 
@@ -179,7 +194,7 @@ export function reconcileNativeTargets(
 export function nativeVerificationMatches(target: NativeAiTarget, connection: GatewayConnection): boolean {
   const proof = target.verification;
   const fingerprint = connectionFingerprint(connection);
-  return Boolean(proof && fingerprint && proof.targetId === target.id
+  return Boolean(proof && fingerprint && genericDiscoveryQualifies(target) && proof.targetId === target.id
     && (proof.provider ?? 'aws-bedrock') === target.provider && Boolean(proof.customProvider) === Boolean(target.customProvider)
     && proof.model === target.model && proof.providerConfigId === target.providerConfigId
     && proof.providerConfigAlias === target.providerConfigAlias && proof.connectionFingerprint === fingerprint
@@ -187,10 +202,29 @@ export function nativeVerificationMatches(target: NativeAiTarget, connection: Ga
     && proof.adapterVersion === nativeTargetAdapterVersion(target.provider, target.transport));
 }
 
+function genericDiscoveryQualifies(target: NativeAiTarget): boolean {
+  if (target.profileRef.id !== BEDROCK_MESSAGES_DEFAULT_PROFILE) return true;
+  const evidence = target.verification?.discovery;
+  return Boolean(target.verification?.method !== 'administrator' && evidence?.tools && evidence.replay
+    && ['provider-prefix', 'gateway-response'].includes(evidence.cache)
+    && (!evidence.nativePromptCache || evidence.cache === 'provider-prefix')
+    && evidence.grade === (evidence.streaming === 'incremental' ? 'Optimal' : 'Acceptable'));
+}
+
+/** Called only after full verification, canonical-profile and provider-binding
+ * checks. Legacy validated profiles retain their original checkpoint contract;
+ * an unknown-model generic target must have its own prefix-read evidence. */
+export function nativePromptCacheSupported(target: NativeAiTarget): boolean {
+  return target.provider === 'aws-bedrock' && target.transport !== 'aig-legacy-compat'
+    && (target.profileRef.id === BEDROCK_MESSAGES_DEFAULT_PROFILE
+      ? genericDiscoveryQualifies(target) && target.verification?.discovery?.nativePromptCache === true
+      : target.profileRef.id === 'bedrock-anthropic-native-sonnet' || target.profileRef.id.startsWith('bedrock-anthropic-native-opus-'));
+}
+
 export function rebindNativeVerificationConnection(target: NativeAiTarget, connection: GatewayConnection): NativeTargetVerification | null {
   const proof = target.verification;
   const fingerprint = connectionFingerprint(connection);
-  if (!proof || !fingerprint || proof.targetId !== target.id
+  if (!proof || !fingerprint || !genericDiscoveryQualifies(target) || proof.targetId !== target.id
     || (proof.provider ?? 'aws-bedrock') !== target.provider || Boolean(proof.customProvider) !== Boolean(target.customProvider)
     || proof.model !== target.model || proof.providerConfigId !== target.providerConfigId
     || proof.providerConfigAlias !== target.providerConfigAlias
@@ -219,6 +253,7 @@ export function sanitizeNativeTarget(target: NativeAiTarget, current = false): R
   return {
     id: target.id, handle: nativeTargetHandle(target.id), label: target.label, model: target.model, contextWindow: target.contextWindow,
     provider: target.provider, transport: target.transport, ...(target.region && { region: target.region }), profileRef: target.profileRef, enabled: target.enabled,
-    ...(target.verification && { verification: { method: target.verification.method ?? 'automated', checkedAt: target.verification.checkedAt, current } }),
+    ...(target.verification && { verification: { method: target.verification.method ?? 'automated', checkedAt: target.verification.checkedAt, current,
+      ...(target.verification.discovery && { discovery: target.verification.discovery }) } }),
   };
 }

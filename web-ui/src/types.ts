@@ -104,10 +104,13 @@ export interface NativeAiTargetDraft {
   profileRef: ProfileRevisionRef; enabled: boolean;
   verification?: { method: 'automated' | 'administrator'; checkedAt: string; current: boolean };
 }
-export interface NativeTargetCheckResult {
+export type NativeTargetCheckResult = {
   targetId: string; classification: 'Verified' | 'Administrator-confirmed'; assignable: true; checkId: string;
   verification: { method: 'automated' | 'administrator'; checkedAt: string; current: true };
-}
+} | {
+  assignable: false; classification: string; checkId?: never; verification?: never;
+  cacheEvidence?: { explanation: string };
+};
 
 export interface ReasoningEvidenceRef {
   id?: string;

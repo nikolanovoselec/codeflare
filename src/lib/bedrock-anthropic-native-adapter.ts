@@ -155,7 +155,7 @@ export function classifyBedrockToolTurn(messages: unknown[]): { start: number; r
   return { start, replay: lastTool >= start };
 }
 
-async function assistantContent(message: JsonObject, thinkingEnabled: boolean, state: BedrockReplayState): Promise<JsonObject[]> {
+async function assistantContent(message: JsonObject, activeTurn: boolean, state: BedrockReplayState): Promise<JsonObject[]> {
   const calls = reconstructToolCalls(message);
   if (!calls.length) return textBlocks(message.content);
   const firstId = calls[0].id as string;
@@ -172,7 +172,10 @@ async function assistantContent(message: JsonObject, thinkingEnabled: boolean, s
     // state, and a cache optimization cannot justify reconstructing that state.
     return stored as JsonObject[];
   }
-  if (thinkingEnabled) throw new Error('Native Bedrock signed thinking state is unavailable');
+  // Provider default can emit signed/redacted thinking without a client override.
+  // Even an unsigned active turn must come from this session's authentic state;
+  // a client tool ID is not authority to reconstruct a provider assistant turn.
+  if (activeTurn) throw new Error('Native Bedrock signed thinking state is unavailable');
   return [...textBlocks(message.content), ...calls];
 }
 
@@ -186,7 +189,7 @@ function convertToolChoice(value: unknown): JsonObject | undefined {
   return undefined;
 }
 
-export async function buildBedrockAnthropicRequest(payload: JsonObject, state: BedrockReplayState): Promise<JsonObject> {
+export async function buildBedrockAnthropicRequest(payload: JsonObject, state: BedrockReplayState, promptCacheAllowed = true): Promise<JsonObject> {
   if (!plain(payload) || !Array.isArray(payload.messages)) throw new Error('Native Bedrock requires messages');
   // Runtime Invoke has a documented block-level checkpoint contract. Do not
   // assume Anthropic Messages' top-level automatic cache control is equivalent.
@@ -208,7 +211,7 @@ export async function buildBedrockAnthropicRequest(payload: JsonObject, state: B
       continue;
     }
     if (raw.role === 'assistant') {
-      nativeMessages.push({ role: 'assistant', content: await assistantContent(raw, thinkingEnabled && index >= turn.start, state) });
+      nativeMessages.push({ role: 'assistant', content: await assistantContent(raw, index >= turn.start, state) });
       continue;
     }
     if (raw.role === 'tool') {
@@ -265,6 +268,7 @@ export async function buildBedrockAnthropicRequest(payload: JsonObject, state: B
     ...nativeMessages.flatMap((message) => message.content)];
   const checkpoints = cacheable.filter((block) => block.cache_control !== undefined);
   if (checkpoints.length > 4) throw new Error('Native Bedrock supports at most four prompt cache checkpoints');
+  if (checkpoints.length && !promptCacheAllowed) throw new Error('Native prompt checkpoints are not verified for this target');
   return result;
 }
 
@@ -295,10 +299,21 @@ function openAiUsage(value: unknown): JsonObject | undefined {
     ...(reasoning !== undefined && { completion_tokens_details: { reasoning_tokens: reasoning } }) };
 }
 
+function openAiStopReason(reason: unknown): 'stop' | 'tool_calls' | 'length' | 'content_filter' {
+  if (reason === 'end_turn' || reason === 'stop_sequence') return 'stop';
+  if (reason === 'tool_use') return 'tool_calls';
+  if (reason === 'max_tokens') return 'length';
+  if (reason === 'refusal') return 'content_filter';
+  // New provider stop reasons are not automatically successful. In particular,
+  // an absent stop or a paused native operation cannot certify complete replay.
+  throw new Error('Unsupported or missing native Bedrock stop reason');
+}
+
 async function adaptInvoke(response: Response, state: BedrockReplayState, streamRequested: boolean): Promise<Response> {
   if (!response.ok) return response;
   const native = await response.json() as JsonObject;
   if (!plain(native) || !Array.isArray(native.content)) throw new Error('Invalid native Bedrock response');
+  const finishReason = openAiStopReason(native.stop_reason);
   await persistReplay(native.content, state);
   const text = native.content.filter((block: unknown) => plain(block) && block.type === 'text' && typeof block.text === 'string').map((block: any) => block.text).join('');
   const calls = native.content.filter((block: unknown) => plain(block) && block.type === 'tool_use').map((block: any) => ({
@@ -309,7 +324,7 @@ async function adaptInvoke(response: Response, state: BedrockReplayState, stream
   const body: JsonObject = {
     id: typeof native.id === 'string' ? native.id : 'bedrock-native', object: 'chat.completion', created: Math.floor(Date.now() / 1000),
     model: typeof native.model === 'string' ? native.model : 'bedrock-anthropic',
-    choices: [{ index: 0, message, finish_reason: native.stop_reason === 'tool_use' ? 'tool_calls' : 'stop' }],
+    choices: [{ index: 0, message, finish_reason: finishReason }],
   };
   const usage = openAiUsage(native.usage); if (usage) body.usage = usage;
   if (streamRequested) {
@@ -411,12 +426,12 @@ async function adaptEventstream(response: Response, state: BedrockReplayState): 
   let frameBuffer: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
   const blocks = new Map<number, JsonObject>();
   const toolIndexes = new Map<number, number>();
-  let replayBytes = 0; let sawStop = false;
+  let replayBytes = 0; let sawStop = false; let sawStart = false;
   const reserveReplay = (value: unknown) => {
     replayBytes += encoder.encode(typeof value === 'string' ? value : JSON.stringify(value)).byteLength;
     if (replayBytes > MAX_REPLAY_BYTES) throw new Error('Native Bedrock replay state exceeds the safe limit');
   };
-  let id = 'bedrock-native'; let model = 'bedrock-anthropic'; let stopReason = 'stop'; let usage: JsonObject = {};
+  let id = 'bedrock-native'; let model = 'bedrock-anthropic'; let stopReason: string | undefined; let usage: JsonObject = {};
   let streamFailed = false;
   const emitTerminalError = (controller: TransformStreamDefaultController<Uint8Array>) => {
     if (streamFailed) return;
@@ -432,7 +447,10 @@ async function adaptEventstream(response: Response, state: BedrockReplayState): 
         const parsed = parseFrames(frameBuffer); frameBuffer = parsed.remainder;
         for (const event of parsed.events) {
         if (sawStop) throw new Error('Bedrock eventstream data follows message_stop');
+        if (!sawStart && event.type !== 'message_start') throw new Error('Bedrock eventstream must begin with message_start');
         if (event.type === 'message_start' && plain(event.message)) {
+          if (sawStart) throw new Error('Duplicate Bedrock message_start');
+          sawStart = true;
           if (typeof event.message.id === 'string') id = event.message.id;
           if (typeof event.message.model === 'string') model = event.message.model;
           if (plain(event.message.usage)) usage = { ...usage, ...event.message.usage };
@@ -477,8 +495,9 @@ async function adaptEventstream(response: Response, state: BedrockReplayState): 
       try {
         if (frameBuffer.length) throw new Error('Truncated Bedrock eventstream frame');
         if (!sawStop) throw new Error('Incomplete Bedrock eventstream');
+        const finishReason = openAiStopReason(stopReason);
         await persistReplay([...blocks.entries()].sort(([a], [b]) => a - b).map(([, block]) => block), state);
-        controller.enqueue(sse({ id, object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: {}, finish_reason: stopReason === 'tool_use' ? 'tool_calls' : 'stop' }], ...(openAiUsage(usage) && { usage: openAiUsage(usage) }) }));
+        controller.enqueue(sse({ id, object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: {}, finish_reason: finishReason }], ...(openAiUsage(usage) && { usage: openAiUsage(usage) }) }));
         controller.enqueue(sse('[DONE]'));
       } catch {
         emitTerminalError(controller);

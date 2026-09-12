@@ -16,6 +16,7 @@ import { reactivateUsageUser } from './admin-usage';
 import { REASONING_PROFILE_IDS, canonicalJson, getBuiltInProfile, getBuiltInProfileRef, parseRouteSettings, serializeRouteSettings } from './reasoning-profiles';
 import { dynamicRouteSchema, gatewayCoordinates, gatewayDraftSchema, listCustomProviderSlugs, listCustomProviderSlugsForProviders, listNativeProviderConfigs, parseGatewayUrl, resolveGatewayConnection, selectNativeProviderConfig } from './ai-gateway-management';
 import { nativeProfileRefKey, nativeTargetDraftSchema, nativeTargetHandle, nativeTargetIdFromHandle, nativeVerificationMatches, parseNativeAiTargets, readNativeTargetCheck, rebindNativeVerificationConnection, reconcileNativeTargets, sanitizeNativeTarget, serializeNativeAiTargets, type NativeProviderAuthority } from './native-ai-targets';
+import { preservesDisabledNativeTarget } from './native-ai-target-draft';
 import {
   assignmentBackendDescriptions, fallbackRoutingSchema, loadCheckedRouteInventory, readRouteCheck,
   rebindVerificationConnection, routeCheckIdSchema, verificationMatches, type FallbackRouting,
@@ -622,8 +623,13 @@ export async function validateConfigurationValues(
             };
           }
           const validProfileRefs = new Set(parsedDrafts.map((draft) => {
-            const profile = getProfileForRef(reasoningConfiguration, draft.profileRef);
-            return nativeProfileRefKey({ id: profile.id, revision: profile.revision, hash: profile.hash });
+            try {
+              const profile = getProfileForRef(reasoningConfiguration, draft.profileRef);
+              return nativeProfileRefKey({ id: profile.id, revision: profile.revision, hash: profile.hash });
+            } catch (error) {
+              if (!preservesDisabledNativeTarget(draft, current.targets.find((target) => target.id === draft.id))) throw error;
+              return nativeProfileRefKey(draft.profileRef);
+            }
           }));
           const checks = (values.nativeChecks ?? {}) as Record<string, string | null>;
           const receipts = new Map<string, Awaited<ReturnType<typeof readNativeTargetCheck>>>();

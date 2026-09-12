@@ -170,14 +170,15 @@ describe('REQ-ENTERPRISE-047/-048 native target authority', () => {
     expect(observedProviderUrls.every((url) => url.includes('/compat/chat/completions'))).toBe(true);
   });
 
-  it('REQ-ENTERPRISE-075: offers evidence-backed native Bedrock profiles without a paid probe and requires explicit administrator confirmation', async () => {
+  it('REQ-ENTERPRISE-075: offers the reusable native contract without a paid probe and preserves historical explicit confirmation', async () => {
     const f = setup();
     const profileRef = getBuiltInProfileRef('bedrock-anthropic-native-opus-invoke');
     const target = { label: 'Native Opus', provider: 'aws-bedrock', model: 'eu.anthropic.claude-opus-5', contextWindow: 200000,
       transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', enabled: false };
     const discovery = await f.post('native/profile-discovery', { target, maxCompletionTokens: 32 });
     expect(discovery.status).toBe(200);
-    expect(await discovery.json()).toMatchObject({ outcome: 'existing-profile', accounting: { logicalProbes: 0, httpAttempts: 0 }, matchedProfiles: [{ profileRef }] });
+    expect(await discovery.json()).toMatchObject({ outcome: 'existing-profile', classification: 'Compatible, unverified', accounting: { logicalProbes: 0, httpAttempts: 0 },
+      matchedProfiles: [{ profileRef: getBuiltInProfileRef('bedrock-anthropic-native-provider-default') }] });
     expect(observedProviderModels).toEqual([]);
 
     const denied = await f.post('native/discover', { target: { ...target, profileRef }, maxCompletionTokens: 32 });

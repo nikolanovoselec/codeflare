@@ -10,7 +10,7 @@ import type {
 } from '../../types';
 import ReasoningProfileEditor, { DISCOVERY_COMPLETION_TOKENS, ReasoningCheckDetails, ReasoningCheckOverview, reasoningCheckSummary } from './ReasoningProfileEditor';
 import { profileDisplayName, profileValidationBasis } from './pi-profile-presentation';
-import { nativeTargetDraftShapeValid } from '../../../../src/lib/native-ai-target-draft';
+import { bedrockAnthropicCandidate, BEDROCK_MESSAGES_DEFAULT_PROFILE, nativeTargetDraftShapeValid, preservesDisabledNativeTarget } from '../../../../src/lib/native-ai-target-draft';
 import '../../styles/ai-routing-workspace.css';
 
 interface Props { current: unknown; onReadyChange?: (ready: boolean) => void; onDirtyChange?: (dirty: boolean) => void }
@@ -38,7 +38,7 @@ const profileRefFromEntry = (profile: ReasoningProfileCatalogEntry): ProfileRevi
 const inventoryVersion = (inventory?: ReasoningRouteInventory) => inventory?.routeVersion ?? inventory?.versionId;
 // REQ-ENTERPRISE-074/078: defaults apply only to new or changed provider-model identities.
 const newNativeIdentity = (provider: string, model = '', region?: string): Pick<NativeDraft, 'provider' | 'model' | 'transport' | 'region'> => {
-  const nativeBedrock = provider === 'aws-bedrock' && (!model || model.includes('.claude-sonnet-5') || model.includes('.claude-opus-5'));
+  const nativeBedrock = provider === 'aws-bedrock' && (!model || bedrockAnthropicCandidate(model));
   return { provider, model, transport: nativeBedrock ? 'aig-bedrock-anthropic-auto' : 'aig-legacy-compat', region: nativeBedrock ? region || 'eu-central-1' : undefined };
 };
 function profileRef(value: unknown): ProfileRevisionRef | undefined {
@@ -221,16 +221,14 @@ const AiRoutingFields: Component<Props> = (props) => {
       : provider === 'openai' ? 'native-openai-compat' : 'native-codeflare-inference-mesh-compat';
   const nativeProfileId = (target: Pick<NativeDraft, 'provider' | 'model' | 'transport'>): string => {
     if (target.provider !== 'aws-bedrock' || !target.transport || target.transport === 'aig-legacy-compat') return preparedProfileId(target.provider);
-    if (!target.model || target.model.includes('.claude-sonnet-5')) return 'bedrock-anthropic-native-sonnet';
-    if (target.transport === 'aig-bedrock-anthropic-auto') return 'bedrock-anthropic-native-opus-auto';
-    return target.transport === 'aig-bedrock-anthropic-eventstream' ? 'bedrock-anthropic-native-opus-stream' : 'bedrock-anthropic-native-opus-invoke';
+    return BEDROCK_MESSAGES_DEFAULT_PROFILE;
   };
   const nativePreparedProfileRef = (target: Pick<NativeDraft, 'provider' | 'model' | 'transport'>): ProfileRevisionRef | undefined => {
     const profile = assignableProfiles().find((candidate) => candidate.id === nativeProfileId(target));
     return profile ? profileRefFromEntry(profile) : undefined;
   };
   const profilesForTarget = (target: NativeDraft) => assignableProfiles().filter((profile) => target.transport && target.transport !== 'aig-legacy-compat'
-    ? profile.id === nativeProfileId(target) : !profile.id.startsWith('bedrock-anthropic-native-'));
+    ? profile.id === nativeProfileId(target) || profile.id === target.profileRef.id : !profile.id.startsWith('bedrock-anthropic-native-'));
   const supportedLevels = (name: string) => {
     if (name.startsWith('cf-native-')) return findProfile(nativeTargets().find((target) => nativeHandle(target) === name)?.profileRef)?.supportedLevels ?? [];
     return findProfile(routeByName(name)?.assignment.activeProfile)?.supportedLevels ?? [];
@@ -277,7 +275,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const policyInventoryPending = () => [...groups().flatMap((group) => group.routes), ...(fallbackEnabled() ? fallbackPolicy().routes : [])]
     .some((name) => gatewayRoutes().includes(name) && Boolean(routeByName(name)?.inventoryBusy));
   const nativeConfigurationReady = () => nativeDirty() && nativeSubmission().every((target) => nativeTargetDraftShapeValid(target)
-    && Boolean(findProfile(target.profileRef)));
+    && (Boolean(findProfile(target.profileRef)) || preservesDisabledNativeTarget(target, initialNativeDrafts.find((prior) => prior.id === target.id))));
   const verifiedRouteConfigurationReady = () => eligibleRoutes().some((route) => JSON.stringify(routeDraftEntry(route)) !== initialRouteDraftKeys.get(route.name))
     && (!nativeDirty() || nativeConfigurationReady());
   const canSave = () => connectionReady() && !policyInventoryPending() && !checksBusy()
@@ -413,6 +411,12 @@ const AiRoutingFields: Component<Props> = (props) => {
         contextWindow: target.contextWindow, transport: target.transport ?? 'aig-legacy-compat', ...(target.region && { region: target.region }), profileRef: target.profileRef, enabled: false }, ...(profileDraft && { profileDraft }),
         ...(administratorConfirmed && { administratorConfirmed: true as const }), ...(gatewayDraft() && { gateway: gatewayDraft()! }) });
       if (!nativeTargets().some((item) => item.verificationRequest === requestId)) return;
+      if (!result.assignable || !result.checkId || !result.verification) {
+        const explanation = result.assignable === false ? result.cacheEvidence?.explanation : undefined;
+        setNativeTargets((items) => items.map((item) => item.verificationRequest === requestId ? { ...item, busy: false, enabled: false, verification: undefined, verificationRequest: undefined,
+          error: explanation ?? 'Minimum not met: tool calling, exact replay and cache reuse must be observed. A failed or incomplete probe is not proof of unsupported capability.' } : item));
+        return;
+      }
       setNativeChecks((checks) => ({ ...checks, [result.targetId]: result.checkId }));
       setNativeTargets((items) => items.map((item) => item.verificationRequest === requestId ? { ...item, id: result.targetId, handle: `cf-native-${result.targetId}`, busy: false, enabled: result.verification?.current === true, verification: result.verification, verificationRequest: undefined } : item));
     } catch (error) {
@@ -588,19 +592,22 @@ const AiRoutingFields: Component<Props> = (props) => {
                   const model = event.currentTarget.value;
                   if (model === target().model) return;
                   const rememberedRegion = target().region ?? target().rememberedRegion;
-                  const next = newNativeIdentity(target().provider, model, rememberedRegion);
+                  // Editing the model never silently upgrades a saved Invoke or
+                  // compat target. The operator owns its explicit operation.
+                  const next = target().id ? { provider: target().provider, model, transport: target().transport, region: target().region }
+                    : newNativeIdentity(target().provider, model, rememberedRegion);
                   const profileRef = nativePreparedProfileRef(next); clearProof({ ...next, rememberedRegion, ...(profileRef && { profileRef }) });
                 }} /><datalist id={`native-model-suggestions-${index}`}><For each={nativeModelSuggestions(target().provider)}>{(model) => <option value={model} />}</For></datalist><small>Route-derived names for this provider are suggestions only.</small></label>
                 <label class="admin-form-field"><span>Context window</span><input type="text" inputmode="numeric" aria-label={`Native target ${index + 1} context window`} value={target().contextWindow} disabled={target().busy} onInput={(event) => setNativeTargets((items) => items.map((item, at) => at === index ? { ...item, contextWindow: Number(event.currentTarget.value) } : item))} /><small>Must be greater than 16,384 tokens.</small></label>
                 <label class="admin-form-field"><span>Pi compatibility profile</span><select aria-label={`Native target ${index + 1} profile`} value={refKey(target().profileRef)} disabled={target().busy} onChange={(event) => {
                   const profile = assignableProfiles().find((candidate) => refKey(candidate) === event.currentTarget.value);
                   if (profile) clearProof({ profileRef: profileRefFromEntry(profile) });
-                }}><For each={profilesForTarget(target())}>{(profile) => <option value={refKey(profile)}>{profileDisplayName(profile)}</option>}</For></select><small>{selectedProfile()?.supportedLevels.length ? `Pi levels: ${selectedProfile()!.supportedLevels.map(levelLabel).join(', ')}.` : 'Provider-default reasoning; no Pi effort level is claimed.'}</small></label>
+                }}><For each={profilesForTarget(target())}>{(profile) => <option value={refKey(profile)}>{profileDisplayName(profile)}</option>}</For></select><small>{selectedProfile()?.supportedLevels.length ? `Pi levels: ${selectedProfile()!.supportedLevels.map(levelLabel).join(', ')}.` : 'All seven Pi preferences normalize to Provider default; no exact effort or Off state is claimed.'}</small></label>
               </div>
               <Show when={!Number.isSafeInteger(target().contextWindow) || target().contextWindow <= 16384}><p class="admin-inline-error">Enter a whole-number context window greater than 16,384.</p></Show>
               <Show when={target().error}><p role="alert" class="admin-inline-error">{target().error}</p></Show>
-              <div class="admin-route-actions"><button type="button" class="admin-secondary-button" aria-label={`Discover Profile for native target ${index + 1}`} disabled={!connectionReady() || target().busy || !target().model || nativeProfileEditor() !== undefined} onClick={() => setNativeProfileEditor(index)}>Discover Profile</button><Show when={!target().transport || target().transport === 'aig-legacy-compat'}><button type="button" class="admin-secondary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index)}>{target().busy ? 'Verifying…' : 'Verify Profile'}</button></Show><button type="button" class="admin-primary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index, true)}>Mark as verified</button></div>
-              <Show when={target().transport && target().transport !== 'aig-legacy-compat'}><p class="admin-field-help">Provider-native Bedrock profiles use administrator-confirmed validation; live profile verification is unavailable.</p></Show>
+              <div class="admin-route-actions"><button type="button" class="admin-secondary-button" aria-label={`Discover Profile for native target ${index + 1}`} disabled={!connectionReady() || target().busy || !target().model || nativeProfileEditor() !== undefined} onClick={() => setNativeProfileEditor(index)}>Discover Profile</button><Show when={!target().transport || target().transport === 'aig-legacy-compat' || target().profileRef.id === BEDROCK_MESSAGES_DEFAULT_PROFILE}><button type="button" class="admin-secondary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index)}>{target().busy ? 'Verifying…' : 'Verify Profile'}</button></Show><Show when={target().profileRef.id !== BEDROCK_MESSAGES_DEFAULT_PROFILE}><button type="button" class="admin-primary-button" disabled={!connectionReady() || target().busy || !target().label || !target().model || !selectedProfile() || target().contextWindow <= 16384} onClick={() => void verifyNativeTarget(index, true)}>Mark as verified</button></Show></div>
+              <Show when={target().profileRef.id === BEDROCK_MESSAGES_DEFAULT_PROFILE}><p class="admin-field-help">Verify authorizes up to four billable requests on this exact model, at most 2,048 output tokens each and 90 seconds each. The two cache requests include a public prefix of approximately 60 KiB; cost depends on the configured provider. No retries or model substitutions. Minimum: tools/replay and provider cache reads or Gateway HIT. Provider default is accepted; incremental streaming is reported separately.</p></Show>
               <Show when={nativeProfileEditor() === index}><ReasoningProfileEditor route={`${target().provider}/${target().model}`} discoverCompatibility={() => discoverNativeCompatibility({ target: nativeSubmission()[index], ...(gatewayDraft() && { gateway: gatewayDraft()! }), maxCompletionTokens: DISCOVERY_COMPLETION_TOKENS })} onBusyChange={setProfileEditorBusy} existingRevisions={customRevisions()} onCancel={() => setNativeProfileEditor(undefined)} onSelectProfile={(ref) => { setNativeProfileEditor(undefined); clearProof({ profileRef: ref }); }} onSave={(revision) => { const ref = profileRef(revision); if (!ref) return; setNativeProfileEditor(undefined); setCustomRevisions((items) => [...items, revision]); clearProof({ profileRef: ref }); setPendingProfileName(String(revision.name ?? 'New profile')); }} /></Show>
             </div></article>;
           }}</Index></div>

@@ -32,6 +32,27 @@ function saved(kv = createMockKV()) {
 }
 
 describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
+  it.each(['provider-prefix', 'gateway-response', 'inconclusive'] as const)('REQ-ENTERPRISE-074: publishes synthetic future model capabilities only from qualifying %s evidence', async (cache) => {
+    const { kv, env } = saved(); env.AIG_TOKEN = `generic-${cache}-synthetic`;
+    const target = createNativeTarget({ label: 'Synthetic future contract', model: 'eu.anthropic.claude-synthetic-future-2099-v1:0',
+      providerConfigId: 'bedrock-default', profileRef: getBuiltInProfileRef('bedrock-anthropic-native-provider-default'),
+      contextWindow: 200000, transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', enabled: true });
+    const handle = nativeTargetHandle(target.id);
+    kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [{ ...target, verification: { schemaVersion: 1,
+      targetId: target.id, provider: target.provider, model: target.model, providerConfigId: target.providerConfigId,
+      connectionFingerprint: connectionFingerprint({ gatewayUrl: routingGatewayUrl, token: env.AIG_TOKEN })!, profileRef: target.profileRef,
+      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v4', checkedAt: new Date().toISOString(),
+      discovery: { schemaVersion: 1, tools: true, replay: true, cache, nativePromptCache: cache === 'provider-prefix', reasoning: 'provider-default', streaming: 'not-observed',
+        grade: cache === 'inconclusive' ? 'Not qualified' : 'Acceptable' },
+    } }] });
+    kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: [], targets: [{ kind: 'native-target', targetId: target.id }],
+      defaultTarget: { kind: 'native-target', targetId: target.id }, reasoning: 'max' } });
+    const cfg = await loadEnterpriseRouteConfig(env, ['engineering']);
+    expect(cfg.routeCatalog).toEqual(cache === 'inconclusive' ? [] : [handle]);
+    expect(cfg.promptCacheTargets ?? []).toEqual(cache === 'provider-prefix' ? [handle] : []);
+    if (cache !== 'inconclusive') expect(cfg.routeReasoningLevels[handle]).toEqual([]);
+    expect(JSON.stringify(cfg)).not.toContain('synthetic-future-2099'); // Only handle/label/capability reach Pi.
+  });
   it('REQ-ENTERPRISE-049: resolves mixed typed targets under first-match policy and current provider authority', async () => {
     const { kv, env, configuration } = saved();
     env.AIG_TOKEN = 'native-fixture-token';
@@ -77,7 +98,7 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
       schemaVersion: 1 as const, targetId: id, provider: target.provider, model: target.model,
       providerConfigId: target.providerConfigId, providerConfigAlias: target.providerConfigAlias,
       connectionFingerprint: connectionFingerprint(connection)!, profileRef,
-      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v3' as const,
+      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v4' as const,
       checkedAt: new Date().toISOString(), capabilities: { streaming: true, tools: true, replay: true },
     };
     kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [{ ...target, verification }] });
@@ -142,7 +163,7 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
     kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [{ ...target, verification: {
       schemaVersion: 1, targetId: id, provider: target.provider, model: target.model, providerConfigId: target.providerConfigId,
       connectionFingerprint: connectionFingerprint({ gatewayUrl: routingGatewayUrl, token: env.AIG_TOKEN })!, profileRef,
-      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v3', checkedAt: new Date().toISOString(),
+      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v4', checkedAt: new Date().toISOString(),
     } }] });
     kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: [nativeTargetHandle(id)],
       targets: [{ kind: 'native-target', targetId: id }], defaultTarget: { kind: 'native-target', targetId: id }, reasoning: 'max' } });
