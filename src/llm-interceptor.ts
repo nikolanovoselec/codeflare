@@ -453,7 +453,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         {
           const handle = typeof payload.model === 'string' ? payload.model.replace(/^dynamic\//, '') : catalog.defaultRoute;
           const requestedNative = handle.startsWith('cf-native-');
-          if (requestedNative && !catalog.nativeTargets[handle]) {
+          if (requestedNative && !catalog.nativeTargets[handle] && !catalog.routes.includes(handle)) {
             return new Response(JSON.stringify({ error: 'Native target is not authorized', code: 'ROUTE_NOT_ELIGIBLE' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
           }
           const route = catalog.routes.includes(handle) ? handle : catalog.defaultRoute;

@@ -252,6 +252,8 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 6. An empty or ineligible runtime catalog denies inference before upstream I/O. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (denies an empty catalog on %s before any upstream I/O) -->
 
+7. An eligible unowned native-shaped Dynamic Route dispatches under its exact route selector and assigned profile, including when prefixed with `dynamic/`. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-032: dispatches an authorized unowned native-shaped Dynamic Route with %s prefix and its assigned reasoning) -->
+
 **Constraints:**
 
 - Group-to-route access remains many-to-many; the first configured matching group wins, otherwise only explicitly enabled fallback applies.
@@ -424,9 +426,12 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 2. Generated drafts exclude failed, incomplete, and unproven off modes together with dangling aliases. <!-- @impl: src/routes/admin/reasoning.ts::observedCandidate --> <!-- @impl: src/routes/admin/reasoning.ts::generatedProfileDraft --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (creates a normalized custom draft from passed modes when no complete existing profile fits) --> <!-- @test: src/__tests__/lib/reasoning-discovery.test.ts (REQ-ENTERPRISE-035: excludes off from compatible modes when hidden reasoning tokens are reported) -->
 3. Each retained mode preserves the observed removals and literal writes. <!-- @impl: src/routes/admin/reasoning.ts::generatedProfileDraft --> <!-- @test: src/__tests__/routes/admin-reasoning-discovery.test.ts (creates a normalized custom draft from passed modes when no complete existing profile fits) -->
 
+4. Provider-default discovery drafts normalize and round-trip as custom revisions with empty reasoning levels, mappings, and aliases. <!-- @impl: src/lib/reasoning-profiles.ts::normalizeCustomProfile --> <!-- @test: src/__tests__/routes/reasoning-eligibility.test.ts (REQ-ENTERPRISE-037: round-trips a generic provider-default discovery draft as its own custom revision) -->
+
 **Constraints:**
 
 - Generation does not persist, assign, or activate the draft.
+- Provider-default mode does not relax configurable-level validation or permit hidden mappings and aliases. <!-- @impl: src/lib/reasoning-profiles.ts::normalizeCustomProfile --> <!-- @test: src/__tests__/lib/reasoning-profiles.test.ts (REQ-ENTERPRISE-031: rejects a custom draft with %s) -->
 
 **Priority:** P1
 
@@ -1384,7 +1389,7 @@ Deploy-time enterprise configuration: single-tenant unlimited access, subscripti
 
 1. The first matching group policy wins; fallback applies only without a match; native references require enabled, verified targets with current provider identity. <!-- @impl: src/lib/access.ts::resolveRouteCatalog --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (REQ-ENTERPRISE-049: resolves mixed typed targets under first-match policy and current provider authority) -->
 2. Provider discovery uses a 60-second cache keyed by account, gateway, and connection fingerprint; expiry failure denies native targets without stale fallback while retaining valid Dynamic Routes. <!-- @impl: src/lib/access.ts::resolveRouteCatalog --> <!-- @test: src/__tests__/lib/enterprise-route-config.test.ts (REQ-ENTERPRISE-049: expired native provider refresh fails closed without denying Dynamic Routes) -->
-3. Every interceptor request reauthorizes the opaque handle; revoked or unknown handles fail closed without model fallback. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-049: revoked native handles fail before upstream I/O without fallback) -->
+3. Every interceptor request reauthorizes the opaque handle; revoked or unknown handles fail closed without model fallback. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-049: revoked native handles fail before upstream I/O without fallback) --> <!-- @test: src/__tests__/llm-interceptor.test.ts (REQ-ENTERPRISE-049: rejects a revoked native handle with %s prefix despite an eligible ordinary Dynamic Route) -->
 
 **Constraints:** Dynamic Route KV contains only Dynamic Routes.
 

@@ -137,6 +137,9 @@ describe('REQ-ENTERPRISE-031 capability profile catalog', () => {
     ['provider-default with hidden level writes', {
       reasoningMode: 'provider-default', supportedLevels: [], levels: { medium: [{ path: 'reasoning_effort', value: 'medium' }] }, offSemantics: { status: 'unsupported' },
     }],
+    ['provider-default with shadowed legacy mappings', {
+      reasoningMode: 'provider-default', supportedLevels: [], levels: {}, levelMappings: { medium: [{ path: 'reasoning_effort', value: 'medium' }] }, offSemantics: { status: 'unsupported' },
+    }],
     ['provider-default with dangling aliases', {
       reasoningMode: 'provider-default', supportedLevels: [], levels: {}, aliases: { low: 'medium' }, offSemantics: { status: 'unsupported' },
     }],

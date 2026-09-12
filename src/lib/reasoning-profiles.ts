@@ -471,7 +471,7 @@ export function normalizeCustomProfile(input: unknown): NormalizedReasoningProfi
     'id', 'name', 'description', 'operatorNotes', 'family', 'schemaVersion', 'revision', 'hash', 'enabled', 'ingressContract',
     'supportedLevels', 'unsupportedLevels', 'removePaths', 'levels', 'levelMappings', 'aliases', 'offSemantics',
     'toolCompatibility', 'recognizedResponseFields', 'validatedTransports', 'classification', 'limitations',
-    'originallyCreatedAgainst', 'provenance', 'validatedAgainst', 'evidence', 'builtIn',
+    'originallyCreatedAgainst', 'provenance', 'validatedAgainst', 'evidence', 'builtIn', 'reasoningMode',
   ]);
   const unknownField = Object.keys(value).find((key) => !allowedFields.has(key));
   if (unknownField) throw new Error(`custom profile has unknown field ${unknownField}`);
@@ -485,11 +485,18 @@ export function normalizeCustomProfile(input: unknown): NormalizedReasoningProfi
   if (!Number.isInteger(revision) || (revision as number) < 1 || (revision as number) > Number.MAX_SAFE_INTEGER) throw new Error('custom profile revision is invalid');
   if (typeof value.enabled !== 'boolean') throw new Error('custom profile enabled must be boolean');
   if (value.ingressContract !== undefined && value.ingressContract !== 'ai-gateway-chat-completions') throw new Error('custom profile ingress contract is unsupported');
-  const supportedLevels = validateLevels(value.supportedLevels, 'supportedLevels');
+  if (value.reasoningMode !== undefined && value.reasoningMode !== 'provider-default') throw new Error('custom profile reasoning mode is unsupported');
+  const providerDefault = value.reasoningMode === 'provider-default';
+  if (providerDefault && (!Array.isArray(value.supportedLevels) || value.supportedLevels.length !== 0)) throw new Error('provider-default supportedLevels must be empty');
+  const supportedLevels: PiReasoningLevel[] = providerDefault ? [] : validateLevels(value.supportedLevels, 'supportedLevels');
   const unsupportedLevels = PI_REASONING_LEVELS.filter((level) => !supportedLevels.includes(level));
   const removePaths = validateRemovePaths(value.removePaths ?? []);
   const rawLevels = asRecord(value.levels ?? value.levelMappings, 'levels');
   const rawAliases = value.aliases === undefined ? {} : asRecord(value.aliases, 'aliases');
+  if (providerDefault && (Object.keys(rawLevels).length > 0 || Object.keys(rawAliases).length > 0
+    || (value.levelMappings !== undefined && Object.keys(asRecord(value.levelMappings, 'levelMappings')).length > 0))) {
+    throw new Error('provider-default mappings and aliases must be empty');
+  }
   const aliases: Partial<Record<PiReasoningLevel, PiReasoningLevel>> = {};
   const levels: Partial<Record<PiReasoningLevel, ScalarWrite[]>> = {};
   for (const level of supportedLevels) {
@@ -567,6 +574,7 @@ export function normalizeCustomProfile(input: unknown): NormalizedReasoningProfi
   const core = {
     id, name, ...(description !== undefined && { description }), ...(operatorNotes !== undefined && { operatorNotes }), family, schemaVersion: 1 as const, revision: revision as number,
     enabled: value.enabled, ingressContract: 'ai-gateway-chat-completions' as const, supportedLevels, unsupportedLevels,
+    ...(providerDefault && { reasoningMode: 'provider-default' as const }),
     removePaths, levels, aliases, offSemantics,
     toolCompatibility: { status: 'unverified' as const, levels: [] as PiReasoningLevel[] }, recognizedResponseFields,
     validatedTransports: [] as Array<'rest' | 'compat' | 'bedrock-invoke' | 'bedrock-eventstream'>, classification: 'Compatible, unverified' as const,
