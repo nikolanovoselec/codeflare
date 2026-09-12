@@ -241,7 +241,7 @@ describe('SessionDropdown', () => {
       const button = screen.getByTestId('session-dropdown-new');
       expect(button).toBeDisabled();
       fireEvent.click(button);
-      expect(screen.queryByTestId('csd-select-agent')).not.toBeInTheDocument();
+      expect(screen.getByTestId('create-session-dialog')).toHaveAttribute('data-open', 'false');
       expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
     });
 

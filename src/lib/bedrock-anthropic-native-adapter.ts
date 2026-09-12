@@ -212,8 +212,8 @@ export async function buildBedrockAnthropicRequest(payload: JsonObject, state: B
 async function persistReplay(content: unknown[], state: BedrockReplayState): Promise<void> {
   const blocks = cloneBlocks(content);
   if (!blocks) throw new Error('Native Bedrock replay state exceeds the safe limit');
-  const hasSignedThinking = blocks.some((block) => plain(block) && block.type === 'thinking' && typeof block.signature === 'string');
-  if (!hasSignedThinking) return;
+  // Adaptive thinking may omit normal thinking blocks. Keep the complete
+  // authentic tool turn, including unsigned and redacted-only responses.
   const ids = blocks.filter((block) => plain(block) && block.type === 'tool_use').map((block: any) => safeToolId(block.id)).filter(Boolean) as string[];
   await Promise.all(ids.map((id) => state.save(id, blocks)));
 }

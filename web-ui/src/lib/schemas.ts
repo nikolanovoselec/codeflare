@@ -302,6 +302,7 @@ export const BatchSessionStatusResponseSchema = z.object({
     tier: z.string(),
   }).optional(),
   preseedNeedsUpgrade: z.boolean().optional(),
+  preseedUpgradeTarget: z.string().min(1).optional(),
   managedReleaseStatus: z.enum(['current', 'upgrading', 'update_pending']).optional(),
   managedReleaseProgress: z.object({
     phase: z.enum(['planning', 'writing', 'finalizing']),
