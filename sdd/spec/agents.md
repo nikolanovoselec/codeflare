@@ -4771,13 +4771,13 @@ None.
 4. Compilation rejects traversal, unsupported roots, image-owned paths, duplicate ownership, and undeclared runtime requirements. <!-- @impl: scripts/agent-seed-release-limits.mjs::validateManagedReleasePath --> <!-- @impl: scripts/agent-seed-release.mjs::buildAgentSeedRelease --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects paths outside the managed release contract) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects invalid modes, duplicate ownership, and live paths listed as retired) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC4: rejects an undeclared runtime dependency identity) -->
 5. Extension records derive exact package identity, version, platform, size, digest, entrypoint, and closed dependencies from reviewed bytes. <!-- @impl: scripts/agent-seed-release.mjs::measureExtensionRecord --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC5: measures exact extension identity and bytes) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC5: rejects unmeasured or incomplete extension closure) -->
 6. Compilation enforces the shared seed-v1 byte, path, document, retirement, extension, and redirect limits, including a 2 MiB maximum for any individual document. <!-- @impl: scripts/agent-seed-release-limits.mjs::MANAGED_RELEASE_LIMITS --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC6: enforces document and retired-path resource limits) --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-147 AC6: enforces the expanded bundle resource limit) -->
-7. The runtime dependency identity derives from the shared npm-tools, Claude Browser Run MCP, and Pi lockfiles; changing any one lock changes that identity. <!-- @impl: scripts/agent-seed-core.mjs::computeAgentRuntimeHash --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
+7. `runtimeDependencyHash` derives only from the three complete shared npm-tools, Claude Browser Run MCP, and Pi lockfiles; changing any one lock changes that identity. <!-- @impl: scripts/agent-seed-core.mjs::computeAgentRuntimeHash --> <!-- @test: host/__tests__/agent-seed-core.test.js (shared agent seed compiler) -->
 
 **Constraints:**
 
 - The tier-gated context-mode subtree remains image-owned.
 - Releases carry no secrets, user-stored VSIX bytes, or new runtime dependency.
-- The runtime dependency identity covers npm packages available to managed agent content; new native or image-owned requirements ship through Codeflare first.
+- The runtime dependency identity excludes native-engine revisions and other image-only inputs. Images with identical npm locks can therefore pass the same hash gate despite different native engines; native prerequisites must be verified on consuming images separately. New native or image-owned requirements ship through Codeflare first.
 - The shared compiler remains the only transformation source of truth.
 
 **Priority:** P1
@@ -4870,7 +4870,7 @@ None.
 
 ### REQ-AGENT-154: Build-compatible managed-release discovery
 
-**Intent:** Each deployment discovers the newest managed release compatible with its exact runtime dependency set within a fixed history bound.
+**Intent:** Fresh-required discovery selects the newest signed managed release matching the deployment's exact managed npm lockfile identity within a fixed history bound.
 
 **Applies To:** Admin
 
@@ -4883,7 +4883,7 @@ None.
 5. An advertised managed release that fails validation stops discovery. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC5: stops when an advertised history release fails validation) -->
 6. Discovery fails when the bounded history contains no matching runtime hash. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records) -->
 
-**Constraints:** GitHub history pagination uses at most ten 100-record pages; validation remains memory-bounded and fail closed.
+**Constraints:** GitHub history pagination uses at most ten 100-record pages; validation remains memory-bounded and fail closed. Background refresh checks only the latest release. Hash-based selection does not detect native-engine differences outside the three managed npm lockfiles.
 
 **Priority:** P1
 
@@ -5086,8 +5086,8 @@ None.
 3. Serialized registered-tool descriptions and parameter schemas are reported as a separate budget and never counted as prompt reduction. <!-- @impl: scripts/pi-prompt-contract.mjs::measurePiPromptBudget --> <!-- @impl: scripts/verify-pi-prompt.mjs::serializePiToolSchemas --> <!-- @manual -->
 4. A repository-owned ledger maps each baseline controlled surface category—system, global instruction, skill catalog, and tool contract—to one owner and retained destination; no category may be removed without a destination or moved into tool schemas merely to satisfy the cap. <!-- @impl: scripts/pi-prompt-rule-ledger.json::entries --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @manual -->
 5. Both Pi modes receive one owned system instruction and one owned global instruction; each final source-root projection receives one compact index covering every model-invocable seed skill without removing any skill file, while project context remains additive, byte-unaltered, and separately reported. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @manual -->
-6. Codeflare owns prompt assembly, executable guards, image fallback, and compiler support; codeflare-curation owns its complete managed policy inventory, invocation visibility, mode membership, signed projections, managed prompt verification, and the declared synchronization duty for shared manifest-owned fallback paths. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @manual -->
-7. Curation advances its compiler pin only from an exact successful Codeflare deployment and verifies both managed modes plus matching bytes for every shared manifest-owned fallback path before publication; private curation content never reverse-syncs. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @manual: verify the exact deployed compiler pin, shared manifest-owned fallback bytes, and both managed-mode prompt reports in protected codeflare-curation CI -->
+6. Codeflare owns prompt assembly, executable guards, image fallback, and compiler support; codeflare-curation owns its complete managed policy inventory, invocation visibility, mode membership, signed projections, managed prompt verification, and the declared synchronization duty for shared manifest-owned fallback paths. An explicit checkpoint alignment covers the complete compiler-eligible canonical Claude/Pi inventory, not only an already-shared subset. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @manual -->
+7. Before signed publication, explicit alignment matches every eligible canonical source file's bytes and mode metadata, applies source additions/removals and eligible historical retirements, and verifies both managed modes. Compiler-pin automation remains a separate comparison of three compiler scripts and three npm lockfiles from an exact successful Codeflare deployment; private content never reverse-syncs. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @manual: Record the exact source checkpoint, complete eligible manifest/byte/mode/retirement comparison, image exclusions, and protected exact-head codeflare-curation CI and publication evidence; verify compiler-pin changes separately. -->
 
 **Constraints:**
 
@@ -5097,7 +5097,9 @@ None.
 - The cap includes Pi custom system text, Codeflare-owned global context framing and content, winning visible skill catalog framing and descriptions, and isolated working-directory framing.
 - Project context is measured separately and never truncated.
 - Codeflare hard policy may move from prose to an executable guard only when the guard enforces the same observable boundary.
-- A change to a fallback seed path also present in curation's managed manifest is incomplete until curation carries matching bytes and protected contract verification passes; image-owned paths and curation-private content remain independently owned.
+- A change to a fallback seed path also present in curation's managed manifest is incomplete until curation carries matching bytes and protected contract verification passes. Explicit full alignment also includes newly selected paths and native Impeccable source; separate fallback ownership does not excuse selective divergence.
+- Compiler-forbidden context-mode and Pi npm paths remain image-owned and excluded from managed documents and retirements. Eligible historical retirement metadata retains its existing product-generated provenance; removing previously seeded source does not add it to the by-name backlog ([REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
+- Content alignment does not add automatic source synchronization or change compiler pins, runtime selections, signing history, tenant authorization, or managed ownership guards.
 - Builds, tests, package installation, resource-loader integration, and final prompt verification remain CI-owned.
 
 **Priority:** P1
