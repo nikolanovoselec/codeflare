@@ -37,7 +37,9 @@ function cloneBlocks(value: unknown): unknown[] | null {
   const parsed = JSON.parse(serialized);
   if (!Array.isArray(parsed)) return null;
   for (const block of parsed) {
-    if (!plain(block) || typeof block.type !== 'string') return null;
+    if (!plain(block) || !['text', 'thinking', 'redacted_thinking', 'tool_use'].includes(block.type)) return null;
+    if (block.type === 'text' && typeof block.text !== 'string') return null;
+    if (block.type === 'redacted_thinking' && typeof block.data !== 'string') return null;
     if (block.type === 'thinking' && (typeof block.thinking !== 'string' || typeof block.signature !== 'string')) return null;
     if (block.type === 'tool_use' && (!safeToolId(block.id) || !boundedString(block.name, 256) || !plain(block.input))) return null;
   }
