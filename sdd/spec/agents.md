@@ -4803,6 +4803,7 @@ None.
 2. Production signing rejects a private key whose derived public key is not the configured active public key. <!-- @manual: Confirm the signing job's configured-public-key comparison in the private release workflow and its green protected run. -->
 3. Publication verifies the exact draft release identity, asset set, and per-asset digests, and re-verifies them immediately before leaving draft. <!-- @manual: Confirm the draft-identity and post-publish recheck steps in the private release workflow and its green protected run. -->
 4. Publication succeeds only when the resulting release is immutable at the sequence derived from published history. <!-- @manual: Confirm the immutability assertion and derived-sequence step in the private release workflow and its green protected run. -->
+5. Compiler-pin automation advances only for a changed compiler script or managed npm lockfile among its six inputs from an exact successful Codeflare deployment. <!-- @manual: Inspect codeflare-curation's compiler-pin workflow for a successful main/develop deployment's exact SHA and the three-script/three-lockfile comparison; verify unchanged inputs do not advance the pin. -->
 
 **Constraints:**
 
@@ -4884,7 +4885,12 @@ None.
 5. An advertised managed release that fails validation stops discovery. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC5: stops when an advertised history release fails validation) -->
 6. Discovery fails when the bounded history contains no matching runtime hash. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records) -->
 
-**Constraints:** GitHub history pagination uses at most ten 100-record pages; validation remains memory-bounded and fail closed. Background refresh checks only the latest release. Hash-based selection does not detect native-engine differences outside the three managed npm lockfiles.
+**Constraints:**
+
+- GitHub history uses at most ten 100-record pages.
+- Validation remains memory-bounded and fail closed.
+- Background refresh checks only the latest release.
+- Hash selection excludes native-engine differences outside the three managed npm lockfiles.
 
 **Priority:** P1
 
@@ -5087,21 +5093,24 @@ None.
 3. Serialized registered-tool descriptions and parameter schemas are reported as a separate budget and never counted as prompt reduction. <!-- @impl: scripts/pi-prompt-contract.mjs::measurePiPromptBudget --> <!-- @impl: scripts/verify-pi-prompt.mjs::serializePiToolSchemas --> <!-- @manual -->
 4. A repository-owned ledger maps each baseline controlled surface category—system, global instruction, skill catalog, and tool contract—to one owner and retained destination; no category may be removed without a destination or moved into tool schemas merely to satisfy the cap. <!-- @impl: scripts/pi-prompt-rule-ledger.json::entries --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @manual -->
 5. Both Pi modes receive one owned system instruction and one owned global instruction; each final source-root projection receives one compact index covering every model-invocable seed skill without removing any skill file, while project context remains additive, byte-unaltered, and separately reported. <!-- @impl: scripts/agent-seed-core.mjs::finalizePiSkillIndex --> <!-- @impl: scripts/verify-pi-prompt.mjs::verifyPiProjection --> <!-- @manual -->
-6. Codeflare owns prompt assembly, executable guards, image fallback, and compiler support; codeflare-curation owns its complete managed policy inventory, invocation visibility, mode membership, signed projections, managed prompt verification, and the declared synchronization duty for shared manifest-owned fallback paths. An explicit checkpoint alignment covers the complete compiler-eligible canonical Claude/Pi inventory, not only an already-shared subset. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @manual -->
-7. Before signed publication, explicit alignment matches every eligible canonical source file's bytes and mode metadata, applies source additions/removals and eligible historical retirements, and verifies both managed modes. Compiler-pin automation remains a separate comparison of three compiler scripts and three npm lockfiles from an exact successful Codeflare deployment; private content never reverse-syncs. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @manual: Record the exact source checkpoint, complete eligible manifest/byte/mode/retirement comparison, image exclusions, and protected exact-head codeflare-curation CI and publication evidence; verify compiler-pin changes separately. -->
+6. Ownership assigns prompt assembly, executable guards, compiler support and image fallback to Codeflare, and complete managed policy, invocation visibility, modes, signed projections, prompt verification and shared-path synchronization to codeflare-curation. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @impl: scripts/pi-prompt-contract.mjs::validatePiPromptRuleLedger --> <!-- @manual -->
+7. Before signed publication, explicit checkpoint alignment matches the complete compiler-eligible canonical Claude/Pi inventory: source bytes, file modes, manifest mode metadata, additions/removals and historical retirements. <!-- @impl: scripts/pi-prompt-rule-ledger.json::ownership --> <!-- @manual: Record the exact source checkpoint, complete eligible manifest/byte/mode/retirement comparison, image exclusions, and protected exact-head codeflare-curation CI for both managed modes plus immutable publication evidence. -->
 
 **Constraints:**
 
-- Use Pi's native `SYSTEM.md`, `AGENTS.md`, skill progressive disclosure, and invocation metadata.
-- Do not add a custom skill router, hand-maintained runtime registry, Pi fork, core patch, XML rewrite, or staged mode canary.
-- The cap excludes serialized tool schemas and arbitrary additive project context.
-- The cap includes Pi custom system text, Codeflare-owned global context framing and content, winning visible skill catalog framing and descriptions, and isolated working-directory framing.
-- Project context is measured separately and never truncated.
-- Codeflare hard policy may move from prose to an executable guard only when the guard enforces the same observable boundary.
-- A change to a fallback seed path also present in curation's managed manifest is incomplete until curation carries matching bytes and protected contract verification passes. Explicit full alignment also includes newly selected paths and native Impeccable source; separate fallback ownership does not excuse selective divergence.
-- Compiler-forbidden context-mode and Pi npm paths remain image-owned and excluded from managed documents and retirements. Eligible historical retirement metadata retains its existing product-generated provenance; removing previously seeded source does not add it to the by-name backlog ([REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
-- Content alignment does not add automatic source synchronization or change compiler pins, runtime selections, signing history, tenant authorization, or managed ownership guards.
-- Builds, tests, package installation, resource-loader integration, and final prompt verification remain CI-owned.
+- Use Pi-native `SYSTEM.md`, `AGENTS.md`, progressive skill disclosure and invocation metadata.
+- No custom skill router, hand-maintained runtime registry, Pi fork/core patch, XML rewrite or staged mode canary.
+- Exclude tool schemas and additive project context from the cap.
+- Include owned system/global text/framing, winning visible skill-catalog descriptions/framing and isolated working-directory framing.
+- Measure project context separately without truncation.
+- Guards must preserve replaced prose's hard-policy boundary.
+- Shared fallback-path changes require matching curation bytes and protected verification.
+- Full alignment includes new paths and native Impeccable source.
+- Compiler-forbidden context-mode/Pi npm paths remain image-owned, outside managed documents/retirements.
+- Historical retirements retain product provenance; ordinary removals never enlarge the by-name backlog ([REQ-STOR-019](storage.md#req-stor-019-seeded-files-are-marked-and-retired-ones-are-removed)).
+- Alignment preserves compiler pins, runtime selections, signing history, tenant authorization and ownership guards.
+- No automatic content synchronization or private reverse-sync.
+- Builds, tests, installation, resource-loader integration and prompt verification remain CI-owned.
 
 **Priority:** P1
 
