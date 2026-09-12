@@ -191,7 +191,7 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
     if (batchResponse.usage) {
       setUsageState(batchResponse.usage.monthlySeconds, batchResponse.usage.monthlyQuotaSeconds);
     }
-    if (batchResponse.managedReleaseStatus !== undefined) {
+    if (batchResponse.managedReleaseStatus !== undefined || batchResponse.preseedNeedsUpgrade !== undefined) {
       applyManagedReleaseBatchFn(batchResponse.managedReleaseStatus, batchResponse.preseedNeedsUpgrade, batchResponse.managedReleaseProgress, batchResponse.preseedUpgradeTarget);
     }
 
