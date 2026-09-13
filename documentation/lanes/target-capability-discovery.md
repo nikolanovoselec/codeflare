@@ -22,12 +22,12 @@
 
 1. Select a gateway-owned Dynamic Route, or select the configured Amazon Bedrock provider and enter/select its exact authorized model, region and context window.
 2. Click **Discover**. No profile selection, naming, JSON editing or separate Verify action is required.
-3. Review the automatically selected working configuration, its evidence grade and any limitations. Assign access/fallback policy and use the existing reviewed **Save** to enable it.
+3. Read **Check result**, directly below Discover. Its verdict stays visible when technical details or Advanced are closed. On success, set access/fallback policy as needed, choose **Review changes**, then **Confirm Save**. Changes apply at the next normal session start.
 4. After a route/model/binding change, Discover again. The application reuses protocol handling; the operator does not write another profile for a model release.
 
 Discover changes only the local draft and issues a temporary server-held receipt. It does not enable targets, change Gateway resources or modify a running session. Normal next container/session start publishes saved capabilities to Pi. Inventory loading and startup never run inference automatically.
 
-Manual profile selection, the older profile-matching editor, selected-profile verification and eligible historical administrator confirmation remain under **Advanced**. They are retained compatibility tools, not the normal discovery flow. Other native protocols retain their existing advanced workflow. Native automatic discovery currently supports the observed **Bedrock** boundary only; Azure or another native protocol needs a deliberate adapter extension, not a guessed URL or request form.
+Manual profile selection, the older profile-matching editor, selected-profile verification and eligible historical administrator confirmation share one **Advanced: choose a profile** disclosure. Selected-profile verification updates the same Check result above it. Rechecking clears superseded success and its draft receipt immediately, including while a Native check is pending. Saved Native rows distinguish **Live-verified** from **Administrator-confirmed**; the latter is an operator assessment, not automated evidence. They are retained compatibility tools, not the normal discovery flow. Other native protocols retain their existing advanced workflow. Native automatic discovery currently supports the observed **Bedrock** boundary only; Azure or another native protocol needs a deliberate adapter extension, not a guessed URL or request form.
 
 ## Dedicated boundary
 
@@ -56,7 +56,7 @@ The canonical custom revision ID is `discovered-<24 hex characters>`, derived fr
 
 New compatibility contracts explicitly bind `/compat/chat/completions`, as currently documented for Dynamic Routing. The saved contract is used identically by discovery and dispatch, including stream mode and narrow complete-tool-name repair. Historical assignments retain their existing REST-first/404 fallback behavior. No broad paid retry is introduced.
 
-For a buffered contract, the Worker validates completed OpenAI JSON and sends one SSE chunk plus `[DONE]` to a streaming Pi client. It preserves tool IDs and argument strings at that boundary; it never claims incremental generation. A native Anthropic envelope cannot be passed off as OpenAI JSON. No signed native state is reconstructed from client assertions.
+For a buffered contract, the Worker validates completed OpenAI JSON and sends one SSE chunk plus `[DONE]` to a streaming Pi client. It preserves tool IDs and argument strings at that boundary; it never claims incremental generation. A native Anthropic envelope cannot be passed off as OpenAI JSON. A received-but-incompatible buffered envelope is reported as `unexpected_response_format`, with HTTP status and transport retained, rather than a connection failure; it remains a stop boundary, not permission to adapt or retry. No signed native state is reconstructed from client assertions.
 
 ## Evidence and qualification
 
@@ -70,6 +70,8 @@ For a buffered contract, the Worker validates completed OpenAI JSON and sends on
 | Not qualified | Minimum not established; no discovery receipt/enablement |
 
 Gateway HIT satisfies the explicitly agreed relaxed cache threshold, but remains **whole-response reuse**, not input-prefix evidence. Only positive target-bound native prefix evidence enables that target's `cacheControlFormat: "anthropic"`. Dynamic never receives native cache serialization. Missing counters, misses, truncation, refusals and failed probes are inconclusive where they do not establish protocol rejection. HTTP/provider error codes and the failed stage are shown without provider messages/bodies.
+
+A provider refusal during cache-fill is distinct from unobserved reuse. The result retains the normalized `content_filter` finish reason, observed write/read counters and whether cache-read was attempted; missing counters are not filled with zero. Refused fills never qualify or launch the paired read. The Native API client keeps only validated diagnostic fields and the sanitized explanation, not raw provider bodies, signed replay or failure receipts. <!-- @impl: src/lib/reasoning-discovery.ts::probeDiagnostic --> <!-- @impl: web-ui/src/api/client.ts::checkNativeTarget -->
 
 Tools/replay are checked before the cache pair. One fresh public marker is reused in two identical sequential cache requests; no custom keys, TTL overrides, purges or sharing changes are made. The roughly 60-KiB public prefix is intentionally bounded, but its model token count is not assumed (the current live Claude samples used about 29.8k cached-prefix tokens). Each native request uses only the existing supported five-minute checkpoint translation. This repeated-request measurement is narrower than changed-answer prefix reuse; the prior live report covers that stronger native experiment.
 
@@ -90,6 +92,8 @@ Response acquisition and reads are bounded. Discovery captures are capped at 8 M
 Requests use only server-constructed gateway paths and authenticated provider inventory. The browser cannot submit a provider credential identifier, alias, arbitrary endpoint/header, native protocol guess or fabricated grade to gain authority. Compatibility mutations are bounded enum fields included in the canonical hash. Save requires the existing server-issued receipt and current inventory/binding. A discovered profile cannot be administrator-confirmed past a failed minimum. Stale saved documents stay readable; they cannot silently become current evidence.
 
 ## Evidence and remaining boundaries
+
+A later 2026-09-13 incident investigation used existing Gateway logs, not new inference. The Native cache-fill wrote **29,779** provider cache tokens, then returned a refusal; the checkpoint was present and the paired read was never submitted. This does not negate the proven Native caching capability below. Dynamic pairs remained MISS with absent provider counters, and a buffered response used a native Anthropic envelope; the underlying MISS cause remains unresolved. Diagnostic/UI corrections do not claim repaired cache reuse, altered provider refusal behavior or new live acceptance.
 
 2026-09-13 direct-Gateway validation used the new component with the local native adapter: four calls each for Native Sonnet 5, Native Opus 5, Dynamic `bedrock_sonnet` and Dynamic `bedrock_opus`. All passed tools/replay, Provider default and incremental cold delivery. Native repeated requests read 29,783 and 29,782 cached prefix tokens respectively while Gateway remained MISS. Dynamic repeated requests produced Gateway MISS → HIT without positive provider-prefix counters. All four qualify as Optimal under the agreed definition; this is **not** certification of native graduated reasoning, Dynamic prefix caching, every Dynamic branch or deployed Worker/session/UI behavior. Before/after management projections retained the same route versions, Bedrock binding and cache/DLP policy. No configuration was changed.
 

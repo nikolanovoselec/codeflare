@@ -59,6 +59,7 @@ export async function discoverTargetCapabilities(input: TargetCapabilityInput): 
   const attempts: TargetCapabilityResult['attempts'] = [];
   let count = 0;
   let cacheInconclusive = false;
+  let refusalExplanation: string | undefined;
   let stopped = false;
   const started = Date.now();
   const fetcher = input.fetcher ?? input.fetchImpl ?? fetch;
@@ -74,6 +75,9 @@ export async function discoverTargetCapabilities(input: TargetCapabilityInput): 
     attempts.push({ contract: profile.id, classification: report.classification, capabilities: report.capabilitySummary,
       diagnostics: report.diagnostics ?? [], httpAttempts: count - countBefore });
     cacheInconclusive ||= report.capabilitySummary?.cache === 'inconclusive';
+    if (report.diagnostics?.some((item: { code: string; stage: string }) => item.code === 'provider_refusal' && item.stage === 'cache-fill')) {
+      refusalExplanation = report.cacheEvidence?.explanation;
+    }
     if (report.assignable && !report.stopDiscovery) return { schemaVersion: 1, assignable: true, classification: 'Verified',
       explanation: 'One working configuration was selected automatically. Review and Save to enable it; only this exercised target path is certified.',
       capabilities: report.capabilitySummary, profile, report, attempts, accounting: { httpAttempts: count } };
@@ -82,8 +86,8 @@ export async function discoverTargetCapabilities(input: TargetCapabilityInput): 
   // A bounded campaign cannot prove universal provider impossibility. In
   // particular, misses and model refusals are not "caching unsupported".
   return { schemaVersion: 1, assignable: false, classification: 'Inconclusive',
-    explanation: stopped ? 'Discovery stopped at an authentication, provider, framing, timeout or campaign boundary. Tools/replay and cache minimum was not established; inspect the stage/status diagnostics.'
+    explanation: refusalExplanation ?? (stopped ? 'Discovery stopped at an authentication, provider, framing, timeout or campaign boundary. Tools/replay and cache minimum was not established; inspect the stage/status diagnostics.'
       : cacheInconclusive ? 'Tool calling/replay worked, but no qualifying cache reuse was observed with the supported contracts. Minimum is inconclusive, not proof that caching is unsupported.'
-        : 'No tested protocol contract completed the required tool lifecycle and caching. This target cannot be enabled by discovery; the failed stages explain what is missing.',
+        : 'No tested protocol contract completed the required tool lifecycle and caching. This target cannot be enabled by discovery; the failed stages explain what is missing.'),
     attempts, accounting: { httpAttempts: count } };
 }

@@ -67,7 +67,24 @@
 .admin-route-action-row > .admin-inline-progress { flex: 1; min-width: 0; }
 .admin-route-action-row > .admin-route-actions { margin-top: 0; margin-left: auto; }
 .admin-profile-editor > .admin-subsection-heading { align-items: center; }
+/* One action/result pair; profile selection is an optional alternative below. */
+.admin-target-discovery { margin-top: var(--space-4); }
+.admin-target-discovery > button, .admin-route-panel .admin-route-actions button { min-height: 44px; }
+.admin-discovery-budget { color: var(--color-text-secondary); font-size: var(--text-sm); line-height: 1.5; }
+.admin-discovery-budget summary, .admin-target-check-result summary, .admin-route-panel > .admin-route-reference > summary { min-height: 44px; align-content: center; cursor: pointer; }
+.admin-target-check-result { min-width: 0; margin-top: var(--space-4); padding: var(--space-4); border: 1px solid var(--color-border-default); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); background: var(--color-bg-base); line-height: 1.5; overflow-wrap: anywhere; }
+.admin-target-check-result[data-state="passed"] { border-left-color: var(--color-success); }
+.admin-target-check-result[data-state="failed"] { border-left-color: var(--color-error); }
+.admin-target-check-result h4 { margin: 0 0 var(--space-2); color: var(--color-text-secondary); font-size: var(--text-sm); font-weight: var(--font-medium); }
+.admin-target-check-result p { margin: var(--space-2) 0; }
+.admin-target-check-result .admin-check-next-step { margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--color-border-subtle); }
+.admin-target-check-result .admin-technical-details { margin: var(--space-3) 0 0; }
+.admin-target-check-result .admin-technical-details ul { padding-left: var(--space-4); }
+.admin-target-check-result .admin-technical-details li + li { margin-top: var(--space-3); }
 @media (max-width: 640px) {
+  .admin-target-discovery > button, .admin-route-panel .admin-route-actions, .admin-route-panel .admin-route-actions button { width: 100%; }
+  .admin-route-panel .admin-route-actions { flex-direction: column; align-items: stretch; }
+  .admin-target-check-result .admin-check-evidence > div { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
   .admin-routing-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-route-action-row { flex-direction: column; align-items: stretch; }
   .admin-route-action-row > .admin-route-actions { margin-left: 0; }

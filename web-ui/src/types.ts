@@ -110,6 +110,7 @@ export type NativeTargetCheckResult = {
 } | {
   assignable: false; classification: string; checkId?: never; verification?: never;
   cacheEvidence?: { explanation: string };
+  diagnostics?: ReasoningDiscoveryDiagnostic[];
 };
 
 export interface ReasoningEvidenceRef {
@@ -203,6 +204,12 @@ export interface ReasoningDiscoveryDiagnostic {
   code: string;
   status?: number;
   transport?: string;
+  providerCode?: string | number;
+  providerType?: string;
+  effectiveFinishReason?: string;
+  cacheWriteTokens?: number;
+  cacheReadTokens?: number;
+  cacheReadAttempted?: boolean;
 }
 
 export interface ReasoningDiscoveryResult {

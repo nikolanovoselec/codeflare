@@ -117,6 +117,21 @@ export const ReasoningRouteInventorySchema = z.object({
   warnings: z.array(z.string()).optional(),
 }).passthrough();
 
+// Public diagnostic projection: never carry raw provider bodies or replay state.
+export const ReasoningDiscoveryDiagnosticSchema = z.object({
+  levels: z.array(PiReasoningLevelSchema).max(7),
+  stage: z.enum(['reasoning', 'tool-call', 'tool-replay', 'final-response', 'cache-fill', 'cache-read', 'branch-correlation']),
+  code: z.string().regex(/^[a-z0-9_]{1,64}$/),
+  status: z.number().int().min(100).max(599).optional(),
+  transport: z.enum(['rest', 'compat', 'bedrock-invoke', 'bedrock-eventstream']).optional(),
+  providerCode: z.union([z.string().regex(/^[A-Za-z0-9._-]{1,64}$/), z.number().finite()]).optional(),
+  providerType: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/).optional(),
+  effectiveFinishReason: z.enum(['stop', 'length', 'tool_calls', 'content_filter', 'function_call']).optional(),
+  cacheWriteTokens: z.number().int().nonnegative().optional(),
+  cacheReadTokens: z.number().int().nonnegative().optional(),
+  cacheReadAttempted: z.boolean().optional(),
+});
+
 export const ReasoningDiscoveryResultSchema = z.object({
   checkId: z.string().optional(),
   verification: ReasoningRouteVerificationSchema.optional(),

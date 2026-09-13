@@ -594,7 +594,8 @@ function sanitizedError(status: number | null, text: string, codeOverride?: stri
 }
 
 class DiscoveryAttemptError extends Error {
-  constructor(public readonly kind: 'timeout' | 'transport_error' | 'response_too_large', public readonly attempts: number) {
+  constructor(public readonly kind: 'timeout' | 'transport_error' | 'response_too_large' | 'unexpected_response_format', public readonly attempts: number,
+    public readonly status: number | null = null, public readonly transport: string | null = null) {
     super(kind);
   }
 }
@@ -682,7 +683,16 @@ async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInp
   const remaining = input.campaignDeadline === undefined ? DEFAULT_TIMEOUT_MS : input.campaignDeadline - Date.now();
   if (remaining <= 0) throw new DiscoveryAttemptError('timeout', 0);
   const attempt = await requestUnadaptedCompletions({ ...input, timeoutMs: Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, remaining), body: compatibilityRequest(input.body, input.compatibility) });
-  return { ...attempt, response: await compatibilityResponse(attempt.response, input.compatibility, input.body.stream === true) };
+  try {
+    return { ...attempt, response: await compatibilityResponse(attempt.response, input.compatibility, input.body.stream === true) };
+  } catch (error) {
+    // The buffered boundary received HTTP successfully but rejected its envelope.
+    // Preserve that distinction without exposing the body or adapting another protocol.
+    if (error instanceof Error && error.message === 'compatibility_not_openai_chat') {
+      throw new DiscoveryAttemptError('unexpected_response_format', attempt.attempts, attempt.response.status, attempt.transport);
+    }
+    throw error;
+  }
 }
 
 async function requestUnadaptedCompletions(input: ChatCompletionsAttemptInput): Promise<ChatCompletionsAttempt> {
@@ -834,8 +844,8 @@ interface CommonRequest {
 function transportFailure(error: unknown): ProbeResult {
   const failure = error instanceof DiscoveryAttemptError ? error : new DiscoveryAttemptError('transport_error', 1);
   return {
-    ...sanitizedError(null, '', failure.kind),
-    transport: null,
+    ...sanitizedError(failure.status, '', failure.kind),
+    transport: failure.transport,
     httpAttempts: failure.attempts,
     stop: true,
   } as ProbeResult;
@@ -999,16 +1009,20 @@ interface DiscoveryDiagnostic {
   levels: ReasoningLevel[];
   stage: 'reasoning' | 'tool-call' | 'tool-replay' | 'final-response' | 'cache-fill' | 'cache-read' | 'branch-correlation';
   code: 'completion_limit' | 'no_tool_call' | 'invalid_tool_call' | 'replay_rejected' | 'request_rejected'
-    | 'timeout' | 'transport_error' | 'malformed_response' | 'response_too_large'
+    | 'timeout' | 'transport_error' | 'malformed_response' | 'response_too_large' | 'unexpected_response_format' | 'provider_refusal'
     | 'off_not_disabled' | 'incomplete_final_response' | 'cache_reuse_unobserved' | 'backend_changed' | 'observed_backend_unidentified';
   status?: number;
   transport?: string;
   providerCode?: string | number;
   providerType?: string;
+  effectiveFinishReason?: string;
+  cacheWriteTokens?: number;
+  cacheReadTokens?: number;
+  cacheReadAttempted?: boolean;
 }
 
 function stopsDiscovery(diagnostic: DiscoveryDiagnostic): boolean {
-  return ['timeout', 'transport_error', 'malformed_response', 'response_too_large'].includes(diagnostic.code)
+  return ['timeout', 'transport_error', 'malformed_response', 'response_too_large', 'unexpected_response_format'].includes(diagnostic.code)
     || diagnostic.status === 401 || diagnostic.status === 403 || diagnostic.status === 429
     || (diagnostic.status !== undefined && diagnostic.status >= 500);
 }
@@ -1023,11 +1037,16 @@ function probeDiagnostic(probe: Record<string, any> | null, levels: ReasoningLev
     ...((typeof probe.code === 'number' && Number.isFinite(probe.code) || typeof probe.code === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(probe.code)) ? { providerCode: probe.code as string | number } : {}),
     ...(typeof probe.type === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(probe.type) ? { providerType: probe.type } : {}),
   };
-  for (const code of ['timeout', 'transport_error', 'malformed_response', 'response_too_large'] as const) {
+  for (const code of ['timeout', 'transport_error', 'malformed_response', 'response_too_large', 'unexpected_response_format'] as const) {
     if (probe.code === code) return { levels, stage, code, ...boundary };
   }
   if (probe.malformedEvents > 0) return { levels, stage, code: 'malformed_response', ...boundary };
   if (probe.status !== 200) return { levels, stage, code: stage === 'tool-replay' ? 'replay_rejected' : 'request_rejected', ...boundary };
+  if (probe.effectiveFinishReason === 'content_filter') return { levels, stage, code: 'provider_refusal', ...boundary,
+    effectiveFinishReason: 'content_filter',
+    ...(Number.isSafeInteger(probe.cacheWriteTokens) && probe.cacheWriteTokens >= 0 ? { cacheWriteTokens: probe.cacheWriteTokens as number } : {}),
+    ...(Number.isSafeInteger(probe.cacheReadTokens) && probe.cacheReadTokens >= 0 ? { cacheReadTokens: probe.cacheReadTokens as number } : {}),
+  };
   return null;
 }
 
@@ -1142,6 +1161,8 @@ async function discoverCache(common: CommonRequest, route: string, maxCompletion
     && item.publicDeltaTimes[0] + 5 < item.eofTime);
   return { cache, incremental, observations, backendConsistent, backendIdentified, identicalPublicBody: true, publicBodyHash: await digest(JSON.stringify(compatibilityRequest(request, common.compatibility))),
     explanation: !backendConsistent ? 'Reasoning, tool or cache observations identify different backends. Minimum is inconclusive for one exercised route path; this is not an all-branches requirement.'
+      : observations[0]?.effectiveFinishReason === 'content_filter'
+        ? `The provider refused the cache-fill response.${Number.isSafeInteger(observations[0].cacheWriteTokens) && observations[0].cacheWriteTokens >= 0 ? ` Provider cache write: ${observations[0].cacheWriteTokens} tokens.` : ''} Cache-read was not attempted. Minimum remains unconfirmed; a write alone does not qualify.`
       : cache === 'inconclusive' ? 'No qualifying cache reuse observed. Minimum is not met; unsupported caching is NOT established by a miss, absent counters, truncation or a rejected probe.'
       : cache === 'gateway-response' ? 'Gateway HIT satisfies the minimum; this is whole-response reuse, not proof of provider input-prefix reuse.'
         : 'Positive provider prefix-cache reads observed on the native/compat request actually tested.' };
@@ -1302,7 +1323,7 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
       cacheEvidence.observations.forEach((observation, index) => {
         const stage = index === 0 ? 'cache-fill' : 'cache-read';
         const failure = probeDiagnostic(observation, [], stage);
-        if (failure) diagnostics.push(failure);
+        if (failure) diagnostics.push({ ...failure, cacheReadAttempted: cacheEvidence!.observations.length > 1 });
         else if (!observation.valid) diagnostics.push({ levels: [], stage, code: observation.effectiveFinishReason === 'length' ? 'completion_limit' : 'incomplete_final_response' });
       });
       stopDiscovery ||= diagnostics.some(stopsDiscovery);

@@ -27,6 +27,7 @@ import {
   SubscriptionTierSchema,
   ReasoningCatalogSchema,
   ReasoningDiscoveryResultSchema,
+  ReasoningDiscoveryDiagnosticSchema,
   ReasoningRouteInventorySchema,
 } from '../lib/schemas';
 import { mapStartupDetailsToProgress } from '../lib/status-mapper';
@@ -83,7 +84,7 @@ export async function checkNativeTarget(request: { target: NativeAiTargetDraft; 
   return fetchApi('/admin/reasoning/native/discover', { method: 'POST', body: JSON.stringify(request) }, z.union([z.object({
     targetId: z.string().uuid(), classification: z.enum(['Verified', 'Administrator-confirmed']), assignable: z.literal(true), checkId: z.string().uuid(),
     verification: z.object({ method: z.enum(['automated', 'administrator']), checkedAt: z.string(), current: z.literal(true) }),
-  }), z.object({ assignable: z.literal(false), classification: z.string(), cacheEvidence: z.object({ explanation: z.string().max(1024) }).optional() })])) as Promise<NativeTargetCheckResult>;
+  }), z.object({ assignable: z.literal(false), classification: z.string(), diagnostics: z.array(ReasoningDiscoveryDiagnosticSchema).max(64).optional(), cacheEvidence: z.object({ explanation: z.string().max(1024) }).optional() })])) as Promise<NativeTargetCheckResult>;
 }
 
 export async function discoverNativeCompatibility(request: { target: NativeAiTargetDraft; gateway?: ReasoningGatewayDraft; maxCompletionTokens?: number }): Promise<ReasoningDiscoveryResult> {

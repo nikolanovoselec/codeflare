@@ -308,7 +308,7 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     await waitFor(() => expect(values().nativeChecks[target.id]).toBe('synthetic-check'));
     expect(values().nativeTargets[0]).toMatchObject({ ...target, profileRef: nativeRef });
     expect(api.discover).toHaveBeenCalledWith({ kind: 'native-provider', target: { ...target, enabled: false } });
-    expect(configure).toHaveTextContent('Ready');
+    expect(configure).toHaveTextContent('Live-verified');
 
     await fireEvent.click(row.getByText(/Advanced: choose a profile/i));
     expect(select).toBeVisible();
@@ -326,7 +326,7 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     expect(api.checkNative).toHaveBeenCalledTimes(1);
     expect(api.checkNative).toHaveBeenCalledWith({ target: { ...target, enabled: false }, administratorConfirmed: true });
     expect(values().nativeTargets[0]).toMatchObject(target);
-    expect(configure).toHaveTextContent('Ready');
+    expect(configure).toHaveTextContent('Administrator-confirmed');
     expect(api.discover).toHaveBeenCalledTimes(1);
   });
 

@@ -367,7 +367,7 @@ describe('Structured AI routing', () => {
       { id: '33333333-3333-4333-8333-333333333333', label: 'Draft Claude', provider: 'aws-bedrock', model: 'eu.anthropic.claude-opus-5', contextWindow: 200000, profileRef: { id: 'bedrock-anthropic-compat', revision: 1, hash: hash('c') }, enabled: true },
     ] });
     await openNative(view);
-    expect(within(view.getByRole('article', { name: 'Ready Claude native target' })).getByText('Ready')).toHaveAttribute('data-state', 'passed');
+    expect(within(view.getByRole('button', { name: 'Configure Native Route - AWS Bedrock - eu.anthropic.claude-sonnet-5' })).getByText('Administrator-confirmed')).toHaveAttribute('data-state', 'passed');
     expect(within(view.getByRole('article', { name: 'Draft Claude native target' })).getByText('Not ready')).toHaveAttribute('data-state', 'unclear');
     expect(view.queryByText('Available for routing')).toBeNull();
     expect(formValues(view.container).nativeTargets.map((target: { enabled: boolean }) => target.enabled)).toEqual([true, false]);
@@ -507,7 +507,7 @@ describe('Structured AI routing', () => {
     complete({ targetId: '11111111-1111-4111-8111-111111111111', classification: 'Verified', assignable: true, checkId: '22222222-2222-4222-8222-222222222222', verification: { method: 'automated', checkedAt: '2026-09-09T12:00:00.000Z', current: true } });
     await waitFor(() => expect(formValues(view.container).nativeChecks).toEqual({ '11111111-1111-4111-8111-111111111111': '22222222-2222-4222-8222-222222222222' }));
     expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id: '11111111-1111-4111-8111-111111111111', enabled: true });
-    expect(within(article).getByText('Ready')).toHaveAttribute('data-state', 'passed');
+    expect(within(within(article).getByRole('button', { name: /Configure Native Route/ })).getByText('Live-verified')).toHaveAttribute('data-state', 'passed');
     expect(view.queryByLabelText('Enable Automated target native target')).toBeNull();
   });
 
@@ -593,7 +593,7 @@ describe('Structured AI routing', () => {
     await fireEvent.click(within(article).getByRole('button', { name: 'Verify Profile' }));
     await waitFor(() => expect(api.native).toHaveBeenLastCalledWith(expect.objectContaining({ target: expect.objectContaining({ model: 'eu.anthropic.claude-future-profile' }) })));
     expect(api.native.mock.calls[api.native.mock.calls.length - 1]?.[0]).not.toHaveProperty('administratorConfirmed');
-    expect(within(article).getByText('Ready')).toHaveAttribute('data-state', 'passed');
+    expect(within(within(article).getByRole('button', { name: /Configure Native Route/ })).getByText('Live-verified')).toHaveAttribute('data-state', 'passed');
     expect(view.queryByLabelText('Enable Claude custom native target')).toBeNull();
     expect(formValues(view.container).nativeTargets[0]).toMatchObject({ id: '11111111-1111-4111-8111-111111111111', model: 'eu.anthropic.claude-future-profile', enabled: true });
   });
@@ -886,6 +886,7 @@ describe('Structured AI routing', () => {
     const view = mount(); await ready(view);
     const before = draftConfiguration(view.container);
     await verifyProfile(view);
+    await fireEvent.click(await view.findByText('Technical check details'));
     await view.findByRole('table', { name: 'Selected profile checks' });
     expect(view.queryByText('Verified', { exact: true })).toBeNull();
     expect(draftConfiguration(view.container)).toEqual(before);
@@ -912,6 +913,7 @@ describe('Structured AI routing', () => {
     const view = mount(); await ready(view);
     const before = draftConfiguration(view.container);
     await verifyProfile(view);
+    await fireEvent.click(await view.findByText('Technical check details'));
     await view.findByRole('table', { name: 'Selected profile checks' });
     expect(view.queryByText('Verified', { exact: true })).toBeNull();
     expect(draftConfiguration(view.container)).toEqual(before);
@@ -926,9 +928,9 @@ describe('Structured AI routing', () => {
     api.inventory.mockImplementation(async (route: string) => singleInventory(route));
     api.discover.mockResolvedValueOnce(report);
     const view = mount(); await ready(view); await verifyProfile(view);
-    expect(await view.findByRole('cell', { name: cell })).toBeVisible();
-    const details = view.getByText('Technical check details').closest('details')!;
+    const details = (await view.findByText('Technical check details')).closest('details')!;
     await fireEvent.click(within(details).getByText('Technical check details'));
+    expect(await view.findByRole('cell', { name: cell })).toBeVisible();
     expect(within(details).getByText(/Levels: high · Stage: tool-replay/)).toBeVisible();
     expect(within(details).getByText((text) => text.startsWith(message))).toBeVisible();
     expect(view.queryByText('Verified', { exact: true })).toBeNull();
