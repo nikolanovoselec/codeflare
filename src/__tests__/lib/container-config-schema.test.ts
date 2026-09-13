@@ -29,6 +29,14 @@ function validBucketNameBody(): Record<string, unknown> {
 }
 
 describe('CF-046: SetBucketNameBodySchema', () => {
+  it('REQ-ENTERPRISE-083: accepts only bounded distinct opaque cache-capable native handles', () => {
+    const handle = 'cf-native-11111111-1111-4111-8111-111111111111';
+    for (const targets of [[], [handle]]) expect(SetBucketNameBodySchema.safeParse({ ...validBucketNameBody(), promptCacheTargets: targets }).success).toBe(true);
+    for (const targets of [null, {}, ['bedrock_opus'], ['https://arbitrary.invalid'], [handle, handle], [false], Array(65).fill(handle)]) {
+      expect(SetBucketNameBodySchema.safeParse({ ...validBucketNameBody(), promptCacheTargets: targets }).success).toBe(false);
+    }
+  });
+
   it('accepts classic and Herdr terminal modes but rejects unknown values', () => {
     expect(SetBucketNameBodySchema.safeParse({ ...validBucketNameBody(), terminalMode: 'classic' }).success).toBe(true);
     expect(SetBucketNameBodySchema.safeParse({ ...validBucketNameBody(), terminalMode: 'herdr' }).success).toBe(true);

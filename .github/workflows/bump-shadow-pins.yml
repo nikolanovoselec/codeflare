@@ -439,13 +439,12 @@ jobs:
           mv /tmp/herdr-provenance.json image/herdr/provenance.json
           perl -0pi -e 's/herdr \Q$ENV{CUR}\E/herdr $ENV{LAT}/g' \
             image/herdr/codeflare-herdr-terminal host/__tests__/herdr-launcher.test.js
-          perl -0pi -e 's/\Q$ENV{CUR}\E/$ENV{LAT}/g' .github/workflows/container-image.yml
 
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           git config user.name 'github-actions[bot]'
           git checkout -B "$BRANCH"
           git add Dockerfile image/herdr/provenance.json image/herdr/codeflare-herdr-terminal \
-            host/__tests__/herdr-launcher.test.js .github/workflows/container-image.yml
+            host/__tests__/herdr-launcher.test.js
           git commit -m "chore(deps): bump Herdr $CUR to $LAT"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
 

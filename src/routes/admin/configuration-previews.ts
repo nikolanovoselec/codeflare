@@ -11,6 +11,9 @@ import {
   validateConfigurationValues,
 } from '../../lib/admin-configuration';
 import { ADMIN_CONFIGURATION_KEYS } from '../../lib/kv-keys';
+import { createLogger } from '../../lib/logger';
+
+const logger = createLogger('admin-configuration-preview');
 
 const requestSchema = z.object({
   section: z.enum(CONFIGURATION_SECTIONS),
@@ -60,6 +63,10 @@ app.post('/', requireAdmin, async (c) => {
 
   const validation = await validateConfigurationValues(c.env, section, mode, rawValues, c.get('user')?.email);
   if (!validation.values) {
+    logger.warn('Configuration preview validation rejected', {
+      section,
+      fields: validation.fieldErrors ?? {},
+    });
     return c.json({
       error: 'Environment values are invalid',
       code: 'validation_error',

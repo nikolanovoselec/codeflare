@@ -9,7 +9,7 @@
 .admin-connection-status p { margin: var(--space-3) 0 0; line-height: 1.5; }
 .admin-connection-status[data-state="passed"] { border-left-color: var(--color-success); }
 .admin-connection-status[data-state="failed"] { border-left-color: var(--color-error); }
-.admin-routing-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-1); border-bottom: 1px solid var(--color-border-default); }
+.admin-routing-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-1); border-bottom: 1px solid var(--color-border-default); }
 .admin-routing-nav button { min-height: 44px; padding: var(--space-3) var(--space-2); border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--color-text-secondary); font: inherit; font-weight: 600; cursor: pointer; }
 .admin-routing-nav button:hover { color: var(--color-text-primary); background: var(--color-bg-tertiary); }
 .admin-routing-nav button[aria-pressed="true"] { color: var(--color-text-primary); border-bottom-color: var(--color-accent); }
@@ -17,6 +17,9 @@
 .admin-routing-workspace button:focus-visible, .admin-routing-workspace summary:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
 .admin-routing-workspace .admin-field-help { color: var(--color-text-secondary); line-height: 1.5; margin: var(--space-2) 0 var(--space-4); }
 .admin-routing-workspace .admin-route-controls { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--space-4); margin: var(--space-4) 0; }
+.admin-routing-workspace .admin-connection-fields { grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr); }
+.admin-connection-format, .admin-connection-name { grid-column: 1; }
+.admin-connection-url, .admin-connection-token { grid-column: 2; }
 .admin-route-overview { border-top: 1px solid var(--color-border-default); }
 .admin-route-entry { border-bottom: 1px solid var(--color-border-default); min-width: 0; }
 .admin-native-target-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); }
@@ -64,10 +67,36 @@
 .admin-route-action-row > .admin-inline-progress { flex: 1; min-width: 0; }
 .admin-route-action-row > .admin-route-actions { margin-top: 0; margin-left: auto; }
 .admin-profile-editor > .admin-subsection-heading { align-items: center; }
+/* One action/result pair; profile selection is an optional alternative below. */
+.admin-target-discovery { margin-top: var(--space-4); }
+.admin-target-discovery > button, .admin-route-panel .admin-route-actions button { min-height: 44px; }
+.admin-discovery-budget { color: var(--color-text-secondary); font-size: var(--text-sm); line-height: 1.5; }
+.admin-discovery-budget summary, .admin-target-check-result summary, .admin-route-panel > .admin-route-reference > summary { min-height: 44px; align-content: center; cursor: pointer; }
+.admin-target-check-result { min-width: 0; margin-top: var(--space-4); padding: var(--space-4); border: 1px solid var(--color-border-default); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); background: var(--color-bg-base); line-height: 1.5; overflow-wrap: anywhere; }
+.admin-target-check-result[data-state="passed"] { border-left-color: var(--color-success); }
+.admin-target-check-result[data-state="failed"] { border-left-color: var(--color-error); }
+.admin-target-check-result h4 { margin: 0 0 var(--space-2); color: var(--color-text-secondary); font-size: var(--text-sm); font-weight: var(--font-medium); }
+.admin-target-check-result p { margin: var(--space-2) 0; }
+.admin-target-check-result .admin-check-next-step { margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--color-border-subtle); }
+.admin-target-check-result .admin-check-evidence { display: grid; gap: var(--space-3); margin: var(--space-4) 0; }
+.admin-target-check-result .admin-check-evidence > div { display: grid; grid-template-columns: minmax(7rem, 1fr) minmax(0, 3fr); gap: var(--space-3); }
+.admin-target-check-result .admin-check-evidence dt { color: var(--color-text-secondary); }
+.admin-target-check-result .admin-check-evidence dd { margin: 0; min-width: 0; }
+.admin-capability-mappings { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.admin-capability-mappings li { display: grid; gap: var(--space-1); }
+.admin-capability-mappings strong { font-size: var(--text-sm); font-weight: var(--font-medium); }
+.admin-target-check-result .admin-technical-details { margin: var(--space-3) 0 0; }
+.admin-target-check-result .admin-technical-details ul { padding-left: var(--space-4); }
+.admin-target-check-result .admin-technical-details li + li { margin-top: var(--space-3); }
 @media (max-width: 640px) {
+  .admin-target-discovery > button, .admin-route-panel .admin-route-actions, .admin-route-panel .admin-route-actions button { width: 100%; }
+  .admin-route-panel .admin-route-actions { flex-direction: column; align-items: stretch; }
+  .admin-target-check-result .admin-check-evidence > div { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+  .admin-routing-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-route-action-row { flex-direction: column; align-items: stretch; }
   .admin-route-action-row > .admin-route-actions { margin-left: 0; }
   .admin-routing-workspace .admin-route-controls { grid-template-columns: minmax(0, 1fr); }
+  .admin-connection-format, .admin-connection-name, .admin-connection-url, .admin-connection-token { grid-column: 1; }
   .admin-native-target-heading { grid-template-columns: minmax(0, 1fr); gap: 0; padding-bottom: var(--space-2); }
   .admin-native-target-heading > .admin-link-button { justify-self: start; margin: 0 0 0 var(--space-2); }
   .admin-route-toggle { grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); }

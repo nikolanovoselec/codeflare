@@ -125,12 +125,12 @@ const TIER_ORDER = ['free', 'standard', 'advanced', 'max', 'unlimited'] as const
 
 /** Standard mode features for mode card */
 const STANDARD_MODE_FEATURES: Array<{ icon: string; text: string | (() => JSX.Element) }> = [
-  { icon: mdiRobotOutline, text: 'Choose your agent — or just use Bash' },
+  { icon: mdiRobotOutline, text: 'Choose your agent or just use Bash' },
   { icon: mdiConsole, text: 'Full Linux terminal per session' },
   { icon: mdiSync, text: 'Persistent storage with auto-sync' },
   { icon: mdiSourceBranch, text: () => <><span style={{ color: 'var(--color-brand-github)' }}>GitHub</span> & <span style={{ color: 'var(--color-brand-cloud)' }}>Cloudflare</span> built in</> },
   { icon: mdiLightningBolt, text: 'Specialized skills to build & deploy' },
-  { icon: mdiMicrophonePlus, text: 'Voice input — talk to your terminal' },
+  { icon: mdiMicrophonePlus, text: 'Talk to your terminal with voice input' },
   { icon: mdiFileDocumentOutline, text: 'One click to start, zero to configure' },
 ];
 
@@ -561,7 +561,7 @@ const SubscribePage: Component = () => {
           <div class="subscribe-loading">
             {checkoutPolling() ? (
               <>
-                <p><ScrambleText text="Activating your subscription — this may take a minute..." /></p>
+                <p><ScrambleText text="Activating your subscription. This may take a minute..." /></p>
                 <Show when={showReportButton()}>
                   <a
                     href={`mailto:hello@graymatter.ch?subject=${encodeURIComponent('Subscription problem')}&body=${encodeURIComponent(`Hi,\n\nI completed a Stripe checkout but my subscription hasn't activated yet.\n\nEmail: ${userEmail()}\nDate: ${new Date().toISOString()}\n\nPlease help.\n`)}`}

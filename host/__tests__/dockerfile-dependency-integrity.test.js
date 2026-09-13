@@ -46,6 +46,13 @@ function versionsOf(lockfile, dependency) {
     .filter(Boolean);
 }
 
+function versionsWithPrefix(lockfile, dependencyPrefix) {
+  return Object.entries(lockfile.packages)
+    .filter(([path]) => path.slice(path.lastIndexOf('node_modules/') + 13).startsWith(dependencyPrefix))
+    .map(([, metadata]) => metadata.version)
+    .filter(Boolean);
+}
+
 function assertCompleteIntegrityTree(lockfile) {
   for (const [path, metadata] of Object.entries(lockfile.packages)) {
     if (!path || metadata.link) continue;
@@ -217,7 +224,14 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
       const versions = versionsOf(lockfile, 'undici');
       assert.ok(versions.length > 0, 'undici must be represented in each 7.x runtime lock');
       assert.ok(versions.every((version) => atLeast(version, '7.29.0')));
+      const sharpVersions = versionsOf(lockfile, 'sharp');
+      assert.ok(sharpVersions.length > 0, 'sharp must be represented in each affected lock');
+      assert.ok(sharpVersions.every((version) => atLeast(version, '0.35.4')));
+      const libvipsVersions = versionsWithPrefix(lockfile, '@img/sharp-libvips-');
+      assert.ok(libvipsVersions.length > 0, 'sharp libvips platform packages must be represented in each affected lock');
+      assert.ok(libvipsVersions.every((version) => atLeast(version, '1.3.3')));
     }
+    assert.ok(atLeast(rootLock.packages['node_modules/@emnapi/runtime'].version, '1.11.3'), 'sharp wasm runtime must satisfy the committed sharp tree');
 
     for (const lockfile of [rootLock, browserRunLock, npmToolsLock, piLock]) {
       const versions = versionsOf(lockfile, 'hono');

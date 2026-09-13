@@ -1,4 +1,11 @@
 import { z } from 'zod';
+import { parseCapabilitySummary } from '../../../src/lib/ai-capability-discovery/contract';
+
+// REQ-ENTERPRISE-074: one strict shared decoder for current and historical evidence.
+export const CapabilitySummarySchema = z.unknown().transform((value, context) => {
+  try { return parseCapabilitySummary(value); }
+  catch { context.addIssue({ code: 'custom', message: 'Invalid capability evidence' }); return z.NEVER; }
+});
 
 // Agent type enum
 export const AgentTypeSchema = z.enum(['claude-code', 'codex', 'copilot', 'antigravity', 'opencode', 'pi', 'bash']);
@@ -71,6 +78,12 @@ export const ReasoningCatalogSchema = z.object({
   routeCatalogStatus: z.enum(['ready', 'unavailable']),
   providers: z.array(z.object({ provider: z.string(), label: z.string(), configured: z.boolean(), defaultSelection: z.boolean(), supported: z.boolean(), custom: z.boolean().optional() })).optional(),
   providerCatalogStatus: z.enum(['ready', 'unavailable']).optional(),
+  reconciliation: z.object({
+    status: z.enum(['unchanged', 'applied']),
+    removedDynamicRoutes: z.array(z.string().min(1)),
+    removedNativeTargetIds: z.array(z.string().uuid()),
+    revision: z.number().int().nonnegative(),
+  }).optional(),
   connection: z.object({ status: z.enum(['ready', 'missing', 'permission-denied', 'unavailable']), message: z.string() }).optional(),
 });
 
@@ -84,7 +97,7 @@ const ReasoningRouteLegSchema = z.object({
   paths: z.array(z.string()).optional(),
 }).passthrough();
 
-const ReasoningRouteVerificationSchema = z.object({
+export const ReasoningRouteVerificationSchema = z.object({
   schemaVersion: z.literal(1),
   method: z.literal('administrator').optional(),
   profileRef: ProfileRevisionRefSchema,
@@ -95,6 +108,7 @@ const ReasoningRouteVerificationSchema = z.object({
   supportedLevels: z.array(PiReasoningLevelSchema),
   scope: z.enum(['single-model', 'observed-path']),
   checkedAt: z.string(),
+  capabilities: CapabilitySummarySchema.optional(),
 });
 
 export const ReasoningRouteInventorySchema = z.object({
@@ -113,7 +127,23 @@ export const ReasoningRouteInventorySchema = z.object({
   warnings: z.array(z.string()).optional(),
 }).passthrough();
 
+// Public diagnostic projection: never carry raw provider bodies or replay state.
+export const ReasoningDiscoveryDiagnosticSchema = z.object({
+  levels: z.array(PiReasoningLevelSchema).max(7),
+  stage: z.enum(['reasoning', 'tool-call', 'tool-replay', 'final-response', 'cache-fill', 'cache-read', 'branch-correlation']),
+  code: z.string().regex(/^[a-z0-9_]{1,64}$/),
+  status: z.number().int().min(100).max(599).optional(),
+  transport: z.enum(['rest', 'compat', 'bedrock-invoke', 'bedrock-eventstream']).optional(),
+  providerCode: z.union([z.string().regex(/^[A-Za-z0-9._-]{1,64}$/), z.number().finite()]).optional(),
+  providerType: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/).optional(),
+  effectiveFinishReason: z.enum(['stop', 'length', 'tool_calls', 'content_filter', 'function_call']).optional(),
+  cacheWriteTokens: z.number().int().nonnegative().optional(),
+  cacheReadTokens: z.number().int().nonnegative().optional(),
+  cacheReadAttempted: z.boolean().optional(),
+});
+
 export const ReasoningDiscoveryResultSchema = z.object({
+  capabilitySummary: CapabilitySummarySchema.optional(),
   checkId: z.string().optional(),
   verification: ReasoningRouteVerificationSchema.optional(),
   classification: z.string(),
@@ -302,6 +332,7 @@ export const BatchSessionStatusResponseSchema = z.object({
     tier: z.string(),
   }).optional(),
   preseedNeedsUpgrade: z.boolean().optional(),
+  preseedUpgradeTarget: z.string().min(1).optional(),
   managedReleaseStatus: z.enum(['current', 'upgrading', 'update_pending']).optional(),
   managedReleaseProgress: z.object({
     phase: z.enum(['planning', 'writing', 'finalizing']),

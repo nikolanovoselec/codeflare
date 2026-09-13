@@ -31,6 +31,23 @@ function standalone() {
 }
 
 describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
+  it('REQ-ENTERPRISE-045: does not render an empty level-check table for provider-default reasoning', () => {
+    const view = render(() => <ReasoningCheckOverview result={{ classification: 'Verified', assignable: true }} levels={[]} />);
+    expect(view.getByText('Provider default')).toBeVisible();
+    expect(view.queryByRole('table')).toBeNull();
+    expect(view.queryByText(/Off disabled/)).toBeNull();
+    expect(view.queryByText('Passed')).toBeNull();
+  });
+  it('REQ-ENTERPRISE-045: shows a matched empty level set as Provider default and preserves its assignment', async () => {
+    const profileRef = { id: 'dynamic-bedrock-anthropic-provider-default', revision: 1, hash: 'b'.repeat(64) };
+    discoverMock.mockResolvedValueOnce({ classification: 'Verified', assignable: true, outcome: 'existing-profile', matchedProfiles: [{ name: 'AWS Bedrock Dynamic Route Anthropic Claude', profileRef, supportedLevels: [] }] });
+    const view = standalone();
+    const assign = await view.findByRole('button', { name: 'Assign profile' });
+    expect(view.getByText('Supported levels: Provider default')).toBeVisible();
+    expect(view.queryByText(/Not reported/)).toBeNull();
+    await fireEvent.click(assign);
+    expect(view.onSelectProfile).toHaveBeenCalledExactlyOnceWith(profileRef);
+  });
   it('REQ-ENTERPRISE-035: offers completed matches with a rate-limit notice without retrying', async () => {
     const profileRef = { id: 'workers-ai-glm-thinking', revision: 1, hash: 'a'.repeat(64) };
     discoverMock.mockResolvedValueOnce({ classification: 'Verified', assignable: true, outcome: 'existing-profile', matchedProfiles: [{ name: 'GLM thinking', profileRef, supportedLevels: ['off', 'medium'] }], diagnostics: [{ code: 'request_rejected', status: 429, stage: 'reasoning', levels: ['high'] }] });
@@ -42,12 +59,11 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     expect(discoverMock).toHaveBeenCalledTimes(1);
     expect(view.onSave).not.toHaveBeenCalled();
   });
-  it('REQ-ENTERPRISE-045: matched predefined profiles identify their tested provider without changing the selected ref', async () => {
+  it('REQ-ENTERPRISE-045: matched predefined profiles preserve the exact selected reference', async () => {
     const profileRef = { id: 'codeflare-inference-mesh-binary-thinking', revision: 1, hash: 'a'.repeat(64) };
     discoverMock.mockResolvedValueOnce({ classification: 'Verified', assignable: true, outcome: 'existing-profile', matchedProfiles: [{ name: 'Mesh binary thinking', profileRef, supportedLevels: ['off', 'medium'] }] });
     const view = standalone();
     const assign = await view.findByRole('button', { name: 'Assign profile' });
-    expect(assign).toHaveAccessibleDescription('Codeflare Inference Mesh · Qwen / Ornith');
     await fireEvent.click(assign);
     expect(view.onSelectProfile).toHaveBeenCalledExactlyOnceWith(profileRef);
   });
@@ -64,6 +80,7 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     const view = render(() => <form onSubmit={submit}><EnvironmentAreaFields section="aiRouting" mode="enterprise" current={current} /></form>);
     await waitFor(() => expect((view.getByLabelText('mesh Pi compatibility profile') as HTMLSelectElement).options.length).toBe(2));
     await fireEvent.click(view.getByRole('button', { name: 'Configure mesh' }));
+    await fireEvent.click(within(view.getByRole('article', { name: 'mesh route' })).getByText(/Advanced: choose a profile/i));
     await fireEvent.click(view.getByRole('button', { name: 'Discover Profile for mesh' }));
     await view.findByText('Create a custom Pi profile');
     expect(discoverMock).toHaveBeenCalledExactlyOnceWith({ route: 'mesh', maxCompletionTokens: 4096 });
@@ -159,6 +176,42 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     expect(view.container).not.toHaveTextContent('PRIVATE');
     expect(view.container.querySelector('textarea, pre')).toBeNull();
   });
+  it.each([
+    {
+      code: 'provider_refusal', stage: 'cache-fill',
+      diagnostic: { status: 200, effectiveFinishReason: 'content_filter', cacheWriteTokens: 29779, cacheReadTokens: 0, cacheReadAttempted: false },
+      messages: [/provider.*refus|refus.*provider/i, /cache[- ]fill/i, /29,?779/, /cache[- ]read.*(?:not (?:attempted|run)|never)|(?:not (?:attempted|run)|never).*cache[- ]read/i],
+      misleading: /cach(?:e|ing).*(?:not supported|unsupported)|(?:not supported|unsupported).*cach(?:e|ing)/i,
+    },
+    {
+      code: 'cache_reuse_unobserved', stage: 'cache-read', diagnostic: {},
+      messages: [/cache reuse/i, /not observed|no .*reuse|neither/i, /Gateway HIT/i, /provider.*(?:cache[- ]read|prefix[- ]read)/i],
+      misleading: /connection failed|caching (?:is )?unsupported/i,
+    },
+    {
+      code: 'unexpected_response_format', stage: 'tool-call', diagnostic: { status: 200 },
+      messages: [/(?:unexpected|wrong|incompatible).*response (?:format|envelope)|response (?:format|envelope).*(?:unexpected|wrong|incompatible)/i],
+      misleading: /connection failed|check (?:the )?AI Gateway (?:connection|before retrying)/i,
+    },
+  ])('REQ-ENTERPRISE-035: Advanced discovery explains $code and leaves the route unassignable', async ({ code, stage, diagnostic, messages, misleading }) => {
+    // Synthetic allowlisted incident projection; no provider body or positive read is invented.
+    discoverMock.mockResolvedValueOnce({ classification: 'Inconclusive', assignable: false,
+      profileDraft: discoveredDraft, diagnostics: [{ levels: [], stage, code, ...diagnostic, body: 'PRIVATE PROVIDER BODY' }] });
+    // Exercise the existing matcher directly so RED identifies the diagnostic,
+    // independently of the new route-panel/disclosure structure.
+    const view = standalone();
+    const editor = await view.findByRole('region', { name: 'Discover compatibility for mesh' });
+    const alert = await within(editor).findByRole('alert');
+    for (const message of messages) expect(alert).toHaveTextContent(message);
+    expect(alert).toBeVisible();
+    expect(alert).not.toHaveTextContent(misleading);
+    expect(editor).not.toHaveTextContent('PRIVATE');
+    expect(within(editor).queryByRole('button', { name: /Create.*Assign|^Assign profile$/i })).toBeNull();
+    expect(view.onSave).not.toHaveBeenCalled();
+    expect(view.onSelectProfile).not.toHaveBeenCalled();
+    expect(discoverMock).toHaveBeenCalledTimes(1);
+  });
+
   it('prioritizes fatal gateway failure over earlier budget exhaustion', () => {
     expect(reasoningCheckSummary({ classification: 'Inconclusive', diagnostics: [{ levels: ['high'], stage: 'tool-call', code: 'completion_limit' }, { levels: ['off'], stage: 'reasoning', code: 'request_rejected', status: 401 }] })).toMatch(/401/);
   });
@@ -184,8 +237,10 @@ describe('REQ-ENTERPRISE-035/036 route-scoped profile discovery', () => {
     const view = render(() => <EnvironmentAreaFields section="aiRouting" mode="enterprise" current={{ ...current, dynamicRoutes: ['mesh', 'retired'] }} />);
     await waitFor(() => expect((view.getByLabelText('mesh Pi compatibility profile') as HTMLSelectElement).options.length).toBe(2));
     await fireEvent.click(view.getByRole('button', { name: 'Configure mesh' }));
+    await fireEvent.click(within(view.getByRole('article', { name: 'mesh route' })).getByText(/Advanced: choose a profile/i));
     expect(view.getByRole('button', { name: 'Discover Profile for mesh' })).toBeEnabled();
     await fireEvent.click(view.getByRole('button', { name: 'Configure retired' }));
+    await fireEvent.click(within(view.getByRole('article', { name: 'retired route' })).getByText(/Advanced: choose a profile/i));
     expect(view.getByRole('button', { name: 'Discover Profile for retired' })).toBeDisabled();
     expect(discoverMock).not.toHaveBeenCalled();
   });

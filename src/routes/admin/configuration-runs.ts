@@ -8,6 +8,7 @@ import {
   buildConfigurationPreview,
   executeConfigurationTask,
   parseConfigurationRevision,
+  persistAiRoutingSettings,
   resolveAdministrationMode,
   validateConfigurationValues,
   type ConfigurationSection,
@@ -19,6 +20,11 @@ import {
   getAdminConfigurationRunKey,
   listAllKvKeys,
 } from '../../lib/kv-keys';
+
+import { AppError } from '../../lib/error-types';
+import { resolveGatewayConnection } from '../../lib/ai-gateway-management';
+import { connectionFingerprint } from '../../lib/reasoning-verification';
+import { prepareSavedRoutingReconciliation } from '../../lib/live-routing-reconciliation';
 
 const RUN_TTL_SECONDS = 90 * 24 * 60 * 60;
 const LEASE_MS = 15 * 60 * 1_000;
@@ -156,6 +162,83 @@ async function releaseAdmission(kv: KVNamespace, runId: string): Promise<void> {
   if (pointer?.runId === runId) await kv.delete(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN);
 }
 
+class RoutingReconciliationError extends AppError {
+  constructor(code: string, status: number, message: string, private readonly details: Record<string, unknown> = {}) {
+    super(code, status, message);
+  }
+  override toJSON() { return { ...super.toJSON(), ...this.details }; }
+}
+
+async function checkReconciliationRevisionAndSetup(env: Env, baseRevision: number): Promise<void> {
+  const currentRevision = parseConfigurationRevision(await env.KV.get(ADMIN_CONFIGURATION_KEYS.REVISION));
+  if (currentRevision !== baseRevision) throw new RoutingReconciliationError(
+    'configuration_revision_conflict', 409, 'Environment settings changed', { currentRevision });
+  const setupLock = await env.KV.get(SETUP_KEYS.CONFIGURING);
+  const setupStartedAt = setupLock ? Number(setupLock) : NaN;
+  if (Number.isFinite(setupStartedAt) && Date.now() - setupStartedAt < 60_000) {
+    throw new RoutingReconciliationError('setup_configuration_active', 409, 'Setup configuration is active');
+  }
+}
+
+/** REQ-SETUP-018: catalog cleanup uses the incumbent revision, admission and Activity owner. */
+export async function reconcileSavedAiRoutingConfiguration(env: Env, initiatedBy: string, baseRevision: number) {
+  const mode = resolveAdministrationMode(env);
+  if (!applicableConfigurationSections(mode).includes('aiRouting')) throw new RoutingReconciliationError(
+    'configuration_section_not_applicable', 400, 'Environment area does not apply to this deployment mode', { section: 'aiRouting', mode });
+  await checkReconciliationRevisionAndSetup(env, baseRevision);
+  const existing = parseObject<ActiveRunPointer>(await env.KV.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN));
+  if (existing) {
+    if (Date.parse(existing.expiresAt) > Date.now()) throw new RoutingReconciliationError(
+      'configuration_run_active', 409, 'Another settings change is active', { activeRunId: existing.runId });
+    await recoverInterruptedRun(env.KV, existing);
+    await env.KV.delete(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN);
+  }
+  const createdAt = new Date().toISOString();
+  let run: ConfigurationRun = {
+    version: 1, runId: createRunId(), section: 'aiRouting', baseRevision, initiatedBy, state: 'running',
+    tasks: [{ id: 'configure_model_routing', state: 'running', startedAt: createdAt }], createdAt, updatedAt: createdAt,
+  };
+  try {
+    await heartbeat(env.KV, run.runId);
+    await persistRun(env.KV, run);
+    const plan = await prepareSavedRoutingReconciliation(env);
+    // Management reads are not authority to write after a concurrent settings change.
+    const currentGateway = await resolveGatewayConnection(env);
+    if (connectionFingerprint(currentGateway) !== plan.fingerprint) throw new RoutingReconciliationError(
+      'configuration_connection_conflict', 409, 'Saved AI Gateway connection changed');
+    await checkReconciliationRevisionAndSetup(env, baseRevision);
+    const owner = parseObject<ActiveRunPointer>(await env.KV.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN));
+    if (owner?.runId !== run.runId || !(Date.parse(owner.expiresAt) > Date.now())) throw new RoutingReconciliationError(
+      'configuration_run_active', 409, 'Settings change admission changed', { activeRunId: owner?.runId });
+    const applied = plan.writes.length > 0;
+    const revision = applied ? baseRevision + 1 : baseRevision;
+    if (applied) {
+      await persistAiRoutingSettings(env.KV, plan.writes);
+      await env.KV.put(ADMIN_CONFIGURATION_KEYS.REVISION, String(revision));
+    }
+    const completedAt = new Date().toISOString();
+    run = { ...run, state: 'succeeded', resultingRevision: revision, updatedAt: completedAt, completedAt,
+      tasks: run.tasks.map((task) => ({ ...task, state: 'succeeded', completedAt })) };
+    await persistTerminal(env.KV, run);
+    return { inventory: plan.inventory, reconciliation: {
+      status: applied ? 'applied' as const : 'unchanged' as const, revision,
+      removedDynamicRoutes: applied ? plan.removedDynamicRoutes : [], removedNativeTargetIds: applied ? plan.removedNativeTargetIds : [],
+    } };
+  } catch (cause) {
+    const failure = cause instanceof RoutingReconciliationError ? cause : new RoutingReconciliationError(
+      'configuration_task_failed', 503, 'Saved routing reconciliation failed. Reload Environment settings before retrying.');
+    const completedAt = new Date().toISOString();
+    const error: RunError = { code: failure.code, message: failure.message, retryable: true,
+      operatorAction: 'Reload Environment settings and review the current state before retrying.' };
+    run = { ...run, state: 'failed', updatedAt: completedAt, completedAt, error,
+      tasks: run.tasks.map((task) => ({ ...task, state: 'failed', completedAt, error })) };
+    await persistTerminal(env.KV, run).catch(() => {});
+    throw failure;
+  } finally {
+    await releaseAdmission(env.KV, run.runId).catch(() => {});
+  }
+}
+
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authMiddleware);
 
@@ -209,6 +292,13 @@ app.post('/', requireAdmin, async (c) => {
     return c.json({ error: 'Environment values are invalid', code: 'validation_error', fields: validation.fieldErrors ?? {} }, 400);
   }
 
+  const values = validation.values;
+  const aiPreview = section === 'aiRouting'
+    ? await buildConfigurationPreview(c.env, section, mode, baseRevision, currentRevision, values) : undefined;
+  if (aiPreview && aiPreview.changes.length === 0) {
+    return c.json({ error: 'No configuration changes to save', code: 'configuration_no_changes' }, 409);
+  }
+
   const setupLock = await c.env.KV.get(SETUP_KEYS.CONFIGURING);
   const setupStartedAt = setupLock ? Number(setupLock) : NaN;
   if (Number.isFinite(setupStartedAt) && Date.now() - setupStartedAt < 60_000) {
@@ -224,8 +314,7 @@ app.post('/', requireAdmin, async (c) => {
     await c.env.KV.delete(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN);
   }
 
-  const values = validation.values;
-  const preview = await buildConfigurationPreview(c.env, section, mode, baseRevision, currentRevision, values);
+  const preview = aiPreview ?? await buildConfigurationPreview(c.env, section, mode, baseRevision, currentRevision, values);
   const requiredWarningCodes = preview.warnings.map((warning) => warning.code);
   if (requiredWarningCodes.some((code) => !confirmedWarnings.includes(code))) {
     return c.json({

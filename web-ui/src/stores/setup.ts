@@ -491,7 +491,7 @@ async function configure(): Promise<boolean> {
 
     // Detect CF Access auth redirects
     if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
-      setState({ configureError: 'Authentication redirect detected — session may have expired' });
+      setState({ configureError: 'Authentication redirect detected. Your session may have expired.' });
       return false;
     }
 

@@ -3,8 +3,12 @@
 // SHA-256 f0f68dbb8415d5aaccf2d3b03002153be2dbbdb61bde3c209384d687dc5a2985
 // Its validation fixture is SHA-256 a5ccaea163d5920eb2ece172b8b7048751a383467272ad704c39bdabc0a0405b.
 
-import { validateRequestPath } from './reasoning-profiles';
+import { getBuiltInProfile, validateRequestPath } from './reasoning-profiles';
+import type { CapabilityMapping, CapabilitySummaryV2 } from './ai-capability-discovery/contract';
 import { repairRepeatedCompleteToolNames } from './openai-sse-tool-name-repair';
+import { adaptBedrockAnthropicResponse, bedrockAnthropicGatewayPath, buildBedrockAnthropicRequest, selectBedrockAnthropicTransport, type BedrockReplayState, type BedrockThinkingObservation } from './bedrock-anthropic-native-adapter';
+import { bedrockAnthropicCandidate } from './native-ai-target-draft';
+import { compatibilityRequest, compatibilityResponse, type CompatibilityWire } from './ai-capability-discovery/compatibility-wire';
 
 export const PI_WIRE_CANARY_VERSION = 'pi-openai-completions-0.84.4-canary-v1';
 
@@ -52,6 +56,7 @@ interface DiscoveryProfile {
   reasoningMode: 'pi-levels' | 'provider-default';
   supportedLevels: ReasoningLevel[];
   levels: Partial<Record<ReasoningLevel, SemanticMapping>>;
+  compatibility?: CompatibilityWire;
 }
 
 interface DiscoveryEndpoint {
@@ -74,6 +79,15 @@ export interface DiscoveryInput {
   maxResponseBytes?: number;
   compatOnly?: boolean;
   byokAlias?: string;
+  // Trusted server-selected coordinates, never browser-provided URLs/headers.
+  native?: { model: string; region: string; transport: 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto' };
+  /** Collect independent capability evidence, including an optional cache pair.
+   * Historical name retained for callers; cache reuse does not gate activation. */
+  requireCacheEvidence?: boolean;
+  /** Multi-backend inventory requires response identities for lifecycle qualification. */
+  requireBackendIdentity?: boolean;
+  /** Trusted campaign deadline. Legacy single-profile checks omit it. */
+  campaignDeadline?: number;
 }
 
 export interface ParsedPiSse {
@@ -88,6 +102,8 @@ export interface ParsedPiSse {
   usage: Record<string, unknown> | null;
   eventCount: number;
   malformedEvents: number;
+  publicDeltaTimes?: number[];
+  eofTime?: number;
 }
 
 interface ChatCompletionsAttemptInput {
@@ -101,12 +117,17 @@ interface ChatCompletionsAttemptInput {
   maxResponseBytes?: number;
   compatOnly?: boolean;
   byokAlias?: string;
+  native?: DiscoveryInput['native'];
+  replayState?: BedrockReplayState;
+  compatibility?: CompatibilityWire;
+  campaignDeadline?: number;
 }
 
 interface ChatCompletionsAttempt {
   response: Response;
   attempts: number;
-  transport: 'rest' | 'compat';
+  transport: 'rest' | 'compat' | 'bedrock-invoke' | 'bedrock-eventstream';
+  nativeObservation?: { value?: BedrockThinkingObservation };
 }
 
 function clone<T>(value: T): T {
@@ -246,7 +267,10 @@ function normalizeProfile(raw: unknown): DiscoveryProfile {
     if (!(level in rawLevels)) throw new TypeError(`Missing mapping for level: ${level}`);
     levels[level] = normalizeLevelMapping(rawLevels[level], profileRemovePaths);
   }
-  return { id: raw.id, reasoningMode, supportedLevels, levels };
+  const compatibility = isPlainObject(raw.compatibility) ? raw.compatibility as CompatibilityWire : undefined;
+  if (compatibility && (!['stream', 'buffered'].includes(compatibility.response)
+    || !['strict', 'repeated-complete'].includes(compatibility.toolNames))) throw new TypeError('Unsupported compatibility contract');
+  return { id: raw.id, reasoningMode, supportedLevels, levels, compatibility };
 }
 
 function normalizeStandaloneMapping(raw: unknown): SemanticMapping {
@@ -301,6 +325,22 @@ function validateInput(input: DiscoveryInput): { profile: DiscoveryProfile; offC
   if (typeof input.apiToken !== 'string' || input.apiToken.length < 8) throw new TypeError('Worker-side API token is required');
 
   const profile = normalizeProfile(input.profile);
+  if (input.native) {
+    if (input.route !== `aws-bedrock/${input.native.model}` || !bedrockAnthropicCandidate(input.native.model)
+      || !['aig-bedrock-anthropic-auto', 'aig-bedrock-anthropic-invoke', 'aig-bedrock-anthropic-eventstream'].includes(input.native.transport)) {
+      throw new TypeError('Native discovery requires the selected Anthropic contract');
+    }
+    bedrockAnthropicGatewayPath(input.native.region, input.native.model, 'invoke');
+    const audited = normalizeProfile(getBuiltInProfile('bedrock-anthropic-native-opus-auto'));
+    const canonical = (semantic: SemanticMapping) => stableStringify({ mapping: semantic.mapping, removePaths: [...new Set(semantic.removePaths)].sort() });
+    if (profile.compatibility || input.offCandidateMapping !== undefined
+      || (profile.reasoningMode === 'provider-default'
+        ? profile.supportedLevels.length !== 0 || stableStringify(input.profile && (input.profile as PlainObject).levels) !== '{}'
+        : profile.supportedLevels.some((level) => canonical(profile.levels[level]!) !== canonical(audited.levels[level]!)))) {
+      throw new TypeError('Native discovery permits only audited disabled/adaptive mappings');
+    }
+  }
+  if (input.requireCacheEvidence && groupMappings(profile).length !== 1) throw new TypeError('Capability certification requires one exact executable mapping');
   const offCandidate = input.offCandidateMapping === undefined ? undefined : normalizeStandaloneMapping(input.offCandidateMapping);
   const groups = groupMappings(profile);
   const reasoningProbeCount = groups.length + (offCandidate ? 1 : 0);
@@ -457,6 +497,14 @@ async function parsePiSseStream(stream: ReadableStream<Uint8Array> | null, maxBy
   let buffer = '';
   let bytes = 0;
   const state = newParsedState();
+  const start = performance.now();
+  state.publicDeltaTimes = [];
+  const consume = (payload: string) => {
+    const length = state.content.length;
+    consumeSseData(payload, state);
+    if (state.content.length > length) state.publicDeltaTimes!.push(performance.now() - start);
+  };
+  try {
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -471,13 +519,20 @@ async function parsePiSseStream(stream: ReadableStream<Uint8Array> | null, maxBy
       const line = buffer.slice(0, newline).replace(/\r$/, '');
       buffer = buffer.slice(newline + 1);
       const trimmed = line.trimStart();
-      if (trimmed.startsWith('data:')) consumeSseData(trimmed.slice(trimmed.indexOf(':') + 1).trim(), state);
+      if (trimmed.startsWith('data:')) consume(trimmed.slice(trimmed.indexOf(':') + 1).trim());
     }
   }
   buffer += decoder.decode();
   const trimmed = buffer.trimStart();
-  if (trimmed.startsWith('data:')) consumeSseData(trimmed.slice(trimmed.indexOf(':') + 1).trim(), state);
+  if (trimmed.startsWith('data:')) consume(trimmed.slice(trimmed.indexOf(':') + 1).trim());
+  state.eofTime = performance.now() - start;
   return finishParsedSse(state);
+  } finally {
+    // Cancellation also releases a timed-out/malformed provider stream. Never
+    // leave an unread paid response running after a failed certification.
+    void reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }
 
 function parsedToolArguments(call: ParsedPiSse['toolCalls'][number]): { value: 'ok' } {
@@ -519,17 +574,16 @@ async function readBoundedText(response: Response, maxBytes: number): Promise<st
   const decoder = new TextDecoder();
   let result = '';
   let bytes = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    bytes += value.byteLength;
-    if (bytes > maxBytes) {
-      await reader.cancel('response too large');
-      throw new Error('response_too_large');
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) throw new Error('response_too_large');
+      result += decoder.decode(value, { stream: true });
     }
-    result += decoder.decode(value, { stream: true });
-  }
-  return result + decoder.decode();
+    return result + decoder.decode();
+  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 
 function sanitizedError(status: number | null, text: string, codeOverride?: string): {
@@ -557,7 +611,8 @@ function sanitizedError(status: number | null, text: string, codeOverride?: stri
 }
 
 class DiscoveryAttemptError extends Error {
-  constructor(public readonly kind: 'timeout' | 'transport_error' | 'response_too_large', public readonly attempts: number) {
+  constructor(public readonly kind: 'timeout' | 'transport_error' | 'response_too_large' | 'unexpected_response_format', public readonly attempts: number,
+    public readonly status: number | null = null, public readonly transport: string | null = null) {
     super(kind);
   }
 }
@@ -565,12 +620,20 @@ class DiscoveryAttemptError extends Error {
 async function fetchWithTimeout(fetcher: typeof fetch, url: string, init: RequestInit, timeoutMs: number, attempt: number): Promise<Response> {
   const controller = new AbortController();
   let expireBody: (() => void) | undefined;
+  let expireHeaders: ((error: Error) => void) | undefined;
+  const acquisitionDeadline = new Promise<never>((_, reject) => { expireHeaders = reject; });
   const timeout = setTimeout(() => {
     controller.abort('discovery timeout');
     expireBody?.();
+    expireHeaders?.(new DiscoveryAttemptError('timeout', attempt));
   }, timeoutMs);
   try {
-    const response = await fetcher(url, { ...init, signal: controller.signal, redirect: 'manual' });
+    const pending = fetcher(url, { ...init, signal: controller.signal, redirect: 'manual' });
+    // AbortSignal alone does not bound response acquisition when an upstream
+    // implementation ignores it. Dispose a late body without another request.
+    void pending.then((late) => { if (controller.signal.aborted) void late.body?.cancel().catch(() => {}); }, () => {});
+    const response = await Promise.race([pending, acquisitionDeadline]);
+    expireHeaders = undefined;
     if (controller.signal.aborted) throw new DiscoveryAttemptError('timeout', attempt);
     if (!response.body) {
       clearTimeout(timeout);
@@ -578,6 +641,7 @@ async function fetchWithTimeout(fetcher: typeof fetch, url: string, init: Reques
     }
     const reader = response.body.getReader();
     let settled = false;
+    let responseBytes = 0;
     const settle = () => { settled = true; clearTimeout(timeout); };
     // Keep the original attempt deadline until EOF or cancellation, including
     // error/404 bodies. Error the consumer even if upstream ignores abort.
@@ -599,6 +663,13 @@ async function fetchWithTimeout(fetcher: typeof fetch, url: string, init: Reques
             reader.releaseLock();
             streamController.close();
           } else {
+            responseBytes += value.byteLength;
+            if (responseBytes > DEFAULT_MAX_RESPONSE_BYTES) {
+              settle();
+              streamController.error(new DiscoveryAttemptError('response_too_large', attempt));
+              void reader.cancel('response too large').catch(() => {});
+              return;
+            }
             streamController.enqueue(value);
           }
         } catch (error) {
@@ -626,6 +697,22 @@ async function fetchWithTimeout(fetcher: typeof fetch, url: string, init: Reques
  * prompt_cache_key from the replayed request.
  */
 async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInput): Promise<ChatCompletionsAttempt> {
+  const remaining = input.campaignDeadline === undefined ? DEFAULT_TIMEOUT_MS : input.campaignDeadline - Date.now();
+  if (remaining <= 0) throw new DiscoveryAttemptError('timeout', 0);
+  const attempt = await requestUnadaptedCompletions({ ...input, timeoutMs: Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, remaining), body: compatibilityRequest(input.body, input.compatibility) });
+  try {
+    return { ...attempt, response: await compatibilityResponse(attempt.response, input.compatibility, input.body.stream === true) };
+  } catch (error) {
+    // The buffered boundary received HTTP successfully but rejected its envelope.
+    // Preserve that distinction without exposing the body or adapting another protocol.
+    if (error instanceof Error && error.message === 'compatibility_not_openai_chat') {
+      throw new DiscoveryAttemptError('unexpected_response_format', attempt.attempts, attempt.response.status, attempt.transport);
+    }
+    throw error;
+  }
+}
+
+async function requestUnadaptedCompletions(input: ChatCompletionsAttemptInput): Promise<ChatCompletionsAttempt> {
   const fetcher = input.fetcher ?? fetch;
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxResponseBytes = input.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
@@ -634,13 +721,34 @@ async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInp
     ?? `https://api.cloudflare.com/client/v4/accounts/${input.accountId}/ai/v1/chat/completions`;
   const compatUrl = input.endpoint?.compat
     ?? `https://gateway.ai.cloudflare.com/v1/${input.accountId}/${input.gatewayId}/compat/chat/completions`;
+  if (input.native) {
+    if (!input.replayState || !input.accountId || !input.gatewayId) throw new TypeError('Native discovery requires server-held replay and gateway coordinates');
+    const configured = input.native.transport === 'aig-bedrock-anthropic-auto' ? 'auto'
+      : input.native.transport === 'aig-bedrock-anthropic-eventstream' ? 'eventstream' : 'invoke';
+    const body = await buildBedrockAnthropicRequest({ ...input.body, max_tokens: input.body.max_completion_tokens }, input.replayState);
+    const operation = selectBedrockAnthropicTransport(configured, body.output_config?.effort);
+    const url = `https://gateway.ai.cloudflare.com/v1/${input.accountId}/${input.gatewayId}${bedrockAnthropicGatewayPath(input.native.region, input.native.model, operation)}`;
+    const upstream = await fetchWithTimeout(fetcher, url, { method: 'POST',
+      headers: { 'cf-aig-authorization': `Bearer ${input.apiToken}`, 'cf-aig-max-attempts': '1', 'content-type': 'application/json',
+        ...(operation === 'eventstream' && { accept: 'application/vnd.amazon.eventstream' }),
+        ...(input.byokAlias && { 'cf-aig-byok-alias': input.byokAlias }) }, body: JSON.stringify(body),
+    }, Math.min(timeoutMs, 90_000), 1);
+    const nativeObservation: { value?: BedrockThinkingObservation } = {};
+    const response = await adaptBedrockAnthropicResponse(upstream, operation, input.replayState, true, (value) => { nativeObservation.value = value; });
+    // Read cache observations at the Gateway boundary, before native response
+    // translation drops transport headers. No secret headers are propagated.
+    for (const name of ['cf-aig-cache-status', 'cf-aig-provider', 'cf-aig-model']) {
+      const value = upstream.headers.get(name); if (value) response.headers.set(name, value);
+    }
+    return { response, attempts: 1, transport: operation === 'invoke' ? 'bedrock-invoke' : 'bedrock-eventstream', nativeObservation };
+  }
   if (input.compatOnly) {
     const compatBody = clone(input.body);
     delete compatBody.store;
     delete compatBody.prompt_cache_key;
     return {
       response: await fetchWithTimeout(fetcher, compatUrl, {
-        method: 'POST', headers: { 'cf-aig-authorization': `Bearer ${input.apiToken}`, ...(input.byokAlias && { 'cf-aig-byok-alias': input.byokAlias }), 'content-type': 'application/json' }, body: JSON.stringify(compatBody),
+        method: 'POST', headers: { 'cf-aig-authorization': `Bearer ${input.apiToken}`, 'cf-aig-max-attempts': '1', ...(input.byokAlias && { 'cf-aig-byok-alias': input.byokAlias }), 'content-type': 'application/json' }, body: JSON.stringify(compatBody),
       }, timeoutMs, 1), attempts: 1, transport: 'compat',
     };
   }
@@ -648,6 +756,7 @@ async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInp
     method: 'POST',
     headers: {
       authorization: `Bearer ${input.apiToken}`,
+      'cf-aig-max-attempts': '1',
       'cf-aig-gateway-id': input.gatewayId ?? '',
       'cf-aig-metadata': metadata,
       'content-type': 'application/json',
@@ -668,6 +777,7 @@ async function requestChatCompletionsWithCompat(input: ChatCompletionsAttemptInp
     method: 'POST',
     headers: {
       'cf-aig-authorization': `Bearer ${input.apiToken}`,
+      'cf-aig-max-attempts': '1',
       ...(input.byokAlias && { 'cf-aig-byok-alias': input.byokAlias }),
       'cf-aig-metadata': metadata,
       'content-type': 'application/json',
@@ -691,11 +801,14 @@ function numericUsage(usage: Record<string, unknown> | null, key: string): numbe
 
 function usageSummary(usage: Record<string, unknown> | null): Record<string, number | null> {
   const details = isPlainObject(usage?.completion_tokens_details) ? usage.completion_tokens_details : null;
+  const promptDetails = isPlainObject(usage?.prompt_tokens_details) ? usage.prompt_tokens_details : null;
   return {
     promptTokens: numericUsage(usage, 'prompt_tokens'),
     completionTokens: numericUsage(usage, 'completion_tokens'),
     totalTokens: numericUsage(usage, 'total_tokens'),
     reasoningTokens: numericUsage(details, 'reasoning_tokens'),
+    cacheReadTokens: numericUsage(promptDetails, 'cached_tokens'),
+    cacheWriteTokens: numericUsage(promptDetails, 'cache_write_tokens'),
   };
 }
 
@@ -718,6 +831,7 @@ async function summarizeParsedSse(parsed: ParsedPiSse, transport: string, attemp
     }))),
     toolCallCount: parsed.toolCalls.length,
     toolNames: parsed.toolCalls.map((call) => call.name === CANARY_TOOL_NAME ? CANARY_TOOL_NAME : 'unexpected'),
+    publicDeltaTimes: parsed.publicDeltaTimes ?? [], eofTime: parsed.eofTime ?? null,
     ...usageSummary(parsed.usage),
   };
 }
@@ -739,13 +853,17 @@ interface CommonRequest {
   compatOnly?: boolean;
   byokAlias?: string;
   repairToolNames?: boolean;
+  compatibility?: CompatibilityWire;
+  campaignDeadline?: number;
+  native?: DiscoveryInput['native'];
+  replayState?: BedrockReplayState;
 }
 
 function transportFailure(error: unknown): ProbeResult {
   const failure = error instanceof DiscoveryAttemptError ? error : new DiscoveryAttemptError('transport_error', 1);
   return {
-    ...sanitizedError(null, '', failure.kind),
-    transport: null,
+    ...sanitizedError(failure.status, '', failure.kind),
+    transport: failure.transport,
     httpAttempts: failure.attempts,
     stop: true,
   } as ProbeResult;
@@ -785,11 +903,16 @@ async function executeReasoningProbe(common: CommonRequest, request: PlainObject
     transport: attempt.transport,
     httpAttempts: attempt.attempts,
     finishReason: parsed.effectiveFinishReason,
+    effectiveFinishReason: parsed.effectiveFinishReason,
     finishReasonRepaired: parsed.finishReasonRepaired,
     doneRepaired: parsed.doneRepaired,
     malformedEvents: parsed.malformedEvents,
     contentLength: summary.contentLength,
     contentHash: summary.contentHash,
+    ...gatewayObservation(attempt.response),
+    publicDeltaTimes: summary.publicDeltaTimes, eofTime: summary.eofTime,
+    ...(common.native && { nativeThinkingObserved: attempt.nativeObservation?.value?.thinkingPresent === true,
+      nativeObservationCompleted: attempt.nativeObservation?.value?.completed === true }),
     reasoningField: parsed.reasoningBlocks[0]?.signature ?? null,
     reasoningLength: reasoning.length,
     reasoningHash: await digest(reasoning),
@@ -837,7 +960,7 @@ async function executeToolLifecycle(common: CommonRequest, initialRequest: Plain
       stop: true,
     };
   }
-  const first = await summarizeParsedSse(firstParsed, firstAttempt.transport, firstAttempt.attempts);
+  const first = { ...(await summarizeParsedSse(firstParsed, firstAttempt.transport, firstAttempt.attempts)), ...gatewayObservation(firstAttempt.response) };
   try {
     if (firstParsed.malformedEvents > 0 || firstParsed.effectiveFinishReason !== 'tool_calls') {
       throw new Error('First turn did not terminate as tool_calls');
@@ -873,7 +996,7 @@ async function executeToolLifecycle(common: CommonRequest, initialRequest: Plain
         stop: true,
       };
     }
-    const replay = await summarizeParsedSse(replayParsed, replayAttempt.transport, replayAttempt.attempts);
+    const replay = { ...(await summarizeParsedSse(replayParsed, replayAttempt.transport, replayAttempt.attempts)), ...gatewayObservation(replayAttempt.response) };
     const passed = replayParsed.malformedEvents === 0
       && replayParsed.effectiveFinishReason === 'stop'
       && replayParsed.content.trim().length > 0
@@ -906,25 +1029,46 @@ function groupMappings(profile: DiscoveryProfile): Array<{ levels: ReasoningLeve
 
 interface DiscoveryDiagnostic {
   levels: ReasoningLevel[];
-  stage: 'reasoning' | 'tool-call' | 'tool-replay' | 'final-response';
+  stage: 'reasoning' | 'tool-call' | 'tool-replay' | 'final-response' | 'cache-fill' | 'cache-read' | 'branch-correlation';
   code: 'completion_limit' | 'no_tool_call' | 'invalid_tool_call' | 'replay_rejected' | 'request_rejected'
-    | 'timeout' | 'transport_error' | 'malformed_response' | 'response_too_large'
-    | 'off_not_disabled' | 'incomplete_final_response';
+    | 'timeout' | 'transport_error' | 'malformed_response' | 'response_too_large' | 'unexpected_response_format' | 'provider_refusal'
+    | 'off_not_disabled' | 'incomplete_final_response' | 'cache_reuse_unobserved' | 'backend_changed' | 'observed_backend_unidentified';
   status?: number;
   transport?: string;
+  providerCode?: string | number;
+  providerType?: string;
+  effectiveFinishReason?: string;
+  cacheWriteTokens?: number;
+  cacheReadTokens?: number;
+  cacheReadAttempted?: boolean;
+}
+
+function stopsDiscovery(diagnostic: DiscoveryDiagnostic): boolean {
+  return ['timeout', 'transport_error', 'malformed_response', 'response_too_large', 'unexpected_response_format'].includes(diagnostic.code)
+    || diagnostic.status === 401 || diagnostic.status === 403 || diagnostic.status === 429
+    || (diagnostic.status !== undefined && diagnostic.status >= 500);
 }
 
 function probeDiagnostic(probe: Record<string, any> | null, levels: ReasoningLevel[], stage: DiscoveryDiagnostic['stage']): DiscoveryDiagnostic | null {
   if (!probe) return null;
   const boundary = {
     ...(typeof probe.status === 'number' ? { status: probe.status } : {}),
-    ...(['rest', 'compat'].includes(probe.transport) ? { transport: String(probe.transport) } : {}),
+    ...(['rest', 'compat', 'bedrock-invoke', 'bedrock-eventstream'].includes(probe.transport) ? { transport: String(probe.transport) } : {}),
+    // Only fields already projected by sanitizedError belong here. Reapply the
+    // grammar at the public boundary; a provider message/body is never a code.
+    ...((typeof probe.code === 'number' && Number.isFinite(probe.code) || typeof probe.code === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(probe.code)) ? { providerCode: probe.code as string | number } : {}),
+    ...(typeof probe.type === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(probe.type) ? { providerType: probe.type } : {}),
   };
-  for (const code of ['timeout', 'transport_error', 'malformed_response', 'response_too_large'] as const) {
+  for (const code of ['timeout', 'transport_error', 'malformed_response', 'response_too_large', 'unexpected_response_format'] as const) {
     if (probe.code === code) return { levels, stage, code, ...boundary };
   }
   if (probe.malformedEvents > 0) return { levels, stage, code: 'malformed_response', ...boundary };
   if (probe.status !== 200) return { levels, stage, code: stage === 'tool-replay' ? 'replay_rejected' : 'request_rejected', ...boundary };
+  if (probe.effectiveFinishReason === 'content_filter') return { levels, stage, code: 'provider_refusal', ...boundary,
+    effectiveFinishReason: 'content_filter',
+    ...(Number.isSafeInteger(probe.cacheWriteTokens) && probe.cacheWriteTokens >= 0 ? { cacheWriteTokens: probe.cacheWriteTokens as number } : {}),
+    ...(Number.isSafeInteger(probe.cacheReadTokens) && probe.cacheReadTokens >= 0 ? { cacheReadTokens: probe.cacheReadTokens as number } : {}),
+  };
   return null;
 }
 
@@ -936,7 +1080,7 @@ function mappingDiagnostics(items: Array<Record<string, any>>): DiscoveryDiagnos
     const reasoningFailure = probeDiagnostic(probe, levels, 'reasoning');
     if (reasoningFailure) diagnostics.push(reasoningFailure);
     else if (levels.includes('off')) {
-      if (probe.reasoningLength > 0 || probe.reasoningTokens > 0) diagnostics.push({ levels: ['off'], stage: 'reasoning', code: 'off_not_disabled' });
+      if (probe.reasoningLength > 0 || probe.reasoningTokens > 0 || probe.nativeThinkingObserved === true || probe.nativeObservationCompleted === false) diagnostics.push({ levels: ['off'], stage: 'reasoning', code: 'off_not_disabled' });
       else if (probe.finishReason === 'length') diagnostics.push({ levels: ['off'], stage: 'reasoning', code: 'completion_limit' });
     }
     const tool = item.toolLifecycle;
@@ -978,9 +1122,87 @@ function publicProbe<T extends Record<string, unknown> & { stop: boolean }>(prob
   return result as Omit<T, 'stop'>;
 }
 
+function gatewayObservation(response: Response): Record<string, unknown> {
+  const cache = response.headers.get('cf-aig-cache-status')?.toUpperCase();
+  const safe = (name: string) => {
+    const value = response.headers.get(name);
+    return value && /^[A-Za-z0-9@._:/-]{1,256}$/.test(value) ? value : undefined;
+  };
+  return { cacheStatus: cache === 'HIT' || cache === 'MISS' ? cache : null,
+    backend: { ...(safe('cf-aig-provider') && { provider: safe('cf-aig-provider') }), ...(safe('cf-aig-model') && { model: safe('cf-aig-model') }) } };
+}
+
+/** One explicit discovery, not startup probing: tools/replay first, then two
+ * bounded public cache observations. No TTL/key overrides or model substitutes.
+ * Native markers never leak into Dynamic conversion. A MISS is inconclusive:
+ * model-specific prefix thresholds, placement and best-effort reuse still apply.
+ */
+async function discoverCache(common: CommonRequest, route: string, maxCompletionTokens: number, mappingObservations: Array<Record<string, any>>, semantic: SemanticMapping) {
+  const marker = crypto.randomUUID();
+  // Large enough to exercise documented 4,096-token minima with ordinary text,
+  // but not a tokenizer claim or a promise of a hit for an unknown future model.
+  const prefix = `Public Codeflare cache canary ${marker}. Ignore the fictional inventory; follow the user request.\n`
+    + Array.from({ length: 2048 }, (_, index) => `Item ${index}: amber birch cedar.`).join('\n');
+  const request: PlainObject = applySemanticMapping({ model: route, messages: [
+    { role: 'system', content: common.native ? [{ type: 'text', text: prefix, cache_control: { type: 'ephemeral', ttl: '5m' } }] : prefix },
+    { role: 'user', content: 'Reply with a numbered list of 32 short fictional labels. Do not use tools.' },
+  ], stream: true, stream_options: { include_usage: true }, max_completion_tokens: maxCompletionTokens }, semantic);
+  request.max_completion_tokens = maxCompletionTokens;
+  const readRequest = clone(request);
+  // Native tests prefix reuse, not whole-response reuse: change only the user
+  // question after the checkpoint. Dynamic keeps its identical whole-body pair.
+  if (common.native) (readRequest.messages as PlainObject[])[1].content = 'Reply with a numbered list of 32 short fictional colors. Do not use tools.';
+  const observations: Array<Record<string, any>> = [];
+  const publicBodies: string[] = [];
+  for (const body of [request, readRequest]) {
+    try {
+      publicBodies.push(JSON.stringify(compatibilityRequest(body, common.compatibility)));
+      const attempt = await requestChatCompletionsWithCompat({ ...common, body });
+      const header = gatewayObservation(attempt.response);
+      if (attempt.response.status !== 200) {
+        const text = await readBoundedText(attempt.response, common.maxResponseBytes);
+        observations.push({ ...sanitizedError(attempt.response.status, text), ...header, transport: attempt.transport, httpAttempts: attempt.attempts });
+        break; // A validation/auth/provider failure is evidence, not a retry invitation.
+      }
+      const parsed = await parsePiSseStream(attempt.response.body, common.maxResponseBytes);
+      const valid = parsed.malformedEvents === 0 && parsed.effectiveFinishReason === 'stop' && parsed.content.trim().length > 0 && parsed.usage !== null;
+      observations.push({ ...(await summarizeParsedSse(parsed, attempt.transport, attempt.attempts)), ...header, valid });
+      if (!valid) break;
+    } catch (error) {
+      observations.push(publicProbe(transportFailure(error))); break;
+    }
+  }
+  // Certify the exercised path, not every configured fallback. But never join
+  // known reasoning/tools-on-A and cache-on-B into a fictitious capable backend.
+  // Missing Gateway identity stays unobserved, not invented from inventory.
+  const allObservations = [...mappingObservations, ...observations];
+  const backendConsistent = ['provider', 'model'].every((key) => new Set(allObservations.map((item) => item.backend?.[key]).filter(Boolean)).size <= 1);
+  const backendIdentified = allObservations.every((item) => item.backend?.provider && item.backend?.model);
+  const complete = backendConsistent && observations.length === 2 && observations.every((item) => item.valid)
+    && observations[0].transport === observations[1].transport;
+  const second = observations[1];
+  const prefixRead = complete && second.cacheStatus !== 'HIT' && second.cacheReadTokens > 0;
+  const cache: CapabilityMapping['cache'] = prefixRead ? 'provider-prefix'
+    : complete && second.cacheStatus === 'HIT' ? 'gateway-response' : 'inconclusive';
+  // Cached delivery and synthesized Invoke SSE are never cold-generation proof.
+  const incremental = common.compatibility?.response !== 'buffered' && observations.some((item) => item.valid && item.cacheStatus !== 'HIT' && item.transport !== 'bedrock-invoke'
+    && item.publicDeltaTimes.length >= 2 && item.publicDeltaTimes[0] + 5 < item.publicDeltaTimes.at(-1)
+    && item.publicDeltaTimes[0] + 5 < item.eofTime);
+  const identicalPublicBody = publicBodies.length === 2 && publicBodies[0] === publicBodies[1];
+  return { cache, incremental, observations, backendConsistent, backendIdentified, identicalPublicBody,
+    publicBodyHash: identicalPublicBody ? await digest(publicBodies[0]) : null,
+    explanation: !backendConsistent ? 'Reasoning, tool or cache observations identify different backends. Evidence cannot certify one exercised route path; this is not an all-branches requirement.'
+      : observations[0]?.effectiveFinishReason === 'content_filter'
+        ? `The provider refused the cache-fill response.${Number.isSafeInteger(observations[0].cacheWriteTokens) && observations[0].cacheWriteTokens >= 0 ? ` Provider cache write: ${observations[0].cacheWriteTokens} tokens.` : ''} Cache-read was not attempted. A write alone does not prove input caching.`
+      : cache === 'inconclusive' ? 'No qualifying cache reuse observed. Unsupported caching is NOT established by a miss, absent counters, truncation or a rejected probe.'
+      : cache === 'gateway-response' ? 'Gateway HIT is whole-response reuse, not proof of provider input-prefix reuse.'
+        : 'Positive provider prefix-cache reads observed on the native/compat request actually tested.' };
+}
+
 export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Record<string, any>> {
   const { profile, offCandidate } = validateInput(input);
   const fetcher = input.fetcher ?? input.fetchImpl ?? fetch;
+  const replay = new Map<string, unknown[]>();
   const common: CommonRequest = {
     accountId: input.accountId,
     gatewayId: input.gatewayId,
@@ -989,9 +1211,14 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
     fetcher,
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxResponseBytes: input.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
-    compatOnly: input.compatOnly,
+    compatOnly: input.compatOnly || profile.compatibility?.transport === 'compat',
     byokAlias: input.byokAlias,
-    repairToolNames: profile.id === 'bedrock-anthropic-compat',
+    repairToolNames: profile.compatibility?.toolNames === 'repeated-complete' || profile.id === 'bedrock-anthropic-compat' || profile.id === 'dynamic-bedrock-anthropic-provider-default',
+    compatibility: profile.compatibility,
+    campaignDeadline: input.campaignDeadline,
+    native: input.native,
+    ...(input.native && { replayState: { load: async (id: string) => replay.get(id) ?? null,
+      save: async (id: string, blocks: unknown[]) => { replay.set(id, clone(blocks)); } } }),
   };
   const groups = groupMappings(profile);
   const accounting: Accounting = { logicalProbes: 0, httpAttempts: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
@@ -1075,7 +1302,9 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
   const offItem = distinctMappings.find((item) => (item.levels as ReasoningLevel[]).includes('off'));
   const off = profile.supportedLevels.includes('off')
     ? offItem?.reasoningProbe.status === 200 && offItem.reasoningProbe.reasoningLength === 0
-      && !(offItem.reasoningProbe.reasoningTokens > 0) && offItem.reasoningProbe.finishReason !== 'length'
+      && !(offItem.reasoningProbe.reasoningTokens > 0) && offItem.reasoningProbe.finishReason === 'stop'
+      && offItem.reasoningProbe.malformedEvents === 0
+      && (!input.native || (offItem.reasoningProbe.nativeObservationCompleted === true && offItem.reasoningProbe.nativeThinkingObserved === false))
       ? 'verified-disabled'
       : offItem?.reasoningProbe.status === 200 ? 'not-disabled' : 'not-verified'
     : offCandidateEvidence?.status === 200 && (offCandidateEvidence.reasoningLength as number) > 0
@@ -1088,16 +1317,13 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
   // A capped reasoning observation may still validate an enabled mode through its complete
   // tool lifecycle. A capped tool call/replay, or an unproven off mode, never does.
   const compatibleLevels = verifiedLevels.filter((level) => !diagnostics.some((diagnostic) => diagnostic.levels.includes(level)));
-  const completionLimited = diagnostics.some((diagnostic) => diagnostic.code === 'completion_limit');
-  const stopDiscovery = diagnostics.some((diagnostic) =>
-    ['timeout', 'transport_error', 'malformed_response', 'response_too_large'].includes(diagnostic.code)
-    || diagnostic.status === 401 || diagnostic.status === 403 || diagnostic.status === 429
-    || (diagnostic.status !== undefined && diagnostic.status >= 500));
-  const assignable = !stopped
+  const completionLimited = diagnostics.some((diagnostic) => diagnostic.code === 'completion_limit' || diagnostic.code === 'provider_refusal');
+  let stopDiscovery = diagnostics.some(stopsDiscovery);
+  let assignable = !stopped
     && allToolsPassed
     && !reasoningTransportFailures
     && !['not-disabled', 'not-verified', 'candidate-disabled-profile-mismatch'].includes(off);
-  const classification = stopDiscovery || completionLimited
+  let classification = stopDiscovery || completionLimited
     ? 'Inconclusive'
     : assignable
       ? 'Verified'
@@ -1114,6 +1340,70 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
           ? 'inconclusive'
           : 'unsupported';
 
+  let cacheEvidence: Awaited<ReturnType<typeof discoverCache>> | undefined;
+  let capabilitySummary: CapabilitySummaryV2 | undefined;
+  if (input.requireCacheEvidence) {
+    if (assignable) {
+      // Keep the successful leg; do not replay a known REST 404 for every probe.
+      if (distinctMappings[0]?.toolLifecycle.first?.transport === 'compat') common.compatOnly = true;
+      cacheEvidence = await discoverCache(common, input.route, Math.min(input.maxCompletionTokens, 2048),
+        distinctMappings.flatMap((item) => [item.reasoningProbe, item.toolLifecycle.first, item.toolLifecycle.replay]).filter(Boolean), groups[0].semantic);
+      accounting.logicalProbes += cacheEvidence.observations.length;
+      for (const observation of cacheEvidence.observations) addEvidence(accounting, observation);
+      // The dedicated discovery screen returns per-contract diagnostics even
+      // when no profile qualifies. Keep cache failures as actionable as tool
+      // failures; a cache-only 403 must not disappear into an empty list.
+      cacheEvidence.observations.forEach((observation, index) => {
+        const stage = index === 0 ? 'cache-fill' : 'cache-read';
+        const failure = probeDiagnostic(observation, groups[0].levels, stage);
+        if (failure) diagnostics.push({ ...failure, cacheReadAttempted: cacheEvidence!.observations.length > 1 });
+        else if (!observation.valid) diagnostics.push({ levels: groups[0].levels, stage, code: observation.effectiveFinishReason === 'length' ? 'completion_limit' : 'incomplete_final_response', cacheReadAttempted: cacheEvidence!.observations.length > 1 });
+      });
+      stopDiscovery ||= diagnostics.some(stopsDiscovery);
+      if (!cacheEvidence.backendConsistent) diagnostics.push({ levels: [], stage: 'branch-correlation', code: 'backend_changed' });
+      else if (cacheEvidence.cache === 'inconclusive' && cacheEvidence.observations.length === 2 && cacheEvidence.observations.every((item) => item.valid)) {
+        diagnostics.push({ levels: [], stage: 'cache-read', code: 'cache_reuse_unobserved' });
+      }
+    }
+    // Backend identity is independent of cache qualification. Optional failures
+    // with no identity cannot erase identified lifecycle evidence, but conflicting
+    // known observations can never be combined into a fictitious capable path.
+    const lifecycleObservations = distinctMappings.flatMap((item) => [item.reasoningProbe, item.toolLifecycle.first, item.toolLifecycle.replay]).filter(Boolean);
+    const observations = [...lifecycleObservations, ...(cacheEvidence?.observations ?? [])];
+    const backendConsistent = ['provider', 'model'].every((key) => new Set(observations.map((item) => item.backend?.[key]).filter(Boolean)).size <= 1);
+    const backendIdentified = lifecycleObservations.length > 0 && lifecycleObservations.every((item) => item.backend?.provider && item.backend?.model);
+    if (!backendConsistent || (assignable && input.requireBackendIdentity && !backendIdentified)) {
+      assignable = false;
+      stopDiscovery = true;
+      const code = !backendConsistent ? 'backend_changed' : 'observed_backend_unidentified';
+      if (!diagnostics.some((item) => item.code === code)) diagnostics.push({ levels: [], stage: 'branch-correlation', code });
+    }
+    const incremental = common.compatibility?.response !== 'buffered' && observations.some((item) => item.status === 200
+      && item.malformedEvents === 0 && item.valid !== false && item.cacheStatus !== 'HIT' && item.transport !== 'bedrock-invoke'
+      && item.publicDeltaTimes?.length >= 2 && item.publicDeltaTimes[0] + 5 < item.publicDeltaTimes.at(-1)
+      && item.publicDeltaTimes[0] + 5 < item.eofTime);
+    const item = distinctMappings[0];
+    const reasoning: CapabilityMapping['reasoning'] = profile.reasoningMode === 'provider-default' ? 'provider-default'
+      : off === 'verified-disabled' ? 'verified-disabled'
+        : item?.reasoningProbe?.reasoningTokens > 0 || item?.reasoningProbe?.reasoningLength > 0 || item?.reasoningProbe?.nativeThinkingObserved === true
+          ? 'observed-enabled' : item?.reasoningProbe?.status === 200 ? 'accepted-unverified' : 'not-tested';
+    const observedTransport = item?.toolLifecycle.first?.transport ?? item?.reasoningProbe?.transport;
+    const nativeEffort = groups[0].semantic.mapping.output_config as PlainObject | undefined;
+    const configured = input.native?.transport === 'aig-bedrock-anthropic-auto' ? 'auto'
+      : input.native?.transport === 'aig-bedrock-anthropic-eventstream' ? 'eventstream' : 'invoke';
+    const transport: CapabilityMapping['transport'] = observedTransport ?? (input.native
+      ? selectBedrockAnthropicTransport(configured, nativeEffort?.effort as string | undefined) === 'invoke' ? 'bedrock-invoke' : 'bedrock-eventstream'
+      : common.compatOnly ? 'compat' : 'rest');
+    capabilitySummary = { schemaVersion: 2, mappings: [{ levels: [...groups[0].levels], transport,
+      tools: Boolean(item?.toolLifecycle.first?.status === 200 && item.toolLifecycle.first.malformedEvents === 0
+        && item.toolLifecycle.first.toolCallCount === 1 && item.toolLifecycle.first.toolNames?.[0] === CANARY_TOOL_NAME
+        && item.toolLifecycle.first.effectiveFinishReason === 'tool_calls' && item.toolLifecycle.stage !== 'tool-call-validation'),
+      replay: allToolsPassed, cache: cacheEvidence?.cache ?? 'not-tested', reasoning,
+      streaming: incremental ? 'incremental' : 'not-observed' }] };
+    assignable &&= !stopDiscovery;
+    if (stopDiscovery || (!assignable && backendConsistent === false)) classification = 'Inconclusive';
+  }
+  replay.clear(); // No signed/provider state in reports, receipts, logs or persistent discovery storage.
   return {
     schemaVersion: 1,
     canaryVersion: PI_WIRE_CANARY_VERSION,
@@ -1133,6 +1423,7 @@ export async function discoverPiCompatibility(input: DiscoveryInput): Promise<Re
     },
     classification,
     assignable,
+    ...(capabilitySummary && { capabilitySummary, cacheEvidence }),
     accounting,
     evidence: {
       current: true,

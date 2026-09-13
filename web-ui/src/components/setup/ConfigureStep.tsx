@@ -203,7 +203,7 @@ const ConfigureStep: Component = () => {
         <Show when={setupStore.enterpriseMode}>
           <ChipListField
             label="Cloudflare Access Groups (optional)"
-            description="Restrict Codeflare to members of one or more Cloudflare Access groups. A user in any of them may sign in; leave blank to admit anyone your Access policy lets through — new users are provisioned automatically on first sign-in. The matched groups are forwarded to your AI Gateway for per-group routing and limits."
+            description="Restrict Codeflare to members of one or more Cloudflare Access groups. A user in any of them may sign in; leave blank to admit anyone your Access policy lets through. New users are provisioned automatically on first sign-in. The matched groups are forwarded to your AI Gateway for per-group routing and limits."
             items={setupStore.enterpriseAccessGroups}
             placeholder="e.g. codeflare_developers"
             accent
@@ -267,13 +267,13 @@ const ConfigureStep: Component = () => {
             <label class="setup-field-label">AI Gateway Token</label>
             <p class="setup-field-description">
               A Cloudflare API token with Workers AI, AI Gateway Run, and AI Gateway Read scopes; stored encrypted.
-              <Show when={setupStore.aigTokenSet}> A token is already saved — leave blank to keep it, or enter a new one to replace it.</Show>
+              <Show when={setupStore.aigTokenSet}> A token is already saved. Leave blank to keep it, or enter a new one to replace it.</Show>
             </p>
             <Input
               type="password"
               value={setupStore.aigToken}
               onInput={(value) => setupStore.setAigToken(value)}
-              placeholder={setupStore.aigTokenSet ? 'Saved — enter a new token to replace' : 'AI Gateway API token...'}
+              placeholder={setupStore.aigTokenSet ? 'Saved. Enter a new token to replace it.' : 'AI Gateway API token...'}
             />
           </div>
 
@@ -427,21 +427,21 @@ const ConfigureStep: Component = () => {
           <div class="setup-field">
             <label class="setup-field-label">Cloudflare Browser Rendering Token (optional)</label>
             <p class="setup-field-description">
-              Enables the in-session browser tools for everyone. Use a Cloudflare API token scoped to Browser Rendering — Edit only; it is stored encrypted. Leave blank to keep the browser tools off.
-              <Show when={setupStore.cloudflareBrowserTokenSet}> A token is already saved — leave blank to keep it, or enter a new one to replace it.</Show>
+              Enables the in-session browser tools for everyone. Use a Cloudflare API token with only the Browser Rendering: Edit permission; it is stored encrypted. Leave blank to keep the browser tools off.
+              <Show when={setupStore.cloudflareBrowserTokenSet}> A token is already saved. Leave blank to keep it, or enter a new one to replace it.</Show>
             </p>
             <Input
               type="password"
               value={setupStore.cloudflareBrowserToken}
               onInput={(value) => setupStore.setCloudflareBrowserToken(value)}
-              placeholder={setupStore.cloudflareBrowserTokenSet ? 'Saved — enter a new token to replace' : 'Cloudflare API token...'}
+              placeholder={setupStore.cloudflareBrowserTokenSet ? 'Saved. Enter a new token to replace it.' : 'Cloudflare API token...'}
             />
           </div>
 
           <div class="setup-field">
             <label class="setup-field-label">Cloudflare Account ID (for Browser Rendering)</label>
             <p class="setup-field-description">
-              The account that owns Browser Rendering — required for the token above to work.
+              The account that owns Browser Rendering. Required for the token above to work.
             </p>
             <Input
               value={setupStore.cloudflareBrowserAccountId}

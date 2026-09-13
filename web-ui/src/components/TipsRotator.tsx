@@ -27,7 +27,7 @@ const ALL_TIPS: Tip[] = [
   { text: 'Toggle terminal button labels in Settings', category: 'mobile' },
   { text: 'Tap the [] button then press a key to send Ctrl+C, Ctrl+B, etc.', category: 'mobile' },
   { text: 'Use the paste button to paste from your clipboard into the terminal', category: 'mobile' },
-  { text: 'When a login URL is detected, a special icon appears \u2014 tap it to open automatically', category: 'mobile' },
+  { text: 'When a login URL is detected, a special icon appears. Tap it to open automatically.', category: 'mobile' },
   // Desktop
   { text: 'Drag and drop files into the storage panel to upload', category: 'desktop' },
   { text: 'Drag tabs in the terminal to reorder them. Tab 1 stays fixed', category: 'desktop' },
@@ -37,25 +37,25 @@ const ALL_TIPS: Tip[] = [
   // General
   { text: 'Coding agent credentials sync to storage for Single-Sign-On on every device', category: 'general' },
   { text: 'Your agent configuration is persisted across sessions and devices automatically', category: 'general' },
-  { text: 'Enable workspace sync in Settings \u2014 never lose code changes again', category: 'general' },
+  { text: 'Enable workspace sync in Settings to keep your code changes safe', category: 'general' },
   { text: 'Getting Started guide and example projects are preloaded in the storage panel', category: 'general' },
-  { text: 'Use GitHub Actions to build and deploy \u2014 ask your agent to set it up', category: 'general' },
+  { text: 'Use GitHub Actions to build and deploy. Ask your agent to set it up.', category: 'general' },
   { text: 'Connect your GitHub account in Settings to push code from every session', category: 'general' },
   { text: 'Connect your Cloudflare account in Settings to deploy from every session', category: 'general' },
   { text: 'Switch to Pro mode in Settings to unlock persistent memory across sessions', category: 'general', saasOnly: true },
-  { text: 'Change your idle timeout in Settings \u2014 from 5 minutes to 2 hours', category: 'general' },
+  { text: 'Set your idle timeout in Settings to anything from 5 minutes to 2 hours', category: 'general' },
   { text: 'Check your compute usage on the Usage page', category: 'general' },
-  { text: 'Your files sync to R2 every 60 seconds \u2014 safe even if your session dies', category: 'general' },
+  { text: 'Your files sync to R2 every 60 seconds, keeping them safe even if your session dies', category: 'general' },
   { text: 'Ask your agent to build a Cloudflare Workers project and deploy it for you', category: 'general' },
-  { text: 'Try Spec-Driven Development \u2014 type /sdd init in Claude Code to get started', category: 'general' },
+  { text: 'Try Spec-Driven Development. Type /sdd init in Claude Code to get started.', category: 'general' },
   // Engine capabilities present in every deployment mode.
   { text: 'Ask the lead agent to delegate: architect, code reviewer, security, and a TDD guide work in parallel', category: 'general' },
   { text: 'Open a pull request and the code, spec, and doc reviewers run in parallel before you merge', category: 'general' },
-  { text: 'Agents can drive a real browser and test your deployed app end to end \u2014 just describe the flow', category: 'general' },
+  { text: 'Agents can drive a real browser and test your deployed app end to end. Just describe the flow.', category: 'general' },
   { text: 'Your repos, docs, and decisions become a queryable knowledge graph the agent recalls across sessions', category: 'general' },
-  { text: 'Close the tab and the session keeps working \u2014 reconnect from any device to steer it', category: 'general' },
+  { text: 'Close the tab and the session keeps working. Reconnect from any device to steer it.', category: 'general' },
   { text: 'Agents load skills on demand: spec-driven dev, CI monitoring, deploys, and security checklists', category: 'general' },
-  { text: 'Pick any agent \u2014 Claude Code, Codex, Copilot, Pi \u2014 the governance and scaffolding stay identical', category: 'general' },
+  { text: 'Pick any agent: Claude Code, Codex, Copilot or Pi. The governance and scaffolding stay identical.', category: 'general' },
 ];
 
 /** Fisher-Yates shuffle — returns a new shuffled array */

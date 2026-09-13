@@ -7,6 +7,7 @@ import { parseReasoningConfiguration, serializeReasoningConfiguration } from '..
 import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
 
 const profileRef = getBuiltInProfileRef('openai-gpt-chat-tools-off');
+const providerDefaultProfileRef = getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default');
 const verification = {
   schemaVersion: 1, profileRef, routeVersion: 'version-1', inventoryDigest: 'a'.repeat(64),
   connectionFingerprint: 'b'.repeat(64), canaryVersion: 'canary-1', supportedLevels: ['off'],
@@ -21,8 +22,18 @@ describe('browser-safe checked reasoning configuration (REQ-ENTERPRISE-043/-044)
   it('round-trips saved authority and fallback without Worker or zod dependencies', () => {
     expect(parseReasoningConfiguration(serializeReasoningConfiguration(configuration))).toEqual(configuration);
   });
+  it('accepts exact provider-default authority without selectable Pi levels', () => {
+    const providerDefaultVerification = { ...verification, profileRef: providerDefaultProfileRef, supportedLevels: [] };
+    const providerDefaultConfiguration = {
+      schemaVersion: 1,
+      customProfileRevisions: [],
+      routeAssignments: { working: { activeProfile: providerDefaultProfileRef, verification: providerDefaultVerification } },
+      fallbackRouting: { enabled: false },
+    };
+    expect(parseReasoningConfiguration(serializeReasoningConfiguration(providerDefaultConfiguration))).toEqual(providerDefaultConfiguration);
+  });
   it.each([
-    { supportedLevels: ['off', 'off'] }, { supportedLevels: [] }, { scope: 'all-legs' },
+    { supportedLevels: ['off', 'off'] }, { scope: 'all-legs' },
     { checkedAt: '2026-02-30T00:00:00Z' }, { routeVersion: '../route' }, { extra: true },
     { profileRef: { ...profileRef, id: 'unsafe/id' } },
   ])('rejects malformed saved authority %j', (change) => {

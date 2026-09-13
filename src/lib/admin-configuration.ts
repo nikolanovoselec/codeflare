@@ -15,7 +15,8 @@ import { getWorkerNameFromHostname } from '../routes/setup/shared';
 import { reactivateUsageUser } from './admin-usage';
 import { REASONING_PROFILE_IDS, canonicalJson, getBuiltInProfile, getBuiltInProfileRef, parseRouteSettings, serializeRouteSettings } from './reasoning-profiles';
 import { dynamicRouteSchema, gatewayCoordinates, gatewayDraftSchema, listCustomProviderSlugs, listCustomProviderSlugsForProviders, listNativeProviderConfigs, parseGatewayUrl, resolveGatewayConnection, selectNativeProviderConfig } from './ai-gateway-management';
-import { nativeProfileRefKey, nativeTargetDraftSchema, nativeTargetHandle, nativeTargetIdFromHandle, nativeVerificationMatches, parseNativeAiTargets, readNativeTargetCheck, reconcileNativeTargets, sanitizeNativeTarget, serializeNativeAiTargets, type NativeProviderAuthority } from './native-ai-targets';
+import { nativeProfileRefKey, nativeTargetDraftSchema, nativeTargetHandle, nativeTargetIdFromHandle, nativeVerificationMatches, parseNativeAiTargets, readNativeTargetCheck, rebindNativeVerificationConnection, reconcileNativeTargets, sanitizeNativeTarget, serializeNativeAiTargets, type NativeProviderAuthority } from './native-ai-targets';
+import { preservesDisabledNativeTarget } from './native-ai-target-draft';
 import {
   assignmentBackendDescriptions, fallbackRoutingSchema, loadCheckedRouteInventory, readRouteCheck,
   rebindVerificationConnection, routeCheckIdSchema, verificationMatches, type FallbackRouting,
@@ -104,7 +105,7 @@ const aiRoutingSchema = z.object({
   gatewayId: z.union([dynamicRouteSchema, z.literal('')]).default(''),
   replacementToken: gatewayDraftSchema.shape.replacementToken.default(''),
   dynamicRoutes: z.array(dynamicRouteSchema).max(256),
-  defaultRoute: z.object({ route: policyTargetSchema, reasoning }).strict(),
+  defaultRoute: z.object({ route: z.union([policyTargetSchema, z.literal('')]), reasoning }).strict(),
   routeContextWindows: z.record(z.string(), z.unknown()),
   routeReasoningProfiles: z.record(name, z.string().max(64)).optional(),
   reasoningConfiguration: z.unknown().optional(),
@@ -117,7 +118,7 @@ const aiRoutingSchema = z.object({
     routes: z.array(policyTargetSchema),
     defaultRoute: z.union([policyTargetSchema, z.literal('')]),
     reasoning,
-  }).strict()).min(1),
+  }).strict()),
 }).strict().superRefine((value, context) => {
   if (parseGatewayUrl(value.gatewayUrl)?.kind === 'account-api' && !value.gatewayId) {
     context.addIssue({ code: 'custom', message: 'AI Gateway name is required for an account API URL', path: ['gatewayId'] });
@@ -128,7 +129,9 @@ const aiRoutingSchema = z.object({
   }
   const policyModels = [...new Set([...value.groupRouting.flatMap((group) => group.routes), ...(value.fallbackRouting.enabled ? value.fallbackRouting.routes : [])])];
   const activeRoutes = policyModels.filter((route) => !nativeHandles.has(route));
-  if (!policyModels.includes(value.defaultRoute.route)) {
+  if (!value.defaultRoute.route && value.defaultRoute.reasoning !== 'off') {
+    context.addIssue({ code: 'custom', message: 'An empty default route must use Off reasoning', path: ['defaultRoute', 'reasoning'] });
+  } else if (value.defaultRoute.route && !policyModels.includes(value.defaultRoute.route)) {
     context.addIssue({ code: 'custom', message: 'Default model must be in the active policy catalog', path: ['defaultRoute', 'route'] });
   }
   if (value.reasoningConfiguration === undefined && activeRoutes.some((route) => !value.routeReasoningProfiles?.[route])) {
@@ -136,9 +139,6 @@ const aiRoutingSchema = z.object({
   }
   if (activeRoutes.some((route) => !dynamicRouteSchema.safeParse(route).success || !z.number().int().positive().safeParse(value.routeContextWindows[route]).success)) {
     context.addIssue({ code: 'custom', message: 'Every active dynamic route requires a valid handle and positive context window', path: ['routeContextWindows'] });
-  }
-  if (!value.groupRouting.some((group) => group.routes.length > 0)) {
-    context.addIssue({ code: 'custom', message: 'At least one group requires a working route', path: ['groupRouting'] });
   }
   for (const [index, group] of value.groupRouting.entries()) {
     if (group.routes.length === 0) {
@@ -372,7 +372,7 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
   if (dynamicRoutes.some((route) => !configuration.routeAssignments[route])) throw new Error('Every active route requires an exact profile assignment');
   configuration = { ...configuration, fallbackRouting: values.fallbackRouting as FallbackRouting };
   const validateDefault = (scope: string, route: string, level: string): void => {
-    if (nativeHandles.has(route)) return;
+    if (!route || nativeHandles.has(route)) return;
     const profile = getRouteReasoningProfile(configuration, route);
     if (profile.reasoningMode === 'provider-default') return;
     if (!profile.supportedLevels.includes(level as never)) throw new Error(`${scope} default reasoning level is not mapped by its default route profile`);
@@ -408,16 +408,24 @@ async function normalizeAiReasoningConfiguration(env: Env, values: Configuration
     const profile = getRouteReasoningProfile(configuration, route);
     let verification = assignment.verification;
     const checkId = routeChecks[route];
-    if (typeof checkId === 'string') {
-      const receipt = await readRouteCheck(env.KV, checkId);
-      if (receipt.route !== route) throw new Error(`Route ${route} check receipt does not match its route`);
-      verification = receipt.verification;
-    }
     const inventory = await loadCheckedRouteInventory(connection, route, assignmentBackendDescriptions(assignment));
     if (!verificationMatches(verification, profile, connection, inventory)) {
       const saved = current?.routeAssignments[route];
       const unchanged = saved && canonicalJson(identity(saved)) === canonicalJson(identity(assignment));
       verification = checkId !== null && unchanged ? rebindVerificationConnection(saved.verification, profile, connection, inventory) ?? undefined : undefined;
+    }
+    // Retained server authority is independent of a temporary draft receipt.
+    // Explicit clearing and identity changes still require fresh authority.
+    if (typeof checkId === 'string') {
+      let receipt;
+      try { receipt = await readRouteCheck(env.KV, checkId); }
+      catch (error) {
+        if (!verification) throw new Error(`Route ${route}: ${error instanceof Error ? error.message : 'Check receipt unavailable'}`);
+      }
+      if (receipt) {
+        if (receipt.route !== route) throw new Error(`Route ${route} check receipt does not match its route`);
+        verification = verificationMatches(receipt.verification, profile, connection, inventory) ? receipt.verification : undefined;
+      }
     }
     if (!verification) throw new Error(`Route ${route} requires a successful check for its exact profile, gateway, and inventory`);
     if (assignment.routeVersion && assignment.routeVersion !== inventory.inventory.versionId) throw new Error(`Route ${route} inventory is stale`);
@@ -443,26 +451,29 @@ export async function readNativeTargetViews(
   let currentProviders: Awaited<ReturnType<typeof listNativeProviderConfigs>> = [];
   let customProviders = new Set<string>();
   let customProviderCatalogReady = false;
+  let providerCatalogReady = false;
   try {
     const coordinates = gatewayCoordinates(gateway);
     if (coordinates && gateway.token) {
       currentProviders = await listNativeProviderConfigs(coordinates.accountId, coordinates.gatewayId, gateway.token);
+      providerCatalogReady = true;
       try { customProviders = await listCustomProviderSlugs(coordinates.accountId, gateway.token); customProviderCatalogReady = true; }
       catch { /* Custom targets remain stale. */ }
     }
   } catch { /* Provider status is reported as stale without hiding saved targets. */ }
-  return nativeTargets.targets.map((target) => {
+  return nativeTargets.targets.filter((target) => !providerCatalogReady || currentProviders.some((provider) =>
+    provider.provider === target.provider && provider.id === target.providerConfigId)).map((target) => {
     let current = false;
     try {
       const selected = selectNativeProviderConfig(currentProviders, target.provider);
       const alias = selected?.alias;
-      getProfileForRef(reasoningConfiguration, target.profileRef);
+      const profile = getProfileForRef(reasoningConfiguration, target.profileRef);
       const builtInProvider = ['aws-bedrock', 'google-ai-studio', 'openai'].includes(target.provider);
       const classificationCurrent = customProviderCatalogReady
         ? customProviders.has(target.provider) === Boolean(target.customProvider)
         : builtInProvider && !target.customProvider;
       current = Boolean(selected && selected.id === target.providerConfigId && alias === target.providerConfigAlias
-        && classificationCurrent && nativeVerificationMatches(target, gateway));
+        && classificationCurrent && nativeVerificationMatches(target, gateway, profile));
     } catch { /* Missing profile or ambiguous provider keeps this target stale. */ }
     return sanitizeNativeTarget(target, current);
   });
@@ -606,6 +617,8 @@ export async function validateConfigurationValues(
           const gateway = await resolveGatewayConnection(env, { gatewayUrl: values.gatewayUrl as string, gatewayId: (values.gatewayId as string) || undefined, replacementToken: values.replacementToken as string });
           const coordinates = gatewayCoordinates(gateway);
           if (!coordinates || !gateway.token) throw new Error('Native targets require a connected account AI Gateway');
+          const savedCoordinates = gatewayCoordinates(await resolveGatewayConnection(env));
+          const equivalentCoordinates = Boolean(savedCoordinates && canonicalJson(savedCoordinates) === canonicalJson(coordinates));
           const parsedDrafts = z.array(nativeTargetDraftSchema).max(64).parse(drafts);
           const providerNames = new Set(parsedDrafts.map((draft) => draft.provider));
           const [providerConfigs, customProviders] = await Promise.all([
@@ -621,13 +634,33 @@ export async function validateConfigurationValues(
             };
           }
           const validProfileRefs = new Set(parsedDrafts.map((draft) => {
-            const profile = getProfileForRef(reasoningConfiguration, draft.profileRef);
-            return nativeProfileRefKey({ id: profile.id, revision: profile.revision, hash: profile.hash });
+            try {
+              const profile = getProfileForRef(reasoningConfiguration, draft.profileRef);
+              return nativeProfileRefKey({ id: profile.id, revision: profile.revision, hash: profile.hash });
+            } catch (error) {
+              if (!preservesDisabledNativeTarget(draft, current.targets.find((target) => target.id === draft.id))) throw error;
+              return nativeProfileRefKey(draft.profileRef);
+            }
           }));
           const checks = (values.nativeChecks ?? {}) as Record<string, string | null>;
+          const retained = reconcileNativeTargets(parsedDrafts.filter((draft) => current.targets.some((target) => target.id === draft.id)), current, authorities, validProfileRefs);
           const receipts = new Map<string, Awaited<ReturnType<typeof readNativeTargetCheck>>>();
-          for (const checkId of Object.values(checks)) if (typeof checkId === 'string') {
-            const receipt = await readNativeTargetCheck(env.KV, checkId);
+          for (const [targetId, checkId] of Object.entries(checks)) if (typeof checkId === 'string') {
+            const target = retained.targets.find((candidate) => candidate.id === targetId);
+            let retainedAuthority = false;
+            if (target?.verification) {
+              const profile = getProfileForRef(reasoningConfiguration, target.profileRef);
+              retainedAuthority = nativeVerificationMatches(target, gateway, profile)
+                || Boolean(equivalentCoordinates && rebindNativeVerificationConnection(target, gateway, profile));
+            }
+            let receipt;
+            try { receipt = await readNativeTargetCheck(env.KV, checkId); }
+            catch {
+              if (retainedAuthority) continue;
+              const label = parsedDrafts.find((draft) => draft.id === targetId)?.label ?? targetId;
+              throw new Error(`Native target ${label}: check receipt unavailable or expired. Retry Save, or use Advanced to verify the selected profile or explicitly Mark as verified, then review and Save again.`);
+            }
+            if (receipt.targetId !== targetId) throw new Error('Native target check receipt is stale');
             receipts.set(receipt.targetId, receipt);
           }
           let document = reconcileNativeTargets(parsedDrafts, current, authorities, validProfileRefs, new Set(receipts.keys()));
@@ -637,10 +670,17 @@ export async function validateConfigurationValues(
             const receipt = receipts.get(target.id);
             if (!receipt) return target;
             const candidate = { ...target, verification: receipt.verification };
-            if (!nativeVerificationMatches(candidate, gateway)) throw new Error('Native target check receipt is stale');
+            if (!nativeVerificationMatches(candidate, gateway, getProfileForRef(reasoningConfiguration, candidate.profileRef))) throw new Error('Native target check receipt is stale');
             return candidate;
           }) };
-          for (const target of document.targets) if (target.enabled && !nativeVerificationMatches(target, gateway)) throw new Error(`Native target ${target.label} must be verified before it can be enabled`);
+          document = { ...document, targets: document.targets.map((target) => {
+            if (!target.enabled) return target;
+            const profile = getProfileForRef(reasoningConfiguration, target.profileRef);
+            if (nativeVerificationMatches(target, gateway, profile)) return target;
+            const verification = equivalentCoordinates ? rebindNativeVerificationConnection(target, gateway, profile) : null;
+            if (!verification) throw new Error(`Native target ${target.label} must be verified before it can be enabled`);
+            return { ...target, verification };
+          }) };
           values.nativeTargets = document;
         }
       }
@@ -708,6 +748,28 @@ function same(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+// Compare the same editable semantics on both sides without revalidating saved authority.
+// Policy order is significant: the first matching group wins, including empty policies.
+function aiRoutingComparison(values: ConfigurationValues): ConfigurationValues {
+  const policy = (value: Record<string, unknown>) => ({
+    routes: value.routes ?? [], defaultRoute: value.defaultRoute ?? '', reasoning: value.reasoning ?? 'off',
+  });
+  const groups = Array.isArray(values.groupRouting)
+    ? values.groupRouting as Array<Record<string, unknown>>
+    : Object.entries((values.groupRouting ?? {}) as Record<string, Record<string, unknown>>)
+      .map(([accessGroup, value]) => ({ ...value, accessGroup }));
+  const configuration = values.reasoningConfiguration as Record<string, unknown>;
+  const fallback = (values.fallbackRouting ?? configuration?.fallbackRouting ?? { enabled: false }) as Record<string, unknown>;
+  const fallbackRouting = fallback.enabled ? { enabled: true, ...policy(fallback) } : { enabled: false };
+  return {
+    ...values,
+    defaultRoute: values.defaultRoute ?? { route: '', reasoning: 'off' },
+    groupRouting: groups.map((group) => ({ accessGroup: group.accessGroup, ...policy(group) })),
+    fallbackRouting,
+    ...(configuration && { reasoningConfiguration: { ...configuration, fallbackRouting } }),
+  };
+}
+
 export async function buildConfigurationPreview(
   env: Env,
   section: ConfigurationSection,
@@ -716,15 +778,20 @@ export async function buildConfigurationPreview(
   currentRevision: number,
   values: ConfigurationValues,
 ): Promise<ConfigurationPreview> {
-  const current = await readCurrentConfigurationValues(env, section, mode);
+  const saved = await readCurrentConfigurationValues(env, section, mode);
+  const current = section === 'aiRouting' ? aiRoutingComparison(saved) : saved;
+  const proposed = section === 'aiRouting' ? aiRoutingComparison(values) : values;
   const secretFields = new Set(SECRET_FIELDS[section] ?? []);
   const changes: ConfigurationChange[] = [];
-  for (const [field, after] of Object.entries(values)) {
+  for (const [field, after] of Object.entries(proposed)) {
+    if (section === 'aiRouting' && (field === 'routeChecks' || field === 'nativeChecks')) continue;
     if (secretFields.has(field)) {
-      changes.push({ field, secret: { willReplace: typeof after === 'string' && after.trim().length > 0 } });
+      const willReplace = typeof after === 'string' && after.trim().length > 0;
+      if (section !== 'aiRouting' || willReplace) changes.push({ field, secret: { willReplace } });
     } else {
       const safeAfter = field === 'nativeTargets' ? parseNativeAiTargets(after).targets.map((target) => sanitizeNativeTarget(target, Boolean(target.verification))) : after;
-      if (!same(current[field], safeAfter)) changes.push({ field, ...(current[field] !== undefined && { before: current[field] }), after: safeAfter });
+      const equal = section === 'aiRouting' ? canonicalJson(current[field]) === canonicalJson(safeAfter) : same(current[field], safeAfter);
+      if (!equal) changes.push({ field, ...(current[field] !== undefined && { before: current[field] }), after: safeAfter });
     }
   }
 
@@ -797,6 +864,20 @@ async function storeAccessUsers(
       await reactivateUsageUser(env.USAGE_DB, email).catch(() => {});
     }
   }));
+}
+
+type AiRoutingSettingKey = typeof SETUP_KEYS.DYNAMIC_ROUTES | typeof SETUP_KEYS.DEFAULT_ROUTE
+  | typeof SETUP_KEYS.ROUTE_CONTEXT_WINDOWS | typeof SETUP_KEYS.NATIVE_AI_TARGETS
+  | typeof SETUP_KEYS.REASONING_CONFIGURATION | typeof SETUP_KEYS.GROUP_ROUTING;
+export type AiRoutingSettingWrite = readonly [AiRoutingSettingKey, string | null | undefined];
+
+/** Shared persistence tail; callers must finish validation and serialization before writing. */
+export async function persistAiRoutingSettings(kv: KVNamespace, writes: readonly AiRoutingSettingWrite[]): Promise<void> {
+  for (const [key, value] of writes) {
+    if (value === undefined) continue;
+    if (value === null) await kv.delete(key);
+    else await kv.put(key, value);
+  }
 }
 
 export async function executeConfigurationTask(
@@ -877,9 +958,10 @@ export async function executeConfigurationTask(
         for (const target of document.targets) if (target.enabled) {
           const provider = selectNativeProviderConfig(providerConfigs, target.provider);
           const alias = provider?.alias;
-          try { getProfileForRef(reasoningConfiguration, target.profileRef); } catch { throw new Error(`Native target ${target.label} profile is unavailable`); }
+          let profile;
+          try { profile = getProfileForRef(reasoningConfiguration, target.profileRef); } catch { throw new Error(`Native target ${target.label} profile is unavailable`); }
           if (!provider || target.providerConfigId !== provider.id || target.providerConfigAlias !== alias
-            || customProviders.has(target.provider) !== Boolean(target.customProvider) || !nativeVerificationMatches(target, gateway)) {
+            || customProviders.has(target.provider) !== Boolean(target.customProvider) || !nativeVerificationMatches(target, gateway, profile)) {
             throw new Error(`Native target ${target.label} is no longer authorized`);
           }
         }
@@ -896,15 +978,14 @@ export async function executeConfigurationTask(
       const groupsJson = Object.keys(groups).length ? JSON.stringify(groups) : null;
       const reasoningJson = values.reasoningConfiguration !== undefined ? serializeReasoningConfiguration(values.reasoningConfiguration) : undefined;
 
-      await env.KV.put(SETUP_KEYS.DYNAMIC_ROUTES, dynamicRoutesJson);
-      if (defaultRouteJson) await env.KV.put(SETUP_KEYS.DEFAULT_ROUTE, defaultRouteJson);
-      else await env.KV.delete(SETUP_KEYS.DEFAULT_ROUTE);
-      if (routeSettingsJson) await env.KV.put(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, routeSettingsJson);
-      else await env.KV.delete(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS);
-      if (nativeTargetsJson !== undefined) await env.KV.put(SETUP_KEYS.NATIVE_AI_TARGETS, nativeTargetsJson);
-      if (reasoningJson !== undefined) await env.KV.put(SETUP_KEYS.REASONING_CONFIGURATION, reasoningJson);
-      if (groupsJson) await env.KV.put(SETUP_KEYS.GROUP_ROUTING, groupsJson);
-      else await env.KV.delete(SETUP_KEYS.GROUP_ROUTING);
+      await persistAiRoutingSettings(env.KV, [
+        [SETUP_KEYS.DYNAMIC_ROUTES, dynamicRoutesJson],
+        [SETUP_KEYS.DEFAULT_ROUTE, defaultRouteJson],
+        [SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, routeSettingsJson],
+        [SETUP_KEYS.NATIVE_AI_TARGETS, nativeTargetsJson],
+        [SETUP_KEYS.REASONING_CONFIGURATION, reasoningJson],
+        [SETUP_KEYS.GROUP_ROUTING, groupsJson],
+      ]);
       return;
     }
     case 'configure_ai_gateway': {

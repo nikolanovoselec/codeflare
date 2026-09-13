@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preserve Codeflare's question idle grace and raster scan boundary in engine 0.1.3."""
+"""Preserve Codeflare's question idle grace and raster scan boundary in engine 0.1.5."""
 from pathlib import Path
 import sys
 import tomllib
@@ -8,8 +8,8 @@ import tomllib
 def patch_engine(root):
     root = Path(root)
     manifest = tomllib.loads((root / "Cargo.toml").read_text())
-    if manifest["workspace"]["package"]["version"] != "0.1.3":
-        raise ValueError("Unsupported Impeccable engine; expected 0.1.3")
+    if manifest["workspace"]["package"]["version"] != "0.1.5":
+        raise ValueError("Unsupported Impeccable engine; expected 0.1.5")
     patches = [
         ("serve_question.rs",
          "if !mid_delivery && lb != 0.0 && now_ms() - lb > 15000.0 {",

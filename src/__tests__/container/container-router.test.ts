@@ -422,6 +422,20 @@ describe('CF-016 dispatchInternalRoute', () => {
   // contract (container-restart-prefs.test.ts). The puts fire before applySetBucketName, so
   // this asserts the observable storage writes regardless of the R2 setup outcome. Reverting
   // the guard to `if (defaultRoute)` makes both puts disappear and fails this test.
+  it('REQ-ENTERPRISE-083: persists native cache capabilities through the first-config receiver', async () => {
+    const host = makeHost();
+    const handles = ['cf-native-11111111-1111-4111-8111-111111111111'];
+    await dispatchInternalRoute(host, new Request('http://container/_internal/setBucketName', {
+      method: 'POST', body: JSON.stringify({ bucketName: 'b', routeCatalog: handles, promptCacheTargets: handles }),
+    }))!;
+    expect(host.ctx.storage.put).toHaveBeenCalledWith('promptCacheTargets', handles);
+    expect(host._promptCacheTargets).toEqual(handles);
+    const invalid = await dispatchInternalRoute(makeHost(), new Request('http://container/_internal/setBucketName', {
+      method: 'POST', body: JSON.stringify({ bucketName: 'b', promptCacheTargets: ['bedrock_opus'] }),
+    }))!;
+    expect(invalid.status).toBe(400);
+  });
+
   it('persists an empty-string defaultRoute/defaultReasoning on first config (empty-reset, not swallowed)', async () => {
     const host = makeHost();
     const request = new Request('http://container/_internal/setBucketName', {

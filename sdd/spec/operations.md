@@ -660,8 +660,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 **Acceptance Criteria:**
 
 1. Herdr has one weekly release-check job that skips an existing bump branch for the same release. <!-- @impl: .github/workflows/bump-shadow-pins.yml::herdr --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (keeps current Herdr pins coherent and wires release and packaged-runtime jobs) --> <!-- @manual -->
-2. A Herdr bump advances its version, commit, checksum, provenance, launcher pin, and packaged API check in one pull request. <!-- @impl: .github/workflows/bump-shadow-pins.yml::herdr --> <!-- @manual: Review the files changed by a generated Herdr bump pull request. -->
+2. A Herdr bump advances its version, commit, checksum, provenance, and launcher pin in one pull request. <!-- @impl: .github/workflows/bump-shadow-pins.yml::herdr --> <!-- @manual: Review the files changed by a generated Herdr bump pull request. -->
 3. Packaged-image CI rejects a Herdr release whose consumed pane-scroll or agent-status subscription API is incompatible. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @manual: Container-image CI executes the pinned Herdr binary's schema command and enforces the consumed fields, subscription type, and semantic statuses. -->
+4. Packaged-image CI derives the expected Herdr version from committed provenance and requires an exact output match. <!-- @impl: .github/workflows/container-image.yml::image --> <!-- @impl: scripts/ci/verify-herdr-version.mjs --> <!-- @test: host/__tests__/herdr-version-verifier.test.js (REQ-OPS-055: accepts the exact version recorded in provenance) --> <!-- @test: host/__tests__/herdr-version-verifier.test.js (REQ-OPS-055: rejects output that merely contains the provenance version) -->
+5. A Herdr bump does not rewrite workflow files. <!-- @impl: .github/workflows/bump-shadow-pins.yml::herdr --> <!-- @manual: Review the generated Herdr bump pull request and confirm it contains no workflow-file changes. -->
 
 **Constraints:** Herdr remains a coordinated GitHub release binary outside Dependabot ownership.
 
@@ -669,7 +671,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Dependencies:** [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation)
 
-**Verification:** Manual check
+**Verification:** Automated exact-version verifier; manual release-job verification
 
 **Status:** Implemented
 
@@ -736,6 +738,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 1. Every affected committed runtime lock resolves reviewed dependency security floors, including undici 8.9.0 in both Pi runtime trees and ip-address 10.3.1 or later in all three affected runtime trees. <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/undici --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/undici --> <!-- @impl: preseed/agents/claude/browser-run-mcp/package-lock.json::node_modules/ip-address --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
 2. Every Claude platform package in the privileged npm runtime lock matches the exact Claude CLI manifest pin. <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/@anthropic-ai/claude-code --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (locks every Claude platform package at the exact CLI release) -->
 3. The Browser Run MCP, shared npm-tools, and Pi runtime locks resolve fast-uri 3.1.6 or later. <!-- @impl: preseed/agents/claude/browser-run-mcp/package-lock.json::node_modules/fast-uri = 3.1.7 --> <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/fast-uri = 3.1.7 --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/fast-uri = 3.1.7 --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
+4. Affected npm runtime dependency trees exclude the reviewed high-severity libheif out-of-bounds write exposure. <!-- @impl: package-lock.json::node_modules/sharp = 0.35.4 --> <!-- @impl: .github/npm-tools/wrangler/package-lock.json::node_modules/sharp = 0.35.4 --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
 
 **Constraints:** Runtime-lock changes remain subject to normal PR review.
 

@@ -109,7 +109,7 @@ const ACCORDION_SUBTITLES: Record<AccordionGroup, string> = {
   appearance: 'Colors, tips & display preferences',
   session: 'Startup behavior & workspace sync',
   deploy: 'Connect GitHub & Cloudflare for one-click deploy',
-  llm: 'Optional — connect GPT & Gemini for second opinions',
+  llm: 'Connect GPT & Gemini for second opinions (optional)',
   admin: 'Environment, analytics & initialization',
 };
 

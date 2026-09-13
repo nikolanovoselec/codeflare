@@ -9,12 +9,12 @@ import { isEnterpriseMode } from './subscription';
 import { parseUserRecord } from './user-record';
 import { listAllKvKeys, SETUP_KEYS } from './kv-keys';
 import { reactivateUsageUser } from './admin-usage';
-import { parseRouteSettings, type PiReasoningLevel, type ProfileRevisionRef } from './reasoning-profiles';
+import { canonicalHash, selectRuntimeReasoningLevel, parseRouteSettings, type PiReasoningLevel, type ProfileRevisionRef } from './reasoning-profiles';
 import { getProfileForRef, getRouteReasoningProfile, parseReasoningConfiguration } from './reasoning-configuration';
 import { getAigConfig } from './aig-config';
 import { gatewayCoordinates, listCustomProviderSlugs, listNativeProviderConfigs, selectNativeProviderConfig, type GatewayConnection, type NativeProviderConfig } from './ai-gateway-management';
-import { nativeTargetHandle, nativeVerificationMatches, parseNativeAiTargets } from './native-ai-targets';
-import { connectionFingerprint, preferredReasoningLevel, verificationMatches } from './reasoning-verification';
+import { nativePromptCacheSupported, nativeTargetHandle, nativeVerificationMatches, parseNativeAiTargets } from './native-ai-targets';
+import { connectionFingerprint, verificationMatches } from './reasoning-verification';
 
 const logger = createLogger('access');
 const NATIVE_PROVIDER_CACHE_TTL_MS = 60_000;
@@ -749,6 +749,7 @@ export async function loadEnterpriseRouteConfig(
   routeContextWindows: Record<string, number>;
   routeReasoningLevels: Record<string, PiReasoningLevel[]>;
   modelDisplayNames: Record<string, string>;
+  promptCacheTargets?: string[];
 }> {
   if (!isEnterpriseMode(env)) {
     return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} };
@@ -764,10 +765,13 @@ export async function loadEnterpriseRouteConfig(
   const modelDisplayNames: Record<string, string> = {};
   for (const route of resolved.routeCatalog) {
     const assignment = configuration.routeAssignments[route];
-    if (assignment) routeReasoningLevels[route] = [...getRouteReasoningProfile(configuration, route).supportedLevels];
-    else {
+    if (assignment) {
+      const profile = getRouteReasoningProfile(configuration, route);
+      // Publish executable levels; older client preferences still normalize in the Worker.
+      routeReasoningLevels[route] = [...profile.supportedLevels];
+    } else {
       const target = resolved.nativeTargets[route];
-      if (target) { routeReasoningLevels[route] = [...target.reasoningLevels]; modelDisplayNames[route] = target.label; }
+      if (target) { routeReasoningLevels[route] = [...target.reasoningLevels]; modelDisplayNames[route] = target.label.trim() || target.model; }
     }
   }
   const routeContextWindows = (() => {
@@ -781,7 +785,11 @@ export async function loadEnterpriseRouteConfig(
       return {};
     }
   })();
-  return { routeCatalog: resolved.routeCatalog, defaultRoute: resolved.defaultRoute, defaultReasoning: resolved.defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames };
+  // Publish capability only, never provider/model/credential coordinates. Compat
+  // and Dynamic Routes have no certified block-level cache forwarding contract.
+  const promptCacheTargets = resolved.routeCatalog.filter((handle) => resolved.nativeTargets[handle]?.promptCacheSupported === true);
+  return { routeCatalog: resolved.routeCatalog, defaultRoute: resolved.defaultRoute, defaultReasoning: resolved.defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames,
+    ...(promptCacheTargets.length && { promptCacheTargets }) };
 }
 
 /** Per-group routing entry persisted under SETUP_KEYS.GROUP_ROUTING (REQ-ENTERPRISE-013). */
@@ -825,7 +833,9 @@ function applyDefaultDrift(
  */
 interface ResolvedNativeTarget {
   model: string; provider: string; customProvider: boolean; byokAlias?: string; targetId: string; adapter: string;
+  transport: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto'; region?: string;
   profileRef: ProfileRevisionRef; reasoningLevels: PiReasoningLevel[]; label: string; contextWindow: number;
+  promptCacheSupported: boolean; replayBinding: string;
 }
 
 export async function resolveRouteCatalog(
@@ -872,7 +882,10 @@ export async function resolveRouteCatalog(
         } catch { /* Invalid or unverified saved assignments never activate. */ }
       } else if (ref?.kind === 'native-target' && typeof ref.targetId === 'string') {
         const target = nativeDocument.targets.find((candidate) => candidate.id === ref.targetId);
-        if (!target?.enabled || !nativeVerificationMatches(target, connection)) continue;
+        if (!target?.enabled) continue;
+        let profile;
+        try { profile = getProfileForRef(configuration, target.profileRef); } catch { continue; }
+        if (!nativeVerificationMatches(target, connection, profile)) continue;
         if (currentProviderState === undefined) {
           try { currentProviderState = await currentNativeProviders(connection); } catch { currentProviderState = null; }
         }
@@ -884,15 +897,23 @@ export async function resolveRouteCatalog(
         const builtInProvider = ['aws-bedrock', 'google-ai-studio', 'openai'].includes(target.provider);
         if (!selected || selected.id !== target.providerConfigId || alias !== target.providerConfigAlias
           || (target.customProvider ? customCurrent !== true : (customCurrent === true || (!currentProviderState.customProviders && !builtInProvider)))) continue;
-        let profile;
-        try { profile = getProfileForRef(configuration, target.profileRef); } catch { continue; }
         const handle = nativeTargetHandle(target.id);
         eligible.push(handle);
         nativeTargets[handle] = {
           model: target.model, provider: target.provider, customProvider: Boolean(target.customProvider), ...(alias && { byokAlias: alias }),
-          targetId: target.id, adapter: target.provider === 'aws-bedrock' ? 'bedrock-anthropic-compat'
+          targetId: target.id, adapter: target.provider === 'aws-bedrock'
+            ? target.transport === 'aig-legacy-compat' ? 'bedrock-anthropic-compat' : 'bedrock-anthropic-native'
             : target.provider === 'google-ai-studio' ? 'gemini-openai-compat' : 'native-openai-compat',
+          transport: target.transport, ...(target.region && { region: target.region }),
           profileRef: target.profileRef, reasoningLevels: [...profile.supportedLevels], label: target.label, contextWindow: target.contextWindow,
+          promptCacheSupported: nativePromptCacheSupported(target, profile),
+          // Internal authority only: never publish this or provider bindings to Pi.
+          // checkedAt is deliberately excluded so an identical reverification
+          // does not discard authentic state for an unchanged protocol identity.
+          replayBinding: canonicalHash({ connection: connectionFingerprint(connection), provider: target.provider,
+            providerConfigId: target.providerConfigId, alias: target.providerConfigAlias, model: target.model,
+            region: target.region, transport: target.transport, profile: target.profileRef,
+            adapter: target.verification!.adapterVersion }),
         };
       }
     }
@@ -902,12 +923,11 @@ export async function resolveRouteCatalog(
     const resolved = applyDefaultDrift(eligible, configuredDefault, typeof policy.reasoning === 'string' ? policy.reasoning : '');
     if (!resolved.defaultRoute) return empty;
     const nativeDefault = nativeTargets[resolved.defaultRoute];
-    if (nativeDefault) {
-      const levels = nativeDefault.reasoningLevels;
-      return { ...resolved, defaultReasoning: levels.includes(resolved.defaultReasoning as PiReasoningLevel) ? resolved.defaultReasoning : preferredReasoningLevel(levels) ?? '', nativeTargets };
-    }
-    const levels = getRouteReasoningProfile(configuration, resolved.defaultRoute).supportedLevels;
-    return { ...resolved, nativeTargets, defaultReasoning: levels.includes(resolved.defaultReasoning as PiReasoningLevel) ? resolved.defaultReasoning : preferredReasoningLevel(levels) ?? '' };
+    const profile = nativeDefault ? getProfileForRef(configuration, nativeDefault.profileRef)
+      : getRouteReasoningProfile(configuration, resolved.defaultRoute);
+    const level = selectRuntimeReasoningLevel(profile, resolved.defaultReasoning);
+    if (profile.reasoningMode !== 'provider-default' && level === undefined) return empty;
+    return { ...resolved, nativeTargets, defaultReasoning: level ?? '' };
   } catch { return empty; }
 }
 

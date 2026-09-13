@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { CapabilitySummary } from '../../src/lib/ai-capability-discovery/contract';
 import { AgentTypeSchema, SessionModeSchema, SessionWorkspaceSchema, TerminalModeSchema } from './lib/schemas';
 
 /** Supported agent types for multi-agent sessions */
@@ -86,6 +87,13 @@ export interface ReasoningCompatibilityNotice {
   limitations?: string[];
 }
 
+export interface ReasoningCatalogReconciliation {
+  status: 'unchanged' | 'applied';
+  removedDynamicRoutes: string[];
+  removedNativeTargetIds: string[];
+  revision: number;
+}
+
 export interface ReasoningCatalog {
   schemaVersion: 1;
   profiles: ReasoningProfileCatalogEntry[];
@@ -95,18 +103,25 @@ export interface ReasoningCatalog {
   routeCatalogStatus: 'ready' | 'unavailable';
   providers?: Array<{ provider: string; label: string; configured: boolean; defaultSelection: boolean; supported: boolean; custom?: boolean }>;
   providerCatalogStatus?: 'ready' | 'unavailable';
+  reconciliation?: ReasoningCatalogReconciliation;
   connection?: { status: 'ready' | 'missing' | 'permission-denied' | 'unavailable'; message: string };
 }
 
 export interface NativeAiTargetDraft {
   id?: string; handle?: string; label: string; model: string; contextWindow: number; provider: string;
+  transport?: 'aig-legacy-compat' | 'aig-bedrock-anthropic-invoke' | 'aig-bedrock-anthropic-eventstream' | 'aig-bedrock-anthropic-auto'; region?: string;
   profileRef: ProfileRevisionRef; enabled: boolean;
-  verification?: { method: 'automated' | 'administrator'; checkedAt: string; current: boolean };
+  verification?: { method: 'automated' | 'administrator'; checkedAt: string; current: boolean; discovery?: CapabilitySummary };
 }
-export interface NativeTargetCheckResult {
+export type NativeTargetCheckResult = {
   targetId: string; classification: 'Verified' | 'Administrator-confirmed'; assignable: true; checkId: string;
-  verification: { method: 'automated' | 'administrator'; checkedAt: string; current: true };
-}
+  verification: { method: 'automated' | 'administrator'; checkedAt: string; current: true; discovery?: CapabilitySummary };
+} | {
+  assignable: false; classification: string; checkId?: never; verification?: never;
+  cacheEvidence?: { explanation: string };
+  capabilitySummary?: CapabilitySummary;
+  diagnostics?: ReasoningDiscoveryDiagnostic[];
+};
 
 export interface ReasoningEvidenceRef {
   id?: string;
@@ -138,6 +153,7 @@ export interface ReasoningRouteVerification {
   supportedLevels: PiReasoningLevel[];
   scope: 'single-model' | 'observed-path';
   checkedAt: string;
+  capabilities?: CapabilitySummary;
 }
 
 export type FallbackRouting = { enabled: false } | {
@@ -198,9 +214,16 @@ export interface ReasoningDiscoveryDiagnostic {
   code: string;
   status?: number;
   transport?: string;
+  providerCode?: string | number;
+  providerType?: string;
+  effectiveFinishReason?: string;
+  cacheWriteTokens?: number;
+  cacheReadTokens?: number;
+  cacheReadAttempted?: boolean;
 }
 
 export interface ReasoningDiscoveryResult {
+  capabilitySummary?: CapabilitySummary;
   checkId?: string;
   verification?: ReasoningRouteVerification;
   route?: string;

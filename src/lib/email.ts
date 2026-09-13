@@ -259,7 +259,7 @@ export async function sendSubscriptionEmail(opts: {
 
   lines.push(...buildSubscriptionDetailRows({ monthlyHours, maxSessions, price, trialHours, subscribedAt }));
 
-  lines.push('<p>You can manage your subscription — change plan, update payment method, or cancel — anytime from your profile in Codeflare.</p>');
+  lines.push('<p>You can change your plan, update your payment method, or cancel your subscription anytime from your profile in Codeflare.</p>');
 
   if (instanceUrl) {
     lines.push(`<p><a href="${escapeXml(instanceUrl)}">Open Codeflare</a></p>`);

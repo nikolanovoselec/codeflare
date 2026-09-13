@@ -10,7 +10,7 @@ import { decodeXmlEntities, escapeXml } from './xml-utils';
 export function createR2Client(env: Pick<Env, 'R2_ACCESS_KEY_ID' | 'R2_SECRET_ACCESS_KEY'>): AwsClient {
   if (!env.R2_ACCESS_KEY_ID || !env.R2_SECRET_ACCESS_KEY) {
     throw new ValidationError(
-      'R2 credentials not configured. Please refresh the page — secrets may still be propagating after setup.'
+      'R2 credentials not configured. Please refresh the page. Secrets may still be propagating after setup.'
     );
   }
   return new AwsClient({

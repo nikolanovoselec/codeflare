@@ -265,7 +265,7 @@ const OnboardingPage: Component = () => {
               Grab a Coding Agent subscription
             </h2>
             <p class="onboarding-section-description">
-              Codeflare is your IDE — you need at least one coding agent subscription to start coding.
+              Codeflare is your IDE. You need at least one coding agent subscription to start coding.
               Sign up with any of the providers below.
             </p>
             <div class="onboarding-agents-grid">

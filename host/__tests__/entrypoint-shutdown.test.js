@@ -60,6 +60,7 @@ function runRcloneArgs(functionName) {
     'timeout() { shift; "$@"; }',
     'pgrep() { return 1; }',
     'cleanup_main_transcripts() { :; }',
+    'cleanup_remote_pi_transcript_conflicts() { :; }',
     'record_sync_disk_failure() { :; }',
     'repair_hook_exec_bits() { :; }',
     'recover_vanished_files() { return 1; }',

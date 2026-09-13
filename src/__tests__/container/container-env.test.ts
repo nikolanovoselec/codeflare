@@ -325,6 +325,20 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
     };
   }
 
+  it('REQ-ENTERPRISE-083: publishes and revokes opaque native cache capabilities on restart', async () => {
+    const state = baseState();
+    const { writes, storage } = makeStorage();
+    const handles = ['cf-native-11111111-1111-4111-8111-111111111111'];
+    expect(await applyPrefsOnRestart(state, storage, { promptCacheTargets: handles })).toBe(true);
+    expect(writes.promptCacheTargets).toEqual(handles);
+    expect(buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env).ENTERPRISE_PROMPT_CACHE_TARGETS).toBe(JSON.stringify(handles));
+    expect(buildEnvVars(state, {} as Env)).not.toHaveProperty('ENTERPRISE_PROMPT_CACHE_TARGETS');
+    expect(await applyPrefsOnRestart(state, storage, { promptCacheTargets: [...handles] })).toBe(false);
+    expect(await applyPrefsOnRestart(state, storage, { promptCacheTargets: [] })).toBe(true);
+    expect(writes.promptCacheTargets).toEqual([]);
+    expect(buildEnvVars(state, { ENTERPRISE_MODE: 'active' } as Env).ENTERPRISE_PROMPT_CACHE_TARGETS).toBe('[]');
+  });
+
   it('applyBucketName persists userTimezone into both state and storage', async () => {
     const state = baseState();
     const { writes, storage } = makeStorage();

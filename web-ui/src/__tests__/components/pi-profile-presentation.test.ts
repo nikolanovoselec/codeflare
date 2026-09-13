@@ -1,24 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { profileDisplayName, profileValidationBasis } from '../../components/admin/pi-profile-presentation';
 
-describe('REQ-ENTERPRISE-045: provider-aware Pi compatibility profiles', () => {
-  it.each([
-    ['workers-ai-kimi-k-thinking', 'Workers AI · Kimi', 'Workers AI'],
-    ['workers-ai-glm-thinking', 'Workers AI · GLM', 'Workers AI'],
-    ['workers-ai-gemma-thinking', 'Workers AI · Gemma', 'Workers AI'],
-    ['openai-gpt-chat-tools-reasoning', 'OpenAI · GPT — tools and reasoning', 'OpenAI'],
-    ['openai-gpt-chat-tools-off', 'OpenAI · GPT — reasoning off', 'OpenAI'],
-    ['codeflare-inference-mesh-binary-thinking', 'Codeflare Inference Mesh · Qwen / Ornith', 'Codeflare Inference Mesh'],
-  ])('identifies the tested provider for %s without changing its reference', (id, label, provider) => {
-    const profile = Object.freeze({ id, name: 'Canonical stored name', revision: 1, hash: 'a'.repeat(64) });
-    expect(profileDisplayName(profile)).toBe(label);
-    expect(profileValidationBasis(profile)).toContain(provider);
-    expect(profile).toEqual({ id, name: 'Canonical stored name', revision: 1, hash: 'a'.repeat(64) });
-  });
-
+describe('REQ-ENTERPRISE-045/064: provider-aware Pi compatibility profiles', () => {
   it('preserves a custom name without inventing a tested provider', () => {
     const profile = { id: 'custom-team', name: 'Team translation' };
     expect(profileDisplayName(profile)).toBe('Team translation');
     expect(profileValidationBasis(profile)).toBeUndefined();
+  });
+
+  it('presents the three Bedrock choices by route category and model family without transport jargon', () => {
+    expect(profileDisplayName({ id: 'dynamic-bedrock-anthropic-provider-default' })).toBe('Dynamic Route - AWS Bedrock - Claude');
+    expect(profileDisplayName({ id: 'bedrock-anthropic-native-sonnet' })).toBe('Native Route - AWS Bedrock - Claude Sonnet');
+    expect(profileDisplayName({ id: 'bedrock-anthropic-native-opus-stream' })).toBe('Native Route - AWS Bedrock - Claude Opus');
+    expect(profileDisplayName({ id: 'bedrock-anthropic-native-opus-invoke' })).toBe('Native Route - AWS Bedrock - Claude Opus');
+    expect(profileDisplayName({ id: 'bedrock-anthropic-native-opus-auto' })).toBe('Native Route - AWS Bedrock - Claude Opus');
+    expect(profileDisplayName({ id: 'bedrock-anthropic-compat' })).toBe('Native Route - AWS Bedrock - Claude');
+  });
+
+  it('REQ-ENTERPRISE-078: gives automatic Opus presentation metadata without changing canonical identity', () => {
+    const profile = { id: 'bedrock-anthropic-native-opus-auto', name: 'Canonical automatic Opus', revision: 1, hash: 'immutable-hash' };
+    const original = { ...profile };
+    expect(profileDisplayName(profile)).toBe('Native Route - AWS Bedrock - Claude Opus');
+    expect(profileValidationBasis(profile)).toBe('Validated with Claude Opus 5 through provider-native Bedrock transport.');
+    expect(profile).toEqual(original);
   });
 });

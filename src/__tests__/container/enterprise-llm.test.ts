@@ -219,17 +219,18 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'userEmail') return 'nikola@novoselec.ch';
         if (key === 'bucketName') return 'codeflare-enterprise-nikola-novoselec-ch';
+        if (key === '_sessionId') return 'session-1';
         return null;
       });
       const instance = new ContainerClass(ctx as any, enterpriseEnv());
       await vi.waitFor(() => {
-        expect(mockStorage.get).toHaveBeenCalledWith('userEmail');
+        expect(mockStorage.get).toHaveBeenCalledWith('_sessionId');
       });
 
       await instance.startAndWaitForPorts(8080);
 
-      // cf-aig-metadata attribution must carry the real email, not the opaque bucket id.
-      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct123/gw123', token: 'gw-token' } });
+      // Native replay isolation carries both the authenticated user and bound session.
+      expect(LlmInterceptor).toHaveBeenCalledWith({ props: { user: 'nikola@novoselec.ch', sessionId: 'session-1', gatewayUrl: 'https://gateway.ai.cloudflare.com/v1/acct123/gw123', token: 'gw-token' } });
     });
 
     it('passes the matched Access groups as the interceptor groups prop when set', async () => {

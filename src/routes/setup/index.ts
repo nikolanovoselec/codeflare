@@ -384,7 +384,7 @@ app.post('/configure', async (c) => {
   // before any KV write so the toggle can only be turned on once Cloudflare Mesh is
   // provisioned and the [[vpc_networks]] EGRESS binding is live (see the enable runbook).
   if (isEnterpriseMode(c.env) && strictGatewayEgress === true && !c.env.EGRESS) {
-    throw new ValidationError('Strict Gateway egress requires the EGRESS VPC binding — provision Cloudflare Mesh and enable the [[vpc_networks]] binding first');
+    throw new ValidationError('Strict Gateway egress requires the EGRESS VPC binding. Provision Cloudflare Mesh and enable the [[vpc_networks]] binding first.');
   }
 
   // REQ-GITHUB-008 / REQ-ENTERPRISE-017: a secret stored without ENCRYPTION_KEY would be

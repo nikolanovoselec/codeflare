@@ -105,6 +105,7 @@ describe('deployment container image input hash', () => {
       'scripts/patch-context-mode-bundles.mjs',
       'scripts/patch-pi-goal-review-control.mjs',
       'scripts/patch-pi-plan-mode-tool-policy.mjs',
+      'scripts/patch-pi-native-model-display.mjs',
       'scripts/verify-pi-lockstep.mjs',
       'scripts/verify-pi-prompt.mjs',
       'scripts/pi-prompt-contract.mjs',

@@ -97,7 +97,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. After the bisync baseline is established, a periodic bisync runs on a 15-minute cadence. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (runs bisync within one cadence tick of starting (REQ-STOR-003 AC1 / REQ-STOR-002 AC1 / REQ-MEM-004 AC4: cadence trigger)) -->
 2. External triggers interrupt daemon sleep for immediate bisync and coalesce during an active cycle into one rerun ([REQ-STOR-015](#req-stor-015-explicit-sync-trigger-from-ui)). <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (SIGUSR1 interrupts the cadence sleep and triggers bisync immediately (REQ-STOR-003 AC2 / REQ-STOR-015 AC5 / REQ-MEM-004 AC4: SIGUSR1 trigger)) -->
 3. Conflict resolution is newest-file-wins. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
-4. The daemon retries on transient failure and continues the periodic cycle. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (daemon retries after transient failure and continues the cycle (REQ-STOR-003 AC4)) -->
+4. After a transient failure, the next automatic retry begins after two minutes. <!-- @impl: entrypoint.sh::start_sync_daemon --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (daemon retries two minutes after transient failure and continues the cycle (REQ-STOR-003 AC4)) -->
 5. On bisync failure, the daemon attempts vanishing-file recovery (parse the error output, exclude transient files, clear stale locks, retry) before counting the failure against the failure budget. <!-- @impl: entrypoint.sh::recover_vanished_files --> <!-- @test: host/__tests__/entrypoint-bisync-behavior.test.js (failure + vanishing-file recovery retries bisync and clears CONSECUTIVE_FAILURES (REQ-STOR-003 AC5)) -->
 6. Baseline and subsequent bisync invocations limit each deletion set to 5,000 files. <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/entrypoint-shutdown.test.js (REQ-OPS-010 AC4 / REQ-STOR-003 AC6: final, periodic, and baseline bisync use the 5000-file deletion limit) -->
 
@@ -706,8 +706,12 @@ R2 persistence, rclone bisync, quotas, and file browser.
 3. During cache failure, last-known-good startup is allowed only when its applied mode and projection identity match the deployment. <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-STOR-023 AC3: blocks container start when applied projection identity is %s) --> <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC3: an outage rejects last-known-good state for another mode) -->
 4. Pending target identities report upgrading even when applied identity matches the active release. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC4: pending target state retries even when applied identity matches active) -->
 5. Status reports update-pending without a compatible verified active descriptor. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC5: reports update pending when no compatible verified active release is available) -->
+6. Requested status exposes a stable target identity covering release or baked hash, sequence, mode, policy, and projection, independent of progress. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023: exposes a stable desired target for retry suppression without confusing progress with identity) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-AGENT-049: carries the authoritative upgrade target through batch status parsing) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-AGENT-049: rejects an invalid upgrade target from batch status (%s)) -->
 
-**Constraints:** Unchanged polling does not parse or decompress a managed payload.
+**Constraints:**
+
+- Unchanged polling does not parse or decompress a managed payload.
+- The opaque target is observation metadata, not applied state or mutation authority.
 
 **Priority:** P1
 
@@ -1080,6 +1084,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 2. Progress is exposed only for the matching target while reconciliation is pending or during the single applied-finalization handoff. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-036 AC2: batch status exposes only matching pending progress) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-036 AC2: update-pending state omits progress) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-036 AC4: applied target exposes finalizing once and clears it) -->
 3. Progress read failure cannot replace authoritative release status. <!-- @impl: src/lib/managed-reconcile-progress.ts::readManagedReconcileProgress --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-036 AC3: progress read failure cannot replace authoritative upgrading status) -->
 4. After the target is applied, status observation exposes matching finalizing progress once as a transient upgrading handoff and clears it. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @impl: src/lib/managed-reconcile-progress.ts::clearMatchingManagedReconcileProgress --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-036 AC4: applied target exposes finalizing once and clears it) -->
+5. Late reconcile responses cannot revert observed current or update-pending status. <!-- @impl: web-ui/src/stores/session.ts::performPreseedUpgrade --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (ignores a late success after newer %s status) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (ignores a late failure after newer %s status) -->
+6. Successful reconcile responses alone do not mark a managed release current in the dashboard. <!-- @impl: web-ui/src/stores/session.ts::performPreseedUpgrade --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (does not claim current from a successful POST without completion progress) -->
 
 **Constraints:** Batch status does not infer reconciliation completion from progress.
 
@@ -1397,8 +1403,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. Cleanup deletes every file or symbolic link whose name contains `.conflict` beneath the Pi session root while preserving canonical transcripts. <!-- @impl: transcript-retention.mjs::deletePiConflictFiles --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (REQ-STOR-051 AC1: Pi deletes every conflict file and preserves canonical transcripts) -->
+2. Before regular bisync, cleanup deletes matching remote Pi session objects while preserving canonical transcripts. <!-- @impl: entrypoint.sh::cleanup_remote_pi_transcript_conflicts --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (REQ-STOR-051 AC2: regular bisync removes remote Pi conflicts while preserving canonical transcripts) -->
+3. Pi conflict copies are excluded from synchronization so a failed remote cleanup cannot restore or nest them. <!-- @impl: entrypoint.sh::RCLONE_FILTERS --> <!-- @test: host/__tests__/entrypoint-transcript-cleanup.test.js (REQ-STOR-051 AC3: a failed remote cleanup cannot restore conflict copies through bisync) -->
 
-**Constraints:** Unique turns in conflict copies are disposable.
+**Constraints:** Unique turns in conflict copies are disposable; failures remain retryable without blocking canonical transcript synchronization.
 
 **Priority:** P1
 

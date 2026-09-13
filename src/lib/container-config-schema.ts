@@ -52,6 +52,7 @@ export const SetBucketNameBodySchema = z.object({
   routeReasoningLevels: z.record(z.string(), z.array(z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']))).optional(),
   /** Safe administrator labels keyed by opaque native handles. */
   modelDisplayNames: z.record(z.string().regex(/^cf-native-[0-9a-f-]{36}$/i), z.string().trim().min(1).max(128)).optional(),
+  promptCacheTargets: z.array(z.string().regex(/^cf-native-[0-9a-f-]{36}$/i)).max(64).refine((handles) => new Set(handles).size === handles.length).optional(),
   /** REQ-MEM-001 AC4: forward the user's IANA timezone to the container. */
   userTimezone: z.string().optional(),
   /** REQ-GITHUB-004: one-shot GitHub clone directive (repo owner/name + optional ref). */

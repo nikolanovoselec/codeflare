@@ -123,6 +123,31 @@ describe('REQ-ENTERPRISE-033 deterministic Pi discovery', () => {
     expect(failed.assignable).toBe(false);
   });
 
+  it('REQ-ENTERPRISE-071: repairs repeated Bedrock tool names while verifying a Dynamic Route provider-default profile', async () => {
+    const requests: Record<string, any>[] = [];
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, any>;
+      requests.push(body);
+      const replay = body.messages.some((message: { role?: string }) => message.role === 'tool');
+      return replay ? sse([
+        { choices: [{ delta: { content: 'generated-final' }, finish_reason: 'stop' }] },
+        '[DONE]',
+      ]) : sse([
+        { choices: [{ delta: { tool_calls: [{ index: 0, id: 'bedrock-call', type: 'function', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' } }] }, finish_reason: null }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, function: { name: 'codeflare_profile_canary', arguments: '' } }] }, finish_reason: null }] },
+        '[DONE]',
+      ]);
+    });
+    const report = await discoverPiCompatibility({
+      accountId: ACCOUNT_ID, gatewayId: 'gateway', apiToken: 'secret-token', route: 'dynamic/bedrock_opus',
+      profile: getBuiltInProfile('dynamic-bedrock-anthropic-provider-default')!, maxCompletionTokens: 32, compatOnly: true, fetcher,
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests.every((request) => request.model === 'dynamic/bedrock_opus')).toBe(true);
+    expect(report).toMatchObject({ classification: 'Verified', assignable: true, compatibleLevels: [] });
+    expect(report.distinctMappings[0].toolLifecycle).toMatchObject({ passed: true, stage: 'complete' });
+  });
+
   it('REQ-ENTERPRISE-052: verifies a generalized native provider selector directly through compat', async () => {
     const requests: Array<{ url: string; body: Record<string, unknown>; headers: Headers }> = [];
     const report = await discoverPiCompatibility({

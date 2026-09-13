@@ -63,6 +63,7 @@ function buildHarness({
   resyncBehavior = 'success',
   blockReleaseFile, // for bisyncBehavior='block-until-released'
   listingPresent = false,
+  recordSleepDurations = false,
 }) {
   const runtimeRoot = join(dirname(logFile), 'runtime');
   const listingDir = join(runtimeRoot, 'sync/rclone');
@@ -74,12 +75,10 @@ function buildHarness({
   // Patch the daemon body: shrink cadence so tests finish in <2s and isolate
   // all protected runtime state under this harness fixture.
   const patched = daemonBody
-    // Match any `sleep <N>` (where N is a positive integer) in case a
-    // future cadence change replaces the literal 900. If no match is
-    // found the harness will time out via the waitFor budgets below,
-    // surfacing the regression rather than silently running the real
-    // 15-minute sleep.
-    .replace(/sleep [0-9]+(?!\d)/g, 'sleep 1')
+    // Match any literal sleep unless this fixture records the requested
+    // duration through a bounded fake sleep implementation.
+    .replace(recordSleepDurations ? /$a/ : /sleep [0-9]+(?!\d)/g, 'sleep 1')
+    .replace(recordSleepDurations ? /$a/ : /sleep \$\(\(CONSECUTIVE_FAILURES > 0 \? 120 : 900\)\)/g, 'sleep 1')
     // Also remove the log-rotation block; harnesses must not mutate shared
     // process-lifetime state under /run.
     .replace(/if \[ -f \/run\/codeflare\/sync\/sync\.log \].*?fi$/ms, ':');
@@ -157,6 +156,7 @@ function buildHarness({
   return `#!/usr/bin/env bash
 # Test harness: stubs + patched daemon body + launch.
 set +e
+${recordSleepDurations ? `sleep() { echo "SLEEP seconds=$1" >> "${logFile}"; command sleep 0.02; }` : ''}
 ${bisyncStub}
 recover_vanished_files() {
   echo "RECOVER_CALLED" >> "${logFile}"
@@ -402,15 +402,15 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     }
   });
 
-  it('daemon retries after transient failure and continues the cycle (REQ-STOR-003 AC4)', async () => {
-    // REQ-STOR-003 AC4: the daemon retries on transient failure and continues the 15-minute cycle.
-    // A single failure (recover_vanished_files returns non-zero = nothing recovered) must NOT
-    // stop the daemon - it must increment CONSECUTIVE_FAILURES and loop to the next cadence sleep.
+  it('daemon retries two minutes after transient failure and continues the cycle (REQ-STOR-003 AC4)', async () => {
+    // A single failure must not stop the daemon. The next requested wait is two minutes,
+    // while the initial healthy cadence remains fifteen minutes.
     const h = spawnHarness({
       daemonBody,
       bisyncBehavior: 'failure',
       recoveryReturns: 1, // nothing to recover -> CONSECUTIVE_FAILURES increments
       resyncBehavior: 'success',
+      recordSleepDurations: true,
     });
     const pid = await readDaemonPid(h.child);
     try {
@@ -422,6 +422,7 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
         callCount >= 2,
         `daemon must continue the cycle after transient failure; got ${callCount} bisync call(s)`
       );
+      assert.deepEqual([...log.matchAll(/SLEEP seconds=(\d+)/g)].slice(0, 2).map((match) => match[1]), ['900', '120']);
       // Status must have been updated to "failed" (not "success") on the failed cycle
       assert.match(log, /STATUS status=failed/, 'failure path must call update_sync_status with "failed"');
     } finally {

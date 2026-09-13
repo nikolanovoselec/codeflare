@@ -5,7 +5,8 @@ import { connectionFingerprint } from '../../lib/reasoning-verification';
 import { createNativeTarget, nativeTargetHandle } from '../../lib/native-ai-targets';
 import { createMockKV, type MockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
-import { getBuiltInProfileRef, normalizeCustomProfile } from '../../lib/reasoning-profiles';
+import { getBuiltInProfileRef, normalizeCustomProfile, translateRuntimeReasoningRequest } from '../../lib/reasoning-profiles';
+import { capabilityCandidates } from '../../lib/ai-capability-discovery';
 import { routingGatewayUrl, routingInventoryFixtures, verifiedRoutingConfiguration } from '../helpers/verified-routing';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 
@@ -32,6 +33,54 @@ function saved(kv = createMockKV()) {
 }
 
 describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
+  it('REQ-ENTERPRISE-058: publishes only the explicitly mapped discovered level while retaining Worker normalization', async () => {
+    const kv = createMockKV();
+    const env = makeEnv(kv);
+    const profile = capabilityCandidates(false).find((candidate) => candidate.levels.medium?.some((write) => write.path === 'reasoning_effort'))!;
+    const profileRef = { id: profile.id, revision: profile.revision, hash: profile.hash };
+    const configuration = verifiedRoutingConfiguration({ schemaVersion: 1, customProfileRevisions: [profile],
+      routeAssignments: { normalized: { activeProfile: profileRef } },
+    }, { gatewayUrl: routingGatewayUrl, token: 'fixture-token' });
+    configuration.routeAssignments.normalized.verification!.capabilities = {
+      schemaVersion: 1, tools: true, replay: true, cache: 'gateway-response', nativePromptCache: false,
+      reasoning: 'observed-enabled', streaming: 'not-observed', grade: 'Acceptable',
+    };
+    kv._set(SETUP_KEYS.DYNAMIC_ROUTES, ['normalized']);
+    kv._set(SETUP_KEYS.REASONING_CONFIGURATION, configuration);
+    kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: ['normalized'], defaultRoute: 'normalized', reasoning: 'max' } });
+    kv._set(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, { normalized: 200000 });
+
+    const published = await loadEnterpriseRouteConfig(env, ['engineering']);
+    expect(published.routeCatalog).toEqual(['normalized']);
+    expect(published.routeReasoningLevels.normalized).toEqual(['medium']);
+    // Restricted client choices do not remove normalization for older clients.
+    for (const preference of ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const) {
+      expect(translateRuntimeReasoningRequest({ reasoning_effort: preference }, profile, published.defaultReasoning).reasoning_effort).toBe('medium');
+    }
+    expect(published.promptCacheTargets).toBeUndefined();
+    expect(await kv.get(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(JSON.stringify(configuration));
+  });
+  it.each(['provider-prefix', 'gateway-response', 'inconclusive'] as const)('REQ-ENTERPRISE-074: publishes synthetic future model capabilities only from qualifying %s evidence', async (cache) => {
+    const { kv, env } = saved(); env.AIG_TOKEN = `generic-${cache}-synthetic`;
+    const target = createNativeTarget({ label: 'Synthetic future contract', model: 'eu.anthropic.claude-synthetic-future-2099-v1:0',
+      providerConfigId: 'bedrock-default', profileRef: getBuiltInProfileRef('bedrock-anthropic-native-provider-default'),
+      contextWindow: 200000, transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', enabled: true });
+    const handle = nativeTargetHandle(target.id);
+    kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [{ ...target, verification: { schemaVersion: 1,
+      targetId: target.id, provider: target.provider, model: target.model, providerConfigId: target.providerConfigId,
+      connectionFingerprint: connectionFingerprint({ gatewayUrl: routingGatewayUrl, token: env.AIG_TOKEN })!, profileRef: target.profileRef,
+      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v4', checkedAt: new Date().toISOString(),
+      discovery: { schemaVersion: 1, tools: true, replay: true, cache, nativePromptCache: cache === 'provider-prefix', reasoning: 'provider-default', streaming: 'not-observed',
+        grade: cache === 'inconclusive' ? 'Not qualified' : 'Acceptable' },
+    } }] });
+    kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: [], targets: [{ kind: 'native-target', targetId: target.id }],
+      defaultTarget: { kind: 'native-target', targetId: target.id }, reasoning: 'max' } });
+    const cfg = await loadEnterpriseRouteConfig(env, ['engineering']);
+    expect(cfg.routeCatalog).toEqual(cache === 'inconclusive' ? [] : [handle]);
+    expect(cfg.promptCacheTargets ?? []).toEqual(cache === 'provider-prefix' ? [handle] : []);
+    if (cache !== 'inconclusive') expect(cfg.routeReasoningLevels[handle]).toEqual([]);
+    expect(JSON.stringify(cfg)).not.toContain('synthetic-future-2099'); // Only handle/label/capability reach Pi.
+  });
   it('REQ-ENTERPRISE-049: resolves mixed typed targets under first-match policy and current provider authority', async () => {
     const { kv, env, configuration } = saved();
     env.AIG_TOKEN = 'native-fixture-token';
@@ -52,6 +101,104 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
     expect(cfg.modelDisplayNames[nativeTargetHandle(id)]).toBe('Claude Sonnet');
     expect(cfg.routeContextWindows[nativeTargetHandle(id)]).toBe(200000);
     expect(cfg).not.toHaveProperty('nativeTargets');
+  });
+
+  it.each([
+    { scope: 'matching group', groups: ['engineering'] },
+    { scope: 'fallback', groups: ['unmatched'] },
+  ])('REQ-ENTERPRISE-049: $scope exposes only the provider-default Bedrock route and verified native Opus handle', async ({ scope, groups }) => {
+    const { kv, env, configuration } = saved();
+    // Isolate the current-provider cache by connection without changing authority rules.
+    env.AIG_TOKEN = `provider-default-${scope}-fixture-token`;
+    const connection = { gatewayUrl: routingGatewayUrl, token: env.AIG_TOKEN };
+    const id = '33333333-3333-4333-8333-333333333333';
+    const handle = nativeTargetHandle(id);
+    const dynamicProfile = getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default');
+    const profileRef = getBuiltInProfileRef('bedrock-anthropic-native-opus-auto');
+    const target = createNativeTarget({
+      id, label: 'AWS Bedrock Claude Opus', model: 'eu.anthropic.claude-opus-5',
+      contextWindow: 1048576, provider: 'aws-bedrock', providerConfigId: 'incident-bedrock-provider',
+      providerConfigAlias: 'incident-bedrock-key', profileRef, enabled: true,
+      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1',
+    });
+    // Saved server-owned evidence, not a submitted draft or a paid verification request.
+    const verification = {
+      schemaVersion: 1 as const, targetId: id, provider: target.provider, model: target.model,
+      providerConfigId: target.providerConfigId, providerConfigAlias: target.providerConfigAlias,
+      connectionFingerprint: connectionFingerprint(connection)!, profileRef,
+      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v4' as const,
+      checkedAt: new Date().toISOString(), capabilities: { streaming: true, tools: true, replay: true },
+    };
+    kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [{ ...target, verification }] });
+    vi.mocked(listNativeProviderConfigs).mockResolvedValueOnce([{
+      id: 'incident-bedrock-provider', provider: 'aws-bedrock', gatewayId: 'gateway',
+      alias: 'incident-bedrock-key', defaultSelection: true,
+    }]);
+    const policy = {
+      routes: ['bedrock_opus'], defaultRoute: 'bedrock_opus', reasoning: 'medium',
+      targets: [{ kind: 'dynamic-route', route: 'bedrock_opus' }, { kind: 'native-target', targetId: id }],
+      defaultTarget: { kind: 'dynamic-route', route: 'bedrock_opus' },
+    };
+    kv._set(SETUP_KEYS.DYNAMIC_ROUTES, ['bedrock_opus']);
+    kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: policy });
+    kv._set(SETUP_KEYS.REASONING_CONFIGURATION, verifiedRoutingConfiguration({
+      schemaVersion: 1, customProfileRevisions: [],
+      routeAssignments: {
+        general_usage: configuration.routeAssignments.general_usage,
+        development: configuration.routeAssignments.development,
+        bedrock_opus: {
+          activeProfile: dynamicProfile,
+          legs: [{ nodeId: 'primary', provider: 'aws-bedrock', declaredModel: 'eu.anthropic.claude-opus-5', profileRef: dynamicProfile }],
+        },
+      },
+      fallbackRouting: { enabled: true, ...policy },
+    }, connection));
+    kv._set(SETUP_KEYS.ROUTE_CONTEXT_WINDOWS, { general_usage: 262144, development: 262144, bedrock_opus: 1048576 });
+    const savedConfiguration = await kv.get(SETUP_KEYS.REASONING_CONFIGURATION);
+
+    const cfg = await loadEnterpriseRouteConfig(env, groups);
+
+    // Exact public output excludes inactive assignments AND all native model/provider/credential state.
+    expect(cfg).toStrictEqual({
+      routeCatalog: ['bedrock_opus', handle], defaultRoute: 'bedrock_opus', defaultReasoning: '',
+      routeReasoningLevels: { bedrock_opus: [], [handle]: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] },
+      modelDisplayNames: { [handle]: 'AWS Bedrock Claude Opus' },
+      routeContextWindows: { bedrock_opus: 1048576, [handle]: 1048576 },
+      promptCacheTargets: [handle],
+    });
+    // Resolving access must leave the inactive drafts and immutable profile authority intact.
+    expect(await kv.get(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(savedConfiguration);
+  });
+
+  it('REQ-ENTERPRISE-058: maps a Dynamic Route default Off to the next supported level', async () => {
+    const { kv, env, configuration } = saved();
+    kv._set(SETUP_KEYS.REASONING_CONFIGURATION, { ...configuration,
+      fallbackRouting: { enabled: true, routes: ['development'], defaultRoute: 'development', reasoning: 'off' },
+    });
+    const cfg = await loadEnterpriseRouteConfig(env);
+    expect(cfg.routeCatalog).toEqual(['development']);
+    expect(cfg.defaultReasoning).toBe('minimal');
+  });
+
+  it('REQ-ENTERPRISE-058: maps a native streaming default Max down to High without losing the authorized catalog', async () => {
+    const { kv, env } = saved();
+    env.AIG_TOKEN = 'stream-default-mapping-fixture';
+    const id = '44444444-4444-4444-8444-444444444444';
+    const profileRef = getBuiltInProfileRef('bedrock-anthropic-native-opus-stream');
+    const target = createNativeTarget({ id, label: 'Opus', model: 'eu.anthropic.claude-opus-5', contextWindow: 200000,
+      provider: 'aws-bedrock', providerConfigId: 'bedrock-default', profileRef, enabled: true,
+      transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1' });
+    kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [{ ...target, verification: {
+      schemaVersion: 1, targetId: id, provider: target.provider, model: target.model, providerConfigId: target.providerConfigId,
+      connectionFingerprint: connectionFingerprint({ gatewayUrl: routingGatewayUrl, token: env.AIG_TOKEN })!, profileRef,
+      transport: target.transport, region: target.region, adapterVersion: 'bedrock-anthropic-native-v4', checkedAt: new Date().toISOString(),
+    } }] });
+    kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: [nativeTargetHandle(id)],
+      targets: [{ kind: 'native-target', targetId: id }], defaultTarget: { kind: 'native-target', targetId: id }, reasoning: 'max' } });
+    const cfg = await loadEnterpriseRouteConfig(env, ['engineering']);
+    expect(cfg.routeCatalog).toEqual([nativeTargetHandle(id)]);
+    expect(cfg.defaultReasoning).toBe('high');
+    expect(cfg.routeReasoningLevels[nativeTargetHandle(id)]).not.toContain('max');
   });
 
   it('REQ-ENTERPRISE-049: expired native provider refresh fails closed without denying Dynamic Routes', async () => {

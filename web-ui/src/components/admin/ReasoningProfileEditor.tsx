@@ -1,5 +1,5 @@
 /* v8 ignore start -- user-validated administration UI */
-import { For, Show, createMemo, createSignal, createUniqueId, onCleanup, onMount, type Component } from 'solid-js';
+import { For, Show, createMemo, createSignal, createUniqueId, onCleanup, onMount, type Component, type JSX } from 'solid-js';
 import { discoverReasoningCompatibility } from '../../api/client';
 import { apiErrorMessage } from '../../api/fetch-helper';
 import { normalizeCustomProfile } from '../../../../src/lib/reasoning-profiles';
@@ -38,6 +38,9 @@ const DIAGNOSTIC_MESSAGES: Record<string, string> = {
   request_rejected: 'The provider rejected the compatibility request.',
   timeout: 'The compatibility check timed out.',
   transport_error: 'The provider connection failed.',
+  unexpected_response_format: 'The provider returned an unexpected response format instead of the required OpenAI-compatible envelope.',
+  provider_refusal: 'The provider refused the response. Compatibility remains unconfirmed.',
+  cache_reuse_unobserved: 'Cache reuse was not observed: neither a qualifying Gateway HIT nor a provider prefix-read was established. Missing counters and cache misses are inconclusive.',
   malformed_response: 'The provider returned a malformed response.',
   response_too_large: 'The provider response exceeded the safe size limit.',
   off_not_disabled: 'Reasoning remained enabled when checking Off.',
@@ -48,6 +51,15 @@ const DIAGNOSTIC_MESSAGES: Record<string, string> = {
 
 function diagnosticMessage(code: string): string {
   return Object.prototype.hasOwnProperty.call(DIAGNOSTIC_MESSAGES, code) ? DIAGNOSTIC_MESSAGES[code] : 'The compatibility check could not be completed.';
+}
+
+export function reasoningDiagnosticMessage(diagnostic: ReasoningDiscoveryDiagnostic): string {
+  if (diagnostic.code !== 'provider_refusal') return diagnosticMessage(diagnostic.code);
+  const write = diagnostic.cacheWriteTokens;
+  return `The provider refused the ${diagnostic.stage} response.`
+    + (typeof write === 'number' && Number.isSafeInteger(write) && write >= 0 ? ` Provider cache write: ${write.toLocaleString('en-US')} tokens.` : '')
+    + (diagnostic.cacheReadAttempted === false ? ' Cache-read was not attempted.' : '')
+    + ' Compatibility remains unconfirmed; a write alone does not qualify.';
 }
 
 export function reasoningCheckSummary(result: ReasoningDiscoveryResult, fallback = 'Compatibility could not be confirmed. Nothing was changed.'): string {
@@ -63,17 +75,17 @@ export function reasoningCheckSummary(result: ReasoningDiscoveryResult, fallback
     return 'Multiple reasoning behaviors matched. No safe profile was created.';
   }
   const concrete = diagnostics.find((diagnostic) => Object.prototype.hasOwnProperty.call(DIAGNOSTIC_MESSAGES, diagnostic.code));
-  if (concrete) return `${diagnosticMessage(concrete.code)} Nothing was changed.`;
+  if (concrete) return `${reasoningDiagnosticMessage(concrete)} Nothing was changed.`;
   if (result.outcome === 'unsupported' || (!result.outcome && (result.classification.toLowerCase() === 'unsupported' || (candidateClassifications.length > 0 && candidateClassifications.every((classification) => classification === 'unsupported'))))) {
     return 'No compatible reasoning behavior was found. Nothing was changed.';
   }
   return result.outcome === 'inconclusive' ? 'Compatibility could not be confirmed. Nothing was changed.' : fallback;
 }
 
-const DiagnosticList: Component<{ diagnostics?: ReasoningDiscoveryDiagnostic[] }> = (props) => <Show when={props.diagnostics?.length}>
+export const DiagnosticList: Component<{ diagnostics?: ReasoningDiscoveryDiagnostic[] }> = (props) => <Show when={props.diagnostics?.length}>
   <ul class="admin-warning-list"><For each={props.diagnostics}>{(diagnostic) => <li>
-    <p>{diagnosticMessage(diagnostic.code)}</p>
-    <small>Levels: {diagnostic.levels.join(', ') || 'Not reported'} · Stage: {diagnostic.stage}<Show when={diagnostic.status}> · HTTP status: {diagnostic.status}</Show><Show when={diagnostic.transport}> · Transport: {diagnostic.transport}</Show></small>
+    <p>{reasoningDiagnosticMessage(diagnostic)}</p>
+    <small>Levels: {diagnostic.levels.join(', ') || 'Not reported'} · Stage: {diagnostic.stage}<Show when={diagnostic.status}> · HTTP status: {diagnostic.status}</Show><Show when={diagnostic.transport}> · Transport: {diagnostic.transport}</Show><Show when={diagnostic.providerCode !== undefined}> · Provider code: {diagnostic.providerCode}</Show><Show when={diagnostic.providerType}> · Provider type: {diagnostic.providerType}</Show></small>
   </li>}</For></ul>
 </Show>;
 
@@ -122,6 +134,7 @@ export const ReasoningCheckOverview: Component<{ result: ReasoningDiscoveryResul
       || props.result.piCompatibility?.verifiedLevels.includes(level) ? 'passed' : 'unclear';
   };
   return <div class="admin-check-overview">
+    <Show when={props.levels.length > 0} fallback={<p><strong>Provider default</strong>: all seven Pi preferences normalize here; no distinct provider effort or Off claim.</p>}>
     <table class="admin-check-table">
       <caption>Selected profile checks</caption>
       <thead><tr><th scope="col">Level</th><th scope="col">Compatibility</th><th scope="col">Tool call</th><th scope="col">Tool replay</th></tr></thead>
@@ -132,12 +145,14 @@ export const ReasoningCheckOverview: Component<{ result: ReasoningDiscoveryResul
         <CheckCell label={`${LEVEL_LABELS[level]} tool replay`} state={toolState(level, 'tool-replay')} />
       </tr>}</For></tbody>
     </table>
+    </Show>
     <Show when={props.levels.includes('off')}><div>Off disabled: <CheckPill label="Off disabled" state={offState()} /></div></Show>
   </div>;
 };
 
-export const ReasoningCheckDetails: Component<{ result: ReasoningDiscoveryResult }> = (props) => <details class="admin-technical-details admin-inline-technical-details">
+export const ReasoningCheckDetails: Component<{ result: ReasoningDiscoveryResult; children?: JSX.Element }> = (props) => <details class="admin-technical-details admin-inline-technical-details">
   <summary>Technical check details</summary>
+  {props.children}
   <div class="admin-check-candidate">
     <strong>Check scope</strong>
     <p>Route: {props.result.route ?? 'Not reported'}</p>
@@ -235,7 +250,7 @@ const ReasoningProfileEditor: Component<Props> = (props) => {
         <For each={matchedProfiles()}>{(profile) => {
           const nameId = createUniqueId();
           return <div class="admin-profile-match">
-            <div><strong id={nameId}>{profileDisplayName({ ...profile.profileRef, name: profile.name })}</strong><span>Supported levels: {profile.supportedLevels.join(', ') || 'Not reported'}</span></div>
+            <div><strong id={nameId}>{profileDisplayName({ ...profile.profileRef, name: profile.name })}</strong><span>Supported levels: {profile.supportedLevels.join(', ') || 'Provider default'}</span></div>
             <button type="button" class="admin-secondary-button" aria-describedby={nameId} onClick={() => props.onSelectProfile(profile.profileRef)}>Assign profile</button>
           </div>;
         }}</For>

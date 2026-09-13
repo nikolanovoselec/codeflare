@@ -25,12 +25,15 @@ import {
   AuthProvidersResponseSchema,
   AccessTierSchema,
   SubscriptionTierSchema,
+  CapabilitySummarySchema,
   ReasoningCatalogSchema,
   ReasoningDiscoveryResultSchema,
+  ReasoningDiscoveryDiagnosticSchema,
   ReasoningRouteInventorySchema,
 } from '../lib/schemas';
 import { mapStartupDetailsToProgress } from '../lib/status-mapper';
 import { ApiError, baseFetch } from './fetch-helper';
+import { TargetDiscoveryResultSchema, type TargetDiscoveryResult } from '../lib/target-capability-contract';
 
 const BASE_URL = '/api';
 
@@ -70,8 +73,10 @@ export async function getAdminConfiguration(): Promise<AdminConfigurationRespons
   return fetchApi('/admin/configuration', {}, AdminConfigurationResponseSchema);
 }
 
-export async function getReasoningCatalog(gateway?: ReasoningGatewayDraft): Promise<ReasoningCatalog> {
-  return fetchApi('/admin/reasoning/catalog', gateway ? { method: 'POST', body: JSON.stringify({ gateway }) } : {}, ReasoningCatalogSchema) as Promise<ReasoningCatalog>;
+export async function getReasoningCatalog(gateway?: ReasoningGatewayDraft, reconciliation?: { reconcileSaved: true; baseRevision: number }): Promise<ReasoningCatalog> {
+  // Gateway overlays and ordinary GET reads never reconcile saved routing.
+  const body = gateway ? { gateway } : reconciliation;
+  return fetchApi('/admin/reasoning/catalog', body ? { method: 'POST', body: JSON.stringify(body) } : {}, ReasoningCatalogSchema) as Promise<ReasoningCatalog>;
 }
 
 export async function getReasoningRouteInventory(route: string, context?: ReasoningManagementContext): Promise<ReasoningRouteInventory> {
@@ -79,10 +84,10 @@ export async function getReasoningRouteInventory(route: string, context?: Reason
 }
 
 export async function checkNativeTarget(request: { target: NativeAiTargetDraft; profileDraft?: unknown; administratorConfirmed?: true; gateway?: ReasoningGatewayDraft; maxCompletionTokens?: number }): Promise<NativeTargetCheckResult> {
-  return fetchApi('/admin/reasoning/native/discover', { method: 'POST', body: JSON.stringify(request) }, z.object({
+  return fetchApi('/admin/reasoning/native/discover', { method: 'POST', body: JSON.stringify(request) }, z.union([z.object({
     targetId: z.string().uuid(), classification: z.enum(['Verified', 'Administrator-confirmed']), assignable: z.literal(true), checkId: z.string().uuid(),
-    verification: z.object({ method: z.enum(['automated', 'administrator']), checkedAt: z.string(), current: z.literal(true) }),
-  })) as Promise<NativeTargetCheckResult>;
+    verification: z.object({ method: z.enum(['automated', 'administrator']), checkedAt: z.string(), current: z.literal(true), discovery: CapabilitySummarySchema.optional() }),
+  }), z.object({ assignable: z.literal(false), classification: z.string(), capabilitySummary: CapabilitySummarySchema.optional(), diagnostics: z.array(ReasoningDiscoveryDiagnosticSchema).max(64).optional(), cacheEvidence: z.object({ explanation: z.string().max(1024) }).optional() })])) as Promise<NativeTargetCheckResult>;
 }
 
 export async function discoverNativeCompatibility(request: { target: NativeAiTargetDraft; gateway?: ReasoningGatewayDraft; maxCompletionTokens?: number }): Promise<ReasoningDiscoveryResult> {
@@ -94,6 +99,11 @@ export async function discoverReasoningCompatibility(request: ReasoningDiscovery
     method: 'POST',
     body: JSON.stringify(request),
   }, ReasoningDiscoveryResultSchema) as Promise<ReasoningDiscoveryResult>;
+}
+
+export async function discoverTargetCapabilities(request: ({ kind: 'dynamic-route'; route: string } & ReasoningManagementContext)
+  | { kind: 'native-provider'; target: NativeAiTargetDraft; gateway?: ReasoningGatewayDraft }): Promise<TargetDiscoveryResult> {
+  return fetchApi('/admin/reasoning/capabilities/discover', { method: 'POST', body: JSON.stringify(request) }, TargetDiscoveryResultSchema);
 }
 
 const AdminUsageUserSchema = z.object({
@@ -185,9 +195,19 @@ export class ConfigurationRequestError extends Error {
 }
 
 export async function previewConfiguration(section: ConfigurationSection, baseRevision: number, values: unknown): Promise<ConfigurationPreview> {
-  return fetchApi('/admin/configuration-previews', {
-    method: 'POST', body: JSON.stringify({ section, baseRevision, values }),
-  }, ConfigurationPreviewSchema);
+  try {
+    return await fetchApi('/admin/configuration-previews', {
+      method: 'POST', body: JSON.stringify({ section, baseRevision, values }),
+    }, ConfigurationPreviewSchema);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    let body: Record<string, unknown> = { error: error.message };
+    try {
+      const parsed = typeof error.body === 'string' ? JSON.parse(error.body) : error.body;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) body = parsed as Record<string, unknown>;
+    } catch { /* response had no JSON body */ }
+    throw new ConfigurationRequestError(error.status, body);
+  }
 }
 
 export async function startConfigurationRun(
@@ -374,13 +394,13 @@ export interface ManagedReleaseProgress {
  * Get status for all sessions in a single batch call
  * Returns statuses map, maxSessions limit, and optional storageStats
  */
-export async function getBatchSessionStatus(options?: { includePreseedCheck?: boolean; include?: readonly ('usage' | 'storage')[] }): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }; preseedNeedsUpgrade?: boolean; managedReleaseStatus?: 'current' | 'upgrading' | 'update_pending'; managedReleaseProgress?: ManagedReleaseProgress; bucketMigrating?: boolean; bucketMigrationPending?: boolean; bucketMigrationPercent?: number }> {
+export async function getBatchSessionStatus(options?: { includePreseedCheck?: boolean; include?: readonly ('usage' | 'storage')[] }): Promise<{ statuses: Record<string, { status: 'running' | 'stopped'; ptyActive: boolean; startupStage?: string; lastStartedAt?: string | null; lastActiveAt?: string | null; editorReady?: boolean; editorReadyError?: boolean; metrics?: { cpu?: string; mem?: string; hdd?: string; syncStatus?: string; updatedAt?: string } }>; maxSessions: number; storageStats?: { totalFiles: number; totalFolders: number; totalSizeBytes: number }; usage?: { dailySeconds: number; monthlySeconds: number; monthlyQuotaSeconds: number | null; tier: string }; preseedNeedsUpgrade?: boolean; preseedUpgradeTarget?: string; managedReleaseStatus?: 'current' | 'upgrading' | 'update_pending'; managedReleaseProgress?: ManagedReleaseProgress; bucketMigrating?: boolean; bucketMigrationPending?: boolean; bucketMigrationPercent?: number }> {
   const query = new URLSearchParams();
   if (options?.includePreseedCheck) query.set('includePreseedCheck', 'true');
   if (options?.include?.length) query.set('include', [...new Set(options.include)].sort().join(','));
   const path = `/sessions/batch-status${query.size ? `?${query}` : ''}`;
   const response = await fetchApi(path, {}, BatchSessionStatusResponseSchema);
-  return { statuses: response.statuses, maxSessions: response.maxSessions, storageStats: response.storageStats, usage: response.usage, preseedNeedsUpgrade: response.preseedNeedsUpgrade, managedReleaseStatus: response.managedReleaseStatus, managedReleaseProgress: response.managedReleaseProgress, bucketMigrating: response.bucketMigrating, bucketMigrationPending: response.bucketMigrationPending, bucketMigrationPercent: response.bucketMigrationPercent };
+  return { statuses: response.statuses, maxSessions: response.maxSessions, storageStats: response.storageStats, usage: response.usage, preseedNeedsUpgrade: response.preseedNeedsUpgrade, preseedUpgradeTarget: response.preseedUpgradeTarget, managedReleaseStatus: response.managedReleaseStatus, managedReleaseProgress: response.managedReleaseProgress, bucketMigrating: response.bucketMigrating, bucketMigrationPending: response.bucketMigrationPending, bucketMigrationPercent: response.bucketMigrationPercent };
 }
 
 // Get container startup status (polling endpoint)

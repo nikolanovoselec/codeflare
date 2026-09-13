@@ -50,7 +50,7 @@ const GitHubProviderChooser: Component<GitHubProviderChooserProps> = (props) => 
         type="password"
         value={props.appClientSecret}
         onInput={(v) => props.onAppClientSecretChange(v)}
-        placeholder={props.appClientSecretSet ? 'Saved — enter a new secret to replace' : 'GitHub App Client Secret'}
+        placeholder={props.appClientSecretSet ? 'Saved. Enter a new secret to replace it.' : 'GitHub App Client Secret'}
       />
     </Show>
     <Show when={props.providerType === 'oauth'}>
@@ -63,7 +63,7 @@ const GitHubProviderChooser: Component<GitHubProviderChooserProps> = (props) => 
         type="password"
         value={props.oauthClientSecret}
         onInput={(v) => props.onOauthClientSecretChange(v)}
-        placeholder={props.oauthClientSecretSet ? 'Saved — enter a new secret to replace' : 'OAuth App Client Secret'}
+        placeholder={props.oauthClientSecretSet ? 'Saved. Enter a new secret to replace it.' : 'OAuth App Client Secret'}
       />
     </Show>
   </div>

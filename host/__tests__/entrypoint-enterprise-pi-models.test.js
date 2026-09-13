@@ -14,11 +14,12 @@
 // configured catalog shape. Revert the fix (def back) and this test fails.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, mkdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { enterpriseStartup, authorizedRoutes, nativeHandle, nativeLevels, siblingProvider, extractPiCleanup } from '../__fixtures__/enterprise-pi-startup.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
@@ -28,7 +29,7 @@ const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8
 function extractModelsBlock() {
   const start = entrypoint.indexOf('# models.json: codeflare-gateway provider with ONE model per catalog route.');
   if (start === -1) throw new Error('models.json block start marker not found in entrypoint.sh');
-  const end = entrypoint.indexOf('# settings.json: overwrite ONLY defaultProvider', start);
+  const end = entrypoint.indexOf('# --- Pi configuration end ---', start);
   if (end === -1) throw new Error('models.json block end marker not found in entrypoint.sh');
   return entrypoint.slice(start, end);
 }
@@ -54,37 +55,14 @@ function extractEmptyCatalogBody() {
   return entrypoint.slice(start + startMarker.length, end);
 }
 
-// Extract the settings.json merge block (defaultProvider/defaultModel/
-// defaultThinkingLevel overwrite) by its stable comment markers.
-function extractSettingsBlock() {
-  const start = entrypoint.indexOf('# settings.json: overwrite ONLY defaultProvider');
-  if (start === -1) throw new Error('settings.json block start marker not found in entrypoint.sh');
-  const end = entrypoint.indexOf('echo "[entrypoint] Enterprise Mode: Pi pinned', start);
-  if (end === -1) throw new Error('settings.json block end marker not found in entrypoint.sh');
-  return entrypoint.slice(start, end);
-}
-
-// Run the settings merge with an existing settings.json and return the merged file.
+// Settings assertions use the same staged publication as model assertions.
 function runSettingsBlock(defaultRoute, reasoning, existingSettings) {
-  const block = extractSettingsBlock();
-  const dir = mkdtempSync(join(tmpdir(), 'ent-pi-settings-'));
-  const settingsPath = join(dir, 'settings.json');
-  if (existingSettings !== undefined) writeFileSync(settingsPath, existingSettings);
-  const script = [
-    'set -euo pipefail',
-    `ENTERPRISE_DEFAULT_ROUTE='${defaultRoute}'`,
-    `ENTERPRISE_DEFAULT_REASONING='${reasoning}'`,
-    `PI_SETTINGS_JSON='${settingsPath}'`,
-    block,
-  ].join('\n');
-  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
-  let settings = null;
-  if (res.status === 0) settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
-  return { code: res.status, stderr: res.stderr, settings };
+  const result = runBlock(JSON.stringify([defaultRoute]), defaultRoute, undefined, undefined, reasoning, '{}', existingSettings);
+  return { code: result.code, stderr: result.stderr, settings: result.settings };
 }
 
 // Run the extracted block with the given catalog and return { code, modelsJson }.
-function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevelsJson, defaultReasoning = 'off', displayNamesJson = '{}') {
+function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevelsJson, defaultReasoning = 'off', displayNamesJson = '{}', existingSettings, promptCacheTargetsJson = '[]') {
   const block = extractModelsBlock();
   const fixtureCatalog = JSON.parse(catalogJson);
   const fixtureRoutes = fixtureCatalog.length > 0 ? fixtureCatalog : [defaultRoute];
@@ -92,7 +70,11 @@ function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevels
     fixtureRoutes.map((route) => [route, ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']]),
   ));
   const dir = mkdtempSync(join(tmpdir(), 'ent-pi-models-'));
-  const modelsPath = join(dir, 'models.json');
+  const agentDir = join(dir, '.pi/agent');
+  mkdirSync(agentDir, { recursive: true });
+  const modelsPath = join(agentDir, 'models.json');
+  const settingsPath = join(agentDir, 'settings.json');
+  if (existingSettings !== undefined) writeFileSync(settingsPath, existingSettings);
   const script = [
     'set -euo pipefail',
     `ENTERPRISE_ROUTE_CATALOG='${catalogJson}'`,
@@ -101,9 +83,13 @@ function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevels
     ...(contextWindowsJson !== undefined ? [`ENTERPRISE_ROUTE_CONTEXT_WINDOWS='${contextWindowsJson}'`] : []),
     `ENTERPRISE_ROUTE_REASONING_LEVELS='${effectiveReasoningLevels}'`,
     `ENTERPRISE_MODEL_DISPLAY_NAMES='${displayNamesJson}'`,
+    `ENTERPRISE_PROMPT_CACHE_TARGETS='${promptCacheTargetsJson}'`,
     "ENTERPRISE_PLACEHOLDER_TOKEN='codeflare-enterprise'",
     "PI_GATEWAY_BASE_URL='https://api.openai.com/v1'",
     `PI_MODELS_JSON='${modelsPath}'`,
+    `PI_SETTINGS_JSON='${settingsPath}'`,
+    `USER_HOME='${dir}'`,
+    extractPiCleanup(entrypoint),
     block,
     // The production block deliberately keeps the container alive and leaves Pi
     // unpinned on invalid input. For this focused helper, surface that guarded jq
@@ -114,8 +100,46 @@ function runBlock(catalogJson, defaultRoute, contextWindowsJson, reasoningLevels
   const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
   let modelsJson = null;
   if (res.status === 0 && existsSync(modelsPath)) modelsJson = JSON.parse(readFileSync(modelsPath, 'utf8'));
-  return { code: res.status, stderr: res.stderr, modelsJson };
+  return { code: res.status, stderr: res.stderr, modelsJson, settings: res.status === 0 ? JSON.parse(readFileSync(settingsPath, 'utf8')) : null };
 }
+
+describe('REQ-ENTERPRISE-058: complete enterprise Pi startup publication', () => {
+  for (const reasoning of [undefined, '']) {
+    it(`REQ-ENTERPRISE-058: replaces stale models with prefixed route names and unchanged IDs (${reasoning === undefined ? 'missing' : 'empty'} effort)`, (t) => {
+      const fixture = enterpriseStartup({ reasoning });
+      t.after(fixture.cleanup);
+      assert.equal(fixture.result.status, 0, fixture.result.stderr);
+      const models = fixture.readModels();
+      const gateway = models.providers['codeflare-gateway'];
+      assert.deepEqual(gateway.models.map(({ id }) => id), authorizedRoutes);
+      assert.deepEqual(models.providers['unrelated-provider'], siblingProvider);
+      assert.deepEqual(gateway.models[0], {
+        id: 'bedrock_opus', name: 'Dynamic Route - bedrock_opus', reasoning: true,
+        thinkingLevelMap: Object.fromEntries(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((level) => [level, level])),
+        compat: { supportsReasoningEffort: false }, input: ['text', 'image'], contextWindow: 1048576, maxTokens: 16384,
+      });
+      assert.equal(gateway.models[1].id, nativeHandle);
+      assert.equal(gateway.models[1].name, 'Native Route - bedrock-opus-5');
+      assert.deepEqual(gateway.models[1].thinkingLevelMap, Object.fromEntries(nativeLevels.map((level) => [level, level])));
+      assert.deepEqual(fixture.readSettings(), { defaultProvider: 'codeflare-gateway', defaultModel: 'bedrock_opus', theme: 'dark' });
+      assert.doesNotMatch(fixture.result.stdout, /could not build Pi enterprise gateway config/);
+    });
+  }
+
+  for (const [name, options] of [
+    ['malformed authoritative capabilities', { reasoning: '', levels: { bedrock_opus: [], [nativeHandle]: ['invalid-level'] } }],
+    ['missing native capabilities', { reasoning: '', levels: { bedrock_opus: [] } }],
+  ]) {
+    it(`removes stale managed state without false success after ${name}`, (t) => {
+      const fixture = enterpriseStartup(options);
+      t.after(fixture.cleanup);
+      assert.equal(fixture.result.status, 0, 'a configuration failure must not crash the container');
+      assert.deepEqual(fixture.readModels(), { providers: { 'unrelated-provider': siblingProvider } });
+      assert.deepEqual(fixture.readSettings(), { theme: 'dark' });
+      assert.doesNotMatch(fixture.result.stdout, /Pi pinned to/);
+    });
+  }
+});
 
 describe('entrypoint enterprise Pi settings.json thinking-level passthrough (REQ-ENTERPRISE-005)', () => {
   it('writes the wizard reasoning grade verbatim as defaultThinkingLevel, preserving other keys', () => {
@@ -138,6 +162,29 @@ describe('entrypoint enterprise Pi settings.json thinking-level passthrough (REQ
 });
 
 describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-ENTERPRISE-032)', () => {
+  it('REQ-ENTERPRISE-083: enables Pi checkpoints only for the authorized native Runtime handle', () => {
+    const catalog = ['bedrock_opus', nativeHandle];
+    const levels = { bedrock_opus: [], [nativeHandle]: ['off', 'medium', 'high'] };
+    const result = runBlock(JSON.stringify(catalog), 'bedrock_opus', undefined, JSON.stringify(levels), '', '{}', undefined, JSON.stringify([nativeHandle]));
+    assert.equal(result.code, 0, result.stderr);
+    const provider = result.modelsJson.providers['codeflare-gateway'];
+    assert.equal(provider.compat.cacheControlFormat, undefined, 'no provider-wide Anthropic behavior');
+    assert.equal(provider.models[0].compat.cacheControlFormat, undefined, 'Dynamic contract is unchanged');
+    assert.equal(provider.models[1].compat.cacheControlFormat, 'anthropic');
+    assert.equal(provider.models[1].compat.supportsLongCacheRetention, false);
+    assert.deepEqual(provider.models.map(m => m.id), catalog);
+    const legacy = runBlock(JSON.stringify(catalog), 'bedrock_opus', undefined, JSON.stringify(levels), '');
+    assert.equal(legacy.modelsJson.providers['codeflare-gateway'].models[1].compat, undefined, 'old startup snapshots do not opt in');
+  });
+
+  it('REQ-ENTERPRISE-083: rejects malformed cache-capability publication through guarded startup', () => {
+    for (const value of ['null', '{}', '[false]', '["bedrock_opus"]', JSON.stringify([nativeHandle, nativeHandle])]) {
+      const result = runBlock(JSON.stringify([nativeHandle]), nativeHandle, undefined, undefined, 'off', '{}', undefined, value);
+      assert.notEqual(result.code, 0);
+      assert.equal(result.modelsJson, null);
+    }
+  });
+
   it('REQ-ENTERPRISE-032 AC1: builds models.json with one model per catalog route under set -euo pipefail', () => {
     const catalog = ['general_usage', 'development', 'code_review', 'documentation'];
     const { code, stderr, modelsJson } = runBlock(JSON.stringify(catalog), 'general_usage');
@@ -180,7 +227,7 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
       off: 'off', minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max',
     });
     assert.deepEqual(models[1].thinkingLevelMap, {
-      minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max',
+      off: null, minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max',
     });
   });
 
@@ -193,10 +240,11 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     const provider = modelsJson.providers['codeflare-gateway'];
     const native = provider.models[0];
     assert.deepEqual(native, {
-      id: handle, name: 'Claude Sonnet', reasoning: false, compat: { supportsReasoningEffort: false },
+      id: handle, name: 'Native Route - Claude Sonnet', reasoning: true, compat: { supportsReasoningEffort: false },
+      thinkingLevelMap: Object.fromEntries(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((level) => [level, level])),
       input: ['text', 'image'], contextWindow: 200000, maxTokens: 16384,
     });
-    assert.equal('thinkingLevelMap' in native, false);
+    assert.equal(native.compat.supportsReasoningEffort, false);
   });
 
   it('REQ-ENTERPRISE-032 AC3: fails closed when any allowed route lacks supported levels', () => {
@@ -272,6 +320,7 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
       `printf '%s' '{"providers":{"codeflare-gateway":{"models":[]},"other":{"models":[]}}}' > "$USER_HOME/.pi/agent/models.json"`,
       `printf '%s' '{"defaultProvider":"codeflare-gateway","defaultModel":"stale","defaultThinkingLevel":"high","packages":["keep"]}' > "$USER_HOME/.pi/agent/settings.json"`,
       `printf '%s\\n' '# enterprise-copilot-byok' 'export COPILOT_MODEL="stale"' '# end-enterprise-copilot-byok' 'keep-me' > "$USER_HOME/.bashrc"`,
+      extractPiCleanup(entrypoint),
       extractEmptyCatalogBody(),
     ].join('\n');
     const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
@@ -307,5 +356,40 @@ describe('entrypoint enterprise Pi models.json build (REQ-ENTERPRISE-005 / REQ-E
     const re = new RegExp(`--arg(?:json)?\\s+(${KEYWORDS.join('|')})\\b`, 'g');
     const hits = code.match(re) || [];
     assert.deepEqual(hits, [], `reserved-keyword jq arg name(s) in entrypoint.sh: ${hits.join(', ')}`);
+  });
+
+  for (const [scenario, label, expectedName] of [
+    ['user label', '  AWS Bedrock - Opus 5  ', 'Native Route - AWS Bedrock - Opus 5'],
+    ['empty-label fallback', '', `Native Route - ${nativeHandle}`],
+    ['whitespace-label fallback', ' \t ', `Native Route - ${nativeHandle}`],
+  ]) {
+    it(`REQ-ENTERPRISE-082: publishes a native ${scenario} without changing its handle`, () => {
+      const result = runBlock(JSON.stringify([nativeHandle]), nativeHandle, undefined, undefined, 'off',
+        JSON.stringify({ [nativeHandle]: label }));
+      assert.equal(result.code, 0, result.stderr);
+      const model = result.modelsJson.providers['codeflare-gateway'].models[0];
+      assert.equal(model.name, expectedName);
+      assert.equal(model.id, nativeHandle);
+      assert.equal(result.settings.defaultModel, nativeHandle);
+    });
+  }
+
+  it('REQ-ENTERPRISE-082: publishes a Dynamic route name without changing its identity', () => {
+    // The Worker publishes display-map entries only for resolved Native targets.
+    const result = runBlock('["development"]', 'development', undefined, undefined, 'off', '{}');
+    assert.equal(result.code, 0, result.stderr);
+    const model = result.modelsJson.providers['codeflare-gateway'].models[0];
+    assert.equal(model.name, 'Dynamic Route - development');
+    assert.equal(model.id, 'development');
+    assert.equal(result.settings.defaultModel, 'development');
+  });
+
+  it('REQ-ENTERPRISE-082: an unowned native-shaped Dynamic route retains its published kind and identity', () => {
+    const result = runBlock(JSON.stringify([nativeHandle]), nativeHandle, undefined, undefined, 'off', '{}');
+    assert.equal(result.code, 0, result.stderr);
+    const model = result.modelsJson.providers['codeflare-gateway'].models[0];
+    assert.equal(model.name, `Dynamic Route - ${nativeHandle}`);
+    assert.equal(model.id, nativeHandle);
+    assert.equal(result.settings.defaultModel, nativeHandle);
   });
 });

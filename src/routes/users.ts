@@ -48,7 +48,7 @@ app.use('*', authMiddleware);
 // route. No-op when ENTERPRISE_MODE is unset, so SaaS/non-SaaS are unchanged.
 app.use('*', async (c, next) => {
   if (isEnterpriseMode(c.env)) {
-    throw new ForbiddenError('User management is disabled in enterprise mode — users are managed via Cloudflare Access');
+    throw new ForbiddenError('User management is disabled in enterprise mode. Users are managed via Cloudflare Access.');
   }
   return next();
 });
@@ -98,7 +98,7 @@ app.delete('/:email', requireAdmin, userMutationRateLimiter, async (c) => {
   // Admin users can only be removed via Setup, not via user management
   const parsed = existing as { role?: string };
   if (parsed.role === 'admin') {
-    throw new ValidationError('Cannot delete admin users — remove from admin list in Setup instead');
+    throw new ValidationError('Cannot delete admin users. Remove them from the admin list in Setup instead.');
   }
 
   const result = await cleanupUserData(email, c.env);

@@ -122,6 +122,7 @@ export interface SessionState {
   preferences: UserPreferences;
   maxSessions: number;
   preseedUpgrading: boolean;
+  preseedUpgradeFailed: boolean;
   managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null;
   managedReleaseProgress: ManagedReleaseProgress | null;
   /** REQ-ENTERPRISE-020: the bucket's encryption regime is migrating (Governed Mode flip). Reuses the Upgrading affordance to disable New Session. */
@@ -149,6 +150,7 @@ const [state, setState] = createStore<SessionState>({
   preferences: {},
   maxSessions: 3,
   preseedUpgrading: false,
+  preseedUpgradeFailed: false,
   managedReleaseStatus: null,
   managedReleaseProgress: null,
   bucketMigrating: false,
@@ -226,33 +228,65 @@ async function runPreseedUpdate<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
+// Page-local attempt history survives stale/out-of-order target observations.
+// Undefined groups older target-less responses into one observed upgrade episode.
+const preseedAttempts = new Map<string | undefined, 'started' | 'completed' | 'failed'>();
+let preseedUpgradeTarget: string | undefined;
+let preseedUpgradeNeeded = false;
+let preseedUpgradeEpoch = 0;
+
+async function performPreseedUpgrade(): Promise<void> {
+  if (!preseedUpgradeNeeded || state.preseedUpgrading) return;
+  const target = preseedUpgradeTarget;
+  const epoch = preseedUpgradeEpoch;
+  preseedAttempts.set(target, 'started');
+  setState('preseedUpgradeFailed', false);
+  try {
+    const result = await runPreseedUpdate(upgradeAgentConfigs);
+    if (epoch !== preseedUpgradeEpoch) return;
+    preseedAttempts.set(target, 'completed');
+    if (!preseedUpgradeNeeded || target !== preseedUpgradeTarget || state.managedReleaseStatus !== 'upgrading') return;
+    // Completion is observational; only a status check can establish current.
+    const completion = result.managedReleaseProgress;
+    if (completion && state.managedReleaseProgress?.phase !== 'finalizing') {
+      setState('managedReleaseProgress', completion.total > 0
+        ? { ...completion, phase: 'writing' }
+        : completion);
+    }
+  } catch (err) {
+    logger.warn('[SessionStore] preseed auto-upgrade failed:', err);
+    if (epoch !== preseedUpgradeEpoch) return;
+    preseedAttempts.set(target, 'failed');
+    if (preseedUpgradeNeeded && target === preseedUpgradeTarget) setState('preseedUpgradeFailed', true);
+  }
+}
+
+async function retryPreseedUpgrade(): Promise<void> {
+  if (state.preseedUpgradeFailed) await performPreseedUpgrade();
+}
+
 function applyManagedReleaseBatch(
   status: 'current' | 'upgrading' | 'update_pending' | undefined,
   needsUpgrade: boolean | undefined,
   progress?: ManagedReleaseProgress,
+  target?: string,
 ): void {
   if (status !== undefined) {
     setState('managedReleaseStatus', status);
     setState('managedReleaseProgress', status === 'upgrading' ? progress ?? null : null);
   }
-  if (!needsUpgrade || state.preseedUpgrading) return;
-  void runPreseedUpdate(upgradeAgentConfigs)
-    .then((result) => {
-      if (status !== 'upgrading') return;
-      const completion = result.managedReleaseProgress;
-      if (!completion) {
-        setState('managedReleaseStatus', 'current');
-        setState('managedReleaseProgress', null);
-        return;
-      }
-      if (state.managedReleaseProgress?.phase !== 'finalizing') {
-        setState('managedReleaseStatus', 'upgrading');
-        setState('managedReleaseProgress', completion.total > 0
-          ? { ...completion, phase: 'writing' }
-          : completion);
-      }
-    })
-    .catch((err) => logger.warn('[SessionStore] preseed auto-upgrade failed:', err));
+  if (needsUpgrade === undefined) return;
+  if (!needsUpgrade || status === 'current' || status === 'update_pending') {
+    preseedUpgradeNeeded = false;
+    preseedUpgradeEpoch++;
+    preseedAttempts.clear();
+    setState('preseedUpgradeFailed', false);
+    return;
+  }
+  preseedUpgradeNeeded = true;
+  preseedUpgradeTarget = target;
+  setState('preseedUpgradeFailed', preseedAttempts.get(target) === 'failed');
+  if (!preseedAttempts.has(target)) void performPreseedUpgrade();
 }
 
 // Register polling dependencies (extracted to session-polling.ts)
@@ -318,7 +352,8 @@ async function loadSessions(): Promise<void> {
     const managedReleaseProgress = 'managedReleaseProgress' in batchResponse
       ? batchResponse.managedReleaseProgress
       : undefined;
-    applyManagedReleaseBatch(managedReleaseStatus, preseedNeedsUpgrade, managedReleaseProgress);
+    const preseedUpgradeTarget = 'preseedUpgradeTarget' in batchResponse ? batchResponse.preseedUpgradeTarget : undefined;
+    applyManagedReleaseBatch(managedReleaseStatus, preseedNeedsUpgrade, managedReleaseProgress, preseedUpgradeTarget);
 
     // REQ-ENTERPRISE-020: mirror the backend Governed Mode migration flag so the New Session
     // button disables (reusing the Upgrading affordance) while the bucket re-encrypts. Every
@@ -734,10 +769,12 @@ export const sessionStore = {
   loadPreferences,
   updatePreferences: updateUserPreferences,
   runPreseedUpdate,
+  retryPreseedUpgrade,
   get maxSessions() { return state.maxSessions; },
   isAtSessionLimit,
   hasRecentContext,
   get preseedUpgrading() { return state.preseedUpgrading; },
+  get preseedUpgradeFailed() { return state.preseedUpgradeFailed; },
   get managedReleaseStatus() { return state.managedReleaseStatus; },
   get managedReleaseProgress() { return state.managedReleaseProgress; },
   get bucketMigrating() { return state.bucketMigrating; },

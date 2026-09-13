@@ -51,6 +51,16 @@ function extractShellFragment(startMarker, endMarker) {
   return body.slice(start, end + endMarker.length);
 }
 
+function extractShellArray(name) {
+  const body = readFileSync(ENTRYPOINT, 'utf8');
+  const startMarker = `${name}=(`;
+  const start = body.indexOf(startMarker);
+  assert.notEqual(start, -1, `${name} must exist in entrypoint.sh`);
+  const end = body.indexOf('\n)', start);
+  assert.notEqual(end, -1, `${name} must have a closing parenthesis`);
+  return body.slice(start, end + 2);
+}
+
 function makeScratch() {
   const dir = mkdtempSync(join(tmpdir(), 'transcript retention '));
   const runtimeRoot = mkdtempSync(join(tmpdir(), 'transcript-cleanup-runtime-'));
@@ -171,6 +181,7 @@ RCLONE_FILTERS=()
 repair_hook_exec_bits() { :; }
 pgrep() { return 1; }
 rclone() {
+  if [ "$1" = "delete" ]; then return 0; fi
   find "$USER_HOME/.claude/projects" -type f -name '*.jsonl' | wc -l >> "$EVENTS"
   return 1
 }
@@ -178,6 +189,7 @@ ${extractShellFunction('cleanup_agent_transcripts')}
 ${extractShellFunction('cleanup_old_transcripts')}
 ${extractShellFunction('cleanup_old_pi_transcripts')}
 ${extractShellFunction('cleanup_main_transcripts')}
+${extractShellFunction('cleanup_remote_pi_transcript_conflicts')}
 ${extractShellFunction('record_sync_disk_failure')}
 ${extractShellFunction('bisync_with_r2')}
 bisync_with_r2 '' || true
@@ -189,6 +201,99 @@ bisync_with_r2 '' || true
       });
 
       assert.equal(readFileSync(events, 'utf8').trim(), '10');
+    } finally {
+      scratch.cleanup();
+    }
+  });
+
+  test('REQ-STOR-051 AC2: regular bisync removes remote Pi conflicts while preserving canonical transcripts', () => {
+    const scratch = makeScratch();
+    try {
+      const local = join(scratch.dir, '.pi', 'agent', 'sessions', 'workspace');
+      const remote = join(scratch.dir, 'remote', '.pi', 'agent', 'sessions', 'workspace');
+      mkdirSync(local, { recursive: true });
+      mkdirSync(remote, { recursive: true });
+      const canonicalName = `2026-08-18T10-00-01Z_${uuid(1)}.jsonl`;
+      writeFileSync(join(local, canonicalName), 'canonical');
+      writeFileSync(join(remote, canonicalName), 'canonical');
+      writeFileSync(join(remote, `${canonicalName}.conflict1.conflict2`), 'duplicate');
+
+      const shell = `set +e
+USER_HOME="$1"
+REMOTE="$2"
+R2_BUCKET_NAME=test
+RCLONE_CONFIG=/dev/null
+RECOVERY_FILTER_FILE=/dev/null
+RCLONE_FILTERS=(--filter "- .pi/agent/sessions/**.conflict*")
+cleanup_main_transcripts() { find "$USER_HOME/.pi/agent/sessions" -type f -name '*.conflict*' -delete; }
+repair_hook_exec_bits() { :; }
+pgrep() { return 1; }
+rclone() {
+  if [ "$1" = "delete" ]; then
+    printf '%s\\n' "$*" | grep -F -- '--include **/*.conflict*' >/dev/null || return 9
+    find "$REMOTE/.pi/agent/sessions" -type f -name '*.conflict*' -delete
+    return 0
+  fi
+  return 0
+}
+${extractShellFunction('cleanup_remote_pi_transcript_conflicts')}
+${extractShellFunction('record_sync_disk_failure')}
+${extractShellFunction('bisync_with_r2')}
+bisync_with_r2 ''
+`;
+
+      execFileSync('bash', ['-c', shell, 'remote-conflict-cleanup', scratch.dir, join(scratch.dir, 'remote')], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: shellEnv(scratch.runtimeRoot),
+      });
+
+      assert.equal(existsSync(join(remote, `${canonicalName}.conflict1.conflict2`)), false);
+      assert.equal(readFileSync(join(remote, canonicalName), 'utf8'), 'canonical');
+      assert.equal(readFileSync(join(local, canonicalName), 'utf8'), 'canonical');
+    } finally {
+      scratch.cleanup();
+    }
+  });
+
+  test('REQ-STOR-051 AC3: a failed remote cleanup cannot restore conflict copies through bisync', () => {
+    const scratch = makeScratch();
+    try {
+      const local = join(scratch.dir, '.pi', 'agent', 'sessions', 'workspace');
+      const remote = join(scratch.dir, 'remote', '.pi', 'agent', 'sessions', 'workspace');
+      mkdirSync(local, { recursive: true });
+      mkdirSync(remote, { recursive: true });
+      const conflictName = `2026-08-18T10-00-01Z_${uuid(1)}.jsonl.conflict1`;
+      writeFileSync(join(remote, conflictName), 'remote duplicate');
+
+      const shell = `set +e
+USER_HOME="$1"
+REMOTE="$2"
+R2_BUCKET_NAME=test
+RCLONE_CONFIG=/dev/null
+RECOVERY_FILTER_FILE=/dev/null
+${extractShellArray('RCLONE_FILTERS_COMMON')}
+RCLONE_FILTERS=("\${RCLONE_FILTERS_COMMON[@]}")
+cleanup_main_transcripts() { find "$USER_HOME/.pi/agent/sessions" -type f -name '*.conflict*' -delete; }
+repair_hook_exec_bits() { :; }
+pgrep() { return 1; }
+rclone() {
+  if [ "$1" = "delete" ]; then return 9; fi
+  printf '%s\\n' "$*" | grep -F -- '- .pi/agent/sessions/**.conflict*' >/dev/null || cp "$REMOTE/.pi/agent/sessions/workspace/${conflictName}" "$USER_HOME/.pi/agent/sessions/workspace/${conflictName}"
+  return 0
+}
+${extractShellFunction('cleanup_remote_pi_transcript_conflicts')}
+${extractShellFunction('record_sync_disk_failure')}
+${extractShellFunction('bisync_with_r2')}
+bisync_with_r2 ''
+`;
+
+      execFileSync('bash', ['-c', shell, 'remote-conflict-filter', scratch.dir, join(scratch.dir, 'remote')], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: shellEnv(scratch.runtimeRoot),
+      });
+
+      assert.equal(existsSync(join(local, conflictName)), false);
+      assert.equal(existsSync(join(remote, conflictName)), true, 'failed cleanup leaves remote evidence for a later retry');
     } finally {
       scratch.cleanup();
     }
@@ -242,8 +347,9 @@ cleanup_old_pi_transcripts() { printf '%s\\n' cleanup-pi >> "$EVENTS"; return 8;
 repair_hook_exec_bits() { :; }
 pgrep() { return 1; }
 find() { return 0; }
-rclone() { printf '%s\\n' rclone >> "$EVENTS"; return 0; }
+rclone() { if [ "$1" = "delete" ]; then return 0; fi; printf '%s\\n' rclone >> "$EVENTS"; return 0; }
 ${extractShellFunction('cleanup_main_transcripts')}
+${extractShellFunction('cleanup_remote_pi_transcript_conflicts')}
 ${extractShellFunction('record_sync_disk_failure')}
 ${extractShellFunction('bisync_with_r2')}
 bisync_with_r2 ''

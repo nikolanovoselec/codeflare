@@ -16,6 +16,7 @@ const { PROFILE_HASH, BUILTIN_IDS } = vi.hoisted(() => ({
     'workers-ai-kimi-k-thinking',
     'workers-ai-glm-thinking',
     'codeflare-inference-mesh-binary-thinking',
+    'dynamic-bedrock-anthropic-provider-default',
     'native-google-ai-studio-compat',
     'native-openai-compat',
     'native-codeflare-inference-mesh-compat',
@@ -52,12 +53,11 @@ vi.mock('../../lib/reasoning-profiles', () => {
     hash: PROFILE_HASH,
     enabled: true,
     ingressContract: 'ai-gateway-chat-completions',
-    supportedLevels: ['off'],
-    unsupportedLevels: [],
+    ...(id === 'dynamic-bedrock-anthropic-provider-default'
+      ? { reasoningMode: 'provider-default', supportedLevels: [], unsupportedLevels: ['off'], levels: {}, validatedTransports: ['compat'], offSemantics: { status: 'unsupported' } }
+      : { supportedLevels: ['off'], unsupportedLevels: [], levels: { off: [{ path: 'reasoning_effort', value: null }] }, offSemantics: { status: 'explicit-value', path: 'reasoning_effort', value: null } }),
     removePaths: [],
-    levels: { off: [{ path: 'reasoning_effort', value: null }] },
     aliases: {},
-    offSemantics: { status: 'explicit-value', path: 'reasoning_effort', value: null },
     recognizedResponseFields: { content: ['choices[].message.content'], tools: ['choices[].message.tool_calls'] },
     limitations: [],
   }));
@@ -209,7 +209,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     expect(Object.keys(body).sort()).toEqual(['connection', 'notices', 'profiles', 'providerCatalogStatus', 'providers', 'routeCatalogStatus', 'routes', 'schemaVersion', 'usage']);
     expect(body.schemaVersion).toBe(1);
     expect(body.profiles.map((profile: any) => profile.id)).toEqual(BUILTIN_IDS);
-    expect(body.profiles).toHaveLength(10);
+    expect(body.profiles).toHaveLength(11);
     expect(body.notices).toHaveLength(4);
     expect(body.notices.every((notice: any) => notice.assignable === false)).toBe(true);
     expect(body.routes).toEqual(['codeflare-mesh']);
@@ -248,7 +248,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     const body = JSON.parse(text);
     expect(body.routes).toEqual([]);
     expect(body.routeCatalogStatus).toBe('unavailable');
-    expect(body.profiles).toHaveLength(10);
+    expect(body.profiles).toHaveLength(11);
     expect(text).not.toContain('private management error');
   });
 
@@ -340,7 +340,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
       classification: 'Verified',
       assignable: true,
       outcome: 'existing-profile',
-      matchedProfiles: BUILTIN_IDS.map((id) => ({ name: id, profileRef: { id, revision: 1, hash: PROFILE_HASH }, supportedLevels: ['off'] })),
+      matchedProfiles: BUILTIN_IDS.map((id) => ({ name: id, profileRef: { id, revision: 1, hash: PROFILE_HASH }, supportedLevels: id === 'dynamic-bedrock-anthropic-provider-default' ? [] : ['off'] })),
     });
     expect(body).not.toHaveProperty('profileDraft');
     expect(vi.mocked(kv.put).mock.calls.some(([key]) => key === SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false);
@@ -435,7 +435,7 @@ describe('REQ-ENTERPRISE-033 Administration reasoning API', () => {
     const body = JSON.parse(text);
     expect(result.status).toBe(200);
     expect(body).toMatchObject({ routeCatalogStatus: 'unavailable', routes: [], schemaVersion: 1 });
-    expect(body.profiles).toHaveLength(10);
+    expect(body.profiles).toHaveLength(11);
     expect(text).not.toContain('private-management-payload');
   });
 
