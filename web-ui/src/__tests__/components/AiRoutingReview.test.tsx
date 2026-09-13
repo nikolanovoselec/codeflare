@@ -63,6 +63,63 @@ const renderReview = (submitted: unknown = values(), reviewed = preview({ change
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('AI routing review', () => {
+  it.each([false, true])('REQ-ENTERPRISE-046: labels changed route sections Dynamic routes and Native routes (saved: %s)', (saved) => {
+    const reviewed = { ...values(), nativeTargets: [{ label: 'Opus5', model: 'eu.anthropic.claude-opus-5', region: 'eu-central-1', contextWindow: 200000, enabled: true }] };
+    const changes = additions(reviewed);
+    if (saved) render(() => <AiRoutingSummary values={reviewed} current={{}} changes={changes} saved />);
+    else renderReview(reviewed, preview({ changes }));
+
+    const dynamic = screen.getByRole('region', { name: 'Dynamic routes' });
+    expect(within(dynamic).getByRole('heading', { name: 'Dynamic routes', level: 3 })).toBeVisible();
+    expect(within(dynamic).getByRole('table', { name: 'Dynamic routes' })).toBeVisible();
+    const native = screen.getByRole('region', { name: 'Native routes' });
+    expect(within(native).getByRole('heading', { name: 'Native routes', level: 3 })).toBeVisible();
+    expect(within(native).getByRole('row', { name: /Opus5/ })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Route profiles' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { section: 'Group access', source: 'preview', saved: false },
+    { section: 'Fallback', source: 'preview', saved: false },
+    { section: 'Group access', source: 'current', saved: false },
+    { section: 'Fallback', source: 'current', saved: false },
+    { section: 'Group access', source: 'preview', saved: true },
+    { section: 'Fallback', source: 'preview', saved: true },
+    { section: 'Group access', source: 'current', saved: true },
+    { section: 'Fallback', source: 'current', saved: true },
+  ])('REQ-ENTERPRISE-046: resolves $section allowed and default native routes from authoritative $source labels, not submitted values (saved: $saved)', ({ section, source, saved }) => {
+    const targetId = '6af8fc3b-5352-4d52-ac55-0c342673960d';
+    const handle = `cf-native-${targetId}`;
+    const target = { id: targetId, label: 'Opus5', provider: 'aws-bedrock', model: 'eu.anthropic.claude-opus-5',
+      transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', contextWindow: 200000, enabled: true };
+    // The matching target is not the first target. Preview submissions omit the
+    // projected handle; unchanged current targets retain it.
+    const otherTarget = { ...target, id: '11111111-1111-4111-8111-111111111111', label: 'Sonnet5', model: 'eu.anthropic.claude-sonnet-5' };
+    const current = { nativeTargets: [otherTarget, { ...target, handle, label: source === 'preview' ? 'Old Opus name' : target.label }] };
+    const policy = { routes: ['development', handle], defaultRoute: handle, reasoning: 'off' };
+    const reviewedPolicies = { groupRouting: [{ accessGroup: 'Platform engineers', ...policy }], fallbackRouting: { enabled: true, ...policy } };
+    const changes: ConfigurationPreview['changes'] = [
+      ...(source === 'preview' ? [{ field: 'nativeTargets', before: current.nativeTargets, after: [otherTarget, target] }] : []),
+      ...additions(reviewedPolicies),
+    ];
+    const submittedPolicy = { routes: ['browser-only-route'], defaultRoute: 'browser-only-route', reasoning: 'off' };
+    const submitted = { nativeTargets: [{ ...target, label: 'Untrusted browser label' }],
+      groupRouting: [{ accessGroup: 'Platform engineers', ...submittedPolicy }], fallbackRouting: { enabled: true, ...submittedPolicy } };
+    if (saved) render(() => <AiRoutingSummary values={submitted} current={current} changes={changes} saved />);
+    else renderReview(submitted, preview({ changes }), current);
+
+    const region = screen.getByRole('region', { name: section });
+    const policySummary = section === 'Group access'
+      ? within(region).getByRole('article', { name: 'Platform engineers' }) : region;
+    const allowed = within(policySummary).getByRole('list', { name: 'Allowed routes' });
+    expect(within(allowed).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['development', 'Native Route - Opus5']);
+    const defaultRow = within(policySummary).getByText('Default route').parentElement!;
+    expect(within(defaultRow).getByRole('definition')).toHaveTextContent(/^Native Route - Opus5$/);
+    for (const unwanted of [handle, 'Old Opus name', 'Untrusted browser label', 'browser-only-route', 'Sonnet5']) {
+      expect(policySummary).not.toHaveTextContent(unwanted);
+    }
+  });
+
   it('REQ-ENTERPRISE-069: shows only the authoritative changed route, not the unchanged configuration inventory', () => {
     const routes = ['bedrock_opus', 'development', 'general_usage', 'documentation', 'code_review', 'codeflare_mesh', 'codeflare-mesh-research', 'freestyler'];
     const bedrock = getBuiltInProfileRef('dynamic-bedrock-anthropic-provider-default');

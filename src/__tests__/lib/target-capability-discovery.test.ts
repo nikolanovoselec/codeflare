@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { capabilityCandidates, discoverTargetCapabilities } from '../../lib/ai-capability-discovery';
 import { MAX_CAPABILITY_SUBMISSIONS } from '../../lib/ai-capability-discovery/contract';
-import { normalizeCustomProfile } from '../../lib/reasoning-profiles';
+import { normalizeCustomProfile, translateRuntimeReasoningRequest } from '../../lib/reasoning-profiles';
 
 // Synthetic wire fixtures. Unknown marketing names prove absence of name
 // coupling, not that an unreleased model is available or live certified.
@@ -33,7 +33,83 @@ function enabledMappingFetcher(evidence: Parameters<typeof response>[2]) {
   });
 }
 
+// Cold, genuinely separated public deltas: framing a buffered answer as SSE
+// must not be enough to establish incremental delivery.
+function coldIncrementalResponse(body: any, cache = 'MISS'): Response {
+  if (body.tools || !body.stream) return response(body, cache);
+  const encoder = new TextEncoder();
+  return new Response(new ReadableStream<Uint8Array>({ async start(controller) {
+    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Synthetic ' }, finish_reason: null }] })}\n\n`));
+    await new Promise((resolve) => setTimeout(resolve, 12));
+    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: 'public result.' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 8192, completion_tokens: 16 } })}\n\ndata: [DONE]\n\n`));
+    controller.close();
+  } }), { headers: { 'content-type': 'text/event-stream', 'cf-aig-cache-status': cache,
+    'cf-aig-provider': 'synthetic-provider', 'cf-aig-model': 'never-listed-model-2099' } });
+}
+
 describe('REQ-ENTERPRISE-074 dedicated target capability discovery', () => {
+  it('REQ-ENTERPRISE-035: keeps a working streaming Dynamic path assignable without cache reuse or buffered cache chasing', async () => {
+    const bodies: any[] = [];
+    const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/never-listed-route', maxCompletionTokens: 2048,
+      fetcher: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)); bodies.push(body);
+        // A buffered candidate WOULD get HIT. It must never be submitted merely
+        // to improve cache evidence after streaming tools and exact replay work.
+        return coldIncrementalResponse(body, body.stream ? 'MISS' : 'HIT');
+      } });
+    expect(result.assignable).toBe(true);
+    expect(result.profile?.compatibility?.response).toBe('stream');
+    expect(result.capabilities).toEqual({ schemaVersion: 2, mappings: [{ levels: [], transport: 'compat', tools: true, replay: true,
+      reasoning: 'provider-default', streaming: 'incremental', cache: 'inconclusive' }] });
+    expect(result.capabilities).not.toHaveProperty('grade');
+    // Outbound submissions are a cost/transport contract, not an internal spy count.
+    expect(bodies.map((body) => body.stream)).toEqual([true, true, true, true]);
+    expect(result.accounting.httpAttempts).toBe(4);
+    expect(bodies[1].messages.at(-2)).toEqual({ role: 'assistant', tool_calls: tool.tool_calls });
+    expect(bodies[1].messages.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'synthetic-call', content: 'ok' });
+    expect(bodies[2]).toEqual(bodies[3]);
+    expect(result.attempts).toHaveLength(1);
+  });
+
+  it('REQ-ENTERPRISE-083: reports Gateway HIT separately without inventing input caching or a grade', async () => {
+    const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/never-listed-cache-route', maxCompletionTokens: 2048,
+      fetcher: async (_url, init) => response(JSON.parse(String(init?.body)), 'HIT') });
+    expect(result.assignable).toBe(true);
+    expect(result.capabilities).toEqual({ schemaVersion: 2, mappings: [{ levels: [], transport: 'compat', tools: true, replay: true,
+      cache: 'gateway-response', reasoning: 'provider-default', streaming: 'not-observed' }] });
+    expect(result.capabilities).not.toHaveProperty('grade');
+    expect(result).not.toHaveProperty('grade');
+    for (const attempt of result.attempts) expect(attempt.capabilities).not.toHaveProperty('grade');
+    expect(result.profile).toEqual(normalizeCustomProfile(result.profile));
+  });
+
+  it.each([
+    { reasoningContent: 'private enabled-reasoning evidence', reasoning: 'observed-enabled' },
+    { reasoningContent: '', reasoning: 'accepted-unverified' },
+  ])('REQ-ENTERPRISE-075: returns independent $reasoning capability rows without input caching while retaining seven Dynamic preferences', async ({ reasoningContent, reasoning }) => {
+    const bodies: any[] = [];
+    const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/unknown-independent-capabilities', maxCompletionTokens: 2048,
+      fetcher: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)); bodies.push(body);
+        if (body.reasoning_effort !== 'medium') return Response.json({ error: { code: 'invalid_parameter' } }, { status: 400 });
+        return response(body, 'MISS', { reasoningContent });
+      } });
+    expect(result.assignable).toBe(true);
+    expect(result.profile?.levels.medium).toEqual([{ path: 'reasoning_effort', value: 'medium' }]);
+    expect(result.capabilities).toEqual({ schemaVersion: 2, mappings: [{ levels: ['medium'], transport: 'compat', tools: true, replay: true,
+      reasoning, cache: 'inconclusive', streaming: 'not-observed' }] });
+    expect(result.capabilities).not.toHaveProperty('grade');
+    expect(JSON.stringify(result)).not.toContain('private enabled-reasoning evidence');
+    // No second enabled buffered campaign after a complete working stream contract.
+    expect(bodies.filter((body) => body.reasoning_effort === 'medium').map((body) => body.stream)).toEqual([true, true, true, true, true]);
+    for (const preference of ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']) {
+      const translated = translateRuntimeReasoningRequest({ messages: [{ role: 'user', content: 'Synthetic preference canary.' }],
+        reasoning_effort: preference }, result.profile!, 'medium');
+      expect(translated).toEqual({ messages: [{ role: 'user', content: 'Synthetic preference canary.' }], reasoning_effort: 'medium' });
+    }
+  });
+
   it('automatically returns a canonical shared configuration and grade, not a profile shopping list', async () => {
     const bodies: any[] = [];
     const result = await discoverTargetCapabilities({ ...coordinates, route: 'dynamic/never-listed-route', maxCompletionTokens: 256,

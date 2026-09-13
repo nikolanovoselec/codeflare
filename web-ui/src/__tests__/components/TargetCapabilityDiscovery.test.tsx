@@ -350,3 +350,191 @@ describe('REQ-ENTERPRISE-074 select target → Discover → review/Save', () => 
     expect(values.routeChecks['brand-new-route']).toBeNull();
   });
 });
+
+// Current evidence is per mapping; legacy grades remain readable but must not be
+// rendered or promoted into current authority.
+describe('Independent capability evidence and administrator default preferences', () => {
+  const targetId = '11111111-1111-4111-8111-111111111111';
+  const model = 'eu.anthropic.claude-synthetic-future-2099-v1:0';
+  const unobservedCache = { schemaVersion: 2, mappings: [{ levels: [], transport: 'compat', tools: true, replay: true,
+    reasoning: 'provider-default', streaming: 'incremental', cache: 'inconclusive' }] };
+  type TargetKind = 'dynamic' | 'native';
+
+  function discoveryResult(kind: TargetKind, evidence = unobservedCache) {
+    const mappedEvidence = { ...evidence, mappings: evidence.mappings.map((mapping) => ({ ...mapping,
+      transport: kind === 'native' ? 'bedrock-eventstream' : mapping.transport })) };
+    const common = { ...result, capabilities: mappedEvidence,
+      explanation: 'Tools and replay succeeded; streaming was observed. Input caching was not established.' };
+    return kind === 'dynamic'
+      ? { ...common, routeVerification: { ...proof, capabilities: mappedEvidence } }
+      : { ...common, profile: getBuiltInProfile('bedrock-anthropic-native-provider-default')!, targetId,
+        routeVerification: undefined,
+        nativeVerification: { method: 'automated', checkedAt: proof.checkedAt, current: true, discovery: mappedEvidence } };
+  }
+
+  async function discover(view: ReturnType<typeof setup>, kind: TargetKind) {
+    await view.findByText('Connected · 1 routes readable');
+    if (kind === 'native') {
+      await fireEvent.click(view.getByRole('button', { name: 'Native routes' }));
+      await fireEvent.click(view.getByRole('button', { name: 'Add Native Route' }));
+      await fireEvent.input(view.getByLabelText('Native target 1 model'), { target: { value: model } });
+      await fireEvent.input(view.getByLabelText('Native target 1 label'), { target: { value: 'Independent native' } });
+    } else {
+      await fireEvent.click(view.getByRole('button', { name: 'Configure brand-new-route' }));
+    }
+    const button = view.getByRole('button', {
+      name: `Discover capabilities for ${kind === 'native' ? 'native target 1' : 'brand-new-route'}`,
+    });
+    await waitFor(() => expect(button).toBeEnabled());
+    await fireEvent.click(button);
+    await waitFor(() => expect(button).toBeEnabled());
+    return view.getByRole('region', { name: checkResultName });
+  }
+
+  function visibleCapability(panel: HTMLElement, label: string) {
+    const term = within(panel).getByText(label, { selector: 'dt' });
+    expect(term).toBeVisible();
+    const status = term.nextElementSibling as HTMLElement;
+    expect(status).toBeVisible();
+    // Neither the label nor its outcome may be hidden in technical evidence.
+    for (const disclosure of panel.querySelectorAll('details')) {
+      expect(disclosure).not.toContainElement(term);
+      expect(disclosure).not.toContainElement(status);
+    }
+    return status;
+  }
+
+  it.each(['dynamic', 'native'] as const)('REQ-ENTERPRISE-041: %s mixed evidence keeps four independent capability outcomes visible with details collapsed', async (kind) => {
+    api.discover.mockResolvedValue(discoveryResult(kind));
+    const view = setup();
+    const panel = await discover(view, kind);
+    const details = within(panel).getByText(/(?:check|technical|discovery) details|discovery attempts/i).closest('details')!;
+    expect(details.open).toBe(false);
+    const tools = visibleCapability(panel, 'Tool calling');
+    expect(tools).toHaveTextContent(/verified|passed|supported/i);
+    expect(tools).not.toHaveTextContent(/unverified|unsupported|failed|not (?:established|verified|supported)/i);
+    const reasoning = visibleCapability(panel, 'Reasoning');
+    expect(reasoning).toHaveTextContent(/provider[ -]default|provider[ -]controlled/i);
+    expect(reasoning).toHaveTextContent(/(?:not|no|cannot|does not).{0,60}(?:guarantee|prove|off)|off.{0,60}(?:not guaranteed|not verified)/i);
+    const streaming = visibleCapability(panel, 'Streaming');
+    expect(streaming).toHaveTextContent(/incremental|verified|passed/i);
+    expect(streaming).not.toHaveTextContent(/unverified|failed|not (?:observed|established|verified)/i);
+    const cache = visibleCapability(panel, 'Input caching');
+    expect(cache).toHaveTextContent(/inconclusive|not (?:observed|established|verified)|unverified/i);
+    expect(cache).not.toHaveTextContent(/unsupported|not supported/i);
+    expect(within(panel).getByText(/Review changes/i)).toBeVisible();
+    expect(panel).not.toHaveTextContent(/\b(?:Minimum|Acceptable|Optimal|Not qualified)\b/i);
+    expect(formValues(view.container).dynamicRoutes).toEqual([]);
+    expect(formValues(view.container).groupRouting).toEqual([]);
+  });
+
+  it('REQ-ENTERPRISE-035: Gateway HIT remains response reuse rather than verified input caching', async () => {
+    api.discover.mockResolvedValue(discoveryResult('dynamic', { ...unobservedCache,
+      mappings: unobservedCache.mappings.map((mapping) => ({ ...mapping, cache: 'gateway-response' })) }));
+    const view = setup();
+    const panel = await discover(view, 'dynamic');
+    const cache = visibleCapability(panel, 'Input caching');
+    expect(cache).toHaveTextContent(/inconclusive|not (?:observed|established|verified)|unverified/i);
+    expect(cache).not.toHaveTextContent(/^(?:verified|supported|passed)$/i);
+    const summary = within(panel).getByText(/(?:check|technical|discovery) details|discovery attempts/i);
+    await fireEvent.click(summary);
+    expect(within(panel).getByText(/Gateway HIT/i)).toBeVisible();
+    expect(panel).toHaveTextContent(/whole[- ]response|response reuse|response cach/i);
+    expect(formValues(view.container).reasoningConfiguration.routeAssignments['brand-new-route'].verification.capabilities)
+      .toMatchObject({ schemaVersion: 2, mappings: [{ cache: 'gateway-response' }] });
+  });
+
+  it('REQ-ENTERPRISE-041: legacy grades never appear in the result or expanded attempt history', async () => {
+    api.discover.mockResolvedValue({ ...result, attempts: ['Minimum', 'Acceptable', 'Optimal'].map((grade) => ({
+      contract: 'synthetic-wire', classification: 'Verified', capabilities: { ...capabilities, grade }, diagnostics: [], httpAttempts: 1,
+    })) });
+    const view = setup();
+    const panel = await discover(view, 'dynamic');
+    // textContent deliberately includes collapsed children, not just the title.
+    expect(panel).not.toHaveTextContent(/\b(?:Minimum|Acceptable|Optimal)\b/i);
+    await fireEvent.click(within(panel).getByText(/(?:check|technical|discovery) details|discovery attempts/i));
+    expect(visibleCapability(panel, 'Tool calling')).toHaveTextContent(/verified|passed|supported/i);
+    expect(panel).not.toHaveTextContent(/\b(?:Minimum|Acceptable|Optimal)\b/i);
+    expect(formValues(view.container).routeChecks['brand-new-route']).toBe('synthetic-check');
+  });
+
+  it('REQ-ENTERPRISE-040: a nonassignable mixed result still reports each capability without granting receipt authority', async () => {
+    api.discover.mockResolvedValue({ ...discoveryResult('dynamic'), assignable: false, classification: 'Inconclusive',
+      capabilities: { ...unobservedCache, mappings: unobservedCache.mappings.map((mapping) => ({ ...mapping,
+        replay: false, reasoning: 'accepted-unverified', streaming: 'not-observed' })) },
+      explanation: 'Tool-result replay was not established.' });
+    const view = setup();
+    const panel = await discover(view, 'dynamic');
+    expect(visibleCapability(panel, 'Tool calling')).toHaveTextContent(/not (?:established|verified)|inconclusive|failed/i);
+    expect(visibleCapability(panel, 'Reasoning')).toHaveTextContent(/unverified|not (?:established|verified)/i);
+    expect(visibleCapability(panel, 'Streaming')).toHaveTextContent(/not (?:observed|established|verified)|buffered|unverified/i);
+    expect(visibleCapability(panel, 'Input caching')).toHaveTextContent(/inconclusive|not (?:observed|established|verified)|unverified/i);
+    const values = formValues(view.container);
+    expect(values.routeChecks['brand-new-route']).toBeNull();
+    expect(values.reasoningConfiguration.customProfileRevisions).toEqual([]);
+    expect(values.reasoningConfiguration.routeAssignments['brand-new-route']?.verification).toBeUndefined();
+    expect(values.dynamicRoutes).toEqual([]);
+    expect(values.groupRouting).toEqual([]);
+  });
+
+  it.each(['dynamic', 'native'] as const)('REQ-ENTERPRISE-045: %s receipt permits an Off default preference and access without inventing cache or saving', async (kind) => {
+    const response = discoveryResult(kind);
+    api.discover.mockResolvedValue(response);
+    const view = setup();
+    const submit = vi.fn((event: Event) => event.preventDefault());
+    view.container.querySelector('form')!.addEventListener('submit', submit);
+    const panel = await discover(view, kind);
+    const before = formValues(view.container);
+    expect(before.dynamicRoutes).toEqual([]);
+    expect(before.groupRouting).toEqual([]);
+    const handle = kind === 'dynamic' ? 'brand-new-route' : `cf-native-${targetId}`;
+    if (kind === 'dynamic') expect(before.routeChecks[handle]).toBe('synthetic-check');
+    else expect(before.nativeChecks[targetId]).toBe('synthetic-check');
+
+    await fireEvent.click(view.getByRole('button', { name: 'Access & fallback' }));
+    await fireEvent.change(view.getByLabelText('Unconfigured access group'), { target: { value: 'engineering' } });
+    await fireEvent.click(view.getByRole('button', { name: 'Add group policy' }));
+    const policy = view.getByRole('button', { name: 'engineering policy' });
+    if (policy.getAttribute('aria-expanded') !== 'true') await fireEvent.click(policy);
+    const label = kind === 'dynamic' ? 'Dynamic Route - brand-new-route' : `Native Route - AWS Bedrock - ${model}`;
+    const allowed = view.getByRole('checkbox', { name: `engineering ${label} route` });
+    expect(allowed).toBeEnabled();
+    expect(allowed).not.toBeChecked();
+    await fireEvent.click(allowed);
+    await fireEvent.change(view.getByLabelText('engineering default route'), { target: { value: handle } });
+    const reasoning = view.getByLabelText('engineering default reasoning');
+    expect(reasoning).toBeEnabled();
+    expect(within(reasoning).getByRole('option', { name: /^Off\b/i })).toHaveValue('off');
+    await fireEvent.change(reasoning, { target: { value: 'off' } });
+    expect(reasoning).toHaveValue('off');
+    const helpers = (reasoning.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
+      .map((id) => document.getElementById(id)!);
+    for (const helper of helpers) expect(helper).toBeVisible();
+    const caveat = helpers.map((helper) => helper.textContent).join(' ');
+    expect(caveat).toMatch(/provider[ -](?:controlled|default)|provider controls/i);
+    expect(caveat).toMatch(/(?:not|no|cannot|doesn't|isn't).{0,60}(?:guarantee|guaranteed|prove|proven|verified|off)|off.{0,60}(?:not guaranteed|not verified)/i);
+    const values = formValues(view.container);
+    expect(values.groupRouting).toEqual([{ accessGroup: 'engineering', routes: [handle], defaultRoute: handle, reasoning: 'off' }]);
+    expect(values.fallbackRouting).toEqual({ enabled: false });
+    if (kind === 'dynamic') {
+      expect(values.dynamicRoutes).toEqual([handle]);
+      expect(values.routeChecks[handle]).toBe('synthetic-check');
+      expect(values.reasoningConfiguration.routeAssignments[handle]).toMatchObject({ activeProfile: ref,
+        verification: { ...proof, capabilities: unobservedCache } });
+      expect(values.reasoningConfiguration.customProfileRevisions).toEqual([profile]);
+    } else {
+      expect(values.dynamicRoutes).toEqual([]);
+      expect(values.nativeChecks[targetId]).toBe('synthetic-check');
+      expect(values.nativeTargets).toEqual([{ id: targetId, provider: 'aws-bedrock', label: 'Independent native', model,
+        transport: 'aig-bedrock-anthropic-auto', region: 'eu-central-1', contextWindow: 200000, enabled: true,
+        profileRef: { id: response.profile.id, revision: response.profile.revision, hash: response.profile.hash } }]);
+    }
+    expect(panel).not.toHaveTextContent(/\b(?:Minimum|Acceptable|Optimal)\b/i);
+    expect(api.discover).toHaveBeenCalledWith(kind === 'dynamic'
+      ? { kind: 'dynamic-route', route: 'brand-new-route' }
+      : { kind: 'native-provider', target: expect.objectContaining({ model, enabled: false }) });
+    expect(api.verify).not.toHaveBeenCalled();
+    expect(api.checkNative).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+  });
+});

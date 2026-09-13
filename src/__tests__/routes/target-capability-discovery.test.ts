@@ -7,6 +7,7 @@ import { SETUP_KEYS } from '../../lib/kv-keys';
 import { validateConfigurationValues } from '../../lib/admin-configuration';
 import { loadEnterpriseRouteConfig } from '../../lib/access';
 import { readRouteCheck, verificationMatches } from '../../lib/reasoning-verification';
+import { readNativeTargetCheck } from '../../lib/native-ai-targets';
 import { getBuiltInProfile } from '../../lib/reasoning-profiles';
 import { capabilityCandidates } from '../../lib/ai-capability-discovery';
 
@@ -57,6 +58,54 @@ describe('REQ-ENTERPRISE-074 server-owned automatic discovery authority', () => 
     const access = await loadEnterpriseRouteConfig(env, ['engineering']); expect(access.routeCatalog).toEqual(['future']);
     expect(access.promptCacheTargets).toBeUndefined(); // A Gateway HIT never grants native checkpoint serialization.
     expect(calls).toBe(4);
+  });
+
+  it('REQ-ENTERPRISE-035/043: lets an administrator activate verified tools without cache reuse and save an Off preference through real receipt authority', async () => {
+    const { kv, env, post } = setup();
+    let calls = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      if ((init?.method ?? 'GET') === 'GET') {
+        if (String(url).endsWith('/routes')) return Response.json({ data: { routes: [{ id: 'id', name: 'future' }] } });
+        return Response.json({ result: { version: { version_id: 'v1', active: true, data: topology } } });
+      }
+      const body = JSON.parse(String(init?.body)); calls++;
+      expect(String(url)).toContain('/compat/chat/completions');
+      expect(body.model).toBe('dynamic/future');
+      expect(body.stream).toBe(true); // Missing cache evidence must not force a buffered alternative.
+      expect(JSON.stringify(body)).not.toContain('cache_control');
+      const first = calls === 1;
+      const delta = first ? { tool_calls: [{ index: 0, id: 'synthetic-call', type: 'function', function: { name: 'codeflare_profile_canary', arguments: '{"value":"ok"}' } }] }
+        : { content: 'Synthetic result.' };
+      return new Response(`data: ${JSON.stringify({ choices: [{ delta, finish_reason: first ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 8192, completion_tokens: 20 } })}\n\ndata: [DONE]\n\n`,
+        { headers: { 'content-type': 'text/event-stream', 'cf-aig-provider': 'unlisted-provider', 'cf-aig-model': 'synthetic-future-2099', 'cf-aig-cache-status': 'MISS' } });
+    });
+    const response = await post({ kind: 'dynamic-route', route: 'future' });
+    expect(response.status).toBe(200);
+    const result: any = await response.json();
+    expect(result.assignable).toBe(true);
+    expect(calls).toBe(4);
+    expect(result.capabilities).toMatchObject({ schemaVersion: 2, mappings: [{ tools: true, replay: true, cache: 'inconclusive' }] });
+    expect(result.capabilities).not.toHaveProperty('grade');
+    const receipt = await readRouteCheck(kv as unknown as KVNamespace, result.checkId);
+    expect(receipt.route).toBe('future');
+    expect(receipt.verification).toEqual(result.routeVerification);
+    expect(verificationMatches(receipt.verification, result.profile, connection)).toBe(true);
+    expect(verificationMatches({ ...receipt.verification, capabilities: undefined }, result.profile, connection)).toBe(false);
+    expect(verificationMatches({ ...receipt.verification, method: 'administrator' }, result.profile, connection)).toBe(false);
+    expect(kv._store.has(SETUP_KEYS.REASONING_CONFIGURATION)).toBe(false); // Discovery did not save or enable.
+    const values = { ...config, dynamicRoutes: ['future'], routeContextWindows: { future: 200000 }, routeChecks: { future: result.checkId },
+      groupRouting: [{ accessGroup: 'engineering', routes: ['future'], defaultRoute: 'future', reasoning: 'off' }],
+      fallbackRouting: { enabled: true, routes: ['future'], defaultRoute: 'future', reasoning: 'off' },
+      reasoningConfiguration: { schemaVersion: 1, customProfileRevisions: [result.profile], routeAssignments: { future: { activeProfile: result.routeVerification.profileRef, verification: result.routeVerification } } } };
+    const saved = await validateConfigurationValues(env, 'aiRouting', 'enterprise', values);
+    expect(saved.fieldErrors ?? {}).toEqual({});
+    kv._set(SETUP_KEYS.DYNAMIC_ROUTES, ['future']);
+    kv._set(SETUP_KEYS.REASONING_CONFIGURATION, saved.values!.reasoningConfiguration);
+    kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: { routes: ['future'], defaultRoute: 'future', reasoning: 'off' } });
+    const access = await loadEnterpriseRouteConfig(env, ['engineering']);
+    expect(access.routeCatalog).toEqual(['future']);
+    expect(access.promptCacheTargets).toBeUndefined();
+    expect(calls).toBe(4); // Save and authorization never run another paid probe.
   });
 
   describe.each(['/reasoning/capabilities/discover', '/reasoning/discover'])('%s backend identity authority', (path) => {
@@ -128,6 +177,55 @@ describe('REQ-ENTERPRISE-074 server-owned automatic discovery authority', () => 
     expect((await validateConfigurationValues(env, 'aiRouting', 'enterprise', values)).fieldErrors ?? {}).toEqual({});
     const substituted = { ...values, nativeTargets: [{ ...values.nativeTargets[0], model: 'eu.anthropic.claude-another-future-2099' }] };
     expect(Object.keys((await validateConfigurationValues(env, 'aiRouting', 'enterprise', substituted)).fieldErrors ?? {})).not.toHaveLength(0);
+  });
+
+  it('REQ-ENTERPRISE-072/075: binds discovered Native selectable mappings to the receipt and saved target rather than replacing them with Provider default', async () => {
+    const { kv, post, env } = setup();
+    const modes = new Set<string>();
+    let submissions = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      if ((init?.method ?? 'GET') === 'GET') return Response.json({ success: true, result: [{ id: 'private-provider-id', provider_slug: 'aws-bedrock', gateway_id: 'synthetic', default_config: true }],
+        result_info: { page: 1, count: 1, per_page: 100, total_count: 1 } });
+      submissions++;
+      expect(String(url)).toMatch(/\/invoke$/); // Explicit Invoke remains authoritative for every tested mode.
+      const body = JSON.parse(String(init?.body));
+      const mode = body.thinking?.type === 'disabled' ? 'off' : body.output_config?.effort ?? 'default';
+      modes.add(mode);
+      expect(body.max_tokens).toBe(2048);
+      expect(body).not.toHaveProperty('stream');
+      const replay = body.messages.some((message: any) => Array.isArray(message.content) && message.content.some((block: any) => block.type === 'tool_result'));
+      const firstTool = Array.isArray(body.tools) && !replay;
+      const privateBlock = { type: 'thinking', thinking: 'Synthetic private thought', signature: 'synthetic-private-signature' };
+      const toolBlock = { type: 'tool_use', id: `synthetic-${mode}`, name: 'codeflare_profile_canary', input: { value: 'ok' } };
+      if (replay) expect(body.messages.at(-2).content).toEqual([...(body.thinking?.type === 'adaptive' ? [privateBlock] : []), toolBlock]);
+      return Response.json({ content: [...(body.thinking?.type === 'adaptive' ? [privateBlock] : []), ...(firstTool ? [toolBlock] : [{ type: 'text', text: 'Synthetic result.' }])],
+        stop_reason: firstTool ? 'tool_use' : 'end_turn', usage: { input_tokens: 4, output_tokens: 12,
+          output_tokens_details: { thinking_tokens: body.thinking?.type === 'adaptive' ? 4 : 0 }, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } });
+    });
+    const target = { provider: 'aws-bedrock', model: 'eu.anthropic.claude-synthetic-selectable-2099-v1:0', label: 'Selectable native',
+      transport: 'aig-bedrock-anthropic-invoke', region: 'eu-central-1', contextWindow: 200000, enabled: false };
+    const response = await post({ kind: 'native-provider', target });
+    expect(response.status).toBe(200);
+    const result: any = await response.json();
+    expect(result.assignable).toBe(true);
+    expect([...modes]).toEqual(expect.arrayContaining(['off', 'low', 'medium', 'high', 'xhigh', 'max']));
+    expect(result.profile.supportedLevels).toEqual(expect.arrayContaining(['off', 'low', 'medium', 'high', 'xhigh', 'max']));
+    expect(result.profile.reasoningMode).not.toBe('provider-default');
+    const selectedRef = { id: result.profile.id, revision: result.profile.revision, hash: result.profile.hash };
+    const receipt = await readNativeTargetCheck(kv as unknown as KVNamespace, result.checkId);
+    expect(receipt.verification.profileRef).toEqual(selectedRef);
+    expect(receipt.verification.transport).toBe(target.transport);
+    expect(kv._store.has(SETUP_KEYS.NATIVE_AI_TARGETS)).toBe(false);
+    const values = { ...config, reasoningConfiguration: { ...config.reasoningConfiguration, customProfileRevisions: [result.profile] },
+      nativeTargets: [{ ...target, id: result.targetId, enabled: true, profileRef: selectedRef }], nativeChecks: { [result.targetId]: result.checkId } };
+    const saved = await validateConfigurationValues(env, 'aiRouting', 'enterprise', values);
+    expect(saved.fieldErrors ?? {}).toEqual({});
+    const savedNative = saved.values!.nativeTargets as { targets: Array<{ profileRef: unknown }> };
+    expect(savedNative.targets[0].profileRef).toEqual(selectedRef);
+    const substituted = { ...values, nativeTargets: [{ ...values.nativeTargets[0], model: 'eu.anthropic.claude-another-target-2099' }] };
+    expect(Object.keys((await validateConfigurationValues(env, 'aiRouting', 'enterprise', substituted)).fieldErrors ?? {})).not.toHaveLength(0);
+    expect(submissions).toBeLessThanOrEqual(40);
+    for (const secret of ['private-provider-id', 'Synthetic private thought', 'synthetic-private-signature', connection.token]) expect(JSON.stringify(result)).not.toContain(secret);
   });
 
   it('does not infer Azure support or accept a browser endpoint/credential override', async () => {
